@@ -7,6 +7,7 @@ public sealed class SemiAutoCombatState
     private const uint ShortCooldownCalibrationCheckDurationMs = 15_000;
     private const int ShortCooldownImpossibleExtraRemainingMs = 60_000;
     private const int CooldownImpossibleExtraRemainingMs = 10_000;
+    private const int CooldownCalibrationMaxOffsetJumpMs = 3_000;
     private static readonly TimeSpan CooldownCalibrationInvalidationThrottle = TimeSpan.FromSeconds(3);
 
     private int? cooldownTickOffsetMs;
@@ -750,7 +751,23 @@ public sealed class SemiAutoCombatState
         DateTimeOffset now,
         out SemiAutoCooldownTickCalibration calibration)
     {
+        return TryUpdateCooldownTickCalibration(
+            skills,
+            osTick,
+            now,
+            out calibration,
+            out _);
+    }
+
+    public bool TryUpdateCooldownTickCalibration(
+        IReadOnlyList<SkillSnapshot> skills,
+        uint osTick,
+        DateTimeOffset now,
+        out SemiAutoCooldownTickCalibration calibration,
+        out SemiAutoCooldownTickCalibrationRejection? rejection)
+    {
         calibration = default;
+        rejection = null;
         ClearExpiredUncalibratedUnknownSuppressions(now);
         SemiAutoCooldownTickCalibration? updatedCalibration = null;
 
@@ -772,12 +789,25 @@ public sealed class SemiAutoCombatState
                 continue;
             }
 
-            updatedCalibration = ApplyCooldownTickCalibration(observedSkill, osTick);
+            var candidate = BuildCooldownTickCalibration(observedSkill, osTick);
+            if (TryRejectCooldownTickCalibration(candidate, out var rejected))
+            {
+                rejection = rejected;
+                if (lastPressedSkillId == observedSkill.SkillId)
+                {
+                    ClearLastPressedSkill();
+                }
+
+                continue;
+            }
+
+            updatedCalibration = candidate;
         }
 
         if (updatedCalibration.HasValue)
         {
             calibration = updatedCalibration.Value;
+            ApplyCooldownTickCalibration(calibration);
             uncalibratedUnknownSuppressUntil.Clear();
             ClearLastPressedSkill();
             return true;
@@ -803,7 +833,16 @@ public sealed class SemiAutoCombatState
             return false;
         }
 
-        calibration = ApplyCooldownTickCalibration(skill, osTick);
+        var pendingCandidate = BuildCooldownTickCalibration(skill, osTick);
+        if (TryRejectCooldownTickCalibration(pendingCandidate, out var pendingRejection))
+        {
+            rejection = pendingRejection;
+            ClearLastPressedSkill();
+            return false;
+        }
+
+        calibration = pendingCandidate;
+        ApplyCooldownTickCalibration(calibration);
         ClearLastPressedSkill();
         return true;
     }
@@ -959,13 +998,12 @@ public sealed class SemiAutoCombatState
         }
     }
 
-    private SemiAutoCooldownTickCalibration ApplyCooldownTickCalibration(
+    private SemiAutoCooldownTickCalibration BuildCooldownTickCalibration(
         SkillSnapshot skill,
         uint osTick)
     {
         var startTick = unchecked(skill.CooldownEndTime - skill.CooldownDuration);
         var offsetMs = unchecked((int)(startTick - osTick));
-        cooldownTickOffsetMs = offsetMs;
 
         return new SemiAutoCooldownTickCalibration(
             skill.SkillId,
@@ -975,6 +1013,48 @@ public sealed class SemiAutoCombatState
             skill.CooldownEndTime,
             startTick,
             offsetMs);
+    }
+
+    private void ApplyCooldownTickCalibration(SemiAutoCooldownTickCalibration calibration)
+    {
+        cooldownTickOffsetMs = calibration.OffsetMs;
+    }
+
+    private bool TryRejectCooldownTickCalibration(
+        SemiAutoCooldownTickCalibration calibration,
+        out SemiAutoCooldownTickCalibrationRejection rejection)
+    {
+        rejection = default;
+        if (cooldownTickOffsetMs is not int oldOffsetMs)
+        {
+            return false;
+        }
+
+        var deltaMs = BoundedAbsDiff(calibration.OffsetMs, oldOffsetMs);
+        if (deltaMs <= CooldownCalibrationMaxOffsetJumpMs)
+        {
+            return false;
+        }
+
+        rejection = new SemiAutoCooldownTickCalibrationRejection(
+            oldOffsetMs,
+            calibration.OffsetMs,
+            deltaMs,
+            CooldownCalibrationMaxOffsetJumpMs,
+            "offset_jump",
+            calibration.SkillId,
+            calibration.SkillName,
+            calibration.OsTick,
+            calibration.CooldownDuration,
+            calibration.CooldownEndTime,
+            calibration.CooldownStartTick);
+        return true;
+    }
+
+    private static int BoundedAbsDiff(int first, int second)
+    {
+        var delta = Math.Abs((long)first - second);
+        return delta > int.MaxValue ? int.MaxValue : (int)delta;
     }
 
     private static bool DidCooldownEndAdvance(uint previousEndTime, uint currentEndTime)
@@ -1006,6 +1086,19 @@ public readonly record struct SemiAutoCooldownTickCalibration(
     uint CooldownEndTime,
     uint CooldownStartTick,
     int OffsetMs);
+
+public readonly record struct SemiAutoCooldownTickCalibrationRejection(
+    int OldOffsetMs,
+    int NewOffsetMs,
+    int DeltaMs,
+    int MaxDeltaMs,
+    string Reason,
+    uint SkillId,
+    string SkillName,
+    uint OsTick,
+    uint CooldownDuration,
+    uint CooldownEndTime,
+    uint CooldownStartTick);
 
 public readonly record struct SemiAutoCooldownCalibrationInvalidation(
     int OldOffsetMs,

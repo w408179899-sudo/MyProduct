@@ -293,6 +293,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("knockdown trigger saved as status is treated as trigger", TestKnockdownTriggerSavedAsStatusIsTreatedAsTriggerAsync),
     ("combat tick requests only configured skill ids", TestCombatTickRequestsOnlyConfiguredSkillIdsAsync),
     ("observed configured cooldown advance calibrates clock", TestObservedConfiguredCooldownAdvanceCalibratesClockAsync),
+    ("large cooldown offset jump is rejected", TestLargeCooldownOffsetJumpIsRejectedAsync),
     ("uncalibrated nonzero cooldown falls back to first configured root", TestUncalibratedNonzeroCooldownFallsBackToFirstRootAsync),
     ("uncalibrated unknown cooldown rotates after failed attempt", TestUncalibratedUnknownCooldownRotatesAfterFailedAttemptAsync),
     ("calibrated nonzero cooldown skips cooling roots", TestCalibratedNonzeroCooldownSkipsCoolingRootsAsync),
@@ -14684,6 +14685,72 @@ static Task TestObservedConfiguredCooldownAdvanceCalibratesClockAsync()
     AssertEqual(1_286_921u, calibration.CooldownStartTick, "calibration start tick");
     AssertEqual(-206_441_579, calibration.OffsetMs, "calibration offset");
     AssertEqual(-206_441_579, state.CooldownTickOffsetMs, "state calibration offset");
+    return Task.CompletedTask;
+}
+
+static Task TestLargeCooldownOffsetJumpIsRejectedAsync()
+{
+    var state = new SemiAutoCombatState();
+    var osTick = unchecked((uint)Environment.TickCount64);
+    var now = DateTimeOffset.Now;
+
+    var markerBefore = new SkillSnapshot(
+        900_001,
+        "Marker Skill",
+        1,
+        1,
+        "Marker Skill",
+        1,
+        false,
+        1_000,
+        0);
+    var markerAfter = markerBefore with { CooldownEndTime = unchecked(osTick + 1_000u) };
+
+    state.MarkSkillPressed(markerBefore, now.AddSeconds(-1));
+    var initialUpdated = state.TryUpdateCooldownTickCalibration(
+        new[] { markerAfter },
+        osTick,
+        now,
+        out var initialCalibration,
+        out var initialRejection);
+
+    AssertFalse(!initialUpdated, "initial calibration should be accepted");
+    AssertFalse(initialRejection is not null, "initial calibration should not be rejected");
+    AssertEqual(0, initialCalibration.OffsetMs, "initial calibration offset");
+    AssertEqual(0, state.CooldownTickOffsetMs ?? int.MinValue, "state initial calibration offset");
+
+    var delayedBefore = new SkillSnapshot(
+        424,
+        "Delayed Skill",
+        1,
+        1,
+        "Delayed Skill",
+        1,
+        false,
+        10_000,
+        unchecked(osTick - 20_000u));
+    state.MarkSkillPressed(delayedBefore, now.AddSeconds(5), retryKey: "D1");
+
+    var delayedAfter = delayedBefore with { CooldownEndTime = unchecked(osTick - 19_000u) };
+    var rejectedUpdate = state.TryUpdateCooldownTickCalibration(
+        new[] { delayedAfter },
+        osTick,
+        now,
+        out _,
+        out var rejection);
+
+    AssertFalse(rejectedUpdate, "large cooldown offset jump should not update calibration");
+    AssertFalse(rejection is null, "large cooldown offset jump should report a rejection");
+    AssertEqual(0, state.CooldownTickOffsetMs ?? int.MinValue, "rejected calibration should keep the old offset");
+    AssertEqual(424u, rejection!.Value.SkillId, "rejected calibration skill id");
+    AssertEqual("offset_jump", rejection.Value.Reason, "rejected calibration reason");
+    AssertEqual(-29_000, rejection.Value.NewOffsetMs, "rejected calibration candidate offset");
+    AssertEqual(29_000, rejection.Value.DeltaMs, "rejected calibration offset delta");
+    AssertFalse(state.HasPressedSkillCooldownRetryKey(), "rejected calibration should clear pending cooldown retry");
+    AssertEqual(
+        SemiAutoSkillCooldownReadiness.Ready,
+        SemiAutoSkillReleasePriority.GetActionCooldownReadiness(delayedAfter, state),
+        "rejected stale cooldown should not block a ready skill");
     return Task.CompletedTask;
 }
 

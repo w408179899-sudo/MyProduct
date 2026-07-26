@@ -233,7 +233,8 @@ public sealed class SemiAutoCombatController
                 cooldownObservedSkills,
                 osTick,
                 now,
-                out var calibration))
+                out var calibration,
+                out var calibrationRejection))
         {
             context.Logger.Info("semi_auto.cooldown.calibrated", new Dictionary<string, object?>
             {
@@ -246,6 +247,10 @@ public sealed class SemiAutoCombatController
                 ["osTick"] = calibration.OsTick,
                 ["offsetMs"] = calibration.OffsetMs
             });
+        }
+        else if (calibrationRejection is not null)
+        {
+            LogCooldownCalibrationRejected(context, calibrationRejection.Value);
         }
 
         var cooldownInvalidationSkills = ResolveCooldownInvalidationSkills(plan, configuredSkills);
@@ -3947,8 +3952,14 @@ public sealed class SemiAutoCombatController
                 skills,
                 osTick,
                 DateTimeOffset.Now,
-                out var calibration))
+                out var calibration,
+                out var calibrationRejection))
         {
+            if (calibrationRejection is not null)
+            {
+                LogCooldownCalibrationRejected(context, calibrationRejection.Value, "maintenance");
+            }
+
             return;
         }
 
@@ -3964,6 +3975,35 @@ public sealed class SemiAutoCombatController
             ["offsetMs"] = calibration.OffsetMs,
             ["source"] = "maintenance"
         });
+    }
+
+    private static void LogCooldownCalibrationRejected(
+        AccountWorkerContext context,
+        SemiAutoCooldownTickCalibrationRejection rejection,
+        string? source = null)
+    {
+        var fields = new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["skill"] = rejection.SkillName,
+            ["skillId"] = rejection.SkillId,
+            ["durationMs"] = rejection.CooldownDuration,
+            ["endTick"] = rejection.CooldownEndTime,
+            ["startTick"] = rejection.CooldownStartTick,
+            ["osTick"] = rejection.OsTick,
+            ["oldOffsetMs"] = rejection.OldOffsetMs,
+            ["newOffsetMs"] = rejection.NewOffsetMs,
+            ["deltaMs"] = rejection.DeltaMs,
+            ["maxDeltaMs"] = rejection.MaxDeltaMs,
+            ["reason"] = rejection.Reason
+        };
+
+        if (!string.IsNullOrWhiteSpace(source))
+        {
+            fields["source"] = source;
+        }
+
+        context.Logger.Warn("semi_auto.cooldown.calibration_rejected", fields);
     }
 
     private static bool TryFindAdvancedCooldown(
