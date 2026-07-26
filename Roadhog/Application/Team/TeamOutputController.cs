@@ -16,7 +16,8 @@ public sealed class TeamOutputController
     private static readonly TimeSpan AssistTargetInitialConfirmDelay = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan AssistTargetConfirmRetryDelay = TimeSpan.FromMilliseconds(80);
     private const int AssistTargetConfirmPolls = 3;
-    private const int LeaderAssistJumpInterval = 5;
+    private const int LeaderAssistJumpInterval = 2;
+    private static readonly TimeSpan LeaderAssistJumpDelay = TimeSpan.FromMilliseconds(100);
     private const string LeaderAssistKey = "C";
     private const string LeaderAssistJumpKey = "Space";
 
@@ -365,6 +366,7 @@ public sealed class TeamOutputController
         }
 
         state.LeaderAssistPressCountSinceJump = 0;
+        await Task.Delay(LeaderAssistJumpDelay, context.StopToken).ConfigureAwait(false);
         var result = await _keyboard
             .PressKeyAsync(LeaderAssistJumpKey, ResolveKeyHold(context), context.StopToken)
             .ConfigureAwait(false);
