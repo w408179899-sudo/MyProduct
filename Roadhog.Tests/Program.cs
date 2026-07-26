@@ -1,5 +1,6 @@
 using Roadhog;
 using Roadhog.Application;
+using Roadhog.Application.AbnormalStatuses;
 using Roadhog.Application.BagCleanup;
 using Roadhog.Application.Input;
 using Roadhog.Application.SemiAuto;
@@ -76,6 +77,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("runtime summoned pet read uses account scoped context", TestRuntimeSummonedPetReadUsesAccountScopeAsync),
     ("runtime summoned pet roster read uses account scoped context", TestRuntimeSummonedPetRosterReadUsesAccountScopeAsync),
     ("runtime team snapshot uses account scoped context", TestRuntimeTeamSnapshotUsesAccountScopeAsync),
+    ("abnormal status catalog classifies chant effects as positive", TestAbnormalStatusCatalogClassifiesChantEffectsAsPositiveAsync),
     ("team support prioritizes mental physical then heal", TestTeamSupportPrioritizesMentalPhysicalThenHealAsync),
     ("team support ignores positive physical-category status", TestTeamSupportIgnoresPositivePhysicalCategoryStatusAsync),
     ("team support skips maintenance outside group distance", TestTeamSupportSkipsMaintenanceOutsideGroupDistanceAsync),
@@ -107,6 +109,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team support join combat accepts already locked leader target", TestTeamSupportJoinCombatAcceptsAlreadyLockedLeaderTargetAsync),
     ("team support accepts leader pet target when class unknown", TestTeamSupportAcceptsLeaderPetTargetWhenClassUnknownAsync),
     ("team support join combat skips party member leader target", TestTeamSupportJoinCombatSkipsPartyMemberLeaderTargetAsync),
+    ("team support heals to threshold before sitting with leader", TestTeamSupportHealsToThresholdBeforeSittingWithLeaderAsync),
     ("team support sits when leader rests", TestTeamSupportSitsWhenLeaderRestsAsync),
     ("team support holds while leader rests", TestTeamSupportHoldsWhileLeaderRestsAsync),
     ("team support stands when leader stands", TestTeamSupportStandsWhenLeaderStandsAsync),
@@ -325,7 +328,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("maintenance mp potion runs before skill and skill retries next tick", TestMaintenanceMpPotionRunsBeforeSkillAsync),
     ("maintenance global interval throttles different selected skill", TestMaintenanceGlobalIntervalThrottlesDifferentSelectedSkillAsync),
     ("after-combat mp potion skips inventory and presses once", TestAfterCombatMpPotionSkipsInventoryAndPressesOnceAsync),
-    ("maintenance sit preempts after-combat mp potion", TestMaintenanceSitPreemptsAfterCombatMpPotionAsync),
+    ("maintenance after-combat mp potion runs before sit", TestMaintenanceAfterCombatMpPotionRunsBeforeSitAsync),
+    ("maintenance recovery skill runs before sit with positive chants", TestMaintenanceRecoverySkillRunsBeforeSitWithPositiveChantsAsync),
     ("maintenance rest allows mp potion without standing", TestMaintenanceRestAllowsMpPotionWithoutStandingAsync),
     ("maintenance rest stands before skill and stays locked", TestMaintenanceRestStandsBeforeSkillMaintenanceAsync),
     ("maintenance rest interrupt failure keeps state", TestMaintenanceRestInterruptFailureKeepsStateAsync),
@@ -1090,6 +1094,21 @@ static async Task TestRuntimeTeamSnapshotUsesAccountScopeAsync()
     AssertEqual(712, gameApi.LastSummonedPetRosterContext?.ProcessId ?? 0, "pet roster scoped process id");
     AssertEqual("Aion.bin", gameApi.LastPartyContext?.TargetProcessName ?? string.Empty, "party scoped process name");
     AssertEqual("fpga", gameApi.LastPartyContext?.VmmDeviceName ?? string.Empty, "party scoped vmm device");
+}
+
+static Task TestAbnormalStatusCatalogClassifiesChantEffectsAsPositiveAsync()
+{
+    var catalog = AbnormalStatusCatalog.Load();
+    AssertFalse(!catalog.Loaded, "client skill abnormal-status catalog should load");
+
+    foreach (var abnormalId in new[] { 8241u, 8243u, 8497u })
+    {
+        AssertFalse(
+            catalog.IsHarmfulForRest(new AbnormalStatusEntrySnapshot(0, abnormalId, 2, 0, 1, 0)),
+            "positive chant abnormal id " + abnormalId.ToString() + " must not block floor rest");
+    }
+
+    return Task.CompletedTask;
 }
 
 static async Task TestTeamSupportPrioritizesMentalPhysicalThenHealAsync()
@@ -2459,12 +2478,81 @@ static async Task TestTeamSupportSitsWhenLeaderRestsAsync()
     AssertFalse(combatState.Fighting, "support rest sync should clear stale combat target");
 }
 
+static async Task TestTeamSupportHealsToThresholdBeforeSittingWithLeaderAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = WithLiveRestState(CreatePartyMemberSnapshot(1000, "Healer", true, false, 0.0), resting: false);
+    var injuredLeader = WithLiveRestState(
+        CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
+        {
+            CurrentHp = 50,
+            MaxHp = 100
+        },
+        resting: true);
+    var gameApi = CreateTeamSupportGameApi(self, injuredLeader);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "F2", StringComparison.Ordinal))
+        {
+            gameApi.TargetOwnServerObjectId = injuredLeader.ServerObjectId;
+        }
+    };
+    var settings = CreateTeamSupportSettings();
+    settings.Team.Support!.HealSkillRules[0].RunTiming = MaintenanceRuleRunTiming.AfterCombat;
+    var combatState = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CurrentTargetServerObjectId = 5000,
+        IsMovingForward = true,
+        IsRightMouseDown = true
+    };
+    var state = new TeamSupportState();
+    var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
+    var context = CreateContext(settings, gameApi, logger);
+
+    var healResult = await controller
+        .TickAsync(context, state, combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(!healResult.ShouldSkipNormalWork, "pre-rest heal should consume the team support tick");
+    AssertSequence(new[] { "F2", "NumPad1" }, keyboard.Keys.ToArray(), "support should heal the injured leader before sitting");
+    AssertFalse(keyboard.Keys.Contains("OemComma"), "support should defer sitting while a heal target remains below threshold");
+    AssertSequence(new[] { "W" }, keyboard.KeyUps.ToArray(), "support should stop moving before the pre-rest heal");
+    AssertSequence(new[] { "up:Right" }, keyboard.MouseCommands.ToArray(), "support should release right mouse before the pre-rest heal");
+    AssertFalse(combatState.Fighting, "pre-rest heal should clear stale combat state");
+
+    var recoveredLeader = injuredLeader with
+    {
+        CurrentHp = 90,
+        MaxHp = 100
+    };
+    gameApi.Party = CreateTeamSupportParty(self, recoveredLeader);
+
+    var sitResult = await controller
+        .TickAsync(context, state, combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(!sitResult.ShouldSkipNormalWork, "support should consume the tick when sitting after recovery");
+    AssertSequence(
+        new[] { "F2", "NumPad1", "OemComma" },
+        keyboard.Keys.ToArray(),
+        "support should sit once the injured member reaches the configured threshold");
+}
+
 static async Task TestTeamSupportHoldsWhileLeaderRestsAsync()
 {
     var keyboard = new RecordingKeyboardInput();
     var logger = new InMemoryRoadhogLogger();
     var self = WithLiveRestState(CreatePartyMemberSnapshot(1000, "Healer", true, false, 0.0), resting: true);
-    var leader = WithLiveRestState(CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0), resting: true);
+    var leader = WithLiveRestState(
+        CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
+        {
+            CurrentHp = 50,
+            MaxHp = 100
+        },
+        resting: true);
     var gameApi = CreateTeamSupportGameApi(self, leader);
     var combatState = new StationaryCombatState
     {
@@ -16176,7 +16264,7 @@ static async Task TestAfterCombatMpPotionSkipsInventoryAndPressesOnceAsync()
     AssertEqual(0L, Convert.ToInt64(entry.Fields["pressIntervalMs"]), "after-combat potion press interval");
 }
 
-static async Task TestMaintenanceSitPreemptsAfterCombatMpPotionAsync()
+static async Task TestMaintenanceAfterCombatMpPotionRunsBeforeSitAsync()
 {
     var settings = CreateScriptSettings();
     settings.Maintenance.SitMaintenanceEnabled = true;
@@ -16207,11 +16295,123 @@ static async Task TestMaintenanceSitPreemptsAfterCombatMpPotionAsync()
             runTiming: MaintenanceRuleRunTiming.AfterCombat)
         .ConfigureAwait(false);
 
-    AssertFalse(!handled, "low mp sit maintenance should be handled");
-    AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "sit threshold should preempt after-combat mp potion");
-    AssertFalse(!state.IsMaintenanceResting, "sit maintenance should stay active after comma");
-    AssertFalse(!state.MaintenanceRestingForMp, "sit maintenance should track mp recovery");
-    AssertFalse(logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.potion_pressed"), "mp potion should not preempt sit maintenance");
+    AssertFalse(!handled, "after-combat mp potion should be handled before sit maintenance");
+    AssertSequence(new[] { "NumPadAdd" }, keyboard.Keys.ToArray(), "after-combat mp potion should run before sit threshold");
+    AssertFalse(state.IsMaintenanceResting, "potion-first maintenance should not enter rest in the same tick");
+    AssertFalse(!logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.potion_pressed"), "mp potion should be logged before sit maintenance");
+}
+
+static async Task TestMaintenanceRecoverySkillRunsBeforeSitWithPositiveChantsAsync()
+{
+    const uint recoverySkillId = 1823;
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = true;
+    settings.Maintenance.SitMpBelowPercent = 25;
+    settings.Maintenance.SitMpRecoverToPercent = 45;
+    settings.Maintenance.MpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 30,
+        ActionType = MaintenanceRuleActionType.Skill,
+        Key = "NumPad8",
+        SkillId = recoverySkillId,
+        SkillName = "精神力恢复 I",
+        RunTiming = MaintenanceRuleRunTiming.AfterCombat
+    });
+
+    var positiveChantIds = new[] { 8241u, 8243u, 8497u };
+    var abnormalCatalog = AbnormalStatusCatalog.LoadedFrom(
+        "test",
+        positiveChantIds.ToDictionary(
+            id => id,
+            id => new AbnormalStatusStaticInfo(
+                id,
+                "PositiveChant",
+                "Chant",
+                "Friend",
+                string.Empty,
+                "StatUp",
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                AbnormalStatusCatalog.AbnormalKindPositive)));
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(
+            1,
+            100,
+            "Fake",
+            100,
+            100,
+            20,
+            100,
+            0,
+            new Vector3Snapshot(0, 0, 0),
+            DateTimeOffset.Now),
+        PlayerAbnormalStatuses = new PlayerAbnormalStatusSnapshot(
+            1,
+            DateTimeOffset.Now,
+            3,
+            positiveChantIds
+                .Select(id => new AbnormalStatusEntrySnapshot(0, id, 2, 0, 1, 0))
+                .ToArray()),
+        Skills = new[]
+        {
+            new SkillSnapshot(recoverySkillId, "精神力恢复 I", 1, 1, "精神力恢复", 1, false, 60_000, 0)
+        }
+    };
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "NumPad8", StringComparison.Ordinal))
+        {
+            gameApi.Skills = new[]
+            {
+                new SkillSnapshot(
+                    recoverySkillId,
+                    "精神力恢复 I",
+                    1,
+                    1,
+                    "精神力恢复",
+                    1,
+                    false,
+                    60_000,
+                    ActiveCooldownEnd())
+            };
+        }
+    };
+
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+    var controller = new SemiAutoCombatController(keyboard, abnormalCatalog);
+    var context = CreateContext(settings, gameApi, logger);
+
+    var handled = await controller
+        .TryHandleMaintenanceAsync(
+            context,
+            state,
+            gameApi.Player,
+            runTiming: MaintenanceRuleRunTiming.AfterCombat)
+        .ConfigureAwait(false);
+
+    AssertFalse(!handled, "low mp recovery skill should be handled before sit maintenance");
+    AssertSequence(new[] { "NumPad8" }, keyboard.Keys.ToArray(), "recovery skill should run before floor rest");
+    AssertFalse(state.IsMaintenanceResting, "skill-first maintenance should not sit in the same tick");
+
+    handled = await controller
+        .TryHandleMaintenanceAsync(
+            context,
+            state,
+            gameApi.Player,
+            runTiming: MaintenanceRuleRunTiming.AfterCombat)
+        .ConfigureAwait(false);
+
+    AssertFalse(!handled, "floor rest should handle low mp after the recovery skill is cooling");
+    AssertSequence(new[] { "NumPad8", "OemComma" }, keyboard.Keys.ToArray(), "positive chants should not block fallback floor rest");
+    AssertFalse(!state.IsMaintenanceResting, "fallback floor rest should stay active");
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.rest_wait_harmful_abnormal"),
+        "positive chants must not be logged as harmful abnormalities");
 }
 
 static async Task TestMaintenanceRestAllowsMpPotionWithoutStandingAsync()
@@ -18843,11 +19043,11 @@ static ScriptSettings CreateTeamOutputSettings()
     };
 }
 
-static TeamAbnormalStatusCatalog CreateTeamSupportAbnormalCatalog()
+static AbnormalStatusCatalog CreateTeamSupportAbnormalCatalog()
 {
-    return TeamAbnormalStatusCatalog.LoadedFrom(
+    return AbnormalStatusCatalog.LoadedFrom(
         "test",
-        new Dictionary<uint, TeamAbnormalStatusStaticInfo>
+        new Dictionary<uint, AbnormalStatusStaticInfo>
         {
             [1636] = new(
                 1636,
@@ -18859,7 +19059,7 @@ static TeamAbnormalStatusCatalog CreateTeamSupportAbnormalCatalog()
                 string.Empty,
                 string.Empty,
                 string.Empty,
-                TeamAbnormalStatusCatalog.AbnormalKindNegative),
+                AbnormalStatusCatalog.AbnormalKindNegative),
             [1632] = new(
                 1632,
                 "PhysicalDebuff",
@@ -18870,7 +19070,7 @@ static TeamAbnormalStatusCatalog CreateTeamSupportAbnormalCatalog()
                 string.Empty,
                 string.Empty,
                 string.Empty,
-                TeamAbnormalStatusCatalog.AbnormalKindNegative),
+                AbnormalStatusCatalog.AbnormalKindNegative),
             [8232] = new(
                 8232,
                 "PositiveChant",
@@ -18881,7 +19081,7 @@ static TeamAbnormalStatusCatalog CreateTeamSupportAbnormalCatalog()
                 string.Empty,
                 string.Empty,
                 string.Empty,
-                TeamAbnormalStatusCatalog.AbnormalKindPositive)
+                AbnormalStatusCatalog.AbnormalKindPositive)
         });
 }
 

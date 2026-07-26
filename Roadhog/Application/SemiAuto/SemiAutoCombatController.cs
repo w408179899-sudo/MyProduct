@@ -1,3 +1,4 @@
+using Roadhog.Application.AbnormalStatuses;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Api;
@@ -39,11 +40,18 @@ public sealed class SemiAutoCombatController
     private const string OpeningSkillConfirmationTimeoutEnvVar = "ROADHOG_OPENING_SKILL_CONFIRM_TIMEOUT_MS";
 
     private readonly IKeyboardInput _keyboard;
+    private AbnormalStatusCatalog? _abnormalStatusCatalog;
 
-    public SemiAutoCombatController(IKeyboardInput keyboard)
+    public SemiAutoCombatController(
+        IKeyboardInput keyboard,
+        AbnormalStatusCatalog? abnormalStatusCatalog = null)
     {
         _keyboard = keyboard;
+        _abnormalStatusCatalog = abnormalStatusCatalog;
     }
+
+    private AbnormalStatusCatalog StatusCatalog =>
+        _abnormalStatusCatalog ??= AbnormalStatusCatalog.Default;
 
     public async Task<TimeSpan> TickAsync(
         AccountWorkerContext context,
@@ -854,19 +862,6 @@ public sealed class SemiAutoCombatController
             return true;
         }
 
-        if (allowSitMaintenance &&
-            await TryEnterSitMaintenanceAsync(
-                    context,
-                    state,
-                    settings,
-                    maintenance,
-                    player,
-                    beforeMaintenanceKeyPress)
-                .ConfigureAwait(false))
-        {
-            return true;
-        }
-
         if (await TryPressMaintenanceRulesAsync(
                 context,
                 state,
@@ -880,6 +875,19 @@ public sealed class SemiAutoCombatController
                 includeAlwaysRules,
                 allowPotionWhileResting: false)
             .ConfigureAwait(false))
+        {
+            return true;
+        }
+
+        if (allowSitMaintenance &&
+            await TryEnterSitMaintenanceAsync(
+                    context,
+                    state,
+                    settings,
+                    maintenance,
+                    player,
+                    beforeMaintenanceKeyPress)
+                .ConfigureAwait(false))
         {
             return true;
         }
@@ -1187,7 +1195,7 @@ public sealed class SemiAutoCombatController
         return true;
     }
 
-    private static async Task<bool> ShouldWaitForHarmfulAbnormalBeforeSitAsync(
+    private async Task<bool> ShouldWaitForHarmfulAbnormalBeforeSitAsync(
         AccountWorkerContext context,
         SemiAutoCombatState state,
         PlayerSnapshot player,
@@ -1216,7 +1224,10 @@ public sealed class SemiAutoCombatController
         }
 
         var abnormal = abnormalResult.Value;
-        if (!abnormal.HasHarmfulAbnormalForRest)
+        var harmfulEntries = abnormal.Entries
+            .Where(StatusCatalog.IsHarmfulForRest)
+            .ToArray();
+        if (harmfulEntries.Length == 0)
         {
             return false;
         }
@@ -1231,8 +1242,8 @@ public sealed class SemiAutoCombatController
                 ["phase"] = phase,
                 ["abnormalCategory2Count"] = abnormal.AbnormalCategory2Count,
                 ["abnormalEntryCount"] = abnormal.Entries.Count,
-                ["harmfulAbnormalCount"] = abnormal.HarmfulAbnormalCount,
-                ["harmfulAbnormalSummary"] = abnormal.HarmfulAbnormalSummary,
+                ["harmfulAbnormalCount"] = harmfulEntries.Length,
+                ["harmfulAbnormalSummary"] = FormatAbnormalStatusSummary(harmfulEntries),
                 ["hp"] = player.CurrentHp,
                 ["maxHp"] = player.MaxHp,
                 ["mp"] = player.CurrentMp,
@@ -1241,6 +1252,21 @@ public sealed class SemiAutoCombatController
         }
 
         return true;
+    }
+
+    private static string FormatAbnormalStatusSummary(
+        IReadOnlyList<AbnormalStatusEntrySnapshot> entries)
+    {
+        var samples = entries
+            .Take(8)
+            .Select(entry => entry.AbnormalId.ToString() + ":" + entry.Category.ToString())
+            .ToList();
+        if (entries.Count > samples.Count)
+        {
+            samples.Add("+" + (entries.Count - samples.Count).ToString());
+        }
+
+        return string.Join(",", samples);
     }
 
     public async Task<bool> CancelMaintenanceRestAsync(

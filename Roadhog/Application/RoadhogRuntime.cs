@@ -111,8 +111,8 @@ public sealed class RoadhogRuntime
             _logger.Info("player_abnormal.refresh.ok", new Dictionary<string, object?>
             {
                 ["account"] = accountName,
-                ["harmfulAbnormalCount"] = result.Value?.HarmfulAbnormalCount ?? 0,
-                ["harmfulAbnormalSummary"] = result.Value?.HarmfulAbnormalSummary
+                ["category2EntryCount"] = result.Value?.Category2EntryCount ?? 0,
+                ["category2EntrySummary"] = result.Value?.Category2EntrySummary
             });
         }
         else
@@ -348,7 +348,7 @@ public sealed class RoadhogRuntime
             token => ReadPlayerAbnormalStatusSnapshotAsync(accountName, token),
             abnormal => "entity=" + abnormal.EntityId.ToString(CultureInfo.InvariantCulture) +
                 ", entries=" + abnormal.Entries.Count.ToString(CultureInfo.InvariantCulture) +
-                ", harmful=" + abnormal.HarmfulAbnormalCount.ToString(CultureInfo.InvariantCulture),
+                ", category2=" + abnormal.Category2EntryCount.ToString(CultureInfo.InvariantCulture),
             cancellationToken).ConfigureAwait(false));
 
         checks.Add(await RunApiProbeCheckAsync(

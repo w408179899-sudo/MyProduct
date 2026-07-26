@@ -19,14 +19,14 @@ public sealed record PlayerAbnormalStatusSnapshot(
             Array.Empty<AbnormalStatusEntrySnapshot>());
     }
 
-    public int HarmfulAbnormalCount
+    public int Category2EntryCount
     {
         get
         {
             var count = 0;
             foreach (var entry in Entries)
             {
-                if (entry.IsHarmfulForRest)
+                if (entry.IsPhysicalDebuffCategory)
                 {
                     count++;
                 }
@@ -36,9 +36,7 @@ public sealed record PlayerAbnormalStatusSnapshot(
         }
     }
 
-    public bool HasHarmfulAbnormalForRest => HarmfulAbnormalCount > 0;
-
-    public string HarmfulAbnormalSummary
+    public string Category2EntrySummary
     {
         get
         {
@@ -46,7 +44,7 @@ public sealed record PlayerAbnormalStatusSnapshot(
             var count = 0;
             foreach (var entry in Entries)
             {
-                if (!entry.IsHarmfulForRest)
+                if (!entry.IsPhysicalDebuffCategory)
                 {
                     continue;
                 }
@@ -71,4 +69,10 @@ public sealed record PlayerAbnormalStatusSnapshot(
             return string.Join(",", samples);
         }
     }
+
+    public int HarmfulAbnormalCount => Category2EntryCount;
+
+    public bool HasHarmfulAbnormalForRest => HarmfulAbnormalCount > 0;
+
+    public string HarmfulAbnormalSummary => Category2EntrySummary;
 }

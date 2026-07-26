@@ -1,3 +1,4 @@
+using Roadhog.Application.AbnormalStatuses;
 using Roadhog.Application.Workers;
 using Roadhog.Application.StationaryCombat;
 using Roadhog.Core.Accounts;
@@ -28,11 +29,11 @@ public sealed class TeamSupportController
     private const string ProtectionBlessingNameWithParticle = "\u4FDD\u62A4\u7684\u795D\u798F";
 
     private readonly IKeyboardInput _keyboard;
-    private TeamAbnormalStatusCatalog? _abnormalStatusCatalog;
+    private AbnormalStatusCatalog? _abnormalStatusCatalog;
 
     public TeamSupportController(
         IKeyboardInput keyboard,
-        TeamAbnormalStatusCatalog? abnormalStatusCatalog = null)
+        AbnormalStatusCatalog? abnormalStatusCatalog = null)
     {
         _keyboard = keyboard;
         _abnormalStatusCatalog = abnormalStatusCatalog;
@@ -127,7 +128,20 @@ public sealed class TeamSupportController
         state.ConsecutiveLeaderUnavailableTicks = 0;
 
         if (await TeamLeaderRestSync
-                .TryHandleAsync(context, _keyboard, state.LeaderRestSync, snapshot, leader, combatState, "team_support")
+                .TryHandleAsync(
+                    context,
+                    _keyboard,
+                    state.LeaderRestSync,
+                    snapshot,
+                    leader,
+                    combatState,
+                    "team_support",
+                    beforeEnterRestAsync: () => TryHandleHealBeforeLeaderRestAsync(
+                        context,
+                        state,
+                        support,
+                        snapshot,
+                        groupDistanceMeters))
                 .ConfigureAwait(false))
         {
             ResetLeaderAssistJumpCount(state);
@@ -220,6 +234,26 @@ public sealed class TeamSupportController
         }
 
         return await SelectLeaderTargetForCombatAsync(context, state, snapshot, support, leader, combatState).ConfigureAwait(false);
+    }
+
+    private async Task<bool> TryHandleHealBeforeLeaderRestAsync(
+        AccountWorkerContext context,
+        TeamSupportState state,
+        TeamSupportScriptSettings support,
+        TeamSnapshot snapshot,
+        double groupDistanceMeters)
+    {
+        var action = SelectHealAction(
+            GetMaintenanceMembers(snapshot, groupDistanceMeters),
+            GetHealRules(support),
+            MaintenanceRuleRunTiming.AfterCombat);
+        if (action is null)
+        {
+            return false;
+        }
+
+        await ExecuteActionAsync(context, state, action).ConfigureAwait(false);
+        return true;
     }
 
     private async Task<TeamSupportTickResult?> TryHandleSelfDefenseAsync(
@@ -737,11 +771,11 @@ public sealed class TeamSupportController
         return new AssistTargetVerification(lastResult, false, lastRejectReason, AssistTargetConfirmPolls);
     }
 
-    private TeamAbnormalStatusCatalog AbnormalStatusCatalog
+    private AbnormalStatusCatalog StatusCatalog
     {
         get
         {
-            _abnormalStatusCatalog ??= TeamAbnormalStatusCatalog.Load();
+            _abnormalStatusCatalog ??= AbnormalStatusCatalog.Default;
             return _abnormalStatusCatalog;
         }
     }
@@ -873,7 +907,7 @@ public sealed class TeamSupportController
         var count = 0;
         foreach (var entry in member.PartyMember.AbnormalStatuses)
         {
-            if (AbnormalStatusCatalog.IsMentalCleanseCandidate(entry))
+            if (StatusCatalog.IsMentalCleanseCandidate(entry))
             {
                 count++;
             }
@@ -887,7 +921,7 @@ public sealed class TeamSupportController
         var count = 0;
         foreach (var entry in member.PartyMember.AbnormalStatuses)
         {
-            if (AbnormalStatusCatalog.IsPhysicalCleanseCandidate(entry))
+            if (StatusCatalog.IsPhysicalCleanseCandidate(entry))
             {
                 count++;
             }
@@ -1210,7 +1244,7 @@ public sealed class TeamSupportController
             return;
         }
 
-        var catalog = AbnormalStatusCatalog;
+        var catalog = StatusCatalog;
         if (catalog.Loaded)
         {
             return;

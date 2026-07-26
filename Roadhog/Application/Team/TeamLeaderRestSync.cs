@@ -21,7 +21,8 @@ internal static class TeamLeaderRestSync
         TeamSnapshot snapshot,
         TeamMemberSnapshot leader,
         StationaryCombatState? combatState,
-        string logPrefix)
+        string logPrefix,
+        Func<Task<bool>>? beforeEnterRestAsync = null)
     {
         var local = snapshot.LocalMember;
         if (local is null ||
@@ -43,6 +44,13 @@ internal static class TeamLeaderRestSync
             combatState?.ClearTarget();
 
             if (local.PartyMember.IsResting)
+            {
+                state.RememberObservedLeaderRestState(shouldRest);
+                return true;
+            }
+
+            if (beforeEnterRestAsync is not null &&
+                await beforeEnterRestAsync().ConfigureAwait(false))
             {
                 state.RememberObservedLeaderRestState(shouldRest);
                 return true;

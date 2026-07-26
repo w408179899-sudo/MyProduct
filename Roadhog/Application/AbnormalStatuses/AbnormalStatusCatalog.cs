@@ -3,20 +3,21 @@ using System.Xml;
 using System.Xml.Linq;
 using Roadhog.Core.Model;
 
-namespace Roadhog.Application.Team;
+namespace Roadhog.Application.AbnormalStatuses;
 
-public sealed class TeamAbnormalStatusCatalog
+public sealed class AbnormalStatusCatalog
 {
     public const string AbnormalKindNegative = "Negative";
     public const string AbnormalKindPositive = "Positive";
     public const string AbnormalKindUnknown = "Unknown";
 
-    private readonly IReadOnlyDictionary<uint, TeamAbnormalStatusStaticInfo> _byId;
+    private static readonly Lazy<AbnormalStatusCatalog> DefaultCatalog = new(Load);
+    private readonly IReadOnlyDictionary<uint, AbnormalStatusStaticInfo> _byId;
 
-    private TeamAbnormalStatusCatalog(
+    private AbnormalStatusCatalog(
         string sourcePath,
         string error,
-        IReadOnlyDictionary<uint, TeamAbnormalStatusStaticInfo> byId)
+        IReadOnlyDictionary<uint, AbnormalStatusStaticInfo> byId)
     {
         SourcePath = sourcePath;
         Error = error;
@@ -31,7 +32,9 @@ public sealed class TeamAbnormalStatusCatalog
 
     public int Count => _byId.Count;
 
-    public static TeamAbnormalStatusCatalog Load()
+    public static AbnormalStatusCatalog Default => DefaultCatalog.Value;
+
+    public static AbnormalStatusCatalog Load()
     {
         var path = ResolveClientSkillsXmlPath(out var resolveError);
         if (string.IsNullOrWhiteSpace(path) || !string.IsNullOrWhiteSpace(resolveError))
@@ -41,7 +44,7 @@ public sealed class TeamAbnormalStatusCatalog
 
         try
         {
-            var entries = new Dictionary<uint, TeamAbnormalStatusStaticInfo>();
+            var entries = new Dictionary<uint, AbnormalStatusStaticInfo>();
             var settings = new XmlReaderSettings
             {
                 DtdProcessing = DtdProcessing.Ignore,
@@ -78,21 +81,36 @@ public sealed class TeamAbnormalStatusCatalog
         }
     }
 
-    public static TeamAbnormalStatusCatalog LoadedFrom(
+    public static AbnormalStatusCatalog LoadedFrom(
         string sourcePath,
-        IReadOnlyDictionary<uint, TeamAbnormalStatusStaticInfo> byId)
+        IReadOnlyDictionary<uint, AbnormalStatusStaticInfo> byId)
     {
-        return new TeamAbnormalStatusCatalog(sourcePath, string.Empty, byId);
+        return new AbnormalStatusCatalog(sourcePath, string.Empty, byId);
     }
 
-    public static TeamAbnormalStatusCatalog Failed(string sourcePath, string error)
+    public static AbnormalStatusCatalog Failed(string sourcePath, string error)
     {
-        return new TeamAbnormalStatusCatalog(sourcePath, string.IsNullOrWhiteSpace(error) ? "client_skills.xml not found" : error, new Dictionary<uint, TeamAbnormalStatusStaticInfo>());
+        return new AbnormalStatusCatalog(sourcePath, string.IsNullOrWhiteSpace(error) ? "client_skills.xml not found" : error, new Dictionary<uint, AbnormalStatusStaticInfo>());
     }
 
-    public bool TryGet(uint abnormalId, out TeamAbnormalStatusStaticInfo info)
+    public bool TryGet(uint abnormalId, out AbnormalStatusStaticInfo info)
     {
         return _byId.TryGetValue(abnormalId, out info!);
+    }
+
+    public bool IsHarmfulForRest(AbnormalStatusEntrySnapshot entry)
+    {
+        if (entry.AbnormalId == 0)
+        {
+            return false;
+        }
+
+        if (TryGet(entry.AbnormalId, out var info))
+        {
+            return string.Equals(info.StatusKind, AbnormalKindNegative, StringComparison.Ordinal);
+        }
+
+        return entry.IsPhysicalDebuffCategory;
     }
 
     public bool IsMentalCleanseCandidate(AbnormalStatusEntrySnapshot entry)
@@ -122,7 +140,7 @@ public sealed class TeamAbnormalStatusCatalog
                string.Equals(category, "2", StringComparison.Ordinal);
     }
 
-    private bool IsNegative(AbnormalStatusEntrySnapshot entry, out TeamAbnormalStatusStaticInfo info)
+    private bool IsNegative(AbnormalStatusEntrySnapshot entry, out AbnormalStatusStaticInfo info)
     {
         if (entry.AbnormalId == 0 || !TryGet(entry.AbnormalId, out info))
         {
@@ -133,7 +151,7 @@ public sealed class TeamAbnormalStatusCatalog
         return string.Equals(info.StatusKind, AbnormalKindNegative, StringComparison.Ordinal);
     }
 
-    private static bool TryReadEntry(XElement element, out TeamAbnormalStatusStaticInfo info)
+    private static bool TryReadEntry(XElement element, out AbnormalStatusStaticInfo info)
     {
         info = default!;
         var idText = GetSkillXmlValue(element, "id", "skill_id", "skillid");
@@ -142,7 +160,7 @@ public sealed class TeamAbnormalStatusCatalog
             return false;
         }
 
-        var raw = new TeamAbnormalStatusStaticInfo(
+        var raw = new AbnormalStatusStaticInfo(
             id,
             GetSkillXmlValue(element, "name", "skill_name", "skillname"),
             GetSkillXmlValue(element, "target_slot", "targetslot"),
@@ -157,7 +175,7 @@ public sealed class TeamAbnormalStatusCatalog
         return true;
     }
 
-    private static string ClassifyStaticAbnormalStatus(TeamAbnormalStatusStaticInfo info)
+    private static string ClassifyStaticAbnormalStatus(AbnormalStatusStaticInfo info)
     {
         var targetSlot = NormalizeSkillXmlToken(info.TargetSlot);
         if (string.Equals(targetSlot, "debuff", StringComparison.Ordinal) ||
@@ -190,7 +208,7 @@ public sealed class TeamAbnormalStatusCatalog
         return AbnormalKindUnknown;
     }
 
-    private static bool HasAnyEffectType(TeamAbnormalStatusStaticInfo info)
+    private static bool HasAnyEffectType(AbnormalStatusStaticInfo info)
     {
         return !string.IsNullOrWhiteSpace(info.Effect1Type) ||
                !string.IsNullOrWhiteSpace(info.Effect2Type) ||
@@ -328,7 +346,7 @@ public sealed class TeamAbnormalStatusCatalog
     }
 }
 
-public sealed record TeamAbnormalStatusStaticInfo(
+public sealed record AbnormalStatusStaticInfo(
     uint Id,
     string XmlName,
     string TargetSlot,

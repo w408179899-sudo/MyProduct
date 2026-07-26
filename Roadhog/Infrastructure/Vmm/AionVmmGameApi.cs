@@ -1386,8 +1386,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                     ["entityId"] = snapshot.EntityId,
                     ["abnormalCategory2Count"] = snapshot.AbnormalCategory2Count,
                     ["abnormalEntryCount"] = snapshot.Entries.Count,
-                    ["harmfulAbnormalCount"] = snapshot.HarmfulAbnormalCount,
-                    ["harmfulAbnormalSummary"] = snapshot.HarmfulAbnormalSummary
+                    ["category2EntryCount"] = snapshot.Category2EntryCount,
+                    ["category2EntrySummary"] = snapshot.Category2EntrySummary
                 });
 
                 return OperationResult<PlayerAbnormalStatusSnapshot>.Ok(snapshot);
