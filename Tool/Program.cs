@@ -38,7 +38,10 @@ namespace Tool
 
 
 
-            var earlyAionTestMode = Environment.GetEnvironmentVariable("AION_TEST_MODE");
+            ApplyCommandLineEnvironmentVariables(args);
+
+            var commandLineAionTestMode = ReadAionTestModeFromArgs(args);
+            var earlyAionTestMode = commandLineAionTestMode ?? Environment.GetEnvironmentVariable("AION_TEST_MODE");
             if (string.Equals(earlyAionTestMode, "path_follow_budget_test", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(earlyAionTestMode, "path_follow_budget_tests", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(earlyAionTestMode, "path_budget_test", StringComparison.OrdinalIgnoreCase))
@@ -79,9 +82,7 @@ namespace Tool
                 Vmm.LoadNativeLibrary(memProcFsPath);
             }
 
-            var vmmArgs = (args != null && args.Length > 0)
-                ? args
-                : BuildVmmArgsFromEnv();
+            var vmmArgs = BuildVmmArgs(args);
 
             try
             {
@@ -112,7 +113,7 @@ namespace Tool
 
                     Console.WriteLine("Module base: " + moduleName + " = 0x" + gameBase.ToString("X"));
 
-                    var aionTestMode = Environment.GetEnvironmentVariable("AION_TEST_MODE") ?? "skills";
+                    var aionTestMode = earlyAionTestMode ?? "party_roll";
 
                     if (IsKmBoxClickTestMode(aionTestMode))
                     {
@@ -227,6 +228,36 @@ namespace Tool
                         string.Equals(aionTestMode, "party_probe", StringComparison.OrdinalIgnoreCase))
                     {
                         RunPartyMemberProbeTest(process, gameBase);
+                        return;
+                    }
+
+                    if (string.Equals(aionTestMode, "roll_dialog_scan", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "roll_dialog_watch", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "roll_window_scan", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "loot_roll_dialog", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "ui_roll_scan", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunRollDialogScanWatch(process, gameBase);
+                        return;
+                    }
+
+                    if (string.Equals(aionTestMode, "roll_ui_item_diff", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "roll_ui_diff", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "roll_item_diff", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "loot_roll_ui_diff", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunRollUiItemDiffWatch(process, gameBase);
+                        return;
+                    }
+
+                    if (string.Equals(aionTestMode, "party_roll", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "partyroll", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "roll_item", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "roll_items", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "loot_roll", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "lootroll", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunPartyRollItemProbeTest(process, gameBase);
                         return;
                     }
 
@@ -883,6 +914,193 @@ namespace Tool
             return new[] { "-device", device, "-remote", remote };
         }
 
+        private static string[] BuildVmmArgs(string[] args)
+        {
+            if (args == null || args.Length == 0)
+            {
+                return BuildVmmArgsFromEnv();
+            }
+
+            var vmmArgs = new List<string>();
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (IsAionTestModeArgument(args, i, out bool consumedNext))
+                {
+                    if (consumedNext)
+                    {
+                        i++;
+                    }
+
+                    continue;
+                }
+
+                if (IsCommandLineEnvironmentVariableArgument(args[i]))
+                {
+                    continue;
+                }
+
+                vmmArgs.Add(args[i]);
+            }
+
+            return vmmArgs.Count == 0 ? BuildVmmArgsFromEnv() : vmmArgs.ToArray();
+        }
+
+        private static void ApplyCommandLineEnvironmentVariables(string[] args)
+        {
+            if (args == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < args.Length; i++)
+            {
+                string name;
+                string value;
+                if (TryReadCommandLineEnvironmentVariable(args[i], out name, out value))
+                {
+                    Environment.SetEnvironmentVariable(name, value);
+                }
+            }
+        }
+
+        private static bool IsCommandLineEnvironmentVariableArgument(string arg)
+        {
+            string name;
+            string value;
+            return TryReadCommandLineEnvironmentVariable(arg, out name, out value);
+        }
+
+        private static bool TryReadCommandLineEnvironmentVariable(string arg, out string name, out string value)
+        {
+            name = null;
+            value = null;
+
+            if (string.IsNullOrWhiteSpace(arg))
+            {
+                return false;
+            }
+
+            int equalsIndex = arg.IndexOf('=');
+            if (equalsIndex <= 0)
+            {
+                return false;
+            }
+
+            string candidateName = arg.Substring(0, equalsIndex);
+            if (!IsSupportedCommandLineEnvironmentName(candidateName))
+            {
+                return false;
+            }
+
+            name = candidateName;
+            value = arg.Substring(equalsIndex + 1);
+            return true;
+        }
+
+        private static bool IsSupportedCommandLineEnvironmentName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return false;
+            }
+
+            for (int i = 0; i < name.Length; i++)
+            {
+                char ch = name[i];
+                if (!char.IsLetterOrDigit(ch) && ch != '_')
+                {
+                    return false;
+                }
+            }
+
+            return name.StartsWith("AION_", StringComparison.OrdinalIgnoreCase) ||
+                   name.StartsWith("VMM_", StringComparison.OrdinalIgnoreCase) ||
+                   name.StartsWith("KMBOX_", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(name, "MEMPROCFS_HOME", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string ReadAionTestModeFromArgs(string[] args)
+        {
+            if (args == null)
+            {
+                return null;
+            }
+
+            for (int i = 0; i < args.Length; i++)
+            {
+                string value;
+                if (TryReadAionTestModeArgument(args, i, out value, out bool consumedNext) &&
+                    !string.IsNullOrWhiteSpace(value))
+                {
+                    return value;
+                }
+            }
+
+            return null;
+        }
+
+        private static bool IsAionTestModeArgument(string[] args, int index, out bool consumedNext)
+        {
+            string ignored;
+            return TryReadAionTestModeArgument(args, index, out ignored, out consumedNext);
+        }
+
+        private static bool TryReadAionTestModeArgument(
+            string[] args,
+            int index,
+            out string value,
+            out bool consumedNext)
+        {
+            value = null;
+            consumedNext = false;
+
+            if (args == null || index < 0 || index >= args.Length)
+            {
+                return false;
+            }
+
+            string arg = args[index];
+            if (arg == null)
+            {
+                return false;
+            }
+
+            const string envPrefix = "AION_TEST_MODE=";
+            if (arg.StartsWith(envPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                value = arg.Substring(envPrefix.Length);
+                return true;
+            }
+
+            const string longPrefix = "--aion-test-mode=";
+            if (arg.StartsWith(longPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                value = arg.Substring(longPrefix.Length);
+                return true;
+            }
+
+            const string shortPrefix = "--mode=";
+            if (arg.StartsWith(shortPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                value = arg.Substring(shortPrefix.Length);
+                return true;
+            }
+
+            if (string.Equals(arg, "--aion-test-mode", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(arg, "--mode", StringComparison.OrdinalIgnoreCase))
+            {
+                if (index + 1 < args.Length)
+                {
+                    value = args[index + 1];
+                    consumedNext = true;
+                }
+
+                return true;
+            }
+
+            return false;
+        }
+
         private const ulong EntitySystemPointerRva = 0x904690;
         private const ulong ServerObjectTreeRva = 0xD21740;
         private const ulong LocalEntityIdRva = 0xD21798;
@@ -903,6 +1121,9 @@ namespace Tool
         private const ulong SecondaryPartyListRva = 0xD1BB50;
         private const ulong SkillManagerGlobalRva = 0xD004A0;
         private const ulong InventoryManagerGlobalRva = 0xD004A0;
+        private const ulong PartyRollManagerGlobalRva = 0xD4B020;
+        private const ulong RollDialogTableRva = 0xD639A0;
+        private const ulong PartyRollDialogSlot0PointerRva = 0xD64110;
         private const ulong SkillStaticByIdMapRva = 0x912658;
 
         private const ulong EntityTreeOffset = 0x58;
@@ -1102,6 +1323,56 @@ namespace Tool
         private const ulong InventoryItemDurationOffset = 0x548;
         private const ulong InventoryItemExtraStateOffset = 0x550;
         private const uint InventoryCashItemFlag = 0x1000;
+
+        private const ulong PartyRollListHeadOffset = 0x9C0;
+        private const ulong PartyRollListCountOffset = 0x9C8;
+        private const ulong PartyRollItemInstanceIdOffset = 0x08;
+        private const ulong PartyRollItemTemplateIdOffset = 0x0C;
+        private const ulong PartyRollItemCountOffset = 0x10;
+        private const ulong PartyRollItemNameOffset = 0x18;
+        private const ulong PartyRollItemRollModeOffset = 0x56C;
+        private const ulong PartyRollItemExpireTickOffset = 0x570;
+        private const ulong PartyRollItemSlotIndexOffset = 0x574;
+        private const ulong PartyRollDialogFlagsOffset = 0x28;
+        private const ulong PartyRollDialogIdOffset = 0x2E0;
+        private const ulong PartyRollDialogLootItemControlOffset = 0x4D8;
+        private const ulong PartyRollLootItemUiSlotArrayBeginOffset = 0x368;
+        private const ulong PartyRollLootItemUiSlotArrayEndOffset = 0x370;
+        private const ulong PartyRollUiItemOuterBeginOffset = 0x48;
+        private const ulong PartyRollUiItemOuterEndOffset = 0x50;
+        private const ulong PartyRollUiItemFieldA0Offset = 0xA0;
+        private const ulong PartyRollUiItemFieldA4Offset = 0xA4;
+        private const ulong PartyRollUiItemTemplateIdOffset = 0xA8;
+        private const ulong PartyRollUiItemFieldB0Offset = 0xB0;
+        private const ulong PartyRollUiItemFieldBCOffset = 0xBC;
+        private const ulong PartyRollUiItemField104Offset = 0x104;
+        private const ulong PartyRollTextGroupInnerBeginOffset = 0x00;
+        private const ulong PartyRollTextGroupInnerEndOffset = 0x08;
+        private const ulong PartyRollManagerRootProbe770Offset = 0x770;
+        private const ulong PartyRollManagerRootProbe77COffset = 0x77C;
+        private const ulong PartyRollManagerRootProbe780Offset = 0x780;
+        private const ulong PartyRollManagerRootProbe788Offset = 0x788;
+        private const ulong PartyRollManagerListScanStartOffset = 0x800;
+        private const ulong PartyRollManagerListScanEndOffset = 0xB00;
+        private const ulong PartyRollManagerListScanStep = 0x08;
+        private const ulong PartyRollDialogVisibleMask = 0x01;
+        private const uint PartyRollDialogFirstId = 238;
+        private const int PartyRollMaxSlots = 5;
+        private const int PartyRollDefaultMaxItems = 32;
+        private const int RollDialogDefaultMaxDialogId = 413;
+        private const int RollDialogDefaultHashBytes = 0x800;
+        private const int RollDialogDefaultChangedOffsetLimit = 64;
+        private const int RollDialogDefaultPrintLimit = 500;
+        private const int RollStringScanDefaultChunkBytes = 0x40000;
+        private const int RollStringScanDefaultHitLimit = 64;
+        private const int RollStringScanDefaultReferenceLimit = 64;
+        private const int RollStringScanDefaultIntervalMs = 3000;
+        private const int RollStringScanDefaultMaxMegabytes = 1024;
+        private const int RollUiItemDiffDefaultBytes = 0x200;
+        private const int RollUiItemControlDiffDefaultBytes = 0x500;
+        private const int RollUiItemDiffDefaultIntervalMs = 100;
+        private const int RollUiItemDiffDefaultWatchSeconds = 90;
+        private const int RollUiItemDiffDefaultChangedOffsetLimit = 128;
 
         private struct Vec3
         {
@@ -1648,6 +1919,171 @@ namespace Tool
             public ulong TreeItemCount;
             public uint[] EquipmentInstanceIds;
             public List<InventoryItemInfo> Items;
+        }
+
+        private struct PartyRollItemInfo
+        {
+            public ulong NodeAddress;
+            public ulong NextNodeAddress;
+            public ulong ItemAddress;
+            public ulong DialogAddress;
+            public ulong NameBufferAddress;
+            public uint InstanceId;
+            public uint TemplateId;
+            public ulong Count;
+            public int SlotIndex;
+            public uint RollMode;
+            public uint ExpireTick;
+            public uint DialogId;
+            public bool DialogVisible;
+            public string Name;
+        }
+
+        private struct PartyRollDialogInfo
+        {
+            public int SlotIndex;
+            public ulong PointerAddress;
+            public ulong DialogAddress;
+            public ulong Flags;
+            public uint DialogId;
+            public bool DialogVisible;
+            public ulong LootItemControlAddress;
+            public ulong UiSlotArrayBeginAddress;
+            public ulong UiSlotArrayEndAddress;
+            public ulong UiItemAddress;
+            public ulong UiItemTextBeginRaw;
+            public ulong UiItemTextEndRaw;
+            public uint UiItemFieldA0;
+            public uint UiItemFieldA4;
+            public uint UiItemTemplateId;
+            public ulong UiItemFieldB0;
+            public uint UiItemFieldBC;
+            public uint UiItemField104;
+            public ulong OuterBeginAddress;
+            public ulong OuterEndAddress;
+            public ulong InnerBeginAddress;
+            public ulong InnerEndAddress;
+            public ulong NameObjectAddress;
+            public ulong NameLength;
+            public ulong NameCapacity;
+            public ulong NameBufferAddress;
+            public string UiItemName;
+        }
+
+        private struct PartyRollManagerListCandidateInfo
+        {
+            public ulong HeadOffset;
+            public ulong CountOffset;
+            public ulong HeadAddress;
+            public ulong Count;
+            public ulong FirstNodeAddress;
+            public ulong LastNodeAddress;
+            public int MatchedItems;
+            public uint FirstTemplateId;
+            public int FirstSlotIndex;
+            public string FirstName;
+        }
+
+        private struct PartyRollSnapshot
+        {
+            public ulong ManagerAddress;
+            public ulong ManagerProbe770Raw64;
+            public uint ManagerProbe770Raw32;
+            public uint ManagerProbe77CRaw32;
+            public ulong ManagerProbe780Raw64;
+            public ulong ManagerProbe788Raw64;
+            public ulong ListHeadAddress;
+            public ulong FirstNodeAddress;
+            public ulong RawListCount;
+            public List<PartyRollDialogInfo> Dialogs;
+            public List<PartyRollManagerListCandidateInfo> ListCandidates;
+            public List<PartyRollItemInfo> Items;
+        }
+
+        private struct RollDialogEntry
+        {
+            public int DialogId;
+            public ulong PointerAddress;
+            public ulong DialogAddress;
+            public ulong Vtable;
+            public uint InternalDialogId;
+            public ulong Hash;
+            public bool HashRead;
+            public byte[] Bytes;
+        }
+
+        private struct RollDialogSnapshot
+        {
+            public DateTime CapturedAt;
+            public ulong TableAddress;
+            public int MaxDialogId;
+            public int HashBytes;
+            public Dictionary<int, RollDialogEntry> Entries;
+        }
+
+        private struct RollDialogChange
+        {
+            public int DialogId;
+            public string ChangeKind;
+            public RollDialogEntry Before;
+            public RollDialogEntry After;
+            public int ChangedByteCount;
+            public string ChangedOffsets;
+        }
+
+        private struct RollMemoryRange
+        {
+            public ulong Start;
+            public ulong End;
+            public string Label;
+        }
+
+        private struct RollStringScanResult
+        {
+            public string ItemName;
+            public ulong ScannedBytes;
+            public int ScannedRanges;
+            public int HitLimit;
+            public List<ulong> StringAddresses;
+            public Dictionary<ulong, List<ulong>> ReferencesByStringAddress;
+        }
+
+        private struct RollUiItemSlotSnapshot
+        {
+            public int SlotIndex;
+            public ulong PointerAddress;
+            public ulong DialogAddress;
+            public uint DialogId;
+            public ulong LootItemControlAddress;
+            public ulong UiSlotArrayBeginAddress;
+            public ulong UiSlotArrayEndAddress;
+            public ulong UiItemAddress;
+            public byte[] UiItemBytes;
+            public bool UiItemBytesRead;
+            public ulong UiItemHash;
+            public byte[] LootItemControlBytes;
+            public bool LootItemControlBytesRead;
+            public ulong LootItemControlHash;
+        }
+
+        private struct RollUiItemDiffSnapshot
+        {
+            public DateTime CapturedAt;
+            public int UiItemBytes;
+            public int LootItemControlBytes;
+            public List<RollUiItemSlotSnapshot> Slots;
+        }
+
+        private struct RollUiItemSlotChange
+        {
+            public int SlotIndex;
+            public RollUiItemSlotSnapshot Before;
+            public RollUiItemSlotSnapshot After;
+            public string ChangeKind;
+            public int UiItemChangedByteCount;
+            public string UiItemChangedOffsets;
+            public int LootItemControlChangedByteCount;
+            public string LootItemControlChangedOffsets;
         }
 
         private struct OffsetCheckStats
@@ -4351,6 +4787,422 @@ namespace Tool
 
             Console.WriteLine("Press any key to exit. Set AION_TEST_MODE=skills/target/player/monsters for other tests.");
             Console.ReadKey(true);
+        }
+
+        private static void RunPartyRollItemProbeTest(VmmProcess process, ulong gameBase)
+        {
+            int limit = ReadIntFromEnv("AION_PARTY_ROLL_LIMIT", PartyRollDefaultMaxItems);
+            limit = ClampInt(limit, 1, 256);
+            bool waitForKey = ReadBoolFromEnv("AION_PARTY_ROLL_WAIT_FOR_KEY", true);
+            int watchSeconds = ReadIntFromEnv("AION_PARTY_ROLL_WATCH_SECONDS", 0);
+            int watchIntervalMs = ClampInt(ReadIntFromEnv("AION_PARTY_ROLL_WATCH_INTERVAL_MS", 100), 50, 5000);
+            bool watchStopOnFound = ReadBoolFromEnv("AION_PARTY_ROLL_WATCH_STOP_ON_FOUND", true);
+
+            Console.WriteLine("AION party roll item probe.");
+            Console.WriteLine("Read-only validation for PartyItem list: Game.dll+0x" + PartyRollManagerGlobalRva.ToString("X") +
+                              " -> Manager+0x" + PartyRollListHeadOffset.ToString("X") +
+                              ", name at PartyItem+0x" + PartyRollItemNameOffset.ToString("X") + ".");
+            Console.WriteLine("Roll dialog slots: Game.dll+0x" + PartyRollDialogSlot0PointerRva.ToString("X") +
+                              " + slot*8, DialogId " + PartyRollDialogFirstId + ".." +
+                              (PartyRollDialogFirstId + PartyRollMaxSlots - 1).ToString() + ". Limit=" + limit + ".");
+
+            if (watchSeconds > 0)
+            {
+                RunPartyRollItemWatch(process, gameBase, limit, watchSeconds, watchIntervalMs, watchStopOnFound);
+                return;
+            }
+
+            PartyRollSnapshot snapshot;
+            string error;
+            if (!TryReadPartyRollSnapshot(process, gameBase, limit, out snapshot, out error))
+            {
+                Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Read failed: " + error);
+                if (waitForKey)
+                {
+                    Console.WriteLine("Press any key to exit.");
+                    Console.ReadKey(true);
+                }
+
+                return;
+            }
+
+            Console.WriteLine(
+                "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                "Manager=" + FormatAddress(snapshot.ManagerAddress) +
+                " Head=" + FormatAddress(snapshot.ListHeadAddress) +
+                " FirstNode=" + FormatAddress(snapshot.FirstNodeAddress) +
+                " RawCount=" + snapshot.RawListCount +
+                " ManagerRoot=" + FormatPartyRollManagerRootProbe(snapshot) +
+                " ListCandidates=" + snapshot.ListCandidates.Count +
+                " VisibleDialogs=" + snapshot.Dialogs.Count(dialog => dialog.DialogVisible) +
+                " UiCandidateSlots=" + snapshot.Dialogs.Count(HasPartyRollUiChainCandidate) +
+                " UiNames=" + snapshot.Dialogs.Count(HasPartyRollUiName) +
+                " UiSig=" + BuildPartyRollUiChainSignature(snapshot.Dialogs) +
+                " ListSig=" + BuildPartyRollListCandidateSignature(snapshot.ListCandidates) +
+                " Items=" + snapshot.Items.Count);
+
+            for (int i = 0; i < snapshot.Dialogs.Count; i++)
+            {
+                Console.WriteLine(FormatPartyRollDialog(snapshot.Dialogs[i]));
+            }
+
+            for (int i = 0; i < snapshot.ListCandidates.Count; i++)
+            {
+                Console.WriteLine(FormatPartyRollListCandidate(i + 1, snapshot.ListCandidates[i]));
+            }
+
+            for (int i = 0; i < snapshot.Items.Count; i++)
+            {
+                Console.WriteLine(FormatPartyRollItem(i + 1, snapshot.Items[i]));
+            }
+
+            if (snapshot.Items.Count == 0)
+            {
+                Console.WriteLine("No PartyItem roll entries were found. Open a visible party roll window, then rerun this probe.");
+            }
+
+            if (waitForKey)
+            {
+                Console.WriteLine("Press any key to exit. Set AION_TEST_MODE=party_roll to rerun.");
+                Console.ReadKey(true);
+            }
+        }
+
+        private static void RunPartyRollItemWatch(
+            VmmProcess process,
+            ulong gameBase,
+            int limit,
+            int watchSeconds,
+            int watchIntervalMs,
+            bool stopOnFound)
+        {
+            Console.WriteLine("WatchMode=yes DurationSeconds=" + watchSeconds +
+                              " IntervalMs=" + watchIntervalMs +
+                              " StopOnFound=" + FormatYesNo(stopOnFound) + ".");
+
+            var stopwatch = Stopwatch.StartNew();
+            int sample = 0;
+            bool found = false;
+            string lastSummary = null;
+
+            while (stopwatch.ElapsedMilliseconds <= watchSeconds * 1000L)
+            {
+                sample++;
+                PartyRollSnapshot snapshot;
+                string error;
+                if (!TryReadPartyRollSnapshot(process, gameBase, limit, out snapshot, out error))
+                {
+                    Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Sample=" + sample + " ReadFailed=" + error);
+                }
+                else
+                {
+                    int visibleDialogs = snapshot.Dialogs.Count(dialog => dialog.DialogVisible);
+                    int uiCandidateSlots = snapshot.Dialogs.Count(HasPartyRollUiChainCandidate);
+                    int uiNames = snapshot.Dialogs.Count(HasPartyRollUiName);
+                    string summary =
+                        "Manager=" + FormatAddress(snapshot.ManagerAddress) +
+                        " Head=" + FormatAddress(snapshot.ListHeadAddress) +
+                        " RawCount=" + snapshot.RawListCount +
+                        " ManagerRoot=" + FormatPartyRollManagerRootProbe(snapshot) +
+                        " ListCandidates=" + snapshot.ListCandidates.Count +
+                        " VisibleDialogs=" + visibleDialogs +
+                        " UiCandidateSlots=" + uiCandidateSlots +
+                        " UiNames=" + uiNames +
+                        " UiSig=" + BuildPartyRollUiChainSignature(snapshot.Dialogs) +
+                        " ListSig=" + BuildPartyRollListCandidateSignature(snapshot.ListCandidates) +
+                        " Items=" + snapshot.Items.Count;
+
+                    if (!string.Equals(lastSummary, summary, StringComparison.Ordinal) ||
+                        visibleDialogs > 0 ||
+                        uiNames > 0 ||
+                        snapshot.Items.Count > 0)
+                    {
+                        Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Sample=" + sample + " " + summary);
+
+                        if (visibleDialogs > 0 || uiNames > 0 || snapshot.Items.Count > 0 || lastSummary == null)
+                        {
+                            for (int i = 0; i < snapshot.Dialogs.Count; i++)
+                            {
+                                Console.WriteLine(FormatPartyRollDialog(snapshot.Dialogs[i]));
+                            }
+
+                            for (int i = 0; i < snapshot.ListCandidates.Count; i++)
+                            {
+                                Console.WriteLine(FormatPartyRollListCandidate(i + 1, snapshot.ListCandidates[i]));
+                            }
+
+                            for (int i = 0; i < snapshot.Items.Count; i++)
+                            {
+                                Console.WriteLine(FormatPartyRollItem(i + 1, snapshot.Items[i]));
+                            }
+                        }
+                    }
+
+                    lastSummary = summary;
+
+                    if (snapshot.Items.Count > 0 || uiNames > 0)
+                    {
+                        found = true;
+                        if (stopOnFound)
+                        {
+                            break;
+                        }
+                    }
+                }
+
+                Thread.Sleep(watchIntervalMs);
+            }
+
+            if (!found)
+            {
+                Console.WriteLine("No PartyItem roll entries were found during watch.");
+            }
+        }
+
+        private static void RunRollDialogScanWatch(VmmProcess process, ulong gameBase)
+        {
+            int maxDialogId = ClampInt(ReadIntFromEnv("AION_ROLL_DIALOG_MAX_ID", RollDialogDefaultMaxDialogId), 0, 4096);
+            int hashBytes = ClampInt(ReadIntFromEnv("AION_ROLL_DIALOG_HASH_BYTES", RollDialogDefaultHashBytes), 0x40, 0x4000);
+            int watchSeconds = ClampInt(ReadIntFromEnv("AION_ROLL_DIALOG_WATCH_SECONDS", 90), 1, 600);
+            int intervalMs = ClampInt(ReadIntFromEnv("AION_ROLL_DIALOG_WATCH_INTERVAL_MS", 250), 50, 5000);
+            int printLimit = ClampInt(ReadIntFromEnv("AION_ROLL_DIALOG_PRINT_LIMIT", RollDialogDefaultPrintLimit), 1, 5000);
+            int changedOffsetLimit = ClampInt(
+                ReadIntFromEnv("AION_ROLL_DIALOG_CHANGED_OFFSET_LIMIT", RollDialogDefaultChangedOffsetLimit),
+                1,
+                2048);
+            bool printBaseline = ReadBoolFromEnv("AION_ROLL_DIALOG_PRINT_BASELINE", true);
+            string itemName = Environment.GetEnvironmentVariable("AION_ROLL_ITEM_NAME") ?? string.Empty;
+
+            int stringScanIntervalMs = ClampInt(
+                ReadIntFromEnv("AION_ROLL_STRING_SCAN_INTERVAL_MS", RollStringScanDefaultIntervalMs),
+                500,
+                60000);
+            int stringScanHitLimit = ClampInt(
+                ReadIntFromEnv("AION_ROLL_STRING_SCAN_HIT_LIMIT", RollStringScanDefaultHitLimit),
+                1,
+                1024);
+            int stringScanReferenceLimit = ClampInt(
+                ReadIntFromEnv("AION_ROLL_STRING_REF_LIMIT", RollStringScanDefaultReferenceLimit),
+                0,
+                1024);
+            int stringScanChunkBytes = ClampInt(
+                ReadIntFromEnv("AION_ROLL_STRING_SCAN_CHUNK_BYTES", RollStringScanDefaultChunkBytes),
+                0x1000,
+                0x100000);
+            ulong stringScanMaxBytes = (ulong)ClampInt(
+                ReadIntFromEnv("AION_ROLL_STRING_SCAN_MAX_MB", RollStringScanDefaultMaxMegabytes),
+                1,
+                8192) * 1024UL * 1024UL;
+            ulong explicitStringScanMaxBytes = ReadRvaFromEnv("AION_ROLL_STRING_SCAN_MAX_BYTES", 0);
+            if (explicitStringScanMaxBytes != 0)
+            {
+                stringScanMaxBytes = explicitStringScanMaxBytes;
+            }
+
+            Console.WriteLine("AION roll dialog table scan.");
+            Console.WriteLine("DialogTable=Game.dll+0x" + RollDialogTableRva.ToString("X") +
+                              "=" + FormatAddress(gameBase + RollDialogTableRva) +
+                              " DialogIdRange=0.." + maxDialogId +
+                              " HashBytes=0x" + hashBytes.ToString("X") +
+                              " WatchSeconds=" + watchSeconds +
+                              " IntervalMs=" + intervalMs + ".");
+
+            if (string.IsNullOrWhiteSpace(itemName))
+            {
+                Console.WriteLine("RollStringScan=skipped; set AION_ROLL_ITEM_NAME=<known UTF-16 item name> to scan the target process memory.");
+            }
+            else
+            {
+                Console.WriteLine("RollStringScan=enabled ItemName=\"" + EscapeProbeText(itemName) +
+                                  "\" MaxBytes=0x" + stringScanMaxBytes.ToString("X") +
+                                  " ChunkBytes=0x" + stringScanChunkBytes.ToString("X") +
+                                  " HitLimit=" + stringScanHitLimit +
+                                  " RefLimit=" + stringScanReferenceLimit +
+                                  " IntervalMs=" + stringScanIntervalMs + ".");
+            }
+
+            RollDialogSnapshot baseline = ReadRollDialogTableSnapshot(process, gameBase, maxDialogId, hashBytes);
+            Console.WriteLine(FormatRollDialogSnapshotSummary("RollDialogBaseline", baseline));
+            if (printBaseline)
+            {
+                PrintRollDialogEntries("RollDialogBaselineEntry", baseline, printLimit);
+            }
+
+            bool hasBaselineStringScan = false;
+            RollStringScanResult baselineStringScan = new RollStringScanResult();
+            if (!string.IsNullOrWhiteSpace(itemName))
+            {
+                baselineStringScan = ScanRollItemNameAndReferences(
+                    process,
+                    itemName,
+                    stringScanMaxBytes,
+                    stringScanChunkBytes,
+                    stringScanHitLimit,
+                    stringScanReferenceLimit);
+                hasBaselineStringScan = true;
+                PrintRollStringScan("RollStringBaseline", baselineStringScan, baselineStringScan, false, printLimit);
+            }
+
+            Console.WriteLine("Baseline captured. Start Roll now; this probe will print Dialog changes and recovery.");
+
+            var stopwatch = Stopwatch.StartNew();
+            int sample = 0;
+            bool hadDialogChanges = false;
+            string lastDialogSignature = null;
+            string lastStringSignature = null;
+            long nextStringScanMs = string.IsNullOrWhiteSpace(itemName) ? long.MaxValue : stringScanIntervalMs;
+
+            while (stopwatch.ElapsedMilliseconds <= watchSeconds * 1000L)
+            {
+                sample++;
+                RollDialogSnapshot current = ReadRollDialogTableSnapshot(process, gameBase, maxDialogId, hashBytes);
+                List<RollDialogChange> changes = CompareRollDialogSnapshots(baseline, current, changedOffsetLimit);
+                string signature = BuildRollDialogChangeSignature(changes);
+
+                if (changes.Count > 0)
+                {
+                    hadDialogChanges = true;
+                    if (!string.Equals(lastDialogSignature, signature, StringComparison.Ordinal))
+                    {
+                        Console.WriteLine(FormatRollDialogSnapshotSummary("RollDialogSample", current) +
+                                          " Sample=" + sample +
+                                          " ChangedVsBaseline=" + changes.Count);
+                        PrintRollDialogChanges(changes, printLimit);
+                        lastDialogSignature = signature;
+                    }
+                }
+                else if (hadDialogChanges)
+                {
+                    Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                                      "RollDialogRecovered Sample=" + sample +
+                                      " NonEmpty=" + current.Entries.Count +
+                                      " ChangedVsBaseline=0");
+                    hadDialogChanges = false;
+                    lastDialogSignature = "recovered";
+                }
+
+                if (!string.IsNullOrWhiteSpace(itemName) && stopwatch.ElapsedMilliseconds >= nextStringScanMs)
+                {
+                    RollStringScanResult currentStringScan = ScanRollItemNameAndReferences(
+                        process,
+                        itemName,
+                        stringScanMaxBytes,
+                        stringScanChunkBytes,
+                        stringScanHitLimit,
+                        stringScanReferenceLimit);
+                    string stringSignature = BuildRollStringScanSignature(currentStringScan, baselineStringScan, hasBaselineStringScan);
+                    if (!string.Equals(lastStringSignature, stringSignature, StringComparison.Ordinal))
+                    {
+                        PrintRollStringScan("RollStringSample#" + sample, currentStringScan, baselineStringScan, hasBaselineStringScan, printLimit);
+                        lastStringSignature = stringSignature;
+                    }
+
+                    nextStringScanMs = stopwatch.ElapsedMilliseconds + stringScanIntervalMs;
+                }
+
+                Thread.Sleep(intervalMs);
+            }
+
+            Console.WriteLine("Roll dialog scan finished.");
+        }
+
+        private static void RunRollUiItemDiffWatch(VmmProcess process, ulong gameBase)
+        {
+            int watchSeconds = ClampInt(
+                ReadIntFromEnv("AION_ROLL_UI_ITEM_WATCH_SECONDS", RollUiItemDiffDefaultWatchSeconds),
+                1,
+                600);
+            int intervalMs = ClampInt(
+                ReadIntFromEnv("AION_ROLL_UI_ITEM_WATCH_INTERVAL_MS", RollUiItemDiffDefaultIntervalMs),
+                50,
+                5000);
+            int uiItemBytes = ClampInt(
+                ReadIntFromEnv("AION_ROLL_UI_ITEM_BYTES", RollUiItemDiffDefaultBytes),
+                0x40,
+                0x2000);
+            int lootItemControlBytes = ClampInt(
+                ReadIntFromEnv("AION_ROLL_UI_CONTROL_BYTES", RollUiItemControlDiffDefaultBytes),
+                0,
+                0x4000);
+            int changedOffsetLimit = ClampInt(
+                ReadIntFromEnv("AION_ROLL_UI_ITEM_CHANGED_OFFSET_LIMIT", RollUiItemDiffDefaultChangedOffsetLimit),
+                1,
+                4096);
+            int printLimit = ClampInt(ReadIntFromEnv("AION_ROLL_UI_ITEM_PRINT_LIMIT", 64), 1, 1000);
+            int pointerProbeLimit = ClampInt(ReadIntFromEnv("AION_ROLL_UI_ITEM_POINTER_PROBE_LIMIT", 64), 0, 1000);
+            int fieldEnd = ClampInt(ReadIntFromEnv("AION_ROLL_UI_ITEM_FIELD_END", 0xF8), 0, uiItemBytes - 8);
+            bool printBaselineFields = ReadBoolFromEnv("AION_ROLL_UI_ITEM_PRINT_BASELINE_FIELDS", true);
+
+            Console.WriteLine("AION roll uiItem diff probe.");
+            Console.WriteLine("DialogSlots=Game.dll+0x" + PartyRollDialogSlot0PointerRva.ToString("X") +
+                              " DialogId " + PartyRollDialogFirstId + ".." +
+                              (PartyRollDialogFirstId + PartyRollMaxSlots - 1).ToString() +
+                              " UiItemBytes=0x" + uiItemBytes.ToString("X") +
+                              " LootItemControlBytes=0x" + lootItemControlBytes.ToString("X") +
+                              " FieldEnd=0x" + fieldEnd.ToString("X") +
+                              " WatchSeconds=" + watchSeconds +
+                              " IntervalMs=" + intervalMs + ".");
+            Console.WriteLine("This mode does not scan full process memory; it only diffs DlgRoll lootItemControl/uiItem.");
+
+            RollUiItemDiffSnapshot baseline = ReadRollUiItemDiffSnapshot(process, gameBase, uiItemBytes, lootItemControlBytes);
+            Console.WriteLine(FormatRollUiItemDiffSnapshotSummary("RollUiItemBaseline", baseline));
+            PrintRollUiItemSlotSummaries("RollUiItemBaselineSlot", baseline.Slots);
+
+            if (printBaselineFields)
+            {
+                for (int i = 0; i < baseline.Slots.Count; i++)
+                {
+                    PrintRollUiItemFieldRows(
+                        process,
+                        "RollUiItemBaselineField",
+                        baseline.Slots[i],
+                        baseline.Slots[i],
+                        false,
+                        true,
+                        fieldEnd,
+                        pointerProbeLimit);
+                }
+            }
+
+            Console.WriteLine("Baseline captured. Start Roll now; this probe will print uiItem and lootItemControl changes.");
+
+            var stopwatch = Stopwatch.StartNew();
+            int sample = 0;
+            bool hadChanges = false;
+            string lastSignature = null;
+
+            while (stopwatch.ElapsedMilliseconds <= watchSeconds * 1000L)
+            {
+                sample++;
+                RollUiItemDiffSnapshot current = ReadRollUiItemDiffSnapshot(process, gameBase, uiItemBytes, lootItemControlBytes);
+                List<RollUiItemSlotChange> changes = CompareRollUiItemDiffSnapshots(baseline, current, changedOffsetLimit);
+                string signature = BuildRollUiItemDiffSignature(changes);
+
+                if (changes.Count > 0)
+                {
+                    hadChanges = true;
+                    if (!string.Equals(lastSignature, signature, StringComparison.Ordinal))
+                    {
+                        Console.WriteLine(FormatRollUiItemDiffSnapshotSummary("RollUiItemSample", current) +
+                                          " Sample=" + sample +
+                                          " ChangedSlots=" + changes.Count);
+                        PrintRollUiItemSlotChanges(process, changes, printLimit, fieldEnd, pointerProbeLimit);
+                        lastSignature = signature;
+                    }
+                }
+                else if (hadChanges)
+                {
+                    Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                                      "RollUiItemRecovered Sample=" + sample +
+                                      " ChangedSlots=0");
+                    hadChanges = false;
+                    lastSignature = "recovered";
+                }
+
+                Thread.Sleep(intervalMs);
+            }
+
+            Console.WriteLine("Roll uiItem diff probe finished.");
         }
 
         private static void RunSkillListTest(VmmProcess process, ulong gameBase)
@@ -12926,6 +13778,1979 @@ namespace Tool
             return true;
         }
 
+        private static bool TryReadPartyRollSnapshot(
+            VmmProcess process,
+            ulong gameBase,
+            int limit,
+            out PartyRollSnapshot snapshot,
+            out string error)
+        {
+            snapshot = new PartyRollSnapshot
+            {
+                Dialogs = ReadPartyRollDialogSlots(process, gameBase),
+                ListCandidates = new List<PartyRollManagerListCandidateInfo>(),
+                Items = new List<PartyRollItemInfo>()
+            };
+            error = null;
+
+            ulong manager;
+            if (!TryReadPointer(process, gameBase + PartyRollManagerGlobalRva, out manager) || manager == 0)
+            {
+                error = "failed to read party roll manager pointer at Game.dll+0x" + PartyRollManagerGlobalRva.ToString("X");
+                return false;
+            }
+
+            snapshot.ManagerAddress = manager;
+            ReadPartyRollManagerRootProbe(process, ref snapshot);
+            snapshot.ListCandidates = ScanPartyRollManagerListCandidates(process, gameBase, manager, limit);
+
+            ulong head;
+            if (!TryReadPointer(process, manager + PartyRollListHeadOffset, out head) || head == 0)
+            {
+                error = "failed to read PartyItem list head at Manager+0x" + PartyRollListHeadOffset.ToString("X");
+                return false;
+            }
+
+            snapshot.ListHeadAddress = head;
+            TryReadUInt64(process, manager + PartyRollListCountOffset, out snapshot.RawListCount);
+
+            ulong node;
+            if (!TryReadPointer(process, head + ListNodeNextOffset, out node))
+            {
+                error = "failed to read first PartyItem list node at Head+0x" + ListNodeNextOffset.ToString("X");
+                return false;
+            }
+
+            snapshot.FirstNodeAddress = node;
+
+            var visited = new HashSet<ulong>();
+            int expectedLimit = snapshot.RawListCount > 0 && snapshot.RawListCount < 1024
+                ? checked((int)snapshot.RawListCount + 8)
+                : limit;
+            int guardLimit = Math.Min(Math.Max(limit, PartyRollMaxSlots), Math.Max(expectedLimit, PartyRollMaxSlots));
+            guardLimit = ClampInt(guardLimit, 1, 1024);
+
+            for (int guard = 0; node != 0 && node != head && guard < guardLimit; guard++)
+            {
+                if (!visited.Add(node))
+                {
+                    break;
+                }
+
+                ulong next;
+                if (!TryReadPointer(process, node + ListNodeNextOffset, out next))
+                {
+                    break;
+                }
+
+                PartyRollItemInfo item;
+                if (TryReadPartyRollItemFromNode(process, gameBase, node, next, out item))
+                {
+                    snapshot.Items.Add(item);
+                }
+
+                node = next;
+            }
+
+            return true;
+        }
+
+        private static void ReadPartyRollManagerRootProbe(VmmProcess process, ref PartyRollSnapshot snapshot)
+        {
+            if (snapshot.ManagerAddress == 0)
+            {
+                return;
+            }
+
+            TryReadUInt64(process, snapshot.ManagerAddress + PartyRollManagerRootProbe770Offset, out snapshot.ManagerProbe770Raw64);
+            TryReadUInt32(process, snapshot.ManagerAddress + PartyRollManagerRootProbe770Offset, out snapshot.ManagerProbe770Raw32);
+            TryReadUInt32(process, snapshot.ManagerAddress + PartyRollManagerRootProbe77COffset, out snapshot.ManagerProbe77CRaw32);
+            TryReadUInt64(process, snapshot.ManagerAddress + PartyRollManagerRootProbe780Offset, out snapshot.ManagerProbe780Raw64);
+            TryReadUInt64(process, snapshot.ManagerAddress + PartyRollManagerRootProbe788Offset, out snapshot.ManagerProbe788Raw64);
+        }
+
+        private static List<PartyRollManagerListCandidateInfo> ScanPartyRollManagerListCandidates(
+            VmmProcess process,
+            ulong gameBase,
+            ulong manager,
+            int limit)
+        {
+            var candidates = new List<PartyRollManagerListCandidateInfo>();
+            if (manager == 0)
+            {
+                return candidates;
+            }
+
+            for (ulong offset = PartyRollManagerListScanStartOffset;
+                 offset <= PartyRollManagerListScanEndOffset;
+                 offset += PartyRollManagerListScanStep)
+            {
+                ulong head;
+                if (!TryReadPointer(process, manager + offset, out head) || head == 0)
+                {
+                    continue;
+                }
+
+                ulong count = 0;
+                TryReadUInt64(process, manager + offset + 8, out count);
+
+                ulong first = 0;
+                ulong last = 0;
+                TryReadPointer(process, head + ListNodeNextOffset, out first);
+                TryReadPointer(process, head + ListNodePrevOffset, out last);
+
+                bool hasListShape = first != 0 && last != 0;
+                bool hasListContent = hasListShape && (first != head || last != head || count != 0);
+                if (!hasListContent)
+                {
+                    continue;
+                }
+
+                var candidate = new PartyRollManagerListCandidateInfo
+                {
+                    HeadOffset = offset,
+                    CountOffset = offset + 8,
+                    HeadAddress = head,
+                    Count = count,
+                    FirstNodeAddress = first,
+                    LastNodeAddress = last,
+                    FirstSlotIndex = -1,
+                    FirstName = string.Empty
+                };
+
+                List<PartyRollItemInfo> items;
+                if (TryReadPartyRollItemsFromListHead(process, gameBase, head, count, limit, out items))
+                {
+                    candidate.MatchedItems = items.Count;
+                    if (items.Count > 0)
+                    {
+                        candidate.FirstTemplateId = items[0].TemplateId;
+                        candidate.FirstSlotIndex = items[0].SlotIndex;
+                        candidate.FirstName = items[0].Name ?? string.Empty;
+                    }
+                }
+
+                if (candidate.Count != 0 ||
+                    candidate.FirstNodeAddress != candidate.HeadAddress ||
+                    candidate.LastNodeAddress != candidate.HeadAddress ||
+                    candidate.MatchedItems != 0)
+                {
+                    candidates.Add(candidate);
+                }
+            }
+
+            return candidates;
+        }
+
+        private static bool TryReadPartyRollItemsFromListHead(
+            VmmProcess process,
+            ulong gameBase,
+            ulong head,
+            ulong rawCount,
+            int limit,
+            out List<PartyRollItemInfo> items)
+        {
+            items = new List<PartyRollItemInfo>();
+
+            ulong node;
+            if (!TryReadPointer(process, head + ListNodeNextOffset, out node))
+            {
+                return false;
+            }
+
+            var visited = new HashSet<ulong>();
+            int expectedLimit = rawCount > 0 && rawCount < 1024
+                ? checked((int)rawCount + 8)
+                : limit;
+            int guardLimit = Math.Min(Math.Max(limit, PartyRollMaxSlots), Math.Max(expectedLimit, PartyRollMaxSlots));
+            guardLimit = ClampInt(guardLimit, 1, 1024);
+
+            for (int guard = 0; node != 0 && node != head && guard < guardLimit; guard++)
+            {
+                if (!visited.Add(node))
+                {
+                    break;
+                }
+
+                ulong next;
+                if (!TryReadPointer(process, node + ListNodeNextOffset, out next))
+                {
+                    break;
+                }
+
+                PartyRollItemInfo item;
+                if (TryReadPartyRollItemFromNode(process, gameBase, node, next, out item))
+                {
+                    items.Add(item);
+                }
+
+                node = next;
+            }
+
+            return true;
+        }
+
+        private static List<PartyRollDialogInfo> ReadPartyRollDialogSlots(VmmProcess process, ulong gameBase)
+        {
+            var dialogs = new List<PartyRollDialogInfo>();
+            for (int slot = 0; slot < PartyRollMaxSlots; slot++)
+            {
+                var dialog = new PartyRollDialogInfo
+                {
+                    SlotIndex = slot,
+                    PointerAddress = gameBase + PartyRollDialogSlot0PointerRva + ((ulong)slot * 8UL),
+                    UiItemName = string.Empty
+                };
+
+                ulong dialogAddress;
+                if (TryReadPointer(process, dialog.PointerAddress, out dialogAddress) && dialogAddress != 0)
+                {
+                    dialog.DialogAddress = dialogAddress;
+                    TryReadUInt64(process, dialogAddress + PartyRollDialogFlagsOffset, out dialog.Flags);
+                    TryReadUInt32(process, dialogAddress + PartyRollDialogIdOffset, out dialog.DialogId);
+                    dialog.DialogVisible = (dialog.Flags & PartyRollDialogVisibleMask) != 0;
+                    TryReadPartyRollDialogUiChain(process, ref dialog);
+                }
+
+                dialogs.Add(dialog);
+            }
+
+            return dialogs;
+        }
+
+        private static void TryReadPartyRollDialogUiChain(VmmProcess process, ref PartyRollDialogInfo dialog)
+        {
+            if (dialog.DialogAddress == 0)
+            {
+                return;
+            }
+
+            if (!TryReadPointer(process, dialog.DialogAddress + PartyRollDialogLootItemControlOffset, out dialog.LootItemControlAddress) ||
+                dialog.LootItemControlAddress == 0)
+            {
+                return;
+            }
+
+            TryReadPointer(process, dialog.LootItemControlAddress + PartyRollLootItemUiSlotArrayBeginOffset, out dialog.UiSlotArrayBeginAddress);
+            TryReadPointer(process, dialog.LootItemControlAddress + PartyRollLootItemUiSlotArrayEndOffset, out dialog.UiSlotArrayEndAddress);
+
+            if (!IsPartyRollPointerRange(dialog.UiSlotArrayBeginAddress, dialog.UiSlotArrayEndAddress))
+            {
+                return;
+            }
+
+            if (!TryReadPointer(process, dialog.UiSlotArrayBeginAddress, out dialog.UiItemAddress) ||
+                dialog.UiItemAddress == 0)
+            {
+                return;
+            }
+
+            TryReadUInt64(process, dialog.UiItemAddress + PartyRollUiItemOuterBeginOffset, out dialog.UiItemTextBeginRaw);
+            TryReadUInt64(process, dialog.UiItemAddress + PartyRollUiItemOuterEndOffset, out dialog.UiItemTextEndRaw);
+            TryReadUInt32(process, dialog.UiItemAddress + PartyRollUiItemFieldA0Offset, out dialog.UiItemFieldA0);
+            TryReadUInt32(process, dialog.UiItemAddress + PartyRollUiItemFieldA4Offset, out dialog.UiItemFieldA4);
+            TryReadUInt32(process, dialog.UiItemAddress + PartyRollUiItemTemplateIdOffset, out dialog.UiItemTemplateId);
+            TryReadUInt64(process, dialog.UiItemAddress + PartyRollUiItemFieldB0Offset, out dialog.UiItemFieldB0);
+            TryReadUInt32(process, dialog.UiItemAddress + PartyRollUiItemFieldBCOffset, out dialog.UiItemFieldBC);
+            TryReadUInt32(process, dialog.UiItemAddress + PartyRollUiItemField104Offset, out dialog.UiItemField104);
+
+            if (IsLikelyUserPointer(dialog.UiItemTextBeginRaw))
+            {
+                dialog.OuterBeginAddress = dialog.UiItemTextBeginRaw;
+            }
+
+            if (IsLikelyUserPointer(dialog.UiItemTextEndRaw))
+            {
+                dialog.OuterEndAddress = dialog.UiItemTextEndRaw;
+            }
+
+            if (!IsPartyRollPointerRange(dialog.OuterBeginAddress, dialog.OuterEndAddress))
+            {
+                return;
+            }
+
+            TryReadPointer(process, dialog.OuterBeginAddress + PartyRollTextGroupInnerBeginOffset, out dialog.InnerBeginAddress);
+            TryReadPointer(process, dialog.OuterBeginAddress + PartyRollTextGroupInnerEndOffset, out dialog.InnerEndAddress);
+
+            if (!IsPartyRollPointerRange(dialog.InnerBeginAddress, dialog.InnerEndAddress))
+            {
+                return;
+            }
+
+            dialog.NameObjectAddress = dialog.InnerBeginAddress;
+            TryReadUInt64(process, dialog.NameObjectAddress + 0x10, out dialog.NameLength);
+            TryReadUInt64(process, dialog.NameObjectAddress + 0x18, out dialog.NameCapacity);
+
+            string name;
+            ulong nameBuffer;
+            if (TryReadMsvcWStringWithBuffer(process, dialog.NameObjectAddress, out name, out nameBuffer))
+            {
+                dialog.UiItemName = name;
+                dialog.NameBufferAddress = nameBuffer;
+            }
+        }
+
+        private static RollUiItemDiffSnapshot ReadRollUiItemDiffSnapshot(
+            VmmProcess process,
+            ulong gameBase,
+            int uiItemBytes,
+            int lootItemControlBytes)
+        {
+            var snapshot = new RollUiItemDiffSnapshot
+            {
+                CapturedAt = DateTime.Now,
+                UiItemBytes = uiItemBytes,
+                LootItemControlBytes = lootItemControlBytes,
+                Slots = new List<RollUiItemSlotSnapshot>()
+            };
+
+            List<PartyRollDialogInfo> dialogs = ReadPartyRollDialogSlots(process, gameBase);
+            for (int i = 0; i < dialogs.Count; i++)
+            {
+                PartyRollDialogInfo dialog = dialogs[i];
+                var slot = new RollUiItemSlotSnapshot
+                {
+                    SlotIndex = dialog.SlotIndex,
+                    PointerAddress = dialog.PointerAddress,
+                    DialogAddress = dialog.DialogAddress,
+                    DialogId = dialog.DialogId,
+                    LootItemControlAddress = dialog.LootItemControlAddress,
+                    UiSlotArrayBeginAddress = dialog.UiSlotArrayBeginAddress,
+                    UiSlotArrayEndAddress = dialog.UiSlotArrayEndAddress,
+                    UiItemAddress = dialog.UiItemAddress
+                };
+
+                byte[] uiItemRaw;
+                if (slot.UiItemAddress != 0 &&
+                    uiItemBytes > 0 &&
+                    TryReadBytes(process, slot.UiItemAddress, uiItemBytes, out uiItemRaw))
+                {
+                    slot.UiItemBytes = uiItemRaw;
+                    slot.UiItemBytesRead = true;
+                    slot.UiItemHash = ComputeFnv1a64(uiItemRaw);
+                }
+
+                byte[] lootItemControlRaw;
+                if (slot.LootItemControlAddress != 0 &&
+                    lootItemControlBytes > 0 &&
+                    TryReadBytes(process, slot.LootItemControlAddress, lootItemControlBytes, out lootItemControlRaw))
+                {
+                    slot.LootItemControlBytes = lootItemControlRaw;
+                    slot.LootItemControlBytesRead = true;
+                    slot.LootItemControlHash = ComputeFnv1a64(lootItemControlRaw);
+                }
+
+                snapshot.Slots.Add(slot);
+            }
+
+            return snapshot;
+        }
+
+        private static List<RollUiItemSlotChange> CompareRollUiItemDiffSnapshots(
+            RollUiItemDiffSnapshot baseline,
+            RollUiItemDiffSnapshot current,
+            int changedOffsetLimit)
+        {
+            var changes = new List<RollUiItemSlotChange>();
+            var slots = new SortedSet<int>(baseline.Slots.Select(slot => slot.SlotIndex));
+            foreach (RollUiItemSlotSnapshot slot in current.Slots)
+            {
+                slots.Add(slot.SlotIndex);
+            }
+
+            foreach (int slotIndex in slots)
+            {
+                RollUiItemSlotSnapshot before;
+                RollUiItemSlotSnapshot after;
+                bool hasBefore = TryGetRollUiItemSlot(baseline.Slots, slotIndex, out before);
+                bool hasAfter = TryGetRollUiItemSlot(current.Slots, slotIndex, out after);
+
+                if (!hasBefore && hasAfter)
+                {
+                    changes.Add(new RollUiItemSlotChange
+                    {
+                        SlotIndex = slotIndex,
+                        After = after,
+                        ChangeKind = "appeared",
+                        UiItemChangedOffsets = "n/a",
+                        LootItemControlChangedOffsets = "n/a"
+                    });
+                    continue;
+                }
+
+                if (hasBefore && !hasAfter)
+                {
+                    changes.Add(new RollUiItemSlotChange
+                    {
+                        SlotIndex = slotIndex,
+                        Before = before,
+                        ChangeKind = "disappeared",
+                        UiItemChangedOffsets = "n/a",
+                        LootItemControlChangedOffsets = "n/a"
+                    });
+                    continue;
+                }
+
+                if (!hasBefore || !hasAfter || !IsRollUiItemSlotChanged(before, after))
+                {
+                    continue;
+                }
+
+                int uiItemChangedBytes = 0;
+                string uiItemChangedOffsets = "n/a";
+                if (before.UiItemAddress == after.UiItemAddress &&
+                    before.UiItemBytes != null &&
+                    after.UiItemBytes != null &&
+                    before.UiItemBytes.Length == after.UiItemBytes.Length)
+                {
+                    uiItemChangedOffsets = FormatChangedByteRanges(
+                        before.UiItemBytes,
+                        after.UiItemBytes,
+                        changedOffsetLimit,
+                        out uiItemChangedBytes);
+                }
+
+                int controlChangedBytes = 0;
+                string controlChangedOffsets = "n/a";
+                if (before.LootItemControlAddress == after.LootItemControlAddress &&
+                    before.LootItemControlBytes != null &&
+                    after.LootItemControlBytes != null &&
+                    before.LootItemControlBytes.Length == after.LootItemControlBytes.Length)
+                {
+                    controlChangedOffsets = FormatChangedByteRanges(
+                        before.LootItemControlBytes,
+                        after.LootItemControlBytes,
+                        changedOffsetLimit,
+                        out controlChangedBytes);
+                }
+
+                changes.Add(new RollUiItemSlotChange
+                {
+                    SlotIndex = slotIndex,
+                    Before = before,
+                    After = after,
+                    ChangeKind = "changed",
+                    UiItemChangedByteCount = uiItemChangedBytes,
+                    UiItemChangedOffsets = uiItemChangedOffsets,
+                    LootItemControlChangedByteCount = controlChangedBytes,
+                    LootItemControlChangedOffsets = controlChangedOffsets
+                });
+            }
+
+            return changes;
+        }
+
+        private static bool TryGetRollUiItemSlot(List<RollUiItemSlotSnapshot> slots, int slotIndex, out RollUiItemSlotSnapshot slot)
+        {
+            slot = new RollUiItemSlotSnapshot();
+            if (slots == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < slots.Count; i++)
+            {
+                if (slots[i].SlotIndex == slotIndex)
+                {
+                    slot = slots[i];
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsRollUiItemSlotChanged(RollUiItemSlotSnapshot before, RollUiItemSlotSnapshot after)
+        {
+            return before.DialogAddress != after.DialogAddress ||
+                   before.DialogId != after.DialogId ||
+                   before.LootItemControlAddress != after.LootItemControlAddress ||
+                   before.UiSlotArrayBeginAddress != after.UiSlotArrayBeginAddress ||
+                   before.UiSlotArrayEndAddress != after.UiSlotArrayEndAddress ||
+                   before.UiItemAddress != after.UiItemAddress ||
+                   before.UiItemBytesRead != after.UiItemBytesRead ||
+                   before.UiItemHash != after.UiItemHash ||
+                   before.LootItemControlBytesRead != after.LootItemControlBytesRead ||
+                   before.LootItemControlHash != after.LootItemControlHash;
+        }
+
+        private static RollDialogSnapshot ReadRollDialogTableSnapshot(
+            VmmProcess process,
+            ulong gameBase,
+            int maxDialogId,
+            int hashBytes)
+        {
+            var snapshot = new RollDialogSnapshot
+            {
+                CapturedAt = DateTime.Now,
+                TableAddress = gameBase + RollDialogTableRva,
+                MaxDialogId = maxDialogId,
+                HashBytes = hashBytes,
+                Entries = new Dictionary<int, RollDialogEntry>()
+            };
+
+            for (int dialogId = 0; dialogId <= maxDialogId; dialogId++)
+            {
+                ulong pointerAddress = snapshot.TableAddress + ((ulong)dialogId * 8UL);
+                ulong dialogAddress;
+                if (!TryReadPointer(process, pointerAddress, out dialogAddress) || dialogAddress == 0)
+                {
+                    continue;
+                }
+
+                var entry = new RollDialogEntry
+                {
+                    DialogId = dialogId,
+                    PointerAddress = pointerAddress,
+                    DialogAddress = dialogAddress
+                };
+
+                TryReadPointer(process, dialogAddress, out entry.Vtable);
+                TryReadUInt32(process, dialogAddress + PartyRollDialogIdOffset, out entry.InternalDialogId);
+
+                byte[] bytes;
+                if (TryReadBytes(process, dialogAddress, hashBytes, out bytes))
+                {
+                    entry.Bytes = bytes;
+                    entry.Hash = ComputeFnv1a64(bytes);
+                    entry.HashRead = true;
+                }
+
+                snapshot.Entries[dialogId] = entry;
+            }
+
+            return snapshot;
+        }
+
+        private static List<RollDialogChange> CompareRollDialogSnapshots(
+            RollDialogSnapshot baseline,
+            RollDialogSnapshot current,
+            int changedOffsetLimit)
+        {
+            var changes = new List<RollDialogChange>();
+            var dialogIds = new SortedSet<int>(baseline.Entries.Keys);
+            foreach (int dialogId in current.Entries.Keys)
+            {
+                dialogIds.Add(dialogId);
+            }
+
+            foreach (int dialogId in dialogIds)
+            {
+                RollDialogEntry before;
+                RollDialogEntry after;
+                bool hadBefore = baseline.Entries.TryGetValue(dialogId, out before);
+                bool hasAfter = current.Entries.TryGetValue(dialogId, out after);
+
+                if (!hadBefore && hasAfter)
+                {
+                    changes.Add(new RollDialogChange
+                    {
+                        DialogId = dialogId,
+                        ChangeKind = "appeared",
+                        After = after
+                    });
+                    continue;
+                }
+
+                if (hadBefore && !hasAfter)
+                {
+                    changes.Add(new RollDialogChange
+                    {
+                        DialogId = dialogId,
+                        ChangeKind = "disappeared",
+                        Before = before
+                    });
+                    continue;
+                }
+
+                if (!hadBefore || !hasAfter || !IsRollDialogEntryChanged(before, after))
+                {
+                    continue;
+                }
+
+                int changedByteCount = 0;
+                string changedOffsets = "n/a";
+                if (before.DialogAddress == after.DialogAddress &&
+                    before.Bytes != null &&
+                    after.Bytes != null &&
+                    before.Bytes.Length == after.Bytes.Length)
+                {
+                    changedOffsets = FormatChangedByteRanges(before.Bytes, after.Bytes, changedOffsetLimit, out changedByteCount);
+                }
+
+                changes.Add(new RollDialogChange
+                {
+                    DialogId = dialogId,
+                    ChangeKind = "changed",
+                    Before = before,
+                    After = after,
+                    ChangedByteCount = changedByteCount,
+                    ChangedOffsets = changedOffsets
+                });
+            }
+
+            return changes;
+        }
+
+        private static bool IsRollDialogEntryChanged(RollDialogEntry before, RollDialogEntry after)
+        {
+            if (before.DialogAddress != after.DialogAddress ||
+                before.Vtable != after.Vtable ||
+                before.InternalDialogId != after.InternalDialogId ||
+                before.HashRead != after.HashRead)
+            {
+                return true;
+            }
+
+            return before.HashRead && after.HashRead && before.Hash != after.Hash;
+        }
+
+        private static RollStringScanResult ScanRollItemNameAndReferences(
+            VmmProcess process,
+            string itemName,
+            ulong maxScanBytes,
+            int chunkBytes,
+            int hitLimit,
+            int referenceLimit)
+        {
+            var result = new RollStringScanResult
+            {
+                ItemName = itemName ?? string.Empty,
+                HitLimit = hitLimit,
+                StringAddresses = new List<ulong>(),
+                ReferencesByStringAddress = new Dictionary<ulong, List<ulong>>()
+            };
+
+            if (string.IsNullOrEmpty(itemName))
+            {
+                return result;
+            }
+
+            List<RollMemoryRange> ranges = ReadRollMemoryRanges(process);
+            byte[] stringPattern = Encoding.Unicode.GetBytes(itemName);
+            ulong scannedBytes;
+            int scannedRanges;
+            result.StringAddresses = ScanBytePatternInMemoryRanges(
+                process,
+                ranges,
+                stringPattern,
+                maxScanBytes,
+                chunkBytes,
+                hitLimit,
+                out scannedBytes,
+                out scannedRanges);
+            result.ScannedBytes = scannedBytes;
+            result.ScannedRanges = scannedRanges;
+
+            if (referenceLimit <= 0 || result.StringAddresses.Count == 0)
+            {
+                return result;
+            }
+
+            int refTargetLimit = ClampInt(ReadIntFromEnv("AION_ROLL_STRING_REF_TARGET_LIMIT", 16), 1, 256);
+            foreach (ulong stringAddress in result.StringAddresses.OrderBy(address => address).Take(refTargetLimit))
+            {
+                byte[] addressPattern = BitConverter.GetBytes(stringAddress);
+                ulong referenceScannedBytes;
+                int referenceScannedRanges;
+                List<ulong> references = ScanBytePatternInMemoryRanges(
+                    process,
+                    ranges,
+                    addressPattern,
+                    maxScanBytes,
+                    chunkBytes,
+                    referenceLimit,
+                    out referenceScannedBytes,
+                    out referenceScannedRanges);
+                result.ReferencesByStringAddress[stringAddress] = references
+                    .Where(referenceAddress => referenceAddress != stringAddress)
+                    .OrderBy(referenceAddress => referenceAddress)
+                    .ToList();
+            }
+
+            return result;
+        }
+
+        private static List<RollMemoryRange> ReadRollMemoryRanges(VmmProcess process)
+        {
+            var ranges = new List<RollMemoryRange>();
+
+            VmmProcess.VadEntry[] vads;
+            try
+            {
+                vads = process.MapVAD(true);
+            }
+            catch
+            {
+                return ranges;
+            }
+
+            if (vads == null)
+            {
+                return ranges;
+            }
+
+            foreach (VmmProcess.VadEntry vad in vads)
+            {
+                if (vad.vaStart == 0 || vad.vaEnd < vad.vaStart)
+                {
+                    continue;
+                }
+
+                ranges.Add(new RollMemoryRange
+                {
+                    Start = vad.vaStart,
+                    End = vad.vaEnd,
+                    Label = vad.sText ?? string.Empty
+                });
+            }
+
+            return ranges
+                .OrderBy(range => range.Start)
+                .ToList();
+        }
+
+        private static List<ulong> ScanBytePatternInMemoryRanges(
+            VmmProcess process,
+            List<RollMemoryRange> ranges,
+            byte[] pattern,
+            ulong maxScanBytes,
+            int chunkBytes,
+            int hitLimit,
+            out ulong scannedBytes,
+            out int scannedRanges)
+        {
+            var hits = new List<ulong>();
+            var seen = new HashSet<ulong>();
+            scannedBytes = 0;
+            scannedRanges = 0;
+
+            if (ranges == null ||
+                ranges.Count == 0 ||
+                pattern == null ||
+                pattern.Length == 0 ||
+                maxScanBytes == 0 ||
+                chunkBytes <= 0 ||
+                hitLimit <= 0)
+            {
+                return hits;
+            }
+
+            int overlapLength = Math.Max(pattern.Length - 1, 0);
+
+            foreach (RollMemoryRange range in ranges)
+            {
+                if (hits.Count >= hitLimit || scannedBytes >= maxScanBytes)
+                {
+                    break;
+                }
+
+                if (range.End < range.Start)
+                {
+                    continue;
+                }
+
+                ulong rangeSize = range.End - range.Start + 1;
+                if (rangeSize < (ulong)pattern.Length)
+                {
+                    continue;
+                }
+
+                ulong offset = 0;
+                byte[] tail = new byte[0];
+                bool hadReadableChunk = false;
+
+                while (offset < rangeSize && hits.Count < hitLimit && scannedBytes < maxScanBytes)
+                {
+                    ulong remainingAllowed = maxScanBytes - scannedBytes;
+                    int readSize = (int)Math.Min((ulong)chunkBytes, Math.Min(rangeSize - offset, remainingAllowed));
+                    if (readSize <= 0)
+                    {
+                        break;
+                    }
+
+                    ulong address = range.Start + offset;
+                    byte[] bytes;
+                    if (TryReadBytes(process, address, readSize, out bytes) && bytes != null && bytes.Length > 0)
+                    {
+                        hadReadableChunk = true;
+                        int tailLength = tail == null ? 0 : tail.Length;
+                        byte[] combined;
+                        if (tailLength == 0)
+                        {
+                            combined = bytes;
+                        }
+                        else
+                        {
+                            combined = new byte[tailLength + bytes.Length];
+                            Buffer.BlockCopy(tail, 0, combined, 0, tailLength);
+                            Buffer.BlockCopy(bytes, 0, combined, tailLength, bytes.Length);
+                        }
+
+                        ulong combinedBase = address - (ulong)tailLength;
+                        foreach (int matchOffset in FindBytePatternMatches(combined, pattern))
+                        {
+                            ulong hitAddress = combinedBase + (ulong)matchOffset;
+                            if (hitAddress < range.Start ||
+                                hitAddress + (ulong)pattern.Length - 1 > range.End ||
+                                !seen.Add(hitAddress))
+                            {
+                                continue;
+                            }
+
+                            hits.Add(hitAddress);
+                            if (hits.Count >= hitLimit)
+                            {
+                                break;
+                            }
+                        }
+
+                        int newTailLength = Math.Min(overlapLength, combined.Length);
+                        if (newTailLength == 0)
+                        {
+                            tail = new byte[0];
+                        }
+                        else
+                        {
+                            tail = new byte[newTailLength];
+                            Buffer.BlockCopy(combined, combined.Length - newTailLength, tail, 0, newTailLength);
+                        }
+                    }
+                    else
+                    {
+                        tail = new byte[0];
+                    }
+
+                    offset += (ulong)readSize;
+                    scannedBytes += (ulong)readSize;
+                }
+
+                if (hadReadableChunk)
+                {
+                    scannedRanges++;
+                }
+            }
+
+            return hits;
+        }
+
+        private static List<int> FindBytePatternMatches(byte[] bytes, byte[] pattern)
+        {
+            var offsets = new List<int>();
+            if (bytes == null || pattern == null || pattern.Length == 0 || bytes.Length < pattern.Length)
+            {
+                return offsets;
+            }
+
+            for (int offset = 0; offset <= bytes.Length - pattern.Length; offset++)
+            {
+                bool matched = true;
+                for (int i = 0; i < pattern.Length; i++)
+                {
+                    if (bytes[offset + i] != pattern[i])
+                    {
+                        matched = false;
+                        break;
+                    }
+                }
+
+                if (matched)
+                {
+                    offsets.Add(offset);
+                }
+            }
+
+            return offsets;
+        }
+
+        private static bool TryReadPartyRollItemFromNode(
+            VmmProcess process,
+            ulong gameBase,
+            ulong node,
+            ulong next,
+            out PartyRollItemInfo info)
+        {
+            info = new PartyRollItemInfo
+            {
+                NodeAddress = node,
+                NextNodeAddress = next,
+                SlotIndex = -1,
+                Name = string.Empty
+            };
+
+            ulong partyItem;
+            if (!TryReadPointer(process, node + ListNodeValueOffset, out partyItem) || partyItem == 0)
+            {
+                return false;
+            }
+
+            info.ItemAddress = partyItem;
+
+            uint rawSlotIndex;
+            if (!TryReadUInt32(process, partyItem + PartyRollItemSlotIndexOffset, out rawSlotIndex) ||
+                rawSlotIndex >= PartyRollMaxSlots)
+            {
+                return false;
+            }
+
+            info.SlotIndex = checked((int)rawSlotIndex);
+            TryReadUInt32(process, partyItem + PartyRollItemInstanceIdOffset, out info.InstanceId);
+            TryReadUInt32(process, partyItem + PartyRollItemTemplateIdOffset, out info.TemplateId);
+            TryReadUInt64(process, partyItem + PartyRollItemCountOffset, out info.Count);
+            TryReadUInt32(process, partyItem + PartyRollItemRollModeOffset, out info.RollMode);
+            TryReadUInt32(process, partyItem + PartyRollItemExpireTickOffset, out info.ExpireTick);
+
+            string name;
+            ulong nameBuffer;
+            if (TryReadMsvcWStringWithBuffer(process, partyItem + PartyRollItemNameOffset, out name, out nameBuffer))
+            {
+                info.Name = name;
+                info.NameBufferAddress = nameBuffer;
+            }
+
+            ulong dialogPointerAddress = gameBase + PartyRollDialogSlot0PointerRva + ((ulong)info.SlotIndex * 8UL);
+            ulong dialog;
+            if (TryReadPointer(process, dialogPointerAddress, out dialog) && dialog != 0)
+            {
+                info.DialogAddress = dialog;
+
+                ulong flags;
+                if (TryReadUInt64(process, dialog + PartyRollDialogFlagsOffset, out flags))
+                {
+                    info.DialogVisible = (flags & PartyRollDialogVisibleMask) != 0;
+                }
+
+                TryReadUInt32(process, dialog + PartyRollDialogIdOffset, out info.DialogId);
+            }
+
+            return true;
+        }
+
+        private static string FormatPartyRollItem(int index, PartyRollItemInfo item)
+        {
+            return "PartyRollItem#" + index.ToString("00") +
+                   " Slot=" + item.SlotIndex +
+                   " Visible=" + FormatYesNo(item.DialogVisible) +
+                   " DialogId=" + (item.DialogId == 0 ? "n/a" : item.DialogId.ToString()) +
+                   " TemplateId=" + item.TemplateId +
+                   " InstanceId=" + item.InstanceId +
+                   " Count=" + item.Count +
+                   " Name=\"" + EscapeProbeText(item.Name) + "\"" +
+                   " RollMode=" + item.RollMode +
+                   " ExpireTick=" + item.ExpireTick +
+                   " Node=" + FormatAddress(item.NodeAddress) +
+                   " PartyItem=" + FormatAddress(item.ItemAddress) +
+                   " NameBuffer=" + FormatAddress(item.NameBufferAddress) +
+                   " Dialog=" + FormatAddress(item.DialogAddress);
+        }
+
+        private static string FormatPartyRollDialog(PartyRollDialogInfo dialog)
+        {
+            return "PartyRollDialogSlot#" + dialog.SlotIndex +
+                   " Visible=" + FormatYesNo(dialog.DialogVisible) +
+                   " DialogId=" + (dialog.DialogId == 0 ? "n/a" : dialog.DialogId.ToString()) +
+                   " PointerAt=" + FormatAddress(dialog.PointerAddress) +
+                   " Dialog=" + FormatAddress(dialog.DialogAddress) +
+                   " Flags=0x" + dialog.Flags.ToString("X") +
+                   " LootItemControl=" + FormatAddress(dialog.LootItemControlAddress) +
+                   " UiSlotArrayBegin=" + FormatAddress(dialog.UiSlotArrayBeginAddress) +
+                   " UiSlotArrayEnd=" + FormatAddress(dialog.UiSlotArrayEndAddress) +
+                   " UiSlotArrayValid=" + FormatYesNo(IsPartyRollPointerRange(dialog.UiSlotArrayBeginAddress, dialog.UiSlotArrayEndAddress)) +
+                   " UiItem=" + FormatAddress(dialog.UiItemAddress) +
+                   " UiItem+0xA0=" + FormatUInt32Hex(dialog.UiItemFieldA0) + "/" + dialog.UiItemFieldA0 +
+                   " UiItem+0xA4=" + FormatUInt32Hex(dialog.UiItemFieldA4) + "/" + dialog.UiItemFieldA4 +
+                   " TemplateId+0xA8=" + FormatUInt32Hex(dialog.UiItemTemplateId) + "/" + dialog.UiItemTemplateId +
+                   " UiItem+0xB0=" + FormatUInt64Hex(dialog.UiItemFieldB0) + "/" + dialog.UiItemFieldB0 +
+                   " UiItem+0xBC=" + FormatUInt32Hex(dialog.UiItemFieldBC) + "/" + dialog.UiItemFieldBC +
+                   " UiItem+0x104=" + FormatUInt32Hex(dialog.UiItemField104) + "/" + dialog.UiItemField104 +
+                   " UiItem+0x48Raw=" + FormatUInt64Hex(dialog.UiItemTextBeginRaw) +
+                   " UiItem+0x50Raw=" + FormatUInt64Hex(dialog.UiItemTextEndRaw) +
+                   " FilledCandidate=" + FormatYesNo(IsPartyRollUiItemFilledCandidate(dialog)) +
+                   " OuterBegin=" + FormatAddress(dialog.OuterBeginAddress) +
+                   " OuterEnd=" + FormatAddress(dialog.OuterEndAddress) +
+                   " OuterValid=" + FormatYesNo(IsPartyRollPointerRange(dialog.OuterBeginAddress, dialog.OuterEndAddress)) +
+                   " InnerBegin=" + FormatAddress(dialog.InnerBeginAddress) +
+                   " InnerEnd=" + FormatAddress(dialog.InnerEndAddress) +
+                   " InnerValid=" + FormatYesNo(IsPartyRollPointerRange(dialog.InnerBeginAddress, dialog.InnerEndAddress)) +
+                   " NameObject=" + FormatAddress(dialog.NameObjectAddress) +
+                   " Length=" + dialog.NameLength +
+                   " Capacity=" + dialog.NameCapacity +
+                   " NameShapeValid=" + FormatYesNo(IsPartyRollNameShapeValid(dialog)) +
+                   " NameAddress=" + FormatAddress(dialog.NameBufferAddress) +
+                   " UiItemName=\"" + EscapeProbeText(dialog.UiItemName) + "\"";
+        }
+
+        private static bool HasPartyRollUiChainCandidate(PartyRollDialogInfo dialog)
+        {
+            return IsPartyRollPointerRange(dialog.UiSlotArrayBeginAddress, dialog.UiSlotArrayEndAddress) ||
+                   dialog.UiItemAddress != 0 ||
+                   dialog.UiItemTemplateId != 0 ||
+                   dialog.UiItemTextBeginRaw != 0 ||
+                   dialog.UiItemTextEndRaw != 0 ||
+                   IsPartyRollPointerRange(dialog.OuterBeginAddress, dialog.OuterEndAddress) ||
+                   IsPartyRollPointerRange(dialog.InnerBeginAddress, dialog.InnerEndAddress) ||
+                   dialog.NameLength > 0 ||
+                   !string.IsNullOrEmpty(dialog.UiItemName);
+        }
+
+        private static bool HasPartyRollUiName(PartyRollDialogInfo dialog)
+        {
+            return !string.IsNullOrEmpty(dialog.UiItemName);
+        }
+
+        private static bool IsPartyRollPointerRange(ulong begin, ulong end)
+        {
+            return begin != 0 && end > begin;
+        }
+
+        private static bool IsPartyRollNameShapeValid(PartyRollDialogInfo dialog)
+        {
+            return dialog.NameLength > 0 &&
+                   dialog.NameLength < 256 &&
+                   dialog.NameCapacity >= dialog.NameLength;
+        }
+
+        private static bool IsPartyRollUiItemFilledCandidate(PartyRollDialogInfo dialog)
+        {
+            return dialog.UiItemTemplateId != 0 &&
+                   IsPartyRollPointerRange(dialog.UiItemTextBeginRaw, dialog.UiItemTextEndRaw);
+        }
+
+        private static string FormatPartyRollManagerRootProbe(PartyRollSnapshot snapshot)
+        {
+            return "770=" + FormatUInt64Hex(snapshot.ManagerProbe770Raw64) +
+                   "/u32:" + snapshot.ManagerProbe770Raw32 +
+                   ",77C=" + FormatUInt32Hex(snapshot.ManagerProbe77CRaw32) +
+                   "/" + snapshot.ManagerProbe77CRaw32 +
+                   ",780=" + FormatUInt64Hex(snapshot.ManagerProbe780Raw64) +
+                   "/" + snapshot.ManagerProbe780Raw64 +
+                   ",788=" + FormatUInt64Hex(snapshot.ManagerProbe788Raw64);
+        }
+
+        private static string FormatPartyRollListCandidate(int index, PartyRollManagerListCandidateInfo candidate)
+        {
+            return "PartyRollListCandidate#" + index.ToString("00") +
+                   " HeadOffset=0x" + candidate.HeadOffset.ToString("X") +
+                   " CountOffset=0x" + candidate.CountOffset.ToString("X") +
+                   " Head=" + FormatAddress(candidate.HeadAddress) +
+                   " Count=" + candidate.Count +
+                   " FirstNode=" + FormatAddress(candidate.FirstNodeAddress) +
+                   " LastNode=" + FormatAddress(candidate.LastNodeAddress) +
+                   " MatchedItems=" + candidate.MatchedItems +
+                   " FirstTemplateId=" + candidate.FirstTemplateId +
+                   " FirstSlot=" + (candidate.FirstSlotIndex < 0 ? "n/a" : candidate.FirstSlotIndex.ToString()) +
+                   " FirstName=\"" + EscapeProbeText(candidate.FirstName) + "\"";
+        }
+
+        private static string BuildPartyRollUiChainSignature(List<PartyRollDialogInfo> dialogs)
+        {
+            if (dialogs == null || dialogs.Count == 0)
+            {
+                return "none";
+            }
+
+            var parts = new List<string>();
+            for (int i = 0; i < dialogs.Count; i++)
+            {
+                PartyRollDialogInfo dialog = dialogs[i];
+                parts.Add(
+                    dialog.SlotIndex.ToString() +
+                    ":" + FormatAddress(dialog.UiSlotArrayBeginAddress) +
+                    "/" + FormatAddress(dialog.UiItemAddress) +
+                    "/" + dialog.UiItemTemplateId.ToString() +
+                    "/" + FormatUInt64Hex(dialog.UiItemTextBeginRaw) +
+                    "/" + FormatUInt64Hex(dialog.UiItemTextEndRaw) +
+                    "/" + FormatAddress(dialog.InnerBeginAddress) +
+                    "/" + dialog.NameLength.ToString() +
+                    "/" + dialog.NameCapacity.ToString());
+            }
+
+            return string.Join(",", parts);
+        }
+
+        private static string BuildPartyRollListCandidateSignature(List<PartyRollManagerListCandidateInfo> candidates)
+        {
+            if (candidates == null || candidates.Count == 0)
+            {
+                return "none";
+            }
+
+            var parts = new List<string>();
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                PartyRollManagerListCandidateInfo candidate = candidates[i];
+                parts.Add(
+                    "0x" + candidate.HeadOffset.ToString("X") +
+                    ":" + FormatAddress(candidate.HeadAddress) +
+                    "/" + candidate.Count.ToString() +
+                    "/" + FormatAddress(candidate.FirstNodeAddress) +
+                    "/" + candidate.MatchedItems.ToString() +
+                    "/" + candidate.FirstTemplateId.ToString());
+            }
+
+            return string.Join(",", parts);
+        }
+
+        private static string FormatRollUiItemDiffSnapshotSummary(string label, RollUiItemDiffSnapshot snapshot)
+        {
+            return "[" + snapshot.CapturedAt.ToString("HH:mm:ss.fff") + "] " +
+                   label +
+                   " Slots=" + (snapshot.Slots == null ? 0 : snapshot.Slots.Count) +
+                   " UiItemBytes=0x" + snapshot.UiItemBytes.ToString("X") +
+                   " LootItemControlBytes=0x" + snapshot.LootItemControlBytes.ToString("X") +
+                   " UiItems=" + CountRollUiItemAddresses(snapshot.Slots) +
+                   " UiItemPointerSlots=" + CountRollUiItemInlineOrPointerText(snapshot.Slots);
+        }
+
+        private static int CountRollUiItemAddresses(List<RollUiItemSlotSnapshot> slots)
+        {
+            if (slots == null)
+            {
+                return 0;
+            }
+
+            return slots.Count(slot => slot.UiItemAddress != 0);
+        }
+
+        private static int CountRollUiItemInlineOrPointerText(List<RollUiItemSlotSnapshot> slots)
+        {
+            if (slots == null)
+            {
+                return 0;
+            }
+
+            int count = 0;
+            for (int i = 0; i < slots.Count; i++)
+            {
+                if (HasRollUiItemLikelyText(slots[i]))
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private static bool HasRollUiItemLikelyText(RollUiItemSlotSnapshot slot)
+        {
+            if (slot.UiItemBytes == null || slot.UiItemAddress == 0)
+            {
+                return false;
+            }
+
+            int maxOffset = Math.Min(slot.UiItemBytes.Length - 8, 0xF8);
+            for (int offset = 0; offset <= maxOffset; offset += 8)
+            {
+                ulong value;
+                if (TryReadUInt64FromBuffer(slot.UiItemBytes, offset, out value) && IsLikelyUserPointer(value))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static void PrintRollUiItemSlotSummaries(string label, List<RollUiItemSlotSnapshot> slots)
+        {
+            if (slots == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < slots.Count; i++)
+            {
+                Console.WriteLine(FormatRollUiItemSlotSummary(label, slots[i]));
+            }
+        }
+
+        private static string FormatRollUiItemSlotSummary(string label, RollUiItemSlotSnapshot slot)
+        {
+            return label + "#" + slot.SlotIndex +
+                   " DialogId=" + (slot.DialogId == 0 ? "n/a" : slot.DialogId.ToString()) +
+                   " PointerAt=" + FormatAddress(slot.PointerAddress) +
+                   " Dialog=" + FormatAddress(slot.DialogAddress) +
+                   " LootItemControl=" + FormatAddress(slot.LootItemControlAddress) +
+                   " LootItemControlHash=" + (slot.LootItemControlBytesRead ? FormatUInt64Hex(slot.LootItemControlHash) : "unreadable") +
+                   " UiSlotArrayBegin=" + FormatAddress(slot.UiSlotArrayBeginAddress) +
+                   " UiSlotArrayEnd=" + FormatAddress(slot.UiSlotArrayEndAddress) +
+                   " UiSlotArrayValid=" + FormatYesNo(IsPartyRollPointerRange(slot.UiSlotArrayBeginAddress, slot.UiSlotArrayEndAddress)) +
+                   " UiItem=" + FormatAddress(slot.UiItemAddress) +
+                   " UiItemHash=" + (slot.UiItemBytesRead ? FormatUInt64Hex(slot.UiItemHash) : "unreadable") +
+                   " TemplateId@+0xA8=" + FormatRollUiItemDword(slot, 0xA8);
+        }
+
+        private static void PrintRollUiItemSlotChanges(
+            VmmProcess process,
+            List<RollUiItemSlotChange> changes,
+            int printLimit,
+            int fieldEnd,
+            int pointerProbeLimit)
+        {
+            if (changes == null)
+            {
+                return;
+            }
+
+            int count = Math.Min(changes.Count, printLimit);
+            for (int i = 0; i < count; i++)
+            {
+                RollUiItemSlotChange change = changes[i];
+                Console.WriteLine(FormatRollUiItemSlotChange(change));
+                PrintRollUiItemFieldRows(
+                    process,
+                    "RollUiItemField",
+                    change.Before,
+                    change.After,
+                    true,
+                    true,
+                    fieldEnd,
+                    pointerProbeLimit);
+            }
+
+            if (changes.Count > count)
+            {
+                Console.WriteLine("RollUiItemChange Omitted=" + (changes.Count - count));
+            }
+        }
+
+        private static string FormatRollUiItemSlotChange(RollUiItemSlotChange change)
+        {
+            return "RollUiItemChange" +
+                   " Slot=" + change.SlotIndex +
+                   " Kind=" + change.ChangeKind +
+                   " Dialog=" + FormatAddressTransition(change.Before.DialogAddress, change.After.DialogAddress) +
+                   " LootItemControl=" + FormatAddressTransition(change.Before.LootItemControlAddress, change.After.LootItemControlAddress) +
+                   " LootItemControlHash=" + FormatRollUiItemHashTransition(
+                       change.Before.LootItemControlBytesRead,
+                       change.Before.LootItemControlHash,
+                       change.After.LootItemControlBytesRead,
+                       change.After.LootItemControlHash) +
+                   " LootItemControlChangedBytes=" + FormatChangedByteCount(change.LootItemControlChangedByteCount) +
+                   " LootItemControlChangedOffsets=" + change.LootItemControlChangedOffsets +
+                   " UiSlotArrayBegin=" + FormatAddressTransition(change.Before.UiSlotArrayBeginAddress, change.After.UiSlotArrayBeginAddress) +
+                   " UiSlotArrayEnd=" + FormatAddressTransition(change.Before.UiSlotArrayEndAddress, change.After.UiSlotArrayEndAddress) +
+                   " UiItem=" + FormatAddressTransition(change.Before.UiItemAddress, change.After.UiItemAddress) +
+                   " UiItemHash=" + FormatRollUiItemHashTransition(
+                       change.Before.UiItemBytesRead,
+                       change.Before.UiItemHash,
+                       change.After.UiItemBytesRead,
+                       change.After.UiItemHash) +
+                   " UiItemChangedBytes=" + FormatChangedByteCount(change.UiItemChangedByteCount) +
+                   " UiItemChangedOffsets=" + change.UiItemChangedOffsets;
+        }
+
+        private static void PrintRollUiItemFieldRows(
+            VmmProcess process,
+            string label,
+            RollUiItemSlotSnapshot before,
+            RollUiItemSlotSnapshot after,
+            bool onlyInteresting,
+            bool includePointerProbes,
+            int fieldEnd,
+            int pointerProbeLimit)
+        {
+            if (after.UiItemAddress == 0 || after.UiItemBytes == null)
+            {
+                Console.WriteLine(label + " Slot=" + after.SlotIndex + " UiItem=n/a");
+                return;
+            }
+
+            int printedPointerProbes = 0;
+            int maxOffset = Math.Min(fieldEnd, after.UiItemBytes.Length - 8);
+            for (int offset = 0; offset <= maxOffset; offset += 8)
+            {
+                ulong beforeU64 = 0;
+                ulong afterU64 = 0;
+                uint beforeU32Lo = 0;
+                uint afterU32Lo = 0;
+                uint beforeU32Hi = 0;
+                uint afterU32Hi = 0;
+
+                bool hasBeforeU64 = before.UiItemBytes != null && TryReadUInt64FromBuffer(before.UiItemBytes, offset, out beforeU64);
+                bool hasAfterU64 = TryReadUInt64FromBuffer(after.UiItemBytes, offset, out afterU64);
+                bool hasBeforeU32Lo = before.UiItemBytes != null && TryReadUInt32FromBuffer(before.UiItemBytes, offset, out beforeU32Lo);
+                bool hasAfterU32Lo = TryReadUInt32FromBuffer(after.UiItemBytes, offset, out afterU32Lo);
+                bool hasBeforeU32Hi = before.UiItemBytes != null && TryReadUInt32FromBuffer(before.UiItemBytes, offset + 4, out beforeU32Hi);
+                bool hasAfterU32Hi = TryReadUInt32FromBuffer(after.UiItemBytes, offset + 4, out afterU32Hi);
+
+                if (!hasAfterU64)
+                {
+                    continue;
+                }
+
+                bool valueChanged = !hasBeforeU64 ||
+                                    before.UiItemAddress != after.UiItemAddress ||
+                                    beforeU64 != afterU64 ||
+                                    (hasBeforeU32Lo && hasAfterU32Lo && beforeU32Lo != afterU32Lo) ||
+                                    (hasBeforeU32Hi && hasAfterU32Hi && beforeU32Hi != afterU32Hi);
+                bool pointerCandidate = IsLikelyUserPointer(afterU64);
+                bool itemIdCandidate = IsRollUiItemTemplateIdCandidate(afterU32Lo) ||
+                                       IsRollUiItemTemplateIdCandidate(afterU32Hi);
+
+                if (onlyInteresting && !valueChanged && !pointerCandidate && !itemIdCandidate)
+                {
+                    continue;
+                }
+
+                Console.WriteLine(label +
+                                  " Slot=" + after.SlotIndex +
+                                  " UiItem=" + FormatAddress(after.UiItemAddress) +
+                                  " Offset=+0x" + offset.ToString("X") +
+                                  " U64=" + FormatUInt64Hex(afterU64) +
+                                  " PrevU64=" + (hasBeforeU64 ? FormatUInt64Hex(beforeU64) : "n/a") +
+                                  " U32Lo=" + (hasAfterU32Lo ? FormatUInt32Hex(afterU32Lo) + "/" + afterU32Lo : "n/a") +
+                                  " PrevU32Lo=" + (hasBeforeU32Lo ? FormatUInt32Hex(beforeU32Lo) + "/" + beforeU32Lo : "n/a") +
+                                  " U32Hi=" + (hasAfterU32Hi ? FormatUInt32Hex(afterU32Hi) + "/" + afterU32Hi : "n/a") +
+                                  " PrevU32Hi=" + (hasBeforeU32Hi ? FormatUInt32Hex(beforeU32Hi) + "/" + beforeU32Hi : "n/a") +
+                                  " Changed=" + FormatYesNo(valueChanged) +
+                                  " Ptr=" + FormatYesNo(pointerCandidate) +
+                                  " ItemIdCandidate=" + FormatYesNo(itemIdCandidate));
+
+                if (includePointerProbes &&
+                    printedPointerProbes < pointerProbeLimit &&
+                    (valueChanged || pointerCandidate) &&
+                    pointerCandidate)
+                {
+                    Console.WriteLine(FormatRollUiItemPointerProbe(process, after.SlotIndex, offset, afterU64));
+                    printedPointerProbes++;
+                }
+
+                if (includePointerProbes &&
+                    printedPointerProbes < pointerProbeLimit &&
+                    (valueChanged || itemIdCandidate))
+                {
+                    string inlineProbe = FormatRollUiItemInlineTextProbe(process, after.SlotIndex, after.UiItemAddress + (ulong)offset);
+                    if (!string.IsNullOrEmpty(inlineProbe))
+                    {
+                        Console.WriteLine(inlineProbe);
+                        printedPointerProbes++;
+                    }
+                }
+            }
+        }
+
+        private static string FormatRollUiItemPointerProbe(VmmProcess process, int slotIndex, int offset, ulong pointer)
+        {
+            ulong deref0 = 0;
+            ulong deref8 = 0;
+            ulong deref10 = 0;
+            ulong deref18 = 0;
+            TryReadPointer(process, pointer, out deref0);
+            TryReadPointer(process, pointer + 0x08, out deref8);
+            TryReadUInt64(process, pointer + 0x10, out deref10);
+            TryReadUInt64(process, pointer + 0x18, out deref18);
+
+            string directUtf16 = string.Empty;
+            string directWString = string.Empty;
+            string deref0Utf16 = string.Empty;
+            string deref0WString = string.Empty;
+            string directText;
+            if (TryReadUtf16String(process, pointer, 64, out directText) && IsUsefulProbeText(directText))
+            {
+                directUtf16 = directText;
+            }
+
+            string directWStringText;
+            if (TryReadMsvcWString(process, pointer, out directWStringText) && IsUsefulProbeText(directWStringText))
+            {
+                directWString = directWStringText;
+            }
+
+            if (IsLikelyUserPointer(deref0))
+            {
+                string deref0Text;
+                if (TryReadUtf16String(process, deref0, 64, out deref0Text) && IsUsefulProbeText(deref0Text))
+                {
+                    deref0Utf16 = deref0Text;
+                }
+
+                string deref0WStringText;
+                if (TryReadMsvcWString(process, deref0, out deref0WStringText) && IsUsefulProbeText(deref0WStringText))
+                {
+                    deref0WString = deref0WStringText;
+                }
+            }
+
+            return "RollUiItemPointerProbe" +
+                   " Slot=" + slotIndex +
+                   " Offset=+0x" + offset.ToString("X") +
+                   " Pointer=" + FormatAddress(pointer) +
+                   " Dq0=" + FormatAddress(deref0) +
+                   " Dq8=" + FormatAddress(deref8) +
+                   " Qword10=" + FormatUInt64Hex(deref10) +
+                   " Qword18=" + FormatUInt64Hex(deref18) +
+                   " DirectUtf16=\"" + EscapeProbeText(directUtf16) + "\"" +
+                   " DirectWString=\"" + EscapeProbeText(directWString) + "\"" +
+                   " Dq0Utf16=\"" + EscapeProbeText(deref0Utf16) + "\"" +
+                   " Dq0WString=\"" + EscapeProbeText(deref0WString) + "\"";
+        }
+
+        private static string FormatRollUiItemInlineTextProbe(VmmProcess process, int slotIndex, ulong address)
+        {
+            string utf16 = string.Empty;
+            string wstring = string.Empty;
+            string text;
+            if (TryReadUtf16String(process, address, 64, out text) && IsUsefulProbeText(text))
+            {
+                utf16 = text;
+            }
+
+            string wstringText;
+            if (TryReadMsvcWString(process, address, out wstringText) && IsUsefulProbeText(wstringText))
+            {
+                wstring = wstringText;
+            }
+
+            if (string.IsNullOrEmpty(utf16) && string.IsNullOrEmpty(wstring))
+            {
+                return string.Empty;
+            }
+
+            return "RollUiItemInlineTextProbe" +
+                   " Slot=" + slotIndex +
+                   " Address=" + FormatAddress(address) +
+                   " Utf16=\"" + EscapeProbeText(utf16) + "\"" +
+                   " WString=\"" + EscapeProbeText(wstring) + "\"";
+        }
+
+        private static string BuildRollUiItemDiffSignature(List<RollUiItemSlotChange> changes)
+        {
+            if (changes == null || changes.Count == 0)
+            {
+                return "none";
+            }
+
+            var parts = new List<string>();
+            foreach (RollUiItemSlotChange change in changes.OrderBy(change => change.SlotIndex))
+            {
+                parts.Add(change.SlotIndex.ToString() +
+                          ":" + change.ChangeKind +
+                          ":" + FormatUInt64Hex(change.Before.DialogAddress) +
+                          ":" + FormatUInt64Hex(change.After.DialogAddress) +
+                          ":" + FormatUInt64Hex(change.Before.LootItemControlAddress) +
+                          ":" + FormatUInt64Hex(change.After.LootItemControlAddress) +
+                          ":" + FormatUInt64Hex(change.Before.LootItemControlHash) +
+                          ":" + FormatUInt64Hex(change.After.LootItemControlHash) +
+                          ":" + FormatUInt64Hex(change.Before.UiItemAddress) +
+                          ":" + FormatUInt64Hex(change.After.UiItemAddress) +
+                          ":" + FormatUInt64Hex(change.Before.UiItemHash) +
+                          ":" + FormatUInt64Hex(change.After.UiItemHash));
+            }
+
+            return string.Join(",", parts);
+        }
+
+        private static bool IsRollUiItemTemplateIdCandidate(uint value)
+        {
+            return value >= 100000 && value < 100000000;
+        }
+
+        private static string FormatRollUiItemDword(RollUiItemSlotSnapshot slot, int offset)
+        {
+            uint value;
+            if (slot.UiItemBytes == null || !TryReadUInt32FromBuffer(slot.UiItemBytes, offset, out value))
+            {
+                return "n/a";
+            }
+
+            return FormatUInt32Hex(value) + "/" + value;
+        }
+
+        private static string FormatRollUiItemHashTransition(
+            bool beforeRead,
+            ulong beforeHash,
+            bool afterRead,
+            ulong afterHash)
+        {
+            string beforeText = beforeRead ? FormatUInt64Hex(beforeHash) : "unreadable";
+            string afterText = afterRead ? FormatUInt64Hex(afterHash) : "unreadable";
+            if (string.Equals(beforeText, afterText, StringComparison.Ordinal))
+            {
+                return afterText;
+            }
+
+            return beforeText + "->" + afterText;
+        }
+
+        private static string FormatChangedByteCount(int changedByteCount)
+        {
+            return changedByteCount == 0 ? "n/a" : changedByteCount.ToString();
+        }
+
+        private static string FormatRollDialogSnapshotSummary(string label, RollDialogSnapshot snapshot)
+        {
+            return "[" + snapshot.CapturedAt.ToString("HH:mm:ss.fff") + "] " +
+                   label +
+                   " Table=" + FormatAddress(snapshot.TableAddress) +
+                   " MaxDialogId=" + snapshot.MaxDialogId +
+                   " HashBytes=0x" + snapshot.HashBytes.ToString("X") +
+                   " NonEmpty=" + snapshot.Entries.Count;
+        }
+
+        private static void PrintRollDialogEntries(string label, RollDialogSnapshot snapshot, int printLimit)
+        {
+            List<RollDialogEntry> entries = snapshot.Entries.Values
+                .OrderBy(entry => entry.DialogId)
+                .Take(printLimit)
+                .ToList();
+
+            for (int i = 0; i < entries.Count; i++)
+            {
+                Console.WriteLine(FormatRollDialogEntry(label, entries[i]));
+            }
+
+            if (snapshot.Entries.Count > entries.Count)
+            {
+                Console.WriteLine(label + " Omitted=" + (snapshot.Entries.Count - entries.Count));
+            }
+        }
+
+        private static string FormatRollDialogEntry(string label, RollDialogEntry entry)
+        {
+            return label +
+                   " DialogId=" + entry.DialogId +
+                   " PointerAt=" + FormatAddress(entry.PointerAddress) +
+                   " Dialog=" + FormatAddress(entry.DialogAddress) +
+                   " Vtable=" + FormatAddress(entry.Vtable) +
+                   " InternalDialogId=" + entry.InternalDialogId +
+                   " Hash=" + (entry.HashRead ? FormatUInt64Hex(entry.Hash) : "unreadable");
+        }
+
+        private static void PrintRollDialogChanges(List<RollDialogChange> changes, int printLimit)
+        {
+            int count = Math.Min(changes.Count, printLimit);
+            for (int i = 0; i < count; i++)
+            {
+                Console.WriteLine(FormatRollDialogChange(changes[i]));
+            }
+
+            if (changes.Count > count)
+            {
+                Console.WriteLine("RollDialogChange Omitted=" + (changes.Count - count));
+            }
+        }
+
+        private static string FormatRollDialogChange(RollDialogChange change)
+        {
+            return "RollDialogChange" +
+                   " DialogId=" + change.DialogId +
+                   " Kind=" + change.ChangeKind +
+                   " PointerAt=" + FormatAddress(change.After.PointerAddress != 0 ? change.After.PointerAddress : change.Before.PointerAddress) +
+                   " Dialog=" + FormatAddressTransition(change.Before.DialogAddress, change.After.DialogAddress) +
+                   " Vtable=" + FormatAddressTransition(change.Before.Vtable, change.After.Vtable) +
+                   " InternalDialogId=" + FormatUIntTransition(change.Before.InternalDialogId, change.After.InternalDialogId) +
+                   " Hash=" + FormatHashTransition(change.Before, change.After) +
+                   " ChangedBytes=" + (change.ChangedByteCount == 0 ? "n/a" : change.ChangedByteCount.ToString()) +
+                   " ChangedOffsets=" + change.ChangedOffsets;
+        }
+
+        private static string BuildRollDialogChangeSignature(List<RollDialogChange> changes)
+        {
+            if (changes == null || changes.Count == 0)
+            {
+                return "none";
+            }
+
+            var parts = new List<string>();
+            foreach (RollDialogChange change in changes.OrderBy(change => change.DialogId))
+            {
+                parts.Add(change.DialogId.ToString() +
+                          ":" + change.ChangeKind +
+                          ":" + FormatUInt64Hex(change.Before.DialogAddress) +
+                          ":" + FormatUInt64Hex(change.After.DialogAddress) +
+                          ":" + FormatUInt64Hex(change.Before.Hash) +
+                          ":" + FormatUInt64Hex(change.After.Hash));
+            }
+
+            return string.Join(",", parts);
+        }
+
+        private static void PrintRollStringScan(
+            string label,
+            RollStringScanResult current,
+            RollStringScanResult baseline,
+            bool hasBaseline,
+            int printLimit)
+        {
+            var baselineStrings = hasBaseline && baseline.StringAddresses != null
+                ? new HashSet<ulong>(baseline.StringAddresses)
+                : new HashSet<ulong>();
+            var currentStrings = current.StringAddresses ?? new List<ulong>();
+            var newStrings = currentStrings
+                .Where(address => !baselineStrings.Contains(address))
+                .OrderBy(address => address)
+                .ToList();
+
+            int totalReferences = CountRollStringReferences(current);
+            int newReferences = CountNewRollStringReferences(current, baseline, hasBaseline);
+
+            Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                              label +
+                              " ItemName=\"" + EscapeProbeText(current.ItemName) + "\"" +
+                              " ScannedBytes=0x" + current.ScannedBytes.ToString("X") +
+                              " ScannedRanges=" + current.ScannedRanges +
+                              " Hits=" + currentStrings.Count +
+                              " NewHits=" + newStrings.Count +
+                              " References=" + totalReferences +
+                              " NewReferences=" + newReferences);
+
+            if (!hasBaseline)
+            {
+                PrintRollStringAddresses("RollStringHit", currentStrings, printLimit);
+            }
+            else
+            {
+                PrintRollStringAddresses("RollStringNewHit", newStrings, printLimit);
+            }
+
+            PrintRollStringReferences(current, baseline, hasBaseline, printLimit);
+        }
+
+        private static void PrintRollStringAddresses(string label, List<ulong> addresses, int printLimit)
+        {
+            if (addresses == null || addresses.Count == 0)
+            {
+                return;
+            }
+
+            int count = Math.Min(addresses.Count, printLimit);
+            for (int i = 0; i < count; i++)
+            {
+                Console.WriteLine(label + "#" + (i + 1).ToString("00") +
+                                  " Address=" + FormatAddress(addresses[i]));
+            }
+
+            if (addresses.Count > count)
+            {
+                Console.WriteLine(label + " Omitted=" + (addresses.Count - count));
+            }
+        }
+
+        private static void PrintRollStringReferences(
+            RollStringScanResult current,
+            RollStringScanResult baseline,
+            bool hasBaseline,
+            int printLimit)
+        {
+            if (current.ReferencesByStringAddress == null || current.ReferencesByStringAddress.Count == 0)
+            {
+                return;
+            }
+
+            int printed = 0;
+            var baselineStrings = hasBaseline && baseline.StringAddresses != null
+                ? new HashSet<ulong>(baseline.StringAddresses)
+                : new HashSet<ulong>();
+
+            foreach (KeyValuePair<ulong, List<ulong>> pair in current.ReferencesByStringAddress.OrderBy(pair => pair.Key))
+            {
+                HashSet<ulong> baselineRefs = GetRollStringBaselineReferences(baseline, pair.Key, hasBaseline);
+                bool stringIsNew = !hasBaseline || !baselineStrings.Contains(pair.Key);
+                foreach (ulong reference in pair.Value.OrderBy(reference => reference))
+                {
+                    bool referenceIsNew = stringIsNew || !baselineRefs.Contains(reference);
+                    if (hasBaseline && !referenceIsNew)
+                    {
+                        continue;
+                    }
+
+                    if (printed >= printLimit)
+                    {
+                        Console.WriteLine("RollStringReference Omitted=yes");
+                        return;
+                    }
+
+                    Console.WriteLine((referenceIsNew ? "RollStringNewReference" : "RollStringReference") +
+                                      " String=" + FormatAddress(pair.Key) +
+                                      " Ref=" + FormatAddress(reference));
+                    printed++;
+                }
+            }
+        }
+
+        private static int CountRollStringReferences(RollStringScanResult scan)
+        {
+            if (scan.ReferencesByStringAddress == null)
+            {
+                return 0;
+            }
+
+            int total = 0;
+            foreach (List<ulong> references in scan.ReferencesByStringAddress.Values)
+            {
+                if (references != null)
+                {
+                    total += references.Count;
+                }
+            }
+
+            return total;
+        }
+
+        private static int CountNewRollStringReferences(
+            RollStringScanResult current,
+            RollStringScanResult baseline,
+            bool hasBaseline)
+        {
+            if (!hasBaseline)
+            {
+                return CountRollStringReferences(current);
+            }
+
+            if (current.ReferencesByStringAddress == null)
+            {
+                return 0;
+            }
+
+            var baselineStrings = baseline.StringAddresses != null
+                ? new HashSet<ulong>(baseline.StringAddresses)
+                : new HashSet<ulong>();
+            int total = 0;
+            foreach (KeyValuePair<ulong, List<ulong>> pair in current.ReferencesByStringAddress)
+            {
+                if (pair.Value == null)
+                {
+                    continue;
+                }
+
+                if (!baselineStrings.Contains(pair.Key))
+                {
+                    total += pair.Value.Count;
+                    continue;
+                }
+
+                HashSet<ulong> baselineRefs = GetRollStringBaselineReferences(baseline, pair.Key, true);
+                total += pair.Value.Count(reference => !baselineRefs.Contains(reference));
+            }
+
+            return total;
+        }
+
+        private static HashSet<ulong> GetRollStringBaselineReferences(
+            RollStringScanResult baseline,
+            ulong stringAddress,
+            bool hasBaseline)
+        {
+            if (!hasBaseline ||
+                baseline.ReferencesByStringAddress == null ||
+                !baseline.ReferencesByStringAddress.TryGetValue(stringAddress, out var references) ||
+                references == null)
+            {
+                return new HashSet<ulong>();
+            }
+
+            return new HashSet<ulong>(references);
+        }
+
+        private static string BuildRollStringScanSignature(
+            RollStringScanResult current,
+            RollStringScanResult baseline,
+            bool hasBaseline)
+        {
+            var parts = new List<string>();
+            if (current.StringAddresses != null)
+            {
+                parts.Add("hits:" + string.Join(",", current.StringAddresses.OrderBy(address => address).Take(128).Select(FormatUInt64Hex).ToArray()));
+            }
+
+            if (current.ReferencesByStringAddress != null)
+            {
+                foreach (KeyValuePair<ulong, List<ulong>> pair in current.ReferencesByStringAddress.OrderBy(pair => pair.Key).Take(32))
+                {
+                    parts.Add("refs:" + FormatUInt64Hex(pair.Key) + "=" +
+                              string.Join(",", pair.Value.OrderBy(reference => reference).Take(64).Select(FormatUInt64Hex).ToArray()));
+                }
+            }
+
+            return parts.Count == 0 ? "none" : string.Join("|", parts);
+        }
+
+        private static string FormatAddressTransition(ulong before, ulong after)
+        {
+            if (before == after)
+            {
+                return FormatAddress(after);
+            }
+
+            return FormatAddress(before) + "->" + FormatAddress(after);
+        }
+
+        private static string FormatUIntTransition(uint before, uint after)
+        {
+            if (before == after)
+            {
+                return before.ToString();
+            }
+
+            return before + "->" + after;
+        }
+
+        private static string FormatHashTransition(RollDialogEntry before, RollDialogEntry after)
+        {
+            string beforeHash = before.HashRead ? FormatUInt64Hex(before.Hash) : "unreadable";
+            string afterHash = after.HashRead ? FormatUInt64Hex(after.Hash) : "unreadable";
+            if (string.Equals(beforeHash, afterHash, StringComparison.Ordinal))
+            {
+                return afterHash;
+            }
+
+            return beforeHash + "->" + afterHash;
+        }
+
+        private static string FormatChangedByteRanges(
+            byte[] before,
+            byte[] after,
+            int maxRanges,
+            out int changedByteCount)
+        {
+            changedByteCount = 0;
+            if (before == null || after == null || before.Length != after.Length)
+            {
+                return "n/a";
+            }
+
+            var ranges = new List<string>();
+            int rangeStart = -1;
+            int rangeEnd = -1;
+            for (int i = 0; i < before.Length; i++)
+            {
+                if (before[i] == after[i])
+                {
+                    if (rangeStart >= 0)
+                    {
+                        AddChangedByteRange(ranges, rangeStart, rangeEnd, maxRanges);
+                        rangeStart = -1;
+                        rangeEnd = -1;
+                    }
+
+                    continue;
+                }
+
+                changedByteCount++;
+                if (rangeStart < 0)
+                {
+                    rangeStart = i;
+                    rangeEnd = i;
+                }
+                else
+                {
+                    rangeEnd = i;
+                }
+            }
+
+            if (rangeStart >= 0)
+            {
+                AddChangedByteRange(ranges, rangeStart, rangeEnd, maxRanges);
+            }
+
+            if (changedByteCount == 0)
+            {
+                return "none";
+            }
+
+            bool omitted = CountChangedByteRanges(before, after) > ranges.Count;
+            return string.Join(",", ranges.ToArray()) + (omitted ? ",..." : string.Empty);
+        }
+
+        private static void AddChangedByteRange(List<string> ranges, int start, int end, int maxRanges)
+        {
+            if (ranges.Count >= maxRanges)
+            {
+                return;
+            }
+
+            if (start == end)
+            {
+                ranges.Add("+0x" + start.ToString("X"));
+                return;
+            }
+
+            ranges.Add("+0x" + start.ToString("X") + "-+0x" + end.ToString("X"));
+        }
+
+        private static int CountChangedByteRanges(byte[] before, byte[] after)
+        {
+            if (before == null || after == null || before.Length != after.Length)
+            {
+                return 0;
+            }
+
+            int count = 0;
+            bool inRange = false;
+            for (int i = 0; i < before.Length; i++)
+            {
+                if (before[i] != after[i])
+                {
+                    if (!inRange)
+                    {
+                        count++;
+                        inRange = true;
+                    }
+                }
+                else
+                {
+                    inRange = false;
+                }
+            }
+
+            return count;
+        }
+
+        private static ulong ComputeFnv1a64(byte[] bytes)
+        {
+            const ulong offsetBasis = 14695981039346656037UL;
+            const ulong prime = 1099511628211UL;
+            ulong hash = offsetBasis;
+
+            if (bytes == null)
+            {
+                return hash;
+            }
+
+            for (int i = 0; i < bytes.Length; i++)
+            {
+                hash ^= bytes[i];
+                hash *= prime;
+            }
+
+            return hash;
+        }
+
+        private static string FormatUInt32Hex(uint value)
+        {
+            return "0x" + value.ToString("X8");
+        }
+
+        private static string FormatUInt64Hex(ulong value)
+        {
+            return "0x" + value.ToString("X");
+        }
+
+        private static bool TryReadUInt64FromBuffer(byte[] bytes, int offset, out ulong value)
+        {
+            value = 0;
+            if (bytes == null || offset < 0 || offset + 8 > bytes.Length)
+            {
+                return false;
+            }
+
+            value = BitConverter.ToUInt64(bytes, offset);
+            return true;
+        }
+
+        private static bool TryReadUInt32FromBuffer(byte[] bytes, int offset, out uint value)
+        {
+            value = 0;
+            if (bytes == null || offset < 0 || offset + 4 > bytes.Length)
+            {
+                return false;
+            }
+
+            value = BitConverter.ToUInt32(bytes, offset);
+            return true;
+        }
+
         private static bool TryReadInventoryItemFromNode(
             VmmProcess process,
             ulong node,
@@ -17230,7 +20055,18 @@ namespace Tool
 
         private static bool TryReadMsvcWString(VmmProcess process, ulong stringObject, out string value)
         {
+            ulong bufferAddress;
+            return TryReadMsvcWStringWithBuffer(process, stringObject, out value, out bufferAddress);
+        }
+
+        private static bool TryReadMsvcWStringWithBuffer(
+            VmmProcess process,
+            ulong stringObject,
+            out string value,
+            out ulong bufferAddress)
+        {
             value = string.Empty;
+            bufferAddress = 0;
 
             ulong length;
             ulong capacity;
@@ -17250,6 +20086,11 @@ namespace Tool
                 return false;
             }
 
+            if (capacity != 0 && length > capacity)
+            {
+                return false;
+            }
+
             ulong characters = stringObject;
             if (capacity >= 8 && !TryReadPointer(process, stringObject, out characters))
             {
@@ -17261,6 +20102,7 @@ namespace Tool
                 return false;
             }
 
+            bufferAddress = characters;
             return TryReadUtf16StringByLength(process, characters, (int)length, out value);
         }
 
