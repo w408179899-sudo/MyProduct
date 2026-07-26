@@ -288,5 +288,5 @@ Roadhog 从 MSVC 风格的 wide string 对象读取技能名和背包物品名�
 
 ## 当前没有作为 Roadhog VMM 直接偏移实现的内容
 
-- 采集业务目前没有单独的 Roadhog VMM 数据接口；Tool probe 里的采集偏移不算 Roadhog 运行时依赖。
+- 采集业务目前没有单独的 Roadhog VMM 数据接口；Tool probe 里的采集偏移不算 Roadhog 运行时依赖。采集模块后续设计、已验证偏移和竞争判定见 `GATHER_MODULE.md`。
 - XML 技能/NPC 文件提供静态元数据，用于技能分类和怪物分类；它们是文件数据，不是内存偏移。
