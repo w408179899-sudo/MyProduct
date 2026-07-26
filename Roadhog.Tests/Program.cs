@@ -6622,7 +6622,6 @@ static async Task TestStationaryCombatWakesNoTargetRestWhenTargetAppearsAsync()
     AssertFalse(!state.NoTargetRestActive, "no-target rest should become active");
     keyboard.Keys.Clear();
 
-    gameApi.Player = gameApi.Player with { StanceFlags = 5, MotionMode = 1 };
     gameApi.TargetEntityId = 200;
     gameApi.TargetOwnServerObjectId = 200;
     gameApi.TargetName = "spawned target";
@@ -6637,14 +6636,25 @@ static async Task TestStationaryCombatWakesNoTargetRestWhenTargetAppearsAsync()
 
     await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
 
-    AssertEqual("X", keyboard.Keys.FirstOrDefault() ?? string.Empty, "spawned target should wake no-target rest with x first");
+    AssertSequence(new[] { "X" }, keyboard.Keys.ToArray(), "spawned target should wake no-target rest with x only");
     AssertFalse(keyboard.Keys.Contains("OemComma"), "target wake should not re-enter sit");
+    AssertFalse(!state.NoTargetRestActive, "target wake should wait for stand confirmation");
+    AssertFalse(!state.NoTargetRestExitPending, "target wake should track pending stand confirmation");
+    AssertEqual((ushort)0, state.CandidateEntityId, "target should not become candidate before stand confirmation");
+    keyboard.Keys.Clear();
+
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
     AssertFalse(state.NoTargetRestActive, "target wake should clear no-target rest state");
     AssertEqual((ushort)200, state.CandidateEntityId, "spawned target should become the combat candidate");
     AssertFalse(!logger.Entries.Any(entry =>
         entry.EventName == "stationary_combat.no_target.rest_exit" &&
         string.Equals(Convert.ToString(entry.Fields["reason"]), "target_available", StringComparison.Ordinal)),
         "target wake should log no-target rest exit");
+    AssertFalse(!logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.no_target.rest_exit_confirmed" &&
+        string.Equals(Convert.ToString(entry.Fields["reason"]), "target_available", StringComparison.Ordinal)),
+        "target wake should log stand confirmation");
 }
 
 static async Task TestStationaryCombatDoesNotSitAtHomeWhenNoTargetRestSwitchDisabledAsync()

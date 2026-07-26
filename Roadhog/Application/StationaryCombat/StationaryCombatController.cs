@@ -5884,7 +5884,7 @@ public sealed class StationaryCombatController
                     player,
                     "target_available")
                 .ConfigureAwait(false);
-            return target;
+            return state.NoTargetRestActive ? null : target;
         }
 
         await TryEnterNoTargetRestAtHomeAsync(
@@ -5984,6 +5984,25 @@ public sealed class StationaryCombatController
             return false;
         }
 
+        if (state.NoTargetRestExitPending && !player.IsResting)
+        {
+            context.Logger.Info("stationary_combat.no_target.rest_exit_confirmed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["key"] = NoTargetRestExitKey,
+                ["reason"] = reason,
+                ["hp"] = player.CurrentHp,
+                ["maxHp"] = player.MaxHp,
+                ["mp"] = player.CurrentMp,
+                ["maxMp"] = player.MaxMp,
+                ["stanceFlags"] = player.StanceFlags,
+                ["stanceLow"] = player.StanceLowNibble,
+                ["motionMode"] = player.MotionMode
+            });
+            state.ClearNoTargetRest();
+            return true;
+        }
+
         semiAutoState.ResetAttackKeyPressThrottle();
         var result = await _input
             .PressKeyAsync(NoTargetRestExitKey, ReadKeyHoldDuration(context), context.StopToken)
@@ -5997,7 +6016,7 @@ public sealed class StationaryCombatController
                 ["reason"] = reason,
                 ["error"] = result.Error
             });
-            state.ClearNoTargetRest();
+            state.MarkNoTargetRestExitPending();
             return false;
         }
 
@@ -6012,9 +6031,10 @@ public sealed class StationaryCombatController
             ["maxMp"] = player.MaxMp,
             ["stanceFlags"] = player.StanceFlags,
             ["stanceLow"] = player.StanceLowNibble,
-            ["motionMode"] = player.MotionMode
+            ["motionMode"] = player.MotionMode,
+            ["waitingForStand"] = true
         });
-        state.ClearNoTargetRest();
+        state.MarkNoTargetRestExitPending();
         return true;
     }
 

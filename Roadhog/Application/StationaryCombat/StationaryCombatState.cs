@@ -77,6 +77,8 @@ public sealed class StationaryCombatState
 
     public bool NoTargetRestActive { get; private set; }
 
+    public bool NoTargetRestExitPending { get; private set; }
+
     public DateTimeOffset LastNoTargetRestKeyAt { get; private set; } = DateTimeOffset.MinValue;
 
     public DateTimeOffset LastLootAfterKillFinishedAt { get; private set; } = DateTimeOffset.MinValue;
@@ -294,17 +296,26 @@ public sealed class StationaryCombatState
     public void MarkNoTargetRestKey(DateTimeOffset now)
     {
         NoTargetRestActive = true;
+        NoTargetRestExitPending = false;
         LastNoTargetRestKeyAt = now;
     }
 
     public void MarkNoTargetRestActive()
     {
         NoTargetRestActive = true;
+        NoTargetRestExitPending = false;
+    }
+
+    public void MarkNoTargetRestExitPending()
+    {
+        NoTargetRestActive = true;
+        NoTargetRestExitPending = true;
     }
 
     public void ClearNoTargetRest()
     {
         NoTargetRestActive = false;
+        NoTargetRestExitPending = false;
         LastNoTargetRestKeyAt = DateTimeOffset.MinValue;
     }
 
