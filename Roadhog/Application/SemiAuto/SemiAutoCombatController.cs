@@ -18,7 +18,7 @@ public sealed class SemiAutoCombatController
 
     private static readonly TimeSpan WarningLogInterval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan MaintenanceConfirmWindow = TimeSpan.FromSeconds(6);
-    private static readonly TimeSpan StatusMaintenanceConfirmWindow = TimeSpan.FromMilliseconds(1300);
+    private static readonly TimeSpan NormalStatusMaintenanceConfirmWindow = TimeSpan.FromMilliseconds(1300);
     private static readonly TimeSpan MaintenanceConfirmPollInterval = TimeSpan.FromMilliseconds(300);
     private static readonly TimeSpan MaintenanceKeyRetryInterval = TimeSpan.FromSeconds(3);
     internal static readonly TimeSpan MaintenanceGlobalKeyInterval = TimeSpan.FromMilliseconds(600);
@@ -1812,7 +1812,7 @@ public sealed class SemiAutoCombatController
         var skillId = ResolveStatusMaintenanceSkillId(rule, maintenanceSkill);
         var skillName = maintenanceSkill?.Name ?? maintenanceSkill?.DisplayBaseName ?? rule.SkillName;
 
-        var confirmWindow = StatusMaintenanceConfirmWindow;
+        var confirmWindow = ResolveStatusMaintenanceConfirmWindow(isChantStatusMaintenance);
         var deadline = startedAt + confirmWindow;
         var polls = 0;
 
@@ -3701,6 +3701,13 @@ public sealed class SemiAutoCombatController
         return !string.IsNullOrWhiteSpace(value) &&
                (value.Contains("\u771F\u8A00", StringComparison.Ordinal) ||
                 value.Contains("Chant", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static TimeSpan ResolveStatusMaintenanceConfirmWindow(bool isChantStatusMaintenance)
+    {
+        return isChantStatusMaintenance
+            ? MaintenanceConfirmWindow
+            : NormalStatusMaintenanceConfirmWindow;
     }
 
     private static Dictionary<uint, uint> SnapshotCooldownEndTimes(IEnumerable<SkillSnapshot> skills)
