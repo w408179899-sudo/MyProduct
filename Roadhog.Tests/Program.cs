@@ -227,6 +227,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("path combat recent kill prevents no kill return", TestPathCombatRecentKillPreventsNoKillReturnAsync),
     ("path combat failed no kill return waits before retry", TestPathCombatFailedNoKillReturnWaitsBeforeRetryAsync),
     ("path combat resumes path after kill", TestPathCombatResumesPathAfterKillAsync),
+    ("path combat skips sit maintenance while fighting", TestPathCombatSkipsSitMaintenanceWhileFightingAsync),
     ("worker life guard revives before semi-auto combat", TestWorkerLifeGuardRevivesBeforeSemiAutoAsync),
     ("worker life guard revives before stationary position validation", TestWorkerLifeGuardRevivesBeforeStationaryPositionValidationAsync),
     ("worker ensures spiritmaster pet before normal work", TestWorkerEnsuresSpiritmasterPetBeforeNormalWorkAsync),
@@ -249,6 +250,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat jumps while stuck approaching target", TestStationaryCombatJumpsWhileStuckApproachingTargetAsync),
     ("stationary combat ignores target when lock times out", TestStationaryCombatIgnoresTargetWhenLockTimesOutAsync),
     ("stationary combat ignores target when kill times out", TestStationaryCombatIgnoresTargetWhenKillTimesOutAsync),
+    ("stationary combat keeps maintenance defense target when kill times out", TestStationaryCombatKeepsMaintenanceDefenseTargetWhenKillTimesOutAsync),
     ("stationary combat ignores locked target with no damage and no targeting", TestStationaryCombatIgnoresNoDamageNoTargetingTargetAsync),
     ("stationary combat keeps locked target after damage progress", TestStationaryCombatKeepsNoTargetingTargetAfterDamageProgressAsync),
     ("stationary combat defense can select ignored local target", TestStationaryCombatDefenseCanSelectIgnoredLocalTargetAsync),
@@ -283,6 +285,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat stops movement before hp maintenance", TestStationaryCombatStopsMovementBeforeHpMaintenanceAsync),
     ("stationary combat mp sit maintenance runs without defense target", TestStationaryCombatMpSitMaintenanceRunsWithoutDefenseTargetAsync),
     ("stationary combat mp sit maintenance preempts target and potion", TestStationaryCombatMpSitMaintenancePreemptsTargetAndPotionAsync),
+    ("stationary combat skips sit maintenance while fighting", TestStationaryCombatSkipsSitMaintenanceWhileFightingAsync),
     ("skill tree assigns keys by root order and chain children inherit root key", TestSkillTreeKeyMappingAsync),
     ("available skill tree keeps chain roots in normal category", TestAvailableSkillTreeKeepsChainRootsInNormalCategoryAsync),
     ("manual skill category maps target valid status as condition", TestManualSkillCategoryMapsTargetValidStatusAsConditionAsync),
@@ -9299,6 +9302,64 @@ static async Task TestPathCombatResumesPathAfterKillAsync()
     }
 }
 
+static async Task TestPathCombatSkipsSitMaintenanceWhileFightingAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Path;
+    settings.Paths.CombatPathName = "combat-a";
+    settings.Combat.PathCombatRadius = 30;
+    settings.Maintenance.SitMaintenanceEnabled = true;
+    settings.Maintenance.SitHpBelowPercent = 80;
+    settings.Maintenance.SitHpRecoverToPercent = 90;
+
+    const ushort targetEntityId = 230;
+    const uint targetServerObjectId = 2300;
+    var pathStore = new InMemorySharedPathStore(
+        CreatePath("combat-a",
+            new Vector3Snapshot(0, 0, 0),
+            new Vector3Snapshot(10, 0, 0)));
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 0, "Fake", 40, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+        TargetEntityId = targetEntityId,
+        TargetOwnServerObjectId = targetServerObjectId,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        TargetPosition = new Vector3Snapshot(5, 0, 0),
+        TargetIsTargetingLocalPlayer = true,
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0
+        })
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto, pathStore);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = targetEntityId,
+        CurrentTargetServerObjectId = targetServerObjectId,
+        CandidateEntityId = targetEntityId,
+        CandidateServerObjectId = targetServerObjectId
+    };
+    var semiAutoState = new SemiAutoCombatState();
+
+    await controller
+        .TickPathAsync(CreateContext(settings, gameApi, logger), plan, semiAutoState, state)
+        .ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Contains("OemComma"), "path combat fighting tick must not enter sit maintenance");
+    AssertFalse(!keyboard.Keys.Contains("D2"), "path combat should keep releasing combat skills while low hp");
+    AssertFalse(!state.Fighting, "path combat should stay in fight");
+    AssertFalse(semiAutoState.IsMaintenanceResting, "path combat should not mark maintenance rest while fighting");
+}
+
 static async Task TestWorkerLifeGuardRevivesBeforeSemiAutoAsync()
 {
     var previousClickDelay = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS");
@@ -10851,6 +10912,8 @@ static async Task TestStationaryCombatIgnoresTargetWhenKillTimesOutAsync()
         TargetCurrentHp = 1000,
         TargetMaxHp = 1000,
         TargetPosition = new Vector3Snapshot(40, 0, 0),
+        TargetServerObjectId = 0,
+        TargetIsTargetingLocalPlayer = false,
         WorldObjects = new[]
         {
             new WorldObjectSnapshot(100, 100, "slow", "monster", new Vector3Snapshot(40, 0, 0), 40, 1000, 1000)
@@ -10886,6 +10949,107 @@ static async Task TestStationaryCombatIgnoresTargetWhenKillTimesOutAsync()
         entry.EventName == "stationary_combat.target.ignored" &&
         string.Equals(Convert.ToString(entry.Fields["reason"]), "not_dead", StringComparison.Ordinal)),
         "kill timeout should be logged");
+}
+
+static async Task TestStationaryCombatKeepsMaintenanceDefenseTargetWhenKillTimesOutAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 60
+    };
+    settings.Maintenance.SitMaintenanceEnabled = true;
+    settings.Maintenance.SitHpBelowPercent = 80;
+    settings.Maintenance.SitHpRecoverToPercent = 90;
+
+    const ushort targetEntityId = 100;
+    const uint targetServerObjectId = 9000;
+    const uint localServerObjectId = 1000;
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(
+            1,
+            targetEntityId,
+            "Fake",
+            20,
+            100,
+            100,
+            100,
+            0,
+            new Vector3Snapshot(0, 0, 0),
+            DateTimeOffset.Now,
+            90,
+            10,
+            90),
+        TargetEntityId = targetEntityId,
+        TargetOwnServerObjectId = targetServerObjectId,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        TargetPosition = new Vector3Snapshot(8, 0, 0),
+        TargetServerObjectId = localServerObjectId,
+        LocalServerObjectId = localServerObjectId,
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(
+                targetEntityId,
+                targetServerObjectId,
+                "attacker",
+                "monster",
+                new Vector3Snapshot(8, 0, 0),
+                8,
+                1000,
+                1000,
+                localServerObjectId,
+                true)
+        },
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0,
+            [7] = 0,
+            [8] = 0,
+            [9] = 0,
+            [10] = 0
+        })
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetIsMaintenanceDefense = true
+    };
+    state.SetCurrentTarget(targetEntityId, targetServerObjectId);
+    state.MarkCandidate(targetEntityId, targetServerObjectId, DateTimeOffset.Now - TimeSpan.FromMinutes(2));
+    var semiAutoState = new SemiAutoCombatState();
+    var context = CreateContext(settings, gameApi, logger);
+
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertFalse(!state.Fighting, "maintenance defense timeout should keep fighting state");
+    AssertEqual(targetServerObjectId, state.CurrentTargetServerObjectId, "maintenance defense timeout should keep current target");
+    AssertFalse(state.IsTargetIgnored(targetEntityId, targetServerObjectId), "maintenance defense timeout should not ignore attacker");
+    AssertFalse(keyboard.Keys.Contains("OemComma"), "maintenance defense timeout must not enter sit maintenance");
+    AssertFalse(semiAutoState.IsMaintenanceResting, "maintenance defense timeout should not start rest state");
+    AssertFalse(!logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.target.timeout_kept_for_defense" &&
+        string.Equals(Convert.ToString(entry.Fields["reason"]), "not_dead", StringComparison.Ordinal)),
+        "maintenance defense timeout should be logged as kept");
+    AssertFalse(logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.target.ignored" &&
+        string.Equals(Convert.ToString(entry.Fields["reason"]), "not_dead", StringComparison.Ordinal)),
+        "maintenance defense timeout should not log kill timeout ignore");
 }
 
 static async Task TestStationaryCombatIgnoresNoDamageNoTargetingTargetAsync()
@@ -13484,6 +13648,66 @@ static async Task TestStationaryCombatMpSitMaintenancePreemptsTargetAndPotionAsy
     AssertFalse(!semiAutoState.IsMaintenanceResting, "low mp sit maintenance should stay active");
     AssertFalse(!semiAutoState.MaintenanceRestingForMp, "stationary mp sit should track mp recovery");
     AssertEqual((ushort)0, stationaryState.CandidateEntityId, "target workflow should wait while mp sit maintenance starts");
+}
+
+static async Task TestStationaryCombatSkipsSitMaintenanceWhileFightingAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30
+    };
+    settings.Maintenance.SitMaintenanceEnabled = true;
+    settings.Maintenance.SitHpBelowPercent = 80;
+    settings.Maintenance.SitHpRecoverToPercent = 90;
+
+    const ushort targetEntityId = 100;
+    const uint targetServerObjectId = 5000;
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 0, "Fake", 40, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+        TargetEntityId = targetEntityId,
+        TargetOwnServerObjectId = targetServerObjectId,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        TargetPosition = new Vector3Snapshot(5, 0, 0),
+        TargetIsTargetingLocalPlayer = true,
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0
+        })
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var stationaryState = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = targetEntityId,
+        CurrentTargetServerObjectId = targetServerObjectId,
+        CandidateEntityId = targetEntityId,
+        CandidateServerObjectId = targetServerObjectId
+    };
+    var semiAutoState = new SemiAutoCombatState();
+
+    await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), plan, semiAutoState, stationaryState)
+        .ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Contains("OemComma"), "stationary fighting tick must not enter sit maintenance");
+    AssertFalse(!keyboard.Keys.Contains("D2"), "stationary combat should keep releasing combat skills while low hp");
+    AssertFalse(!stationaryState.Fighting, "stationary combat should stay in fight");
+    AssertFalse(semiAutoState.IsMaintenanceResting, "stationary combat should not mark maintenance rest while fighting");
 }
 
 static async Task TestStationaryCombatSkipsSkillMaintenanceBeforeCooldownCalibrationAsync()

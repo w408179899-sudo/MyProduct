@@ -238,7 +238,8 @@ public sealed class StationaryCombatController
                 }
             }
 
-            if (!skipMaintenanceThisTick &&
+            if (!state.Fighting &&
+                !skipMaintenanceThisTick &&
                 await TryHandleStationaryMaintenanceAsync(
                     context,
                     plan,
@@ -671,7 +672,8 @@ public sealed class StationaryCombatController
             return noKillRecoveryDelay.Value;
         }
 
-        if (await TryHandleStationaryMaintenanceAsync(context, plan, semiAutoState, state, player).ConfigureAwait(false))
+        if (!state.Fighting &&
+            await TryHandleStationaryMaintenanceAsync(context, plan, semiAutoState, state, player).ConfigureAwait(false))
         {
             await StopMovementAsync(context, state).ConfigureAwait(false);
             return IdleDelay;
@@ -3181,7 +3183,9 @@ public sealed class StationaryCombatController
 
         if (IsTargetTimedOut(state, now))
         {
-            return await IgnoreCurrentTargetAsync(
+            if (!TryKeepTimedOutMaintenanceDefenseTarget(context, state, target, now, "not_dead"))
+            {
+                return await IgnoreCurrentTargetAsync(
                     context,
                     semiAutoState,
                     state,
@@ -3190,6 +3194,7 @@ public sealed class StationaryCombatController
                     target.Name,
                     "not_dead")
                 .ConfigureAwait(false);
+            }
         }
 
         if (!state.CurrentTargetIsMaintenanceDefense &&
@@ -5675,6 +5680,53 @@ public sealed class StationaryCombatController
         return await _semiAuto
             .TickOpeningAttackKeyLoopAsync(context, plan, semiAutoState, target)
             .ConfigureAwait(false);
+    }
+
+    private static bool TryKeepTimedOutMaintenanceDefenseTarget(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        LockedTargetSnapshot target,
+        DateTimeOffset now,
+        string reason)
+    {
+        var targetingLocalSide = IsTargetingLocalSide(target, state);
+        var teamLeaderProtection = state.IsTeamLeaderProtectionTarget(target);
+        if (!state.CurrentTargetIsMaintenanceDefense &&
+            !targetingLocalSide &&
+            !teamLeaderProtection)
+        {
+            return false;
+        }
+
+        var elapsedMs = state.TargetStartedAt == DateTimeOffset.MinValue
+            ? 0
+            : (long)Math.Max(0.0D, (now - state.TargetStartedAt).TotalMilliseconds);
+
+        state.Fighting = true;
+        state.SetCurrentTarget(target);
+        state.CurrentTargetIsMaintenanceDefense = true;
+        state.RefreshCurrentTargetTimeout(now);
+
+        context.Logger.Info("stationary_combat.target.timeout_kept_for_defense", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["targetEntityId"] = target.TargetEntityId,
+            ["serverObjectId"] = target.ServerObjectId,
+            ["targetServerObjectId"] = target.ServerObjectId,
+            ["targetingServerObjectId"] = target.TargetServerObjectId,
+            ["localServerObjectId"] = state.LocalCombatSideServerObjectId,
+            ["localPetServerObjectId"] = state.LocalCombatSidePetServerObjectId,
+            ["targetName"] = target.Name,
+            ["reason"] = reason,
+            ["currentHp"] = target.CurrentHp,
+            ["maxHp"] = target.MaxHp,
+            ["elapsedMs"] = elapsedMs,
+            ["timeoutMs"] = (long)TargetTimeout.TotalMilliseconds,
+            ["targetingMe"] = targetingLocalSide,
+            ["teamLeaderProtection"] = teamLeaderProtection
+        });
+
+        return true;
     }
 
     private async Task<TimeSpan> IgnoreCurrentTargetAsync(

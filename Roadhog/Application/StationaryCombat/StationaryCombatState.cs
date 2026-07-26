@@ -238,6 +238,16 @@ public sealed class StationaryCombatState
         return changed;
     }
 
+    public void RefreshCurrentTargetTimeout(DateTimeOffset now)
+    {
+        if (CurrentTargetEntityId == 0 && CurrentTargetServerObjectId == 0)
+        {
+            return;
+        }
+
+        TargetStartedAt = now;
+    }
+
     public bool IsCombatApproachStuckTrackingTarget(ushort entityId, uint serverObjectId)
     {
         return IsSameTarget(CombatApproachStuckEntityId, CombatApproachStuckServerObjectId, entityId, serverObjectId);
