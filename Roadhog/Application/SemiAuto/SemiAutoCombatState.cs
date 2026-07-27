@@ -26,6 +26,7 @@ public sealed class SemiAutoCombatState
     private DateTimeOffset lastAttackKeyPressedAt = DateTimeOffset.MinValue;
     private DateTimeOffset lastSpiritmasterSummonAttemptAt = DateTimeOffset.MinValue;
     private DateTimeOffset spiritmasterSummonVerifyUntil = DateTimeOffset.MinValue;
+    private int consecutiveSpiritmasterPetMissingReads;
     private uint? lastPressedSkillId;
     private uint lastPressedCooldownEndTime;
     private DateTimeOffset lastPressedCooldownExpiresAt = DateTimeOffset.MinValue;
@@ -87,6 +88,8 @@ public sealed class SemiAutoCombatState
 
     public bool HasPendingSpiritmasterSummonVerification =>
         spiritmasterSummonVerifyUntil != DateTimeOffset.MinValue;
+
+    public int ConsecutiveSpiritmasterPetMissingReads => consecutiveSpiritmasterPetMissingReads;
 
     public bool IsMaintenanceResting { get; private set; }
 
@@ -283,6 +286,21 @@ public sealed class SemiAutoCombatState
     public void MarkSpiritmasterSummonAttempted(DateTimeOffset now)
     {
         lastSpiritmasterSummonAttemptAt = now;
+    }
+
+    public int RecordSpiritmasterPetMissingRead()
+    {
+        if (consecutiveSpiritmasterPetMissingReads < int.MaxValue)
+        {
+            consecutiveSpiritmasterPetMissingReads++;
+        }
+
+        return consecutiveSpiritmasterPetMissingReads;
+    }
+
+    public void ResetSpiritmasterPetMissingReads()
+    {
+        consecutiveSpiritmasterPetMissingReads = 0;
     }
 
     public bool IsAwaitingSpiritmasterSummonVerification(DateTimeOffset now)

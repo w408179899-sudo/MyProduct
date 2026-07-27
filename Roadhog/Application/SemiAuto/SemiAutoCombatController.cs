@@ -29,6 +29,7 @@ public sealed class SemiAutoCombatController
     private static readonly TimeSpan SpiritmasterSummonKeyInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan SpiritmasterSummonAttemptInterval = TimeSpan.FromSeconds(6);
     private static readonly TimeSpan SpiritmasterSummonVerifyWindow = TimeSpan.FromSeconds(5);
+    private const int SpiritmasterMissingPetReadThreshold = 3;
     private static readonly TimeSpan SpiritmasterOpeningAttackKeyInterval = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan OpeningSkillConfirmationTimeout = TimeSpan.FromMilliseconds(2300);
     private static readonly string AttackKey = "C";
@@ -411,6 +412,7 @@ public sealed class SemiAutoCombatController
     {
         if (!plan.UsesSpiritmasterAutoLogic)
         {
+            state.ResetSpiritmasterPetMissingReads();
             return false;
         }
 
@@ -418,6 +420,7 @@ public sealed class SemiAutoCombatController
         var spiritSettings = skillSettings.Spiritmaster ?? new SpiritmasterSkillSettings();
         if (!spiritSettings.SummonSkills.Any(rule => !string.IsNullOrWhiteSpace(rule.Key)))
         {
+            state.ResetSpiritmasterPetMissingReads();
             return false;
         }
 
@@ -425,6 +428,7 @@ public sealed class SemiAutoCombatController
         var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
         if (!playerResult.Success || playerResult.Value is null || playerResult.Value.IsDead)
         {
+            state.ResetSpiritmasterPetMissingReads();
             state.ClearSpiritmasterSummonVerification();
             return false;
         }
@@ -432,6 +436,7 @@ public sealed class SemiAutoCombatController
         var player = playerResult.Value;
         if (player.CharacterClassId is { } classId && classId != AionClassId.Spiritmaster)
         {
+            state.ResetSpiritmasterPetMissingReads();
             state.ClearSpiritmasterSummonVerification();
             return false;
         }
@@ -439,6 +444,7 @@ public sealed class SemiAutoCombatController
         var rosterResult = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
         if (!rosterResult.Success || rosterResult.Value is null)
         {
+            state.ResetSpiritmasterPetMissingReads();
             if (state.HasPendingSpiritmasterSummonVerification)
             {
                 if (ShouldLog(state.LastSpiritmasterSummonVerifyLogAt, now))
@@ -461,6 +467,7 @@ public sealed class SemiAutoCombatController
         var pet = localPet.Pet;
         if (SpiritmasterCombatContext.IsConfirmedLocalSummonedPet(localPet))
         {
+            state.ResetSpiritmasterPetMissingReads();
             if (state.HasPendingSpiritmasterSummonVerification)
             {
                 context.Logger.Info("semi_auto.spiritmaster.summon_verified", new Dictionary<string, object?>
@@ -498,6 +505,11 @@ public sealed class SemiAutoCombatController
                 ["account"] = context.Config.AccountName
             });
             state.ClearSpiritmasterSummonVerification();
+        }
+
+        if (!HasConfirmedSpiritmasterPetMissingReads(context, state))
+        {
+            return true;
         }
 
         if (!state.ShouldAttemptSpiritmasterSummon(now, SpiritmasterSummonAttemptInterval))
@@ -2428,14 +2440,27 @@ public sealed class SemiAutoCombatController
     {
         if (!spiritContext.CanUseSpiritmasterLogic)
         {
+            state.ResetSpiritmasterPetMissingReads();
+            return false;
+        }
+
+        if (spiritContext.PetRoster is null)
+        {
+            state.ResetSpiritmasterPetMissingReads();
             return false;
         }
 
         if (!spiritContext.HasSummonedPet)
         {
+            if (!HasConfirmedSpiritmasterPetMissingReads(context, state))
+            {
+                return true;
+            }
+
             return await TryPressSpiritmasterSummonAsync(context, state, settings, spiritSettings).ConfigureAwait(false);
         }
 
+        state.ResetSpiritmasterPetMissingReads();
         var confirmedLocalPet = spiritContext.LocalPet!;
         var pet = confirmedLocalPet.Pet;
         if (await TryPressSpiritmasterPetHpRuleAsync(
@@ -2459,6 +2484,25 @@ public sealed class SemiAutoCombatController
                 confirmedLocalPet,
                 spiritContext.Player)
             .ConfigureAwait(false);
+    }
+
+    private static bool HasConfirmedSpiritmasterPetMissingReads(
+        AccountWorkerContext context,
+        SemiAutoCombatState state)
+    {
+        var missingReadCount = state.RecordSpiritmasterPetMissingRead();
+        if (missingReadCount >= SpiritmasterMissingPetReadThreshold)
+        {
+            return true;
+        }
+
+        context.Logger.Info("semi_auto.spiritmaster.pet_missing_confirming", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["missingReadCount"] = missingReadCount,
+            ["requiredMissingReadCount"] = SpiritmasterMissingPetReadThreshold
+        });
+        return false;
     }
 
     private async Task<bool> TryPressSpiritmasterSummonAsync(

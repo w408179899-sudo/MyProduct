@@ -370,6 +370,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("spiritmaster selector skips command without pet", TestSpiritmasterSelectorSkipsCommandWithoutPetAsync),
     ("spiritmaster tick summons missing pet", TestSpiritmasterTickSummonsMissingPetAsync),
     ("spiritmaster tick summons when pet roster is unconfirmed", TestSpiritmasterTickSummonsWhenPetRosterIsUnconfirmedAsync),
+    ("spiritmaster missing pet confirmation resets when pet returns", TestSpiritmasterMissingPetConfirmationResetsWhenPetReturnsAsync),
     ("spiritmaster tick prioritizes lowest pet hp rule", TestSpiritmasterTickPrioritizesLowestPetHpRuleAsync),
     ("spiritmaster pet hp local cooldown yields to normal skills", TestSpiritmasterPetHpLocalCooldownYieldsToNormalSkillsAsync),
     ("spiritmaster tick gates pet buff by dp", TestSpiritmasterTickGatesPetBuffByDpAsync),
@@ -8011,7 +8012,14 @@ static async Task TestStationaryCombatDeathRecoverySummonsSpiritmasterPetBeforeR
     AssertEqual(StationaryCombatDeathRecoveryStep.FollowRevivePath, stationaryState.DeathRecovery.Step, "test should start at revive path");
 
     await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+    AssertEqual(0, keyboard.Keys.Count, "first revive path missing pet read should not summon");
+    AssertFalse(keyboard.KeyDowns.Contains("W"), "revive path must wait during first missing pet confirmation");
 
+    await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+    AssertEqual(0, keyboard.Keys.Count, "second revive path missing pet read should not summon");
+    AssertFalse(keyboard.KeyDowns.Contains("W"), "revive path must wait during second missing pet confirmation");
+
+    await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
     AssertSequence(new[] { "NumPad6" }, keyboard.Keys.ToArray(), "revive path should summon missing spiritmaster pet first");
     AssertFalse(keyboard.KeyDowns.Contains("W"), "revive path must wait for spiritmaster pet verification before moving");
 
@@ -14933,11 +14941,22 @@ static async Task TestSpiritmasterTickSummonsMissingPetAsync()
         Skills = CreateSpiritmasterSkillSnapshots()
     };
     var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    var context = CreateContext(settings, gameApi, logger);
+
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+    AssertEqual(1, state.ConsecutiveSpiritmasterPetMissingReads, "first missing pet read count");
+    AssertEqual(0, keyboard.Keys.Count, "first missing pet read should not summon");
+
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+    AssertEqual(2, state.ConsecutiveSpiritmasterPetMissingReads, "second missing pet read count");
+    AssertEqual(0, keyboard.Keys.Count, "second missing pet read should not summon");
 
     var startedAt = DateTimeOffset.Now;
-    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState()).ConfigureAwait(false);
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
     var elapsed = DateTimeOffset.Now - startedAt;
 
+    AssertEqual(3, state.ConsecutiveSpiritmasterPetMissingReads, "third missing pet read count");
     AssertSequence(new[] { "NumPad6", "NumPad8" }, keyboard.Keys.ToArray(), "summon key sequence");
     AssertFalse(elapsed < TimeSpan.FromMilliseconds(1900), "summon speed and summon pet keys should be separated by about two seconds");
 }
@@ -14984,10 +15003,52 @@ static async Task AssertSpiritmasterSummonsForUnconfirmedRosterAsync(
         Skills = CreateSpiritmasterSkillSnapshots()
     };
     var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    var context = CreateContext(settings, gameApi, logger);
 
-    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState()).ConfigureAwait(false);
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+    AssertEqual(0, keyboard.Keys.Count, scenario + " should wait for three missing reads");
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
 
     AssertSequence(new[] { "NumPad6" }, keyboard.Keys.ToArray(), scenario + " summon key");
+}
+
+static async Task TestSpiritmasterMissingPetConfirmationResetsWhenPetReturnsAsync()
+{
+    var settings = CreateSpiritmasterScriptSettings();
+    settings.Skills.Spiritmaster.SummonSkills = new List<SpiritmasterSkillKeyRuleConfig>
+    {
+        new() { Key = "NumPad6" }
+    };
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = CreateSpiritmasterPlayer(),
+        SummonedPetRoster = SummonedPetRosterSnapshot.Empty(1000, DateTimeOffset.Now)
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    var context = CreateContext(settings, gameApi, logger);
+
+    await controller.EnsureSpiritmasterPetAsync(context, plan, state).ConfigureAwait(false);
+    await controller.EnsureSpiritmasterPetAsync(context, plan, state).ConfigureAwait(false);
+    AssertEqual(2, state.ConsecutiveSpiritmasterPetMissingReads, "missing pet count before recovery");
+
+    gameApi.SummonedPetRoster = CreateLocalPetRoster(isSummoned: true);
+    var blockedWithPet = await controller.EnsureSpiritmasterPetAsync(context, plan, state).ConfigureAwait(false);
+    AssertFalse(blockedWithPet, "confirmed pet should allow normal work");
+    AssertEqual(0, state.ConsecutiveSpiritmasterPetMissingReads, "confirmed pet should reset missing count");
+
+    gameApi.SummonedPetRoster = SummonedPetRosterSnapshot.Empty(1000, DateTimeOffset.Now);
+    await controller.EnsureSpiritmasterPetAsync(context, plan, state).ConfigureAwait(false);
+    await controller.EnsureSpiritmasterPetAsync(context, plan, state).ConfigureAwait(false);
+    AssertEqual(0, keyboard.Keys.Count, "two new missing reads after reset should not summon");
+
+    await controller.EnsureSpiritmasterPetAsync(context, plan, state).ConfigureAwait(false);
+    AssertSequence(new[] { "NumPad6" }, keyboard.Keys.ToArray(), "third consecutive missing read should summon");
 }
 
 static async Task TestSpiritmasterTickPrioritizesLowestPetHpRuleAsync()
