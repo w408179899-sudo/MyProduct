@@ -1730,11 +1730,13 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                     return OperationResult<GatherSnapshot>.Fail("Module not found: " + moduleName);
                 }
 
-                var catalog = GatherSourceCatalog.Default;
+                var gatherCatalog = GatherSourceCatalog.Default;
+                var npcCatalog = GetNpcXmlCatalog();
                 if (!TryReadGatherSnapshot(
                         process,
                         gameBase,
-                        catalog,
+                        gatherCatalog,
+                        npcCatalog.Details,
                         out var snapshot,
                         out var counters,
                         out var readError))
@@ -1748,12 +1750,13 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                     ["pid"] = SafeGetProcessPid(process),
                     ["objects"] = snapshot.Objects.Count,
                     ["nearbyPlayers"] = snapshot.NearbyPlayers.Count,
+                    ["nearbyMonsters"] = snapshot.NearbyMonsters.Count,
                     ["scannedServerObjects"] = counters.ScannedServerObjects,
                     ["resolvedEntities"] = counters.ResolvedEntities,
                     ["resolvedActors"] = counters.ResolvedActors,
-                    ["catalogLoaded"] = catalog.Loaded,
-                    ["catalogRows"] = catalog.Count,
-                    ["catalogError"] = catalog.Error
+                    ["catalogLoaded"] = gatherCatalog.Loaded,
+                    ["catalogRows"] = gatherCatalog.Count,
+                    ["catalogError"] = gatherCatalog.Error
                 });
 
                 return OperationResult<GatherSnapshot>.Ok(snapshot);
@@ -6676,6 +6679,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         VmmProcess process,
         ulong gameBase,
         GatherSourceCatalog catalog,
+        IReadOnlyDictionary<uint, NpcStaticDetail> npcStaticDetails,
         out GatherSnapshot snapshot,
         out GatherReadCounters counters,
         out string error)
@@ -6733,6 +6737,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
 
         var objects = new List<GatherObjectSnapshot>();
         var players = new List<GatherCompetitionPlayerSnapshot>();
+        var monsters = new List<WorldObjectSnapshot>();
         for (var guard = 0; node != 0 && node != serverTreeHeader && guard < 100000; guard++)
         {
             if (IsNilNode(process, node, serverTreeHeader))
@@ -6833,6 +6838,40 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                                 gatherSourceIdCandidateRaw,
                                 capturedAt));
                     }
+                    else if (TryReadUInt16(process, entity + EntityTypeOffset, out var entityType) &&
+                             entityType == EntityTypeNpc &&
+                             npcStaticDetails.TryGetValue(actor.NpcTemplateId, out var npcStaticDetail) &&
+                             npcStaticDetail.IsMonsterKnown &&
+                             npcStaticDetail.IsMonster &&
+                             TryReadEntityPosition(process, entity, out var x, out var y, out var z) &&
+                             IsReasonablePosition(x, y, z))
+                    {
+                        var name = string.IsNullOrWhiteSpace(actor.Name)
+                            ? npcStaticDetail.Name
+                            : actor.Name;
+                        if (!string.IsNullOrWhiteSpace(name))
+                        {
+                            var position = new Vector3Snapshot(x, y, z);
+                            monsters.Add(
+                                new WorldObjectSnapshot(
+                                    entityId,
+                                    serverObjectId,
+                                    name,
+                                    "monster",
+                                    position,
+                                    CalculateDistance(localPosition, position),
+                                    actor.CurrentHp,
+                                    actor.MaxHp,
+                                    actor.TargetServerObjectId,
+                                    localServerObjectId != 0 &&
+                                    actor.TargetServerObjectId == localServerObjectId,
+                                    npcStaticDetail.AggressiveKnown,
+                                    npcStaticDetail.AggressiveToPlayer,
+                                    npcStaticDetail.AggressiveSource,
+                                    actor.LootableRaw,
+                                    actor.InteractionState));
+                        }
+                    }
                 }
             }
 
@@ -6856,6 +6895,12 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 .CompareTo(right.DistanceToLocalPlayer ?? double.MaxValue);
             return distance != 0 ? distance : left.ServerObjectId.CompareTo(right.ServerObjectId);
         });
+        monsters.Sort(static (left, right) =>
+        {
+            var distance = (left.DistanceToLocalPlayer ?? double.MaxValue)
+                .CompareTo(right.DistanceToLocalPlayer ?? double.MaxValue);
+            return distance != 0 ? distance : left.ServerObjectId.CompareTo(right.ServerObjectId);
+        });
 
         snapshot = new GatherSnapshot(
             localEntityId,
@@ -6863,6 +6908,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             localPosition,
             objects,
             players,
+            monsters,
+            true,
             true,
             capturedAt);
         return true;

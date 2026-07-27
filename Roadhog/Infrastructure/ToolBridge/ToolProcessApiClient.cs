@@ -115,6 +115,8 @@ public sealed class ToolProcessApiClient : IRoadhogGameApi
                 null,
                 objects,
                 Array.Empty<GatherCompetitionPlayerSnapshot>(),
+                Array.Empty<WorldObjectSnapshot>(),
+                false,
                 false,
                 capturedAt));
     }

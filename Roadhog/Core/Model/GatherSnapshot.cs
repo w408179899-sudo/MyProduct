@@ -6,6 +6,8 @@ public sealed record GatherSnapshot(
     Vector3Snapshot? LocalPosition,
     IReadOnlyList<GatherObjectSnapshot> Objects,
     IReadOnlyList<GatherCompetitionPlayerSnapshot> NearbyPlayers,
+    IReadOnlyList<WorldObjectSnapshot> NearbyMonsters,
+    bool MonsterDataAvailable,
     bool CompetitionDataAvailable,
     DateTimeOffset CapturedAt)
 {
@@ -17,6 +19,8 @@ public sealed record GatherSnapshot(
             null,
             Array.Empty<GatherObjectSnapshot>(),
             Array.Empty<GatherCompetitionPlayerSnapshot>(),
+            Array.Empty<WorldObjectSnapshot>(),
+            false,
             false,
             capturedAt);
     }

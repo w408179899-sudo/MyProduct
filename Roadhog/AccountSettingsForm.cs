@@ -69,6 +69,22 @@ namespace Roadhog
         private RoundedComboBox? activeMonsterFilterCombo;
         private ListBox? activeMonsterFilterListBox;
         private Label? activeMonsterFilterStatusLabel;
+        private RoundedCheckBox? stationaryGatherEnabledCheckBox;
+        private RoundedTextBox? stationaryGatherSearchRadiusTextBox;
+        private RoundedTextBox? gatherThreatRadiusTextBox;
+        private RoundedComboBox? nearbyGatherFilterCombo;
+        private ListView? gatherFilterListView;
+        private Label? gatherFilterStatusLabel;
+        private Label? gatherFilterNameValueLabel;
+        private Label? gatherFilterSourceIdValueLabel;
+        private Label? gatherFilterSourceTypeValueLabel;
+        private Label? gatherFilterAvailabilityValueLabel;
+        private Label? gatherFilterDistanceValueLabel;
+        private Button? readNearbyGatherFilterButton;
+        private Button? addGatherFilterButton;
+        private Button? gatherFilterKeyButton;
+        private Button? removeGatherFilterButton;
+        private Button? clearGatherFilterButton;
         private RoundedCheckBox? openingAttackKeyCheckBox;
         private RoundedCheckBox? conditionSkillPreemptsChainCheckBox;
         private RoundedTextBox? chainWindowPerLinkTextBox;
@@ -4557,6 +4573,29 @@ namespace Roadhog
             var page = CreatePagePanel();
             tab.Controls.Add(page);
 
+            var filterTabs = new TabControl
+            {
+                Alignment = TabAlignment.Top,
+                Dock = DockStyle.Fill,
+                DrawMode = TabDrawMode.OwnerDrawFixed,
+                ItemSize = new Size(104, 28),
+                Name = "filterTabs",
+                SizeMode = TabSizeMode.Fixed
+            };
+            filterTabs.DrawItem += GreenTabs_DrawItem;
+            filterTabs.TabPages.Add(CreateMonsterFilterTab());
+            filterTabs.TabPages.Add(CreateGatherFilterPreviewTab());
+            page.Controls.Add(filterTabs);
+
+            return tab;
+        }
+
+        private TabPage CreateMonsterFilterTab()
+        {
+            var tab = CreateBaseTab("怪物过滤");
+            var page = CreatePagePanel();
+            tab.Controls.Add(page);
+
             AddLabel(page, "怪物过滤", 4, 16, 90, 24, _textGreen, FontStyle.Bold);
             var refreshMonstersButton = AddButton(page, "刷新当前怪物", 96, 12, 132, 30);
             refreshMonstersButton.Click += async (_, _) =>
@@ -4575,6 +4614,368 @@ namespace Roadhog
             AddButton(page, "清空", 684, 122, 80, 30, (_, _) => ClearActiveMonsterFilterList());
 
             return tab;
+        }
+
+        private TabPage CreateGatherFilterPreviewTab()
+        {
+            var tab = CreateBaseTab("采集物过滤");
+            var page = CreatePagePanel();
+            tab.Controls.Add(page);
+
+            stationaryGatherEnabledCheckBox = AddCheckBox(page, "先采集后打怪", 4, 12, 156, false);
+            stationaryGatherEnabledCheckBox.Name = "stationaryGatherEnabledCheckBox";
+
+            AddLabel(page, "搜索范围", 184, 14, 70, 24, _textGreen, FontStyle.Bold);
+            stationaryGatherSearchRadiusTextBox = AddTextBox(page, "10", 256, 12, 58, 28);
+            stationaryGatherSearchRadiusTextBox.Name = "stationaryGatherSearchRadiusTextBox";
+            AddLabel(page, "米", 320, 14, 28, 24);
+
+            AddLabel(page, "安全清怪", 382, 14, 70, 24, _textGreen, FontStyle.Bold);
+            gatherThreatRadiusTextBox = AddTextBox(page, "7", 454, 12, 58, 28);
+            gatherThreatRadiusTextBox.Name = "gatherThreatRadiusTextBox";
+            AddLabel(page, "米", 518, 14, 28, 24);
+
+            gatherFilterStatusLabel = AddLabel(
+                page,
+                "等待读取附近采集物",
+                610,
+                14,
+                210,
+                24,
+                Color.FromArgb(166, 80, 24),
+                FontStyle.Bold);
+            gatherFilterStatusLabel.Name = "gatherFilterStatusLabel";
+
+            var divider = new Label
+            {
+                BackColor = Color.FromArgb(187, 247, 208),
+                Location = new Point(4, 50),
+                Size = new Size(816, 1)
+            };
+            page.Controls.Add(divider);
+
+            AddLabel(page, "附近采集物", 4, 66, 100, 24, _textGreen, FontStyle.Bold);
+            readNearbyGatherFilterButton = AddButton(page, "读取附近", 106, 62, 104, 30);
+            readNearbyGatherFilterButton.Name = "readNearbyGatherFilterButton";
+            readNearbyGatherFilterButton.Click += async (_, _) =>
+                await RefreshNearbyGatherFiltersAsync(readNearbyGatherFilterButton).ConfigureAwait(true);
+
+            nearbyGatherFilterCombo = AddCombo(page, 4, 104, 280, 30);
+            nearbyGatherFilterCombo.Name = "nearbyGatherFilterCombo";
+            nearbyGatherFilterCombo.DropDownWidth = 440;
+            nearbyGatherFilterCombo.SelectedIndexChanged += (_, _) =>
+            {
+                if (gatherFilterListView is not null)
+                {
+                    gatherFilterListView.SelectedItems.Clear();
+                }
+
+                ShowGatherFilterDetails(GetSelectedNearbyGatherFilter()?.Snapshot);
+            };
+            addGatherFilterButton = AddButton(page, "加入采集 >", 294, 104, 104, 30, (_, _) => AddSelectedGatherFilter());
+            addGatherFilterButton.Name = "addGatherFilterButton";
+
+            AddLabel(page, "名称", 4, 154, 54, 24, _textGreen, FontStyle.Bold);
+            gatherFilterNameValueLabel = AddLabel(page, "未选择", 62, 154, 320, 24);
+            AddLabel(page, "SourceId", 4, 188, 70, 24, _textGreen, FontStyle.Bold);
+            gatherFilterSourceIdValueLabel = AddLabel(page, "未选择", 78, 188, 124, 24);
+            AddLabel(page, "类别", 220, 188, 54, 24, _textGreen, FontStyle.Bold);
+            gatherFilterSourceTypeValueLabel = AddLabel(page, "未选择", 278, 188, 104, 24);
+            AddLabel(page, "状态", 4, 222, 54, 24, _textGreen, FontStyle.Bold);
+            gatherFilterAvailabilityValueLabel = AddLabel(page, "未选择", 62, 222, 140, 24);
+            AddLabel(page, "距离", 220, 222, 54, 24, _textGreen, FontStyle.Bold);
+            gatherFilterDistanceValueLabel = AddLabel(page, "未选择", 278, 222, 104, 24);
+
+            AddLabel(page, "要采集的采集物", 426, 66, 150, 24, _textGreen, FontStyle.Bold);
+            gatherFilterListView = new ListView
+            {
+                BackColor = _inputBackground,
+                BorderStyle = BorderStyle.FixedSingle,
+                CheckBoxes = true,
+                Font = new Font("Microsoft YaHei UI", 8.5F),
+                ForeColor = _textGreen,
+                FullRowSelect = true,
+                HeaderStyle = ColumnHeaderStyle.Nonclickable,
+                HideSelection = false,
+                Location = new Point(426, 104),
+                MultiSelect = true,
+                Name = "gatherFilterListView",
+                Size = new Size(394, 346),
+                UseCompatibleStateImageBehavior = false,
+                View = View.Details
+            };
+            gatherFilterListView.Columns.Add("启用", 54, HorizontalAlignment.Center);
+            gatherFilterListView.Columns.Add("名称", 148, HorizontalAlignment.Left);
+            gatherFilterListView.Columns.Add("SourceId", 106, HorizontalAlignment.Center);
+            gatherFilterListView.Columns.Add("按键", 78, HorizontalAlignment.Center);
+            gatherFilterListView.ItemSelectionChanged += (_, _) =>
+            {
+                var rule = GetSelectedGatherFilterRule();
+                ShowGatherFilterDetails(rule?.Snapshot);
+                UpdateGatherFilterKeyButton(rule);
+            };
+            page.Controls.Add(gatherFilterListView);
+
+            gatherFilterKeyButton = AddButton(page, "设置按键", 426, 464, 104, 30, (_, _) => SetSelectedGatherFilterKey());
+            gatherFilterKeyButton.Name = "gatherFilterKeyButton";
+            gatherFilterKeyButton.Enabled = false;
+            removeGatherFilterButton = AddButton(page, "移除", 540, 464, 80, 30, (_, _) => RemoveSelectedGatherFilters());
+            removeGatherFilterButton.Name = "removeGatherFilterButton";
+            clearGatherFilterButton = AddButton(page, "清空", 630, 464, 80, 30, (_, _) => ClearGatherFilters());
+            clearGatherFilterButton.Name = "clearGatherFilterButton";
+
+            return tab;
+        }
+
+        private async Task RefreshNearbyGatherFiltersAsync(Button button)
+        {
+            var originalText = button.Text;
+            button.Enabled = false;
+            button.Text = "读取中...";
+            SetGatherFilterStatus("正在读取附近采集物", false);
+
+            try
+            {
+                var result = await _runtime
+                    .RefreshGatherSnapshotAsync(_account)
+                    .ConfigureAwait(true);
+                if (!result.Success || result.Value is null)
+                {
+                    PopulateNearbyGatherFilterCombo(Array.Empty<GatherObjectSnapshot>());
+                    SetGatherFilterStatus(result.Error ?? "读取附近采集物失败", true);
+                    return;
+                }
+
+                var sourceCount = PopulateNearbyGatherFilterCombo(result.Value.Objects);
+                SetGatherFilterStatus(
+                    "已读取 " +
+                    result.Value.Objects.Count.ToString(CultureInfo.InvariantCulture) +
+                    " 个 / " +
+                    sourceCount.ToString(CultureInfo.InvariantCulture) +
+                    " 类",
+                    false);
+            }
+            finally
+            {
+                if (!button.IsDisposed)
+                {
+                    button.Text = originalText;
+                    button.Enabled = true;
+                }
+            }
+        }
+
+        private int PopulateNearbyGatherFilterCombo(IEnumerable<GatherObjectSnapshot> objects)
+        {
+            if (nearbyGatherFilterCombo is null)
+            {
+                return 0;
+            }
+
+            var previousSourceId = GetSelectedNearbyGatherFilter()?.Snapshot.GatherSourceId ?? 0;
+            var items = objects
+                .Where(item => item.GatherSourceId != 0)
+                .GroupBy(item => item.GatherSourceId)
+                .Select(group => group
+                    .OrderBy(item => item.DistanceToLocalPlayer ?? double.MaxValue)
+                    .ThenBy(item => item.ServerObjectId)
+                    .First())
+                .OrderBy(item => item.DistanceToLocalPlayer ?? double.MaxValue)
+                .ThenBy(item => item.GatherSourceId)
+                .Select(item => new GatherFilterComboItem(item))
+                .ToArray();
+
+            nearbyGatherFilterCombo.Items.Clear();
+            nearbyGatherFilterCombo.Items.AddRange(items);
+            if (items.Length == 0)
+            {
+                nearbyGatherFilterCombo.Text = string.Empty;
+                ShowGatherFilterDetails(null);
+                return 0;
+            }
+
+            var selectedIndex = Array.FindIndex(
+                items,
+                item => item.Snapshot.GatherSourceId == previousSourceId);
+            nearbyGatherFilterCombo.SelectedIndex = selectedIndex >= 0 ? selectedIndex : 0;
+            return items.Length;
+        }
+
+        private GatherFilterComboItem? GetSelectedNearbyGatherFilter()
+        {
+            return nearbyGatherFilterCombo?.SelectedItem as GatherFilterComboItem;
+        }
+
+        private void AddSelectedGatherFilter()
+        {
+            if (gatherFilterListView is null || GetSelectedNearbyGatherFilter() is not { } selected)
+            {
+                SetGatherFilterStatus("请先选择附近采集物", true);
+                return;
+            }
+
+            var sourceId = selected.Snapshot.GatherSourceId;
+            var existing = gatherFilterListView.Items
+                .Cast<ListViewItem>()
+                .FirstOrDefault(item =>
+                    item.Tag is GatherFilterRuleDraft rule &&
+                    rule.Snapshot.GatherSourceId == sourceId);
+            if (existing is not null)
+            {
+                existing.Selected = true;
+                existing.Focused = true;
+                existing.EnsureVisible();
+                SetGatherFilterStatus("该采集物已经在列表中", false);
+                return;
+            }
+
+            var draft = new GatherFilterRuleDraft(selected.Snapshot);
+            var item = CreateGatherFilterListItem(draft);
+            gatherFilterListView.Items.Add(item);
+            item.Checked = true;
+            item.Selected = true;
+            item.Focused = true;
+            item.EnsureVisible();
+            SetGatherFilterStatus("已加入，选中该行设置按键", false);
+        }
+
+        private static ListViewItem CreateGatherFilterListItem(GatherFilterRuleDraft draft)
+        {
+            var item = new ListViewItem(string.Empty)
+            {
+                Tag = draft
+            };
+            item.SubItems.Add(draft.DisplayName);
+            item.SubItems.Add(draft.Snapshot.GatherSourceId.ToString(CultureInfo.InvariantCulture));
+            item.SubItems.Add(string.IsNullOrWhiteSpace(draft.GatherKey) ? "未设置" : FormatSkillKey(draft.GatherKey));
+            return item;
+        }
+
+        private GatherFilterRuleDraft? GetSelectedGatherFilterRule()
+        {
+            return gatherFilterListView?.SelectedItems.Count > 0
+                ? gatherFilterListView.SelectedItems[0].Tag as GatherFilterRuleDraft
+                : null;
+        }
+
+        private void SetSelectedGatherFilterKey()
+        {
+            if (gatherFilterListView?.SelectedItems.Count is not > 0 ||
+                GetSelectedGatherFilterRule() is not { } rule)
+            {
+                SetGatherFilterStatus("请先选择右侧采集物", true);
+                return;
+            }
+
+            var selectedKey = ShowKeyboardPicker(rule.GatherKey, "选择采集按键");
+            if (string.IsNullOrWhiteSpace(selectedKey))
+            {
+                return;
+            }
+
+            rule.GatherKey = selectedKey.Trim();
+            gatherFilterListView.SelectedItems[0].SubItems[3].Text = FormatSkillKey(rule.GatherKey);
+            UpdateGatherFilterKeyButton(rule);
+            SetGatherFilterStatus("已设置按键 " + FormatSkillKey(rule.GatherKey), false);
+        }
+
+        private void RemoveSelectedGatherFilters()
+        {
+            if (gatherFilterListView is null || gatherFilterListView.SelectedItems.Count == 0)
+            {
+                SetGatherFilterStatus("请先选择右侧采集物", true);
+                return;
+            }
+
+            foreach (var item in gatherFilterListView.SelectedItems.Cast<ListViewItem>().ToArray())
+            {
+                gatherFilterListView.Items.Remove(item);
+            }
+
+            ShowGatherFilterDetails(GetSelectedNearbyGatherFilter()?.Snapshot);
+            UpdateGatherFilterKeyButton(null);
+            SetGatherFilterStatus("已移除", false);
+        }
+
+        private void ClearGatherFilters()
+        {
+            gatherFilterListView?.Items.Clear();
+            ShowGatherFilterDetails(GetSelectedNearbyGatherFilter()?.Snapshot);
+            UpdateGatherFilterKeyButton(null);
+            SetGatherFilterStatus("已清空", false);
+        }
+
+        private void ShowGatherFilterDetails(GatherObjectSnapshot? snapshot)
+        {
+            if (gatherFilterNameValueLabel is null ||
+                gatherFilterSourceIdValueLabel is null ||
+                gatherFilterSourceTypeValueLabel is null ||
+                gatherFilterAvailabilityValueLabel is null ||
+                gatherFilterDistanceValueLabel is null)
+            {
+                return;
+            }
+
+            gatherFilterNameValueLabel.Text = snapshot is null
+                ? "未选择"
+                : ResolveGatherFilterDisplayName(snapshot);
+            gatherFilterSourceIdValueLabel.Text = snapshot is null
+                ? "未选择"
+                : snapshot.GatherSourceId.ToString(CultureInfo.InvariantCulture);
+            gatherFilterSourceTypeValueLabel.Text = snapshot is null
+                ? "未选择"
+                : string.IsNullOrWhiteSpace(snapshot.Source?.SourceType)
+                    ? "未知"
+                    : snapshot.Source.SourceType;
+            gatherFilterAvailabilityValueLabel.Text = snapshot?.InteractionAvailability switch
+            {
+                GatherInteractionAvailability.Allowed => "可采集",
+                GatherInteractionAvailability.Blocked => "不可采集",
+                null => "未选择",
+                _ => "未知"
+            };
+            gatherFilterDistanceValueLabel.Text = snapshot?.DistanceToLocalPlayer is { } distance
+                ? distance.ToString("0.0", CultureInfo.InvariantCulture) + " 米"
+                : snapshot is null
+                    ? "未选择"
+                    : "未知";
+        }
+
+        private void UpdateGatherFilterKeyButton(GatherFilterRuleDraft? rule)
+        {
+            if (gatherFilterKeyButton is null)
+            {
+                return;
+            }
+
+            gatherFilterKeyButton.Enabled = rule is not null;
+            gatherFilterKeyButton.Tag = rule?.GatherKey;
+            gatherFilterKeyButton.Text = rule is null || string.IsNullOrWhiteSpace(rule.GatherKey)
+                ? "设置按键"
+                : FormatSkillKey(rule.GatherKey);
+        }
+
+        private void SetGatherFilterStatus(string text, bool isError)
+        {
+            if (gatherFilterStatusLabel is null)
+            {
+                return;
+            }
+
+            gatherFilterStatusLabel.ForeColor = isError ? Color.FromArgb(166, 40, 40) : _textGreen;
+            gatherFilterStatusLabel.Text = text;
+        }
+
+        private static string ResolveGatherFilterDisplayName(GatherObjectSnapshot snapshot)
+        {
+            if (!string.IsNullOrWhiteSpace(snapshot.Name))
+            {
+                return snapshot.Name.Trim();
+            }
+
+            return !string.IsNullOrWhiteSpace(snapshot.Source?.InternalName)
+                ? snapshot.Source.InternalName
+                : "采集物";
         }
 
         private ListBox CreateFilterListBox(Control parent, int x, int y, int width, int height)
@@ -7329,7 +7730,7 @@ namespace Roadhog
             manualSkillMappingList?.Invalidate();
         }
 
-        private string? ShowKeyboardPicker(string? currentKey)
+        private string? ShowKeyboardPicker(string? currentKey, string titleText = "选择技能按键")
         {
             using var dialog = new Form
             {
@@ -7344,7 +7745,7 @@ namespace Roadhog
                 Name = "KeyboardPickerForm",
                 ShowInTaskbar = false,
                 StartPosition = FormStartPosition.CenterParent,
-                Text = "选择技能按键"
+                Text = titleText
             };
 
             var selectedKey = currentKey;
@@ -7356,7 +7757,7 @@ namespace Roadhog
                 ForeColor = _textGreen,
                 Location = new Point(14, 12),
                 Size = new Size(220, 24),
-                Text = "选择技能按键",
+                Text = titleText,
                 TextAlign = ContentAlignment.MiddleLeft
             };
             dialog.Controls.Add(title);
@@ -7712,6 +8113,42 @@ namespace Roadhog
 
                 return text;
             }
+        }
+
+        private sealed class GatherFilterComboItem
+        {
+            public GatherFilterComboItem(GatherObjectSnapshot snapshot)
+            {
+                Snapshot = snapshot;
+            }
+
+            public GatherObjectSnapshot Snapshot { get; }
+
+            public override string ToString()
+            {
+                var distance = Snapshot.DistanceToLocalPlayer is { } value
+                    ? value.ToString("0.0", CultureInfo.InvariantCulture) + "m"
+                    : "距离未知";
+                return ResolveGatherFilterDisplayName(Snapshot) +
+                       " / " +
+                       Snapshot.GatherSourceId.ToString(CultureInfo.InvariantCulture) +
+                       " / " +
+                       distance;
+            }
+        }
+
+        private sealed class GatherFilterRuleDraft
+        {
+            public GatherFilterRuleDraft(GatherObjectSnapshot snapshot)
+            {
+                Snapshot = snapshot;
+            }
+
+            public GatherObjectSnapshot Snapshot { get; }
+
+            public string GatherKey { get; set; } = string.Empty;
+
+            public string DisplayName => ResolveGatherFilterDisplayName(Snapshot);
         }
 
         private sealed class CleanupNpcComboItem

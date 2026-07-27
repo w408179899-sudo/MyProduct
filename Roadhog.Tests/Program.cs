@@ -78,6 +78,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("runtime gather read uses account scoped context", TestRuntimeGatherReadUsesAccountScopeAsync),
     ("gather source catalog loads static metadata", TestGatherSourceCatalogLoadsStaticMetadataAsync),
     ("gather snapshot evaluates practical competition rule", TestGatherSnapshotEvaluatesCompetitionRuleAsync),
+    ("gather filter tab reads and adds nearby sources", TestGatherFilterTabReadsAndAddsNearbySourcesAsync),
     ("runtime summoned pet read uses account scoped context", TestRuntimeSummonedPetReadUsesAccountScopeAsync),
     ("runtime summoned pet roster read uses account scoped context", TestRuntimeSummonedPetRosterReadUsesAccountScopeAsync),
     ("runtime team snapshot uses account scoped context", TestRuntimeTeamSnapshotUsesAccountScopeAsync),
@@ -899,6 +900,24 @@ static async Task TestRuntimeGatherReadUsesAccountScopeAsync()
             new Vector3Snapshot(1, 2, 3),
             Array.Empty<GatherObjectSnapshot>(),
             Array.Empty<GatherCompetitionPlayerSnapshot>(),
+            new[]
+            {
+                new WorldObjectSnapshot(
+                    101,
+                    1001,
+                    "nearby monster",
+                    "monster",
+                    new Vector3Snapshot(4, 5, 6),
+                    5.0D,
+                    100,
+                    100,
+                    0,
+                    false,
+                    true,
+                    true,
+                    "test")
+            },
+            true,
             true,
             capturedAt)
     };
@@ -910,6 +929,11 @@ static async Task TestRuntimeGatherReadUsesAccountScopeAsync()
     AssertEqual(712, gameApi.LastGatherContext?.ProcessId ?? 0, "scoped process id");
     AssertEqual("Aion.bin", gameApi.LastGatherContext?.TargetProcessName ?? string.Empty, "scoped process name");
     AssertEqual("fpga", gameApi.LastGatherContext?.VmmDeviceName ?? string.Empty, "scoped vmm device");
+    AssertEqual(1, result.Value?.NearbyMonsters.Count ?? 0, "gather snapshot nearby monster count");
+    AssertFalse(result.Value?.MonsterDataAvailable != true, "gather snapshot monster data availability");
+    AssertFalse(
+        result.Value?.NearbyMonsters[0].IsAggressiveToPlayer != true,
+        "gather snapshot should preserve nearby monster aggression");
 }
 
 static Task TestGatherSourceCatalogLoadsStaticMetadataAsync()
@@ -989,12 +1013,33 @@ static Task TestGatherSnapshotEvaluatesCompetitionRuleAsync()
         new Vector3Snapshot(8, 10, 0),
         new[] { target },
         new[] { matchingPlayer, wrongSourcePlayer, farPlayer, staleSourcePlayer, unrelatedActionPlayer },
+        new[]
+        {
+            new WorldObjectSnapshot(
+                30,
+                10030,
+                "nearby aggressive monster",
+                "monster",
+                new Vector3Snapshot(11, 10, 0),
+                3.0D,
+                100,
+                100,
+                10001,
+                true,
+                true,
+                true,
+                "test")
+        },
+        true,
         true,
         capturedAt);
 
     AssertEqual(GatherInteractionAvailability.Allowed, target.InteractionAvailability, "allowed interaction state");
     AssertFalse(!target.IsGatherableCandidate, "target should be a gatherable candidate");
     AssertFalse(!snapshot.ContainsObject(target.ServerObjectId), "concrete server object should be present");
+    AssertFalse(!snapshot.MonsterDataAvailable, "nearby monster data should be available");
+    AssertEqual(1, snapshot.NearbyMonsters.Count, "nearby monster count");
+    AssertFalse(!snapshot.NearbyMonsters[0].IsTargetingLocalPlayer, "nearby monster local targeting state");
     AssertEqual(1, snapshot.FindLikelyCompetitors(target, 5.0D).Count, "matching nearby competitor count");
     AssertFalse(!snapshot.IsLikelyOccupied(target, 5.0D), "target should be likely occupied");
     AssertEqual(
@@ -1005,6 +1050,103 @@ static Task TestGatherSnapshotEvaluatesCompetitionRuleAsync()
         (target with { InteractionState = 41 }).IsGatherableCandidate,
         "blocked target should not be gatherable");
     return Task.CompletedTask;
+}
+
+static Task TestGatherFilterTabReadsAndAddsNearbySourcesAsync()
+{
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        try
+        {
+            var capturedAt = DateTimeOffset.Now;
+            var gameApi = new FakeGameApi
+            {
+                Gather = new GatherSnapshot(
+                    1,
+                    10001,
+                    new Vector3Snapshot(0, 0, 0),
+                    new[]
+                    {
+                        CreateGatherObjectForFilterTest(10, 10010, 400951, "远处贝壳", 9.0D, capturedAt),
+                        CreateGatherObjectForFilterTest(11, 10011, 400951, "贝壳", 3.0D, capturedAt),
+                        CreateGatherObjectForFilterTest(12, 10012, 401051, "红宝石", 5.0D, capturedAt)
+                    },
+                    Array.Empty<GatherCompetitionPlayerSnapshot>(),
+                    Array.Empty<WorldObjectSnapshot>(),
+                    true,
+                    true,
+                    capturedAt)
+            };
+
+            using var form = CreateAccountSettingsFormForTestsWithApi(gameApi);
+            var readButton = (System.Windows.Forms.Button)GetPrivateFieldForTest(
+                form,
+                "readNearbyGatherFilterButton");
+            InvokePrivateTaskForTest(form, "RefreshNearbyGatherFiltersAsync", readButton);
+
+            var combo = GetPrivateFieldForTest(form, "nearbyGatherFilterCombo");
+            var items = combo.GetType().GetProperty("Items")!.GetValue(combo)!;
+            var itemCount = (int)items.GetType().GetProperty("Count")!.GetValue(items)!;
+            var comboText = combo.GetType().GetProperty("Text")!.GetValue(combo) as string ?? string.Empty;
+            AssertEqual(2, itemCount, "nearby gather dropdown should de-duplicate SourceId");
+            AssertEqual(
+                "贝壳 / 400951 / 3.0m",
+                comboText,
+                "nearby gather dropdown should keep nearest instance");
+
+            InvokePrivateMethodForTest(form, "AddSelectedGatherFilter");
+            var list = (System.Windows.Forms.ListView)GetPrivateFieldForTest(form, "gatherFilterListView");
+            AssertEqual(1, list.Items.Count, "selected gather source should be added");
+            AssertFalse(!list.Items[0].Checked, "new gather rule should be enabled");
+            AssertEqual("贝壳", list.Items[0].SubItems[1].Text, "gather rule display name");
+            AssertEqual("400951", list.Items[0].SubItems[2].Text, "gather rule SourceId");
+            AssertEqual("未设置", list.Items[0].SubItems[3].Text, "gather rule initial key");
+
+            InvokePrivateMethodForTest(form, "AddSelectedGatherFilter");
+            AssertEqual(1, list.Items.Count, "duplicate SourceId should not be added twice");
+        }
+        catch (Exception ex)
+        {
+            failure = ex;
+        }
+    });
+
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    thread.Join();
+
+    if (failure is not null)
+    {
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    return Task.CompletedTask;
+}
+
+static GatherObjectSnapshot CreateGatherObjectForFilterTest(
+    ushort entityId,
+    uint serverObjectId,
+    uint gatherSourceId,
+    string name,
+    double distanceMeters,
+    DateTimeOffset capturedAt)
+{
+    return new GatherObjectSnapshot(
+        entityId,
+        serverObjectId,
+        gatherSourceId,
+        name,
+        1,
+        1,
+        2.0F,
+        40,
+        new Vector3Snapshot((float)distanceMeters, 0, 0),
+        new Vector3Snapshot((float)distanceMeters, 0, 0),
+        distanceMeters,
+        false,
+        null,
+        capturedAt);
 }
 
 static async Task TestRuntimeSummonedPetReadUsesAccountScopeAsync()
@@ -18980,6 +19122,43 @@ static AccountSettingsForm CreateAccountSettingsFormForTestsWithStore(InMemoryAc
         configStore,
         new InMemorySharedPathStore(),
         new InMemoryScriptProfileStore());
+}
+
+static AccountSettingsForm CreateAccountSettingsFormForTestsWithApi(FakeGameApi gameApi)
+{
+    var configStore = new InMemoryAccountConfigStore(new AccountConfig
+    {
+        AccountName = "account1",
+        ScriptSettings = CreateScriptSettings()
+    });
+    var logger = new InMemoryRoadhogLogger();
+    var accounts = new AccountRuntimeManager(logger);
+    var runtime = new RoadhogRuntime(gameApi, logger, accounts, null!, configStore);
+    return new AccountSettingsForm(
+        "account1",
+        runtime,
+        configStore,
+        new InMemorySharedPathStore(),
+        new InMemoryScriptProfileStore());
+}
+
+static void InvokePrivateTaskForTest(AccountSettingsForm form, string methodName, params object[] arguments)
+{
+    var task = InvokePrivateMethodForTest(form, methodName, arguments) as Task;
+    AssertFalse(task is null, methodName + " should return a task");
+    task!.GetAwaiter().GetResult();
+}
+
+static object? InvokePrivateMethodForTest(
+    AccountSettingsForm form,
+    string methodName,
+    params object[] arguments)
+{
+    var method = typeof(AccountSettingsForm).GetMethod(
+        methodName,
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+    AssertFalse(method is null, methodName + " method should exist");
+    return method!.Invoke(form, arguments);
 }
 
 static bool InvokeSaveCurrentSettingsForTest(AccountSettingsForm form, out string error)

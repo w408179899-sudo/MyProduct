@@ -283,6 +283,8 @@ public sealed class RoadhogRuntime
                 ["account"] = accountName,
                 ["objects"] = result.Value?.Objects.Count ?? 0,
                 ["nearbyPlayers"] = result.Value?.NearbyPlayers.Count ?? 0,
+                ["nearbyMonsters"] = result.Value?.NearbyMonsters.Count ?? 0,
+                ["monsterDataAvailable"] = result.Value?.MonsterDataAvailable ?? false,
                 ["competitionDataAvailable"] = result.Value?.CompetitionDataAvailable ?? false
             });
         }

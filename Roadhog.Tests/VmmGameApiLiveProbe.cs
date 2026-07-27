@@ -64,6 +64,8 @@ internal static class VmmGameApiLiveProbe
                 ? string.Empty
                 : "objects=" + gather.Value.Objects.Count.ToString(CultureInfo.InvariantCulture) +
                   ", nearbyPlayers=" + gather.Value.NearbyPlayers.Count.ToString(CultureInfo.InvariantCulture) +
+                  ", nearbyMonsters=" + gather.Value.NearbyMonsters.Count.ToString(CultureInfo.InvariantCulture) +
+                  ", monsterData=" + (gather.Value.MonsterDataAvailable ? "yes" : "no") +
                   ", competitionData=" + (gather.Value.CompetitionDataAvailable ? "yes" : "no"));
         if (gather.Value is not null)
         {
@@ -89,6 +91,19 @@ internal static class VmmGameApiLiveProbe
                     " GatherActionId=" + nearbyPlayer.GatherActionIdRaw.ToString(CultureInfo.InvariantCulture) +
                     " GatherSourceCandidate=" + nearbyPlayer.GatherSourceIdCandidateRaw.ToString(CultureInfo.InvariantCulture) +
                     " GatheringCandidate=" + (nearbyPlayer.IsGatheringActionCandidate ? "yes" : "no"));
+            }
+
+            foreach (var monster in gather.Value.NearbyMonsters.Take(5))
+            {
+                Console.WriteLine(
+                    "  Monster ServerId=" + monster.ServerObjectId.ToString(CultureInfo.InvariantCulture) +
+                    " Name=\"" + monster.Name + "\"" +
+                    " Distance=" + (monster.DistanceToLocalPlayer?.ToString("0.00", CultureInfo.InvariantCulture) ?? "n/a") +
+                    " Hp=" + monster.CurrentHp.ToString(CultureInfo.InvariantCulture) +
+                    "/" + monster.MaxHp.ToString(CultureInfo.InvariantCulture) +
+                    " TargetServerId=" + monster.TargetServerObjectId.ToString(CultureInfo.InvariantCulture) +
+                    " AggressiveKnown=" + (monster.AggressiveKnown ? "yes" : "no") +
+                    " Aggressive=" + (monster.IsAggressiveToPlayer ? "yes" : "no"));
             }
         }
 

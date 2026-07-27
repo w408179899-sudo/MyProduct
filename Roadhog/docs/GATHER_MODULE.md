@@ -34,7 +34,9 @@ RoadhogRuntime.RefreshGatherSnapshotAsync(accountName, ...)
 
 - `Objects`：按角色距离排序的可见采集物。
 - `NearbyPlayers`：可见非本机玩家及竞争判断原始字段。
+- `NearbyMonsters`：同一次 ServerObject 遍历得到的可见怪物、位置、生命、目标和主动属性。
 - `LocalEntityId`、`LocalServerObjectId`、`LocalPosition`。
+- `MonsterDataAvailable`：当前实现是否包含怪物环境数据。
 - `CompetitionDataAvailable`：当前实现是否包含玩家竞争数据。
 
 `GatherObjectSnapshot` 包含：
