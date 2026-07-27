@@ -266,6 +266,8 @@ public sealed class TeamOutputScriptSettings
 
     public bool FollowLeader { get; set; } = true;
 
+    public bool FollowJumpEnabled { get; set; } = true;
+
     public bool OnlyAttackLeaderMarkedTarget { get; set; } = true;
 
     public bool StopWhenLeaderHasNoTarget { get; set; } = true;
@@ -284,6 +286,7 @@ public sealed class TeamOutputScriptSettings
             DungeonMode = DungeonMode,
             AllowSelfDefense = AllowSelfDefense,
             FollowLeader = FollowLeader,
+            FollowJumpEnabled = FollowJumpEnabled,
             OnlyAttackLeaderMarkedTarget = OnlyAttackLeaderMarkedTarget,
             StopWhenLeaderHasNoTarget = StopWhenLeaderHasNoTarget,
             StopWhenLeaderDead = StopWhenLeaderDead,
@@ -309,6 +312,8 @@ public sealed class TeamSupportScriptSettings
 
     public bool AllowSelfDefense { get; set; }
 
+    public bool FollowJumpEnabled { get; set; } = true;
+
     public bool StopWhenLeaderDead { get; set; } = true;
 
     public double LeaderDistanceMeters { get; set; } = 12.0D;
@@ -331,6 +336,7 @@ public sealed class TeamSupportScriptSettings
             MentalCleanseEnabled = MentalCleanseEnabled,
             PhysicalCleanseEnabled = PhysicalCleanseEnabled,
             AllowSelfDefense = AllowSelfDefense,
+            FollowJumpEnabled = FollowJumpEnabled,
             StopWhenLeaderDead = StopWhenLeaderDead,
             LeaderDistanceMeters = LeaderDistanceMeters,
             HealSkillRules = HealSkillRules?.Select(rule => rule.Clone()).ToList() ?? new List<TeamHealSkillRuleConfig>(),

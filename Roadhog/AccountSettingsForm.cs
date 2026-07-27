@@ -123,6 +123,7 @@ namespace Roadhog
         private RoundedCheckBox? teamOutputDungeonModeCheckBox;
         private RoundedCheckBox? teamOutputAllowSelfDefenseCheckBox;
         private RoundedCheckBox? teamOutputFollowLeaderCheckBox;
+        private RoundedCheckBox? teamOutputFollowJumpCheckBox;
         private RoundedCheckBox? teamOutputOnlyAttackLeaderMarkedTargetCheckBox;
         private RoundedCheckBox? teamOutputStopWhenLeaderHasNoTargetCheckBox;
         private RoundedCheckBox? teamOutputStopWhenLeaderDeadCheckBox;
@@ -134,6 +135,7 @@ namespace Roadhog
         private RoundedCheckBox? teamSupportMentalCleanseCheckBox;
         private RoundedCheckBox? teamSupportPhysicalCleanseCheckBox;
         private RoundedCheckBox? teamSupportAllowSelfDefenseCheckBox;
+        private RoundedCheckBox? teamSupportFollowJumpCheckBox;
         private RoundedCheckBox? teamSupportStopWhenLeaderDeadCheckBox;
         private RoundedTextBox? teamSupportLeaderDistanceTextBox;
         private FlowLayoutPanel? teamHealSkillRuleList;
@@ -2690,6 +2692,7 @@ namespace Roadhog
             teamOutputOnlyAttackLeaderMarkedTargetCheckBox = AddCheckBox(dpsPanel, "只打队长标记", 132, 62, 130, true);
             teamOutputStopWhenLeaderHasNoTargetCheckBox = AddCheckBox(dpsPanel, "队长无目标停手", 278, 62, 150, true);
             teamOutputStopWhenLeaderDeadCheckBox = AddCheckBox(dpsPanel, "队长死亡停手", 444, 62, 130, true);
+            teamOutputFollowJumpCheckBox = AddCheckBox(dpsPanel, "跟随跳跃", 590, 62, 100, true);
             AddLabel(dpsPanel, "和队长距离", 24, 94, 90, 24, _textGreen, FontStyle.Bold);
             teamOutputLeaderDistanceTextBox = AddTextBox(dpsPanel, "12.0", 116, 92, 72, 28);
             AddLabel(dpsPanel, "m", 194, 94, 24, 24, _textGreen, FontStyle.Bold);
@@ -2710,6 +2713,7 @@ namespace Roadhog
             teamSupportPhysicalCleanseCheckBox = AddCheckBox(supportPanel, "肉体解除", 132, 62, 92, true);
             teamSupportAllowSelfDefenseCheckBox = AddCheckBox(supportPanel, "允许自卫", 240, 62, 92, false);
             teamSupportStopWhenLeaderDeadCheckBox = AddCheckBox(supportPanel, "队长死亡停手", 386, 62, 130, true);
+            teamSupportFollowJumpCheckBox = AddCheckBox(supportPanel, "跟随跳跃", 532, 62, 100, true);
             AddLabel(supportPanel, "和队长距离", 24, 94, 90, 24, _textGreen, FontStyle.Bold);
             teamSupportLeaderDistanceTextBox = AddTextBox(supportPanel, "12.0", 116, 92, 72, 28);
             AddLabel(supportPanel, "m", 194, 94, 24, 24, _textGreen, FontStyle.Bold);
@@ -2917,6 +2921,7 @@ namespace Roadhog
             SetChecked(teamOutputDungeonModeCheckBox, output.DungeonMode);
             SetChecked(teamOutputAllowSelfDefenseCheckBox, output.AllowSelfDefense);
             SetChecked(teamOutputFollowLeaderCheckBox, output.FollowLeader);
+            SetChecked(teamOutputFollowJumpCheckBox, output.FollowJumpEnabled);
             SetChecked(teamOutputOnlyAttackLeaderMarkedTargetCheckBox, output.OnlyAttackLeaderMarkedTarget);
             SetChecked(teamOutputStopWhenLeaderHasNoTargetCheckBox, output.StopWhenLeaderHasNoTarget);
             SetChecked(teamOutputStopWhenLeaderDeadCheckBox, output.StopWhenLeaderDead);
@@ -2936,6 +2941,7 @@ namespace Roadhog
             SetChecked(teamSupportMentalCleanseCheckBox, support.MentalCleanseEnabled);
             SetChecked(teamSupportPhysicalCleanseCheckBox, support.PhysicalCleanseEnabled);
             SetChecked(teamSupportAllowSelfDefenseCheckBox, support.AllowSelfDefense);
+            SetChecked(teamSupportFollowJumpCheckBox, support.FollowJumpEnabled);
             SetChecked(teamSupportStopWhenLeaderDeadCheckBox, support.StopWhenLeaderDead);
             SetText(
                 teamSupportLeaderDistanceTextBox,
@@ -2968,6 +2974,7 @@ namespace Roadhog
                     DungeonMode = teamOutputDungeonModeCheckBox?.Checked ?? false,
                     AllowSelfDefense = teamOutputAllowSelfDefenseCheckBox?.Checked ?? true,
                     FollowLeader = teamOutputFollowLeaderCheckBox?.Checked ?? true,
+                    FollowJumpEnabled = teamOutputFollowJumpCheckBox?.Checked ?? true,
                     OnlyAttackLeaderMarkedTarget =
                         teamOutputOnlyAttackLeaderMarkedTargetCheckBox?.Checked ?? true,
                     StopWhenLeaderHasNoTarget =
@@ -2986,6 +2993,7 @@ namespace Roadhog
                     MentalCleanseEnabled = teamSupportMentalCleanseCheckBox?.Checked ?? true,
                     PhysicalCleanseEnabled = teamSupportPhysicalCleanseCheckBox?.Checked ?? true,
                     AllowSelfDefense = teamSupportAllowSelfDefenseCheckBox?.Checked ?? false,
+                    FollowJumpEnabled = teamSupportFollowJumpCheckBox?.Checked ?? true,
                     StopWhenLeaderDead = teamSupportStopWhenLeaderDeadCheckBox?.Checked ?? true,
                     LeaderDistanceMeters = ReadDouble(teamSupportLeaderDistanceTextBox, 12.0D, 0.0D, 100.0D),
                     HealSkillRules = CaptureTeamHealSkillRules(teamHealSkillRuleList),

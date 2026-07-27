@@ -359,6 +359,14 @@ public sealed class TeamOutputController
         TeamOutputState state,
         TeamMemberSnapshot leader)
     {
+        var followJumpEnabled =
+            context.Config.ScriptSettings?.Team?.Output?.FollowJumpEnabled ?? true;
+        if (!followJumpEnabled)
+        {
+            ResetLeaderAssistJumpCount(state);
+            return;
+        }
+
         state.LeaderAssistPressCountSinceJump++;
         if (state.LeaderAssistPressCountSinceJump < LeaderAssistJumpInterval)
         {

@@ -548,6 +548,14 @@ public sealed class TeamSupportController
         TeamSupportState state,
         TeamMemberSnapshot leader)
     {
+        var followJumpEnabled =
+            context.Config.ScriptSettings?.Team?.Support?.FollowJumpEnabled ?? true;
+        if (!followJumpEnabled)
+        {
+            ResetLeaderAssistJumpCount(state);
+            return;
+        }
+
         state.LeaderAssistPressCountSinceJump++;
         if (state.LeaderAssistPressCountSinceJump < LeaderAssistJumpInterval)
         {
