@@ -77,11 +77,6 @@ namespace Roadhog
         private RoundedComboBox? nearbyGatherFilterCombo;
         private ListView? gatherFilterListView;
         private Label? gatherFilterStatusLabel;
-        private Label? gatherFilterNameValueLabel;
-        private Label? gatherFilterSourceIdValueLabel;
-        private Label? gatherFilterSourceTypeValueLabel;
-        private Label? gatherFilterAvailabilityValueLabel;
-        private Label? gatherFilterDistanceValueLabel;
         private Button? readNearbyGatherFilterButton;
         private Button? addGatherFilterButton;
         private Button? gatherFilterKeyButton;
@@ -4761,22 +4756,9 @@ namespace Roadhog
                 {
                     gatherFilterListView.SelectedItems.Clear();
                 }
-
-                ShowGatherFilterDetails(GetSelectedNearbyGatherFilter()?.Snapshot);
             };
             addGatherFilterButton = AddButton(page, "加入采集 >", 294, 104, 104, 30, (_, _) => AddSelectedGatherFilter());
             addGatherFilterButton.Name = "addGatherFilterButton";
-
-            AddLabel(page, "名称", 4, 154, 54, 24, _textGreen, FontStyle.Bold);
-            gatherFilterNameValueLabel = AddLabel(page, "未选择", 62, 154, 320, 24);
-            AddLabel(page, "SourceId", 4, 188, 70, 24, _textGreen, FontStyle.Bold);
-            gatherFilterSourceIdValueLabel = AddLabel(page, "未选择", 78, 188, 124, 24);
-            AddLabel(page, "类别", 220, 188, 54, 24, _textGreen, FontStyle.Bold);
-            gatherFilterSourceTypeValueLabel = AddLabel(page, "未选择", 278, 188, 104, 24);
-            AddLabel(page, "状态", 4, 222, 54, 24, _textGreen, FontStyle.Bold);
-            gatherFilterAvailabilityValueLabel = AddLabel(page, "未选择", 62, 222, 140, 24);
-            AddLabel(page, "距离", 220, 222, 54, 24, _textGreen, FontStyle.Bold);
-            gatherFilterDistanceValueLabel = AddLabel(page, "未选择", 278, 222, 104, 24);
 
             AddLabel(page, "要采集的采集物", 426, 66, 150, 24, _textGreen, FontStyle.Bold);
             gatherFilterListView = new ListView
@@ -4797,13 +4779,11 @@ namespace Roadhog
                 View = View.Details
             };
             gatherFilterListView.Columns.Add("启用", 54, HorizontalAlignment.Center);
-            gatherFilterListView.Columns.Add("名称", 148, HorizontalAlignment.Left);
-            gatherFilterListView.Columns.Add("SourceId", 106, HorizontalAlignment.Center);
-            gatherFilterListView.Columns.Add("按键", 78, HorizontalAlignment.Center);
+            gatherFilterListView.Columns.Add("名称", 238, HorizontalAlignment.Left);
+            gatherFilterListView.Columns.Add("按键", 94, HorizontalAlignment.Center);
             gatherFilterListView.ItemSelectionChanged += (_, _) =>
             {
                 var rule = GetSelectedGatherFilterRule();
-                ShowGatherFilterDetails(rule?.Snapshot, rule);
                 UpdateGatherFilterKeyButton(rule);
             };
             page.Controls.Add(gatherFilterListView);
@@ -4882,7 +4862,6 @@ namespace Roadhog
             if (items.Length == 0)
             {
                 nearbyGatherFilterCombo.Text = string.Empty;
-                ShowGatherFilterDetails(null);
                 return 0;
             }
 
@@ -4938,7 +4917,6 @@ namespace Roadhog
                 Tag = draft
             };
             item.SubItems.Add(draft.DisplayName);
-            item.SubItems.Add(draft.GatherSourceId.ToString(CultureInfo.InvariantCulture));
             item.SubItems.Add(string.IsNullOrWhiteSpace(draft.GatherKey) ? "未设置" : FormatSkillKey(draft.GatherKey));
             return item;
         }
@@ -4966,7 +4944,7 @@ namespace Roadhog
             }
 
             rule.GatherKey = selectedKey.Trim();
-            gatherFilterListView.SelectedItems[0].SubItems[3].Text = FormatSkillKey(rule.GatherKey);
+            gatherFilterListView.SelectedItems[0].SubItems[2].Text = FormatSkillKey(rule.GatherKey);
             UpdateGatherFilterKeyButton(rule);
             SetGatherFilterStatus("已设置按键 " + FormatSkillKey(rule.GatherKey), false);
         }
@@ -4984,7 +4962,6 @@ namespace Roadhog
                 gatherFilterListView.Items.Remove(item);
             }
 
-            ShowGatherFilterDetails(GetSelectedNearbyGatherFilter()?.Snapshot);
             UpdateGatherFilterKeyButton(null);
             SetGatherFilterStatus("已移除", false);
         }
@@ -4992,47 +4969,8 @@ namespace Roadhog
         private void ClearGatherFilters()
         {
             gatherFilterListView?.Items.Clear();
-            ShowGatherFilterDetails(GetSelectedNearbyGatherFilter()?.Snapshot);
             UpdateGatherFilterKeyButton(null);
             SetGatherFilterStatus("已清空", false);
-        }
-
-        private void ShowGatherFilterDetails(
-            GatherObjectSnapshot? snapshot,
-            GatherFilterRuleDraft? rule = null)
-        {
-            if (gatherFilterNameValueLabel is null ||
-                gatherFilterSourceIdValueLabel is null ||
-                gatherFilterSourceTypeValueLabel is null ||
-                gatherFilterAvailabilityValueLabel is null ||
-                gatherFilterDistanceValueLabel is null)
-            {
-                return;
-            }
-
-            gatherFilterNameValueLabel.Text = snapshot is not null
-                ? ResolveGatherFilterDisplayName(snapshot)
-                : rule?.DisplayName ?? "未选择";
-            gatherFilterSourceIdValueLabel.Text = snapshot is not null
-                ? snapshot.GatherSourceId.ToString(CultureInfo.InvariantCulture)
-                : rule?.GatherSourceId.ToString(CultureInfo.InvariantCulture) ?? "未选择";
-            gatherFilterSourceTypeValueLabel.Text = snapshot is null
-                ? "未选择"
-                : string.IsNullOrWhiteSpace(snapshot.Source?.SourceType)
-                    ? "未知"
-                    : snapshot.Source.SourceType;
-            gatherFilterAvailabilityValueLabel.Text = snapshot?.InteractionAvailability switch
-            {
-                GatherInteractionAvailability.Allowed => "可采集",
-                GatherInteractionAvailability.Blocked => "不可采集",
-                null => "未选择",
-                _ => "未知"
-            };
-            gatherFilterDistanceValueLabel.Text = snapshot?.DistanceToLocalPlayer is { } distance
-                ? distance.ToString("0.0", CultureInfo.InvariantCulture) + " 米"
-                : snapshot is null
-                    ? "未选择"
-                    : "未知";
         }
 
         private void UpdateGatherFilterKeyButton(GatherFilterRuleDraft? rule)
@@ -8221,13 +8159,9 @@ namespace Roadhog
             public override string ToString()
             {
                 var distance = Snapshot.DistanceToLocalPlayer is { } value
-                    ? value.ToString("0.0", CultureInfo.InvariantCulture) + "m"
+                    ? value.ToString("0.0", CultureInfo.InvariantCulture) + " 米"
                     : "距离未知";
-                return ResolveGatherFilterDisplayName(Snapshot) +
-                       " / " +
-                       Snapshot.GatherSourceId.ToString(CultureInfo.InvariantCulture) +
-                       " / " +
-                       distance;
+                return ResolveGatherFilterDisplayName(Snapshot) + "（" + distance + "）";
             }
         }
 

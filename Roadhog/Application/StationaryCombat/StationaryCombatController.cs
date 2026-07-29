@@ -285,6 +285,7 @@ public sealed class StationaryCombatController
             }
 
             if (!state.Fighting &&
+                !IsGatherMaintenanceBlocked(state) &&
                 !skipMaintenanceThisTick &&
                 await TryHandleStationaryMaintenanceAsync(
                     context,
@@ -489,6 +490,7 @@ public sealed class StationaryCombatController
             var canEnterNoTargetRestAtHome = CanUseNoTargetRestAtHome(combat) &&
                                              playerDistanceFromHome <= ReturnStopDistance;
             if (!canEnterNoTargetRestAtHome &&
+                !IsGatherMaintenanceBlocked(state) &&
                 await TryHandleStationaryMaintenanceAsync(
                         context,
                         plan,
@@ -6735,6 +6737,42 @@ public sealed class StationaryCombatController
         }
 
         var localGathering = snapshot!.LocalGathering;
+        var gatherCommitted =
+            state.Gather.Phase is StationaryGatherPhase.WaitingForStart or StationaryGatherPhase.Gathering ||
+            localGathering.IsDialogVisible;
+        if (gatherCommitted)
+        {
+            var localAttacker = SelectGatherInterruptingAttacker(
+                snapshot.NearbyMonsters,
+                playerPosition,
+                state);
+            if (localAttacker is not null)
+            {
+                var interruptedPhase = state.Gather.Phase;
+                if (state.Gather.Active)
+                {
+                    state.Gather.MarkReady(now);
+                }
+
+                semiAutoState.ResetAttackKeyPressThrottle();
+                await StopMovementAsync(context, state).ConfigureAwait(false);
+                StopPathFollowPoller(state);
+                context.Logger.Warn("stationary_gather.interrupted_by_attacker", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["gatherServerObjectId"] = state.Gather.ServerObjectId,
+                    ["gatherSourceId"] = state.Gather.GatherSourceId,
+                    ["targetEntityId"] = localAttacker.EntityId,
+                    ["targetServerObjectId"] = localAttacker.ServerObjectId,
+                    ["targetName"] = localAttacker.Name,
+                    ["targetingServerObjectId"] = localAttacker.TargetServerObjectId,
+                    ["dialogVisible"] = localGathering.IsDialogVisible,
+                    ["gatherPhase"] = interruptedPhase.ToString()
+                });
+                return StationaryGatherTickResult.ForThreat(localAttacker);
+            }
+        }
+
         var currentGatheringStarted =
             localGathering.IsDialogVisible &&
             state.Gather.Active &&
@@ -6933,11 +6971,13 @@ public sealed class StationaryCombatController
             return StationaryGatherTickResult.NotHandled;
         }
 
-        var threat = SelectGatherSafetyThreat(
-            snapshot.NearbyMonsters,
-            targetPosition,
-            Math.Clamp(settings.ThreatClearRadiusMeters, 0.5D, 50.0D),
-            state);
+        var threat = gatherCommitted
+            ? null
+            : SelectGatherSafetyThreat(
+                snapshot.NearbyMonsters,
+                targetPosition,
+                Math.Clamp(settings.ThreatClearRadiusMeters, 0.5D, 50.0D),
+                state);
         if (threat is not null)
         {
             state.Gather.MarkReady(now);
@@ -7126,6 +7166,23 @@ public sealed class StationaryCombatController
             .ThenBy(target => StationaryCombatTargetSelector.HorizontalDistance(
                 target.Position!.Value,
                 gatherPosition))
+            .ThenBy(target => target.ServerObjectId)
+            .ThenBy(target => target.EntityId)
+            .FirstOrDefault();
+    }
+
+    private static WorldObjectSnapshot? SelectGatherInterruptingAttacker(
+        IReadOnlyList<WorldObjectSnapshot> monsters,
+        Vector3Snapshot playerPosition,
+        StationaryCombatState state)
+    {
+        return monsters
+            .Where(StationaryCombatTargetSelector.IsSelectableMonster)
+            .Where(target => target.Position is not null)
+            .Where(target => IsTargetingLocalSide(target, state))
+            .OrderBy(target => StationaryCombatTargetSelector.HorizontalDistance(
+                target.Position!.Value,
+                playerPosition))
             .ThenBy(target => target.ServerObjectId)
             .ThenBy(target => target.EntityId)
             .FirstOrDefault();
@@ -7360,6 +7417,12 @@ public sealed class StationaryCombatController
     private static bool IsAttackKeyLoopEnabled(AccountWorkerContext context)
     {
         return context.Config.ScriptSettings?.SemiAuto?.AttackKeyLoopEnabled == true;
+    }
+
+    private static bool IsGatherMaintenanceBlocked(StationaryCombatState state)
+    {
+        return state.Gather.Active ||
+               state.CachedGatherSnapshot?.LocalGathering.IsDialogVisible == true;
     }
 
     private static bool IsClaimedByOther(WorldObjectSnapshot target, StationaryCombatState state)
