@@ -224,7 +224,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat startup recovery path clears nearby aggressive monsters", TestStationaryCombatStartupRecoveryPathClearsNearbyAggressiveMonstersAsync),
     ("stationary combat death recovery clicks revive and recovers before path", TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBeforePathAsync),
     ("stationary combat death recovery sits before mp maintenance rule", TestStationaryCombatDeathRecoverySitsBeforeMpMaintenanceRuleAsync),
-    ("stationary combat death recovery summons spiritmaster pet before revive path", TestStationaryCombatDeathRecoverySummonsSpiritmasterPetBeforeRevivePathAsync),
+    ("stationary combat death recovery summons spiritmaster pet before maintenance and revive path", TestStationaryCombatDeathRecoverySummonsSpiritmasterPetBeforeMaintenanceAndRevivePathAsync),
     ("stationary combat death recovery path defends when targeted", TestStationaryCombatDeathRecoveryPathDefendsWhenTargetedAsync),
     ("stationary combat death recovery path clears nearby aggressive monsters", TestStationaryCombatDeathRecoveryPathClearsNearbyAggressiveMonstersAsync),
     ("stationary combat death recovery path rests before continuing low hp", TestStationaryCombatDeathRecoveryPathRestsBeforeContinuingLowHpAsync),
@@ -8190,7 +8190,7 @@ static async Task TestStationaryCombatDeathRecoverySitsBeforeMpMaintenanceRuleAs
     AssertFalse(!state.IsMaintenanceResting, "revive recovery maintenance skill should keep rest lock below recovery values");
 }
 
-static async Task TestStationaryCombatDeathRecoverySummonsSpiritmasterPetBeforeRevivePathAsync()
+static async Task TestStationaryCombatDeathRecoverySummonsSpiritmasterPetBeforeMaintenanceAndRevivePathAsync()
 {
     var settings = CreateSpiritmasterScriptSettings();
     settings.MainMode = AccountMainMode.CustomCombat;
@@ -8218,7 +8218,11 @@ static async Task TestStationaryCombatDeathRecoverySummonsSpiritmasterPetBeforeR
     var logger = new InMemoryRoadhogLogger();
     var gameApi = new FakeGameApi
     {
-        Player = CreateSpiritmasterPlayer(),
+        Player = CreateSpiritmasterPlayer() with
+        {
+            CurrentHp = 25,
+            CurrentMp = 25
+        },
         SummonedPetRoster = SummonedPetRosterSnapshot.Empty(1000, DateTimeOffset.Now),
         TargetEntityId = 0,
         TargetCurrentHp = 0,
@@ -8234,27 +8238,42 @@ static async Task TestStationaryCombatDeathRecoverySummonsSpiritmasterPetBeforeR
     var context = CreateContext(settings, gameApi, logger);
 
     stationaryState.EnterDeathRecovery(DateTimeOffset.Now);
-    for (var step = 0; step < 6; step++)
+    for (var step = 0; step < 5; step++)
     {
         stationaryState.DeathRecovery.Advance(DateTimeOffset.Now);
     }
 
-    AssertEqual(StationaryCombatDeathRecoveryStep.FollowRevivePath, stationaryState.DeathRecovery.Step, "test should start at revive path");
+    AssertEqual(
+        StationaryCombatDeathRecoveryStep.PostReviveSpiritmasterPet,
+        stationaryState.DeathRecovery.Step,
+        "test should start at post-revive spiritmaster pet gate");
 
     await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
-    AssertEqual(0, keyboard.Keys.Count, "first revive path missing pet read should not summon");
-    AssertFalse(keyboard.KeyDowns.Contains("W"), "revive path must wait during first missing pet confirmation");
+    AssertEqual(0, keyboard.Keys.Count, "first post-revive missing pet read should not summon or run maintenance");
+    AssertFalse(keyboard.KeyDowns.Contains("W"), "post-revive flow must not move during first missing pet confirmation");
 
     await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
-    AssertEqual(0, keyboard.Keys.Count, "second revive path missing pet read should not summon");
-    AssertFalse(keyboard.KeyDowns.Contains("W"), "revive path must wait during second missing pet confirmation");
+    AssertEqual(0, keyboard.Keys.Count, "second post-revive missing pet read should not summon or run maintenance");
+    AssertFalse(keyboard.KeyDowns.Contains("W"), "post-revive flow must not move during second missing pet confirmation");
 
     await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
-    AssertSequence(new[] { "NumPad6" }, keyboard.Keys.ToArray(), "revive path should summon missing spiritmaster pet first");
-    AssertFalse(keyboard.KeyDowns.Contains("W"), "revive path must wait for spiritmaster pet verification before moving");
+    AssertSequence(new[] { "NumPad6" }, keyboard.Keys.ToArray(), "post-revive flow should summon missing spiritmaster pet first");
+    AssertFalse(keyboard.Keys.Contains("OemComma"), "post-revive maintenance must not start before spiritmaster pet verification");
+    AssertFalse(keyboard.KeyDowns.Contains("W"), "post-revive flow must wait for spiritmaster pet verification before moving");
 
     gameApi.SummonedPetRoster = CreateLocalPetRoster(isSummoned: true);
     keyboard.Keys.Clear();
+    await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+
+    AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "post-revive maintenance should start after spiritmaster pet verification");
+    AssertEqual(
+        StationaryCombatDeathRecoveryStep.PostReviveMaintenance,
+        stationaryState.DeathRecovery.Step,
+        "post-revive flow should enter maintenance after spiritmaster pet verification");
+    AssertFalse(keyboard.KeyDowns.Contains("W"), "revive path must wait for post-revive maintenance");
+
+    gameApi.Player = CreateSpiritmasterPlayer();
+    await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
     await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
 
     AssertFalse(!keyboard.KeyDowns.Contains("W"), "revive path should move after spiritmaster pet summon is verified");

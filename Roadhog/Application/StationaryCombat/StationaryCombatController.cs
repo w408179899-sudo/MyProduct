@@ -1050,6 +1050,13 @@ public sealed class StationaryCombatController
                         state,
                         player)
                     .ConfigureAwait(false),
+                StationaryCombatDeathRecoveryStep.PostReviveSpiritmasterPet => await TickDeathPostReviveSpiritmasterPetNodeAsync(
+                        context,
+                        plan,
+                        semiAutoState,
+                        state,
+                        player)
+                    .ConfigureAwait(false),
                 StationaryCombatDeathRecoveryStep.PostReviveMaintenance => await TickDeathPostReviveMaintenanceNodeAsync(
                         context,
                         plan,
@@ -1299,6 +1306,42 @@ public sealed class StationaryCombatController
             ["intervalMs"] = (long)interval.TotalMilliseconds
         });
         return StationaryCombatBehaviorStatus.Success;
+    }
+
+    private async Task<StationaryCombatBehaviorStatus> TickDeathPostReviveSpiritmasterPetNodeAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        PlayerSnapshot player)
+    {
+        if (player.IsDead)
+        {
+            state.EnterDeathRecovery(DateTimeOffset.Now);
+            return StationaryCombatBehaviorStatus.Running;
+        }
+
+        if (!player.IsAlive)
+        {
+            return StationaryCombatBehaviorStatus.Running;
+        }
+
+        var handled = await _semiAuto
+            .EnsureSpiritmasterPetAsync(
+                context,
+                plan,
+                semiAutoState,
+                beforeSummonKeyPress: async () =>
+                {
+                    semiAutoState.ResetAttackKeyPressThrottle();
+                    await StopMovementAsync(context, state).ConfigureAwait(false);
+                    StopPathFollowPoller(state);
+                })
+            .ConfigureAwait(false);
+
+        return handled
+            ? StationaryCombatBehaviorStatus.Running
+            : StationaryCombatBehaviorStatus.Success;
     }
 
     private async Task<StationaryCombatBehaviorStatus> TickDeathPostReviveMaintenanceNodeAsync(

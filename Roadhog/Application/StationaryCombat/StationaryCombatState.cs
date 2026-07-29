@@ -959,7 +959,8 @@ public sealed class StationaryCombatDeathRecoveryState
             StationaryCombatDeathRecoveryStep.WaitBeforeReviveClick => StationaryCombatDeathRecoveryStep.ClickRevive,
             StationaryCombatDeathRecoveryStep.ClickRevive => StationaryCombatDeathRecoveryStep.WaitAlive,
             StationaryCombatDeathRecoveryStep.WaitAlive => StationaryCombatDeathRecoveryStep.PostReviveScroll,
-            StationaryCombatDeathRecoveryStep.PostReviveScroll => StationaryCombatDeathRecoveryStep.PostReviveMaintenance,
+            StationaryCombatDeathRecoveryStep.PostReviveScroll => StationaryCombatDeathRecoveryStep.PostReviveSpiritmasterPet,
+            StationaryCombatDeathRecoveryStep.PostReviveSpiritmasterPet => StationaryCombatDeathRecoveryStep.PostReviveMaintenance,
             StationaryCombatDeathRecoveryStep.PostReviveMaintenance => StationaryCombatDeathRecoveryStep.FollowRevivePath,
             StationaryCombatDeathRecoveryStep.FollowRevivePath => StationaryCombatDeathRecoveryStep.Complete,
             _ => StationaryCombatDeathRecoveryStep.Complete
@@ -1033,6 +1034,7 @@ public enum StationaryCombatDeathRecoveryStep
     ClickRevive,
     WaitAlive,
     PostReviveScroll,
+    PostReviveSpiritmasterPet,
     PostReviveMaintenance,
     FollowRevivePath,
     Complete
