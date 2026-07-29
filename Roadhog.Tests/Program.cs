@@ -85,6 +85,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("runtime summoned pet roster read uses account scoped context", TestRuntimeSummonedPetRosterReadUsesAccountScopeAsync),
     ("runtime team snapshot uses account scoped context", TestRuntimeTeamSnapshotUsesAccountScopeAsync),
     ("abnormal status catalog classifies chant effects as positive", TestAbnormalStatusCatalogClassifiesChantEffectsAsPositiveAsync),
+    ("abnormal status catalog globally ignores death weakness", TestAbnormalStatusCatalogGloballyIgnoresDeathWeaknessAsync),
     ("team support prioritizes mental physical then heal", TestTeamSupportPrioritizesMentalPhysicalThenHealAsync),
     ("team support ignores positive physical-category status", TestTeamSupportIgnoresPositivePhysicalCategoryStatusAsync),
     ("team support skips maintenance outside group distance", TestTeamSupportSkipsMaintenanceOutsideGroupDistanceAsync),
@@ -1422,6 +1423,52 @@ static Task TestAbnormalStatusCatalogClassifiesChantEffectsAsPositiveAsync()
             catalog.IsHarmfulForRest(new AbnormalStatusEntrySnapshot(0, abnormalId, 2, 0, 1, 0)),
             "positive chant abnormal id " + abnormalId.ToString() + " must not block floor rest");
     }
+
+    return Task.CompletedTask;
+}
+
+static Task TestAbnormalStatusCatalogGloballyIgnoresDeathWeaknessAsync()
+{
+    var catalog = AbnormalStatusCatalog.LoadedFrom(
+        "test",
+        new Dictionary<uint, AbnormalStatusStaticInfo>
+        {
+            [AbnormalStatusCatalog.DeathWeaknessAbnormalId] = new(
+                AbnormalStatusCatalog.DeathWeaknessAbnormalId,
+                "Death",
+                "Debuff",
+                "Enemy",
+                "DebuffPhy",
+                "StatDown",
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                AbnormalStatusCatalog.AbnormalKindNegative)
+        });
+    var category4Entry = new AbnormalStatusEntrySnapshot(
+        0,
+        AbnormalStatusCatalog.DeathWeaknessAbnormalId,
+        4,
+        0,
+        1,
+        0);
+    var category2Entry = category4Entry with
+    {
+        Category = PlayerAbnormalStatusSnapshot.PhysicalDebuffCategory
+    };
+
+    AssertFalse(
+        !AbnormalStatusCatalog.IsIgnoredNegativeStatus(AbnormalStatusCatalog.DeathWeaknessAbnormalId),
+        "death weakness id should be globally ignored");
+    AssertFalse(
+        catalog.IsHarmfulForRest(category4Entry),
+        "death weakness category 4 must not block floor rest");
+    AssertFalse(
+        catalog.IsHarmfulForRest(category2Entry),
+        "death weakness must remain ignored even if its runtime category changes");
+    AssertFalse(
+        catalog.IsPhysicalCleanseCandidate(category2Entry),
+        "death weakness must not be treated as a physical cleanse candidate");
 
     return Task.CompletedTask;
 }
@@ -7947,6 +7994,20 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
         var gameApi = new FakeGameApi
         {
             Player = new PlayerSnapshot(1, 0, "Fake", 0, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            PlayerAbnormalStatuses = new PlayerAbnormalStatusSnapshot(
+                1,
+                DateTimeOffset.Now,
+                0,
+                new[]
+                {
+                    new AbnormalStatusEntrySnapshot(
+                        0,
+                        AbnormalStatusCatalog.DeathWeaknessAbnormalId,
+                        4,
+                        0,
+                        1,
+                        0)
+                }),
             TargetEntityId = 0,
             TargetCurrentHp = 0,
             TargetPosition = null,
@@ -17982,12 +18043,18 @@ static async Task TestMaintenanceSitWaitsForHarmfulAbnormalAsync()
         new[]
         {
             new AbnormalStatusEntrySnapshot(0, 506, 0, 0, 1, 0),
-            new AbnormalStatusEntrySnapshot(0, 424, 0, 0, 1, 0)
+            new AbnormalStatusEntrySnapshot(
+                0,
+                AbnormalStatusCatalog.DeathWeaknessAbnormalId,
+                4,
+                0,
+                1,
+                0)
         });
     var entered = await controller.TryHandleMaintenanceAsync(context, state, gameApi.Player).ConfigureAwait(false);
-    AssertFalse(!entered, "category zero abnormalities should allow sit maintenance");
-    AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "sit key should press when only category zero abnormalities remain");
-    AssertFalse(!state.IsMaintenanceResting, "sit maintenance should enter rest when only category zero abnormalities remain");
+    AssertFalse(!entered, "death weakness should allow sit maintenance");
+    AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "sit key should press when only ignored death weakness remains");
+    AssertFalse(!state.IsMaintenanceResting, "sit maintenance should enter rest while death weakness remains");
 }
 
 static async Task TestSemiAutoSkipsSitMaintenanceAsync()

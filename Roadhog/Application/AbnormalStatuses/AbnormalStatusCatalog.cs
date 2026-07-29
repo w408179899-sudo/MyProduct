@@ -10,6 +10,7 @@ public sealed class AbnormalStatusCatalog
     public const string AbnormalKindNegative = "Negative";
     public const string AbnormalKindPositive = "Positive";
     public const string AbnormalKindUnknown = "Unknown";
+    public const uint DeathWeaknessAbnormalId = 8299;
 
     private static readonly Lazy<AbnormalStatusCatalog> DefaultCatalog = new(Load);
     private readonly IReadOnlyDictionary<uint, AbnormalStatusStaticInfo> _byId;
@@ -98,9 +99,14 @@ public sealed class AbnormalStatusCatalog
         return _byId.TryGetValue(abnormalId, out info!);
     }
 
+    public static bool IsIgnoredNegativeStatus(uint abnormalId)
+    {
+        return abnormalId == DeathWeaknessAbnormalId;
+    }
+
     public bool IsHarmfulForRest(AbnormalStatusEntrySnapshot entry)
     {
-        if (entry.AbnormalId == 0)
+        if (entry.AbnormalId == 0 || IsIgnoredNegativeStatus(entry.AbnormalId))
         {
             return false;
         }
@@ -142,7 +148,9 @@ public sealed class AbnormalStatusCatalog
 
     private bool IsNegative(AbnormalStatusEntrySnapshot entry, out AbnormalStatusStaticInfo info)
     {
-        if (entry.AbnormalId == 0 || !TryGet(entry.AbnormalId, out info))
+        if (entry.AbnormalId == 0 ||
+            IsIgnoredNegativeStatus(entry.AbnormalId) ||
+            !TryGet(entry.AbnormalId, out info))
         {
             info = default!;
             return false;
