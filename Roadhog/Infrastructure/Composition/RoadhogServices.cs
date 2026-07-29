@@ -132,6 +132,7 @@ public sealed class RoadhogServices : IDisposable
             ["profileLibraryDirectory"] = options.ProfileLibraryDirectory,
             ["kmBoxNetConfigPath"] = options.KmBoxNetConfigPath,
             ["licenseCredentialPath"] = options.LicenseCredentialPath,
+            ["ownerLicenseGrantPath"] = options.OwnerLicenseGrantPath,
             ["licenseServerUrl"] = options.LicenseServerUrl,
             ["inputBackend"] = "KmBoxNet",
             ["keyboardInput"] = "KMBox Net",
@@ -158,8 +159,9 @@ public sealed class RoadhogServices : IDisposable
         var accountConfigStore = new JsonAccountConfigStore(options.AccountConfigPath);
         var sharedPathStore = new JsonSharedPathStore(options.PathLibraryDirectory);
         var scriptProfileStore = new JsonScriptProfileStore(options.ProfileLibraryDirectory);
-        var accounts = new AccountRuntimeManager(logger);
         var folderLauncher = new WindowsFolderLauncher();
+        var accounts = new AccountRuntimeManager(logger);
+        var deviceIdentityProvider = new WindowsDeviceIdentityProvider();
         var licenseServerUri = new Uri(options.LicenseServerUrl.TrimEnd('/') + "/", UriKind.Absolute);
         var licenseApiClient = new CloudflareLicenseApiClient(new HttpClient
         {
@@ -169,7 +171,7 @@ public sealed class RoadhogServices : IDisposable
         var licenseCoordinator = new LicenseCoordinator(
             licenseApiClient,
             new DpapiLicenseCredentialStore(options.LicenseCredentialPath),
-            new WindowsDeviceIdentityProvider(),
+            deviceIdentityProvider,
             logger,
             new LicenseCoordinatorOptions
             {
@@ -177,7 +179,10 @@ public sealed class RoadhogServices : IDisposable
                 HeartbeatRetryCount = options.LicenseHeartbeatRetryCount,
                 HeartbeatRetryDelay = options.LicenseHeartbeatRetryDelay,
                 ClientVersion = typeof(RoadhogServices).Assembly.GetName().Version?.ToString(3) ?? "unknown"
-            });
+            },
+            ownerLicenseGrantProvider: new SignedOwnerLicenseGrantProvider(
+                options.OwnerLicenseGrantPath,
+                deviceIdentityProvider));
         var keyboardInput = CreateKeyboardInput(options);
         var semiAutoController = new SemiAutoCombatController(keyboardInput);
         var stationaryCombatController = new StationaryCombatController(keyboardInput, semiAutoController, sharedPathStore);

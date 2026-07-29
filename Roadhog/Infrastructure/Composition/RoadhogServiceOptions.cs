@@ -18,6 +18,7 @@ public sealed class RoadhogServiceOptions
     public const string EnableLoggingEnvironmentVariable = "ROADHOG_ENABLE_LOGGING";
     public const string LicenseServerUrlEnvironmentVariable = "ROADHOG_LICENSE_SERVER_URL";
     public const string LicenseCredentialPathEnvironmentVariable = "ROADHOG_LICENSE_CREDENTIAL_PATH";
+    public const string OwnerLicenseGrantPathEnvironmentVariable = "ROADHOG_OWNER_LICENSE_GRANT_PATH";
     public const string LicenseHeartbeatSecondsEnvironmentVariable = "ROADHOG_LICENSE_HEARTBEAT_SECONDS";
     public const string LicenseHeartbeatRetryCountEnvironmentVariable = "ROADHOG_LICENSE_HEARTBEAT_RETRY_COUNT";
     public const string LicenseHeartbeatRetryDelaySecondsEnvironmentVariable = "ROADHOG_LICENSE_HEARTBEAT_RETRY_DELAY_SECONDS";
@@ -42,6 +43,8 @@ public sealed class RoadhogServiceOptions
     public string LicenseServerUrl { get; set; } = "https://account-auth-server.w408179899.workers.dev/";
 
     public string LicenseCredentialPath { get; set; } = Path.Combine(AppContext.BaseDirectory, "config", "license.dat");
+
+    public string OwnerLicenseGrantPath { get; set; } = Path.Combine(AppContext.BaseDirectory, "config", "owner-license.json");
 
     public TimeSpan LicenseHeartbeatInterval { get; set; } = TimeSpan.FromMinutes(30);
 
@@ -84,6 +87,7 @@ public sealed class RoadhogServiceOptions
             ProfileLibraryDirectory = Path.Combine(clientRoot, "config", "profiles");
             KmBoxNetConfigPath = Path.Combine(clientRoot, "config", "kmbox-net.json");
             LicenseCredentialPath = Path.Combine(clientRoot, "config", "license.dat");
+            OwnerLicenseGrantPath = Path.Combine(clientRoot, "config", "owner-license.json");
             LogDirectory = Path.Combine(clientRoot, "logs");
         }
 
@@ -95,6 +99,7 @@ public sealed class RoadhogServiceOptions
             ProfileLibraryDirectory = Path.Combine(configRoot, "profiles");
             KmBoxNetConfigPath = Path.Combine(configRoot, "kmbox-net.json");
             LicenseCredentialPath = Path.Combine(configRoot, "license.dat");
+            OwnerLicenseGrantPath = Path.Combine(configRoot, "owner-license.json");
         }
 
         AccountConfigPath = ReadPathFromEnvironment(AccountConfigPathEnvironmentVariable) ?? AccountConfigPath;
@@ -102,6 +107,8 @@ public sealed class RoadhogServiceOptions
         ProfileLibraryDirectory = ReadPathFromEnvironment(ProfileLibraryDirectoryEnvironmentVariable) ?? ProfileLibraryDirectory;
         KmBoxNetConfigPath = ReadPathFromEnvironment(KmBoxNetConfigPathEnvironmentVariable) ?? KmBoxNetConfigPath;
         LicenseCredentialPath = ReadPathFromEnvironment(LicenseCredentialPathEnvironmentVariable) ?? LicenseCredentialPath;
+        OwnerLicenseGrantPath = ReadPathFromEnvironment(OwnerLicenseGrantPathEnvironmentVariable)
+            ?? OwnerLicenseGrantPath;
         LogDirectory = ReadPathFromEnvironment(LogDirectoryEnvironmentVariable) ?? LogDirectory;
         EnableLogging = ReadBoolFromEnvironment(EnableLoggingEnvironmentVariable) ?? EnableLogging;
         LicenseServerUrl = ReadTextFromEnvironment(LicenseServerUrlEnvironmentVariable) ?? LicenseServerUrl;

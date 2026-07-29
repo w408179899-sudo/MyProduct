@@ -189,7 +189,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("device lease store prevents cross process device reuse", TestDeviceLeaseStorePreventsCrossProcessReuseAsync),
     ("service options use client root environment", TestRoadhogServiceOptionsUseClientRootEnvironmentAsync),
     ("license credential store encrypts and restores credential", LicenseTests.TestDpapiCredentialStoreRoundTripAsync),
+    ("signed owner license grant authorizes matching device", LicenseTests.TestSignedOwnerLicenseGrantAuthorizesMatchingDeviceAsync),
     ("license activation persists credential before server request", LicenseTests.TestActivationPersistsCredentialBeforeRequestAsync),
+    ("owner license grant skips online license", LicenseTests.TestOwnerLicenseGrantSkipsOnlineLicenseAsync),
+    ("missing owner license grant uses online license", LicenseTests.TestMissingOwnerLicenseGrantUsesOnlineLicenseAsync),
     ("license dispose cancels pending initialize", LicenseTests.TestDisposeCancelsPendingInitializeAsync),
     ("license heartbeat denial changes runtime state", LicenseTests.TestHeartbeatDenialChangesRuntimeStateAsync),
     ("license heartbeat transient failure retries then denies", LicenseTests.TestHeartbeatTransientFailureRetriesThenDeniesAsync),
@@ -6533,6 +6536,7 @@ static Task TestRoadhogServiceOptionsUseClientRootEnvironmentAsync()
     var previousKmBoxConfig = Environment.GetEnvironmentVariable(RoadhogServiceOptions.KmBoxNetConfigPathEnvironmentVariable);
     var previousLogDirectory = Environment.GetEnvironmentVariable(RoadhogServiceOptions.LogDirectoryEnvironmentVariable);
     var previousLicenseCredential = Environment.GetEnvironmentVariable(RoadhogServiceOptions.LicenseCredentialPathEnvironmentVariable);
+    var previousOwnerLicenseGrant = Environment.GetEnvironmentVariable(RoadhogServiceOptions.OwnerLicenseGrantPathEnvironmentVariable);
     try
     {
         Environment.SetEnvironmentVariable(RoadhogServiceOptions.ClientRootEnvironmentVariable, directory);
@@ -6543,6 +6547,7 @@ static Task TestRoadhogServiceOptionsUseClientRootEnvironmentAsync()
         Environment.SetEnvironmentVariable(RoadhogServiceOptions.KmBoxNetConfigPathEnvironmentVariable, null);
         Environment.SetEnvironmentVariable(RoadhogServiceOptions.LogDirectoryEnvironmentVariable, null);
         Environment.SetEnvironmentVariable(RoadhogServiceOptions.LicenseCredentialPathEnvironmentVariable, null);
+        Environment.SetEnvironmentVariable(RoadhogServiceOptions.OwnerLicenseGrantPathEnvironmentVariable, null);
 
         var options = RoadhogServiceOptions.FromEnvironment();
 
@@ -6551,6 +6556,7 @@ static Task TestRoadhogServiceOptionsUseClientRootEnvironmentAsync()
         AssertEqual(Path.Combine(directory, "config", "profiles"), options.ProfileLibraryDirectory, "client root profile library");
         AssertEqual(Path.Combine(directory, "config", "kmbox-net.json"), options.KmBoxNetConfigPath, "client root kmbox config path");
         AssertEqual(Path.Combine(directory, "config", "license.dat"), options.LicenseCredentialPath, "client root license credential path");
+        AssertEqual(Path.Combine(directory, "config", "owner-license.json"), options.OwnerLicenseGrantPath, "client root owner license grant path");
         AssertEqual(Path.Combine(directory, "logs"), options.LogDirectory, "client root log directory");
     }
     finally
@@ -6563,6 +6569,7 @@ static Task TestRoadhogServiceOptionsUseClientRootEnvironmentAsync()
         Environment.SetEnvironmentVariable(RoadhogServiceOptions.KmBoxNetConfigPathEnvironmentVariable, previousKmBoxConfig);
         Environment.SetEnvironmentVariable(RoadhogServiceOptions.LogDirectoryEnvironmentVariable, previousLogDirectory);
         Environment.SetEnvironmentVariable(RoadhogServiceOptions.LicenseCredentialPathEnvironmentVariable, previousLicenseCredential);
+        Environment.SetEnvironmentVariable(RoadhogServiceOptions.OwnerLicenseGrantPathEnvironmentVariable, previousOwnerLicenseGrant);
         DeleteDirectoryIfExists(directory);
     }
 

@@ -6,3 +6,5 @@ obj/
 *.cache
 *.pdb
 *.exe
+owner-license.json
+owner-signing-key.dat

@@ -17,6 +17,7 @@ public sealed class LicenseCoordinator : ILicenseRuntimeGate, IAsyncDisposable
     private readonly IDeviceIdentityProvider _deviceIdentityProvider;
     private readonly IRoadhogLogger _logger;
     private readonly LicenseCoordinatorOptions _options;
+    private readonly IOwnerLicenseGrantProvider? _ownerLicenseGrantProvider;
     private readonly TimeProvider _timeProvider;
     private readonly SemaphoreSlim _operationGate = new(1, 1);
     private readonly CancellationTokenSource _lifetimeCancellation = new();
@@ -35,13 +36,15 @@ public sealed class LicenseCoordinator : ILicenseRuntimeGate, IAsyncDisposable
         IDeviceIdentityProvider deviceIdentityProvider,
         IRoadhogLogger logger,
         LicenseCoordinatorOptions options,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IOwnerLicenseGrantProvider? ownerLicenseGrantProvider = null)
     {
         _apiClient = apiClient;
         _credentialStore = credentialStore;
         _deviceIdentityProvider = deviceIdentityProvider;
         _logger = logger;
         _options = options;
+        _ownerLicenseGrantProvider = ownerLicenseGrantProvider;
         _timeProvider = timeProvider ?? TimeProvider.System;
 
         if (_options.HeartbeatInterval <= TimeSpan.Zero)
@@ -88,6 +91,12 @@ public sealed class LicenseCoordinator : ILicenseRuntimeGate, IAsyncDisposable
             var operationToken = operationCancellation.Token;
 
             SetState(new LicenseRuntimeState(LicenseRuntimeStateKind.Checking));
+
+            var ownerState = await TryAuthorizeOwnerGrantAsync(operationToken).ConfigureAwait(false);
+            if (ownerState is not null)
+            {
+                return ownerState;
+            }
 
             var loadResult = await _credentialStore.LoadAsync(operationToken).ConfigureAwait(false);
             if (!loadResult.Success)
@@ -177,6 +186,12 @@ public sealed class LicenseCoordinator : ILicenseRuntimeGate, IAsyncDisposable
                 cancellationToken,
                 _lifetimeCancellation.Token);
             var operationToken = operationCancellation.Token;
+
+            var ownerState = await TryAuthorizeOwnerGrantAsync(operationToken).ConfigureAwait(false);
+            if (ownerState is not null)
+            {
+                return ownerState;
+            }
 
             var normalizedCdkey = LicenseCredential.NormalizeCdkey(cdkey);
             if (!LicenseCredential.IsValidCdkey(normalizedCdkey))
@@ -337,6 +352,48 @@ public sealed class LicenseCoordinator : ILicenseRuntimeGate, IAsyncDisposable
         });
 
         StartHeartbeat(result.Token);
+        return state;
+    }
+
+    private async Task<LicenseRuntimeState?> TryAuthorizeOwnerGrantAsync(
+        CancellationToken cancellationToken)
+    {
+        if (_ownerLicenseGrantProvider is null)
+        {
+            return null;
+        }
+
+        var result = await _ownerLicenseGrantProvider
+            .IsAuthorizedAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (!result.Success)
+        {
+            _logger.Warn("license.owner_grant.invalid", new Dictionary<string, object?>
+            {
+                ["error"] = result.Error
+            });
+            return null;
+        }
+
+        if (result.Value != true)
+        {
+            return null;
+        }
+
+        _heartbeatCancellation?.Cancel();
+        _heartbeatCancellation?.Dispose();
+        _heartbeatCancellation = null;
+        _heartbeatTask = null;
+
+        var now = _timeProvider.GetUtcNow();
+        _lastVerifiedAt = now;
+        var state = SetState(new LicenseRuntimeState(
+            LicenseRuntimeStateKind.Authorized,
+            LastVerifiedAt: now));
+        _logger.Info("license.owner_grant.authorized", new Dictionary<string, object?>
+        {
+            ["source"] = "signed_device_grant"
+        });
         return state;
     }
 

@@ -1,4 +1,6 @@
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Roadhog.Application;
 using Roadhog.Application.Licensing;
 using Roadhog.Application.Workers;
@@ -38,6 +40,56 @@ internal static class LicenseTests
         }
     }
 
+    public static async Task TestSignedOwnerLicenseGrantAuthorizesMatchingDeviceAsync()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "roadhog-owner-license-" + Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(directory, "owner-license.json");
+        var deviceHash = new string('a', 64);
+        try
+        {
+            Directory.CreateDirectory(directory);
+            using var signer = new ECDsaCng(256);
+            var publicKeyBlob = signer.Key.Export(CngKeyBlobFormat.EccPublicBlob);
+            var payload = Encoding.UTF8.GetBytes("Roadhog.OwnerLicenseGrant.v1|" + deviceHash);
+            var signature = signer.SignData(payload, HashAlgorithmName.SHA256);
+            var json = JsonSerializer.Serialize(new
+            {
+                version = 1,
+                deviceHash,
+                signature = Convert.ToBase64String(signature)
+            });
+            await File.WriteAllTextAsync(path, json).ConfigureAwait(false);
+
+            var provider = new SignedOwnerLicenseGrantProvider(
+                path,
+                new FixedDeviceIdentityProvider(deviceHash),
+                Convert.ToBase64String(publicKeyBlob));
+            var authorized = await provider.IsAuthorizedAsync().ConfigureAwait(false);
+            Assert(!authorized.Success || authorized.Value != true, "matching signed owner grant should authorize");
+
+            var mismatchedProvider = new SignedOwnerLicenseGrantProvider(
+                path,
+                new FixedDeviceIdentityProvider(new string('b', 64)),
+                Convert.ToBase64String(publicKeyBlob));
+            var mismatched = await mismatchedProvider.IsAuthorizedAsync().ConfigureAwait(false);
+            Assert(mismatched.Success, "owner grant copied to another device must fail validation");
+
+            var missingProvider = new SignedOwnerLicenseGrantProvider(
+                path + ".missing",
+                new FixedDeviceIdentityProvider(deviceHash),
+                Convert.ToBase64String(publicKeyBlob));
+            var missing = await missingProvider.IsAuthorizedAsync().ConfigureAwait(false);
+            Assert(!missing.Success || missing.Value != false, "missing owner grant should preserve normal licensing");
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
     public static async Task TestActivationPersistsCredentialBeforeRequestAsync()
     {
         const string cdkey = "ABCD-EFGH-JKLM-NPQR-STUV-WXYZ-2345-6789";
@@ -63,6 +115,59 @@ internal static class LicenseTests
         Assert(
             logger.Entries.Any(entry => entry.Fields.Values.Any(value => string.Equals(Convert.ToString(value), cdkey, StringComparison.Ordinal))),
             "license logs must not contain plaintext CDKEY");
+    }
+
+    public static async Task TestOwnerLicenseGrantSkipsOnlineLicenseAsync()
+    {
+        var store = new RecordingCredentialStore();
+        var api = new RecordingLicenseApiClient();
+        var logger = new InMemoryRoadhogLogger();
+        await using var coordinator = CreateCoordinator(
+            api,
+            store,
+            logger,
+            TimeSpan.FromHours(1),
+            ownerLicenseGrantProvider: new FixedOwnerLicenseGrantProvider(isAuthorized: true));
+
+        var initialized = await coordinator.InitializeAsync().ConfigureAwait(false);
+        var activated = await coordinator.ActivateAsync("not-a-cdkey").ConfigureAwait(false);
+
+        Assert(!initialized.IsAuthorized, "owner grant should authorize initialization");
+        Assert(!activated.IsAuthorized, "owner grant should authorize activation without a CDKEY");
+        AssertEqual(0, store.LoadCount, "owner grant should skip the saved credential store");
+        Assert(
+            logger.Entries.Any(entry => entry.EventName.StartsWith("license.heartbeat", StringComparison.Ordinal)),
+            "owner grant should not start an online heartbeat");
+    }
+
+    public static async Task TestMissingOwnerLicenseGrantUsesOnlineLicenseAsync()
+    {
+        var credential = LicenseCredential
+            .Create("ABCD-EFGH-JKLM-NPQR-STUV-WXYZ-2345-6789")
+            .MarkActivated();
+        var store = new RecordingCredentialStore { Credential = credential };
+        var loginCount = 0;
+        var api = new RecordingLicenseApiClient
+        {
+            LoginHandler = (_, _, _, _) =>
+            {
+                loginCount++;
+                return Task.FromResult(SuccessfulSession());
+            }
+        };
+        var logger = new InMemoryRoadhogLogger();
+        await using var coordinator = CreateCoordinator(
+            api,
+            store,
+            logger,
+            TimeSpan.FromHours(1),
+            ownerLicenseGrantProvider: new FixedOwnerLicenseGrantProvider(isAuthorized: false));
+
+        var initialized = await coordinator.InitializeAsync().ConfigureAwait(false);
+
+        Assert(!initialized.IsAuthorized, "missing owner grant should use normal online authorization");
+        AssertEqual(1, store.LoadCount, "missing owner grant should load the normal credential");
+        AssertEqual(1, loginCount, "missing owner grant should call normal online login");
     }
 
     public static async Task TestDisposeCancelsPendingInitializeAsync()
@@ -200,7 +305,8 @@ internal static class LicenseTests
         InMemoryRoadhogLogger logger,
         TimeSpan heartbeatInterval,
         int heartbeatRetryCount = 3,
-        TimeSpan? heartbeatRetryDelay = null)
+        TimeSpan? heartbeatRetryDelay = null,
+        IOwnerLicenseGrantProvider? ownerLicenseGrantProvider = null)
     {
         return new LicenseCoordinator(
             api,
@@ -213,7 +319,8 @@ internal static class LicenseTests
                 HeartbeatInterval = heartbeatInterval,
                 HeartbeatRetryCount = heartbeatRetryCount,
                 HeartbeatRetryDelay = heartbeatRetryDelay ?? TimeSpan.FromMilliseconds(10)
-            });
+            },
+            ownerLicenseGrantProvider: ownerLicenseGrantProvider);
     }
 
     private static LicenseApiResult SuccessfulSession()
@@ -253,8 +360,11 @@ internal static class LicenseTests
 
         public int SaveCount { get; private set; }
 
+        public int LoadCount { get; private set; }
+
         public Task<OperationResult<LicenseCredential?>> LoadAsync(CancellationToken cancellationToken = default)
         {
+            LoadCount++;
             return Task.FromResult(OperationResult<LicenseCredential?>.Ok(Credential));
         }
 
@@ -270,9 +380,32 @@ internal static class LicenseTests
 
     private sealed class FixedDeviceIdentityProvider : IDeviceIdentityProvider
     {
+        private readonly string _deviceHash;
+
+        public FixedDeviceIdentityProvider(string? deviceHash = null)
+        {
+            _deviceHash = deviceHash ?? new string('a', 64);
+        }
+
         public OperationResult<string> GetDeviceHash()
         {
-            return OperationResult<string>.Ok(new string('a', 64));
+            return OperationResult<string>.Ok(_deviceHash);
+        }
+    }
+
+    private sealed class FixedOwnerLicenseGrantProvider : IOwnerLicenseGrantProvider
+    {
+        private readonly bool _isAuthorized;
+
+        public FixedOwnerLicenseGrantProvider(bool isAuthorized)
+        {
+            _isAuthorized = isAuthorized;
+        }
+
+        public Task<OperationResult<bool>> IsAuthorizedAsync(
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(OperationResult<bool>.Ok(_isAuthorized));
         }
     }
 
