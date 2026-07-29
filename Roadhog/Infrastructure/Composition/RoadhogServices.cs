@@ -1,6 +1,7 @@
 using Roadhog.Application;
 using Roadhog.Application.Licensing;
 using Roadhog.Application.SemiAuto;
+using Roadhog.Application.Shell;
 using Roadhog.Application.StationaryCombat;
 using Roadhog.Application.Team;
 using Roadhog.Application.Workers;
@@ -22,6 +23,7 @@ using Roadhog.Core.Profiles;
 using Roadhog.Infrastructure.Paths;
 using Roadhog.Infrastructure.Processes;
 using Roadhog.Infrastructure.Profiles;
+using Roadhog.Infrastructure.Shell;
 using Roadhog.Infrastructure.ToolBridge;
 using Roadhog.Infrastructure.Vmm;
 
@@ -37,6 +39,7 @@ public sealed class RoadhogServices : IDisposable
         IAccountConfigStore accountConfigStore,
         ISharedPathStore sharedPathStore,
         IScriptProfileStore scriptProfileStore,
+        IFolderLauncher folderLauncher,
         AccountRuntimeManager accountRuntimeManager,
         AccountOrchestrator accountOrchestrator,
         RoadhogRuntime runtime,
@@ -45,6 +48,7 @@ public sealed class RoadhogServices : IDisposable
         IKeyboardInput keyboardInput,
         string keyboardDeviceText,
         string kmBoxNetConfigPath,
+        string pathLibraryDirectory,
         KmBoxNetDeviceConfig kmBoxNetConfig)
     {
         Logger = logger;
@@ -54,6 +58,7 @@ public sealed class RoadhogServices : IDisposable
         AccountConfigStore = accountConfigStore;
         SharedPathStore = sharedPathStore;
         ScriptProfileStore = scriptProfileStore;
+        FolderLauncher = folderLauncher;
         AccountRuntimeManager = accountRuntimeManager;
         AccountOrchestrator = accountOrchestrator;
         Runtime = runtime;
@@ -62,6 +67,7 @@ public sealed class RoadhogServices : IDisposable
         KeyboardInput = keyboardInput;
         KeyboardDeviceText = keyboardDeviceText;
         KmBoxNetConfigPath = kmBoxNetConfigPath;
+        PathLibraryDirectory = pathLibraryDirectory;
         KmBoxNetConfig = kmBoxNetConfig;
         LicenseCoordinator.StateChanged += LicenseCoordinator_StateChanged;
     }
@@ -82,6 +88,8 @@ public sealed class RoadhogServices : IDisposable
 
     public IScriptProfileStore ScriptProfileStore { get; }
 
+    public IFolderLauncher FolderLauncher { get; }
+
     public AccountRuntimeManager AccountRuntimeManager { get; }
 
     public AccountOrchestrator AccountOrchestrator { get; }
@@ -97,6 +105,8 @@ public sealed class RoadhogServices : IDisposable
     public string KeyboardDeviceText { get; }
 
     public string KmBoxNetConfigPath { get; }
+
+    public string PathLibraryDirectory { get; }
 
     public KmBoxNetDeviceConfig KmBoxNetConfig { get; }
 
@@ -149,6 +159,7 @@ public sealed class RoadhogServices : IDisposable
         var sharedPathStore = new JsonSharedPathStore(options.PathLibraryDirectory);
         var scriptProfileStore = new JsonScriptProfileStore(options.ProfileLibraryDirectory);
         var accounts = new AccountRuntimeManager(logger);
+        var folderLauncher = new WindowsFolderLauncher();
         var licenseServerUri = new Uri(options.LicenseServerUrl.TrimEnd('/') + "/", UriKind.Absolute);
         var licenseApiClient = new CloudflareLicenseApiClient(new HttpClient
         {
@@ -206,6 +217,7 @@ public sealed class RoadhogServices : IDisposable
             accountConfigStore,
             sharedPathStore,
             scriptProfileStore,
+            folderLauncher,
             accounts,
             accountOrchestrator,
             runtime,
@@ -214,6 +226,7 @@ public sealed class RoadhogServices : IDisposable
             keyboardInput,
             options.KmBoxNetInput.DeviceText(),
             options.KmBoxNetConfigPath,
+            options.PathLibraryDirectory,
             effectiveKmBoxConfig);
     }
 

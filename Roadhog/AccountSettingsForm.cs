@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Drawing.Drawing2D;
 using Roadhog.Application;
+using Roadhog.Application.Shell;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Model;
 using Roadhog.Core.Paths;
@@ -23,6 +24,8 @@ namespace Roadhog
         private readonly IAccountConfigStore _configStore;
         private readonly ISharedPathStore _pathStore;
         private readonly IScriptProfileStore _profileStore;
+        private readonly IFolderLauncher _folderLauncher;
+        private readonly string _pathLibraryDirectory;
         private readonly Dictionary<SharedPathKind, PathEditorControls> pathEditors = new();
         private readonly Dictionary<SharedPathKind, Label> pathOverviewLabels = new();
         private readonly System.Windows.Forms.Timer pathRecordTimer = new() { Interval = PathRecordTimerIntervalMs };
@@ -185,6 +188,8 @@ namespace Roadhog
             IAccountConfigStore configStore,
             ISharedPathStore pathStore,
             IScriptProfileStore profileStore,
+            IFolderLauncher folderLauncher,
+            string pathLibraryDirectory,
             string accountDisplayText = "")
         {
             _account = account;
@@ -193,6 +198,8 @@ namespace Roadhog
             _configStore = configStore;
             _pathStore = pathStore;
             _profileStore = profileStore;
+            _folderLauncher = folderLauncher;
+            _pathLibraryDirectory = pathLibraryDirectory;
             pathRecordTimer.Tick += PathRecordTimer_Tick;
             InitializeSettingsForm();
         }
@@ -973,7 +980,7 @@ namespace Roadhog
             AddLabel(page, "方案", 4, 8, 80, 22);
             currentProfileLabel = AddLabel(page, "当前方案: default_profile", 84, 8, 220, 22, _textGreen, FontStyle.Bold);
             AddLabel(page, "已保存方案", 306, 8, 100, 22);
-            profileStatusLabel = AddLabel(page, string.Empty, 648, 36, 190, 22);
+            profileStatusLabel = AddLabel(page, string.Empty, 648, 8, 190, 22);
             profileNameTextBox = AddTextBox(page, "default_profile", 4, 32, 220, 26);
             savedProfileCombo = AddCombo(page, 306, 32, 254, 28);
             savedProfileCombo.SelectedIndexChanged += (_, _) => LoadSelectedProfile();
@@ -1007,7 +1014,8 @@ namespace Roadhog
             preferAggressiveMonsterCheckBox = AddCheckBox(page, "优先攻击主动怪", 302, 142, 142, false);
 
 #if DEBUG
-            var apiProbeButton = AddButton(page, "API探针", 20, 232, 170, 36);
+            var apiProbeButton = AddButton(page, "API探针", 702, 32, 134, 30);
+            apiProbeButton.Visible = false;
             apiProbeButton.Click += async (_, _) =>
                 await RunApiProbeAsync(apiProbeButton).ConfigureAwait(true);
 #endif
@@ -1401,6 +1409,15 @@ namespace Roadhog
 
             AddButton(page, "保存到列表", 6, 74, 100, 30, (_, _) => SavePath(editor));
             AddButton(page, "删除保存", 114, 74, 92, 30, (_, _) => DeleteSavedPath(editor));
+            var openPathFolderButton = AddButton(
+                page,
+                "打开路径文件夹",
+                kind == SharedPathKind.Maintenance ? 660 : 214,
+                74,
+                128,
+                30,
+                (_, _) => OpenPathLibraryFolder(editor));
+            openPathFolderButton.Name = "openPathLibraryFolderButton";
             if (kind == SharedPathKind.Maintenance)
             {
                 AddLabel(page, "回程按键", 648, 42, 70, 22, _textGreen, FontStyle.Bold);
@@ -2027,6 +2044,17 @@ namespace Roadhog
             SelectPathComboItem(editor, name, loadPath: false);
             RefreshPathOverviews();
             SetPathStatus(editor, "已保存共享路径: " + name, false);
+        }
+
+        private void OpenPathLibraryFolder(PathEditorControls editor)
+        {
+            var result = _folderLauncher.Open(_pathLibraryDirectory);
+            SetPathStatus(
+                editor,
+                result.Success
+                    ? "已打开路径文件夹"
+                    : result.Error ?? "打开路径文件夹失败",
+                !result.Success);
         }
 
         private async void DeleteSavedPath(PathEditorControls editor)

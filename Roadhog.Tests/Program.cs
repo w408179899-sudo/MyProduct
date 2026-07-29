@@ -3,6 +3,7 @@ using Roadhog.Application;
 using Roadhog.Application.AbnormalStatuses;
 using Roadhog.Application.BagCleanup;
 using Roadhog.Application.Input;
+using Roadhog.Application.Shell;
 using Roadhog.Application.SemiAuto;
 using Roadhog.Application.StationaryCombat;
 using Roadhog.Application.Team;
@@ -66,6 +67,7 @@ var tests = new (string Name, Func<Task> Run)[]
 {
     ("path recorder enforces five meter minimum", TestPathRecorderMinimumDistanceAsync),
     ("shared path store saves loads and deletes path files", TestSharedPathStoreRoundTripAsync),
+    ("path tab opens configured path folder", TestPathTabOpensConfiguredPathFolderAsync),
     ("script profile store saves loads and deletes profile files", TestScriptProfileStoreRoundTripAsync),
     ("runtime player read uses account scoped context", TestRuntimePlayerReadUsesAccountScopeAsync),
     ("runtime path recording player read bypasses memory cache", TestRuntimePathRecordingPlayerReadBypassesMemoryCacheAsync),
@@ -542,6 +544,24 @@ static async Task TestSharedPathStoreRoundTripAsync()
     {
         DeleteDirectoryIfExists(directory);
     }
+}
+
+static Task TestPathTabOpensConfiguredPathFolderAsync()
+{
+    var launcher = new RecordingFolderLauncher();
+    var pathLibraryDirectory = Path.Combine("test-runtime", "config", "paths");
+    using var form = CreateAccountSettingsFormForTests(launcher, pathLibraryDirectory);
+    var buttons = form.Controls.Find("openPathLibraryFolderButton", true);
+
+    AssertEqual(4, buttons.Length, "path folder button count");
+    AssertFalse(buttons[0] is not System.Windows.Forms.Button, "path folder control should be a button");
+    var onClick = typeof(System.Windows.Forms.Button).GetMethod(
+        "OnClick",
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+    AssertFalse(onClick is null, "path folder button click method should be available");
+    onClick!.Invoke(buttons[0], new object[] { EventArgs.Empty });
+    AssertEqual(pathLibraryDirectory, launcher.LastDirectory ?? string.Empty, "opened path folder");
+    return Task.CompletedTask;
 }
 
 static async Task TestScriptProfileStoreRoundTripAsync()
@@ -19100,7 +19120,9 @@ static SkillConfigNode Node(uint id, string name, string type, params SkillConfi
     };
 }
 
-static AccountSettingsForm CreateAccountSettingsFormForTests()
+static AccountSettingsForm CreateAccountSettingsFormForTests(
+    IFolderLauncher? folderLauncher = null,
+    string pathLibraryDirectory = "test-paths")
 {
     var configStore = new InMemoryAccountConfigStore(new AccountConfig
     {
@@ -19108,10 +19130,16 @@ static AccountSettingsForm CreateAccountSettingsFormForTests()
         ScriptSettings = CreateScriptSettings()
     });
 
-    return CreateAccountSettingsFormForTestsWithStore(configStore);
+    return CreateAccountSettingsFormForTestsWithStore(
+        configStore,
+        folderLauncher,
+        pathLibraryDirectory);
 }
 
-static AccountSettingsForm CreateAccountSettingsFormForTestsWithStore(InMemoryAccountConfigStore configStore)
+static AccountSettingsForm CreateAccountSettingsFormForTestsWithStore(
+    InMemoryAccountConfigStore configStore,
+    IFolderLauncher? folderLauncher = null,
+    string pathLibraryDirectory = "test-paths")
 {
     var logger = new InMemoryRoadhogLogger();
     var accounts = new AccountRuntimeManager(logger);
@@ -19121,7 +19149,9 @@ static AccountSettingsForm CreateAccountSettingsFormForTestsWithStore(InMemoryAc
         runtime,
         configStore,
         new InMemorySharedPathStore(),
-        new InMemoryScriptProfileStore());
+        new InMemoryScriptProfileStore(),
+        folderLauncher ?? new RecordingFolderLauncher(),
+        pathLibraryDirectory);
 }
 
 static AccountSettingsForm CreateAccountSettingsFormForTestsWithApi(FakeGameApi gameApi)
@@ -19139,7 +19169,9 @@ static AccountSettingsForm CreateAccountSettingsFormForTestsWithApi(FakeGameApi 
         runtime,
         configStore,
         new InMemorySharedPathStore(),
-        new InMemoryScriptProfileStore());
+        new InMemoryScriptProfileStore(),
+        new RecordingFolderLauncher(),
+        "test-paths");
 }
 
 static void InvokePrivateTaskForTest(AccountSettingsForm form, string methodName, params object[] arguments)
@@ -20172,6 +20204,17 @@ sealed class InMemorySharedPathStore : ISharedPathStore
     {
         _paths.Remove(name);
         return Task.FromResult(OperationResult.Ok());
+    }
+}
+
+sealed class RecordingFolderLauncher : IFolderLauncher
+{
+    public string? LastDirectory { get; private set; }
+
+    public OperationResult Open(string directory)
+    {
+        LastDirectory = directory;
+        return OperationResult.Ok();
     }
 }
 

@@ -1278,6 +1278,8 @@ namespace Roadhog
                 _services.AccountConfigStore,
                 _services.SharedPathStore,
                 _services.ScriptProfileStore,
+                _services.FolderLauncher,
+                _services.PathLibraryDirectory,
                 titleDisplayText);
             settingsForm.ShowDialog(this);
         }
