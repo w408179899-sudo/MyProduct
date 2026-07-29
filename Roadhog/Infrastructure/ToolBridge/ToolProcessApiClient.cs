@@ -118,6 +118,7 @@ public sealed class ToolProcessApiClient : IRoadhogGameApi
                 Array.Empty<WorldObjectSnapshot>(),
                 false,
                 false,
+                LocalGatheringSnapshot.Unavailable,
                 capturedAt));
     }
 

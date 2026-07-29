@@ -106,6 +106,17 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
     private const ulong ActorGatherSourceIdCandidateOffset = 0x500;
     private const ulong ActorGatherActionStateOffset = 0xAB0;
     private const ulong ActorGatherActionIdOffset = 0xAB4;
+    private const ulong CurrentGatherSourceIdRva = 0xD68CE8;
+    private const ulong CurrentGatherTargetEntityRva = 0xD68CF0;
+    private const ulong CurrentGatherSkillIdRva = 0xD68CF8;
+    private const ulong DlgGatheringPointerRva = 0xD63E38;
+    private const ulong DlgGatheringFlagsOffset = 0x28;
+    private const ulong DlgGatheringVisibleMask = 0x01;
+    private const ulong DlgGatheringSuccessGaugeOffset = 0x4E8;
+    private const ulong DlgGatheringFailureGaugeOffset = 0x500;
+    private const ulong GatherGaugeMaximumOffset = 0x300;
+    private const ulong GatherGaugeDisplayedOffset = 0x308;
+    private const ulong GatherGaugeTargetOffset = 0x310;
     private const ulong ActorCurrentSummonedPetServerObjectIdOffset = 0xFA0;
     private const ulong ActorAbnormalStatusBeginOffset = 0xF18;
     private const ulong ActorAbnormalStatusEndOffset = 0xF20;
@@ -6902,6 +6913,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             return distance != 0 ? distance : left.ServerObjectId.CompareTo(right.ServerObjectId);
         });
 
+        var localGathering = TryReadLocalGatheringSnapshot(process, gameBase, out var progress)
+            ? progress
+            : LocalGatheringSnapshot.Unavailable;
         snapshot = new GatherSnapshot(
             localEntityId,
             localServerObjectId,
@@ -6911,8 +6925,74 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             monsters,
             true,
             true,
+            localGathering,
             capturedAt);
         return true;
+    }
+
+    private static bool TryReadLocalGatheringSnapshot(
+        VmmProcess process,
+        ulong gameBase,
+        out LocalGatheringSnapshot snapshot)
+    {
+        snapshot = LocalGatheringSnapshot.Unavailable;
+        if (!TryReadUInt32(process, gameBase + CurrentGatherSourceIdRva, out var gatherSourceId) ||
+            !TryReadUInt64(process, gameBase + CurrentGatherTargetEntityRva, out var targetEntity) ||
+            !TryReadUInt64(process, gameBase + DlgGatheringPointerRva, out var dialog))
+        {
+            return false;
+        }
+
+        TryReadUInt32(process, gameBase + CurrentGatherSkillIdRva, out var skillId);
+        if ((targetEntity != 0 && !IsLikelyUserPointer(targetEntity)) ||
+            (dialog != 0 && !IsLikelyUserPointer(dialog)))
+        {
+            return false;
+        }
+
+        var visible = false;
+        GatherGaugeSnapshot? successGauge = null;
+        GatherGaugeSnapshot? failureGauge = null;
+        if (dialog != 0)
+        {
+            if (!TryReadUInt64(process, dialog + DlgGatheringFlagsOffset, out var flags))
+            {
+                return false;
+            }
+
+            visible = (flags & DlgGatheringVisibleMask) != 0;
+            if (visible)
+            {
+                successGauge = TryReadGatherGauge(process, dialog + DlgGatheringSuccessGaugeOffset);
+                failureGauge = TryReadGatherGauge(process, dialog + DlgGatheringFailureGaugeOffset);
+            }
+        }
+
+        snapshot = new LocalGatheringSnapshot(
+            true,
+            visible,
+            gatherSourceId,
+            targetEntity != 0,
+            skillId,
+            successGauge,
+            failureGauge);
+        return true;
+    }
+
+    private static GatherGaugeSnapshot? TryReadGatherGauge(VmmProcess process, ulong gaugePointerAddress)
+    {
+        if (!TryReadPointer(process, gaugePointerAddress, out var gauge) ||
+            !TryReadDouble(process, gauge + GatherGaugeMaximumOffset, out var maximum) ||
+            !TryReadDouble(process, gauge + GatherGaugeDisplayedOffset, out var displayed) ||
+            !TryReadDouble(process, gauge + GatherGaugeTargetOffset, out var target) ||
+            !double.IsFinite(maximum) ||
+            !double.IsFinite(displayed) ||
+            !double.IsFinite(target))
+        {
+            return null;
+        }
+
+        return new GatherGaugeSnapshot(maximum, displayed, target);
     }
 
     private static double? CalculateDistance(Vector3Snapshot origin, Vector3Snapshot? target)

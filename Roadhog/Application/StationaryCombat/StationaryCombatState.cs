@@ -17,6 +17,8 @@ public sealed class StationaryCombatState
 
     public StationaryCombatPathCombatState PathCombat { get; } = new();
 
+    public StationaryGatherState Gather { get; } = new();
+
     public bool CleanupReturnToCombatActive { get; private set; }
 
     public bool ReturningHome { get; set; }
@@ -36,6 +38,8 @@ public sealed class StationaryCombatState
     public bool CurrentTargetIsMaintenanceDefense { get; set; }
 
     public bool CurrentTargetIsRevivePathClear { get; set; }
+
+    public bool CurrentTargetIsGatherSafetyClear { get; set; }
 
     public bool CurrentTargetBypassesHomeLeash { get; set; }
 
@@ -125,11 +129,15 @@ public sealed class StationaryCombatState
 
     public DateTimeOffset LastWorldScanAt { get; set; }
 
+    public DateTimeOffset LastGatherScanAt { get; set; }
+
     public DateTimeOffset LastLogAt { get; set; }
 
     public Dictionary<string, DateTimeOffset> LastActionLogAtByKey { get; } = new();
 
     public IReadOnlyList<WorldObjectSnapshot> CachedWorldObjects { get; set; } = Array.Empty<WorldObjectSnapshot>();
+
+    public GatherSnapshot? CachedGatherSnapshot { get; set; }
 
     public HashSet<ushort> IgnoredTargetEntityIds { get; } = new();
 
@@ -172,6 +180,7 @@ public sealed class StationaryCombatState
         CurrentTargetServerObjectId = 0;
         CurrentTargetIsMaintenanceDefense = false;
         CurrentTargetIsRevivePathClear = false;
+        CurrentTargetIsGatherSafetyClear = false;
         CurrentTargetBypassesHomeLeash = false;
         ClearTeamLeaderProtectionTarget();
         CandidateEntityId = 0;
@@ -195,6 +204,9 @@ public sealed class StationaryCombatState
         NoKillRecovery.ResetWatch(now);
         CleanupReturnToCombatActive = false;
         PathCombat.Reset();
+        Gather.Reset();
+        CachedGatherSnapshot = null;
+        LastGatherScanAt = DateTimeOffset.MinValue;
         ClearNoTargetRest();
         ClearStartupRecovery();
         ClearTarget();

@@ -10,6 +10,8 @@ public sealed class ScriptSettings
 
     public CombatScriptSettings Combat { get; set; } = new();
 
+    public GatherScriptSettings Gather { get; set; } = new();
+
     public PathScriptSettings Paths { get; set; } = new();
 
     public MaintenanceScriptSettings Maintenance { get; set; } = new();
@@ -28,11 +30,59 @@ public sealed class ScriptSettings
             MainMode = MainMode,
             CombatMode = CombatMode,
             Combat = (Combat ?? new CombatScriptSettings()).Clone(),
+            Gather = (Gather ?? new GatherScriptSettings()).Clone(),
             Paths = (Paths ?? new PathScriptSettings()).Clone(),
             Maintenance = (Maintenance ?? new MaintenanceScriptSettings()).Clone(),
             Team = (Team ?? new TeamScriptSettings()).Clone(),
             Skills = (Skills ?? new SkillScriptSettings()).Clone(),
             SemiAuto = (SemiAuto ?? new SemiAutoScriptSettings()).Clone()
+        };
+    }
+}
+
+public sealed class GatherScriptSettings
+{
+    public bool StationaryPriorityEnabled { get; set; }
+
+    public double StationarySearchRadiusMeters { get; set; } = 10.0D;
+
+    public double ThreatClearRadiusMeters { get; set; } = 7.0D;
+
+    public double OccupiedCheckRadiusMeters { get; set; } = 5.0D;
+
+    public List<GatherFilterRuleSettings> Rules { get; set; } = new();
+
+    public GatherScriptSettings Clone()
+    {
+        return new GatherScriptSettings
+        {
+            StationaryPriorityEnabled = StationaryPriorityEnabled,
+            StationarySearchRadiusMeters = StationarySearchRadiusMeters,
+            ThreatClearRadiusMeters = ThreatClearRadiusMeters,
+            OccupiedCheckRadiusMeters = OccupiedCheckRadiusMeters,
+            Rules = Rules?.Select(rule => rule.Clone()).ToList() ?? new List<GatherFilterRuleSettings>()
+        };
+    }
+}
+
+public sealed class GatherFilterRuleSettings
+{
+    public bool Enabled { get; set; } = true;
+
+    public uint GatherSourceId { get; set; }
+
+    public string Name { get; set; } = string.Empty;
+
+    public string GatherKey { get; set; } = string.Empty;
+
+    public GatherFilterRuleSettings Clone()
+    {
+        return new GatherFilterRuleSettings
+        {
+            Enabled = Enabled,
+            GatherSourceId = GatherSourceId,
+            Name = Name,
+            GatherKey = GatherKey
         };
     }
 }

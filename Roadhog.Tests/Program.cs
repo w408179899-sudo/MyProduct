@@ -81,6 +81,17 @@ var tests = new (string Name, Func<Task> Run)[]
     ("gather source catalog loads static metadata", TestGatherSourceCatalogLoadsStaticMetadataAsync),
     ("gather snapshot evaluates practical competition rule", TestGatherSnapshotEvaluatesCompetitionRuleAsync),
     ("gather filter tab reads and adds nearby sources", TestGatherFilterTabReadsAndAddsNearbySourcesAsync),
+    ("gather priority settings load capture and clone", TestGatherPrioritySettingsLoadCaptureAndCloneAsync),
+    ("gather priority settings persist in account json", TestGatherPrioritySettingsPersistInAccountJsonAsync),
+    ("stationary gather selector enforces eligibility", TestStationaryGatherSelectorEnforcesEligibilityAsync),
+    ("stationary gather disabled preserves combat scan", TestStationaryGatherDisabledPreservesCombatScanAsync),
+    ("stationary gather completes key progress and depletion loop", TestStationaryGatherCompletesKeyProgressAndDepletionLoopAsync),
+    ("stationary gather competition falls through to combat", TestStationaryGatherCompetitionFallsThroughToCombatAsync),
+    ("stationary gather clears nearby aggressive threat first", TestStationaryGatherClearsNearbyAggressiveThreatFirstAsync),
+    ("stationary gather approaches before pressing key", TestStationaryGatherApproachesBeforePressingKeyAsync),
+    ("stationary gather unavailable data fails closed", TestStationaryGatherUnavailableDataFailsClosedAsync),
+    ("stationary gather retries and suppresses failed starts", TestStationaryGatherRetriesAndSuppressesFailedStartsAsync),
+    ("stationary gather wakes no target rest", TestStationaryGatherWakesNoTargetRestAsync),
     ("runtime summoned pet read uses account scoped context", TestRuntimeSummonedPetReadUsesAccountScopeAsync),
     ("runtime summoned pet roster read uses account scoped context", TestRuntimeSummonedPetRosterReadUsesAccountScopeAsync),
     ("runtime team snapshot uses account scoped context", TestRuntimeTeamSnapshotUsesAccountScopeAsync),
@@ -943,6 +954,7 @@ static async Task TestRuntimeGatherReadUsesAccountScopeAsync()
             },
             true,
             true,
+            LocalGatheringSnapshot.Unavailable,
             capturedAt)
     };
     var runtime = new RoadhogRuntime(gameApi, logger, accounts, null!);
@@ -1056,6 +1068,7 @@ static Task TestGatherSnapshotEvaluatesCompetitionRuleAsync()
         },
         true,
         true,
+        LocalGatheringSnapshot.Unavailable,
         capturedAt);
 
     AssertEqual(GatherInteractionAvailability.Allowed, target.InteractionAvailability, "allowed interaction state");
@@ -1100,6 +1113,7 @@ static Task TestGatherFilterTabReadsAndAddsNearbySourcesAsync()
                     Array.Empty<WorldObjectSnapshot>(),
                     true,
                     true,
+                    LocalGatheringSnapshot.Unavailable,
                     capturedAt)
             };
 
@@ -1171,6 +1185,738 @@ static GatherObjectSnapshot CreateGatherObjectForFilterTest(
         false,
         null,
         capturedAt);
+}
+
+static Task TestGatherPrioritySettingsLoadCaptureAndCloneAsync()
+{
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        try
+        {
+            var configured = CreateScriptSettings();
+            configured.Gather = new GatherScriptSettings
+            {
+                StationaryPriorityEnabled = true,
+                StationarySearchRadiusMeters = 12.5D,
+                ThreatClearRadiusMeters = 6.5D,
+                OccupiedCheckRadiusMeters = 4.5D,
+                Rules = new List<GatherFilterRuleSettings>
+                {
+                    new()
+                    {
+                        Enabled = true,
+                        GatherSourceId = 400951,
+                        Name = "贝壳",
+                        GatherKey = "NumPad1"
+                    },
+                    new()
+                    {
+                        Enabled = false,
+                        GatherSourceId = 401051,
+                        Name = "红宝石",
+                        GatherKey = "NumPad2"
+                    }
+                }
+            };
+            var store = new InMemoryAccountConfigStore(new AccountConfig
+            {
+                AccountName = "account1",
+                ScriptSettings = configured
+            });
+
+            using var form = CreateAccountSettingsFormForTestsWithStore(store);
+            AssertFalse(
+                !GetCheckBoxCheckedForTest(form, "stationaryGatherEnabledCheckBox"),
+                "gather priority switch should load");
+            AssertEqual(
+                "12.5",
+                GetTextBoxTextForTest(form, "stationaryGatherSearchRadiusTextBox"),
+                "gather search radius should load");
+            AssertEqual(
+                "6.5",
+                GetTextBoxTextForTest(form, "gatherThreatRadiusTextBox"),
+                "gather threat radius should load");
+
+            var list = (System.Windows.Forms.ListView)GetPrivateFieldForTest(form, "gatherFilterListView");
+            AssertEqual(2, list.Items.Count, "gather rules should load");
+            AssertFalse(!list.Items[0].Checked, "enabled gather rule should load checked");
+            AssertFalse(list.Items[1].Checked, "disabled gather rule should load unchecked");
+            AssertEqual("Num1", list.Items[0].SubItems[3].Text, "gather key should load");
+
+            var captured = (ScriptSettings)InvokePrivateMethodForTest(form, "CaptureScriptSettings")!;
+            AssertFalse(!captured.Gather.StationaryPriorityEnabled, "gather switch should capture");
+            AssertEqual(12.5D, captured.Gather.StationarySearchRadiusMeters, "gather search radius should capture");
+            AssertEqual(6.5D, captured.Gather.ThreatClearRadiusMeters, "gather threat radius should capture");
+            AssertEqual(4.5D, captured.Gather.OccupiedCheckRadiusMeters, "hidden occupied radius should be preserved");
+            AssertEqual(2, captured.Gather.Rules.Count, "gather rules should capture");
+            AssertEqual(400951U, captured.Gather.Rules[0].GatherSourceId, "gather SourceId should capture");
+            AssertEqual("NumPad1", captured.Gather.Rules[0].GatherKey, "gather key should capture");
+            AssertFalse(captured.Gather.Rules[1].Enabled, "disabled gather rule should capture");
+
+            var clone = captured.Clone();
+            clone.Gather.Rules[0].GatherKey = "NumPad9";
+            AssertEqual("NumPad1", captured.Gather.Rules[0].GatherKey, "gather clone should deep copy rules");
+        }
+        catch (Exception ex)
+        {
+            failure = ex;
+        }
+    });
+
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    thread.Join();
+
+    if (failure is not null)
+    {
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    return Task.CompletedTask;
+}
+
+static async Task TestGatherPrioritySettingsPersistInAccountJsonAsync()
+{
+    var directory = CreateTempDirectory("roadhog-gather-json-");
+    try
+    {
+        var path = Path.Combine(directory, "accounts.json");
+        var store = new JsonAccountConfigStore(path);
+        var settings = CreateStationaryGatherSettings();
+        settings.Gather.StationarySearchRadiusMeters = 12.5D;
+        settings.Gather.ThreatClearRadiusMeters = 6.5D;
+        settings.Gather.OccupiedCheckRadiusMeters = 4.5D;
+        settings.Gather.Rules.Add(new GatherFilterRuleSettings
+        {
+            Enabled = false,
+            GatherSourceId = 401051,
+            Name = "红宝石",
+            GatherKey = "NumPad2"
+        });
+
+        var save = await store.UpsertAsync(new AccountConfig
+        {
+            AccountName = "gather-account",
+            ScriptSettings = settings
+        }).ConfigureAwait(false);
+        AssertFalse(!save.Success, "gather account json save should succeed");
+
+        var load = await store.LoadAllAsync().ConfigureAwait(false);
+        AssertFalse(!load.Success, "gather account json load should succeed");
+        var loaded = load.Value?.Single().ScriptSettings?.Gather;
+        AssertFalse(loaded is null, "gather settings should load from account json");
+        AssertFalse(!loaded!.StationaryPriorityEnabled, "gather enabled should persist");
+        AssertEqual(12.5D, loaded.StationarySearchRadiusMeters, "gather search radius should persist");
+        AssertEqual(6.5D, loaded.ThreatClearRadiusMeters, "gather threat radius should persist");
+        AssertEqual(4.5D, loaded.OccupiedCheckRadiusMeters, "gather occupied radius should persist");
+        AssertEqual(2, loaded.Rules.Count, "gather rules should persist");
+        AssertEqual("NumPad1", loaded.Rules[0].GatherKey, "first gather key should persist");
+        AssertFalse(loaded.Rules[1].Enabled, "disabled gather rule should persist");
+    }
+    finally
+    {
+        DeleteDirectoryIfExists(directory);
+    }
+}
+
+static Task TestStationaryGatherSelectorEnforcesEligibilityAsync()
+{
+    var capturedAt = DateTimeOffset.Now;
+    var home = new Vector3Snapshot(0, 0, 0);
+    var settings = CreateStationaryGatherSettings();
+    var blocked = CreateGatherObjectForFilterTest(10, 10010, 400951, "blocked", 1.0D, capturedAt) with
+    {
+        InteractionState = 41
+    };
+    var unknown = CreateGatherObjectForFilterTest(11, 10011, 400951, "unknown", 2.0D, capturedAt) with
+    {
+        InteractionState = 0
+    };
+    var allowed = CreateGatherObjectForFilterTest(12, 10012, 400951, "allowed", 3.0D, capturedAt);
+    var outside = CreateGatherObjectForFilterTest(13, 10013, 400951, "outside", 20.0D, capturedAt);
+    var snapshot = CreateStationaryGatherSnapshot(
+        new[] { blocked, unknown, outside, allowed },
+        capturedAt: capturedAt);
+
+    var selected = StationaryGatherSelector.SelectCandidate(snapshot, settings.Gather, home, capturedAt);
+    AssertEqual(10012U, selected?.Target.ServerObjectId ?? 0, "selector should choose exact allowed in-range node");
+
+    var occupied = snapshot with
+    {
+        NearbyPlayers = new[]
+        {
+            new GatherCompetitionPlayerSnapshot(
+                20,
+                20020,
+                "AYOK",
+                new Vector3Snapshot(3.5F, 0, 0),
+                3.5D,
+                1,
+                1036,
+                400951,
+                capturedAt)
+        }
+    };
+    AssertFalse(
+        StationaryGatherSelector.SelectCandidate(occupied, settings.Gather, home, capturedAt) is not null,
+        "occupied matching source should be skipped");
+
+    AssertFalse(
+        StationaryGatherSelector.SelectCandidate(
+            snapshot,
+            settings.Gather,
+            home,
+            capturedAt,
+            (serverObjectId, _) => serverObjectId == allowed.ServerObjectId) is not null,
+        "suppressed concrete node should be skipped");
+
+    var noProgress = snapshot with { LocalGathering = LocalGatheringSnapshot.Unavailable };
+    AssertFalse(
+        StationaryGatherSelector.SelectCandidate(noProgress, settings.Gather, home, capturedAt) is not null,
+        "unavailable local progress data should fail closed");
+
+    settings.Gather.Rules[0].GatherKey = string.Empty;
+    AssertFalse(
+        StationaryGatherSelector.SelectCandidate(snapshot, settings.Gather, home, capturedAt) is not null,
+        "rule without key should be skipped");
+    return Task.CompletedTask;
+}
+
+static async Task TestStationaryGatherDisabledPreservesCombatScanAsync()
+{
+    var settings = CreateStationaryGatherSettings(enabled: false);
+    var gatherTarget = CreateGatherObjectForFilterTest(
+        10,
+        10010,
+        400951,
+        "贝壳",
+        1.0D,
+        DateTimeOffset.Now);
+    var monster = new WorldObjectSnapshot(
+        20,
+        20020,
+        "普通怪",
+        "monster",
+        new Vector3Snapshot(4, 0, 0),
+        4.0D,
+        100,
+        100);
+    var gameApi = CreateStationaryGatherGameApi(
+        CreateStationaryGatherSnapshot(new[] { gatherTarget }),
+        new[] { monster });
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+
+    await controller.TickAsync(
+            CreateContext(settings, gameApi, logger),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            new StationaryCombatState())
+        .ConfigureAwait(false);
+
+    AssertEqual(0, gameApi.GatherReadCount, "disabled gather must not read gather snapshot");
+    AssertFalse(gameApi.WorldObjectReadCount == 0, "disabled gather should keep original world scan");
+    AssertFalse(keyboard.Keys.Contains("NumPad1"), "disabled gather must not press gather key");
+}
+
+static async Task TestStationaryGatherCompletesKeyProgressAndDepletionLoopAsync()
+{
+    var settings = CreateStationaryGatherSettings();
+    var capturedAt = DateTimeOffset.Now;
+    var target = CreateGatherObjectForFilterTest(10, 10010, 400951, "贝壳", 1.0D, capturedAt);
+    var gameApi = CreateStationaryGatherGameApi(
+        CreateStationaryGatherSnapshot(
+            new[] { target },
+            localGathering: new LocalGatheringSnapshot(true, true, 400951, false, 0, null, null),
+            capturedAt: capturedAt));
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    var state = new StationaryCombatState();
+    var semiAutoState = new SemiAutoCombatState();
+    var context = CreateContext(settings, gameApi, logger);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+    AssertFalse(keyboard.Keys.Contains("NumPad1"), "visible dialog with incomplete context should still block key input");
+
+    gameApi.Gather = CreateStationaryGatherSnapshot(
+        new[] { target },
+        capturedAt: capturedAt.AddMilliseconds(100));
+    state.LastGatherScanAt = DateTimeOffset.MinValue;
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+    AssertSequence(new[] { "NumPad1" }, keyboard.Keys.ToArray(), "first gather tick should press configured key");
+    AssertEqual(StationaryGatherPhase.WaitingForStart, state.Gather.Phase, "gather should wait for dialog start");
+
+    gameApi.Gather = CreateStationaryGatherSnapshot(
+        new[] { target },
+        localGathering: CreateActiveLocalGathering(400951),
+        capturedAt: capturedAt.AddMilliseconds(300));
+    state.LastGatherScanAt = DateTimeOffset.MinValue;
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+    AssertEqual(StationaryGatherPhase.Gathering, state.Gather.Phase, "visible matching dialog should confirm gathering");
+    AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad1"), "active progress must not press key again");
+
+    gameApi.Gather = CreateStationaryGatherSnapshot(
+        new[] { target },
+        capturedAt: capturedAt.AddMilliseconds(600));
+    state.LastGatherScanAt = DateTimeOffset.MinValue;
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+    AssertEqual(StationaryGatherPhase.Ready, state.Gather.Phase, "closed dialog should finish one attempt");
+
+    await Task.Delay(270).ConfigureAwait(false);
+    state.LastGatherScanAt = DateTimeOffset.MinValue;
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+    AssertEqual(2, keyboard.Keys.Count(key => key == "NumPad1"), "remaining node should start another attempt");
+
+    var firstMissingAt = capturedAt.AddMilliseconds(900);
+    gameApi.Gather = CreateStationaryGatherSnapshot(
+        Array.Empty<GatherObjectSnapshot>(),
+        capturedAt: firstMissingAt);
+    state.LastGatherScanAt = DateTimeOffset.MinValue;
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+    AssertEqual(1, state.Gather.ConsecutiveMissingReads, "first successful missing scan should not complete node");
+    AssertFalse(!state.Gather.Active, "first missing scan should keep concrete node locked");
+
+    state.LastGatherScanAt = DateTimeOffset.MinValue;
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+    AssertEqual(1, state.Gather.ConsecutiveMissingReads, "same captured snapshot must not count twice");
+
+    gameApi.Gather = CreateStationaryGatherSnapshot(
+        Array.Empty<GatherObjectSnapshot>(),
+        capturedAt: firstMissingAt.AddMilliseconds(300));
+    state.LastGatherScanAt = DateTimeOffset.MinValue;
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+    AssertFalse(state.Gather.Active, "second independent missing scan should complete node");
+    AssertFalse(
+        !logger.Entries.Any(entry => entry.EventName == "stationary_gather.node.completed"),
+        "completed gather node should be logged");
+}
+
+static async Task TestStationaryGatherCompetitionFallsThroughToCombatAsync()
+{
+    var settings = CreateStationaryGatherSettings();
+    var capturedAt = DateTimeOffset.Now;
+    var target = CreateGatherObjectForFilterTest(10, 10010, 400951, "贝壳", 1.0D, capturedAt);
+    var competitor = new GatherCompetitionPlayerSnapshot(
+        11,
+        10011,
+        "AYOK",
+        new Vector3Snapshot(2, 0, 0),
+        2.0D,
+        1,
+        1037,
+        400951,
+        capturedAt);
+    var monster = new WorldObjectSnapshot(
+        20,
+        20020,
+        "普通怪",
+        "monster",
+        new Vector3Snapshot(4, 0, 0),
+        4.0D,
+        100,
+        100);
+    var gameApi = CreateStationaryGatherGameApi(
+        CreateStationaryGatherSnapshot(
+            new[] { target },
+            new[] { competitor },
+            new[] { monster },
+            capturedAt: capturedAt));
+    var keyboard = new RecordingKeyboardInput();
+    var state = new StationaryCombatState();
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+
+    await controller.TickAsync(
+            CreateContext(settings, gameApi, new InMemoryRoadhogLogger()),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            state)
+        .ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Contains("NumPad1"), "occupied gather node should not press gather key");
+    AssertEqual(20020U, state.CandidateServerObjectId, "competition should fall through to ordinary combat");
+    AssertEqual(0, gameApi.WorldObjectReadCount, "enabled gather should reuse monsters from the same traversal");
+}
+
+static async Task TestStationaryGatherClearsNearbyAggressiveThreatFirstAsync()
+{
+    var settings = CreateStationaryGatherSettings();
+    var capturedAt = DateTimeOffset.Now;
+    var target = CreateGatherObjectForFilterTest(10, 10010, 400951, "贝壳", 1.0D, capturedAt);
+    var threat = new WorldObjectSnapshot(
+        20,
+        20020,
+        "主动怪",
+        "monster",
+        new Vector3Snapshot(3, 0, 0),
+        3.0D,
+        100,
+        100,
+        0,
+        false,
+        true,
+        true,
+        "test");
+    var gameApi = CreateStationaryGatherGameApi(
+        CreateStationaryGatherSnapshot(
+            new[] { target },
+            monsters: new[] { threat },
+            capturedAt: capturedAt));
+    var keyboard = new RecordingKeyboardInput();
+    var state = new StationaryCombatState();
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+
+    await controller.TickAsync(
+            CreateContext(settings, gameApi, new InMemoryRoadhogLogger()),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            state)
+        .ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Contains("NumPad1"), "nearby aggressive threat should block gather key");
+    AssertEqual(20020U, state.CandidateServerObjectId, "nearby aggressive threat should become combat candidate");
+    AssertFalse(!state.CurrentTargetIsGatherSafetyClear, "gather safety target should be marked");
+    AssertFalse(!state.CurrentTargetBypassesHomeLeash, "gather safety target should bypass ordinary home leash");
+    AssertEqual(10010U, state.Gather.ServerObjectId, "gather node should remain pending through safety combat");
+
+    var passiveNear = threat with
+    {
+        EntityId = 21,
+        ServerObjectId = 20021,
+        Name = "被动怪",
+        IsAggressiveToPlayer = false
+    };
+    var aggressiveFar = threat with
+    {
+        EntityId = 22,
+        ServerObjectId = 20022,
+        Name = "远处主动怪",
+        Position = new Vector3Snapshot(20, 0, 0),
+        DistanceToLocalPlayer = 20.0D
+    };
+    var safeApi = CreateStationaryGatherGameApi(
+        CreateStationaryGatherSnapshot(
+            new[] { target },
+            monsters: new[] { passiveNear, aggressiveFar },
+            capturedAt: capturedAt.AddSeconds(1)));
+    var safeKeyboard = new RecordingKeyboardInput();
+    await new StationaryCombatController(safeKeyboard, new SemiAutoCombatController(safeKeyboard))
+        .TickAsync(
+            CreateContext(settings, safeApi, new InMemoryRoadhogLogger()),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            new StationaryCombatState())
+        .ConfigureAwait(false);
+    AssertFalse(
+        !safeKeyboard.Keys.Contains("NumPad1"),
+        "passive nearby and aggressive outside seven meters should not block gathering");
+
+    var claimedThreat = threat with
+    {
+        EntityId = 23,
+        ServerObjectId = 20023,
+        Name = "别人正在打的主动怪",
+        TargetServerObjectId = 99999
+    };
+    var claimedApi = CreateStationaryGatherGameApi(
+        CreateStationaryGatherSnapshot(
+            new[] { target },
+            monsters: new[] { claimedThreat },
+            capturedAt: capturedAt.AddSeconds(2)));
+    var claimedKeyboard = new RecordingKeyboardInput();
+    var claimedLogger = new InMemoryRoadhogLogger();
+    var claimedState = new StationaryCombatState();
+    await new StationaryCombatController(claimedKeyboard, new SemiAutoCombatController(claimedKeyboard))
+        .TickAsync(
+            CreateContext(settings, claimedApi, claimedLogger),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            claimedState)
+        .ConfigureAwait(false);
+    AssertFalse(claimedKeyboard.Keys.Contains("NumPad1"), "claimed nearby threat should block gathering");
+    AssertFalse(claimedState.Gather.Active, "claimed nearby threat should suppress unsafe gather node");
+    AssertFalse(
+        !claimedLogger.Entries.Any(entry =>
+            entry.EventName == "stationary_gather.node.suppressed" &&
+            string.Equals(Convert.ToString(entry.Fields["reason"]), "threat_claimed_by_other", StringComparison.Ordinal)),
+        "claimed nearby threat suppression reason should be logged");
+}
+
+static async Task TestStationaryGatherApproachesBeforePressingKeyAsync()
+{
+    var settings = CreateStationaryGatherSettings();
+    var target = CreateGatherObjectForFilterTest(
+        10,
+        10010,
+        400951,
+        "贝壳",
+        8.0D,
+        DateTimeOffset.Now);
+    var gameApi = CreateStationaryGatherGameApi(CreateStationaryGatherSnapshot(new[] { target }));
+    var keyboard = new RecordingKeyboardInput();
+    var state = new StationaryCombatState();
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+
+    await controller.TickAsync(
+            CreateContext(settings, gameApi, new InMemoryRoadhogLogger()),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            state)
+        .ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Contains("NumPad1"), "distant gather node must not press key before arrival");
+    AssertEqual(StationaryGatherPhase.Approaching, state.Gather.Phase, "distant gather node should enter approach phase");
+    AssertEqual(10010U, state.Gather.ServerObjectId, "approach should lock concrete gather node");
+}
+
+static async Task TestStationaryGatherUnavailableDataFailsClosedAsync()
+{
+    var settings = CreateStationaryGatherSettings();
+    var target = CreateGatherObjectForFilterTest(
+        10,
+        10010,
+        400951,
+        "贝壳",
+        1.0D,
+        DateTimeOffset.Now);
+    var ordinaryMonster = new WorldObjectSnapshot(
+        20,
+        20020,
+        "普通怪",
+        "monster",
+        new Vector3Snapshot(4, 0, 0),
+        4.0D,
+        100,
+        100);
+    var unavailable = CreateStationaryGatherSnapshot(new[] { target }) with
+    {
+        MonsterDataAvailable = false,
+        CompetitionDataAvailable = false,
+        LocalGathering = LocalGatheringSnapshot.Unavailable
+    };
+    var gameApi = CreateStationaryGatherGameApi(unavailable, new[] { ordinaryMonster });
+    var keyboard = new RecordingKeyboardInput();
+    var state = new StationaryCombatState();
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+
+    await controller.TickAsync(
+            CreateContext(settings, gameApi, new InMemoryRoadhogLogger()),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            state)
+        .ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Contains("NumPad1"), "unavailable gather safety data must fail closed");
+    AssertEqual(20020U, state.CandidateServerObjectId, "unavailable gather data should preserve ordinary combat");
+    AssertFalse(gameApi.WorldObjectReadCount == 0, "unavailable gather monster data should use world fallback");
+}
+
+static async Task TestStationaryGatherRetriesAndSuppressesFailedStartsAsync()
+{
+    var previousTimeout = Environment.GetEnvironmentVariable("ROADHOG_GATHER_START_TIMEOUT_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_GATHER_START_TIMEOUT_MS", "1");
+    try
+    {
+        var settings = CreateStationaryGatherSettings();
+        var target = CreateGatherObjectForFilterTest(
+            10,
+            10010,
+            400951,
+            "贝壳",
+            1.0D,
+            DateTimeOffset.Now);
+        var gameApi = CreateStationaryGatherGameApi(CreateStationaryGatherSnapshot(new[] { target }));
+        var keyboard = new RecordingKeyboardInput();
+        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+        var state = new StationaryCombatState();
+        var semiAutoState = new SemiAutoCombatState();
+        var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        for (var i = 0; i < 3; i++)
+        {
+            await Task.Delay(5).ConfigureAwait(false);
+            await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        }
+
+        AssertEqual(3, keyboard.Keys.Count(key => key == "NumPad1"), "missing dialog should allow only three start attempts");
+        AssertFalse(state.Gather.Active, "three missing dialog confirmations should suppress node");
+
+        var failedKeyboard = new RecordingKeyboardInput
+        {
+            PressResult = key => key == "NumPad1"
+                ? OperationResult.Fail("injected gather key failure")
+                : OperationResult.Ok()
+        };
+        var failedController = new StationaryCombatController(
+            failedKeyboard,
+            new SemiAutoCombatController(failedKeyboard));
+        var failedState = new StationaryCombatState();
+        var failedContext = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
+        for (var i = 0; i < 3; i++)
+        {
+            failedState.LastGatherScanAt = DateTimeOffset.MinValue;
+            await failedController
+                .TickAsync(failedContext, plan, new SemiAutoCombatState(), failedState)
+                .ConfigureAwait(false);
+        }
+
+        AssertEqual(3, failedKeyboard.Keys.Count(key => key == "NumPad1"), "input failure should retry three times");
+        AssertFalse(failedState.Gather.Active, "repeated input failure should suppress node");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_GATHER_START_TIMEOUT_MS", previousTimeout);
+    }
+}
+
+static async Task TestStationaryGatherWakesNoTargetRestAsync()
+{
+    var settings = CreateStationaryGatherSettings();
+    settings.Combat.ReturnHomeWhenNoTarget = true;
+    settings.Combat.SitWhenNoTargetAtHome = true;
+    var gameApi = CreateStationaryGatherGameApi(
+        CreateStationaryGatherSnapshot(Array.Empty<GatherObjectSnapshot>()));
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    var state = new StationaryCombatState();
+    var semiAutoState = new SemiAutoCombatState();
+    var context = CreateContext(settings, gameApi, logger);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+    AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "no gather node should allow no-target rest");
+    keyboard.Keys.Clear();
+
+    var target = CreateGatherObjectForFilterTest(
+        10,
+        10010,
+        400951,
+        "贝壳",
+        1.0D,
+        DateTimeOffset.Now.AddSeconds(1));
+    gameApi.Gather = CreateStationaryGatherSnapshot(
+        new[] { target },
+        capturedAt: DateTimeOffset.Now.AddSeconds(1));
+    state.LastGatherScanAt = DateTimeOffset.MinValue;
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+    AssertSequence(new[] { "X" }, keyboard.Keys.ToArray(), "gather candidate should wake no-target rest first");
+    AssertFalse(!state.NoTargetRestExitPending, "gather wake should wait for stand confirmation");
+
+    state.LastGatherScanAt = DateTimeOffset.MinValue;
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+    AssertFalse(state.NoTargetRestActive, "confirmed stand should clear no-target rest");
+    AssertFalse(!keyboard.Keys.Contains("NumPad1"), "confirmed stand tick should continue into gather");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.no_target.rest_exit" &&
+            string.Equals(Convert.ToString(entry.Fields["reason"]), "gather_available", StringComparison.Ordinal)),
+        "gather wake reason should be logged");
+}
+
+static ScriptSettings CreateStationaryGatherSettings(bool enabled = true)
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30,
+        ReturnHomeWhenNoTarget = false,
+        SitWhenNoTargetAtHome = false
+    };
+    settings.Gather = new GatherScriptSettings
+    {
+        StationaryPriorityEnabled = enabled,
+        StationarySearchRadiusMeters = 10.0D,
+        ThreatClearRadiusMeters = 7.0D,
+        OccupiedCheckRadiusMeters = 5.0D,
+        Rules = new List<GatherFilterRuleSettings>
+        {
+            new()
+            {
+                Enabled = true,
+                GatherSourceId = 400951,
+                Name = "贝壳",
+                GatherKey = "NumPad1"
+            }
+        }
+    };
+    return settings;
+}
+
+static GatherSnapshot CreateStationaryGatherSnapshot(
+    IReadOnlyList<GatherObjectSnapshot> objects,
+    IReadOnlyList<GatherCompetitionPlayerSnapshot>? players = null,
+    IReadOnlyList<WorldObjectSnapshot>? monsters = null,
+    LocalGatheringSnapshot? localGathering = null,
+    DateTimeOffset? capturedAt = null)
+{
+    var timestamp = capturedAt ?? DateTimeOffset.Now;
+    return new GatherSnapshot(
+        1,
+        10001,
+        new Vector3Snapshot(0, 0, 0),
+        objects,
+        players ?? Array.Empty<GatherCompetitionPlayerSnapshot>(),
+        monsters ?? Array.Empty<WorldObjectSnapshot>(),
+        true,
+        true,
+        localGathering ?? new LocalGatheringSnapshot(true, false, 0, false, 0, null, null),
+        timestamp);
+}
+
+static LocalGatheringSnapshot CreateActiveLocalGathering(uint gatherSourceId)
+{
+    return new LocalGatheringSnapshot(
+        true,
+        true,
+        gatherSourceId,
+        true,
+        1036,
+        new GatherGaugeSnapshot(100, 35, 40),
+        new GatherGaugeSnapshot(100, 0, 0));
+}
+
+static FakeGameApi CreateStationaryGatherGameApi(
+    GatherSnapshot gather,
+    IReadOnlyList<WorldObjectSnapshot>? worldObjects = null)
+{
+    return new FakeGameApi
+    {
+        Player = new PlayerSnapshot(
+            1,
+            0,
+            "Gatherer",
+            100,
+            100,
+            100,
+            100,
+            0,
+            new Vector3Snapshot(0, 0, 0),
+            DateTimeOffset.Now,
+            270,
+            10,
+            270),
+        TargetEntityId = 0,
+        TargetOwnServerObjectId = 0,
+        TargetServerObjectId = 0,
+        TargetCurrentHp = 0,
+        TargetMaxHp = 0,
+        TargetPosition = null,
+        WorldObjects = worldObjects ?? Array.Empty<WorldObjectSnapshot>(),
+        Gather = gather,
+        Skills = Array.Empty<SkillSnapshot>()
+    };
 }
 
 static async Task TestRuntimeSummonedPetReadUsesAccountScopeAsync()
@@ -20475,6 +21221,14 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, II
 
     public GatherSnapshot Gather { get; set; } = GatherSnapshot.Empty(DateTimeOffset.Now);
 
+    public Queue<OperationResult<GatherSnapshot>> GatherReadResults { get; } = new();
+
+    public OperationResult<GatherSnapshot>? GatherReadFallback { get; set; }
+
+    public int WorldObjectReadCount { get; private set; }
+
+    public int GatherReadCount { get; private set; }
+
     public IReadOnlyList<LootCorpseSnapshot> LootCorpses { get; set; } = Array.Empty<LootCorpseSnapshot>();
 
     public int LootReadCount { get; private set; }
@@ -20713,6 +21467,7 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, II
 
     public Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(CancellationToken cancellationToken = default)
     {
+        WorldObjectReadCount++;
         return Task.FromResult(OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(WorldObjects));
     }
 
@@ -20726,7 +21481,13 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, II
 
     public Task<OperationResult<GatherSnapshot>> ReadGatherSnapshotAsync(CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(OperationResult<GatherSnapshot>.Ok(Gather));
+        GatherReadCount++;
+        if (GatherReadResults.Count > 0)
+        {
+            return Task.FromResult(GatherReadResults.Dequeue());
+        }
+
+        return Task.FromResult(GatherReadFallback ?? OperationResult<GatherSnapshot>.Ok(Gather));
     }
 
     public Task<OperationResult<GatherSnapshot>> ReadGatherSnapshotAsync(

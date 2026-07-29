@@ -66,7 +66,11 @@ internal static class VmmGameApiLiveProbe
                   ", nearbyPlayers=" + gather.Value.NearbyPlayers.Count.ToString(CultureInfo.InvariantCulture) +
                   ", nearbyMonsters=" + gather.Value.NearbyMonsters.Count.ToString(CultureInfo.InvariantCulture) +
                   ", monsterData=" + (gather.Value.MonsterDataAvailable ? "yes" : "no") +
-                  ", competitionData=" + (gather.Value.CompetitionDataAvailable ? "yes" : "no"));
+                  ", competitionData=" + (gather.Value.CompetitionDataAvailable ? "yes" : "no") +
+                  ", localProgressData=" + (gather.Value.LocalGathering.DataAvailable ? "yes" : "no") +
+                  ", localGathering=" + (gather.Value.LocalGathering.IsActive ? "yes" : "no") +
+                  ", localGatherSource=" + gather.Value.LocalGathering.GatherSourceId.ToString(CultureInfo.InvariantCulture) +
+                  ", gatherDialogVisible=" + (gather.Value.LocalGathering.IsDialogVisible ? "yes" : "no"));
         if (gather.Value is not null)
         {
             foreach (var item in gather.Value.Objects.Take(5))

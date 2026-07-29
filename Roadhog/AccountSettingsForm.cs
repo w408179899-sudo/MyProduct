@@ -88,6 +88,7 @@ namespace Roadhog
         private Button? gatherFilterKeyButton;
         private Button? removeGatherFilterButton;
         private Button? clearGatherFilterButton;
+        private double gatherOccupiedCheckRadiusMeters = 5.0D;
         private RoundedCheckBox? openingAttackKeyCheckBox;
         private RoundedCheckBox? conditionSkillPreemptsChainCheckBox;
         private RoundedTextBox? chainWindowPerLinkTextBox;
@@ -378,6 +379,7 @@ namespace Roadhog
             SetChecked(returnHomeWhenNoTargetCheckBox, settings.Combat.ReturnHomeWhenNoTarget);
             SetChecked(sitWhenNoTargetAtHomeCheckBox, settings.Combat.SitWhenNoTargetAtHome);
             PopulateActiveMonsterFilterList(settings.Combat.ActiveMonsterNameFilters);
+            ApplyGatherSettings(settings.Gather ?? new GatherScriptSettings());
 
             var paths = settings.Paths ?? new PathScriptSettings();
             SetText(revivePathNameTextBox, paths.RevivePathName);
@@ -637,6 +639,7 @@ namespace Roadhog
                     CameraYawPixelsPerDegree = ReadDouble(cameraYawPixelsPerDegreeTextBox, 11.0D, 0.1D, 100.0D),
                     CameraPitchPixelsPerDegree = ReadDouble(cameraPitchPixelsPerDegreeTextBox, 13.0D, 0.1D, 100.0D)
                 },
+                Gather = CaptureGatherSettings(),
                 Paths = new PathScriptSettings
                 {
                     RevivePathName = GetText(revivePathNameTextBox, string.Empty),
@@ -695,6 +698,79 @@ namespace Roadhog
             };
 
             return settings;
+        }
+
+        private GatherScriptSettings CaptureGatherSettings()
+        {
+            var rules = gatherFilterListView?.Items
+                .Cast<ListViewItem>()
+                .Where(item => item.Tag is GatherFilterRuleDraft)
+                .Select(item =>
+                {
+                    var draft = (GatherFilterRuleDraft)item.Tag!;
+                    return new GatherFilterRuleSettings
+                    {
+                        Enabled = item.Checked,
+                        GatherSourceId = draft.GatherSourceId,
+                        Name = draft.DisplayName,
+                        GatherKey = draft.GatherKey
+                    };
+                })
+                .Where(rule => rule.GatherSourceId != 0)
+                .ToList() ?? new List<GatherFilterRuleSettings>();
+
+            return new GatherScriptSettings
+            {
+                StationaryPriorityEnabled = stationaryGatherEnabledCheckBox?.Checked ?? false,
+                StationarySearchRadiusMeters = ReadDouble(
+                    stationaryGatherSearchRadiusTextBox,
+                    10.0D,
+                    1.0D,
+                    100.0D),
+                ThreatClearRadiusMeters = ReadDouble(
+                    gatherThreatRadiusTextBox,
+                    7.0D,
+                    0.5D,
+                    50.0D),
+                OccupiedCheckRadiusMeters = gatherOccupiedCheckRadiusMeters,
+                Rules = rules
+            };
+        }
+
+        private void ApplyGatherSettings(GatherScriptSettings settings)
+        {
+            SetChecked(stationaryGatherEnabledCheckBox, settings.StationaryPriorityEnabled);
+            SetText(
+                stationaryGatherSearchRadiusTextBox,
+                Math.Clamp(settings.StationarySearchRadiusMeters, 1.0D, 100.0D)
+                    .ToString("0.###", CultureInfo.InvariantCulture));
+            SetText(
+                gatherThreatRadiusTextBox,
+                Math.Clamp(settings.ThreatClearRadiusMeters, 0.5D, 50.0D)
+                    .ToString("0.###", CultureInfo.InvariantCulture));
+            gatherOccupiedCheckRadiusMeters =
+                Math.Clamp(settings.OccupiedCheckRadiusMeters, 0.5D, 20.0D);
+
+            if (gatherFilterListView is null)
+            {
+                return;
+            }
+
+            gatherFilterListView.Items.Clear();
+            foreach (var rule in settings.Rules ?? new List<GatherFilterRuleSettings>())
+            {
+                if (rule.GatherSourceId == 0)
+                {
+                    continue;
+                }
+
+                var draft = new GatherFilterRuleDraft(rule);
+                var item = CreateGatherFilterListItem(draft);
+                item.Checked = rule.Enabled;
+                gatherFilterListView.Items.Add(item);
+            }
+
+            UpdateGatherFilterKeyButton(null);
         }
 
         private SkillConfigurationMode CaptureSkillConfigurationMode()
@@ -4739,7 +4815,7 @@ namespace Roadhog
             gatherFilterListView.ItemSelectionChanged += (_, _) =>
             {
                 var rule = GetSelectedGatherFilterRule();
-                ShowGatherFilterDetails(rule?.Snapshot);
+                ShowGatherFilterDetails(rule?.Snapshot, rule);
                 UpdateGatherFilterKeyButton(rule);
             };
             page.Controls.Add(gatherFilterListView);
@@ -4847,7 +4923,7 @@ namespace Roadhog
                 .Cast<ListViewItem>()
                 .FirstOrDefault(item =>
                     item.Tag is GatherFilterRuleDraft rule &&
-                    rule.Snapshot.GatherSourceId == sourceId);
+                    rule.GatherSourceId == sourceId);
             if (existing is not null)
             {
                 existing.Selected = true;
@@ -4874,7 +4950,7 @@ namespace Roadhog
                 Tag = draft
             };
             item.SubItems.Add(draft.DisplayName);
-            item.SubItems.Add(draft.Snapshot.GatherSourceId.ToString(CultureInfo.InvariantCulture));
+            item.SubItems.Add(draft.GatherSourceId.ToString(CultureInfo.InvariantCulture));
             item.SubItems.Add(string.IsNullOrWhiteSpace(draft.GatherKey) ? "未设置" : FormatSkillKey(draft.GatherKey));
             return item;
         }
@@ -4933,7 +5009,9 @@ namespace Roadhog
             SetGatherFilterStatus("已清空", false);
         }
 
-        private void ShowGatherFilterDetails(GatherObjectSnapshot? snapshot)
+        private void ShowGatherFilterDetails(
+            GatherObjectSnapshot? snapshot,
+            GatherFilterRuleDraft? rule = null)
         {
             if (gatherFilterNameValueLabel is null ||
                 gatherFilterSourceIdValueLabel is null ||
@@ -4944,12 +5022,12 @@ namespace Roadhog
                 return;
             }
 
-            gatherFilterNameValueLabel.Text = snapshot is null
-                ? "未选择"
-                : ResolveGatherFilterDisplayName(snapshot);
-            gatherFilterSourceIdValueLabel.Text = snapshot is null
-                ? "未选择"
-                : snapshot.GatherSourceId.ToString(CultureInfo.InvariantCulture);
+            gatherFilterNameValueLabel.Text = snapshot is not null
+                ? ResolveGatherFilterDisplayName(snapshot)
+                : rule?.DisplayName ?? "未选择";
+            gatherFilterSourceIdValueLabel.Text = snapshot is not null
+                ? snapshot.GatherSourceId.ToString(CultureInfo.InvariantCulture)
+                : rule?.GatherSourceId.ToString(CultureInfo.InvariantCulture) ?? "未选择";
             gatherFilterSourceTypeValueLabel.Text = snapshot is null
                 ? "未选择"
                 : string.IsNullOrWhiteSpace(snapshot.Source?.SourceType)
@@ -8170,13 +8248,26 @@ namespace Roadhog
             public GatherFilterRuleDraft(GatherObjectSnapshot snapshot)
             {
                 Snapshot = snapshot;
+                GatherSourceId = snapshot.GatherSourceId;
+                DisplayName = ResolveGatherFilterDisplayName(snapshot);
             }
 
-            public GatherObjectSnapshot Snapshot { get; }
+            public GatherFilterRuleDraft(GatherFilterRuleSettings settings)
+            {
+                GatherSourceId = settings.GatherSourceId;
+                DisplayName = string.IsNullOrWhiteSpace(settings.Name)
+                    ? "采集物 " + settings.GatherSourceId.ToString(CultureInfo.InvariantCulture)
+                    : settings.Name.Trim();
+                GatherKey = settings.GatherKey?.Trim() ?? string.Empty;
+            }
+
+            public GatherObjectSnapshot? Snapshot { get; }
+
+            public uint GatherSourceId { get; }
 
             public string GatherKey { get; set; } = string.Empty;
 
-            public string DisplayName => ResolveGatherFilterDisplayName(Snapshot);
+            public string DisplayName { get; }
         }
 
         private sealed class CleanupNpcComboItem

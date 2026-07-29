@@ -9,6 +9,7 @@ public sealed record GatherSnapshot(
     IReadOnlyList<WorldObjectSnapshot> NearbyMonsters,
     bool MonsterDataAvailable,
     bool CompetitionDataAvailable,
+    LocalGatheringSnapshot LocalGathering,
     DateTimeOffset CapturedAt)
 {
     public static GatherSnapshot Empty(DateTimeOffset capturedAt)
@@ -22,6 +23,7 @@ public sealed record GatherSnapshot(
             Array.Empty<WorldObjectSnapshot>(),
             false,
             false,
+            LocalGatheringSnapshot.Unavailable,
             capturedAt);
     }
 
