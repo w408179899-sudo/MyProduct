@@ -34,7 +34,11 @@ public sealed class StationaryGatherState
 
     public DateTimeOffset LastAttemptFinishedAt { get; private set; } = DateTimeOffset.MinValue;
 
+    public DateTimeOffset StartWaitStartedAt { get; private set; } = DateTimeOffset.MinValue;
+
     public int ConsecutiveMissingReads { get; private set; }
+
+    public int ConsecutiveUnavailableSnapshotReads { get; private set; }
 
     public DateTimeOffset LastMissingSnapshotAt { get; private set; } = DateTimeOffset.MinValue;
 
@@ -81,6 +85,7 @@ public sealed class StationaryGatherState
         Phase = StationaryGatherPhase.Ready;
         PhaseStartedAt = now;
         ConsecutiveMissingReads = 0;
+        ConsecutiveUnavailableSnapshotReads = 0;
         LastMissingSnapshotAt = DateTimeOffset.MinValue;
         AttemptStartFailureCount = 0;
         ResetApproachProgress();
@@ -107,6 +112,21 @@ public sealed class StationaryGatherState
         LastMissingSnapshotAt = capturedAt;
         ConsecutiveMissingReads++;
         return ConsecutiveMissingReads;
+    }
+
+    public int MarkSnapshotUnavailable()
+    {
+        if (ConsecutiveUnavailableSnapshotReads < int.MaxValue)
+        {
+            ConsecutiveUnavailableSnapshotReads++;
+        }
+
+        return ConsecutiveUnavailableSnapshotReads;
+    }
+
+    public void MarkSnapshotAvailable()
+    {
+        ConsecutiveUnavailableSnapshotReads = 0;
     }
 
     public void MarkReady(DateTimeOffset now)
@@ -160,8 +180,19 @@ public sealed class StationaryGatherState
 
     public void MarkKeyPressed(DateTimeOffset now)
     {
+        if (StartWaitStartedAt == DateTimeOffset.MinValue)
+        {
+            StartWaitStartedAt = now;
+        }
+
         Phase = StationaryGatherPhase.WaitingForStart;
         PhaseStartedAt = now;
+    }
+
+    public bool IsStartWaitTimedOut(DateTimeOffset now, TimeSpan timeout)
+    {
+        return StartWaitStartedAt != DateTimeOffset.MinValue &&
+               now - StartWaitStartedAt >= timeout;
     }
 
     public void MarkGathering(DateTimeOffset now)
@@ -171,6 +202,7 @@ public sealed class StationaryGatherState
             Phase = StationaryGatherPhase.Gathering;
             PhaseStartedAt = now;
             AttemptStartFailureCount = 0;
+            StartWaitStartedAt = DateTimeOffset.MinValue;
         }
     }
 
@@ -184,6 +216,7 @@ public sealed class StationaryGatherState
     public void MarkAttemptFinished(DateTimeOffset now)
     {
         LastAttemptFinishedAt = now;
+        StartWaitStartedAt = DateTimeOffset.MinValue;
         MarkReady(now);
     }
 
@@ -224,7 +257,9 @@ public sealed class StationaryGatherState
         NodeStartedAt = DateTimeOffset.MinValue;
         PhaseStartedAt = DateTimeOffset.MinValue;
         LastAttemptFinishedAt = DateTimeOffset.MinValue;
+        StartWaitStartedAt = DateTimeOffset.MinValue;
         ConsecutiveMissingReads = 0;
+        ConsecutiveUnavailableSnapshotReads = 0;
         LastMissingSnapshotAt = DateTimeOffset.MinValue;
         AttemptStartFailureCount = 0;
         ResetApproachProgress();

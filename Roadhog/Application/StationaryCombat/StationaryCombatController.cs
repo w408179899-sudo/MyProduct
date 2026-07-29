@@ -33,8 +33,10 @@ public sealed class StationaryCombatController
     private static readonly TimeSpan DefaultNoKillRetryDelay = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan DefaultManualPathPlayerReadRetryTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DefaultManualPathPlayerReadRetryInterval = TimeSpan.FromMilliseconds(200);
+    private const int GatherSnapshotUnavailableReadThreshold = 2;
     private const double ReturnStopDistance = 2.0D;
     private const double AcquireDistance = 25.0D;
+    private const double GatherKeyActivationDistance = 20.0D;
     private const double TargetLeashExtraDistance = 5.0D;
     private const double PreLockFaceYawToleranceDegrees = 25.0D;
     private const double DefaultPathFollowReachDistance = 5.0D;
@@ -198,7 +200,8 @@ public sealed class StationaryCombatController
                     context,
                     state,
                     home,
-                    gatherSettings)
+                    gatherSettings,
+                    radius)
                 .ConfigureAwait(false);
             if (state.NoTargetRestActive && stationaryGatherWorkAvailable)
             {
@@ -417,7 +420,8 @@ public sealed class StationaryCombatController
                     player,
                     playerPosition,
                     home,
-                    gatherSettings)
+                    gatherSettings,
+                    radius)
                 .ConfigureAwait(false);
             if (gatherTick.Handled)
             {
@@ -6651,7 +6655,8 @@ public sealed class StationaryCombatController
         AccountWorkerContext context,
         StationaryCombatState state,
         Vector3Snapshot home,
-        GatherScriptSettings settings)
+        GatherScriptSettings settings,
+        double searchRadiusMeters)
     {
         if (state.Gather.Active)
         {
@@ -6673,6 +6678,7 @@ public sealed class StationaryCombatController
             snapshot,
             settings,
             home,
+            searchRadiusMeters,
             DateTimeOffset.Now,
             state.Gather.IsSuppressed) is not null;
     }
@@ -6684,14 +6690,12 @@ public sealed class StationaryCombatController
         PlayerSnapshot player,
         Vector3Snapshot playerPosition,
         Vector3Snapshot home,
-        GatherScriptSettings settings)
+        GatherScriptSettings settings,
+        double searchRadiusMeters)
     {
         var now = DateTimeOffset.Now;
         var snapshot = await RefreshGatherSnapshotAsync(context, state).ConfigureAwait(false);
-        if (snapshot is null ||
-            !snapshot.MonsterDataAvailable ||
-            !snapshot.CompetitionDataAvailable ||
-            !snapshot.LocalGathering.DataAvailable)
+        if (!IsGatherSnapshotUsable(snapshot))
         {
             if (state.Gather.Active)
             {
@@ -6708,26 +6712,66 @@ public sealed class StationaryCombatController
                         ["serverObjectId"] = state.Gather.ServerObjectId,
                         ["monsterDataAvailable"] = snapshot?.MonsterDataAvailable ?? false,
                         ["competitionDataAvailable"] = snapshot?.CompetitionDataAvailable ?? false,
-                        ["localGatheringDataAvailable"] = snapshot?.LocalGathering.DataAvailable ?? false
+                        ["localGatheringDataAvailable"] = snapshot?.LocalGathering.DataAvailable ?? false,
+                        ["consecutiveUnavailableReads"] = state.Gather.ConsecutiveUnavailableSnapshotReads,
+                        ["requiredUnavailableReads"] = GatherSnapshotUnavailableReadThreshold
                     },
                     TimeSpan.FromSeconds(1));
-                state.Gather.SuppressCurrent(now, GatherFailureSuppression);
+                if (state.Gather.ConsecutiveUnavailableSnapshotReads < GatherSnapshotUnavailableReadThreshold)
+                {
+                    return StationaryGatherTickResult.HandledWith(GatherPollDelay);
+                }
+
+                await StopAndSuppressGatherAsync(
+                        context,
+                        state,
+                        now,
+                        "snapshot_unavailable",
+                        GatherFailureSuppression)
+                    .ConfigureAwait(false);
             }
 
             return StationaryGatherTickResult.NotHandled;
         }
 
-        var localGathering = snapshot.LocalGathering;
+        var localGathering = snapshot!.LocalGathering;
+        var currentGatheringStarted =
+            localGathering.IsDialogVisible &&
+            state.Gather.Active &&
+            localGathering.IsActive &&
+            localGathering.GatherSourceId == state.Gather.GatherSourceId;
+        if (currentGatheringStarted)
+        {
+            state.Gather.MarkGathering(now);
+        }
+        else if (state.Gather.IsStartWaitTimedOut(now, ReadGatherAttemptStartTimeout()))
+        {
+            context.Logger.Warn("stationary_gather.attempt.start_timeout", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["serverObjectId"] = state.Gather.ServerObjectId,
+                ["gatherSourceId"] = state.Gather.GatherSourceId,
+                ["name"] = state.Gather.Name,
+                ["waitedMs"] = (long)(now - state.Gather.StartWaitStartedAt).TotalMilliseconds,
+                ["maximumWaitMs"] = (long)ReadGatherAttemptStartTimeout().TotalMilliseconds
+            });
+            await StopAndSuppressGatherAsync(
+                    context,
+                    state,
+                    now,
+                    "start_timeout",
+                    GatherFailureSuppression)
+                .ConfigureAwait(false);
+            return StationaryGatherTickResult.NotHandled;
+        }
+
         if (localGathering.IsDialogVisible)
         {
             semiAutoState.ResetAttackKeyPressThrottle();
             await StopMovementAsync(context, state).ConfigureAwait(false);
             StopPathFollowPoller(state);
-            if (state.Gather.Active &&
-                localGathering.IsActive &&
-                localGathering.GatherSourceId == state.Gather.GatherSourceId)
+            if (currentGatheringStarted)
             {
-                state.Gather.MarkGathering(now);
                 LogActionThrottled(
                     context,
                     state,
@@ -6814,6 +6858,7 @@ public sealed class StationaryCombatController
                 snapshot,
                 settings,
                 home,
+                searchRadiusMeters,
                 now,
                 state.Gather.IsSuppressed);
             if (selected is null)
@@ -6832,7 +6877,7 @@ public sealed class StationaryCombatController
                 ["name"] = state.Gather.Name,
                 ["key"] = rule.GatherKey,
                 ["distanceToPlayer"] = target.DistanceToLocalPlayer,
-                ["searchRadiusMeters"] = settings.StationarySearchRadiusMeters,
+                ["searchRadiusMeters"] = searchRadiusMeters,
                 ["occupiedCheckRadiusMeters"] = settings.OccupiedCheckRadiusMeters
             });
         }
@@ -6895,18 +6940,6 @@ public sealed class StationaryCombatController
             state);
         if (threat is not null)
         {
-            if (state.IsTargetIgnored(threat) || IsClaimedByOther(threat, state))
-            {
-                await StopAndSuppressGatherAsync(
-                        context,
-                        state,
-                        now,
-                        state.IsTargetIgnored(threat) ? "threat_ignored" : "threat_claimed_by_other",
-                        GatherFailureSuppression)
-                    .ConfigureAwait(false);
-                return StationaryGatherTickResult.NotHandled;
-            }
-
             state.Gather.MarkReady(now);
             semiAutoState.ResetAttackKeyPressThrottle();
             await StopMovementAsync(context, state).ConfigureAwait(false);
@@ -6935,8 +6968,7 @@ public sealed class StationaryCombatController
         }
 
         var distanceToTarget = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, targetPosition);
-        var stopDistance = ResolveGatherStopDistance(target.InteractionRadius);
-        if (distanceToTarget > stopDistance)
+        if (distanceToTarget > GatherKeyActivationDistance)
         {
             state.Gather.MarkApproaching(playerPosition, now);
             state.Gather.ObserveApproachProgress(playerPosition, now, ReadGatherApproachProgressDistance());
@@ -6975,7 +7007,13 @@ public sealed class StationaryCombatController
             }
 
             semiAutoState.ResetAttackKeyPressThrottle();
-            await PathFollowStepAsync(context, state, player, targetPosition, stopDistance).ConfigureAwait(false);
+            await PathFollowStepAsync(
+                    context,
+                    state,
+                    player,
+                    targetPosition,
+                    GatherKeyActivationDistance)
+                .ConfigureAwait(false);
             return StationaryGatherTickResult.HandledWith(MoveTickDelay);
         }
 
@@ -6984,26 +7022,7 @@ public sealed class StationaryCombatController
 
         if (state.Gather.Phase == StationaryGatherPhase.WaitingForStart)
         {
-            if (now - state.Gather.PhaseStartedAt < ReadGatherAttemptStartTimeout())
-            {
-                return StationaryGatherTickResult.HandledWith(GatherPollDelay);
-            }
-
-            var failures = state.Gather.MarkAttemptStartFailed(now);
-            context.Logger.Warn("stationary_gather.attempt.start_timeout", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["serverObjectId"] = target.ServerObjectId,
-                ["gatherSourceId"] = target.GatherSourceId,
-                ["name"] = state.Gather.Name,
-                ["failureCount"] = failures,
-                ["maximumFailures"] = 3
-            });
-            if (failures >= 3)
-            {
-                state.Gather.SuppressCurrent(now, GatherFailureSuppression);
-                return StationaryGatherTickResult.NotHandled;
-            }
+            return StationaryGatherTickResult.HandledWith(GatherPollDelay);
         }
 
         if (!state.Gather.CanPressAgain(now, GatherAttemptRetryDelay))
@@ -7044,7 +7063,8 @@ public sealed class StationaryCombatController
             ["name"] = state.Gather.Name,
             ["key"] = rule.GatherKey,
             ["distanceMeters"] = Math.Round(distanceToTarget, 2),
-            ["stopDistanceMeters"] = Math.Round(stopDistance, 2)
+            ["activationDistanceMeters"] = GatherKeyActivationDistance,
+            ["startTimeoutMs"] = (long)ReadGatherAttemptStartTimeout().TotalMilliseconds
         });
         return StationaryGatherTickResult.HandledWith(GatherPollDelay);
     }
@@ -7095,7 +7115,9 @@ public sealed class StationaryCombatController
             .Where(target => target.Position is not null)
             .Where(target =>
                 IsTargetingLocalSide(target, state) ||
-                (target.AggressiveKnown &&
+                (!state.IsTargetIgnored(target) &&
+                 !IsClaimedByOther(target, state) &&
+                 target.AggressiveKnown &&
                  target.IsAggressiveToPlayer &&
                  StationaryCombatTargetSelector.HorizontalDistance(
                      target.Position!.Value,
@@ -7119,14 +7141,6 @@ public sealed class StationaryCombatController
                    target.ServerObjectId,
                    gatherThreat.EntityId,
                    gatherThreat.ServerObjectId);
-    }
-
-    private static double ResolveGatherStopDistance(float interactionRadius)
-    {
-        var radius = float.IsFinite(interactionRadius) && interactionRadius > 0
-            ? interactionRadius
-            : 2.0F;
-        return Math.Clamp(radius - 0.25D, 0.75D, 3.0D);
     }
 
     private static Dictionary<string, object?> CreateGatherLogFields(
@@ -7167,6 +7181,11 @@ public sealed class StationaryCombatController
             state.LastGatherScanAt = now;
             if (!result.Success || result.Value is null)
             {
+                if (state.Gather.Active)
+                {
+                    state.Gather.MarkSnapshotUnavailable();
+                }
+
                 state.CachedGatherSnapshot = null;
                 LogThrottled(context, state, "stationary_gather.snapshot.failed", new Dictionary<string, object?>
                 {
@@ -7177,6 +7196,18 @@ public sealed class StationaryCombatController
             }
 
             state.CachedGatherSnapshot = result.Value;
+            if (state.Gather.Active)
+            {
+                if (IsGatherSnapshotUsable(result.Value))
+                {
+                    state.Gather.MarkSnapshotAvailable();
+                }
+                else
+                {
+                    state.Gather.MarkSnapshotUnavailable();
+                }
+            }
+
             if (result.Value.MonsterDataAvailable)
             {
                 state.CachedWorldObjects = result.Value.NearbyMonsters;
@@ -7185,6 +7216,14 @@ public sealed class StationaryCombatController
         }
 
         return state.CachedGatherSnapshot;
+    }
+
+    private static bool IsGatherSnapshotUsable(GatherSnapshot? snapshot)
+    {
+        return snapshot is not null &&
+               snapshot.MonsterDataAvailable &&
+               snapshot.CompetitionDataAvailable &&
+               snapshot.LocalGathering.DataAvailable;
     }
 
     private async Task<IReadOnlyList<WorldObjectSnapshot>> RefreshWorldObjectsAsync(
@@ -9671,13 +9710,13 @@ public sealed class StationaryCombatController
     private static TimeSpan ReadGatherAttemptStartTimeout()
     {
         return TimeSpan.FromMilliseconds(
-            ClampInt(ReadRawIntFromEnv("ROADHOG_GATHER_START_TIMEOUT_MS", 2500), 1, 30_000));
+            ClampInt(ReadRawIntFromEnv("ROADHOG_GATHER_START_TIMEOUT_MS", 5_000), 1, 30_000));
     }
 
     private static TimeSpan ReadGatherNodeTimeout()
     {
         return TimeSpan.FromMilliseconds(
-            ClampInt(ReadRawIntFromEnv("ROADHOG_GATHER_NODE_TIMEOUT_MS", 120_000), 1_000, 600_000));
+            ClampInt(ReadRawIntFromEnv("ROADHOG_GATHER_NODE_TIMEOUT_MS", 30_000), 1_000, 600_000));
     }
 
     private static TimeSpan ReadGatherApproachStuckDelay()
@@ -9689,7 +9728,7 @@ public sealed class StationaryCombatController
     private static TimeSpan ReadGatherApproachTimeout()
     {
         return TimeSpan.FromMilliseconds(
-            ClampInt(ReadRawIntFromEnv("ROADHOG_GATHER_APPROACH_TIMEOUT_MS", 12_000), 1, 120_000));
+            ClampInt(ReadRawIntFromEnv("ROADHOG_GATHER_APPROACH_TIMEOUT_MS", 5_000), 1, 120_000));
     }
 
     private static double ReadGatherApproachProgressDistance()

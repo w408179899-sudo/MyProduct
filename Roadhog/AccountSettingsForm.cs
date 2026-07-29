@@ -73,7 +73,6 @@ namespace Roadhog
         private ListBox? activeMonsterFilterListBox;
         private Label? activeMonsterFilterStatusLabel;
         private RoundedCheckBox? stationaryGatherEnabledCheckBox;
-        private RoundedTextBox? stationaryGatherSearchRadiusTextBox;
         private RoundedTextBox? gatherThreatRadiusTextBox;
         private RoundedComboBox? nearbyGatherFilterCombo;
         private ListView? gatherFilterListView;
@@ -88,6 +87,7 @@ namespace Roadhog
         private Button? gatherFilterKeyButton;
         private Button? removeGatherFilterButton;
         private Button? clearGatherFilterButton;
+        private double legacyStationaryGatherSearchRadiusMeters = 10.0D;
         private double gatherOccupiedCheckRadiusMeters = 5.0D;
         private RoundedCheckBox? openingAttackKeyCheckBox;
         private RoundedCheckBox? conditionSkillPreemptsChainCheckBox;
@@ -722,11 +722,7 @@ namespace Roadhog
             return new GatherScriptSettings
             {
                 StationaryPriorityEnabled = stationaryGatherEnabledCheckBox?.Checked ?? false,
-                StationarySearchRadiusMeters = ReadDouble(
-                    stationaryGatherSearchRadiusTextBox,
-                    10.0D,
-                    1.0D,
-                    100.0D),
+                StationarySearchRadiusMeters = legacyStationaryGatherSearchRadiusMeters,
                 ThreatClearRadiusMeters = ReadDouble(
                     gatherThreatRadiusTextBox,
                     7.0D,
@@ -740,10 +736,8 @@ namespace Roadhog
         private void ApplyGatherSettings(GatherScriptSettings settings)
         {
             SetChecked(stationaryGatherEnabledCheckBox, settings.StationaryPriorityEnabled);
-            SetText(
-                stationaryGatherSearchRadiusTextBox,
-                Math.Clamp(settings.StationarySearchRadiusMeters, 1.0D, 100.0D)
-                    .ToString("0.###", CultureInfo.InvariantCulture));
+            legacyStationaryGatherSearchRadiusMeters =
+                Math.Clamp(settings.StationarySearchRadiusMeters, 1.0D, 100.0D);
             SetText(
                 gatherThreatRadiusTextBox,
                 Math.Clamp(settings.ThreatClearRadiusMeters, 0.5D, 50.0D)
@@ -882,8 +876,7 @@ namespace Roadhog
         {
             return mode switch
             {
-                AccountMainMode.Gather => "采集",
-                AccountMainMode.Craft => "制作",
+                AccountMainMode.Gather => "路径采集",
                 AccountMainMode.SemiAuto => "半自动",
                 _ => "自定义打怪"
             };
@@ -893,8 +886,8 @@ namespace Roadhog
         {
             return text switch
             {
+                "路径采集" => AccountMainMode.Gather,
                 "采集" => AccountMainMode.Gather,
-                "制作" => AccountMainMode.Craft,
                 "半自动" => AccountMainMode.SemiAuto,
                 _ => AccountMainMode.CustomCombat
             };
@@ -1067,7 +1060,7 @@ namespace Roadhog
             AddLabel(page, "俯仰", 482, 76, 38, 22);
             cameraPitchPixelsPerDegreeTextBox = AddTextBox(page, "13.0", 522, 72, 70, 28);
 
-            mainModeCombo = AddCombo(page, 4, 72, 220, 28, "自定义打怪", "采集", "制作", "半自动");
+            mainModeCombo = AddCombo(page, 4, 72, 220, 28, "自定义打怪", "路径采集", "半自动");
             mainModeCombo.SelectedIndexChanged += (_, _) => RefreshCombatModeVisibility();
             AddLabel(page, "主模式", 230, 76, 80, 22, Color.FromArgb(220, 38, 38), FontStyle.Bold);
 
@@ -4729,22 +4722,17 @@ namespace Roadhog
             stationaryGatherEnabledCheckBox = AddCheckBox(page, "先采集后打怪", 4, 12, 156, false);
             stationaryGatherEnabledCheckBox.Name = "stationaryGatherEnabledCheckBox";
 
-            AddLabel(page, "搜索范围", 184, 14, 70, 24, _textGreen, FontStyle.Bold);
-            stationaryGatherSearchRadiusTextBox = AddTextBox(page, "10", 256, 12, 58, 28);
-            stationaryGatherSearchRadiusTextBox.Name = "stationaryGatherSearchRadiusTextBox";
-            AddLabel(page, "米", 320, 14, 28, 24);
-
-            AddLabel(page, "安全清怪", 382, 14, 70, 24, _textGreen, FontStyle.Bold);
-            gatherThreatRadiusTextBox = AddTextBox(page, "7", 454, 12, 58, 28);
+            AddLabel(page, "安全清怪", 184, 14, 70, 24, _textGreen, FontStyle.Bold);
+            gatherThreatRadiusTextBox = AddTextBox(page, "7", 256, 12, 58, 28);
             gatherThreatRadiusTextBox.Name = "gatherThreatRadiusTextBox";
-            AddLabel(page, "米", 518, 14, 28, 24);
+            AddLabel(page, "米", 320, 14, 28, 24);
 
             gatherFilterStatusLabel = AddLabel(
                 page,
                 "等待读取附近采集物",
-                610,
+                382,
                 14,
-                210,
+                438,
                 24,
                 Color.FromArgb(166, 80, 24),
                 FontStyle.Bold);

@@ -13,6 +13,7 @@ public static class StationaryGatherSelector
         GatherSnapshot snapshot,
         GatherScriptSettings settings,
         Vector3Snapshot home,
+        double searchRadiusMeters,
         DateTimeOffset now,
         Func<uint, DateTimeOffset, bool>? isSuppressed = null)
     {
@@ -35,7 +36,7 @@ public static class StationaryGatherSelector
             return null;
         }
 
-        var searchRadius = Math.Clamp(settings.StationarySearchRadiusMeters, 1.0D, 100.0D);
+        var searchRadius = Math.Max(1.0D, searchRadiusMeters);
         var occupiedRadius = Math.Clamp(settings.OccupiedCheckRadiusMeters, 0.5D, 20.0D);
         var playerPosition = snapshot.LocalPosition ?? home;
         return snapshot.Objects

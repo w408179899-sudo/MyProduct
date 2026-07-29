@@ -68,6 +68,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("path recorder enforces five meter minimum", TestPathRecorderMinimumDistanceAsync),
     ("shared path store saves loads and deletes path files", TestSharedPathStoreRoundTripAsync),
     ("path tab opens configured path folder", TestPathTabOpensConfiguredPathFolderAsync),
+    ("main mode options expose path gather without craft", TestMainModeOptionsExposePathGatherWithoutCraftAsync),
     ("script profile store saves loads and deletes profile files", TestScriptProfileStoreRoundTripAsync),
     ("runtime player read uses account scoped context", TestRuntimePlayerReadUsesAccountScopeAsync),
     ("runtime path recording player read bypasses memory cache", TestRuntimePathRecordingPlayerReadBypassesMemoryCacheAsync),
@@ -84,13 +85,15 @@ var tests = new (string Name, Func<Task> Run)[]
     ("gather priority settings load capture and clone", TestGatherPrioritySettingsLoadCaptureAndCloneAsync),
     ("gather priority settings persist in account json", TestGatherPrioritySettingsPersistInAccountJsonAsync),
     ("stationary gather selector enforces eligibility", TestStationaryGatherSelectorEnforcesEligibilityAsync),
+    ("stationary gather timeout defaults stay responsive", TestStationaryGatherTimeoutDefaultsStayResponsiveAsync),
     ("stationary gather disabled preserves combat scan", TestStationaryGatherDisabledPreservesCombatScanAsync),
     ("stationary gather completes key progress and depletion loop", TestStationaryGatherCompletesKeyProgressAndDepletionLoopAsync),
     ("stationary gather competition falls through to combat", TestStationaryGatherCompetitionFallsThroughToCombatAsync),
     ("stationary gather clears nearby aggressive threat first", TestStationaryGatherClearsNearbyAggressiveThreatFirstAsync),
-    ("stationary gather approaches before pressing key", TestStationaryGatherApproachesBeforePressingKeyAsync),
+    ("stationary gather presses within twenty meters", TestStationaryGatherPressesWithinTwentyMetersAsync),
     ("stationary gather unavailable data fails closed", TestStationaryGatherUnavailableDataFailsClosedAsync),
-    ("stationary gather retries and suppresses failed starts", TestStationaryGatherRetriesAndSuppressesFailedStartsAsync),
+    ("stationary gather requires two consecutive snapshot failures", TestStationaryGatherRequiresTwoConsecutiveSnapshotFailuresAsync),
+    ("stationary gather enforces absolute start wait", TestStationaryGatherEnforcesAbsoluteStartWaitAsync),
     ("stationary gather wakes no target rest", TestStationaryGatherWakesNoTargetRestAsync),
     ("runtime summoned pet read uses account scoped context", TestRuntimeSummonedPetReadUsesAccountScopeAsync),
     ("runtime summoned pet roster read uses account scoped context", TestRuntimeSummonedPetRosterReadUsesAccountScopeAsync),
@@ -576,6 +579,52 @@ static Task TestPathTabOpensConfiguredPathFolderAsync()
     AssertFalse(onClick is null, "path folder button click method should be available");
     onClick!.Invoke(buttons[0], new object[] { EventArgs.Empty });
     AssertEqual(pathLibraryDirectory, launcher.LastDirectory ?? string.Empty, "opened path folder");
+    return Task.CompletedTask;
+}
+
+static Task TestMainModeOptionsExposePathGatherWithoutCraftAsync()
+{
+    using var form = CreateAccountSettingsFormForTests();
+    var combo = GetPrivateFieldForTest(form, "mainModeCombo");
+    var itemsProperty = combo.GetType().GetProperty(
+        "Items",
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+    AssertFalse(itemsProperty is null, "main mode combo items property should exist");
+    var items = (System.Windows.Forms.ComboBox.ObjectCollection)itemsProperty!.GetValue(combo)!;
+    AssertSequence(
+        new[] { "自定义打怪", "路径采集", "半自动" },
+        items.Cast<object>().Select(item => item?.ToString() ?? string.Empty).ToArray(),
+        "main mode options");
+
+    var formatMethod = typeof(AccountSettingsForm).GetMethod(
+        "FormatMainMode",
+        System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+    var parseMethod = typeof(AccountSettingsForm).GetMethod(
+        "ParseMainMode",
+        System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+    AssertFalse(formatMethod is null, "main mode format method should exist");
+    AssertFalse(parseMethod is null, "main mode parse method should exist");
+
+    AssertEqual(
+        "路径采集",
+        (string)formatMethod!.Invoke(null, new object[] { AccountMainMode.Gather })!,
+        "gather mode label");
+    AssertEqual(
+        "自定义打怪",
+        (string)formatMethod.Invoke(null, new object[] { AccountMainMode.Craft })!,
+        "legacy craft mode fallback label");
+    AssertEqual(
+        AccountMainMode.Gather,
+        (AccountMainMode)parseMethod!.Invoke(null, new object?[] { "路径采集" })!,
+        "path gather mode parse");
+    AssertEqual(
+        AccountMainMode.Gather,
+        (AccountMainMode)parseMethod.Invoke(null, new object?[] { "采集" })!,
+        "legacy gather mode parse");
+    AssertEqual(
+        AccountMainMode.CustomCombat,
+        (AccountMainMode)parseMethod.Invoke(null, new object?[] { "制作" })!,
+        "removed craft mode parse");
     return Task.CompletedTask;
 }
 
@@ -1230,9 +1279,9 @@ static Task TestGatherPrioritySettingsLoadCaptureAndCloneAsync()
                 !GetCheckBoxCheckedForTest(form, "stationaryGatherEnabledCheckBox"),
                 "gather priority switch should load");
             AssertEqual(
-                "12.5",
-                GetTextBoxTextForTest(form, "stationaryGatherSearchRadiusTextBox"),
-                "gather search radius should load");
+                0,
+                form.Controls.Find("stationaryGatherSearchRadiusTextBox", true).Length,
+                "separate gather search radius should not be shown");
             AssertEqual(
                 "6.5",
                 GetTextBoxTextForTest(form, "gatherThreatRadiusTextBox"),
@@ -1246,7 +1295,7 @@ static Task TestGatherPrioritySettingsLoadCaptureAndCloneAsync()
 
             var captured = (ScriptSettings)InvokePrivateMethodForTest(form, "CaptureScriptSettings")!;
             AssertFalse(!captured.Gather.StationaryPriorityEnabled, "gather switch should capture");
-            AssertEqual(12.5D, captured.Gather.StationarySearchRadiusMeters, "gather search radius should capture");
+            AssertEqual(12.5D, captured.Gather.StationarySearchRadiusMeters, "legacy gather search radius should be preserved");
             AssertEqual(6.5D, captured.Gather.ThreatClearRadiusMeters, "gather threat radius should capture");
             AssertEqual(4.5D, captured.Gather.OccupiedCheckRadiusMeters, "hidden occupied radius should be preserved");
             AssertEqual(2, captured.Gather.Rules.Count, "gather rules should capture");
@@ -1339,10 +1388,19 @@ static Task TestStationaryGatherSelectorEnforcesEligibilityAsync()
         new[] { blocked, unknown, outside, allowed },
         capturedAt: capturedAt);
 
-    var selected = StationaryGatherSelector.SelectCandidate(snapshot, settings.Gather, home, capturedAt);
+    var selected = StationaryGatherSelector.SelectCandidate(
+        snapshot,
+        settings.Gather,
+        home,
+        settings.Combat.StationaryCombatRadius,
+        capturedAt);
     AssertEqual(10012U, selected?.Target.ServerObjectId ?? 0, "selector should choose exact allowed in-range node");
 
-    var occupied = snapshot with
+    var singleCandidateSnapshot = snapshot with
+    {
+        Objects = new[] { allowed }
+    };
+    var occupied = singleCandidateSnapshot with
     {
         NearbyPlayers = new[]
         {
@@ -1359,27 +1417,106 @@ static Task TestStationaryGatherSelectorEnforcesEligibilityAsync()
         }
     };
     AssertFalse(
-        StationaryGatherSelector.SelectCandidate(occupied, settings.Gather, home, capturedAt) is not null,
+        StationaryGatherSelector.SelectCandidate(
+            occupied,
+            settings.Gather,
+            home,
+            settings.Combat.StationaryCombatRadius,
+            capturedAt) is not null,
         "occupied matching source should be skipped");
 
     AssertFalse(
         StationaryGatherSelector.SelectCandidate(
-            snapshot,
+            singleCandidateSnapshot,
             settings.Gather,
             home,
+            settings.Combat.StationaryCombatRadius,
             capturedAt,
             (serverObjectId, _) => serverObjectId == allowed.ServerObjectId) is not null,
         "suppressed concrete node should be skipped");
 
     var noProgress = snapshot with { LocalGathering = LocalGatheringSnapshot.Unavailable };
     AssertFalse(
-        StationaryGatherSelector.SelectCandidate(noProgress, settings.Gather, home, capturedAt) is not null,
+        StationaryGatherSelector.SelectCandidate(
+            noProgress,
+            settings.Gather,
+            home,
+            settings.Combat.StationaryCombatRadius,
+            capturedAt) is not null,
         "unavailable local progress data should fail closed");
+
+    settings.Gather.StationarySearchRadiusMeters = 1.0D;
+    var combatRadiusSnapshot = CreateStationaryGatherSnapshot(
+        new[] { outside },
+        capturedAt: capturedAt);
+    AssertEqual(
+        outside.ServerObjectId,
+        StationaryGatherSelector.SelectCandidate(
+            combatRadiusSnapshot,
+            settings.Gather,
+            home,
+            settings.Combat.StationaryCombatRadius,
+            capturedAt)?.Target.ServerObjectId ?? 0,
+        "selector should use stationary combat radius instead of legacy gather radius");
 
     settings.Gather.Rules[0].GatherKey = string.Empty;
     AssertFalse(
-        StationaryGatherSelector.SelectCandidate(snapshot, settings.Gather, home, capturedAt) is not null,
+        StationaryGatherSelector.SelectCandidate(
+            snapshot,
+            settings.Gather,
+            home,
+            settings.Combat.StationaryCombatRadius,
+            capturedAt) is not null,
         "rule without key should be skipped");
+    return Task.CompletedTask;
+}
+
+static Task TestStationaryGatherTimeoutDefaultsStayResponsiveAsync()
+{
+    const string startTimeoutVariable = "ROADHOG_GATHER_START_TIMEOUT_MS";
+    const string approachTimeoutVariable = "ROADHOG_GATHER_APPROACH_TIMEOUT_MS";
+    const string nodeTimeoutVariable = "ROADHOG_GATHER_NODE_TIMEOUT_MS";
+    var previousStartTimeout = Environment.GetEnvironmentVariable(startTimeoutVariable);
+    var previousApproachTimeout = Environment.GetEnvironmentVariable(approachTimeoutVariable);
+    var previousNodeTimeout = Environment.GetEnvironmentVariable(nodeTimeoutVariable);
+    try
+    {
+        Environment.SetEnvironmentVariable(startTimeoutVariable, null);
+        Environment.SetEnvironmentVariable(approachTimeoutVariable, null);
+        Environment.SetEnvironmentVariable(nodeTimeoutVariable, null);
+
+        var startTimeoutMethod = typeof(StationaryCombatController).GetMethod(
+            "ReadGatherAttemptStartTimeout",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+        var approachTimeoutMethod = typeof(StationaryCombatController).GetMethod(
+            "ReadGatherApproachTimeout",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+        var nodeTimeoutMethod = typeof(StationaryCombatController).GetMethod(
+            "ReadGatherNodeTimeout",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+        AssertFalse(startTimeoutMethod is null, "gather start timeout method should exist");
+        AssertFalse(approachTimeoutMethod is null, "gather approach timeout method should exist");
+        AssertFalse(nodeTimeoutMethod is null, "gather node timeout method should exist");
+        AssertEqual(
+            TimeSpan.FromSeconds(5),
+            (TimeSpan)startTimeoutMethod!.Invoke(null, null)!,
+            "gather start timeout default");
+        AssertEqual(
+            TimeSpan.FromSeconds(5),
+            (TimeSpan)approachTimeoutMethod!.Invoke(null, null)!,
+            "gather approach timeout default");
+        AssertEqual(
+            TimeSpan.FromSeconds(30),
+            (TimeSpan)nodeTimeoutMethod!.Invoke(null, null)!,
+            "gather node timeout default");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable(startTimeoutVariable, previousStartTimeout);
+        Environment.SetEnvironmentVariable(approachTimeoutVariable, previousApproachTimeout);
+        Environment.SetEnvironmentVariable(nodeTimeoutVariable, previousNodeTimeout);
+    }
+
     return Task.CompletedTask;
 }
 
@@ -1627,35 +1764,131 @@ static async Task TestStationaryGatherClearsNearbyAggressiveThreatFirstAsync()
             monsters: new[] { claimedThreat },
             capturedAt: capturedAt.AddSeconds(2)));
     var claimedKeyboard = new RecordingKeyboardInput();
-    var claimedLogger = new InMemoryRoadhogLogger();
     var claimedState = new StationaryCombatState();
     await new StationaryCombatController(claimedKeyboard, new SemiAutoCombatController(claimedKeyboard))
         .TickAsync(
-            CreateContext(settings, claimedApi, claimedLogger),
+            CreateContext(settings, claimedApi, new InMemoryRoadhogLogger()),
             SemiAutoSkillPlan.FromSettings(settings.Skills),
             new SemiAutoCombatState(),
             claimedState)
         .ConfigureAwait(false);
-    AssertFalse(claimedKeyboard.Keys.Contains("NumPad1"), "claimed nearby threat should block gathering");
-    AssertFalse(claimedState.Gather.Active, "claimed nearby threat should suppress unsafe gather node");
+
     AssertFalse(
-        !claimedLogger.Entries.Any(entry =>
-            entry.EventName == "stationary_gather.node.suppressed" &&
-            string.Equals(Convert.ToString(entry.Fields["reason"]), "threat_claimed_by_other", StringComparison.Ordinal)),
-        "claimed nearby threat suppression reason should be logged");
+        !claimedKeyboard.Keys.Contains("NumPad1"),
+        "nonlocal claimed threat should not block gathering");
+    AssertEqual(
+        StationaryGatherPhase.WaitingForStart,
+        claimedState.Gather.Phase,
+        "claimed threat should leave gather waiting for start");
+
+    var ignoredThreat = threat with
+    {
+        EntityId = 24,
+        ServerObjectId = 20024,
+        Name = "ignored aggressive"
+    };
+    var ignoredApi = CreateStationaryGatherGameApi(
+        CreateStationaryGatherSnapshot(
+            new[] { target },
+            monsters: new[] { ignoredThreat },
+            capturedAt: capturedAt.AddSeconds(3)));
+    var ignoredKeyboard = new RecordingKeyboardInput();
+    var ignoredState = new StationaryCombatState();
+    ignoredState.IgnoreTarget(ignoredThreat);
+    await new StationaryCombatController(ignoredKeyboard, new SemiAutoCombatController(ignoredKeyboard))
+        .TickAsync(
+            CreateContext(settings, ignoredApi, new InMemoryRoadhogLogger()),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            ignoredState)
+        .ConfigureAwait(false);
+
+    AssertFalse(
+        !ignoredKeyboard.Keys.Contains("NumPad1"),
+        "ignored nonlocal threat should not block gathering");
+    AssertEqual(
+        StationaryGatherPhase.WaitingForStart,
+        ignoredState.Gather.Phase,
+        "ignored threat should leave gather waiting for start");
+
+    var ignoredLocalThreat = ignoredThreat with
+    {
+        EntityId = 25,
+        ServerObjectId = 20025,
+        Name = "ignored local attacker",
+        IsTargetingLocalPlayer = true
+    };
+    var ignoredLocalApi = CreateStationaryGatherGameApi(
+        CreateStationaryGatherSnapshot(
+            new[] { target },
+            monsters: new[] { ignoredLocalThreat },
+            capturedAt: capturedAt.AddSeconds(4)));
+    var ignoredLocalKeyboard = new RecordingKeyboardInput();
+    var ignoredLocalState = new StationaryCombatState();
+    ignoredLocalState.IgnoreTarget(ignoredLocalThreat);
+    await new StationaryCombatController(
+            ignoredLocalKeyboard,
+            new SemiAutoCombatController(ignoredLocalKeyboard))
+        .TickAsync(
+            CreateContext(settings, ignoredLocalApi, new InMemoryRoadhogLogger()),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            ignoredLocalState)
+        .ConfigureAwait(false);
+
+    AssertFalse(
+        ignoredLocalKeyboard.Keys.Contains("NumPad1"),
+        "ignored threat targeting local player must still block gathering");
+    AssertEqual(
+        ignoredLocalThreat.ServerObjectId,
+        ignoredLocalState.CandidateServerObjectId,
+        "ignored local attacker should become the gather safety target");
+
+    var secondRealThreat = threat with
+    {
+        EntityId = 26,
+        ServerObjectId = 20026,
+        Name = "second real threat",
+        Position = new Vector3Snapshot(5, 0, 0),
+        DistanceToLocalPlayer = 5.0D
+    };
+    var mixedApi = CreateStationaryGatherGameApi(
+        CreateStationaryGatherSnapshot(
+            new[] { target },
+            monsters: new[] { ignoredThreat, claimedThreat, secondRealThreat },
+            capturedAt: capturedAt.AddSeconds(5)));
+    var mixedKeyboard = new RecordingKeyboardInput();
+    var mixedState = new StationaryCombatState();
+    mixedState.IgnoreTarget(ignoredThreat);
+    await new StationaryCombatController(mixedKeyboard, new SemiAutoCombatController(mixedKeyboard))
+        .TickAsync(
+            CreateContext(settings, mixedApi, new InMemoryRoadhogLogger()),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            mixedState)
+        .ConfigureAwait(false);
+
+    AssertFalse(
+        mixedKeyboard.Keys.Contains("NumPad1"),
+        "another unignored unclaimed threat should still block gathering");
+    AssertEqual(
+        secondRealThreat.ServerObjectId,
+        mixedState.CandidateServerObjectId,
+        "safety scan should continue past ignored and claimed monsters");
 }
 
-static async Task TestStationaryGatherApproachesBeforePressingKeyAsync()
+static async Task TestStationaryGatherPressesWithinTwentyMetersAsync()
 {
     var settings = CreateStationaryGatherSettings();
-    var target = CreateGatherObjectForFilterTest(
+    var targetAtTwentyMeters = CreateGatherObjectForFilterTest(
         10,
         10010,
         400951,
         "贝壳",
-        8.0D,
+        20.0D,
         DateTimeOffset.Now);
-    var gameApi = CreateStationaryGatherGameApi(CreateStationaryGatherSnapshot(new[] { target }));
+    var gameApi = CreateStationaryGatherGameApi(
+        CreateStationaryGatherSnapshot(new[] { targetAtTwentyMeters }));
     var keyboard = new RecordingKeyboardInput();
     var state = new StationaryCombatState();
     var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
@@ -1667,9 +1900,34 @@ static async Task TestStationaryGatherApproachesBeforePressingKeyAsync()
             state)
         .ConfigureAwait(false);
 
-    AssertFalse(keyboard.Keys.Contains("NumPad1"), "distant gather node must not press key before arrival");
-    AssertEqual(StationaryGatherPhase.Approaching, state.Gather.Phase, "distant gather node should enter approach phase");
-    AssertEqual(10010U, state.Gather.ServerObjectId, "approach should lock concrete gather node");
+    AssertFalse(!keyboard.Keys.Contains("NumPad1"), "gather key should be pressed at twenty meters");
+    AssertEqual(StationaryGatherPhase.WaitingForStart, state.Gather.Phase, "key press should wait for gather start");
+    AssertFalse(
+        state.Gather.StartWaitStartedAt == DateTimeOffset.MinValue,
+        "first successful key press should start the absolute wait window");
+
+    var targetBeyondTwentyMeters = targetAtTwentyMeters with
+    {
+        EntityId = 11,
+        ServerObjectId = 10011,
+        Position = new Vector3Snapshot(20.1F, 0, 0),
+        SpawnPosition = new Vector3Snapshot(20.1F, 0, 0),
+        DistanceToLocalPlayer = 20.1D
+    };
+    var farApi = CreateStationaryGatherGameApi(
+        CreateStationaryGatherSnapshot(new[] { targetBeyondTwentyMeters }));
+    var farKeyboard = new RecordingKeyboardInput();
+    var farState = new StationaryCombatState();
+    await new StationaryCombatController(farKeyboard, new SemiAutoCombatController(farKeyboard))
+        .TickAsync(
+            CreateContext(settings, farApi, new InMemoryRoadhogLogger()),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            farState)
+        .ConfigureAwait(false);
+
+    AssertFalse(farKeyboard.Keys.Contains("NumPad1"), "gather node beyond twenty meters should approach first");
+    AssertEqual(StationaryGatherPhase.Approaching, farState.Gather.Phase, "far gather node should enter approach phase");
 }
 
 static async Task TestStationaryGatherUnavailableDataFailsClosedAsync()
@@ -1714,7 +1972,100 @@ static async Task TestStationaryGatherUnavailableDataFailsClosedAsync()
     AssertFalse(gameApi.WorldObjectReadCount == 0, "unavailable gather monster data should use world fallback");
 }
 
-static async Task TestStationaryGatherRetriesAndSuppressesFailedStartsAsync()
+static async Task TestStationaryGatherRequiresTwoConsecutiveSnapshotFailuresAsync()
+{
+    var settings = CreateStationaryGatherSettings();
+    var capturedAt = DateTimeOffset.Now;
+    var target = CreateGatherObjectForFilterTest(
+        10,
+        10010,
+        400951,
+        "snapshot tolerance target",
+        1.0D,
+        capturedAt);
+    var available = CreateStationaryGatherSnapshot(
+        new[] { target },
+        capturedAt: capturedAt);
+    var ordinaryMonster = new WorldObjectSnapshot(
+        20,
+        20020,
+        "ordinary combat fallback",
+        "monster",
+        new Vector3Snapshot(4, 0, 0),
+        4.0D,
+        100,
+        100);
+    var gameApi = CreateStationaryGatherGameApi(available, new[] { ordinaryMonster });
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var state = new StationaryCombatState();
+    var semiAutoState = new SemiAutoCombatState();
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    var context = CreateContext(settings, gameApi, logger);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+    AssertFalse(!state.Gather.Active, "initial usable snapshot should select the gather node");
+    AssertFalse(!keyboard.Keys.Contains("NumPad1"), "initial usable snapshot should press the gather key");
+
+    gameApi.GatherReadFallback = OperationResult<GatherSnapshot>.Fail("first transient gather read failure");
+    state.LastGatherScanAt = DateTimeOffset.MinValue;
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertFalse(!state.Gather.Active, "first snapshot failure should preserve the active gather node");
+    AssertEqual(
+        1,
+        state.Gather.ConsecutiveUnavailableSnapshotReads,
+        "first snapshot failure count");
+    AssertEqual(
+        0U,
+        state.CandidateServerObjectId,
+        "first snapshot failure must not fall through to ordinary combat");
+    AssertEqual(
+        0,
+        gameApi.WorldObjectReadCount,
+        "first snapshot failure must not start the ordinary world scan");
+
+    gameApi.GatherReadFallback = OperationResult<GatherSnapshot>.Ok(
+        available with { CapturedAt = capturedAt.AddMilliseconds(250) });
+    state.LastGatherScanAt = DateTimeOffset.MinValue;
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertFalse(!state.Gather.Active, "successful snapshot should keep the active gather node");
+    AssertEqual(
+        0,
+        state.Gather.ConsecutiveUnavailableSnapshotReads,
+        "successful snapshot should reset the failure count");
+
+    gameApi.GatherReadFallback = OperationResult<GatherSnapshot>.Fail("first consecutive gather read failure");
+    state.LastGatherScanAt = DateTimeOffset.MinValue;
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+    AssertFalse(!state.Gather.Active, "first consecutive failure should still preserve the gather node");
+    AssertEqual(
+        1,
+        state.Gather.ConsecutiveUnavailableSnapshotReads,
+        "consecutive failure count should restart after success");
+
+    gameApi.GatherReadFallback = OperationResult<GatherSnapshot>.Fail("second consecutive gather read failure");
+    state.LastGatherScanAt = DateTimeOffset.MinValue;
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertFalse(state.Gather.Active, "second consecutive failure should release the gather node");
+    AssertFalse(
+        !state.Gather.IsSuppressed(target.ServerObjectId, DateTimeOffset.Now),
+        "second consecutive failure should suppress the concrete gather node");
+    AssertEqual(
+        ordinaryMonster.ServerObjectId,
+        state.CandidateServerObjectId,
+        "second consecutive failure may return to ordinary combat");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "stationary_gather.node.suppressed" &&
+            string.Equals(Convert.ToString(entry.Fields["reason"]), "snapshot_unavailable", StringComparison.Ordinal)),
+        "second consecutive failure suppression reason should be logged");
+}
+
+static async Task TestStationaryGatherEnforcesAbsoluteStartWaitAsync()
 {
     var previousTimeout = Environment.GetEnvironmentVariable("ROADHOG_GATHER_START_TIMEOUT_MS");
     Environment.SetEnvironmentVariable("ROADHOG_GATHER_START_TIMEOUT_MS", "1");
@@ -1737,14 +2088,11 @@ static async Task TestStationaryGatherRetriesAndSuppressesFailedStartsAsync()
         var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
 
         await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
-        for (var i = 0; i < 3; i++)
-        {
-            await Task.Delay(5).ConfigureAwait(false);
-            await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
-        }
+        await Task.Delay(5).ConfigureAwait(false);
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
 
-        AssertEqual(3, keyboard.Keys.Count(key => key == "NumPad1"), "missing dialog should allow only three start attempts");
-        AssertFalse(state.Gather.Active, "three missing dialog confirmations should suppress node");
+        AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad1"), "start wait must not repeat the gather key");
+        AssertFalse(state.Gather.Active, "missing dialog at the absolute deadline should suppress node");
 
         var failedKeyboard = new RecordingKeyboardInput
         {

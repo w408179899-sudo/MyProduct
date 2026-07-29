@@ -44,6 +44,7 @@ public sealed class GatherScriptSettings
 {
     public bool StationaryPriorityEnabled { get; set; }
 
+    // Retained for existing JSON profiles; stationary gathering now uses the combat radius.
     public double StationarySearchRadiusMeters { get; set; } = 10.0D;
 
     public double ThreatClearRadiusMeters { get; set; } = 7.0D;
