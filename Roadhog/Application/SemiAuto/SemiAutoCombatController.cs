@@ -62,6 +62,8 @@ public sealed class SemiAutoCombatController
     {
         var settings = context.Config.ScriptSettings?.SemiAuto ?? new SemiAutoScriptSettings();
         var now = DateTimeOffset.Now;
+        var includeAlwaysStatusMaintenance =
+            !ShouldSuppressAlwaysSupportStatusMaintenanceDuringCustomCombat(context);
 
         if (!plan.UsesSpiritmasterAutoLogic &&
             await TryHandleMaintenanceAsync(
@@ -69,7 +71,8 @@ public sealed class SemiAutoCombatController
                     state,
                     allowSitMaintenance: false,
                     plan: plan,
-                    requireCooldownCalibrationForMaintenance: requireCooldownCalibrationForMaintenance)
+                    requireCooldownCalibrationForMaintenance: requireCooldownCalibrationForMaintenance,
+                    includeStatusMaintenance: includeAlwaysStatusMaintenance)
                 .ConfigureAwait(false))
         {
             return Ms(settings.TickIntervalMs, 40);
@@ -757,7 +760,8 @@ public sealed class SemiAutoCombatController
         SemiAutoSkillPlan? plan = null,
         bool requireCooldownCalibrationForMaintenance = false,
         MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.Always,
-        bool includeAlwaysRules = true)
+        bool includeAlwaysRules = true,
+        bool includeStatusMaintenance = true)
     {
         var settings = context.Config.ScriptSettings?.SemiAuto ?? new SemiAutoScriptSettings();
         var maintenance = context.Config.ScriptSettings?.Maintenance;
@@ -804,7 +808,8 @@ public sealed class SemiAutoCombatController
                 plan: plan,
                 requireCooldownCalibrationForMaintenance: requireCooldownCalibrationForMaintenance,
                 runTiming: runTiming,
-                includeAlwaysRules: includeAlwaysRules)
+                includeAlwaysRules: includeAlwaysRules,
+                includeStatusMaintenance: includeStatusMaintenance)
             .ConfigureAwait(false);
     }
 
@@ -820,7 +825,8 @@ public sealed class SemiAutoCombatController
         SemiAutoSkillPlan? plan = null,
         bool requireCooldownCalibrationForMaintenance = false,
         MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.Always,
-        bool includeAlwaysRules = true)
+        bool includeAlwaysRules = true,
+        bool includeStatusMaintenance = true)
     {
         if (player.HasKnownHealth && player.IsDead)
         {
@@ -865,7 +871,8 @@ public sealed class SemiAutoCombatController
                     requireCooldownCalibrationForMaintenance,
                     runTiming,
                     includeAlwaysRules,
-                    allowPotionWhileResting: true)
+                    allowPotionWhileResting: true,
+                    includeStatusMaintenance: includeStatusMaintenance)
                 .ConfigureAwait(false))
             {
                 return true;
@@ -885,7 +892,8 @@ public sealed class SemiAutoCombatController
                 requireCooldownCalibrationForMaintenance,
                 runTiming,
                 includeAlwaysRules,
-                allowPotionWhileResting: false)
+                allowPotionWhileResting: false,
+                includeStatusMaintenance: includeStatusMaintenance)
             .ConfigureAwait(false))
         {
             return true;
@@ -918,9 +926,11 @@ public sealed class SemiAutoCombatController
         bool requireCooldownCalibrationForMaintenance,
         MaintenanceRuleRunTiming runTiming,
         bool includeAlwaysRules,
-        bool allowPotionWhileResting)
+        bool allowPotionWhileResting,
+        bool includeStatusMaintenance = true)
     {
-        if (await TryPressStatusMaintenanceRuleAsync(
+        if (includeStatusMaintenance &&
+            await TryPressStatusMaintenanceRuleAsync(
                 context,
                 state,
                 settings,
@@ -4052,6 +4062,15 @@ public sealed class SemiAutoCombatController
         var team = context.Config.ScriptSettings?.Team;
         return team?.Role == TeamRole.Support &&
                (team.Support?.Enabled ?? false);
+    }
+
+    private static bool ShouldSuppressAlwaysSupportStatusMaintenanceDuringCustomCombat(
+        AccountWorkerContext context)
+    {
+        var scriptSettings = context.Config.ScriptSettings;
+        return scriptSettings?.MainMode == AccountMainMode.CustomCombat &&
+               scriptSettings.CombatMode is AccountCombatMode.Stationary or AccountCombatMode.Path &&
+               ShouldSelectSelfBeforeStatusMaintenance(context);
     }
 
     private static bool IsSelectedLocalPlayer(

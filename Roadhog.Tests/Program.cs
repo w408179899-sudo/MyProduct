@@ -370,6 +370,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("dp maintenance selected cooling skill skips key", TestDpMaintenanceSelectedCoolingSkillSkipsKeyAsync),
     ("status maintenance presses missing buff and learns abnormal id", TestStatusMaintenancePressesMissingBuffAndLearnsAbnormalIdAsync),
     ("support status maintenance selects self before buff", TestSupportStatusMaintenanceSelectsSelfBeforeBuffAsync),
+    ("support custom combat skips always self buff without blocking hp or attack", TestSupportCustomCombatSkipsAlwaysSelfBuffWithoutBlockingHpOrAttackAsync),
+    ("support custom combat keeps explicit in-combat self buff", TestSupportCustomCombatKeepsExplicitInCombatSelfBuffAsync),
     ("status maintenance chant follows active status", TestStatusMaintenanceChantFollowsActiveStatusAsync),
     ("status maintenance skips active category zero buff", TestStatusMaintenanceSkipsActiveCategoryZeroBuffAsync),
     ("status maintenance in-combat rule skips without target", TestStatusMaintenanceInCombatRuleSkipsWithoutTargetAsync),
@@ -18724,6 +18726,189 @@ static async Task TestSupportStatusMaintenanceSelectsSelfBeforeBuffAsync()
     AssertFalse(
         logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.self_target_select.failed"),
         "successful F1 self-selection should not log failure");
+}
+
+static async Task TestSupportCustomCombatSkipsAlwaysSelfBuffWithoutBlockingHpOrAttackAsync()
+{
+    const uint selfServerObjectId = 500;
+    const uint monsterServerObjectId = 900;
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Path;
+    settings.Team.Role = TeamRole.Support;
+    settings.Team.Support.Enabled = true;
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.StatusMaintenanceRules.Add(new StatusMaintenanceRuleConfig
+    {
+        Key = "NumPad3",
+        SkillId = 955,
+        SkillName = "Protection Blessing",
+        RunTiming = MaintenanceRuleRunTiming.Always
+    });
+    settings.Maintenance.HpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 50,
+        Key = "NumPad1",
+        SkillId = 968,
+        SkillName = "Recovery Light",
+        RunTiming = MaintenanceRuleRunTiming.Always
+    });
+    settings.Skills.ExecutionTree = new List<SkillConfigNode>
+    {
+        Node(1600, "Normal Skill", "active")
+    };
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Support", 40, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        PlayerAbnormalStatuses = PlayerAbnormalStatusSnapshot.Empty(1),
+        LocalServerObjectId = selfServerObjectId,
+        TargetEntityId = 100,
+        TargetOwnServerObjectId = monsterServerObjectId,
+        TargetServerObjectId = monsterServerObjectId,
+        TargetObjectType = LockedTargetSnapshot.MonsterObjectType,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        Skills = new[]
+        {
+            new SkillSnapshot(955, "Protection Blessing", 1, 1, "Protection Blessing", 1, false, 5_000, 0),
+            new SkillSnapshot(968, "Recovery Light", 1, 1, "Recovery Light", 1, false, 5_000, 0),
+            new SkillSnapshot(1600, "Normal Skill", 1, 1, "Normal Skill", 1, false, 1_000, 0)
+        }
+    };
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "F1", StringComparison.Ordinal))
+        {
+            gameApi.TargetEntityId = gameApi.Player.EntityId;
+            gameApi.TargetOwnServerObjectId = selfServerObjectId;
+            gameApi.TargetServerObjectId = selfServerObjectId;
+            gameApi.TargetObjectType = LockedTargetSnapshot.PlayerObjectType;
+            gameApi.TargetCurrentHp = gameApi.Player.CurrentHp;
+            gameApi.TargetMaxHp = gameApi.Player.MaxHp;
+        }
+        else if (string.Equals(key, "NumPad3", StringComparison.Ordinal))
+        {
+            gameApi.PlayerAbnormalStatuses = new PlayerAbnormalStatusSnapshot(
+                gameApi.Player.EntityId,
+                DateTimeOffset.Now,
+                1,
+                new[] { Abnormal(955, 0) });
+        }
+        else if (string.Equals(key, "NumPad1", StringComparison.Ordinal))
+        {
+            gameApi.Skills = new[]
+            {
+                new SkillSnapshot(955, "Protection Blessing", 1, 1, "Protection Blessing", 1, false, 5_000, 0),
+                new SkillSnapshot(968, "Recovery Light", 1, 1, "Recovery Light", 1, false, 5_000, ActiveCooldownEnd()),
+                new SkillSnapshot(1600, "Normal Skill", 1, 1, "Normal Skill", 1, false, 1_000, 0)
+            };
+        }
+    };
+
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+    var context = CreateContext(settings, gameApi, logger);
+
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+
+    AssertSequence(new[] { "NumPad1" }, keyboard.Keys.ToArray(), "always hp maintenance should still run before combat");
+    AssertEqual(
+        LockedTargetSnapshot.MonsterObjectType,
+        gameApi.TargetObjectType,
+        "always status maintenance must not replace the live monster target with self");
+
+    gameApi.Player = gameApi.Player with { CurrentHp = 100 };
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+
+    AssertSequence(
+        new[] { "NumPad1", "D1" },
+        keyboard.Keys.ToArray(),
+        "support custom combat should continue to the ordinary attack after hp recovers");
+    AssertFalse(keyboard.Keys.Contains("F1"), "always status maintenance must not select self during custom combat");
+    AssertFalse(keyboard.Keys.Contains("NumPad3"), "always status maintenance key must be deferred during custom combat");
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.self_target_selected"),
+        "suppressed always status maintenance must not enter the self-target flow");
+}
+
+static async Task TestSupportCustomCombatKeepsExplicitInCombatSelfBuffAsync()
+{
+    const uint selfServerObjectId = 600;
+    const uint monsterServerObjectId = 901;
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Path;
+    settings.Team.Role = TeamRole.Support;
+    settings.Team.Support.Enabled = true;
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.StatusMaintenanceRules.Add(new StatusMaintenanceRuleConfig
+    {
+        Key = "NumPad3",
+        SkillId = 955,
+        SkillName = "Protection Blessing",
+        RunTiming = MaintenanceRuleRunTiming.InCombat
+    });
+    settings.Skills.ExecutionTree = new List<SkillConfigNode>
+    {
+        Node(1600, "Normal Skill", "active")
+    };
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Support", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        PlayerAbnormalStatuses = PlayerAbnormalStatusSnapshot.Empty(1),
+        LocalServerObjectId = selfServerObjectId,
+        TargetEntityId = 100,
+        TargetOwnServerObjectId = monsterServerObjectId,
+        TargetServerObjectId = monsterServerObjectId,
+        TargetObjectType = LockedTargetSnapshot.MonsterObjectType,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        Skills = new[]
+        {
+            new SkillSnapshot(955, "Protection Blessing", 1, 1, "Protection Blessing", 1, false, 5_000, 0),
+            new SkillSnapshot(1600, "Normal Skill", 1, 1, "Normal Skill", 1, false, 1_000, 0)
+        }
+    };
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "F1", StringComparison.Ordinal))
+        {
+            gameApi.TargetEntityId = gameApi.Player.EntityId;
+            gameApi.TargetOwnServerObjectId = selfServerObjectId;
+            gameApi.TargetServerObjectId = selfServerObjectId;
+            gameApi.TargetObjectType = LockedTargetSnapshot.PlayerObjectType;
+            gameApi.TargetCurrentHp = gameApi.Player.CurrentHp;
+            gameApi.TargetMaxHp = gameApi.Player.MaxHp;
+        }
+        else if (string.Equals(key, "NumPad3", StringComparison.Ordinal))
+        {
+            gameApi.PlayerAbnormalStatuses = new PlayerAbnormalStatusSnapshot(
+                gameApi.Player.EntityId,
+                DateTimeOffset.Now,
+                1,
+                new[] { Abnormal(955, 0) });
+        }
+    };
+
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertSequence(
+        new[] { "F1", "NumPad3" },
+        keyboard.Keys.ToArray(),
+        "explicit in-combat status maintenance should keep its configured self-buff behavior");
+    AssertFalse(
+        !logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.self_target_selected"),
+        "explicit in-combat status maintenance should still log self selection");
 }
 
 static async Task TestStatusMaintenanceChantFollowsActiveStatusAsync()
