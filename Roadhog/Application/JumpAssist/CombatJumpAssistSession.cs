@@ -7,7 +7,7 @@ namespace Roadhog.Application.JumpAssist;
 
 public sealed class CombatJumpAssistSession : IAsyncDisposable
 {
-    private static readonly TimeSpan DefaultJumpInterval = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan DefaultJumpInterval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan DefaultCooldownPollInterval = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan DefaultKeyHoldDuration = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan TeamBaselineRetryInterval = TimeSpan.FromSeconds(1);
