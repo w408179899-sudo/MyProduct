@@ -1,10 +1,13 @@
 using Roadhog.Application.BagCleanup;
+using Roadhog.Application.JumpAssist;
 using Roadhog.Core.Model;
 
 namespace Roadhog.Application.StationaryCombat;
 
 public sealed class StationaryCombatState
 {
+    public CombatJumpAssistSession? JumpAssist { get; set; }
+
     public StationaryCombatTopLevelState TopLevelState { get; private set; } = StationaryCombatTopLevelState.Normal;
 
     public StationaryCombatDeathRecoveryState DeathRecovery { get; } = new();

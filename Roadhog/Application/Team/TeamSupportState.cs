@@ -20,8 +20,6 @@ public sealed class TeamSupportState
 
     public DateTimeOffset LastActionAt { get; set; } = DateTimeOffset.MinValue;
 
-    public int LeaderAssistPressCountSinceJump { get; set; }
-
     public int ConsecutiveLeaderUnavailableTicks { get; set; }
 
     public bool LeaderGroupActive { get; set; }

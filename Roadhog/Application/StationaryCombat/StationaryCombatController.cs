@@ -86,6 +86,12 @@ public sealed class StationaryCombatController
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state)
     {
+        UpdateMaintenanceRestJumpPause(state, semiAutoState);
+        if (!state.Fighting && state.CandidateEntityId == 0)
+        {
+            await StopSoloJumpAsync(state, "stationary_no_active_target").ConfigureAwait(false);
+        }
+
         var combat = context.Config.ScriptSettings?.Combat ?? new CombatScriptSettings();
         var gatherSettings = context.Config.ScriptSettings?.Gather ?? new GatherScriptSettings();
         if (!gatherSettings.StationaryPriorityEnabled)
@@ -161,6 +167,7 @@ public sealed class StationaryCombatController
         if (state.TopLevelState == StationaryCombatTopLevelState.DeathRecovery &&
             (!state.DeathRecovery.RevivePathLeaderSiphonActive || player.IsDead))
         {
+            await StopSoloJumpAsync(state, "stationary_death_recovery").ConfigureAwait(false);
             return await TickDeathRecoveryAsync(
                     context,
                     plan,
@@ -175,6 +182,7 @@ public sealed class StationaryCombatController
 
         if (state.LootAfterKill.Active)
         {
+            await StopSoloJumpAsync(state, "stationary_loot").ConfigureAwait(false);
             return await TickLootAfterKillAsync(
                     context,
                     plan,
@@ -193,6 +201,7 @@ public sealed class StationaryCombatController
             .ConfigureAwait(false);
         if (noKillRecoveryDelay is not null)
         {
+            await StopSoloJumpAsync(state, "stationary_no_kill_recovery").ConfigureAwait(false);
             return noKillRecoveryDelay.Value;
         }
 
@@ -416,6 +425,7 @@ public sealed class StationaryCombatController
 
         if (state.ReturningHome)
         {
+            await StopSoloJumpAsync(state, "stationary_returning_home").ConfigureAwait(false);
             if (playerDistanceFromHome <= ReturnStopDistance)
             {
                 state.ReturningHome = false;
@@ -442,6 +452,7 @@ public sealed class StationaryCombatController
         if (!temporaryTargetSwitchGuard &&
             gatherSettings.StationaryPriorityEnabled)
         {
+            await StopSoloJumpAsync(state, "stationary_gather").ConfigureAwait(false);
             var gatherTick = await TickStationaryGatherAsync(
                     context,
                     semiAutoState,
@@ -491,6 +502,7 @@ public sealed class StationaryCombatController
         if (target?.Position is null)
         {
             semiAutoState.ResetAttackKeyPressThrottle();
+            await StopSoloJumpAsync(state, "stationary_target_unavailable").ConfigureAwait(false);
             state.ClearTarget();
             if (combat.ReturnHomeWhenNoTarget && playerDistanceFromHome > ReturnStopDistance)
             {
@@ -672,6 +684,16 @@ public sealed class StationaryCombatController
             }
 
             state.FacedCandidateEntityId = target.EntityId;
+            if (state.JumpAssist is not null)
+            {
+                await state.JumpAssist
+                    .StartSoloTargetAsync(
+                        target.EntityId,
+                        target.ServerObjectId,
+                        target.Name,
+                        target.CurrentHp)
+                    .ConfigureAwait(false);
+            }
         }
 
         if (playerDistanceToTarget > AcquireDistance)
@@ -699,6 +721,12 @@ public sealed class StationaryCombatController
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state)
     {
+        UpdateMaintenanceRestJumpPause(state, semiAutoState);
+        if (!state.Fighting && state.CandidateEntityId == 0)
+        {
+            await StopSoloJumpAsync(state, "path_combat_no_active_target").ConfigureAwait(false);
+        }
+
         var combat = context.Config.ScriptSettings?.Combat ?? new CombatScriptSettings();
         var radius = ResolvePathCombatRadius(combat);
 
@@ -756,6 +784,7 @@ public sealed class StationaryCombatController
         if (state.TopLevelState == StationaryCombatTopLevelState.DeathRecovery &&
             (!state.DeathRecovery.RevivePathLeaderSiphonActive || player.IsDead))
         {
+            await StopSoloJumpAsync(state, "path_combat_death_recovery").ConfigureAwait(false);
             return await TickPlayerLifeGuardAsync(
                     context,
                     plan,
@@ -767,6 +796,7 @@ public sealed class StationaryCombatController
 
         if (state.LootAfterKill.Active)
         {
+            await StopSoloJumpAsync(state, "path_combat_loot").ConfigureAwait(false);
             return await TickLootAfterKillAsync(
                     context,
                     plan,
@@ -785,6 +815,7 @@ public sealed class StationaryCombatController
             .ConfigureAwait(false);
         if (noKillRecoveryDelay is not null)
         {
+            await StopSoloJumpAsync(state, "path_combat_no_kill_recovery").ConfigureAwait(false);
             return noKillRecoveryDelay.Value;
         }
 
@@ -2572,6 +2603,16 @@ public sealed class StationaryCombatController
             }
 
             state.FacedCandidateEntityId = target.EntityId;
+            if (state.JumpAssist is not null)
+            {
+                await state.JumpAssist
+                    .StartSoloTargetAsync(
+                        target.EntityId,
+                        target.ServerObjectId,
+                        target.Name,
+                        target.CurrentHp)
+                    .ConfigureAwait(false);
+            }
         }
 
         if (playerDistanceToTarget > AcquireDistance)
@@ -3268,6 +3309,16 @@ public sealed class StationaryCombatController
                 .ConfigureAwait(false);
         }
 
+        if (state.JumpAssist is not null)
+        {
+            await state.JumpAssist
+                .ObserveSoloTargetHealthAsync(
+                    target.TargetEntityId,
+                    target.ServerObjectId,
+                    target.CurrentHp)
+                .ConfigureAwait(false);
+        }
+
         if (!target.IsMonsterAlive)
         {
             MarkStationaryKillIfNeeded(context, target, "locked_target_dead");
@@ -3415,7 +3466,12 @@ public sealed class StationaryCombatController
 
         await StopMovementAsync(context, state).ConfigureAwait(false);
         return await _semiAuto
-            .TickAsync(context, plan, semiAutoState, requireCooldownCalibrationForMaintenance: true)
+            .TickAsync(
+                context,
+                plan,
+                semiAutoState,
+                requireCooldownCalibrationForMaintenance: true,
+                jumpAssist: state.JumpAssist)
             .ConfigureAwait(false);
     }
 
@@ -3426,6 +3482,7 @@ public sealed class StationaryCombatController
         StationaryCombatState state,
         PlayerSnapshot player)
     {
+        await StopSoloJumpAsync(state, "loot_after_kill").ConfigureAwait(false);
         while (!context.StopToken.IsCancellationRequested)
         {
             if (state.LootAfterKill.Step == StationaryCombatLootAfterKillStep.Complete)
@@ -3858,24 +3915,39 @@ public sealed class StationaryCombatController
         bool allowSitMaintenance = true,
         bool clearSitWhenDisallowed = false)
     {
-        return await _semiAuto
-            .TryHandleMaintenanceAsync(
-                context,
-                semiAutoState,
-                player,
-                allowSitMaintenance: allowSitMaintenance,
-                clearSitWhenDisallowed: clearSitWhenDisallowed,
-                beforeMaintenanceKeyPress: async () =>
-                {
-                    semiAutoState.ResetAttackKeyPressThrottle();
-                    await StopMovementAsync(context, state).ConfigureAwait(false);
-                    StopPathFollowPoller(state);
-                },
-                plan: plan,
-                requireCooldownCalibrationForMaintenance: true,
-                runTiming: runTiming,
-                includeAlwaysRules: includeAlwaysRules)
-            .ConfigureAwait(false);
+        const string pauseReason = "stationary_maintenance";
+        state.JumpAssist?.Pause(pauseReason);
+        try
+        {
+            return await _semiAuto
+                .TryHandleMaintenanceAsync(
+                    context,
+                    semiAutoState,
+                    player,
+                    allowSitMaintenance: allowSitMaintenance,
+                    clearSitWhenDisallowed: clearSitWhenDisallowed,
+                    beforeMaintenanceKeyPress: async () =>
+                    {
+                        semiAutoState.ResetAttackKeyPressThrottle();
+                        await StopMovementAsync(context, state).ConfigureAwait(false);
+                        StopPathFollowPoller(state);
+                    },
+                    plan: plan,
+                    requireCooldownCalibrationForMaintenance: true,
+                    runTiming: runTiming,
+                    includeAlwaysRules: includeAlwaysRules)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            if (state.JumpAssist is not null)
+            {
+                await state.JumpAssist.WaitForTeamCooldownObservationAsync().ConfigureAwait(false);
+            }
+
+            state.JumpAssist?.Resume(pauseReason);
+            UpdateMaintenanceRestJumpPause(state, semiAutoState);
+        }
     }
 
     private async Task<bool> RunPostCombatMaintenanceRoundAsync(
@@ -5584,6 +5656,16 @@ public sealed class StationaryCombatController
             TargetServerObjectId = effectiveTargetingServerObjectId,
             IsTargetingLocalPlayer = effectiveTargetingMe
         };
+        if (state.JumpAssist is not null)
+        {
+            await state.JumpAssist
+                .ObserveSoloTargetHealthAsync(
+                    effectiveLockedTarget.TargetEntityId,
+                    effectiveLockedTarget.ServerObjectId,
+                    effectiveLockedTarget.CurrentHp)
+                .ConfigureAwait(false);
+        }
+
         state.CurrentTargetIsMaintenanceDefense = effectiveTargetingMe;
         context.Logger.Info("stationary_combat.target.acquired", new Dictionary<string, object?>
         {
@@ -5643,7 +5725,12 @@ public sealed class StationaryCombatController
         }
 
         return await _semiAuto
-            .TickAsync(context, plan, semiAutoState, requireCooldownCalibrationForMaintenance: true)
+            .TickAsync(
+                context,
+                plan,
+                semiAutoState,
+                requireCooldownCalibrationForMaintenance: true,
+                jumpAssist: state.JumpAssist)
             .ConfigureAwait(false);
     }
 
@@ -5935,7 +6022,12 @@ public sealed class StationaryCombatController
         });
 
         return await _semiAuto
-            .TickAsync(context, plan, semiAutoState, requireCooldownCalibrationForMaintenance: true)
+            .TickAsync(
+                context,
+                plan,
+                semiAutoState,
+                requireCooldownCalibrationForMaintenance: true,
+                jumpAssist: state.JumpAssist)
             .ConfigureAwait(false);
     }
 
@@ -6113,11 +6205,34 @@ public sealed class StationaryCombatController
         }
 
         context.Logger.Info("stationary_combat.target.ignored", fields);
+        await StopSoloJumpAsync(state, "target_ignored_" + reason).ConfigureAwait(false);
         state.ClearTarget();
         semiAutoState.ResetAttackKeyPressThrottle();
         await StopMovementAsync(context, state).ConfigureAwait(false);
         StopPathFollowPoller(state);
         return IdleDelay;
+    }
+
+    private static Task StopSoloJumpAsync(StationaryCombatState state, string reason)
+    {
+        return state.JumpAssist is null
+            ? Task.CompletedTask
+            : state.JumpAssist.StopSoloTargetAsync(reason);
+    }
+
+    private static void UpdateMaintenanceRestJumpPause(
+        StationaryCombatState state,
+        SemiAutoCombatState semiAutoState)
+    {
+        const string pauseReason = "stationary_maintenance_rest";
+        if (semiAutoState.IsMaintenanceResting)
+        {
+            state.JumpAssist?.Pause(pauseReason);
+        }
+        else
+        {
+            state.JumpAssist?.Resume(pauseReason);
+        }
     }
 
     private static bool IsTargetTimedOut(StationaryCombatState state, DateTimeOffset now)

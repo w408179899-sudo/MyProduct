@@ -1,4 +1,5 @@
 using Roadhog.Application.AbnormalStatuses;
+using Roadhog.Application.JumpAssist;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Api;
@@ -58,7 +59,8 @@ public sealed class SemiAutoCombatController
         AccountWorkerContext context,
         SemiAutoSkillPlan plan,
         SemiAutoCombatState state,
-        bool requireCooldownCalibrationForMaintenance = false)
+        bool requireCooldownCalibrationForMaintenance = false,
+        CombatJumpAssistSession? jumpAssist = null)
     {
         var settings = context.Config.ScriptSettings?.SemiAuto ?? new SemiAutoScriptSettings();
         var now = DateTimeOffset.Now;
@@ -66,13 +68,16 @@ public sealed class SemiAutoCombatController
             !ShouldSuppressAlwaysSupportStatusMaintenanceDuringCustomCombat(context);
 
         if (!plan.UsesSpiritmasterAutoLogic &&
-            await TryHandleMaintenanceAsync(
-                    context,
-                    state,
-                    allowSitMaintenance: false,
-                    plan: plan,
-                    requireCooldownCalibrationForMaintenance: requireCooldownCalibrationForMaintenance,
-                    includeStatusMaintenance: includeAlwaysStatusMaintenance)
+            await RunWithJumpPauseAsync(
+                    jumpAssist,
+                    "semi_auto_maintenance",
+                    () => TryHandleMaintenanceAsync(
+                        context,
+                        state,
+                        allowSitMaintenance: false,
+                        plan: plan,
+                        requireCooldownCalibrationForMaintenance: requireCooldownCalibrationForMaintenance,
+                        includeStatusMaintenance: includeAlwaysStatusMaintenance))
                 .ConfigureAwait(false))
         {
             return Ms(settings.TickIntervalMs, 40);
@@ -181,11 +186,13 @@ public sealed class SemiAutoCombatController
                     targetResult.Value)
                 .ConfigureAwait(false))
         {
+            jumpAssist?.ActivatePreparedTeamCombatJump(targetResult.Value.ServerObjectId);
             return Ms(settings.TickIntervalMs, 40);
         }
 
         if (await PressOpeningSkillIfNeededAsync(context, state, settings, plan, targetResult.Value).ConfigureAwait(false))
         {
+            jumpAssist?.ActivatePreparedTeamCombatJump(targetResult.Value.ServerObjectId);
             return Ms(settings.TickIntervalMs, 40);
         }
 
@@ -196,6 +203,7 @@ public sealed class SemiAutoCombatController
 
         if (await PressOpeningAttackKeyIfNeededAsync(context, state, settings, targetResult.Value).ConfigureAwait(false))
         {
+            jumpAssist?.ActivatePreparedTeamCombatJump(targetResult.Value.ServerObjectId);
             return Ms(settings.TickIntervalMs, 40);
         }
 
@@ -312,6 +320,7 @@ public sealed class SemiAutoCombatController
                 out _))
         {
             await PressPendingSkillCooldownRetryIfDueAsync(context, state, settings).ConfigureAwait(false);
+            jumpAssist?.ActivatePreparedTeamCombatJump(targetResult.Value.ServerObjectId);
             return Ms(settings.TickIntervalMs, 40);
         }
 
@@ -326,21 +335,27 @@ public sealed class SemiAutoCombatController
                     spiritContext)
                 .ConfigureAwait(false))
         {
+            jumpAssist?.ActivatePreparedTeamCombatJump(targetResult.Value.ServerObjectId);
             return Ms(settings.TickIntervalMs, 40);
         }
 
-        if (await TryHandleMaintenanceAsync(
-                    context,
-                    state,
-                    allowSitMaintenance: false,
-                    plan: plan,
-                    requireCooldownCalibrationForMaintenance: requireCooldownCalibrationForMaintenance,
-                    runTiming: MaintenanceRuleRunTiming.InCombat,
-                    includeAlwaysRules: plan.UsesSpiritmasterAutoLogic)
+        if (await RunWithJumpPauseAsync(
+                    jumpAssist,
+                    "semi_auto_in_combat_maintenance",
+                    () => TryHandleMaintenanceAsync(
+                        context,
+                        state,
+                        allowSitMaintenance: false,
+                        plan: plan,
+                        requireCooldownCalibrationForMaintenance: requireCooldownCalibrationForMaintenance,
+                        runTiming: MaintenanceRuleRunTiming.InCombat,
+                        includeAlwaysRules: plan.UsesSpiritmasterAutoLogic))
                 .ConfigureAwait(false))
         {
             return Ms(settings.TickIntervalMs, 40);
         }
+
+        jumpAssist?.ActivatePreparedTeamCombatJump(targetResult.Value.ServerObjectId);
 
         var conditionTargetAbnormalStatuses = spiritContext?.LockedTargetAbnormalStatuses;
         if (conditionTargetAbnormalStatuses is null &&
@@ -405,6 +420,27 @@ public sealed class SemiAutoCombatController
 
         await PressAttackKeyIfDueAsync(context, state, settings).ConfigureAwait(false);
         return Ms(settings.TickIntervalMs, 40);
+    }
+
+    private static async Task<bool> RunWithJumpPauseAsync(
+        CombatJumpAssistSession? jumpAssist,
+        string reason,
+        Func<Task<bool>> action)
+    {
+        jumpAssist?.Pause(reason);
+        try
+        {
+            return await action().ConfigureAwait(false);
+        }
+        finally
+        {
+            if (jumpAssist is not null)
+            {
+                await jumpAssist.WaitForTeamCooldownObservationAsync().ConfigureAwait(false);
+            }
+
+            jumpAssist?.Resume(reason);
+        }
     }
 
     public async Task<bool> EnsureSpiritmasterPetAsync(

@@ -3,6 +3,7 @@ using Roadhog.Application;
 using Roadhog.Application.AbnormalStatuses;
 using Roadhog.Application.BagCleanup;
 using Roadhog.Application.Input;
+using Roadhog.Application.JumpAssist;
 using Roadhog.Application.Shell;
 using Roadhog.Application.SemiAuto;
 using Roadhog.Application.StationaryCombat;
@@ -100,6 +101,23 @@ var tests = new (string Name, Func<Task> Run)[]
     ("runtime summoned pet read uses account scoped context", TestRuntimeSummonedPetReadUsesAccountScopeAsync),
     ("runtime summoned pet roster read uses account scoped context", TestRuntimeSummonedPetRosterReadUsesAccountScopeAsync),
     ("runtime team snapshot uses account scoped context", TestRuntimeTeamSnapshotUsesAccountScopeAsync),
+    ("jump assist defaults disabled and clone preserves setting", TestJumpAssistSettingDefaultsAndCloneAsync),
+    ("jump assist solo repeats and stops on target damage", TestJumpAssistSoloRepeatsAndStopsOnDamageAsync),
+    ("jump assist target switch replaces solo session", TestJumpAssistTargetSwitchReplacesSoloSessionAsync),
+    ("jump assist overdue space is retained until resume", TestJumpAssistPauseBlocksSpaceUntilResumeAsync),
+    ("jump assist team delays first jump by one interval", TestJumpAssistTeamDelaysFirstJumpAsync),
+    ("jump assist team cooldown before first jump emits no space", TestJumpAssistTeamCooldownBeforeFirstJumpEmitsNoSpaceAsync),
+    ("jump assist team target prepares then activates cadence until cooldown", TestJumpAssistTeamTargetRequestStartsCadenceUntilCooldownAsync),
+    ("jump assist team activation presses once before immediate cooldown stop", TestJumpAssistTeamActivationPressesBeforeImmediateCooldownAsync),
+    ("jump assist team target activation waits through pause and deduplicates", TestJumpAssistTeamTargetRequestWaitsThroughPauseAndDeduplicatesAsync),
+    ("jump assist team target preparation rearms after cooldown without neutral gap", TestJumpAssistTeamTargetRequestRearmsAfterCooldownWithoutNeutralGapAsync),
+    ("jump assist team target preparation rearms after maintenance cooldown", TestJumpAssistTeamTargetRequestRearmsAfterMaintenanceCooldownAsync),
+    ("jump assist cleared prepared target returns to ordinary group cadence", TestJumpAssistClearedPreparedTargetReturnsToGroupCadenceAsync),
+    ("jump assist team stops only on new local cooldown", TestJumpAssistTeamStopsOnlyOnNewCooldownAsync),
+    ("jump assist team observes cooldown while paused", TestJumpAssistTeamObservesCooldownWhilePausedAsync),
+    ("jump assist group exit stops session", TestJumpAssistGroupExitStopsSessionAsync),
+    ("jump assist team fails closed without skill baseline", TestJumpAssistTeamFailsClosedWithoutSkillBaselineAsync),
+    ("jump assist disabled worker emits no extra space", TestJumpAssistDisabledWorkerEmitsNoExtraSpaceAsync),
     ("abnormal status catalog classifies chant effects as positive", TestAbnormalStatusCatalogClassifiesChantEffectsAsPositiveAsync),
     ("abnormal status catalog globally ignores death weakness", TestAbnormalStatusCatalogGloballyIgnoresDeathWeaknessAsync),
     ("team support prioritizes mental physical then heal", TestTeamSupportPrioritizesMentalPhysicalThenHealAsync),
@@ -118,8 +136,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team support skips active whitelist maintenance buff", TestTeamSupportSkipsActiveWhitelistMaintenanceBuffAsync),
     ("team support throttles missing whitelist buff retry", TestTeamSupportThrottlesMissingWhitelistBuffRetryAsync),
     ("team support keeps already selected leader", TestTeamSupportKeepsAlreadySelectedLeaderAsync),
-    ("team support leader jump requires consecutive assists", TestTeamSupportLeaderJumpRequiresConsecutiveAssistsAsync),
-    ("team support follow jump disabled presses only C", TestTeamSupportFollowJumpDisabledPressesOnlyCAsync),
+    ("team support legacy follow jump is removed", TestTeamSupportLegacyFollowJumpIsRemovedAsync),
+    ("team support follow stays unchanged without jump assist", TestTeamSupportFollowStaysUnchangedWithoutJumpAssistAsync),
+    ("team support group starts new jump assist", TestTeamSupportGroupStartsNewJumpAssistAsync),
+    ("team support action pauses jump until cooldown is observed", TestTeamSupportActionPausesJumpUntilCooldownAsync),
     ("team support join combat continues while leader outside group range", TestTeamSupportJoinCombatContinuesWhileLeaderOutsideGroupRangeAsync),
     ("team support stays grouped until leader exit distance", TestTeamSupportStaysGroupedUntilLeaderExitDistanceAsync),
     ("team support waits for five consecutive leader unavailable ticks", TestTeamSupportWaitsForFiveConsecutiveLeaderUnavailableTicksAsync),
@@ -132,6 +152,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team support self defense disabled keeps maintenance", TestTeamSupportSelfDefenseDisabledKeepsMaintenanceAsync),
     ("team support join combat waits after assist target key", TestTeamSupportJoinCombatWaitsAfterAssistTargetKeyAsync),
     ("team support join combat accepts already locked leader target", TestTeamSupportJoinCombatAcceptsAlreadyLockedLeaderTargetAsync),
+    ("team support accepted target prepares jump until combat phase", TestTeamSupportAcceptedTargetPreparesJumpUntilCombatPhaseAsync),
     ("team support accepts leader pet target when class unknown", TestTeamSupportAcceptsLeaderPetTargetWhenClassUnknownAsync),
     ("team support join combat skips party member leader target", TestTeamSupportJoinCombatSkipsPartyMemberLeaderTargetAsync),
     ("team support heals to threshold before sitting with leader", TestTeamSupportHealsToThresholdBeforeSittingWithLeaderAsync),
@@ -145,12 +166,14 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team output uses configured assist target key", TestTeamOutputUsesConfiguredAssistTargetKeyAsync),
     ("team output rejects non monster leader target", TestTeamOutputRejectsNonMonsterLeaderTargetAsync),
     ("team output accepts already locked leader target", TestTeamOutputAcceptsAlreadyLockedLeaderTargetAsync),
+    ("team output accepted target prepares jump until combat phase", TestTeamOutputAcceptedTargetPreparesJumpUntilCombatPhaseAsync),
     ("team output skips party member leader target", TestTeamOutputSkipsPartyMemberLeaderTargetAsync),
     ("team output accepts monster targeting spiritmaster leader pet", TestTeamOutputAcceptsMonsterTargetingSpiritmasterLeaderPetAsync),
     ("team output accepts leader pet target when class unknown", TestTeamOutputAcceptsLeaderPetTargetWhenClassUnknownAsync),
     ("team output assists already selected leader", TestTeamOutputAssistsAlreadySelectedLeaderAsync),
-    ("team output jumps every two leader assists", TestTeamOutputJumpsEveryTwoLeaderAssistsAsync),
-    ("team output follow jump disabled presses only C", TestTeamOutputFollowJumpDisabledPressesOnlyCAsync),
+    ("team output legacy follow jump is removed", TestTeamOutputLegacyFollowJumpIsRemovedAsync),
+    ("team output follow stays unchanged without jump assist", TestTeamOutputFollowStaysUnchangedWithoutJumpAssistAsync),
+    ("team output group starts new jump assist", TestTeamOutputGroupStartsNewJumpAssistAsync),
     ("team output falls back outside group range", TestTeamOutputFallsBackOutsideGroupRangeAsync),
     ("team output stays grouped until leader exit distance", TestTeamOutputStaysGroupedUntilLeaderExitDistanceAsync),
     ("team output waits for five consecutive leader unavailable ticks", TestTeamOutputWaitsForFiveConsecutiveLeaderUnavailableTicksAsync),
@@ -260,11 +283,13 @@ var tests = new (string Name, Func<Task> Run)[]
     ("path combat failed no kill return waits before retry", TestPathCombatFailedNoKillReturnWaitsBeforeRetryAsync),
     ("path combat resumes path after kill", TestPathCombatResumesPathAfterKillAsync),
     ("path combat skips sit maintenance while fighting", TestPathCombatSkipsSitMaintenanceWhileFightingAsync),
+    ("path combat jump assist starts after facing and stops on damage", TestPathCombatJumpAssistStartsAfterFacingAndStopsOnDamageAsync),
     ("worker life guard revives before semi-auto combat", TestWorkerLifeGuardRevivesBeforeSemiAutoAsync),
     ("worker life guard revives before stationary position validation", TestWorkerLifeGuardRevivesBeforeStationaryPositionValidationAsync),
     ("worker ensures spiritmaster pet before normal work", TestWorkerEnsuresSpiritmasterPetBeforeNormalWorkAsync),
     ("worker waits for spiritmaster pet summon verification", TestWorkerWaitsForSpiritmasterPetSummonVerificationAsync),
     ("stationary combat faces selected target before tab", TestStationaryCombatFacesTargetBeforeTabAsync),
+    ("stationary combat jump assist starts after facing and stops on damage", TestStationaryCombatJumpAssistStartsAfterFacingAndStopsOnDamageAsync),
     ("stationary combat resets right mouse after repeated unchanged turns", TestStationaryCombatResetsRightMouseAfterRepeatedUnchangedTurnsAsync),
     ("stationary combat target pitch follows target height", TestStationaryCombatTargetPitchFollowsTargetHeightAsync),
     ("stationary combat accepts twenty five degree pre-lock face tolerance", TestStationaryCombatAcceptsTwentyFiveDegreePreLockFaceToleranceAsync),
@@ -328,7 +353,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("manual skill category maps target valid status as condition", TestManualSkillCategoryMapsTargetValidStatusAsConditionAsync),
     ("condition skill preempt switch persists from skill UI", TestConditionSkillPreemptSwitchPersistsFromSkillUiAsync),
     ("return home when no target switch persists from summary UI", TestReturnHomeWhenNoTargetSwitchPersistsFromSummaryUiAsync),
-    ("team follow jump switches persist from team UI", TestTeamFollowJumpSwitchesPersistFromTeamUiAsync),
+    ("jump assist switch persists from summary UI", TestJumpAssistSwitchPersistsFromSummaryUiAsync),
     ("selected skill refresh removes unavailable current skills", TestSelectedSkillRefreshRemovesUnavailableCurrentSkillsAsync),
     ("skill tree maps at most configured roots across the 24 supported keys", TestConfiguredRootKeyBoundaryAsync),
     ("combat tick presses trigger prefix then first ready root", TestCombatTickPressesPrefixThenReadyRootAsync),
@@ -2670,6 +2695,655 @@ static async Task TestRuntimeTeamSnapshotUsesAccountScopeAsync()
     AssertEqual("fpga", gameApi.LastPartyContext?.VmmDeviceName ?? string.Empty, "party scoped vmm device");
 }
 
+static Task TestJumpAssistSettingDefaultsAndCloneAsync()
+{
+    var defaults = new CombatScriptSettings();
+    AssertFalse(defaults.JumpAssistEnabled, "jump assist must default disabled");
+
+    defaults.JumpAssistEnabled = true;
+    var clone = defaults.Clone();
+    AssertFalse(!clone.JumpAssistEnabled, "combat settings clone should preserve jump assist");
+    return Task.CompletedTask;
+}
+
+static async Task TestJumpAssistSoloRepeatsAndStopsOnDamageAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var context = CreateContext(CreateScriptSettings(), new FakeGameApi(), new InMemoryRoadhogLogger());
+    await using var jumpAssist = new CombatJumpAssistSession(
+        context,
+        keyboard,
+        teamFollower: false,
+        jumpInterval: TimeSpan.FromMilliseconds(120),
+        cooldownPollInterval: TimeSpan.FromMilliseconds(5),
+        keyHoldDuration: TimeSpan.FromMilliseconds(1));
+
+    await jumpAssist.StartSoloTargetAsync(100, 1000, "solo-target", 100).ConfigureAwait(false);
+    await WaitUntilAsync(() => keyboard.Keys.Count >= 2, "solo repeated jump").ConfigureAwait(false);
+
+    await jumpAssist.ObserveSoloTargetHealthAsync(100, 1000, 99).ConfigureAwait(false);
+    var stoppedCount = keyboard.Keys.Count;
+    await Task.Delay(60).ConfigureAwait(false);
+
+    AssertEqual(JumpAssistMode.None, jumpAssist.Mode, "solo damage should stop jump session");
+    AssertEqual(stoppedCount, keyboard.Keys.Count, "solo damage should prevent further Space presses");
+    AssertFalse(keyboard.Keys.Any(key => !string.Equals(key, "Space", StringComparison.Ordinal)), "solo jump session should only add Space");
+}
+
+static async Task TestJumpAssistTargetSwitchReplacesSoloSessionAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var context = CreateContext(CreateScriptSettings(), new FakeGameApi(), new InMemoryRoadhogLogger());
+    await using var jumpAssist = new CombatJumpAssistSession(
+        context,
+        keyboard,
+        teamFollower: false,
+        jumpInterval: TimeSpan.FromMilliseconds(25),
+        cooldownPollInterval: TimeSpan.FromMilliseconds(5),
+        keyHoldDuration: TimeSpan.FromMilliseconds(1));
+
+    await jumpAssist.StartSoloTargetAsync(100, 1000, "first", 100).ConfigureAwait(false);
+    await WaitUntilAsync(() => keyboard.Keys.Count >= 1, "first target jump").ConfigureAwait(false);
+    var firstTargetCount = keyboard.Keys.Count;
+
+    await jumpAssist.StartSoloTargetAsync(101, 1001, "second", 100).ConfigureAwait(false);
+    await WaitUntilAsync(() => keyboard.Keys.Count > firstTargetCount, "second target immediate jump").ConfigureAwait(false);
+    await jumpAssist.ObserveSoloTargetHealthAsync(100, 1000, 50).ConfigureAwait(false);
+    AssertEqual(JumpAssistMode.SoloTarget, jumpAssist.Mode, "old target damage must not stop replacement session");
+
+    await jumpAssist.ObserveSoloTargetHealthAsync(101, 1001, 90).ConfigureAwait(false);
+    AssertEqual(JumpAssistMode.None, jumpAssist.Mode, "new target damage should stop replacement session");
+}
+
+static async Task TestJumpAssistPauseBlocksSpaceUntilResumeAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var context = CreateContext(CreateScriptSettings(), new FakeGameApi(), new InMemoryRoadhogLogger());
+    await using var jumpAssist = new CombatJumpAssistSession(
+        context,
+        keyboard,
+        teamFollower: false,
+        jumpInterval: TimeSpan.FromMilliseconds(20),
+        cooldownPollInterval: TimeSpan.FromMilliseconds(5),
+        keyHoldDuration: TimeSpan.FromMilliseconds(1));
+
+    await jumpAssist.StartSoloTargetAsync(100, 1000, "paused-target", 100).ConfigureAwait(false);
+    await WaitUntilAsync(() => keyboard.Keys.Count >= 1, "jump before pause").ConfigureAwait(false);
+    jumpAssist.Pause("test_maintenance");
+    var pausedCount = keyboard.Keys.Count;
+    await Task.Delay(160).ConfigureAwait(false);
+    AssertEqual(pausedCount, keyboard.Keys.Count, "maintenance pause should block Space");
+
+    var resumedAt = DateTimeOffset.Now;
+    jumpAssist.Resume("test_maintenance");
+    await WaitUntilAsync(() => keyboard.Keys.Count > pausedCount, "jump after resume").ConfigureAwait(false);
+    AssertFalse(
+        DateTimeOffset.Now - resumedAt >= TimeSpan.FromMilliseconds(100),
+        "overdue Space should be retained and pressed promptly after resume");
+    await jumpAssist.StopAsync("test_complete").ConfigureAwait(false);
+}
+
+static async Task TestJumpAssistTeamDelaysFirstJumpAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var gameApi = new FakeGameApi
+    {
+        Skills = new[]
+        {
+            new SkillSnapshot(1, "ready", 1, 1, "ready", 1, false, 10_000, 0)
+        }
+    };
+    var context = CreateContext(CreateScriptSettings(), gameApi, new InMemoryRoadhogLogger());
+    var jumpInterval = TimeSpan.FromMilliseconds(120);
+    await using var jumpAssist = new CombatJumpAssistSession(
+        context,
+        keyboard,
+        teamFollower: true,
+        jumpInterval: jumpInterval,
+        cooldownPollInterval: TimeSpan.FromMilliseconds(5),
+        keyHoldDuration: TimeSpan.FromMilliseconds(1));
+
+    var startedAt = DateTimeOffset.Now;
+    await jumpAssist.EnterTeamGroupAsync().ConfigureAwait(false);
+    await Task.Delay(50).ConfigureAwait(false);
+    AssertEqual(0, keyboard.Keys.Count, "team group must not jump immediately");
+
+    await WaitUntilAsync(() => keyboard.Keys.Count >= 1, "delayed first team jump").ConfigureAwait(false);
+    AssertFalse(
+        DateTimeOffset.Now - startedAt < TimeSpan.FromMilliseconds(100),
+        "first team jump should wait approximately one configured interval");
+    AssertFalse(
+        keyboard.Keys.Any(key => !string.Equals(key, "Space", StringComparison.Ordinal)),
+        "team jump session should only add Space");
+
+    jumpAssist.Pause("test_team_maintenance");
+    var pausedCount = keyboard.Keys.Count;
+    await Task.Delay(150).ConfigureAwait(false);
+    AssertEqual(pausedCount, keyboard.Keys.Count, "team maintenance pause should block overdue Space");
+
+    var resumedAt = DateTimeOffset.Now;
+    jumpAssist.Resume("test_team_maintenance");
+    await WaitUntilAsync(() => keyboard.Keys.Count > pausedCount, "overdue team jump after resume").ConfigureAwait(false);
+    AssertFalse(
+        DateTimeOffset.Now - resumedAt >= TimeSpan.FromMilliseconds(100),
+        "overdue team Space should not wait another full interval after resume");
+    await jumpAssist.ExitTeamGroupAsync("test_complete").ConfigureAwait(false);
+}
+
+static async Task TestJumpAssistTeamCooldownBeforeFirstJumpEmitsNoSpaceAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var gameApi = new FakeGameApi
+    {
+        Skills = new[]
+        {
+            new SkillSnapshot(1, "heal", 1, 1, "heal", 1, false, 10_000, 0)
+        }
+    };
+    var context = CreateContext(CreateScriptSettings(), gameApi, new InMemoryRoadhogLogger());
+    await using var jumpAssist = new CombatJumpAssistSession(
+        context,
+        keyboard,
+        teamFollower: true,
+        jumpInterval: TimeSpan.FromMilliseconds(120),
+        cooldownPollInterval: TimeSpan.FromMilliseconds(5),
+        keyHoldDuration: TimeSpan.FromMilliseconds(1));
+
+    await jumpAssist.EnterTeamGroupAsync().ConfigureAwait(false);
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(1, "heal", 1, 1, "heal", 1, false, 10_000, 7_000)
+    };
+
+    await WaitUntilAsync(
+        () => jumpAssist.TeamCooldownConfirmed,
+        "team cooldown before delayed first jump").ConfigureAwait(false);
+    await Task.Delay(150).ConfigureAwait(false);
+
+    AssertEqual(0, keyboard.Keys.Count, "cooldown before first interval should stop team session without Space");
+    AssertEqual(JumpAssistMode.None, jumpAssist.Mode, "cooldown should stop team session before first jump");
+}
+
+static async Task TestJumpAssistTeamTargetRequestStartsCadenceUntilCooldownAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Skills = new[]
+        {
+            new SkillSnapshot(1, "combat-skill", 1, 1, "combat-skill", 1, false, 10_000, 0)
+        }
+    };
+    var context = CreateContext(CreateScriptSettings(), gameApi, logger);
+    var jumpInterval = TimeSpan.FromMilliseconds(500);
+    await using var jumpAssist = new CombatJumpAssistSession(
+        context,
+        keyboard,
+        teamFollower: true,
+        jumpInterval: jumpInterval,
+        cooldownPollInterval: TimeSpan.FromMilliseconds(5),
+        keyHoldDuration: TimeSpan.FromMilliseconds(1));
+
+    await jumpAssist.EnterTeamGroupAsync().ConfigureAwait(false);
+    await jumpAssist.PrepareTeamCombatJumpAsync(9000).ConfigureAwait(false);
+    await Task.Delay(150).ConfigureAwait(false);
+    AssertEqual(0, keyboard.Keys.Count, "prepared team target must not jump before combat activation");
+
+    var requestedAt = DateTimeOffset.Now;
+    jumpAssist.ActivatePreparedTeamCombatJump(9000);
+    await WaitUntilAsync(
+        () => keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)) >= 1,
+        "activated team target jump").ConfigureAwait(false);
+    AssertFalse(
+        DateTimeOffset.Now - requestedAt >= TimeSpan.FromMilliseconds(350),
+        "confirmed team target should jump before the ordinary first interval");
+
+    await WaitUntilAsync(
+        () => keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)) >= 2,
+        "continued requested team target cadence").ConfigureAwait(false);
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(1, "combat-skill", 1, 1, "combat-skill", 1, false, 10_000, 7_000)
+    };
+    await WaitUntilAsync(
+        () => jumpAssist.TeamCooldownConfirmed,
+        "requested team target skill cooldown").ConfigureAwait(false);
+    var stoppedCount = keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal));
+    await Task.Delay(550).ConfigureAwait(false);
+
+    AssertEqual(
+        stoppedCount,
+        keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)),
+        "skill cooldown should stop requested team target cadence");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "jump_assist.team_target_jump.prepared" &&
+            entry.Fields.TryGetValue("targetServerObjectId", out var targetId) &&
+            Convert.ToUInt32(targetId) == 9000),
+        "team target preparation should be logged");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "jump_assist.team_target_jump.requested" &&
+            entry.Fields.TryGetValue("targetServerObjectId", out var targetId) &&
+            Convert.ToUInt32(targetId) == 9000),
+        "team target combat activation should be logged");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "jump_assist.team_target_jump.pressed" &&
+            entry.Fields.TryGetValue("targetServerObjectId", out var targetId) &&
+            Convert.ToUInt32(targetId) == 9000),
+        "activated team target Space should be logged");
+    AssertFalse(
+        logger.Entries.Count(entry => entry.EventName == "jump_assist.space.pressed") < 2,
+        "every successful target and periodic Space should be logged");
+}
+
+static async Task TestJumpAssistTeamActivationPressesBeforeImmediateCooldownAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var gameApi = new FakeGameApi
+    {
+        Skills = new[]
+        {
+            new SkillSnapshot(1, "combat-skill", 1, 1, "combat-skill", 1, false, 10_000, 0)
+        }
+    };
+    var context = CreateContext(CreateScriptSettings(), gameApi, new InMemoryRoadhogLogger());
+    await using var jumpAssist = new CombatJumpAssistSession(
+        context,
+        keyboard,
+        teamFollower: true,
+        jumpInterval: TimeSpan.FromMilliseconds(500),
+        cooldownPollInterval: TimeSpan.FromMilliseconds(5),
+        keyHoldDuration: TimeSpan.FromMilliseconds(1));
+
+    await jumpAssist.EnterTeamGroupAsync().ConfigureAwait(false);
+    await jumpAssist.PrepareTeamCombatJumpAsync(9000).ConfigureAwait(false);
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(1, "combat-skill", 1, 1, "combat-skill", 1, false, 10_000, 7_000)
+    };
+    jumpAssist.ActivatePreparedTeamCombatJump(9000);
+
+    await WaitUntilAsync(
+        () => keyboard.Keys.Any(key => string.Equals(key, "Space", StringComparison.Ordinal)),
+        "activated Space before immediate cooldown stop").ConfigureAwait(false);
+    await WaitUntilAsync(
+        () => jumpAssist.TeamCooldownConfirmed,
+        "immediate cooldown after activated Space").ConfigureAwait(false);
+    var stoppedCount = keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal));
+    await Task.Delay(100).ConfigureAwait(false);
+
+    AssertEqual(
+        stoppedCount,
+        keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)),
+        "immediate cooldown should stop after the activated Space");
+}
+
+static async Task TestJumpAssistTeamTargetRequestWaitsThroughPauseAndDeduplicatesAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Skills = new[]
+        {
+            new SkillSnapshot(1, "ready", 1, 1, "ready", 1, false, 10_000, 0)
+        }
+    };
+    var context = CreateContext(CreateScriptSettings(), gameApi, logger);
+    await using var jumpAssist = new CombatJumpAssistSession(
+        context,
+        keyboard,
+        teamFollower: true,
+        jumpInterval: TimeSpan.FromMilliseconds(500),
+        cooldownPollInterval: TimeSpan.FromMilliseconds(5),
+        keyHoldDuration: TimeSpan.FromMilliseconds(1));
+
+    await jumpAssist.EnterTeamGroupAsync().ConfigureAwait(false);
+    jumpAssist.Pause("team_support_action");
+    await jumpAssist.PrepareTeamCombatJumpAsync(9000).ConfigureAwait(false);
+    await jumpAssist.PrepareTeamCombatJumpAsync(9000).ConfigureAwait(false);
+    jumpAssist.ActivatePreparedTeamCombatJump(9000);
+    jumpAssist.ActivatePreparedTeamCombatJump(9000);
+    await Task.Delay(150).ConfigureAwait(false);
+    AssertEqual(0, keyboard.Keys.Count, "paused target activation must not press Space");
+
+    jumpAssist.Resume("team_support_action");
+    await WaitUntilAsync(() => keyboard.Keys.Count >= 1, "paused target activation after resume").ConfigureAwait(false);
+    var firstTargetCount = keyboard.Keys.Count;
+    await jumpAssist.PrepareTeamCombatJumpAsync(9000).ConfigureAwait(false);
+    jumpAssist.ActivatePreparedTeamCombatJump(9000);
+    await Task.Delay(150).ConfigureAwait(false);
+    AssertEqual(firstTargetCount, keyboard.Keys.Count, "same target must not reset jump cadence");
+
+    await jumpAssist.PrepareTeamCombatJumpAsync(9001).ConfigureAwait(false);
+    await Task.Delay(150).ConfigureAwait(false);
+    AssertEqual(firstTargetCount, keyboard.Keys.Count, "new target preparation must wait for combat activation");
+    jumpAssist.ActivatePreparedTeamCombatJump(9001);
+    await WaitUntilAsync(
+        () => keyboard.Keys.Count > firstTargetCount,
+        "new target combat activation").ConfigureAwait(false);
+    AssertEqual(
+        2,
+        logger.Entries.Count(entry => entry.EventName == "jump_assist.team_target_jump.requested"),
+        "only distinct team target activations should create jump requests");
+    await jumpAssist.ExitTeamGroupAsync("test_complete").ConfigureAwait(false);
+}
+
+static async Task TestJumpAssistTeamTargetRequestRearmsAfterCooldownWithoutNeutralGapAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Skills = new[]
+        {
+            new SkillSnapshot(1, "combat-skill", 1, 1, "combat-skill", 1, false, 10_000, 0)
+        }
+    };
+    var context = CreateContext(CreateScriptSettings(), gameApi, logger);
+    await using var jumpAssist = new CombatJumpAssistSession(
+        context,
+        keyboard,
+        teamFollower: true,
+        jumpInterval: TimeSpan.FromMilliseconds(500),
+        cooldownPollInterval: TimeSpan.FromMilliseconds(5),
+        keyHoldDuration: TimeSpan.FromMilliseconds(1));
+
+    await jumpAssist.EnterTeamGroupAsync().ConfigureAwait(false);
+    await jumpAssist.PrepareTeamCombatJumpAsync(9000).ConfigureAwait(false);
+    jumpAssist.ActivatePreparedTeamCombatJump(9000);
+    await WaitUntilAsync(
+        () => keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)) >= 1,
+        "first team target immediate jump").ConfigureAwait(false);
+
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(1, "combat-skill", 1, 1, "combat-skill", 1, false, 10_000, 7_000)
+    };
+    await WaitUntilAsync(
+        () => jumpAssist.TeamCooldownConfirmed,
+        "first team target cooldown").ConfigureAwait(false);
+    var firstTargetSpaceCount = keyboard.Keys.Count(
+        key => string.Equals(key, "Space", StringComparison.Ordinal));
+
+    await jumpAssist.PrepareTeamCombatJumpAsync(9000).ConfigureAwait(false);
+    jumpAssist.ActivatePreparedTeamCombatJump(9000);
+    await Task.Delay(100).ConfigureAwait(false);
+    AssertEqual(
+        firstTargetSpaceCount,
+        keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)),
+        "same target must stay stopped after its cooldown is confirmed");
+
+    await jumpAssist.PrepareTeamCombatJumpAsync(9001).ConfigureAwait(false);
+    await Task.Delay(100).ConfigureAwait(false);
+    AssertEqual(
+        firstTargetSpaceCount,
+        keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)),
+        "new target preparation must not jump before combat activation");
+    jumpAssist.ActivatePreparedTeamCombatJump(9001);
+    await WaitUntilAsync(
+        () => keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)) >
+              firstTargetSpaceCount,
+        "new team target jump without neutral gap").ConfigureAwait(false);
+
+    AssertFalse(jumpAssist.TeamCooldownConfirmed, "new target should clear the previous target cooldown gate");
+    AssertEqual(
+        2,
+        logger.Entries.Count(entry => entry.EventName == "jump_assist.team_target_jump.prepared"),
+        "each distinct target should create one fresh preparation");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "jump_assist.team_target_jump.pressed" &&
+            entry.Fields.TryGetValue("targetServerObjectId", out var targetId) &&
+            Convert.ToUInt32(targetId) == 9001),
+        "new target should press Space even without a leader-target-zero gap");
+    await jumpAssist.ExitTeamGroupAsync("test_complete").ConfigureAwait(false);
+}
+
+static async Task TestJumpAssistTeamTargetRequestRearmsAfterMaintenanceCooldownAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Skills = new[]
+        {
+            new SkillSnapshot(1, "team-heal", 1, 1, "team-heal", 1, false, 10_000, 0)
+        }
+    };
+    var context = CreateContext(CreateScriptSettings(), gameApi, logger);
+    await using var jumpAssist = new CombatJumpAssistSession(
+        context,
+        keyboard,
+        teamFollower: true,
+        jumpInterval: TimeSpan.FromMilliseconds(500),
+        cooldownPollInterval: TimeSpan.FromMilliseconds(5),
+        keyHoldDuration: TimeSpan.FromMilliseconds(1));
+
+    await jumpAssist.EnterTeamGroupAsync().ConfigureAwait(false);
+    jumpAssist.Pause("team_support_action");
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(1, "team-heal", 1, 1, "team-heal", 1, false, 10_000, 8_000)
+    };
+    await WaitUntilAsync(
+        () => jumpAssist.TeamCooldownConfirmed,
+        "maintenance cooldown before combat target").ConfigureAwait(false);
+    AssertEqual(0, keyboard.Keys.Count, "maintenance cooldown should emit no Space");
+    jumpAssist.Resume("team_support_action");
+
+    await jumpAssist.PrepareTeamCombatJumpAsync(9000).ConfigureAwait(false);
+    await Task.Delay(100).ConfigureAwait(false);
+    AssertEqual(0, keyboard.Keys.Count, "accepted target should remain idle until combat activation");
+    jumpAssist.ActivatePreparedTeamCombatJump(9000);
+    await WaitUntilAsync(
+        () => keyboard.Keys.Any(key => string.Equals(key, "Space", StringComparison.Ordinal)),
+        "team target jump after maintenance cooldown").ConfigureAwait(false);
+
+    AssertFalse(jumpAssist.TeamCooldownConfirmed, "accepted target should replace the maintenance cooldown gate");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "jump_assist.team_target_jump.prepared" &&
+            entry.Fields.TryGetValue("targetServerObjectId", out var targetId) &&
+            Convert.ToUInt32(targetId) == 9000),
+        "target after maintenance cooldown should create a fresh preparation");
+    await jumpAssist.ExitTeamGroupAsync("test_complete").ConfigureAwait(false);
+}
+
+static async Task TestJumpAssistClearedPreparedTargetReturnsToGroupCadenceAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var gameApi = new FakeGameApi
+    {
+        Skills = new[]
+        {
+            new SkillSnapshot(1, "ready", 1, 1, "ready", 1, false, 10_000, 0)
+        }
+    };
+    var context = CreateContext(CreateScriptSettings(), gameApi, new InMemoryRoadhogLogger());
+    await using var jumpAssist = new CombatJumpAssistSession(
+        context,
+        keyboard,
+        teamFollower: true,
+        jumpInterval: TimeSpan.FromMilliseconds(80),
+        cooldownPollInterval: TimeSpan.FromMilliseconds(5),
+        keyHoldDuration: TimeSpan.FromMilliseconds(1));
+
+    await jumpAssist.EnterTeamGroupAsync().ConfigureAwait(false);
+    await jumpAssist.PrepareTeamCombatJumpAsync(9000).ConfigureAwait(false);
+    await Task.Delay(120).ConfigureAwait(false);
+    AssertEqual(0, keyboard.Keys.Count, "prepared target must block ordinary cadence before combat activation");
+
+    await jumpAssist.TryRearmTeamGroupAsync(
+        localCombatTargetActive: false,
+        leaderTargetServerObjectId: 0).ConfigureAwait(false);
+    await WaitUntilAsync(
+        () => keyboard.Keys.Any(key => string.Equals(key, "Space", StringComparison.Ordinal)),
+        "ordinary group cadence after prepared target clears").ConfigureAwait(false);
+    await jumpAssist.ExitTeamGroupAsync("test_complete").ConfigureAwait(false);
+}
+
+static async Task TestJumpAssistTeamStopsOnlyOnNewCooldownAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var gameApi = new FakeGameApi
+    {
+        Skills = new[]
+        {
+            new SkillSnapshot(1, "already-cooling", 1, 1, "already-cooling", 1, false, 10_000, 5_000),
+            new SkillSnapshot(2, "ready", 1, 1, "ready", 1, false, 10_000, 0)
+        }
+    };
+    var context = CreateContext(CreateScriptSettings(), gameApi, new InMemoryRoadhogLogger());
+    await using var jumpAssist = new CombatJumpAssistSession(
+        context,
+        keyboard,
+        teamFollower: true,
+        jumpInterval: TimeSpan.FromMilliseconds(80),
+        cooldownPollInterval: TimeSpan.FromMilliseconds(5),
+        keyHoldDuration: TimeSpan.FromMilliseconds(1));
+
+    await jumpAssist.EnterTeamGroupAsync().ConfigureAwait(false);
+    await WaitUntilAsync(() => keyboard.Keys.Count >= 1, "team group jump").ConfigureAwait(false);
+    await Task.Delay(25).ConfigureAwait(false);
+    AssertEqual(JumpAssistMode.TeamGroup, jumpAssist.Mode, "unchanged pre-existing cooldown must not stop team jump");
+
+    jumpAssist.ObserveTeamCombatState(localCombatTargetActive: false, leaderTargetServerObjectId: 9000);
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(1, "already-cooling", 1, 1, "already-cooling", 1, false, 10_000, 5_000),
+        new SkillSnapshot(2, "ready", 1, 1, "ready", 1, false, 10_000, 9_000)
+    };
+    await WaitUntilAsync(() => jumpAssist.TeamCooldownConfirmed, "new local skill cooldown").ConfigureAwait(false);
+    var stoppedCount = keyboard.Keys.Count;
+    await Task.Delay(100).ConfigureAwait(false);
+    AssertEqual(stoppedCount, keyboard.Keys.Count, "new cooldown should stop further team Space presses");
+
+    await jumpAssist.TryRearmTeamGroupAsync(
+        localCombatTargetActive: false,
+        leaderTargetServerObjectId: 0).ConfigureAwait(false);
+    await WaitUntilAsync(() => keyboard.Keys.Count > stoppedCount, "team jump rearm after combat ends").ConfigureAwait(false);
+    await jumpAssist.ExitTeamGroupAsync("test_complete").ConfigureAwait(false);
+}
+
+static async Task TestJumpAssistTeamObservesCooldownWhilePausedAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var gameApi = new FakeGameApi
+    {
+        Skills = new[]
+        {
+            new SkillSnapshot(1, "heal", 1, 1, "heal", 1, false, 10_000, 0)
+        }
+    };
+    var context = CreateContext(CreateScriptSettings(), gameApi, new InMemoryRoadhogLogger());
+    await using var jumpAssist = new CombatJumpAssistSession(
+        context,
+        keyboard,
+        teamFollower: true,
+        jumpInterval: TimeSpan.FromMilliseconds(20),
+        cooldownPollInterval: TimeSpan.FromMilliseconds(5),
+        keyHoldDuration: TimeSpan.FromMilliseconds(1));
+
+    await jumpAssist.EnterTeamGroupAsync().ConfigureAwait(false);
+    await WaitUntilAsync(() => keyboard.Keys.Count >= 1, "team jump before maintenance").ConfigureAwait(false);
+    jumpAssist.Pause("team_support_action");
+    await jumpAssist.PrepareTeamCombatJumpAsync(9000).ConfigureAwait(false);
+    jumpAssist.ActivatePreparedTeamCombatJump(9000);
+    var pausedCount = keyboard.Keys.Count;
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(1, "heal", 1, 1, "heal", 1, false, 10_000, 7_000)
+    };
+
+    await WaitUntilAsync(() => jumpAssist.TeamCooldownConfirmed, "paused team cooldown observation").ConfigureAwait(false);
+    await Task.Delay(50).ConfigureAwait(false);
+    AssertEqual(pausedCount, keyboard.Keys.Count, "paused maintenance action should emit no Space");
+    jumpAssist.Resume("team_support_action");
+}
+
+static async Task TestJumpAssistGroupExitStopsSessionAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var gameApi = new FakeGameApi
+    {
+        Skills = new[]
+        {
+            new SkillSnapshot(1, "ready", 1, 1, "ready", 1, false, 10_000, 0)
+        }
+    };
+    var context = CreateContext(CreateScriptSettings(), gameApi, new InMemoryRoadhogLogger());
+    await using var jumpAssist = new CombatJumpAssistSession(
+        context,
+        keyboard,
+        teamFollower: true,
+        jumpInterval: TimeSpan.FromMilliseconds(20),
+        cooldownPollInterval: TimeSpan.FromMilliseconds(5),
+        keyHoldDuration: TimeSpan.FromMilliseconds(1));
+
+    await jumpAssist.EnterTeamGroupAsync().ConfigureAwait(false);
+    await WaitUntilAsync(() => keyboard.Keys.Count >= 2, "team repeated jump before group exit").ConfigureAwait(false);
+    await jumpAssist.ExitTeamGroupAsync("left_group").ConfigureAwait(false);
+    var stoppedCount = keyboard.Keys.Count;
+    await Task.Delay(60).ConfigureAwait(false);
+
+    AssertEqual(JumpAssistMode.None, jumpAssist.Mode, "group exit should stop team session");
+    AssertEqual(stoppedCount, keyboard.Keys.Count, "group exit should prevent further Space presses");
+}
+
+static async Task TestJumpAssistTeamFailsClosedWithoutSkillBaselineAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var context = CreateContext(CreateScriptSettings(), new FakeGameApi(), logger);
+    await using var jumpAssist = new CombatJumpAssistSession(
+        context,
+        keyboard,
+        teamFollower: true,
+        jumpInterval: TimeSpan.FromMilliseconds(20),
+        cooldownPollInterval: TimeSpan.FromMilliseconds(5),
+        keyHoldDuration: TimeSpan.FromMilliseconds(1));
+
+    await jumpAssist.EnterTeamGroupAsync().ConfigureAwait(false);
+    await Task.Delay(50).ConfigureAwait(false);
+
+    AssertEqual(JumpAssistMode.None, jumpAssist.Mode, "missing skill baseline should not start team session");
+    AssertEqual(0, keyboard.Keys.Count, "missing skill baseline should fail closed without Space");
+    AssertFalse(
+        !logger.Entries.Any(entry => entry.EventName == "jump_assist.team_baseline.failed"),
+        "missing skill baseline should be logged");
+}
+
+static async Task TestJumpAssistDisabledWorkerEmitsNoExtraSpaceAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.Gather;
+    settings.Combat.JumpAssistEnabled = false;
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi();
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var stationary = new StationaryCombatController(keyboard, semiAuto);
+    var worker = new DefaultAccountWorkerLoop(keyboard, semiAuto, stationary);
+    using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(120));
+    var context = CreateContext(
+        settings,
+        gameApi,
+        logger,
+        options: new AccountWorkerOptions { TickInterval = TimeSpan.FromMilliseconds(10) },
+        stopToken: cancellation.Token);
+
+    await IgnoreCancellationAsync(worker.RunAsync(context)).ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Any(key => string.Equals(key, "Space", StringComparison.Ordinal)), "disabled jump assist should add no Space");
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName.StartsWith("jump_assist.", StringComparison.Ordinal)),
+        "disabled jump assist should create no jump session or logs");
+}
+
 static Task TestAbnormalStatusCatalogClassifiesChantEffectsAsPositiveAsync()
 {
     var catalog = AbnormalStatusCatalog.Load();
@@ -3406,7 +4080,7 @@ static async Task TestTeamSupportKeepsAlreadySelectedLeaderAsync()
     AssertSequence(new[] { "C" }, keyboard.Keys.ToArray(), "already selected leader should press follow without another F-key");
 }
 
-static async Task TestTeamSupportLeaderJumpRequiresConsecutiveAssistsAsync()
+static async Task TestTeamSupportLegacyFollowJumpIsRemovedAsync()
 {
     var keyboard = new RecordingKeyboardInput();
     var logger = new InMemoryRoadhogLogger();
@@ -3420,16 +4094,23 @@ static async Task TestTeamSupportLeaderJumpRequiresConsecutiveAssistsAsync()
     var gameApi = CreateTeamSupportGameApi(self, leader);
     SetFakeLockedTarget(gameApi, leader.ServerObjectId, LockedTargetSnapshot.PlayerObjectType, 0, 100);
 
+    var settings = CreateTeamSupportSettings();
+    settings.Team.Support!.FollowJumpEnabled = true;
     var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
     var state = new TeamSupportState();
-    var context = CreateContext(CreateTeamSupportSettings(), gameApi, logger);
+    var context = CreateContext(settings, gameApi, logger);
 
-    var first = await controller.TickAsync(context, state).ConfigureAwait(false);
+    for (var i = 0; i < 3; i++)
+    {
+        var follow = await controller.TickAsync(context, state).ConfigureAwait(false);
+        AssertFalse(!follow.ShouldSkipNormalWork, "support should keep owning idle follow");
+    }
 
-    AssertFalse(!first.ShouldSkipNormalWork, "support should keep following leader before jump interval");
-    AssertEqual(1, keyboard.Keys.Count(key => string.Equals(key, "C", StringComparison.Ordinal)), "support leader assist count before reset");
-    AssertEqual(0, keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)), "support jump count before reset");
-    AssertEqual(1, state.LeaderAssistPressCountSinceJump, "support state count before reset");
+    AssertEqual(3, keyboard.Keys.Count(key => string.Equals(key, "C", StringComparison.Ordinal)), "support follow C count");
+    AssertEqual(0, keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)), "legacy support follow must never add Space");
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName == "team_support.leader_jump.pressed"),
+        "legacy support jump log should be removed");
 
     var injuredLeader = leader with { CurrentHp = 50, MaxHp = 100 };
     gameApi.Party = CreateTeamSupportParty(self, injuredLeader);
@@ -3437,33 +4118,10 @@ static async Task TestTeamSupportLeaderJumpRequiresConsecutiveAssistsAsync()
 
     AssertFalse(!heal.ShouldSkipNormalWork, "support heal should block normal work");
     AssertEqual(1, keyboard.Keys.Count(key => string.Equals(key, "NumPad1", StringComparison.Ordinal)), "support heal should press the heal key");
-    AssertEqual(0, keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)), "support jump should not fire before reset");
-    AssertEqual(0, state.LeaderAssistPressCountSinceJump, "support heal should reset leader assist count");
-
-    keyboard.Keys.Clear();
-    gameApi.Party = CreateTeamSupportParty(self, leader);
-    SetFakeLockedTarget(gameApi, leader.ServerObjectId, LockedTargetSnapshot.PlayerObjectType, 0, 100);
-
-    var firstAfterReset = await controller.TickAsync(context, state).ConfigureAwait(false);
-
-    AssertFalse(!firstAfterReset.ShouldSkipNormalWork, "support should restart consecutive leader assists after reset");
-    AssertEqual(1, keyboard.Keys.Count(key => string.Equals(key, "C", StringComparison.Ordinal)), "support leader assist count after reset");
-    AssertEqual(0, keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)), "support jump should wait for two fresh assists");
-
-    var second = await controller.TickAsync(context, state).ConfigureAwait(false);
-
-    AssertFalse(!second.ShouldSkipNormalWork, "support should keep following leader on jump interval");
-    AssertEqual(2, keyboard.Keys.Count(key => string.Equals(key, "C", StringComparison.Ordinal)), "support leader assist count at jump");
-    AssertEqual(1, keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)), "support jump count at interval");
-    AssertEqual("C", keyboard.Keys[1], "second support leader assist should press C first");
-    AssertEqual("Space", keyboard.Keys[2], "second support leader assist should press Space after C");
-    AssertEqual(0, state.LeaderAssistPressCountSinceJump, "support count should reset after jump");
-    AssertFalse(
-        !logger.Entries.Any(entry => entry.EventName == "team_support.leader_jump.pressed"),
-        "support leader jump should be logged");
+    AssertEqual(0, keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)), "support heal path must not restore legacy Space");
 }
 
-static async Task TestTeamSupportFollowJumpDisabledPressesOnlyCAsync()
+static async Task TestTeamSupportFollowStaysUnchangedWithoutJumpAssistAsync()
 {
     var keyboard = new RecordingKeyboardInput();
     var logger = new InMemoryRoadhogLogger();
@@ -3485,12 +4143,113 @@ static async Task TestTeamSupportFollowJumpDisabledPressesOnlyCAsync()
     for (var i = 0; i < 3; i++)
     {
         var result = await controller.TickAsync(context, state).ConfigureAwait(false);
-        AssertFalse(!result.ShouldSkipNormalWork, "support should keep following when jump is disabled");
+        AssertFalse(!result.ShouldSkipNormalWork, "support should keep following without jump assist");
     }
 
-    AssertEqual(3, keyboard.Keys.Count(key => string.Equals(key, "C", StringComparison.Ordinal)), "support disabled jump C count");
-    AssertEqual(0, keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)), "support disabled jump Space count");
-    AssertEqual(0, state.LeaderAssistPressCountSinceJump, "support disabled jump should clear assist count");
+    AssertEqual(3, keyboard.Keys.Count(key => string.Equals(key, "C", StringComparison.Ordinal)), "support unchanged follow C count");
+    AssertEqual(0, keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)), "support without new session should emit no Space");
+}
+
+static async Task TestTeamSupportGroupStartsNewJumpAssistAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = CreatePartyMemberSnapshot(1000, "Chanter", true, false, 0.0) with
+    {
+        Class = AionClassId.Chanter,
+        ClassId = (byte)AionClassId.Chanter,
+        ClassName = "Chanter"
+    };
+    var leader = CreatePartyMemberSnapshot(2000, "Guardian", false, true, 10.0);
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(1, "ready", 1, 1, "ready", 1, false, 10_000, 0)
+    };
+    SetFakeLockedTarget(gameApi, leader.ServerObjectId, LockedTargetSnapshot.PlayerObjectType, 0, 100);
+    var settings = CreateTeamSupportSettings();
+    settings.Combat.JumpAssistEnabled = true;
+    var context = CreateContext(settings, gameApi, logger);
+    await using var jumpAssist = new CombatJumpAssistSession(
+        context,
+        keyboard,
+        teamFollower: true,
+        jumpInterval: TimeSpan.FromMilliseconds(20),
+        cooldownPollInterval: TimeSpan.FromMilliseconds(5),
+        keyHoldDuration: TimeSpan.FromMilliseconds(1));
+    var combatState = new StationaryCombatState { JumpAssist = jumpAssist };
+
+    var result = await new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog())
+        .TickAsync(context, new TeamSupportState(), combatState)
+        .ConfigureAwait(false);
+    await WaitUntilAsync(
+        () => keyboard.Keys.Any(key => string.Equals(key, "Space", StringComparison.Ordinal)),
+        "support group jump assist").ConfigureAwait(false);
+    await jumpAssist.ExitTeamGroupAsync("test_complete").ConfigureAwait(false);
+
+    AssertFalse(!result.ShouldSkipNormalWork, "support follow ownership should remain unchanged");
+    AssertFalse(!keyboard.Keys.Contains("C"), "support original follow C should remain");
+    AssertFalse(!logger.Entries.Any(entry => entry.EventName == "jump_assist.started"), "support group should start new jump session");
+}
+
+static async Task TestTeamSupportActionPausesJumpUntilCooldownAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = CreatePartyMemberSnapshot(1000, "Chanter", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Guardian", false, true, 10.0) with
+    {
+        CurrentHp = 50,
+        MaxHp = 100
+    };
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(1, "team-heal", 1, 1, "team-heal", 1, false, 10_000, 0)
+    };
+    SetFakeLockedTarget(gameApi, leader.ServerObjectId, LockedTargetSnapshot.PlayerObjectType, 0, 100);
+    var spaceCountWhenHealPressed = -1;
+    keyboard.AfterPress = key =>
+    {
+        if (!string.Equals(key, "NumPad1", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        spaceCountWhenHealPressed = keyboard.Keys.Count(item => string.Equals(item, "Space", StringComparison.Ordinal));
+        gameApi.Skills = new[]
+        {
+            new SkillSnapshot(1, "team-heal", 1, 1, "team-heal", 1, false, 10_000, 8_000)
+        };
+    };
+
+    var settings = CreateTeamSupportSettings();
+    settings.Combat.JumpAssistEnabled = true;
+    var context = CreateContext(settings, gameApi, logger);
+    await using var jumpAssist = new CombatJumpAssistSession(
+        context,
+        keyboard,
+        teamFollower: true,
+        jumpInterval: TimeSpan.FromMilliseconds(20),
+        cooldownPollInterval: TimeSpan.FromMilliseconds(5),
+        keyHoldDuration: TimeSpan.FromMilliseconds(1));
+    var combatState = new StationaryCombatState { JumpAssist = jumpAssist };
+
+    var result = await new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog())
+        .TickAsync(context, new TeamSupportState(), combatState)
+        .ConfigureAwait(false);
+    await Task.Delay(50).ConfigureAwait(false);
+
+    AssertFalse(!result.ShouldSkipNormalWork, "support heal should keep blocking normal work");
+    AssertFalse(spaceCountWhenHealPressed < 0, "support heal key should be pressed");
+    AssertFalse(!jumpAssist.TeamCooldownConfirmed, "support heal cooldown should confirm local action");
+    AssertEqual(
+        spaceCountWhenHealPressed,
+        keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)),
+        "support action should allow no Space after its key enters cooldown");
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName == "jump_assist.team_target_jump.prepared"),
+        "support heal must not prepare a combat-target jump");
 }
 
 static async Task TestTeamSupportJoinCombatContinuesWhileLeaderOutsideGroupRangeAsync()
@@ -3549,7 +4308,7 @@ static async Task TestTeamSupportStaysGroupedUntilLeaderExitDistanceAsync()
     var second = await controller.TickAsync(context, state).ConfigureAwait(false);
 
     AssertFalse(!second.ShouldSkipNormalWork, "active group should stay grouped past enter distance");
-    AssertSequence(new[] { "C", "Space" }, keyboard.Keys.ToArray(), "active group should still follow and jump before exit distance");
+    AssertSequence(new[] { "C" }, keyboard.Keys.ToArray(), "active group should keep original follow without legacy jump");
 
     keyboard.Keys.Clear();
     leader = leader with { DistanceToLocalPlayer = 60.0D };
@@ -3655,6 +4414,10 @@ static async Task TestTeamSupportJoinCombatSelectsLeaderTargetInsideGroupRangeAs
         LiveTargetServerObjectId = targetServerObjectId
     };
     var gameApi = CreateTeamSupportGameApi(self, leader);
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(1, "ready", 1, 1, "ready", 1, false, 10_000, 0)
+    };
     keyboard.AfterPress = key =>
     {
         if (string.Equals(key, "F2", StringComparison.Ordinal))
@@ -3994,6 +4757,94 @@ static async Task TestTeamSupportJoinCombatAcceptsAlreadyLockedLeaderTargetAsync
     AssertFalse(
         !(gameApi.LastLockedTargetContext?.BypassMemoryCache ?? false),
         "support already-locked target check should bypass VMM cache");
+}
+
+static async Task TestTeamSupportAcceptedTargetPreparesJumpUntilCombatPhaseAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint targetServerObjectId = 5000;
+    var self = CreatePartyMemberSnapshot(1000, "Chanter", true, false, 0.0) with
+    {
+        Class = AionClassId.Chanter,
+        ClassId = (byte)AionClassId.Chanter,
+        ClassName = "Chanter"
+    };
+    var leader = CreatePartyMemberSnapshot(2000, "Guardian", false, true, 10.0) with
+    {
+        LiveTargetServerObjectId = targetServerObjectId
+    };
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(1, "ready", 1, 1, "ready", 1, false, 10_000, 0)
+    };
+    SetFakeLockedTarget(
+        gameApi,
+        targetServerObjectId,
+        LockedTargetSnapshot.MonsterObjectType,
+        leader.ServerObjectId,
+        100);
+
+    var settings = CreateTeamSupportSettings();
+    settings.Team.GroupDistanceMeters = 20.0D;
+    settings.Team.Support!.JoinCombat = true;
+    settings.Team.Support.LeaderDistanceMeters = 5.0D;
+    settings.Combat.JumpAssistEnabled = true;
+    settings.Skills = CreateSkillSettings();
+    var context = CreateContext(settings, gameApi, logger);
+    await using var jumpAssist = new CombatJumpAssistSession(
+        context,
+        keyboard,
+        teamFollower: true,
+        jumpInterval: TimeSpan.FromMilliseconds(500),
+        cooldownPollInterval: TimeSpan.FromMilliseconds(5),
+        keyHoldDuration: TimeSpan.FromMilliseconds(1));
+    var combatState = new StationaryCombatState { JumpAssist = jumpAssist };
+
+    await jumpAssist.EnterTeamGroupAsync().ConfigureAwait(false);
+    jumpAssist.Pause("team_support_action");
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(1, "ready", 1, 1, "ready", 1, false, 10_000, 8_000)
+    };
+    await WaitUntilAsync(
+        () => jumpAssist.TeamCooldownConfirmed,
+        "support maintenance cooldown before accepted target").ConfigureAwait(false);
+    jumpAssist.Resume("team_support_action");
+    var spaceCountBeforeAcceptedTarget = keyboard.Keys.Count(
+        key => string.Equals(key, "Space", StringComparison.Ordinal));
+
+    var result = await new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog())
+        .TickAsync(context, new TeamSupportState(), combatState)
+        .ConfigureAwait(false);
+    await Task.Delay(150).ConfigureAwait(false);
+    AssertEqual(
+        spaceCountBeforeAcceptedTarget,
+        keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)),
+        "support target acceptance must only prepare and must not press Space");
+    AssertFalse(
+        !logger.Entries.Any(entry => entry.EventName == "jump_assist.team_target_jump.prepared"),
+        "support accepted target should prepare the async target jump");
+
+    await new SemiAutoCombatController(keyboard)
+        .TickAsync(
+            context,
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            jumpAssist: jumpAssist)
+        .ConfigureAwait(false);
+    await WaitUntilAsync(
+        () => keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)) >
+              spaceCountBeforeAcceptedTarget,
+        "support combat phase activated Space after maintenance cooldown").ConfigureAwait(false);
+    await jumpAssist.ExitTeamGroupAsync("test_complete").ConfigureAwait(false);
+
+    AssertFalse(result.ShouldSkipNormalWork, "support accepted target should continue normal combat");
+    AssertLeaderTargetAdopted(combatState, targetServerObjectId, "support accepted target jump");
+    AssertFalse(
+        !logger.Entries.Any(entry => entry.EventName == "jump_assist.team_target_jump.pressed"),
+        "support combat phase should trigger the prepared async target jump");
 }
 
 static async Task TestTeamSupportAcceptsLeaderPetTargetWhenClassUnknownAsync()
@@ -4425,16 +5276,32 @@ static async Task TestTeamOutputRejectsNonMonsterLeaderTargetAsync()
         }
     };
 
+    var settings = CreateTeamOutputSettings();
+    settings.Combat.JumpAssistEnabled = true;
+    var context = CreateContext(settings, gameApi, logger);
+    await using var jumpAssist = new CombatJumpAssistSession(
+        context,
+        keyboard,
+        teamFollower: true,
+        jumpInterval: TimeSpan.FromMilliseconds(500),
+        cooldownPollInterval: TimeSpan.FromMilliseconds(5),
+        keyHoldDuration: TimeSpan.FromMilliseconds(1));
+    var combatState = new StationaryCombatState { JumpAssist = jumpAssist };
     var controller = new TeamOutputController(keyboard);
     var result = await controller
-        .TickAsync(CreateContext(CreateTeamOutputSettings(), gameApi, logger), new TeamOutputState())
+        .TickAsync(context, new TeamOutputState(), combatState)
         .ConfigureAwait(false);
+    await Task.Delay(150).ConfigureAwait(false);
+    await jumpAssist.ExitTeamGroupAsync("test_complete").ConfigureAwait(false);
 
     AssertFalse(!result.ShouldSkipNormalWork, "non-monster leader target should block normal combat work");
     AssertSequence(
         new[] { "F2", "C", TeamOutputScriptSettings.DefaultAssistTargetKey, "F2", "C" },
         keyboard.Keys.ToArray(),
         "output should return to leader follow after reject");
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName == "jump_assist.team_target_jump.prepared"),
+        "rejected output target must not prepare a combat-target jump");
 }
 
 static async Task TestTeamOutputAcceptsAlreadyLockedLeaderTargetAsync()
@@ -4467,6 +5334,72 @@ static async Task TestTeamOutputAcceptsAlreadyLockedLeaderTargetAsync()
     AssertFalse(
         !(gameApi.LastLockedTargetContext?.BypassMemoryCache ?? false),
         "output already-locked target check should bypass VMM cache");
+}
+
+static async Task TestTeamOutputAcceptedTargetPreparesJumpUntilCombatPhaseAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint targetServerObjectId = 5000;
+    var self = CreatePartyMemberSnapshot(1000, "Dps", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
+    {
+        LiveTargetServerObjectId = targetServerObjectId
+    };
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(1, "ready", 1, 1, "ready", 1, false, 10_000, 0)
+    };
+    SetFakeLockedTarget(
+        gameApi,
+        targetServerObjectId,
+        LockedTargetSnapshot.MonsterObjectType,
+        leader.ServerObjectId,
+        100);
+
+    var settings = CreateTeamOutputSettings();
+    settings.Combat.JumpAssistEnabled = true;
+    settings.Skills = CreateSkillSettings();
+    var context = CreateContext(settings, gameApi, logger);
+    await using var jumpAssist = new CombatJumpAssistSession(
+        context,
+        keyboard,
+        teamFollower: true,
+        jumpInterval: TimeSpan.FromMilliseconds(500),
+        cooldownPollInterval: TimeSpan.FromMilliseconds(5),
+        keyHoldDuration: TimeSpan.FromMilliseconds(1));
+    var combatState = new StationaryCombatState { JumpAssist = jumpAssist };
+
+    var result = await new TeamOutputController(keyboard)
+        .TickAsync(context, new TeamOutputState(), combatState)
+        .ConfigureAwait(false);
+    await Task.Delay(150).ConfigureAwait(false);
+    AssertEqual(
+        0,
+        keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)),
+        "output target acceptance must only prepare and must not press Space");
+    AssertFalse(
+        !logger.Entries.Any(entry => entry.EventName == "jump_assist.team_target_jump.prepared"),
+        "output accepted target should prepare the async target jump");
+
+    await new SemiAutoCombatController(keyboard)
+        .TickAsync(
+            context,
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            jumpAssist: jumpAssist)
+        .ConfigureAwait(false);
+    await WaitUntilAsync(
+        () => keyboard.Keys.Any(key => string.Equals(key, "Space", StringComparison.Ordinal)),
+        "output combat phase activated Space").ConfigureAwait(false);
+    await jumpAssist.ExitTeamGroupAsync("test_complete").ConfigureAwait(false);
+
+    AssertFalse(result.ShouldSkipNormalWork, "output accepted target should continue normal combat");
+    AssertLeaderTargetAdopted(combatState, targetServerObjectId, "output accepted target jump");
+    AssertFalse(
+        !logger.Entries.Any(entry => entry.EventName == "jump_assist.team_target_jump.pressed"),
+        "output combat phase should trigger the prepared async target jump");
 }
 
 static async Task TestTeamOutputSkipsPartyMemberLeaderTargetAsync()
@@ -4644,7 +5577,7 @@ static async Task TestTeamOutputAssistsAlreadySelectedLeaderAsync()
     AssertLeaderTargetAdopted(combatState, targetServerObjectId, "already selected leader assist should adopt target");
 }
 
-static async Task TestTeamOutputJumpsEveryTwoLeaderAssistsAsync()
+static async Task TestTeamOutputLegacyFollowJumpIsRemovedAsync()
 {
     var keyboard = new RecordingKeyboardInput();
     var logger = new InMemoryRoadhogLogger();
@@ -4653,39 +5586,26 @@ static async Task TestTeamOutputJumpsEveryTwoLeaderAssistsAsync()
     var gameApi = CreateTeamSupportGameApi(self, leader);
     SetFakeLockedTarget(gameApi, leader.ServerObjectId, 0, 0, 0);
 
+    var settings = CreateTeamOutputSettings();
+    settings.Team.Output!.FollowJumpEnabled = true;
     var controller = new TeamOutputController(keyboard);
     var state = new TeamOutputState();
-    var context = CreateContext(CreateTeamOutputSettings(), gameApi, logger);
+    var context = CreateContext(settings, gameApi, logger);
 
-    var first = await controller.TickAsync(context, state).ConfigureAwait(false);
+    for (var i = 0; i < 3; i++)
+    {
+        var follow = await controller.TickAsync(context, state).ConfigureAwait(false);
+        AssertFalse(!follow.ShouldSkipNormalWork, "output should keep following leader");
+    }
 
-    AssertFalse(!first.ShouldSkipNormalWork, "output should keep following leader before jump interval");
-    AssertEqual(1, keyboard.Keys.Count(key => string.Equals(key, "C", StringComparison.Ordinal)), "leader assist count before jump");
-    AssertEqual(0, keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)), "leader jump count before interval");
-    AssertEqual(1, state.LeaderAssistPressCountSinceJump, "state count before jump");
-
-    var second = await controller.TickAsync(context, state).ConfigureAwait(false);
-
-    AssertFalse(!second.ShouldSkipNormalWork, "output should keep following leader on jump interval");
-    AssertEqual(2, keyboard.Keys.Count(key => string.Equals(key, "C", StringComparison.Ordinal)), "leader assist count at jump");
-    AssertEqual(1, keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)), "leader jump count at interval");
-    AssertEqual("C", keyboard.Keys[1], "second leader assist should press C first");
-    AssertEqual("Space", keyboard.Keys[2], "second leader assist should press Space after C");
-    AssertEqual(0, state.LeaderAssistPressCountSinceJump, "state count should reset after jump");
+    AssertEqual(3, keyboard.Keys.Count(key => string.Equals(key, "C", StringComparison.Ordinal)), "output follow C count");
+    AssertEqual(0, keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)), "legacy output follow must never add Space");
     AssertFalse(
-        !logger.Entries.Any(entry => entry.EventName == "team_output.leader_jump.pressed"),
-        "leader jump should be logged");
-
-    var afterReset = await controller.TickAsync(context, state).ConfigureAwait(false);
-
-    AssertFalse(!afterReset.ShouldSkipNormalWork, "output should continue following after jump");
-    AssertEqual(3, keyboard.Keys.Count(key => string.Equals(key, "C", StringComparison.Ordinal)), "leader assist count after reset");
-    AssertEqual(1, keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)), "leader jump should not repeat immediately after reset");
-    AssertEqual("C", keyboard.Keys[3], "first assist after reset should only press C");
-    AssertEqual(1, state.LeaderAssistPressCountSinceJump, "state count after reset");
+        logger.Entries.Any(entry => entry.EventName == "team_output.leader_jump.pressed"),
+        "legacy output jump log should be removed");
 }
 
-static async Task TestTeamOutputFollowJumpDisabledPressesOnlyCAsync()
+static async Task TestTeamOutputFollowStaysUnchangedWithoutJumpAssistAsync()
 {
     var keyboard = new RecordingKeyboardInput();
     var logger = new InMemoryRoadhogLogger();
@@ -4702,12 +5622,48 @@ static async Task TestTeamOutputFollowJumpDisabledPressesOnlyCAsync()
     for (var i = 0; i < 3; i++)
     {
         var result = await controller.TickAsync(context, state).ConfigureAwait(false);
-        AssertFalse(!result.ShouldSkipNormalWork, "output should keep following when jump is disabled");
+        AssertFalse(!result.ShouldSkipNormalWork, "output should keep following without jump assist");
     }
 
-    AssertEqual(3, keyboard.Keys.Count(key => string.Equals(key, "C", StringComparison.Ordinal)), "output disabled jump C count");
-    AssertEqual(0, keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)), "output disabled jump Space count");
-    AssertEqual(0, state.LeaderAssistPressCountSinceJump, "output disabled jump should clear assist count");
+    AssertEqual(3, keyboard.Keys.Count(key => string.Equals(key, "C", StringComparison.Ordinal)), "output unchanged follow C count");
+    AssertEqual(0, keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)), "output without new session should emit no Space");
+}
+
+static async Task TestTeamOutputGroupStartsNewJumpAssistAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = CreatePartyMemberSnapshot(1000, "Dps", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0);
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(1, "ready", 1, 1, "ready", 1, false, 10_000, 0)
+    };
+    SetFakeLockedTarget(gameApi, leader.ServerObjectId, 0, 0, 0);
+    var settings = CreateTeamOutputSettings();
+    settings.Combat.JumpAssistEnabled = true;
+    var context = CreateContext(settings, gameApi, logger);
+    await using var jumpAssist = new CombatJumpAssistSession(
+        context,
+        keyboard,
+        teamFollower: true,
+        jumpInterval: TimeSpan.FromMilliseconds(20),
+        cooldownPollInterval: TimeSpan.FromMilliseconds(5),
+        keyHoldDuration: TimeSpan.FromMilliseconds(1));
+    var combatState = new StationaryCombatState { JumpAssist = jumpAssist };
+
+    var result = await new TeamOutputController(keyboard)
+        .TickAsync(context, new TeamOutputState(), combatState)
+        .ConfigureAwait(false);
+    await WaitUntilAsync(
+        () => keyboard.Keys.Any(key => string.Equals(key, "Space", StringComparison.Ordinal)),
+        "output group jump assist").ConfigureAwait(false);
+    await jumpAssist.ExitTeamGroupAsync("test_complete").ConfigureAwait(false);
+
+    AssertFalse(!result.ShouldSkipNormalWork, "output follow ownership should remain unchanged");
+    AssertFalse(!keyboard.Keys.Contains("C"), "output original follow C should remain");
+    AssertFalse(!logger.Entries.Any(entry => entry.EventName == "jump_assist.started"), "output group should start new jump session");
 }
 
 static async Task TestTeamOutputFallsBackOutsideGroupRangeAsync()
@@ -4758,7 +5714,7 @@ static async Task TestTeamOutputStaysGroupedUntilLeaderExitDistanceAsync()
     var second = await controller.TickAsync(context, state).ConfigureAwait(false);
 
     AssertFalse(!second.ShouldSkipNormalWork, "active output group should stay grouped past enter distance");
-    AssertSequence(new[] { "C", "Space" }, keyboard.Keys.ToArray(), "active output group should still follow and jump before exit distance");
+    AssertSequence(new[] { "C" }, keyboard.Keys.ToArray(), "active output group should keep original follow without legacy jump");
 
     keyboard.Keys.Clear();
     leader = leader with { DistanceToLocalPlayer = 60.0D };
@@ -11384,6 +12340,151 @@ static async Task TestWorkerWaitsForSpiritmasterPetSummonVerificationAsync()
         "summon verification should be logged");
 }
 
+static async Task TestPathCombatJumpAssistStartsAfterFacingAndStopsOnDamageAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Path;
+        settings.Paths.CombatPathName = "jump-combat-path";
+        settings.Combat.JumpAssistEnabled = true;
+        settings.Combat.PathCombatRadius = 10;
+        var pathStore = new InMemorySharedPathStore(
+            CreatePath(
+                "jump-combat-path",
+                new Vector3Snapshot(0, 0, 0),
+                new Vector3Snapshot(20, 0, 0)));
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 999, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 999,
+            TargetCurrentHp = 1000,
+            TargetMaxHp = 1000,
+            TargetPosition = new Vector3Snapshot(4, 0, 0),
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(220, 2200, "path-jump-target", "monster", new Vector3Snapshot(4, 0, 0), 4, 1000, 1000)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+        };
+        var context = CreateContext(settings, gameApi, logger);
+        await using var jumpAssist = new CombatJumpAssistSession(
+            context,
+            keyboard,
+            teamFollower: false,
+            jumpInterval: TimeSpan.FromMilliseconds(20),
+            cooldownPollInterval: TimeSpan.FromMilliseconds(5),
+            keyHoldDuration: TimeSpan.FromMilliseconds(1));
+        var state = new StationaryCombatState { JumpAssist = jumpAssist };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto, pathStore);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var semiAutoState = new SemiAutoCombatState();
+
+        await controller.TickPathAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        await WaitUntilAsync(
+            () => keyboard.Keys.Any(key => string.Equals(key, "Space", StringComparison.Ordinal)),
+            "path combat post-face jump").ConfigureAwait(false);
+        AssertEqual((ushort)220, state.FacedCandidateEntityId, "path candidate should be faced before jump starts");
+
+        gameApi.TargetEntityId = 220;
+        gameApi.TargetOwnServerObjectId = 2200;
+        gameApi.TargetCurrentHp = 900;
+        await controller.TickPathAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        var stoppedSpaceCount = keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal));
+        await Task.Delay(60).ConfigureAwait(false);
+
+        AssertEqual(JumpAssistMode.None, jumpAssist.Mode, "path target damage should stop jump session");
+        AssertEqual(
+            stoppedSpaceCount,
+            keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)),
+            "path target damage should prevent later Space");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestStationaryCombatJumpAssistStartsAfterFacingAndStopsOnDamageAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            JumpAssistEnabled = true,
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 60
+        };
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 999, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 999,
+            TargetCurrentHp = 100,
+            TargetMaxHp = 100,
+            TargetPosition = new Vector3Snapshot(40, 0, 0),
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(100, 1000, "jump-target", "monster", new Vector3Snapshot(40, 0, 0), 40, 100, 100)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+        };
+        var context = CreateContext(settings, gameApi, logger);
+        await using var jumpAssist = new CombatJumpAssistSession(
+            context,
+            keyboard,
+            teamFollower: false,
+            jumpInterval: TimeSpan.FromMilliseconds(20),
+            cooldownPollInterval: TimeSpan.FromMilliseconds(5),
+            keyHoldDuration: TimeSpan.FromMilliseconds(1));
+        var state = new StationaryCombatState { JumpAssist = jumpAssist };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var semiAutoState = new SemiAutoCombatState();
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        await WaitUntilAsync(
+            () => keyboard.Keys.Any(key => string.Equals(key, "Space", StringComparison.Ordinal)),
+            "stationary post-face jump").ConfigureAwait(false);
+        AssertEqual((ushort)100, state.FacedCandidateEntityId, "stationary candidate should be faced before jump starts");
+        AssertFalse(!state.IsMovingForward, "stationary original W approach should remain active with jump assist");
+
+        gameApi.TargetEntityId = 100;
+        gameApi.TargetOwnServerObjectId = 1000;
+        gameApi.TargetCurrentHp = 90;
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        var stoppedSpaceCount = keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal));
+        await Task.Delay(60).ConfigureAwait(false);
+
+        AssertEqual(JumpAssistMode.None, jumpAssist.Mode, "stationary target damage should stop jump session");
+        AssertEqual(
+            stoppedSpaceCount,
+            keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)),
+            "stationary target damage should prevent later Space");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
 static async Task TestStationaryCombatFacesTargetBeforeTabAsync()
 {
     var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
@@ -16129,7 +17230,7 @@ static Task TestConditionSkillPreemptSwitchPersistsFromSkillUiAsync()
     return Task.CompletedTask;
 }
 
-static Task TestTeamFollowJumpSwitchesPersistFromTeamUiAsync()
+static Task TestJumpAssistSwitchPersistsFromSummaryUiAsync()
 {
     Exception? failure = null;
     var thread = new Thread(() =>
@@ -16137,8 +17238,7 @@ static Task TestTeamFollowJumpSwitchesPersistFromTeamUiAsync()
         try
         {
             var settings = CreateScriptSettings();
-            settings.Team.Output.FollowJumpEnabled = false;
-            settings.Team.Support.FollowJumpEnabled = true;
+            settings.Combat.JumpAssistEnabled = true;
             var configStore = new InMemoryAccountConfigStore(new AccountConfig
             {
                 AccountName = "account1",
@@ -16147,29 +17247,22 @@ static Task TestTeamFollowJumpSwitchesPersistFromTeamUiAsync()
 
             using var form = CreateAccountSettingsFormForTestsWithStore(configStore);
             AssertFalse(
-                GetCheckBoxCheckedForTest(form, "teamOutputFollowJumpCheckBox"),
-                "output follow jump switch should load disabled state");
-            AssertFalse(
-                !GetCheckBoxCheckedForTest(form, "teamSupportFollowJumpCheckBox"),
-                "support follow jump switch should load enabled state");
+                !GetCheckBoxCheckedForTest(form, "jumpAssistEnabledCheckBox"),
+                "jump assist switch should load enabled state");
 
-            SetCheckBoxCheckedForTest(form, "teamOutputFollowJumpCheckBox", true);
-            SetCheckBoxCheckedForTest(form, "teamSupportFollowJumpCheckBox", false);
+            SetCheckBoxCheckedForTest(form, "jumpAssistEnabledCheckBox", false);
             var saved = InvokeSaveCurrentSettingsForTest(form, out var error);
-            AssertFalse(!saved, "team follow jump switch save failed: " + error);
+            AssertFalse(!saved, "jump assist switch save failed: " + error);
 
             var load = configStore.LoadAllAsync().GetAwaiter().GetResult();
-            AssertFalse(!load.Success, "saved team config should load");
-            var savedTeam = load.Value!
+            AssertFalse(!load.Success, "saved config should load");
+            var savedCombat = load.Value!
                 .Single(account => string.Equals(account.AccountName, "account1", StringComparison.OrdinalIgnoreCase))
                 .ScriptSettings!
-                .Team;
+                .Combat;
             AssertFalse(
-                !savedTeam.Output.FollowJumpEnabled,
-                "output follow jump switch should persist enabled state");
-            AssertFalse(
-                savedTeam.Support.FollowJumpEnabled,
-                "support follow jump switch should persist disabled state");
+                savedCombat.JumpAssistEnabled,
+                "jump assist switch should persist disabled state");
         }
         catch (Exception ex)
         {
@@ -18166,6 +19259,7 @@ static async Task TestMaintenanceInCombatRuleRunsBeforeSkillsAsync()
     {
         Player = new PlayerSnapshot(1, 100, "Fake", 40, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
         TargetEntityId = 100,
+        TargetOwnServerObjectId = 9000,
         TargetCurrentHp = 1000,
         TargetMaxHp = 1000,
         TargetPosition = new Vector3Snapshot(1, 0, 0),
@@ -18192,10 +19286,22 @@ static async Task TestMaintenanceInCombatRuleRunsBeforeSkillsAsync()
     };
     var controller = new SemiAutoCombatController(keyboard);
     var state = new SemiAutoCombatState();
+    var context = CreateContext(settings, gameApi, logger);
+    await using var jumpAssist = new CombatJumpAssistSession(
+        context,
+        keyboard,
+        teamFollower: true,
+        jumpInterval: TimeSpan.FromMilliseconds(20),
+        cooldownPollInterval: TimeSpan.FromMilliseconds(5),
+        keyHoldDuration: TimeSpan.FromMilliseconds(1));
+    await jumpAssist.EnterTeamGroupAsync().ConfigureAwait(false);
+    await jumpAssist.PrepareTeamCombatJumpAsync(9000).ConfigureAwait(false);
 
-    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+    await controller.TickAsync(context, plan, state, jumpAssist: jumpAssist).ConfigureAwait(false);
 
     AssertSequence(new[] { "D8" }, keyboard.Keys.ToArray(), "in-combat maintenance key should run before ordinary skills");
+    AssertEqual(0, keyboard.Keys.Count(key => key == "Space"), "in-combat maintenance must not activate target Space");
+    AssertFalse(!jumpAssist.TeamCooldownConfirmed, "in-combat maintenance cooldown should stop the prepared jump session");
     AssertFalse(!logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.key_pressed"), "in-combat maintenance should log key press");
 }
 
@@ -21802,7 +22908,7 @@ static void DeleteDirectoryIfExists(string directory)
     }
 }
 
-static void AssertSequence<T>(IReadOnlyList<T> expected, IReadOnlyList<T> actual, string label)
+static void AssertSequence<T>(IEnumerable<T> expected, IEnumerable<T> actual, string label)
 {
     if (!expected.SequenceEqual(actual))
     {
@@ -21872,7 +22978,7 @@ static InventoryWindowSnapshot CreateInventoryWindow(bool isOpen, double x, doub
 
 sealed class RecordingKeyboardInput : IKeyboardInput
 {
-    public List<string> Keys { get; } = new();
+    public System.Collections.Concurrent.ConcurrentQueue<string> Keys { get; } = new();
 
     public List<string> KeyDowns { get; } = new();
 
@@ -21895,7 +23001,7 @@ sealed class RecordingKeyboardInput : IKeyboardInput
         TimeSpan holdDuration,
         CancellationToken cancellationToken = default)
     {
-        Keys.Add(key);
+        Keys.Enqueue(key);
         var result = PressResult?.Invoke(key) ?? OperationResult.Ok();
         if (result.Success)
         {

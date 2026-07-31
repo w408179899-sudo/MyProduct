@@ -1,3 +1,4 @@
+using Roadhog.Application.JumpAssist;
 using Roadhog.Application.SemiAuto;
 using Roadhog.Application.StationaryCombat;
 using Roadhog.Application.Team;
@@ -50,6 +51,15 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         var stationaryCombatState = new StationaryCombatState();
         var teamSupportState = new TeamSupportState();
         var teamOutputState = new TeamOutputState();
+        CombatJumpAssistSession? jumpAssist = null;
+        if (scriptSettings.Combat.JumpAssistEnabled)
+        {
+            var teamFollower =
+                IsTeamSupportEnabled(scriptSettings) ||
+                IsTeamOutputEnabled(scriptSettings);
+            jumpAssist = new CombatJumpAssistSession(context, _keyboard, teamFollower);
+            stationaryCombatState.JumpAssist = jumpAssist;
+        }
         context.Logger.Info("semi_auto.plan.loaded", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
@@ -91,6 +101,11 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                     .ConfigureAwait(false);
                 if (lifeGuardDelay.HasValue)
                 {
+                    if (jumpAssist is not null)
+                    {
+                        await jumpAssist.StopAsync("player_life_guard").ConfigureAwait(false);
+                    }
+
                     delay = lifeGuardDelay.Value;
                     if (stationaryCombatState.DeathRecovery.RevivePathLeaderSiphonActive)
                     {
@@ -183,6 +198,11 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         finally
         {
             semiAutoState.ResetAttackKeyPressThrottle();
+            if (jumpAssist is not null)
+            {
+                await jumpAssist.DisposeAsync().ConfigureAwait(false);
+            }
+
             await ReleaseActiveInputAsync(context, stationaryCombatState).ConfigureAwait(false);
         }
     }

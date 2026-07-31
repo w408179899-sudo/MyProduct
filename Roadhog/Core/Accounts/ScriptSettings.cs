@@ -148,6 +148,8 @@ public sealed class CombatScriptSettings
 {
     public bool EnableLoot { get; set; } = true;
 
+    public bool JumpAssistEnabled { get; set; }
+
     public bool ContestMonster { get; set; }
 
     public bool CounterEnemyRace { get; set; }
@@ -183,6 +185,7 @@ public sealed class CombatScriptSettings
         return new CombatScriptSettings
         {
             EnableLoot = EnableLoot,
+            JumpAssistEnabled = JumpAssistEnabled,
             ContestMonster = ContestMonster,
             CounterEnemyRace = CounterEnemyRace,
             PreferAggressiveMonsters = PreferAggressiveMonsters,
