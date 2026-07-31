@@ -7189,6 +7189,11 @@ public sealed class StationaryCombatController
             {
                 await StopMovementAsync(context, state).ConfigureAwait(false);
                 StopPathFollowPoller(state);
+                if (state.Gather.Phase == StationaryGatherPhase.WaitingForStart)
+                {
+                    return StationaryGatherTickResult.HandledWith(GatherPollDelay);
+                }
+
                 var missingReads = state.Gather.MarkMissing(snapshot.CapturedAt);
                 LogActionThrottled(
                     context,

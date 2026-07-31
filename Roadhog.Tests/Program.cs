@@ -94,6 +94,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary gather presses within twenty meters", TestStationaryGatherPressesWithinTwentyMetersAsync),
     ("stationary gather unavailable data fails closed", TestStationaryGatherUnavailableDataFailsClosedAsync),
     ("stationary gather requires two consecutive snapshot failures", TestStationaryGatherRequiresTwoConsecutiveSnapshotFailuresAsync),
+    ("stationary gather ignores transient missing node while waiting", TestStationaryGatherIgnoresTransientMissingNodeWhileWaitingAsync),
     ("stationary gather enforces absolute start wait", TestStationaryGatherEnforcesAbsoluteStartWaitAsync),
     ("stationary gather blocks maintenance until completion", TestStationaryGatherBlocksMaintenanceUntilCompletionAsync),
     ("stationary gather interrupts committed attempt only for local attacker", TestStationaryGatherInterruptsCommittedAttemptOnlyForLocalAttackerAsync),
@@ -1646,7 +1647,22 @@ static async Task TestStationaryGatherCompletesKeyProgressAndDepletionLoopAsync(
     await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
     AssertEqual(2, keyboard.Keys.Count(key => key == "NumPad1"), "remaining node should start another attempt");
 
-    var firstMissingAt = capturedAt.AddMilliseconds(900);
+    gameApi.Gather = CreateStationaryGatherSnapshot(
+        new[] { target },
+        localGathering: CreateActiveLocalGathering(400951),
+        capturedAt: capturedAt.AddMilliseconds(900));
+    state.LastGatherScanAt = DateTimeOffset.MinValue;
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+    AssertEqual(StationaryGatherPhase.Gathering, state.Gather.Phase, "second attempt should confirm gathering");
+
+    gameApi.Gather = CreateStationaryGatherSnapshot(
+        Array.Empty<GatherObjectSnapshot>(),
+        capturedAt: capturedAt.AddMilliseconds(1200));
+    state.LastGatherScanAt = DateTimeOffset.MinValue;
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+    AssertEqual(StationaryGatherPhase.Ready, state.Gather.Phase, "closed second dialog should finish the attempt");
+
+    var firstMissingAt = capturedAt.AddMilliseconds(1500);
     gameApi.Gather = CreateStationaryGatherSnapshot(
         Array.Empty<GatherObjectSnapshot>(),
         capturedAt: firstMissingAt);
@@ -2101,6 +2117,79 @@ static async Task TestStationaryGatherRequiresTwoConsecutiveSnapshotFailuresAsyn
             entry.EventName == "stationary_gather.node.suppressed" &&
             string.Equals(Convert.ToString(entry.Fields["reason"]), "snapshot_unavailable", StringComparison.Ordinal)),
         "second consecutive failure suppression reason should be logged");
+}
+
+static async Task TestStationaryGatherIgnoresTransientMissingNodeWhileWaitingAsync()
+{
+    var settings = CreateStationaryGatherSettings();
+    var capturedAt = DateTimeOffset.Now;
+    var target = CreateGatherObjectForFilterTest(
+        10,
+        10010,
+        400951,
+        "transient missing target",
+        17.65D,
+        capturedAt);
+    var ordinaryMonster = new WorldObjectSnapshot(
+        20,
+        20020,
+        "ordinary monster",
+        "monster",
+        new Vector3Snapshot(19.42F, 0, 0),
+        19.42D,
+        100,
+        100,
+        0,
+        false,
+        true,
+        false,
+        "test");
+    var gameApi = CreateStationaryGatherGameApi(
+        CreateStationaryGatherSnapshot(new[] { target }, capturedAt: capturedAt));
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var state = new StationaryCombatState();
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    var context = CreateContext(settings, gameApi, logger);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+
+    await controller.TickAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
+    AssertEqual(StationaryGatherPhase.WaitingForStart, state.Gather.Phase, "initial key should start dialog wait");
+    AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad1"), "initial gather key count");
+
+    for (var i = 1; i <= 2; i++)
+    {
+        gameApi.Gather = CreateStationaryGatherSnapshot(
+            Array.Empty<GatherObjectSnapshot>(),
+            monsters: new[] { ordinaryMonster },
+            capturedAt: capturedAt.AddMilliseconds(i * 150));
+        state.LastGatherScanAt = DateTimeOffset.MinValue;
+        await controller.TickAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
+    }
+
+    AssertFalse(!state.Gather.Active, "transient missing reads must preserve the active gather node");
+    AssertEqual(
+        StationaryGatherPhase.WaitingForStart,
+        state.Gather.Phase,
+        "transient missing reads must keep waiting for the dialog");
+    AssertEqual(0, state.Gather.ConsecutiveMissingReads, "waiting reads must not count toward depletion");
+    AssertEqual(0U, state.CandidateServerObjectId, "ordinary combat must not take over the pending gather attempt");
+    AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad1"), "waiting must not add gather key retries");
+    AssertFalse(
+        logger.Entries.Any(entry =>
+            entry.EventName is "stationary_gather.node.missing" or "stationary_gather.node.completed"),
+        "waiting reads must not log depletion progress");
+
+    gameApi.Gather = CreateStationaryGatherSnapshot(
+        new[] { target },
+        monsters: new[] { ordinaryMonster },
+        localGathering: CreateActiveLocalGathering(target.GatherSourceId),
+        capturedAt: capturedAt.AddMilliseconds(500));
+    state.LastGatherScanAt = DateTimeOffset.MinValue;
+    await controller.TickAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
+
+    AssertEqual(StationaryGatherPhase.Gathering, state.Gather.Phase, "restored dialog should enter gathering");
+    AssertEqual(0U, state.CandidateServerObjectId, "restored gathering must still own the flow");
 }
 
 static async Task TestStationaryGatherEnforcesAbsoluteStartWaitAsync()
