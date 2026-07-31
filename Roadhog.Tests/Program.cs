@@ -285,6 +285,11 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat keeps maintenance defense target when kill times out", TestStationaryCombatKeepsMaintenanceDefenseTargetWhenKillTimesOutAsync),
     ("stationary combat ignores locked target with no damage and no targeting", TestStationaryCombatIgnoresNoDamageNoTargetingTargetAsync),
     ("stationary combat keeps locked target after damage progress", TestStationaryCombatKeepsNoTargetingTargetAfterDamageProgressAsync),
+    ("stationary combat soft restarts stalled locked target", TestStationaryCombatSoftRestartsStalledLockedTargetAsync),
+    ("stationary combat resets stall timer after damage progress", TestStationaryCombatResetsStallTimerAfterDamageProgressAsync),
+    ("stationary combat approaches before stalled target soft restart", TestStationaryCombatApproachesBeforeStalledTargetSoftRestartAsync),
+    ("stationary combat temporarily excludes stalled target after one soft restart", TestStationaryCombatTemporarilyExcludesStalledTargetAfterOneSoftRestartAsync),
+    ("stationary combat temporary exclusion expires without sitting", TestStationaryCombatTemporaryExclusionExpiresWithoutSittingAsync),
     ("stationary combat defense can select ignored local target", TestStationaryCombatDefenseCanSelectIgnoredLocalTargetAsync),
     ("stationary combat keeps fight when locked target server id matches", TestStationaryCombatKeepsFightWhenLockedServerIdMatchesAsync),
     ("stationary combat keeps current fight target when lock switches", TestStationaryCombatKeepsCurrentFightTargetWhenLockSwitchesAsync),
@@ -12986,6 +12991,390 @@ static async Task TestStationaryCombatKeepsNoTargetingTargetAfterDamageProgressA
     {
         Environment.SetEnvironmentVariable("ROADHOG_NO_DAMAGE_NO_TARGETING_TIMEOUT_MS", previousTimeout);
     }
+}
+
+static async Task TestStationaryCombatSoftRestartsStalledLockedTargetAsync()
+{
+    const string restartTimeoutEnvVar = "ROADHOG_FIGHT_SOFT_RESTART_TIMEOUT_MS";
+    const string discardTimeoutEnvVar = "ROADHOG_NO_DAMAGE_NO_TARGETING_TIMEOUT_MS";
+    var previousRestartTimeout = Environment.GetEnvironmentVariable(restartTimeoutEnvVar);
+    var previousDiscardTimeout = Environment.GetEnvironmentVariable(discardTimeoutEnvVar);
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    try
+    {
+        Environment.SetEnvironmentVariable(restartTimeoutEnvVar, "1");
+        Environment.SetEnvironmentVariable(discardTimeoutEnvVar, "1");
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+        var settings = CreateStationarySoftRestartSettings();
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = CreateStationarySoftRestartGameApi(4);
+        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState { Fighting = true };
+        state.SetCurrentTarget(100, 9000);
+        state.MarkCandidate(100, 9000, DateTimeOffset.Now);
+        var semiAutoState = new SemiAutoCombatState();
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad0"), "initial fight should press opening skill once");
+
+        var root = plan.Roots.Single();
+        semiAutoState.StartPendingChainAdvance(
+            root,
+            root.Children.Single(),
+            DateTimeOffset.Now.AddSeconds(5),
+            0);
+        await Task.Delay(20).ConfigureAwait(false);
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(!state.Fighting, "soft restart must keep fighting the same target");
+        AssertEqual((uint)9000, state.CurrentTargetServerObjectId, "soft restart must retain target identity");
+        AssertFalse(state.IsTargetIgnored(100, 9000), "soft restart must not ignore the stalled target");
+        AssertFalse(semiAutoState.HasChainWork, "soft restart must clear a pending chain");
+        AssertEqual(2, keyboard.Keys.Count(key => key == "NumPad0"), "soft restart should replay the opening skill");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.soft_restart.started"), "soft restart start should be logged");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.soft_restart.completed"), "soft restart completion should be logged");
+
+        gameApi.TargetCurrentHp = 900;
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        AssertFalse(!keyboard.Keys.Contains("D1"), "normal skill tree should resume after the replayed opening skill");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable(restartTimeoutEnvVar, previousRestartTimeout);
+        Environment.SetEnvironmentVariable(discardTimeoutEnvVar, previousDiscardTimeout);
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestStationaryCombatResetsStallTimerAfterDamageProgressAsync()
+{
+    const string restartTimeoutEnvVar = "ROADHOG_FIGHT_SOFT_RESTART_TIMEOUT_MS";
+    const string discardTimeoutEnvVar = "ROADHOG_NO_DAMAGE_NO_TARGETING_TIMEOUT_MS";
+    var previousRestartTimeout = Environment.GetEnvironmentVariable(restartTimeoutEnvVar);
+    var previousDiscardTimeout = Environment.GetEnvironmentVariable(discardTimeoutEnvVar);
+    try
+    {
+        Environment.SetEnvironmentVariable(restartTimeoutEnvVar, "100");
+        Environment.SetEnvironmentVariable(discardTimeoutEnvVar, "60000");
+        var settings = CreateStationarySoftRestartSettings();
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = CreateStationarySoftRestartGameApi(4);
+        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState { Fighting = true };
+        state.SetCurrentTarget(100, 9000);
+        state.MarkCandidate(100, 9000, DateTimeOffset.Now);
+        var semiAutoState = new SemiAutoCombatState();
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        await Task.Delay(70).ConfigureAwait(false);
+        gameApi.TargetCurrentHp = 900;
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        await Task.Delay(60).ConfigureAwait(false);
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad0"), "damage progress should keep the opening skill handled");
+        AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.soft_restart.started"), "damage progress should restart the stall timer");
+        AssertFalse(!state.Fighting, "damage progress should preserve normal fighting");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable(restartTimeoutEnvVar, previousRestartTimeout);
+        Environment.SetEnvironmentVariable(discardTimeoutEnvVar, previousDiscardTimeout);
+    }
+}
+
+static async Task TestStationaryCombatApproachesBeforeStalledTargetSoftRestartAsync()
+{
+    const string restartTimeoutEnvVar = "ROADHOG_FIGHT_SOFT_RESTART_TIMEOUT_MS";
+    const string discardTimeoutEnvVar = "ROADHOG_NO_DAMAGE_NO_TARGETING_TIMEOUT_MS";
+    var previousRestartTimeout = Environment.GetEnvironmentVariable(restartTimeoutEnvVar);
+    var previousDiscardTimeout = Environment.GetEnvironmentVariable(discardTimeoutEnvVar);
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    try
+    {
+        Environment.SetEnvironmentVariable(restartTimeoutEnvVar, "1");
+        Environment.SetEnvironmentVariable(discardTimeoutEnvVar, "60000");
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+        var settings = CreateStationarySoftRestartSettings();
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = CreateStationarySoftRestartGameApi(8);
+        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState { Fighting = true };
+        state.SetCurrentTarget(100, 9000);
+        state.MarkCandidate(100, 9000, DateTimeOffset.Now);
+        var semiAutoState = new SemiAutoCombatState();
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        await Task.Delay(20).ConfigureAwait(false);
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(!state.CurrentTargetSoftRestartPending, "distant stalled target should keep soft restart pending while approaching");
+        AssertFalse(!keyboard.KeyDowns.Contains("W"), "soft restart should approach a target farther than five meters");
+        AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad0"), "opening skill must wait until the recovery approach finishes");
+
+        gameApi.Player = gameApi.Player! with { Position = new Vector3Snapshot(4, 0, 0) };
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(state.CurrentTargetSoftRestartPending, "soft restart should complete after reaching five meters");
+        AssertFalse(!keyboard.KeyUps.Contains("W"), "soft restart should stop approach movement before attacking");
+        AssertEqual(2, keyboard.Keys.Count(key => key == "NumPad0"), "opening skill should replay after the recovery approach");
+        AssertFalse(!state.Fighting, "recovery approach must keep the same fight active");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable(restartTimeoutEnvVar, previousRestartTimeout);
+        Environment.SetEnvironmentVariable(discardTimeoutEnvVar, previousDiscardTimeout);
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestStationaryCombatTemporarilyExcludesStalledTargetAfterOneSoftRestartAsync()
+{
+    const string restartTimeoutEnvVar = "ROADHOG_FIGHT_SOFT_RESTART_TIMEOUT_MS";
+    const string exclusionEnvVar = "ROADHOG_STALLED_TARGET_EXCLUSION_MS";
+    const string discardTimeoutEnvVar = "ROADHOG_NO_DAMAGE_NO_TARGETING_TIMEOUT_MS";
+    var previousRestartTimeout = Environment.GetEnvironmentVariable(restartTimeoutEnvVar);
+    var previousExclusion = Environment.GetEnvironmentVariable(exclusionEnvVar);
+    var previousDiscardTimeout = Environment.GetEnvironmentVariable(discardTimeoutEnvVar);
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    try
+    {
+        Environment.SetEnvironmentVariable(restartTimeoutEnvVar, "1");
+        Environment.SetEnvironmentVariable(exclusionEnvVar, "1000");
+        Environment.SetEnvironmentVariable(discardTimeoutEnvVar, "60000");
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+        var settings = CreateStationarySoftRestartSettings();
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = CreateStationarySoftRestartGameApi(4);
+        gameApi.LocalServerObjectId = 1;
+        gameApi.TargetServerObjectId = 1;
+        gameApi.TargetIsTargetingLocalPlayer = true;
+        gameApi.WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(
+                100,
+                9000,
+                "stalled attacker",
+                "monster",
+                new Vector3Snapshot(4, 0, 0),
+                4,
+                1000,
+                1000,
+                1,
+                true),
+            new WorldObjectSnapshot(
+                101,
+                9001,
+                "replacement",
+                "monster",
+                new Vector3Snapshot(6, 0, 0),
+                6,
+                1000,
+                1000)
+        };
+        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState
+        {
+            Fighting = true,
+            CurrentTargetIsMaintenanceDefense = true
+        };
+        state.SetCurrentTarget(100, 9000);
+        state.MarkCandidate(100, 9000, DateTimeOffset.Now);
+        var semiAutoState = new SemiAutoCombatState();
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        await Task.Delay(20).ConfigureAwait(false);
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        AssertFalse(!state.CurrentTargetSoftRestartAttempted, "first stalled window should complete exactly one soft restart");
+
+        await Task.Delay(20).ConfigureAwait(false);
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(state.Fighting, "second stalled window should leave the old fight");
+        AssertFalse(!state.IsTargetTemporarilyExcluded(100, 9000, DateTimeOffset.Now), "old target should be temporarily excluded");
+        AssertFalse(state.IsTargetIgnored(100, 9000), "temporary exclusion must not permanently ignore the old target");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.stall_temporarily_excluded"), "temporary exclusion should be logged");
+        AssertEqual(2, keyboard.Keys.Count(key => key == "NumPad0"), "same stalled episode must replay opening only once");
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertEqual((uint)9001, state.CandidateServerObjectId, "replacement target should be selected while old target is excluded");
+        AssertFalse(state.CurrentTargetServerObjectId == 9000, "defense selection must not immediately reclaim the excluded attacker");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable(restartTimeoutEnvVar, previousRestartTimeout);
+        Environment.SetEnvironmentVariable(exclusionEnvVar, previousExclusion);
+        Environment.SetEnvironmentVariable(discardTimeoutEnvVar, previousDiscardTimeout);
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestStationaryCombatTemporaryExclusionExpiresWithoutSittingAsync()
+{
+    const string restartTimeoutEnvVar = "ROADHOG_FIGHT_SOFT_RESTART_TIMEOUT_MS";
+    const string exclusionEnvVar = "ROADHOG_STALLED_TARGET_EXCLUSION_MS";
+    const string discardTimeoutEnvVar = "ROADHOG_NO_DAMAGE_NO_TARGETING_TIMEOUT_MS";
+    var previousRestartTimeout = Environment.GetEnvironmentVariable(restartTimeoutEnvVar);
+    var previousExclusion = Environment.GetEnvironmentVariable(exclusionEnvVar);
+    var previousDiscardTimeout = Environment.GetEnvironmentVariable(discardTimeoutEnvVar);
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    try
+    {
+        Environment.SetEnvironmentVariable(restartTimeoutEnvVar, "1");
+        Environment.SetEnvironmentVariable(exclusionEnvVar, "200");
+        Environment.SetEnvironmentVariable(discardTimeoutEnvVar, "60000");
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+        var settings = CreateStationarySoftRestartSettings();
+        settings.Maintenance.SitMaintenanceEnabled = true;
+        settings.Maintenance.SitHpBelowPercent = 80;
+        settings.Maintenance.SitHpRecoverToPercent = 90;
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = CreateStationarySoftRestartGameApi(4);
+        gameApi.Player = gameApi.Player! with { CurrentHp = 20 };
+        gameApi.LocalServerObjectId = 1;
+        gameApi.TargetServerObjectId = 1;
+        gameApi.TargetIsTargetingLocalPlayer = true;
+        gameApi.WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(
+                100,
+                9000,
+                "only stalled attacker",
+                "monster",
+                new Vector3Snapshot(4, 0, 0),
+                4,
+                1000,
+                1000,
+                1,
+                true)
+        };
+        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState
+        {
+            Fighting = true,
+            CurrentTargetIsMaintenanceDefense = true
+        };
+        state.SetCurrentTarget(100, 9000);
+        state.MarkCandidate(100, 9000, DateTimeOffset.Now);
+        var semiAutoState = new SemiAutoCombatState();
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        await Task.Delay(20).ConfigureAwait(false);
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        await Task.Delay(20).ConfigureAwait(false);
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        keyboard.Keys.Clear();
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(keyboard.Keys.Contains("OemComma"), "no replacement target must not make the character sit during temporary exclusion");
+        AssertFalse(semiAutoState.IsMaintenanceResting, "temporary target switch guard must keep maintenance rest inactive");
+        AssertFalse(state.Fighting, "old target should remain unavailable before exclusion expires");
+
+        await Task.Delay(250).ConfigureAwait(false);
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(state.IsTargetTemporarilyExcluded(100, 9000, DateTimeOffset.Now), "temporary exclusion should expire");
+        AssertFalse(!state.Fighting, "expired old target should become selectable again");
+        AssertEqual((uint)9000, state.CurrentTargetServerObjectId, "expired target should be allowed back into combat");
+        AssertFalse(keyboard.Keys.Contains("OemComma"), "expiry recovery must select the old target before sitting");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable(restartTimeoutEnvVar, previousRestartTimeout);
+        Environment.SetEnvironmentVariable(exclusionEnvVar, previousExclusion);
+        Environment.SetEnvironmentVariable(discardTimeoutEnvVar, previousDiscardTimeout);
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static ScriptSettings CreateStationarySoftRestartSettings()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 60
+    };
+    settings.Skills.ExecutionTree = new List<SkillConfigNode>
+    {
+        Node(1702, "Normal Root", "active", Node(1703, "Normal Child", "chain"))
+    };
+    settings.Skills.OpeningSkill = new OpeningSkillConfig
+    {
+        Enabled = true,
+        SkillId = 1701,
+        SkillName = "Opening Skill",
+        Key = "NumPad0"
+    };
+    return settings;
+}
+
+static FakeGameApi CreateStationarySoftRestartGameApi(float targetX)
+{
+    return new FakeGameApi
+    {
+        Player = new PlayerSnapshot(
+            1,
+            100,
+            "Fake",
+            100,
+            100,
+            100,
+            100,
+            0,
+            new Vector3Snapshot(0, 0, 0),
+            DateTimeOffset.Now,
+            90,
+            10,
+            90),
+        TargetEntityId = 100,
+        TargetOwnServerObjectId = 9000,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        TargetPosition = new Vector3Snapshot(targetX, 0, 0),
+        TargetServerObjectId = 0,
+        TargetIsTargetingLocalPlayer = false,
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(
+                100,
+                9000,
+                "stalled",
+                "monster",
+                new Vector3Snapshot(targetX, 0, 0),
+                targetX,
+                1000,
+                1000)
+        },
+        Skills = new[]
+        {
+            new SkillSnapshot(1701, "Opening Skill", 1, 1, "Opening Skill", 1, false, 0, 0),
+            new SkillSnapshot(1702, "Normal Root", 1, 1, "Normal Root", 1, false, 0, 0),
+            new SkillSnapshot(1703, "Normal Child", 1, 1, "Normal Child", 1, false, 0, 0)
+        }
+    };
 }
 
 static async Task TestStationaryCombatDefenseCanSelectIgnoredLocalTargetAsync()

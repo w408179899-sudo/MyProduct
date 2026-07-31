@@ -97,6 +97,24 @@ public sealed class StationaryCombatState
 
     public bool CurrentTargetDamageObserved { get; private set; }
 
+    public ushort CurrentTargetStallEntityId { get; private set; }
+
+    public uint CurrentTargetStallServerObjectId { get; private set; }
+
+    public uint CurrentTargetStallLastHp { get; private set; }
+
+    public DateTimeOffset CurrentTargetStallLastProgressAt { get; private set; } = DateTimeOffset.MinValue;
+
+    public bool CurrentTargetSoftRestartPending { get; private set; }
+
+    public bool CurrentTargetSoftRestartAttempted { get; private set; }
+
+    public bool CurrentTargetSoftRestartFaced { get; private set; }
+
+    public DateTimeOffset CurrentTargetSoftRestartStartedAt { get; private set; } = DateTimeOffset.MinValue;
+
+    public DateTimeOffset TemporaryTargetSwitchGuardUntil { get; private set; } = DateTimeOffset.MinValue;
+
     public ushort MissingCurrentTargetEntityId { get; private set; }
 
     public uint MissingCurrentTargetServerObjectId { get; private set; }
@@ -145,6 +163,10 @@ public sealed class StationaryCombatState
 
     private readonly Dictionary<LootCorpseKey, DateTimeOffset> _attemptedLootCorpses = new();
 
+    private readonly Dictionary<TemporaryTargetKey, DateTimeOffset> _temporaryTargetExclusions = new();
+
+    public bool HasTemporaryTargetExclusions => _temporaryTargetExclusions.Count > 0;
+
     public object? PathFollowPoller { get; set; }
 
     public string StationaryHomePathName { get; private set; } = string.Empty;
@@ -190,6 +212,7 @@ public sealed class StationaryCombatState
         PathCombat.ClearCurrentTargetAnchor();
         ResetCombatApproachStuckTracking();
         ResetCurrentTargetDamageObservation();
+        ResetCurrentTargetStallObservation();
         ResetCurrentTargetMissing();
         ClearPendingTabVerification();
         ClearWrongLockNudge();
@@ -367,6 +390,7 @@ public sealed class StationaryCombatState
         if (!IsSameTarget(CurrentTargetEntityId, CurrentTargetServerObjectId, entityId, serverObjectId))
         {
             ResetCurrentTargetDamageObservation();
+            ResetCurrentTargetStallObservation();
         }
 
         CurrentTargetEntityId = entityId;
@@ -446,6 +470,192 @@ public sealed class StationaryCombatState
         CurrentTargetDamageBaselineHp = 0;
         CurrentTargetDamageObservedAt = DateTimeOffset.MinValue;
         CurrentTargetDamageObserved = false;
+    }
+
+    public void TrackCurrentTargetStallObservation(LockedTargetSnapshot target, DateTimeOffset now)
+    {
+        if (!target.HasKnownHealth || target.CurrentHp == 0)
+        {
+            ResetCurrentTargetStallObservation();
+            return;
+        }
+
+        if (!IsSameTarget(
+                CurrentTargetStallEntityId,
+                CurrentTargetStallServerObjectId,
+                target.TargetEntityId,
+                target.ServerObjectId) ||
+            CurrentTargetStallLastProgressAt == DateTimeOffset.MinValue)
+        {
+            CurrentTargetStallEntityId = target.TargetEntityId;
+            CurrentTargetStallServerObjectId = target.ServerObjectId;
+            CurrentTargetStallLastHp = target.CurrentHp;
+            CurrentTargetStallLastProgressAt = now;
+            CurrentTargetSoftRestartPending = false;
+            CurrentTargetSoftRestartAttempted = false;
+            CurrentTargetSoftRestartFaced = false;
+            CurrentTargetSoftRestartStartedAt = DateTimeOffset.MinValue;
+            return;
+        }
+
+        if (target.CurrentHp < CurrentTargetStallLastHp)
+        {
+            CurrentTargetStallLastProgressAt = now;
+            CurrentTargetSoftRestartPending = false;
+            CurrentTargetSoftRestartAttempted = false;
+            CurrentTargetSoftRestartFaced = false;
+            CurrentTargetSoftRestartStartedAt = DateTimeOffset.MinValue;
+        }
+
+        CurrentTargetStallLastHp = target.CurrentHp;
+    }
+
+    public bool TryStartCurrentTargetSoftRestart(DateTimeOffset now, TimeSpan timeout)
+    {
+        if (CurrentTargetSoftRestartPending)
+        {
+            return true;
+        }
+
+        if (CurrentTargetSoftRestartAttempted ||
+            CurrentTargetStallLastProgressAt == DateTimeOffset.MinValue ||
+            now - CurrentTargetStallLastProgressAt < timeout)
+        {
+            return false;
+        }
+
+        CurrentTargetSoftRestartPending = true;
+        CurrentTargetSoftRestartFaced = false;
+        CurrentTargetSoftRestartStartedAt = now;
+        return true;
+    }
+
+    public void MarkCurrentTargetSoftRestartFaced()
+    {
+        CurrentTargetSoftRestartFaced = true;
+    }
+
+    public void CompleteCurrentTargetSoftRestart(LockedTargetSnapshot target, DateTimeOffset now)
+    {
+        CurrentTargetStallLastHp = target.CurrentHp;
+        CurrentTargetStallLastProgressAt = now;
+        CurrentTargetSoftRestartPending = false;
+        CurrentTargetSoftRestartAttempted = true;
+        CurrentTargetSoftRestartFaced = false;
+        CurrentTargetSoftRestartStartedAt = DateTimeOffset.MinValue;
+    }
+
+    public bool IsCurrentTargetSoftRestartFallbackDue(DateTimeOffset now, TimeSpan timeout)
+    {
+        return CurrentTargetSoftRestartAttempted &&
+               !CurrentTargetSoftRestartPending &&
+               CurrentTargetStallLastProgressAt != DateTimeOffset.MinValue &&
+               now - CurrentTargetStallLastProgressAt >= timeout;
+    }
+
+    public void ResetCurrentTargetStallObservation()
+    {
+        CurrentTargetStallEntityId = 0;
+        CurrentTargetStallServerObjectId = 0;
+        CurrentTargetStallLastHp = 0;
+        CurrentTargetStallLastProgressAt = DateTimeOffset.MinValue;
+        CurrentTargetSoftRestartPending = false;
+        CurrentTargetSoftRestartAttempted = false;
+        CurrentTargetSoftRestartFaced = false;
+        CurrentTargetSoftRestartStartedAt = DateTimeOffset.MinValue;
+    }
+
+    public void TemporarilyExcludeTarget(
+        ushort entityId,
+        uint serverObjectId,
+        DateTimeOffset expiresAt,
+        DateTimeOffset switchGuardUntil)
+    {
+        if (TryCreateTemporaryTargetKey(entityId, serverObjectId, out var key))
+        {
+            _temporaryTargetExclusions[key] = expiresAt;
+            if (switchGuardUntil > TemporaryTargetSwitchGuardUntil)
+            {
+                TemporaryTargetSwitchGuardUntil = switchGuardUntil;
+            }
+        }
+    }
+
+    public bool IsTargetTemporarilyExcluded(WorldObjectSnapshot target, DateTimeOffset now)
+    {
+        return IsTargetTemporarilyExcluded(target.EntityId, target.ServerObjectId, now);
+    }
+
+    public bool IsTargetTemporarilyExcluded(ushort entityId, uint serverObjectId, DateTimeOffset now)
+    {
+        PruneExpiredTemporaryTargetExclusions(now);
+        return TryCreateTemporaryTargetKey(entityId, serverObjectId, out var key) &&
+               _temporaryTargetExclusions.ContainsKey(key);
+    }
+
+    public bool ShouldGuardTemporaryTargetSwitch(DateTimeOffset now)
+    {
+        return TemporaryTargetSwitchGuardUntil != DateTimeOffset.MinValue &&
+               now < TemporaryTargetSwitchGuardUntil;
+    }
+
+    public void PruneTemporaryTargetExclusions(
+        IEnumerable<WorldObjectSnapshot> objects,
+        DateTimeOffset now)
+    {
+        PruneExpiredTemporaryTargetExclusions(now);
+        if (_temporaryTargetExclusions.Count == 0)
+        {
+            return;
+        }
+
+        var liveTargets = objects
+            .Where(target => target.IsAlive)
+            .Select(target =>
+            {
+                TryCreateTemporaryTargetKey(target.EntityId, target.ServerObjectId, out var key);
+                return key;
+            })
+            .ToHashSet();
+        foreach (var key in _temporaryTargetExclusions.Keys.ToArray())
+        {
+            if (!liveTargets.Contains(key))
+            {
+                _temporaryTargetExclusions.Remove(key);
+            }
+        }
+    }
+
+    private void PruneExpiredTemporaryTargetExclusions(DateTimeOffset now)
+    {
+        foreach (var entry in _temporaryTargetExclusions.ToArray())
+        {
+            if (now >= entry.Value)
+            {
+                _temporaryTargetExclusions.Remove(entry.Key);
+            }
+        }
+    }
+
+    private static bool TryCreateTemporaryTargetKey(
+        ushort entityId,
+        uint serverObjectId,
+        out TemporaryTargetKey key)
+    {
+        if (serverObjectId != 0)
+        {
+            key = new TemporaryTargetKey(serverObjectId, 0);
+            return true;
+        }
+
+        if (entityId != 0)
+        {
+            key = new TemporaryTargetKey(0, entityId);
+            return true;
+        }
+
+        key = default;
+        return false;
     }
 
     public DateTimeOffset MarkCurrentTargetMissing(ushort entityId, uint serverObjectId, DateTimeOffset now)
@@ -1279,6 +1489,8 @@ public enum StationaryCombatLootAfterKillStep
 }
 
 internal readonly record struct LootCorpseKey(uint ServerObjectId, ushort EntityId);
+
+internal readonly record struct TemporaryTargetKey(uint ServerObjectId, ushort EntityId);
 
 internal enum StationaryCombatBehaviorStatus
 {

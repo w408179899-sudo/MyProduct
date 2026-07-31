@@ -33,9 +33,12 @@ public sealed class StationaryCombatController
     private static readonly TimeSpan DefaultNoKillRetryDelay = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan DefaultManualPathPlayerReadRetryTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DefaultManualPathPlayerReadRetryInterval = TimeSpan.FromMilliseconds(200);
+    private static readonly TimeSpan FightSoftRestartApproachTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan TemporaryTargetSwitchGuardGrace = TimeSpan.FromSeconds(1);
     private const int GatherSnapshotUnavailableReadThreshold = 2;
     private const double ReturnStopDistance = 2.0D;
     private const double AcquireDistance = 25.0D;
+    private const double FightSoftRestartApproachDistance = 5.0D;
     private const double GatherKeyActivationDistance = 20.0D;
     private const double TargetLeashExtraDistance = 5.0D;
     private const double PreLockFaceYawToleranceDegrees = 25.0D;
@@ -193,8 +196,12 @@ public sealed class StationaryCombatController
             return noKillRecoveryDelay.Value;
         }
 
+        var temporaryTargetSwitchGuard = !state.Fighting &&
+                                         state.ShouldGuardTemporaryTargetSwitch(DateTimeOffset.Now);
         var stationaryGatherWorkAvailable = false;
-        if (!state.Fighting && gatherSettings.StationaryPriorityEnabled)
+        if (!state.Fighting &&
+            !temporaryTargetSwitchGuard &&
+            gatherSettings.StationaryPriorityEnabled)
         {
             stationaryGatherWorkAvailable = await HasStationaryGatherWorkAsync(
                     context,
@@ -221,6 +228,25 @@ public sealed class StationaryCombatController
 
         WorldObjectSnapshot? noTargetRestWakeTarget = null;
         var skipMaintenanceThisTick = false;
+        if (temporaryTargetSwitchGuard)
+        {
+            noTargetRestWakeTarget = await SelectMaintenanceDefenseTargetAsync(
+                    context,
+                    state,
+                    playerPosition,
+                    forceRefresh: true)
+                .ConfigureAwait(false);
+            noTargetRestWakeTarget ??= await SelectTargetAsync(
+                    context,
+                    state,
+                    playerPosition,
+                    home,
+                    radius,
+                    combat.ContestMonster,
+                    forceRefresh: true)
+                .ConfigureAwait(false);
+        }
+
         if (state.NoTargetRestActive)
         {
             noTargetRestWakeTarget = await TickNoTargetRestAtHomeAsync(
@@ -293,8 +319,8 @@ public sealed class StationaryCombatController
                     semiAutoState,
                     state,
                     player,
-                    allowSitMaintenance: true,
-                    clearSitWhenDisallowed: false)
+                    allowSitMaintenance: !temporaryTargetSwitchGuard,
+                    clearSitWhenDisallowed: temporaryTargetSwitchGuard)
                 .ConfigureAwait(false))
             {
                 await StopMovementAsync(context, state).ConfigureAwait(false);
@@ -302,6 +328,7 @@ public sealed class StationaryCombatController
             }
 
             if (!state.Fighting &&
+                !temporaryTargetSwitchGuard &&
                 !stationaryGatherWorkAvailable &&
                 CanUseNoTargetRestAtHome(combat) &&
                 playerDistanceFromHome <= ReturnStopDistance &&
@@ -412,7 +439,8 @@ public sealed class StationaryCombatController
         }
 
         WorldObjectSnapshot? gatherThreatTarget = null;
-        if (gatherSettings.StationaryPriorityEnabled)
+        if (!temporaryTargetSwitchGuard &&
+            gatherSettings.StationaryPriorityEnabled)
         {
             var gatherTick = await TickStationaryGatherAsync(
                     context,
@@ -487,7 +515,8 @@ public sealed class StationaryCombatController
                 return MoveTickDelay;
             }
 
-            var canEnterNoTargetRestAtHome = CanUseNoTargetRestAtHome(combat) &&
+            var canEnterNoTargetRestAtHome = !temporaryTargetSwitchGuard &&
+                                             CanUseNoTargetRestAtHome(combat) &&
                                              playerDistanceFromHome <= ReturnStopDistance;
             if (!canEnterNoTargetRestAtHome &&
                 !IsGatherMaintenanceBlocked(state) &&
@@ -497,7 +526,8 @@ public sealed class StationaryCombatController
                         semiAutoState,
                         state,
                         player,
-                        allowSitMaintenance: true)
+                        allowSitMaintenance: !temporaryTargetSwitchGuard,
+                        clearSitWhenDisallowed: temporaryTargetSwitchGuard)
                     .ConfigureAwait(false))
             {
                 await StopMovementAsync(context, state).ConfigureAwait(false);
@@ -3297,6 +3327,20 @@ public sealed class StationaryCombatController
             return claimedDelay.Value;
         }
 
+        var softRestartDelay = await TryRecoverStalledLockedTargetAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                player,
+                target,
+                now)
+            .ConfigureAwait(false);
+        if (softRestartDelay is not null)
+        {
+            return softRestartDelay.Value;
+        }
+
         var noDamageDelay = await TryIgnoreNoDamageNoTargetingLockedTargetAsync(
                 context,
                 semiAutoState,
@@ -4466,7 +4510,8 @@ public sealed class StationaryCombatController
                 targetServerObjectId,
                 candidate.EntityId,
                 candidate.ServerObjectId));
-        if (state.IsTargetIgnored(targetEntityId, targetServerObjectId))
+        if (state.IsTargetIgnored(targetEntityId, targetServerObjectId) ||
+            state.IsTargetTemporarilyExcluded(targetEntityId, targetServerObjectId, DateTimeOffset.Now))
         {
             state.ClearTarget();
             semiAutoState.ResetAttackKeyPressThrottle();
@@ -5066,6 +5111,7 @@ public sealed class StationaryCombatController
                 target.ServerObjectId)) ?? target;
         var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
         if (state.IsTargetIgnored(lockedWorldTarget) ||
+            state.IsTargetTemporarilyExcluded(lockedWorldTarget, DateTimeOffset.Now) ||
             IsActiveMonsterFiltered(lockedWorldTarget, activeMonsterNameFilters) ||
             !StationaryCombatTargetSelector.IsSelectableMonster(lockedWorldTarget) ||
             !IsCandidateStillSelectable(
@@ -5682,6 +5728,12 @@ public sealed class StationaryCombatController
                 target.ServerObjectId,
                 lockedTarget.TargetEntityId,
                 lockedTarget.ServerObjectId));
+        if (lockedWorldTarget is not null &&
+            state.IsTargetTemporarilyExcluded(lockedWorldTarget, DateTimeOffset.Now))
+        {
+            return null;
+        }
+
         return IsCandidateStillSelectable(
                 lockedWorldTarget,
                 home,
@@ -5726,6 +5778,10 @@ public sealed class StationaryCombatController
         DateTimeOffset now,
         string phase)
     {
+        if (context.Config.ScriptSettings?.CombatMode == AccountCombatMode.Stationary)
+        {
+            state.TrackCurrentTargetStallObservation(target, now);
+        }
         if (state.CurrentTargetIsMaintenanceDefense ||
             IsTargetingLocalSide(target, state))
         {
@@ -5766,6 +5822,162 @@ public sealed class StationaryCombatController
                     ["observedMs"] = (long)Math.Max(0.0D, observedFor.TotalMilliseconds)
                 })
             .ConfigureAwait(false);
+    }
+
+    private async Task<TimeSpan?> TryRecoverStalledLockedTargetAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        PlayerSnapshot player,
+        LockedTargetSnapshot target,
+        DateTimeOffset now)
+    {
+        if (context.Config.ScriptSettings?.CombatMode != AccountCombatMode.Stationary)
+        {
+            state.ResetCurrentTargetStallObservation();
+            return null;
+        }
+
+        state.TrackCurrentTargetStallObservation(target, now);
+        var timeout = TimeSpan.FromMilliseconds(ReadFightSoftRestartTimeoutMs());
+        if (state.IsCurrentTargetSoftRestartFallbackDue(now, timeout))
+        {
+            return await TemporarilyExcludeStalledTargetAsync(
+                    context,
+                    semiAutoState,
+                    state,
+                    target,
+                    now,
+                    timeout)
+                .ConfigureAwait(false);
+        }
+
+        var wasPending = state.CurrentTargetSoftRestartPending;
+        if (!state.TryStartCurrentTargetSoftRestart(now, timeout))
+        {
+            return null;
+        }
+
+        if (!wasPending)
+        {
+            semiAutoState.ClearChain();
+            semiAutoState.ClearPressedSkillCooldownTracking();
+            semiAutoState.ResetOpeningSkill();
+            semiAutoState.ResetAttackKeyPressThrottle();
+            context.Logger.Info("stationary_combat.target.soft_restart.started", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["targetEntityId"] = target.TargetEntityId,
+                ["targetServerObjectId"] = target.ServerObjectId,
+                ["targetName"] = target.Name,
+                ["currentHp"] = target.CurrentHp,
+                ["maxHp"] = target.MaxHp,
+                ["stalledMs"] = (long)Math.Max(0.0D, (now - state.CurrentTargetStallLastProgressAt).TotalMilliseconds),
+                ["timeoutMs"] = (long)timeout.TotalMilliseconds
+            });
+        }
+
+        var distance = double.NaN;
+        if (player.Position is not null && target.Position is not null)
+        {
+            distance = StationaryCombatTargetSelector.HorizontalDistance(player.Position.Value, target.Position.Value);
+            if (!state.CurrentTargetSoftRestartFaced)
+            {
+                var faced = await FaceTargetStepAsync(
+                        context,
+                        state,
+                        player,
+                        target.Position.Value,
+                        target.TargetEntityId,
+                        target.Name)
+                    .ConfigureAwait(false);
+                state.MarkCurrentTargetSoftRestartFaced();
+                context.Logger.Info("stationary_combat.target.soft_restart.faced", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["targetEntityId"] = target.TargetEntityId,
+                    ["targetServerObjectId"] = target.ServerObjectId,
+                    ["targetName"] = target.Name,
+                    ["success"] = faced,
+                    ["distance"] = Math.Round(distance, 2)
+                });
+            }
+
+            var approachTimedOut = state.CurrentTargetSoftRestartStartedAt != DateTimeOffset.MinValue &&
+                                   now - state.CurrentTargetSoftRestartStartedAt >= FightSoftRestartApproachTimeout;
+            if (distance > FightSoftRestartApproachDistance && !approachTimedOut)
+            {
+                await PathFollowStepAsync(
+                        context,
+                        state,
+                        player,
+                        target.Position.Value,
+                        FightSoftRestartApproachDistance)
+                    .ConfigureAwait(false);
+                return MoveTickDelay;
+            }
+        }
+
+        await StopMovementAsync(context, state).ConfigureAwait(false);
+        StopPathFollowPoller(state);
+        state.CompleteCurrentTargetSoftRestart(target, now);
+        state.ResetCurrentTargetDamageObservation();
+        context.Logger.Info("stationary_combat.target.soft_restart.completed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["targetEntityId"] = target.TargetEntityId,
+            ["targetServerObjectId"] = target.ServerObjectId,
+            ["targetName"] = target.Name,
+            ["currentHp"] = target.CurrentHp,
+            ["maxHp"] = target.MaxHp,
+            ["distance"] = double.IsNaN(distance) ? null : Math.Round(distance, 2)
+        });
+
+        return await _semiAuto
+            .TickAsync(context, plan, semiAutoState, requireCooldownCalibrationForMaintenance: true)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<TimeSpan> TemporarilyExcludeStalledTargetAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        LockedTargetSnapshot target,
+        DateTimeOffset now,
+        TimeSpan timeout)
+    {
+        var exclusion = TimeSpan.FromMilliseconds(ReadStalledTargetExclusionMs());
+        var expiresAt = now + exclusion;
+        state.TemporarilyExcludeTarget(
+            target.TargetEntityId,
+            target.ServerObjectId,
+            expiresAt,
+            expiresAt + TemporaryTargetSwitchGuardGrace);
+        context.Logger.Info("stationary_combat.target.stall_temporarily_excluded", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["targetEntityId"] = target.TargetEntityId,
+            ["targetServerObjectId"] = target.ServerObjectId,
+            ["targetName"] = target.Name,
+            ["currentHp"] = target.CurrentHp,
+            ["maxHp"] = target.MaxHp,
+            ["stalledMs"] = (long)Math.Max(0.0D, (now - state.CurrentTargetStallLastProgressAt).TotalMilliseconds),
+            ["softRestartAttempted"] = state.CurrentTargetSoftRestartAttempted,
+            ["timeoutMs"] = (long)timeout.TotalMilliseconds,
+            ["exclusionMs"] = (long)exclusion.TotalMilliseconds,
+            ["expiresAt"] = expiresAt
+        });
+
+        state.ClearNoTargetRest();
+        state.ClearTarget();
+        semiAutoState.ClearChain();
+        semiAutoState.ClearPressedSkillCooldownTracking();
+        semiAutoState.ResetOpeningSkill();
+        semiAutoState.ResetAttackKeyPressThrottle();
+        await StopMovementAsync(context, state).ConfigureAwait(false);
+        StopPathFollowPoller(state);
+        return IdleDelay;
     }
 
     private async Task<TimeSpan?> TryWaitForLockedTargetToTargetPlayerAsync(
@@ -6330,6 +6542,7 @@ public sealed class StationaryCombatController
         bool forceRefresh = false)
     {
         var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh).ConfigureAwait(false);
+        var now = DateTimeOffset.Now;
         var preferAggressiveMonsters = PrefersAggressiveMonsters(context);
         var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
 
@@ -6363,6 +6576,7 @@ public sealed class StationaryCombatController
             }
             else if (candidate is not null &&
                 !state.IsTargetIgnored(candidate) &&
+                !state.IsTargetTemporarilyExcluded(candidate, now) &&
                 IsCandidateStillSelectable(candidate, home, radius, allowClaimedByOther, state))
             {
                 if (!ShouldReplaceCandidateWithAggressiveTarget(
@@ -6381,6 +6595,7 @@ public sealed class StationaryCombatController
 
         var candidates = objects
             .Where(target => !state.IsTargetIgnored(target))
+            .Where(target => !state.IsTargetTemporarilyExcluded(target, now))
             .Where(target => !IsActiveMonsterFiltered(target, activeMonsterNameFilters));
         if (!allowClaimedByOther)
         {
@@ -6403,7 +6618,8 @@ public sealed class StationaryCombatController
                 home,
                 radius,
                 allowClaimedByOther,
-                activeMonsterNameFilters);
+                activeMonsterNameFilters,
+                now);
         }
 
         return selected;
@@ -6417,7 +6633,8 @@ public sealed class StationaryCombatController
         Vector3Snapshot home,
         double radius,
         bool allowClaimedByOther,
-        IReadOnlyList<string> activeMonsterNameFilters)
+        IReadOnlyList<string> activeMonsterNameFilters,
+        DateTimeOffset now)
     {
         var monsterObjects = objects
             .Where(target => string.Equals(target.ObjectKind, "monster", StringComparison.OrdinalIgnoreCase))
@@ -6437,6 +6654,9 @@ public sealed class StationaryCombatController
         var ignored = monstersWithPosition
             .Where(state.IsTargetIgnored)
             .ToArray();
+        var temporarilyExcluded = monstersWithPosition
+            .Where(target => state.IsTargetTemporarilyExcluded(target, now))
+            .ToArray();
         var activeFiltered = monstersWithPosition
             .Where(target => IsActiveMonsterFiltered(target, activeMonsterNameFilters))
             .ToArray();
@@ -6444,11 +6664,13 @@ public sealed class StationaryCombatController
             ? Array.Empty<WorldObjectSnapshot>()
             : monstersWithPosition
                 .Where(target => !state.IsTargetIgnored(target))
+                .Where(target => !state.IsTargetTemporarilyExcluded(target, now))
                 .Where(target => !IsActiveMonsterFiltered(target, activeMonsterNameFilters))
                 .Where(target => IsClaimedByOther(target, state))
                 .ToArray();
         var finalCandidates = monstersWithPosition
             .Where(target => !state.IsTargetIgnored(target))
+            .Where(target => !state.IsTargetTemporarilyExcluded(target, now))
             .Where(target => !IsActiveMonsterFiltered(target, activeMonsterNameFilters))
             .Where(target => allowClaimedByOther || !IsClaimedByOther(target, state))
             .Where(target => StationaryCombatTargetSelector.HorizontalDistance(target.Position!.Value, home) <= radius)
@@ -6464,7 +6686,7 @@ public sealed class StationaryCombatController
             .ThenBy(target => target.ServerObjectId)
             .ThenBy(target => target.EntityId)
             .Take(5)
-            .Select(target => FormatTargetScanSample(target, playerPosition, home, radius, state, activeMonsterNameFilters, allowClaimedByOther))
+            .Select(target => FormatTargetScanSample(target, playerPosition, home, radius, state, activeMonsterNameFilters, allowClaimedByOther, now))
             .ToArray();
 
         LogActionThrottled(context, state, "stationary_combat.target.scan_none", "normal", new Dictionary<string, object?>
@@ -6479,6 +6701,7 @@ public sealed class StationaryCombatController
             ["insideHomeRadiusCount"] = insideHomeRadius.Length,
             ["insidePlayerRadiusCount"] = insidePlayerRadius.Length,
             ["ignoredCount"] = ignored.Length,
+            ["temporarilyExcludedCount"] = temporarilyExcluded.Length,
             ["activeFilteredCount"] = activeFiltered.Length,
             ["claimedByOtherCount"] = claimedByOther.Length,
             ["finalCandidateCount"] = finalCandidates.Length,
@@ -6500,7 +6723,8 @@ public sealed class StationaryCombatController
         double radius,
         StationaryCombatState state,
         IReadOnlyList<string> activeMonsterNameFilters,
-        bool allowClaimedByOther)
+        bool allowClaimedByOther,
+        DateTimeOffset now)
     {
         var playerDistance = target.Position is null
             ? double.NaN
@@ -6512,6 +6736,11 @@ public sealed class StationaryCombatController
         if (state.IsTargetIgnored(target))
         {
             reasons.Add("ignored");
+        }
+
+        if (state.IsTargetTemporarilyExcluded(target, now))
+        {
+            reasons.Add("temporarily_excluded");
         }
 
         if (IsActiveMonsterFiltered(target, activeMonsterNameFilters))
@@ -6553,10 +6782,14 @@ public sealed class StationaryCombatController
         bool forceRefresh)
     {
         var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh).ConfigureAwait(false);
+        var now = DateTimeOffset.Now;
+        var availableObjects = objects
+            .Where(target => !state.IsTargetTemporarilyExcluded(target, now))
+            .ToArray();
         var teamThreat = await SelectTeamLeaderProtectionTargetAsync(
                 context,
                 state,
-                objects,
+                availableObjects,
                 playerPosition)
             .ConfigureAwait(false);
         if (teamThreat is not null)
@@ -6579,7 +6812,7 @@ public sealed class StationaryCombatController
             return teamThreat.Target;
         }
 
-        var localSideThreat = objects
+        var localSideThreat = availableObjects
             .Where(target => IsTargetingLocalSide(target, state))
             .Where(StationaryCombatTargetSelector.IsSelectableMonster)
             .Where(target => target.Position is not null)
@@ -6639,6 +6872,7 @@ public sealed class StationaryCombatController
         var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
         return objects
             .Where(target => !state.IsTargetIgnored(target))
+            .Where(target => !state.IsTargetTemporarilyExcluded(target, DateTimeOffset.Now))
             .Where(StationaryCombatTargetSelector.IsSelectableMonster)
             .Where(target => target.Position is not null)
             .Where(target => target.IsAggressiveToPlayer)
@@ -7154,8 +7388,10 @@ public sealed class StationaryCombatController
             .Where(StationaryCombatTargetSelector.IsSelectableMonster)
             .Where(target => target.Position is not null)
             .Where(target =>
-                IsTargetingLocalSide(target, state) ||
+                (!state.IsTargetTemporarilyExcluded(target, DateTimeOffset.Now) &&
+                 IsTargetingLocalSide(target, state)) ||
                 (!state.IsTargetIgnored(target) &&
+                 !state.IsTargetTemporarilyExcluded(target, DateTimeOffset.Now) &&
                  !IsClaimedByOther(target, state) &&
                  target.AggressiveKnown &&
                  target.IsAggressiveToPlayer &&
@@ -7295,6 +7531,7 @@ public sealed class StationaryCombatController
             if (gatherSnapshot?.MonsterDataAvailable == true)
             {
                 state.PruneIgnoredTargets(state.CachedWorldObjects);
+                state.PruneTemporaryTargetExclusions(state.CachedWorldObjects, DateTimeOffset.Now);
                 return state.CachedWorldObjects;
             }
         }
@@ -7321,6 +7558,7 @@ public sealed class StationaryCombatController
         }
 
         state.PruneIgnoredTargets(state.CachedWorldObjects);
+        state.PruneTemporaryTargetExclusions(state.CachedWorldObjects, now);
         return state.CachedWorldObjects;
     }
 
@@ -7406,6 +7644,7 @@ public sealed class StationaryCombatController
         return objects.Any(target =>
             target.IsAggressiveToPlayer &&
             !state.IsTargetIgnored(target) &&
+            !state.IsTargetTemporarilyExcluded(target, DateTimeOffset.Now) &&
             !StationaryCombatState.IsSameTarget(
                 target.EntityId,
                 target.ServerObjectId,
@@ -7751,6 +7990,24 @@ public sealed class StationaryCombatController
         Vector3Snapshot targetPosition,
         WorldObjectSnapshot target)
     {
+        return await FaceTargetStepAsync(
+                context,
+                state,
+                player,
+                targetPosition,
+                target.EntityId,
+                target.Name)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<bool> FaceTargetStepAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        PlayerSnapshot player,
+        Vector3Snapshot targetPosition,
+        ushort targetEntityId,
+        string targetName)
+    {
         if (player.Position is null)
         {
             return false;
@@ -7769,8 +8026,8 @@ public sealed class StationaryCombatController
             {
                 ["account"] = context.Config.AccountName,
                 ["action"] = "face_no_yaw",
-                ["targetEntityId"] = target.EntityId,
-                ["targetName"] = target.Name
+                ["targetEntityId"] = targetEntityId,
+                ["targetName"] = targetName
             }, TimeSpan.FromMilliseconds(500));
             return false;
         }
@@ -7789,8 +8046,8 @@ public sealed class StationaryCombatController
             {
                 ["account"] = context.Config.AccountName,
                 ["action"] = "face_aligned",
-                ["targetEntityId"] = target.EntityId,
-                ["targetName"] = target.Name,
+                ["targetEntityId"] = targetEntityId,
+                ["targetName"] = targetName,
                 ["currentYaw"] = Math.Round(snapshot.CurrentYaw, 2),
                 ["targetYaw"] = Math.Round(snapshot.TargetYaw, 2),
                 ["yawError"] = Math.Round(snapshot.YawError, 2),
@@ -7817,8 +8074,8 @@ public sealed class StationaryCombatController
         {
             ["account"] = context.Config.AccountName,
             ["action"] = "face_turn",
-            ["targetEntityId"] = target.EntityId,
-            ["targetName"] = target.Name,
+            ["targetEntityId"] = targetEntityId,
+            ["targetName"] = targetName,
             ["currentYaw"] = Math.Round(snapshot.CurrentYaw, 2),
             ["targetYaw"] = Math.Round(snapshot.TargetYaw, 2),
             ["yawError"] = Math.Round(snapshot.YawError, 2),
@@ -9495,6 +9752,16 @@ public sealed class StationaryCombatController
     private static int ReadNoDamageNoTargetingTimeoutMs()
     {
         return ClampInt(ReadRawIntFromEnv("ROADHOG_NO_DAMAGE_NO_TARGETING_TIMEOUT_MS", 10_000), 1, 60_000);
+    }
+
+    private static int ReadFightSoftRestartTimeoutMs()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_FIGHT_SOFT_RESTART_TIMEOUT_MS", 5_000), 1, 60_000);
+    }
+
+    private static int ReadStalledTargetExclusionMs()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_STALLED_TARGET_EXCLUSION_MS", 10_000), 1, 300_000);
     }
 
     private static int ReadFaceTargetTimeoutMs()
