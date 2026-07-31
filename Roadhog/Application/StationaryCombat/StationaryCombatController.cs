@@ -9871,7 +9871,7 @@ public sealed class StationaryCombatController
 
     private static int ReadFightSoftRestartTimeoutMs()
     {
-        return ClampInt(ReadRawIntFromEnv("ROADHOG_FIGHT_SOFT_RESTART_TIMEOUT_MS", 7_000), 1, 60_000);
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_FIGHT_SOFT_RESTART_TIMEOUT_MS", 8_000), 1, 60_000);
     }
 
     private static int ReadStalledTargetExclusionMs()
