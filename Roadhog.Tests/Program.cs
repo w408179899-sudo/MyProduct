@@ -339,6 +339,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat runs after-combat maintenance without loot", TestStationaryCombatRunsAfterCombatMaintenanceWithoutLootAsync),
     ("stationary combat runs after-combat maintenance round", TestStationaryCombatRunsAfterCombatMaintenanceRoundAsync),
     ("stationary combat returns from bag cleanup through revive path before finishing loot", TestStationaryCombatReturnsFromBagCleanupThroughRevivePathBeforeFinishingLootAsync),
+    ("stationary combat refreshes position after bag cleanup return", TestStationaryCombatRefreshesPositionAfterBagCleanupReturnAsync),
     ("stationary combat postpones after-combat maintenance while pet is targeted", TestStationaryCombatPostponesAfterCombatMaintenanceWhilePetIsTargetedAsync),
     ("stationary combat finishes current fight before returning home", TestStationaryCombatFinishesFightBeforeReturningHomeAsync),
     ("stationary combat reacquires adopted defense target when locked on party member", TestStationaryCombatReacquiresAdoptedDefenseTargetWhenLockedOnPartyMemberAsync),
@@ -16310,6 +16311,134 @@ static async Task TestStationaryCombatReturnsFromBagCleanupThroughRevivePathBefo
             "loot should not finish before cleanup return-to-combat recovery completes");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.startup_recovery.selected"),
             "cleanup return should start revive-path recovery");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestStationaryCombatRefreshesPositionAfterBagCleanupReturnAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Path;
+        settings.Paths.RevivePathName = "revive-a";
+        settings.Paths.CombatPathName = "combat-a";
+        settings.Combat = new CombatScriptSettings
+        {
+            EnableLoot = true,
+            StationaryCombatRadius = 20,
+            PathFollowReachDistance = 5
+        };
+
+        var cleanupPath = CreatePath(
+            "cleanup-a",
+            new Vector3Snapshot(0, 0, 0),
+            new Vector3Snapshot(100, 0, 0));
+        var pathStore = new InMemorySharedPathStore(
+            cleanupPath,
+            CreatePath(
+                "revive-a",
+                new Vector3Snapshot(0, 0, 0),
+                new Vector3Snapshot(100, 0, 0),
+                new Vector3Snapshot(200, 0, 0)),
+            CreatePath(
+                "combat-a",
+                new Vector3Snapshot(205, 0, 0),
+                new Vector3Snapshot(215, 0, 0)));
+        var staleCleanupPosition = new PlayerSnapshot(
+            1,
+            100,
+            "Fake",
+            100,
+            100,
+            100,
+            100,
+            0,
+            new Vector3Snapshot(100, 0, 0),
+            DateTimeOffset.Now,
+            90,
+            10,
+            90);
+        var freshReturnPosition = staleCleanupPosition with
+        {
+            Position = new Vector3Snapshot(0, 0, 0),
+            CapturedAt = DateTimeOffset.Now
+        };
+        var gameApi = new FakeGameApi
+        {
+            Player = freshReturnPosition,
+            TargetEntityId = 0,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 0,
+            TargetPosition = null,
+            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+        };
+        gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Ok(staleCleanupPosition));
+        gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Ok(staleCleanupPosition));
+        gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Ok(staleCleanupPosition));
+        gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Ok(freshReturnPosition));
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var controller = new StationaryCombatController(
+            keyboard,
+            new SemiAutoCombatController(keyboard),
+            pathStore);
+        var state = new StationaryCombatState();
+        state.StartLootAfterKill(
+            new LockedTargetSnapshot(
+                100,
+                5000,
+                0,
+                LockedTargetSnapshot.MonsterObjectType,
+                "dead-target",
+                0,
+                100,
+                new Vector3Snapshot(0, 0, 0),
+                0,
+                DateTimeOffset.Now),
+            DateTimeOffset.Now);
+        for (var i = 0; i < 5; i++)
+        {
+            state.LootAfterKill.Advance(DateTimeOffset.Now);
+        }
+
+        state.BagCleanup.Start(0, 2);
+        state.BagCleanup.SetPath(cleanupPath);
+        state.BagCleanup.ReturnAfterFailure("simulated_cleanup_failure", "simulated cleanup failure");
+        var context = CreateContext(settings, gameApi, logger);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var semiAutoState = new SemiAutoCombatState();
+
+        await controller
+            .TickAsync(context, plan, semiAutoState, state)
+            .ConfigureAwait(false);
+
+        AssertFalse(!state.CleanupReturnToCombatActive, "cleanup return should wait for the next fresh player snapshot");
+        AssertFalse(state.StartupRecoveryActive, "stale pre-return player position must not start revive-path recovery");
+        AssertFalse(
+            logger.Entries.Any(entry => entry.EventName == "stationary_combat.startup_recovery.selected"),
+            "stale pre-return player position must not select a revive-path point");
+
+        await controller
+            .TickAsync(context, plan, semiAutoState, state)
+            .ConfigureAwait(false);
+
+        AssertFalse(!state.StartupRecoveryActive, "fresh post-return player position should start revive-path recovery");
+        AssertEqual(1, state.StartupRecoveryPointIndex, "fresh route-start position should advance from the first revive-path point");
+        AssertFalse(
+            !logger.Entries.Any(entry =>
+                entry.EventName == "stationary_combat.startup_recovery.selected" &&
+                entry.Fields.TryGetValue("startPointIndex", out var index) &&
+                Convert.ToInt32(index) == 0),
+            "fresh post-return position should select the first revive-path point");
     }
     finally
     {

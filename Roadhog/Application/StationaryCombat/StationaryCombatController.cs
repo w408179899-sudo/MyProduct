@@ -3869,17 +3869,7 @@ public sealed class StationaryCombatController
                     ["revivePathName"] = GetRevivePathName(context)
                 });
 
-                var returnStatus = await TickCleanupReturnToCombatAsync(
-                        context,
-                        plan,
-                        semiAutoState,
-                        state,
-                        player)
-                    .ConfigureAwait(false);
-                if (returnStatus == StationaryCombatBehaviorStatus.Running)
-                {
-                    return StationaryCombatBehaviorStatus.Running;
-                }
+                return StationaryCombatBehaviorStatus.Running;
             }
 
             if (cleanupResult.Status == BagCleanupTickStatus.FatalFailure)
