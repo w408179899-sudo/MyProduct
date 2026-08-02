@@ -294,7 +294,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat jump assist starts after facing and stops on damage", TestStationaryCombatJumpAssistStartsAfterFacingAndStopsOnDamageAsync),
     ("stationary combat resets right mouse after repeated unchanged turns", TestStationaryCombatResetsRightMouseAfterRepeatedUnchangedTurnsAsync),
     ("stationary combat target pitch follows target height", TestStationaryCombatTargetPitchFollowsTargetHeightAsync),
-    ("stationary combat accepts twenty five degree pre-lock face tolerance", TestStationaryCombatAcceptsTwentyFiveDegreePreLockFaceToleranceAsync),
+    ("stationary combat accepts thirty degree pre-lock face tolerance", TestStationaryCombatAcceptsThirtyDegreePreLockFaceToleranceAsync),
     ("stationary combat tabs until selected target is verified", TestStationaryCombatTabsUntilTargetVerifiedAsync),
     ("stationary combat verifies target after each tab press", TestStationaryCombatVerifiesAfterEachTabAsync),
     ("stationary combat accepts closer aggressive wrong lock after tab", TestStationaryCombatAcceptsCloserAggressiveWrongLockAfterTabAsync),
@@ -12856,7 +12856,7 @@ static async Task TestStationaryCombatTargetPitchFollowsTargetHeightAsync()
     }
 }
 
-static async Task TestStationaryCombatAcceptsTwentyFiveDegreePreLockFaceToleranceAsync()
+static async Task TestStationaryCombatAcceptsThirtyDegreePreLockFaceToleranceAsync()
 {
     var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
     var previousYawOffset = Environment.GetEnvironmentVariable("AION_FACE_TARGET_YAW_OFFSET_DEG");
@@ -12884,7 +12884,7 @@ static async Task TestStationaryCombatAcceptsTwentyFiveDegreePreLockFaceToleranc
         var logger = new InMemoryRoadhogLogger();
         var gameApi = new FakeGameApi
         {
-            Player = new PlayerSnapshot(1, 999, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 75, 10, 75),
+            Player = new PlayerSnapshot(1, 999, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 62, 10, 62),
             TargetEntityId = 999,
             TargetCurrentHp = 1000,
             TargetPosition = new Vector3Snapshot(5, 0, 0),
@@ -12911,13 +12911,13 @@ static async Task TestStationaryCombatAcceptsTwentyFiveDegreePreLockFaceToleranc
             .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), new StationaryCombatState())
             .ConfigureAwait(false);
 
-        AssertFalse(keyboard.MouseCommands.Any(command => command.StartsWith("move:", StringComparison.Ordinal)), "15 degree pre-lock yaw error should not move mouse");
-        AssertFalse(!keyboard.Keys.Contains("Tab"), "15 degree pre-lock yaw error should continue to Tab verification");
+        AssertFalse(keyboard.MouseCommands.Any(command => command.StartsWith("move:", StringComparison.Ordinal)), "28 degree pre-lock yaw error should not move mouse");
+        AssertFalse(!keyboard.Keys.Contains("Tab"), "28 degree pre-lock yaw error should continue to Tab verification");
         AssertFalse(!logger.Entries.Any(entry =>
             entry.EventName == "stationary_combat.face_target" &&
             string.Equals(Convert.ToString(entry.Fields["action"]), "face_aligned", StringComparison.Ordinal) &&
-            Math.Abs(Convert.ToDouble(entry.Fields["yawTolerance"]) - 25.0D) < 0.001D),
-            "face target log should show 25 degree yaw tolerance");
+            Math.Abs(Convert.ToDouble(entry.Fields["yawTolerance"]) - 30.0D) < 0.001D),
+            "face target log should show 30 degree yaw tolerance");
     }
     finally
     {

@@ -41,7 +41,7 @@ public sealed class StationaryCombatController
     private const double FightSoftRestartApproachDistance = 5.0D;
     private const double GatherKeyActivationDistance = 20.0D;
     private const double TargetLeashExtraDistance = 5.0D;
-    private const double PreLockFaceYawToleranceDegrees = 25.0D;
+    private const double PreLockFaceYawToleranceDegrees = 30.0D;
     private const double DefaultPathFollowReachDistance = 5.0D;
     private const double RevivePathAggressiveClearRadius = 10.0D;
     private const double DefaultYawPixelsPerDegree = 11.0D;
