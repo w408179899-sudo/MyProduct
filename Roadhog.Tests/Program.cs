@@ -320,6 +320,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat defense can select ignored local target", TestStationaryCombatDefenseCanSelectIgnoredLocalTargetAsync),
     ("stationary combat keeps fight when locked target server id matches", TestStationaryCombatKeepsFightWhenLockedServerIdMatchesAsync),
     ("stationary combat keeps current fight target when lock switches", TestStationaryCombatKeepsCurrentFightTargetWhenLockSwitchesAsync),
+    ("stationary combat waits to tab when fresh reacquire player read fails", TestStationaryCombatWaitsToTabWhenFreshReacquirePlayerReadFailsAsync),
     ("stationary combat clears missing current fight target quickly", TestStationaryCombatClearsMissingCurrentFightTargetQuicklyAsync),
     ("stationary combat presses C until locked target targets player", TestStationaryCombatPressesCUntilLockedTargetTargetsPlayerAsync),
     ("stationary combat accepts self targeting locked target after opening attack", TestStationaryCombatAcceptsSelfTargetingLockedTargetAfterOpeningAttackAsync),
@@ -14817,7 +14818,12 @@ static async Task TestStationaryCombatKeepsCurrentFightTargetWhenLockSwitchesAsy
         {
             Fighting = true,
             CurrentTargetEntityId = 100,
-            CandidateEntityId = 100
+            CandidateEntityId = 100,
+            LastWorldScanAt = DateTimeOffset.Now,
+            CachedWorldObjects = new[]
+            {
+                new WorldObjectSnapshot(100, 100, "stale-original", "monster", new Vector3Snapshot(-40, 0, 0), 40, 1000, 1000)
+            }
         };
         state.MarkCandidate(100, DateTimeOffset.Now);
 
@@ -14834,6 +14840,115 @@ static async Task TestStationaryCombatKeepsCurrentFightTargetWhenLockSwitchesAsy
             entry.EventName == "stationary_combat.target.reacquire" &&
             Equals(Convert.ToUInt16(entry.Fields["targetEntityId"]), (ushort)100)),
             "lock mismatch should log original target reacquire");
+        AssertEqual(2, gameApi.PlayerReadCount, "fight reacquire should refresh player immediately before tab");
+        AssertFalse(
+            gameApi.LastPlayerContext?.BypassMemoryCache != true,
+            "fight reacquire player refresh should bypass the memory cache");
+        AssertFalse(gameApi.WorldObjectReadCount == 0, "fight reacquire should force a current world object refresh");
+
+        var entries = logger.Entries.ToArray();
+        var faceIndex = Array.FindIndex(entries, entry =>
+            entry.EventName == "stationary_combat.face_target" &&
+            Equals(Convert.ToUInt16(entry.Fields["targetEntityId"]), (ushort)100) &&
+            Equals(Convert.ToString(entry.Fields["action"]), "face_aligned"));
+        var tabIndex = Array.FindIndex(entries, entry => entry.EventName == "stationary_combat.tab.pressed");
+        AssertFalse(faceIndex < 0, "fight reacquire should face the refreshed original target");
+        AssertFalse(tabIndex <= faceIndex, "fight reacquire should finish facing before pressing tab");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
+    }
+}
+
+static async Task TestStationaryCombatWaitsToTabWhenFreshReacquirePlayerReadFailsAsync()
+{
+    var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", "0");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 60
+        };
+
+        var player = new PlayerSnapshot(
+            1,
+            200,
+            "Fake",
+            100,
+            100,
+            100,
+            100,
+            0,
+            new Vector3Snapshot(0, 0, 0),
+            DateTimeOffset.Now,
+            90,
+            10,
+            90);
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = player,
+            TargetEntityId = 200,
+            TargetCurrentHp = 1000,
+            TargetMaxHp = 1000,
+            TargetPosition = new Vector3Snapshot(8, 0, 0),
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(100, 100, "original", "monster", new Vector3Snapshot(40, 0, 0), 40, 1000, 1000),
+                new WorldObjectSnapshot(200, 200, "nearby", "monster", new Vector3Snapshot(8, 0, 0), 8, 1000, 1000)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Ok(player));
+        gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Fail("fresh player read failed"));
+
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState
+        {
+            Fighting = true,
+            CurrentTargetEntityId = 100,
+            CandidateEntityId = 100
+        };
+        state.MarkCandidate(100, DateTimeOffset.Now);
+
+        await controller
+            .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertFalse(!state.Fighting, "failed fresh player read should preserve fight state");
+        AssertEqual((ushort)100, state.CurrentTargetEntityId, "failed fresh player read should preserve current target");
+        AssertEqual(2, gameApi.PlayerReadCount, "fight reacquire should attempt one fresh player read");
+        AssertFalse(
+            gameApi.LastPlayerContext?.BypassMemoryCache != true,
+            "failed fight reacquire player refresh should bypass the memory cache");
+        AssertFalse(keyboard.Keys.Contains("Tab"), "failed fresh player read must block tab");
+        AssertEqual(DateTimeOffset.MinValue, state.LastTabAt, "blocked tab should not update last tab time");
+        AssertFalse(
+            !logger.Entries.Any(entry =>
+                entry.EventName == "stationary_combat.target.reacquire_face_wait" &&
+                Equals(Convert.ToString(entry.Fields["reason"]), "player_read_failed")),
+            "failed fresh player read should log reacquire face wait");
     }
     finally
     {

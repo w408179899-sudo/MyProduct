@@ -4955,6 +4955,11 @@ public sealed class StationaryCombatController
         Vector3Snapshot home,
         double radius)
     {
+        if (!await PrepareOrdinaryStationaryFightReacquireTabAsync(context, state, target).ConfigureAwait(false))
+        {
+            return MoveTickDelay;
+        }
+
         var now = DateTimeOffset.Now;
         state.LastTabAt = now;
         var verifyWindowMs = ReadTabVerifyWindowMs();
@@ -5222,6 +5227,64 @@ public sealed class StationaryCombatController
                 allowLockedFallback: true,
                 phase: "after_tab_aggressive")
             .ConfigureAwait(false);
+    }
+
+    private async Task<bool> PrepareOrdinaryStationaryFightReacquireTabAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        WorldObjectSnapshot target)
+    {
+        if (!state.Fighting ||
+            context.Config.ScriptSettings?.CombatMode != AccountCombatMode.Stationary ||
+            state.CurrentTargetIsMaintenanceDefense ||
+            state.CurrentTargetIsRevivePathClear ||
+            state.CurrentTargetIsGatherSafetyClear)
+        {
+            return true;
+        }
+
+        if (target.Position is not { } targetPosition)
+        {
+            LogActionThrottled(context, state, "stationary_combat.target.reacquire_face_wait", "target_position_missing", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["reason"] = "target_position_missing",
+                ["targetEntityId"] = target.EntityId,
+                ["targetServerObjectId"] = target.ServerObjectId,
+                ["targetName"] = target.Name
+            }, TimeSpan.FromMilliseconds(500));
+            return false;
+        }
+
+        var playerResult = await ReadFreshPlayerAsync(context).ConfigureAwait(false);
+        if (!playerResult.Success || playerResult.Value?.Position is null)
+        {
+            LogActionThrottled(context, state, "stationary_combat.target.reacquire_face_wait", "player_read_failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["reason"] = "player_read_failed",
+                ["targetEntityId"] = target.EntityId,
+                ["targetServerObjectId"] = target.ServerObjectId,
+                ["targetName"] = target.Name,
+                ["error"] = playerResult.Error
+            }, TimeSpan.FromMilliseconds(500));
+            return false;
+        }
+
+        var faced = await FaceTargetStepAsync(context, state, playerResult.Value, targetPosition, target).ConfigureAwait(false);
+        if (!faced)
+        {
+            LogActionThrottled(context, state, "stationary_combat.target.reacquire_face_wait", "face_incomplete", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["reason"] = "face_incomplete",
+                ["targetEntityId"] = target.EntityId,
+                ["targetServerObjectId"] = target.ServerObjectId,
+                ["targetName"] = target.Name
+            }, TimeSpan.FromMilliseconds(500));
+        }
+
+        return faced;
     }
 
     private static bool TryGetDistanceToLocalPlayer(WorldObjectSnapshot target, out double distance)
@@ -7877,7 +7940,7 @@ public sealed class StationaryCombatController
         Vector3Snapshot target,
         double reachDistance)
     {
-        var freshPlayerResult = await ReadPathFollowPlayerAsync(context).ConfigureAwait(false);
+        var freshPlayerResult = await ReadFreshPlayerAsync(context).ConfigureAwait(false);
         if (freshPlayerResult.Success && freshPlayerResult.Value?.Position is not null)
         {
             player = freshPlayerResult.Value;
@@ -8832,7 +8895,7 @@ public sealed class StationaryCombatController
             : context.GameApi.ReadPlayerAsync(context.StopToken);
     }
 
-    private static Task<OperationResult<PlayerSnapshot>> ReadPathFollowPlayerAsync(AccountWorkerContext context)
+    private static Task<OperationResult<PlayerSnapshot>> ReadFreshPlayerAsync(AccountWorkerContext context)
     {
         return context.GameApi is IRoadhogScopedGameApi scopedApi
             ? scopedApi.ReadPlayerAsync(CreateReadContext(context, bypassMemoryCache: true), context.StopToken)
@@ -9091,7 +9154,7 @@ public sealed class StationaryCombatController
         var interval = TimeSpan.FromMilliseconds(ReadPathFollowTickMs());
         while (!poller.Cancellation.IsCancellationRequested)
         {
-            var playerResult = await ReadPathFollowPlayerAsync(context).ConfigureAwait(false);
+            var playerResult = await ReadFreshPlayerAsync(context).ConfigureAwait(false);
             lock (poller.SyncRoot)
             {
                 if (poller.StopRequested)
