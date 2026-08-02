@@ -2629,16 +2629,16 @@ namespace Roadhog
             AddLabel(page, "坐地板维护", 4, 8, 82, 24, _textGreen, FontStyle.Bold);
             sitMaintenanceCheckBox = AddCheckBox(page, "启用", 84, 6, 70, true);
 
-            AddLabel(page, "蓝量低于", 4, 44, 66, 24);
-            sitMpBelowTextBox = AddTextBox(page, "10", 68, 42, 70, 28);
+            AddLabel(page, "血量低于", 4, 44, 66, 24);
+            sitHpBelowTextBox = AddTextBox(page, "25", 68, 42, 70, 28);
             AddLabel(page, "%  坐地板，恢复到", 144, 44, 130, 24);
-            sitMpRecoverToTextBox = AddTextBox(page, "90", 272, 42, 70, 28);
+            sitHpRecoverToTextBox = AddTextBox(page, "75", 272, 42, 70, 28);
             AddLabel(page, "%  起来继续打怪", 348, 44, 160, 24);
 
-            AddLabel(page, "血量低于", 4, 78, 66, 24);
-            sitHpBelowTextBox = AddTextBox(page, "25", 68, 76, 70, 28);
+            AddLabel(page, "蓝量低于", 4, 78, 66, 24);
+            sitMpBelowTextBox = AddTextBox(page, "10", 68, 76, 70, 28);
             AddLabel(page, "%  坐地板，恢复到", 144, 78, 130, 24);
-            sitHpRecoverToTextBox = AddTextBox(page, "75", 272, 76, 70, 28);
+            sitMpRecoverToTextBox = AddTextBox(page, "90", 272, 76, 70, 28);
             AddLabel(page, "%  起来继续打怪", 348, 78, 160, 24);
 
             AddLabel(page, "血量维护", 4, 120, 66, 24, _textGreen, FontStyle.Bold);

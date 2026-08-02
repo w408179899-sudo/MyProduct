@@ -246,6 +246,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat returns home when no target is available", TestStationaryCombatReturnsHomeWhenNoTargetAvailableAsync),
     ("stationary combat jumps when stuck returning home with no target", TestStationaryCombatJumpsWhenStuckReturningHomeWithNoTargetAsync),
     ("stationary combat sits at home when no target rest is enabled", TestStationaryCombatSitsAtHomeWhenNoTargetRestEnabledAsync),
+    ("stationary combat wakes full no target rest without resitting", TestStationaryCombatWakesFullNoTargetRestAsync),
     ("stationary combat wakes no target rest when target appears", TestStationaryCombatWakesNoTargetRestWhenTargetAppearsAsync),
     ("stationary combat does not sit at home when no target rest switch is disabled", TestStationaryCombatDoesNotSitAtHomeWhenNoTargetRestSwitchDisabledAsync),
     ("stationary combat loots fighting target before no-target rest", TestStationaryCombatLootsFightingTargetBeforeNoTargetRestAsync),
@@ -2405,6 +2406,7 @@ static async Task TestStationaryGatherWakesNoTargetRestAsync()
     settings.Combat.SitWhenNoTargetAtHome = true;
     var gameApi = CreateStationaryGatherGameApi(
         CreateStationaryGatherSnapshot(Array.Empty<GatherObjectSnapshot>()));
+    gameApi.Player = gameApi.Player with { CurrentHp = 99 };
     var keyboard = new RecordingKeyboardInput();
     var logger = new InMemoryRoadhogLogger();
     var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
@@ -9365,7 +9367,7 @@ static async Task TestStationaryCombatSitsAtHomeWhenNoTargetRestEnabledAsync()
     var logger = new InMemoryRoadhogLogger();
     var gameApi = new FakeGameApi
     {
-        Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(1, 0, 0), DateTimeOffset.Now, 270, 10, 270),
+        Player = new PlayerSnapshot(1, 0, "Fake", 99, 100, 100, 100, 0, new Vector3Snapshot(1, 0, 0), DateTimeOffset.Now, 270, 10, 270),
         TargetEntityId = 0,
         TargetCurrentHp = 0,
         TargetMaxHp = 0,
@@ -9388,6 +9390,76 @@ static async Task TestStationaryCombatSitsAtHomeWhenNoTargetRestEnabledAsync()
         "no-target rest enter should be logged");
 }
 
+static async Task TestStationaryCombatWakesFullNoTargetRestAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30,
+        ReturnHomeWhenNoTarget = true,
+        SitWhenNoTargetAtHome = true
+    };
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 0, "Fake", 99, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 270, 10, 270),
+        TargetEntityId = 0,
+        TargetCurrentHp = 0,
+        TargetMaxHp = 0,
+        TargetPosition = null,
+        WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+    };
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState();
+    var semiAutoState = new SemiAutoCombatState();
+    var context = CreateContext(settings, gameApi, logger);
+
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "one non-full resource should enter no-target rest");
+    AssertFalse(!state.NoTargetRestActive, "no-target rest should become active before resources are full");
+    keyboard.Keys.Clear();
+
+    gameApi.Player = gameApi.Player with
+    {
+        CurrentHp = 100,
+        CurrentMp = 100,
+        StanceFlags = 5,
+        MotionMode = 1
+    };
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertSequence(new[] { "X" }, keyboard.Keys.ToArray(), "full hp and mp should wake no-target rest with x only");
+    AssertFalse(!state.NoTargetRestActive, "full-resource wake should wait for stand confirmation");
+    AssertFalse(!state.NoTargetRestExitPending, "full-resource wake should track pending stand confirmation");
+    keyboard.Keys.Clear();
+
+    gameApi.Player = gameApi.Player with { StanceFlags = 1, MotionMode = 0 };
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertFalse(state.NoTargetRestActive, "confirmed full-resource stand should clear no-target rest");
+    AssertFalse(keyboard.Keys.Contains("OemComma"), "full resources should not immediately re-enter no-target rest");
+    AssertFalse(!logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.no_target.rest_exit" &&
+        string.Equals(Convert.ToString(entry.Fields["reason"]), "resources_full", StringComparison.Ordinal)),
+        "full-resource wake should log the rest exit reason");
+    AssertFalse(!logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.no_target.rest_exit_confirmed" &&
+        string.Equals(Convert.ToString(entry.Fields["reason"]), "resources_full", StringComparison.Ordinal)),
+        "full-resource stand confirmation should be logged");
+}
+
 static async Task TestStationaryCombatWakesNoTargetRestWhenTargetAppearsAsync()
 {
     var settings = CreateScriptSettings();
@@ -9408,7 +9480,7 @@ static async Task TestStationaryCombatWakesNoTargetRestWhenTargetAppearsAsync()
     var logger = new InMemoryRoadhogLogger();
     var gameApi = new FakeGameApi
     {
-        Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 270, 10, 270),
+        Player = new PlayerSnapshot(1, 0, "Fake", 99, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 270, 10, 270),
         TargetEntityId = 0,
         TargetCurrentHp = 0,
         TargetMaxHp = 0,

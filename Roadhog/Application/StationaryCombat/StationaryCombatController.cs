@@ -6385,6 +6385,18 @@ public sealed class StationaryCombatController
             return state.NoTargetRestActive ? null : target;
         }
 
+        if (HasFullHealthAndMana(player))
+        {
+            await CancelNoTargetRestAtHomeAsync(
+                    context,
+                    semiAutoState,
+                    state,
+                    player,
+                    "resources_full")
+                .ConfigureAwait(false);
+            return null;
+        }
+
         await TryEnterNoTargetRestAtHomeAsync(
                 context,
                 semiAutoState,
@@ -6402,6 +6414,11 @@ public sealed class StationaryCombatController
         PlayerSnapshot player,
         double playerDistanceFromHome)
     {
+        if (HasFullHealthAndMana(player))
+        {
+            return false;
+        }
+
         semiAutoState.ResetAttackKeyPressThrottle();
         await StopMovementAsync(context, state).ConfigureAwait(false);
         StopPathFollowPoller(state);
@@ -6539,6 +6556,14 @@ public sealed class StationaryCombatController
     private static bool CanUseNoTargetRestAtHome(CombatScriptSettings combat)
     {
         return combat.ReturnHomeWhenNoTarget && combat.SitWhenNoTargetAtHome;
+    }
+
+    private static bool HasFullHealthAndMana(PlayerSnapshot player)
+    {
+        return player.MaxHp > 0 &&
+               player.CurrentHp >= player.MaxHp &&
+               player.MaxMp > 0 &&
+               player.CurrentMp >= player.MaxMp;
     }
 
     private async Task<PostLootNoTargetDelayResult> TryDelayNoTargetActionAfterLootAsync(
