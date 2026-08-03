@@ -39,6 +39,9 @@
           "revivePathName": "穆尔海姆00133",
           "combatPathName": "",
           "maintenancePathName": "",
+          "townReturnKey": "",
+          "bagCleanupTownReturnKey": "",
+          "bagCleanupReturnByReversePath": true,
           "loopPath": true,
           "reverseAtEnd": false,
           "deathStopPath": true

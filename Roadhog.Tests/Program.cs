@@ -209,7 +209,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("runtime registers configured bag cleanup sell items", TestRuntimeRegistersConfiguredBagCleanupSellItemsAsync),
     ("runtime tests bag cleanup from npc through sell", TestRuntimeTestsBagCleanupFromNpcThroughSellAsync),
     ("bag cleanup controller stays inactive when disabled", TestBagCleanupControllerSkipsWhenDisabledAsync),
+    ("bag cleanup return settings default and clone preserve compatibility", TestBagCleanupReturnSettingsDefaultsAndCloneAsync),
     ("bag cleanup controller sells configured items and returns", TestBagCleanupControllerSellsItemsAndReturnsAsync),
+    ("bag cleanup controller uses existing return key after cleanup", TestBagCleanupControllerUsesTownReturnAfterCleanupAsync),
     ("bag cleanup controller detects town return before timeout", TestBagCleanupControllerDetectsTownReturnBeforeTimeoutAsync),
     ("bag cleanup controller abandons town return when attacked", TestBagCleanupControllerAbandonsTownReturnWhenAttackedAsync),
     ("bag cleanup controller reverses cleanup path when follow fails", TestBagCleanupControllerReversesCleanupPathWhenFollowFailsAsync),
@@ -7299,6 +7301,28 @@ static async Task TestBagCleanupControllerSkipsWhenDisabledAsync()
     AssertEqual(0, pathCalls.Count, "disabled cleanup should not run paths");
 }
 
+static Task TestBagCleanupReturnSettingsDefaultsAndCloneAsync()
+{
+    var legacyCompatible = new PathScriptSettings
+    {
+        TownReturnKey = "NumPad7"
+    };
+    AssertFalse(!legacyCompatible.BagCleanupReturnByReversePath, "old configs should keep reverse-path return enabled");
+    AssertEqual(string.Empty, legacyCompatible.BagCleanupTownReturnKey, "old configs should leave the new cleanup return key empty for runtime fallback");
+
+    var configured = new PathScriptSettings
+    {
+        TownReturnKey = "NumPad7",
+        BagCleanupTownReturnKey = "NumPad8",
+        BagCleanupReturnByReversePath = false
+    };
+    var clone = configured.Clone();
+    AssertEqual("NumPad7", clone.TownReturnKey, "clone should preserve the existing return key");
+    AssertEqual("NumPad8", clone.BagCleanupTownReturnKey, "clone should preserve the cleanup return key");
+    AssertFalse(clone.BagCleanupReturnByReversePath, "clone should preserve the direct-return branch");
+    return Task.CompletedTask;
+}
+
 static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
 {
     var previousTownSettle = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS");
@@ -7352,7 +7376,7 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
         };
         keyboard.AfterPress = key =>
         {
-            if (key == "NumPad7")
+            if (key == "NumPad8")
             {
                 gameApi.Player = gameApi.Player with
                 {
@@ -7396,6 +7420,7 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
         rules.First(rule => rule.Key == BagCleanupRuleCatalog.GreenManastone).Enabled = true;
         var settings = CreateScriptSettings();
         settings.Paths.TownReturnKey = "NumPad7";
+        settings.Paths.BagCleanupTownReturnKey = "NumPad8";
         settings.Paths.MaintenancePathName = "cleanup-path";
         settings.Maintenance = new MaintenanceScriptSettings
         {
@@ -7445,7 +7470,7 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
         }
 
         AssertEqual(BagCleanupTickStatus.Completed, last?.Status ?? BagCleanupTickStatus.FatalFailure, "cleanup should complete");
-        AssertSequence(new[] { "NumPad7", "F8", "C", "I", "I" }, keyboard.Keys.ToArray(), "cleanup should return, select npc, interact, and close inventory");
+        AssertSequence(new[] { "NumPad8", "F8", "C", "I", "I", "Space" }, keyboard.Keys.ToArray(), "cleanup should use its dedicated return key and jump before returning");
         AssertSequence(new[] { "cleanup-path:2", "cleanup-path 返回:2" }, pathCalls.ToArray(), "cleanup should follow path and reverse path");
         AssertFalse(gameApi.InventoryItems.Any(item => item.InstanceId is 10UL or 11UL), "sold items should be removed before verification");
         AssertEqual(1200UL, gameApi.InventoryMoney, "money should increase after sell");
@@ -7463,6 +7488,11 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.return.verify.ok"), "cleanup should verify town return position");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.inventory.close.requested"), "cleanup should request inventory close before sell");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.verify.ok"), "cleanup should verify money increase");
+        AssertFalse(
+            !logger.Entries.Any(entry =>
+                entry.EventName == "bag_cleanup.completion_jump.complete" &&
+                string.Equals(Convert.ToString(entry.Fields["returnMode"]), "reverse_path", StringComparison.Ordinal)),
+            "cleanup should finish its completion jump before reverse-path return");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.complete"), "cleanup should log completion");
     }
     finally
@@ -7477,6 +7507,97 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", previousMouseStep);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS", previousNpcAttempts);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS", previousNpcSelectDelay);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", previousTownMinDistance);
+    }
+}
+
+static async Task TestBagCleanupControllerUsesTownReturnAfterCleanupAsync()
+{
+    var previousTownSettle = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS");
+    var previousTownMinDistance = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE");
+    try
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS", "0");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", "1");
+
+        var settings = CreateScriptSettings();
+        settings.Paths.TownReturnKey = "NumPad7";
+        settings.Paths.BagCleanupTownReturnKey = "NumPad8";
+        settings.Paths.BagCleanupReturnByReversePath = false;
+        var logger = new InMemoryRoadhogLogger();
+        var keyboard = new RecordingKeyboardInput();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(
+                1,
+                100,
+                "Fake",
+                100,
+                100,
+                100,
+                100,
+                0,
+                new Vector3Snapshot(100, 0, 0),
+                DateTimeOffset.Now,
+                90,
+                10,
+                90)
+        };
+        keyboard.AfterPress = key =>
+        {
+            if (key == "NumPad7")
+            {
+                gameApi.Player = gameApi.Player with
+                {
+                    Position = new Vector3Snapshot(0, 0, 0),
+                    CapturedAt = DateTimeOffset.Now
+                };
+            }
+        };
+
+        var cleanupPath = CreatePath(
+            "cleanup-path",
+            new Vector3Snapshot(0, 0, 0),
+            new Vector3Snapshot(100, 0, 0));
+        var pathCalls = new List<string>();
+        var controller = new BagCleanupController(
+            keyboard,
+            new InMemorySharedPathStore(cleanupPath),
+            (_, pathName, _) =>
+            {
+                pathCalls.Add(pathName);
+                return Task.FromResult(OperationResult.Ok());
+            });
+        var state = new BagCleanupState();
+        state.Start(0, 5);
+        state.SetPath(cleanupPath);
+        state.PrepareReturnAfterSuccess();
+        var context = CreateContext(settings, gameApi, logger);
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var jump = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
+        stopwatch.Stop();
+
+        AssertEqual(BagCleanupTickStatus.Running, jump.Status, "completion jump should keep cleanup active until return");
+        AssertFalse(stopwatch.Elapsed < TimeSpan.FromMilliseconds(1400), "completion jump should wait 500 ms before Space and 1 second after it");
+        AssertEqual(BagCleanupStep.PressReturnToRevive, state.Step, "direct branch should press the existing return key after completion jump");
+
+        await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
+        var completed = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
+
+        AssertEqual(BagCleanupTickStatus.Completed, completed.Status, "direct return should complete cleanup after position verification");
+        AssertSequence(new[] { "Space", "NumPad7" }, keyboard.Keys.ToArray(), "completion jump should precede the existing return key");
+        AssertEqual(0, pathCalls.Count, "direct return branch should skip the reversed cleanup path");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.return_to_revive.verify.ok"), "direct return should verify arrival at the revive point");
+        AssertFalse(
+            !logger.Entries.Any(entry =>
+                entry.EventName == "bag_cleanup.complete" &&
+                string.Equals(Convert.ToString(entry.Fields["returnMode"]), "town_return", StringComparison.Ordinal)),
+            "direct return should record its completion mode");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS", previousTownSettle);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", previousTownMinDistance);
     }
 }
@@ -7546,6 +7667,12 @@ static async Task TestBagCleanupControllerDetectsTownReturnBeforeTimeoutAsync()
         AssertEqual("town_return_settled", detected.Reason, "movement of twenty should confirm town return immediately");
         AssertEqual(BagCleanupStep.LoadCleanupPath, state.Step, "confirmed town return should load cleanup path next");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.return.verify.ok"), "early town return should be logged");
+        AssertFalse(
+            !logger.Entries.Any(entry =>
+                entry.EventName == "bag_cleanup.return.press" &&
+                entry.Fields.TryGetValue("usedLegacyFallback", out var fallback) &&
+                fallback is true),
+            "old configs should use the existing return key as the cleanup return key fallback");
     }
     finally
     {
@@ -7753,7 +7880,7 @@ static async Task TestBagCleanupControllerReversesCleanupPathWhenFollowFailsAsyn
 
         AssertEqual(BagCleanupTickStatus.RecoverableFailure, last?.Status ?? BagCleanupTickStatus.FatalFailure, "path follow failure should be recoverable after reverse path");
         AssertEqual("cleanup_path_follow_failed", last?.Reason ?? string.Empty, "path follow failure reason");
-        AssertSequence(new[] { "NumPad7" }, keyboard.Keys.ToArray(), "path follow failure should not try npc interaction");
+        AssertSequence(new[] { "NumPad7", "Space" }, keyboard.Keys.ToArray(), "path follow failure should jump before returning without npc interaction");
         AssertSequence(new[] { "cleanup-path:2", "cleanup-path 返回:2" }, pathCalls.ToArray(), "path follow failure should reverse the cleanup path");
         AssertFalse(state.LastCompletedAt != DateTimeOffset.MinValue, "path follow failure should not start completion cooldown");
         AssertFalse(state.LastFailedAt == DateTimeOffset.MinValue, "path follow failure should start failure cooldown after reverse path");
@@ -8330,7 +8457,7 @@ static async Task TestBagCleanupControllerReturnsWhenNpcNotFoundAsync()
 
         AssertEqual(BagCleanupTickStatus.RecoverableFailure, last?.Status ?? BagCleanupTickStatus.FatalFailure, "npc miss should be recoverable after return path");
         AssertEqual("cleanup_npc_select_failed", last?.Reason ?? string.Empty, "npc miss failure reason");
-        AssertSequence(new[] { "NumPad7", "F8", "F8" }, keyboard.Keys.ToArray(), "npc miss key sequence");
+        AssertSequence(new[] { "NumPad7", "F8", "F8", "Space" }, keyboard.Keys.ToArray(), "npc miss should still jump before returning");
         AssertSequence(new[] { "cleanup-path:2", "cleanup-path 返回:2" }, pathCalls.ToArray(), "npc miss should follow cleanup path then reverse it");
         AssertFalse(state.LastCompletedAt != DateTimeOffset.MinValue, "npc miss should not start completion cooldown");
         AssertFalse(state.LastFailedAt == DateTimeOffset.MinValue, "npc miss should start failure cooldown after reverse path");
@@ -8534,10 +8661,17 @@ static async Task TestBagCleanupControllerFailureCoolsDownAsync()
 
         AssertEqual(BagCleanupTickStatus.RecoverableFailure, last?.Status ?? BagCleanupTickStatus.FatalFailure, "cleanup failure should be recoverable");
         AssertEqual("money_verify_failed", last?.Reason ?? string.Empty, "money verify failure should be logged as clear reason");
+        AssertFalse(!keyboard.Keys.Contains("Space"), "failed cleanup should still run the completion jump before returning");
         AssertSequence(new[] { "cleanup-path:2", "cleanup-path 返回:2" }, pathCalls.ToArray(), "money verify failure should reverse the cleanup path");
         AssertFalse(state.LastFailedAt == DateTimeOffset.MinValue, "failure should start failure cooldown");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.failed"), "cleanup failure should be logged");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.failure.returning"), "cleanup failure should log reverse-path recovery");
+        AssertFalse(
+            !logger.Entries.Any(entry =>
+                entry.EventName == "bag_cleanup.completion_jump.complete" &&
+                entry.Fields.TryGetValue("cleanupSucceeded", out var succeeded) &&
+                succeeded is false),
+            "failed cleanup should log completion jump before recovery");
         AssertFalse(
             !logger.Entries.Any(entry =>
                 entry.EventName == "bag_cleanup.failed" &&
@@ -8933,6 +9067,8 @@ static async Task TestAccountConfigStoresSharedPathNamesOnlyAsync()
                 {
                     CombatPathName = pathName,
                     TownReturnKey = "NumPad7",
+                    BagCleanupTownReturnKey = "NumPad8",
+                    BagCleanupReturnByReversePath = false,
                     RecordingMinimumDistance = 2.5D,
                     DeathReviveClickX = 618,
                     DeathReviveClickY = 349
@@ -8946,6 +9082,8 @@ static async Task TestAccountConfigStoresSharedPathNamesOnlyAsync()
         var text = await File.ReadAllTextAsync(accountPath).ConfigureAwait(false);
         AssertFalse(!text.Contains("\"CombatPathName\"", StringComparison.Ordinal), "account config should contain shared path reference field");
         AssertFalse(!text.Contains("\"TownReturnKey\": \"NumPad7\"", StringComparison.Ordinal), "account config should contain town return key");
+        AssertFalse(!text.Contains("\"BagCleanupTownReturnKey\": \"NumPad8\"", StringComparison.Ordinal), "account config should contain cleanup town return key");
+        AssertFalse(!text.Contains("\"BagCleanupReturnByReversePath\": false", StringComparison.Ordinal), "account config should contain cleanup return branch");
         AssertFalse(!text.Contains("\"RecordingMinimumDistance\": 2.5", StringComparison.Ordinal), "account config should contain recording minimum distance");
         AssertFalse(!text.Contains("\"DeathReviveClickX\"", StringComparison.Ordinal), "account config should contain death revive click x");
         AssertFalse(!text.Contains("\"DeathReviveClickY\"", StringComparison.Ordinal), "account config should contain death revive click y");
@@ -8955,6 +9093,8 @@ static async Task TestAccountConfigStoresSharedPathNamesOnlyAsync()
         AssertFalse(!load.Success, "account config should load");
         AssertEqual(pathName, load.Value?[0].ScriptSettings?.Paths.CombatPathName ?? string.Empty, "loaded combat path name");
         AssertEqual("NumPad7", load.Value?[0].ScriptSettings?.Paths.TownReturnKey ?? string.Empty, "loaded town return key");
+        AssertEqual("NumPad8", load.Value?[0].ScriptSettings?.Paths.BagCleanupTownReturnKey ?? string.Empty, "loaded cleanup town return key");
+        AssertFalse(load.Value?[0].ScriptSettings?.Paths.BagCleanupReturnByReversePath ?? true, "loaded cleanup return branch");
         AssertEqual(2.5D, load.Value?[0].ScriptSettings?.Paths.RecordingMinimumDistance ?? 0.0D, "loaded recording minimum distance");
         AssertEqual(618, load.Value?[0].ScriptSettings?.Paths.DeathReviveClickX ?? 0, "loaded death revive click x");
         AssertEqual(349, load.Value?[0].ScriptSettings?.Paths.DeathReviveClickY ?? 0, "loaded death revive click y");

@@ -98,6 +98,8 @@ namespace Roadhog
         private RoundedTextBox? maintenancePathNameTextBox;
         private RoundedTextBox? gatherPathNameTextBox;
         private Button? townReturnKeyButton;
+        private Button? bagCleanupTownReturnKeyButton;
+        private RoundedCheckBox? bagCleanupReturnByReversePathCheckBox;
         private RoundedTextBox? pathRecordingMinimumDistanceTextBox;
         private RoundedTextBox? deathReviveClickPointTextBox;
         private Button? deathReviveTestMoveButton;
@@ -382,6 +384,12 @@ namespace Roadhog
             SetText(maintenancePathNameTextBox, paths.MaintenancePathName);
             SetText(gatherPathNameTextBox, paths.GatherPathName);
             SetKeyButton(townReturnKeyButton, paths.TownReturnKey);
+            SetKeyButton(
+                bagCleanupTownReturnKeyButton,
+                string.IsNullOrWhiteSpace(paths.BagCleanupTownReturnKey)
+                    ? paths.TownReturnKey
+                    : paths.BagCleanupTownReturnKey);
+            SetChecked(bagCleanupReturnByReversePathCheckBox, paths.BagCleanupReturnByReversePath);
             SetText(
                 pathRecordingMinimumDistanceTextBox,
                 paths.RecordingMinimumDistance.ToString("0.###", CultureInfo.InvariantCulture));
@@ -643,6 +651,8 @@ namespace Roadhog
                     MaintenancePathName = GetText(maintenancePathNameTextBox, string.Empty),
                     GatherPathName = GetText(gatherPathNameTextBox, string.Empty),
                     TownReturnKey = townReturnKeyButton?.Tag as string ?? string.Empty,
+                    BagCleanupTownReturnKey = bagCleanupTownReturnKeyButton?.Tag as string ?? string.Empty,
+                    BagCleanupReturnByReversePath = bagCleanupReturnByReversePathCheckBox?.Checked ?? true,
                     RecordingMinimumDistance = ReadDouble(
                         pathRecordingMinimumDistanceTextBox,
                         PathScriptSettings.DefaultRecordingMinimumDistance,
@@ -1487,6 +1497,24 @@ namespace Roadhog
             openPathFolderButton.Name = "openPathLibraryFolderButton";
             if (kind == SharedPathKind.Maintenance)
             {
+                bagCleanupReturnByReversePathCheckBox = AddCheckBox(
+                    page,
+                    "清完包原路返回复活点",
+                    230,
+                    6,
+                    194,
+                    true);
+                AddLabel(page, "清包返程按键", 430, 10, 96, 22, _textGreen, FontStyle.Bold);
+                bagCleanupTownReturnKeyButton = AddButton(page, "选择按键", 528, 6, 106, 30);
+                bagCleanupTownReturnKeyButton.Click += (_, _) =>
+                {
+                    var selectedKey = ShowKeyboardPicker(bagCleanupTownReturnKeyButton.Tag as string);
+                    if (!string.IsNullOrWhiteSpace(selectedKey))
+                    {
+                        SetKeyButton(bagCleanupTownReturnKeyButton, selectedKey);
+                    }
+                };
+
                 AddLabel(page, "回程按键", 648, 42, 70, 22, _textGreen, FontStyle.Bold);
                 townReturnKeyButton = AddButton(page, "选择按键", 718, 38, 104, 30);
                 townReturnKeyButton.Click += (_, _) =>

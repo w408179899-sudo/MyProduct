@@ -17,6 +17,9 @@ public sealed class BagCleanupController
     private static readonly TimeSpan TownReturnHoldDuration = TimeSpan.FromMilliseconds(35);
     private static readonly TimeSpan TownReturnInterruptEscapeHoldDuration = TimeSpan.FromMilliseconds(35);
     private static readonly TimeSpan TownReturnInterruptEscapeInterval = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan CompletionJumpPreDelay = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan CompletionJumpHoldDuration = TimeSpan.FromMilliseconds(35);
+    private static readonly TimeSpan CompletionJumpPostDelay = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan DefaultTownReturnTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DefaultSafeWaitTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan DefaultCleanupCooldown = TimeSpan.FromMinutes(25);
@@ -70,6 +73,9 @@ public sealed class BagCleanupController
             BagCleanupStep.CloseInventoryWindow => await TickCloseInventoryWindowAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.ClickSellButton => await TickClickSellButtonAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.VerifyInventory => await TickVerifyInventoryAsync(context, state).ConfigureAwait(false),
+            BagCleanupStep.PostCleanupJump => await TickPostCleanupJumpAsync(context, state).ConfigureAwait(false),
+            BagCleanupStep.PressReturnToRevive => await TickPressReturnToReviveAsync(context, state).ConfigureAwait(false),
+            BagCleanupStep.WaitReturnToReviveSettle => await TickWaitReturnToReviveSettleAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.ReturnByReversePath => await TickReturnByReversePathAsync(context, state).ConfigureAwait(false),
             _ => BagCleanupTickResult.NotStarted("inactive")
         };
@@ -182,14 +188,27 @@ public sealed class BagCleanupController
         }
 
         var paths = context.Config.ScriptSettings?.Paths ?? new PathScriptSettings();
-        if (string.IsNullOrWhiteSpace(paths.TownReturnKey))
+        if (string.IsNullOrWhiteSpace(ResolveBagCleanupTownReturnKey(paths)))
         {
-            return RecoverableFailure(context, state, "town_return_key_missing", "Town return key is not configured.");
+            return RecoverableFailure(
+                context,
+                state,
+                "bag_cleanup_town_return_key_missing",
+                "Bag cleanup town return key is not configured.");
         }
 
         if (string.IsNullOrWhiteSpace(paths.MaintenancePathName))
         {
             return RecoverableFailure(context, state, "maintenance_path_missing", "Cleanup path is not configured.");
+        }
+
+        if (!paths.BagCleanupReturnByReversePath && string.IsNullOrWhiteSpace(paths.TownReturnKey))
+        {
+            return RecoverableFailure(
+                context,
+                state,
+                "return_to_revive_key_missing",
+                "Town return key is required when reverse-path return is disabled.");
         }
 
         if (candidates.Count == 0)
@@ -248,10 +267,15 @@ public sealed class BagCleanupController
         AccountWorkerContext context,
         BagCleanupState state)
     {
-        var key = context.Config.ScriptSettings?.Paths?.TownReturnKey ?? string.Empty;
+        var paths = context.Config.ScriptSettings?.Paths ?? new PathScriptSettings();
+        var key = ResolveBagCleanupTownReturnKey(paths);
         if (string.IsNullOrWhiteSpace(key))
         {
-            return RecoverableFailure(context, state, "town_return_key_missing", "Town return key is not configured.");
+            return RecoverableFailure(
+                context,
+                state,
+                "bag_cleanup_town_return_key_missing",
+                "Bag cleanup town return key is not configured.");
         }
 
         var before = await BagCleanupGameApi.ReadPlayerAsync(context).ConfigureAwait(false);
@@ -276,6 +300,7 @@ public sealed class BagCleanupController
         {
             ["account"] = context.Config.AccountName,
             ["key"] = key,
+            ["usedLegacyFallback"] = string.IsNullOrWhiteSpace(paths.BagCleanupTownReturnKey),
             ["startX"] = startPosition.X,
             ["startY"] = startPosition.Y,
             ["startZ"] = startPosition.Z
@@ -483,7 +508,7 @@ public sealed class BagCleanupController
                     ["npcName"] = state.CleanupNpcName,
                     ["error"] = error
                 });
-                state.ReturnAfterFailure("cleanup_npc_select_failed", error);
+                state.PrepareReturnAfterFailure("cleanup_npc_select_failed", error);
                 return BagCleanupTickResult.Running("cleanup_npc_select_failed_returning");
             }
 
@@ -607,7 +632,7 @@ public sealed class BagCleanupController
 
         if (candidates.Count == 0)
         {
-            state.Advance(BagCleanupStep.ReturnByReversePath);
+            state.PrepareReturnAfterSuccess();
             return BagCleanupTickResult.Running("no_sell_candidates_after_return");
         }
 
@@ -821,7 +846,7 @@ public sealed class BagCleanupController
                 return BagCleanupTickResult.Running("money_verified_more_sell_candidates");
             }
 
-            state.Advance(BagCleanupStep.ReturnByReversePath);
+            state.PrepareReturnAfterSuccess();
             return BagCleanupTickResult.Running("money_verified");
         }
 
@@ -857,8 +882,198 @@ public sealed class BagCleanupController
             ["pathName"] = state.PathName,
             ["step"] = state.Step.ToString()
         });
-        state.ReturnAfterFailure(reason, error);
+        state.PrepareReturnAfterFailure(reason, error);
         return BagCleanupTickResult.Running(reason + "_returning");
+    }
+
+    private async Task<BagCleanupTickResult> TickPostCleanupJumpAsync(
+        AccountWorkerContext context,
+        BagCleanupState state)
+    {
+        await DelayAsync(CompletionJumpPreDelay, context.StopToken).ConfigureAwait(false);
+        var jump = await _input
+            .PressKeyAsync("Space", CompletionJumpHoldDuration, context.StopToken)
+            .ConfigureAwait(false);
+        if (jump.Success)
+        {
+            context.Logger.Info("bag_cleanup.completion_jump.pressed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["cleanupSucceeded"] = !state.IsReturningAfterFailure,
+                ["preDelayMs"] = (int)CompletionJumpPreDelay.TotalMilliseconds,
+                ["postDelayMs"] = (int)CompletionJumpPostDelay.TotalMilliseconds
+            });
+        }
+        else
+        {
+            context.Logger.Warn("bag_cleanup.completion_jump.failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["cleanupSucceeded"] = !state.IsReturningAfterFailure,
+                ["error"] = jump.Error
+            });
+        }
+
+        await DelayAsync(CompletionJumpPostDelay, context.StopToken).ConfigureAwait(false);
+        var returnByReversePath = context.Config.ScriptSettings?.Paths?.BagCleanupReturnByReversePath ?? true;
+        state.Advance(returnByReversePath
+            ? BagCleanupStep.ReturnByReversePath
+            : BagCleanupStep.PressReturnToRevive);
+        context.Logger.Info("bag_cleanup.completion_jump.complete", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["cleanupSucceeded"] = !state.IsReturningAfterFailure,
+            ["jumpSuccess"] = jump.Success,
+            ["returnMode"] = returnByReversePath ? "reverse_path" : "town_return"
+        });
+        return BagCleanupTickResult.Running("completion_jump_finished");
+    }
+
+    private async Task<BagCleanupTickResult> TickPressReturnToReviveAsync(
+        AccountWorkerContext context,
+        BagCleanupState state)
+    {
+        var key = context.Config.ScriptSettings?.Paths?.TownReturnKey?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return FallbackToReversePathAfterTownReturnFailure(
+                context,
+                state,
+                "return_to_revive_key_missing",
+                "Town return key is not configured.");
+        }
+
+        var before = await BagCleanupGameApi.ReadPlayerAsync(context).ConfigureAwait(false);
+        if (!before.Success || before.Value?.Position is not { } startPosition)
+        {
+            return FallbackToReversePathAfterTownReturnFailure(
+                context,
+                state,
+                "return_to_revive_start_position_missing",
+                before.Error ?? "Player position before returning to revive point is not available.");
+        }
+
+        var press = await _input.PressKeyAsync(key, TownReturnHoldDuration, context.StopToken).ConfigureAwait(false);
+        if (!press.Success)
+        {
+            return FallbackToReversePathAfterTownReturnFailure(
+                context,
+                state,
+                "return_to_revive_press_failed",
+                press.Error ?? "Town return key press failed.");
+        }
+
+        state.MarkPressedTownReturn(startPosition);
+        state.Advance(BagCleanupStep.WaitReturnToReviveSettle);
+        context.Logger.Info("bag_cleanup.return_to_revive.press", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["key"] = key,
+            ["startX"] = startPosition.X,
+            ["startY"] = startPosition.Y,
+            ["startZ"] = startPosition.Z
+        });
+        return BagCleanupTickResult.Running("return_to_revive_pressed");
+    }
+
+    private async Task<BagCleanupTickResult> TickWaitReturnToReviveSettleAsync(
+        AccountWorkerContext context,
+        BagCleanupState state)
+    {
+        if (state.TownReturnStartPosition is not { } startPosition)
+        {
+            return FallbackToReversePathAfterTownReturnFailure(
+                context,
+                state,
+                "return_to_revive_start_position_missing",
+                "Player position before returning to revive point was not recorded.");
+        }
+
+        var after = await BagCleanupGameApi.ReadPlayerAsync(context).ConfigureAwait(false);
+        if (!after.Success || after.Value?.Position is not { } endPosition)
+        {
+            if (DateTimeOffset.Now - state.StepStartedAt < ReadTownReturnTimeout())
+            {
+                return BagCleanupTickResult.Running("waiting_for_return_to_revive_position");
+            }
+
+            return FallbackToReversePathAfterTownReturnFailure(
+                context,
+                state,
+                "return_to_revive_end_position_missing",
+                after.Error ?? "Player position after returning to revive point is not available.");
+        }
+
+        var distance = Distance(startPosition, endPosition);
+        var requiredDistance = ReadTownReturnMinDistance();
+        if (distance < requiredDistance)
+        {
+            if (DateTimeOffset.Now - state.StepStartedAt < ReadTownReturnTimeout())
+            {
+                return BagCleanupTickResult.Running("waiting_for_return_to_revive");
+            }
+
+            return FallbackToReversePathAfterTownReturnFailure(
+                context,
+                state,
+                "return_to_revive_position_unchanged",
+                "Town return did not move the character enough. distance=" +
+                distance.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) +
+                ", required=" +
+                requiredDistance.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        context.Logger.Info("bag_cleanup.return_to_revive.verify.ok", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["startX"] = startPosition.X,
+            ["startY"] = startPosition.Y,
+            ["startZ"] = startPosition.Z,
+            ["endX"] = endPosition.X,
+            ["endY"] = endPosition.Y,
+            ["endZ"] = endPosition.Z,
+            ["distance"] = distance
+        });
+        return FinishCleanupAfterReturn(context, state, returnedByReversePath: false);
+    }
+
+    private static BagCleanupTickResult FallbackToReversePathAfterTownReturnFailure(
+        AccountWorkerContext context,
+        BagCleanupState state,
+        string reason,
+        string error)
+    {
+        context.Logger.Warn("bag_cleanup.return_to_revive.failed_returning_by_path", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["reason"] = reason,
+            ["error"] = error,
+            ["cleanupAlreadyFailed"] = state.IsReturningAfterFailure,
+            ["pathName"] = state.PathName
+        });
+
+        if (state.CleanupPath is null)
+        {
+            return CleanupFailure(context, state, reason, error);
+        }
+
+        if (state.IsReturningAfterFailure)
+        {
+            state.Advance(BagCleanupStep.ReturnByReversePath);
+        }
+        else
+        {
+            state.ReturnAfterFailure(reason, error);
+        }
+
+        return BagCleanupTickResult.Running(reason + "_returning_by_path");
+    }
+
+    private static string ResolveBagCleanupTownReturnKey(PathScriptSettings paths)
+    {
+        return string.IsNullOrWhiteSpace(paths.BagCleanupTownReturnKey)
+            ? paths.TownReturnKey?.Trim() ?? string.Empty
+            : paths.BagCleanupTownReturnKey.Trim();
     }
 
     private static (int X, int Y) ResolveBagCleanupSellItemClickPoint(
@@ -912,6 +1127,14 @@ public sealed class BagCleanupController
             ["pathName"] = state.PathName
         });
 
+        return FinishCleanupAfterReturn(context, state, returnedByReversePath: true);
+    }
+
+    private static BagCleanupTickResult FinishCleanupAfterReturn(
+        AccountWorkerContext context,
+        BagCleanupState state,
+        bool returnedByReversePath)
+    {
         if (state.IsReturningAfterFailure)
         {
             var reason = state.ReturnAfterFailureReason;
@@ -924,7 +1147,8 @@ public sealed class BagCleanupController
                 ["reason"] = reason,
                 ["error"] = error,
                 ["fatal"] = false,
-                ["returnedByReversePath"] = true,
+                ["returnedByReversePath"] = returnedByReversePath,
+                ["returnedByTownReturn"] = !returnedByReversePath,
                 ["step"] = state.Step.ToString()
             });
             state.MarkFailed(DateTimeOffset.Now, reason);
@@ -938,6 +1162,7 @@ public sealed class BagCleanupController
         context.Logger.Info("bag_cleanup.complete", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
+            ["returnMode"] = returnedByReversePath ? "reverse_path" : "town_return",
             ["cooldownMs"] = (int)ReadCleanupCooldown().TotalMilliseconds
         });
         return BagCleanupTickResult.Completed("complete");

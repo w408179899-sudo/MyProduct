@@ -223,6 +223,10 @@ public sealed class PathScriptSettings
 
     public string TownReturnKey { get; set; } = string.Empty;
 
+    public string BagCleanupTownReturnKey { get; set; } = string.Empty;
+
+    public bool BagCleanupReturnByReversePath { get; set; } = true;
+
     public double RecordingMinimumDistance { get; set; } = DefaultRecordingMinimumDistance;
 
     public int DeathReviveClickX { get; set; } = DefaultDeathReviveClickX;
@@ -244,6 +248,8 @@ public sealed class PathScriptSettings
             MaintenancePathName = MaintenancePathName,
             GatherPathName = GatherPathName,
             TownReturnKey = TownReturnKey,
+            BagCleanupTownReturnKey = BagCleanupTownReturnKey,
+            BagCleanupReturnByReversePath = BagCleanupReturnByReversePath,
             RecordingMinimumDistance = RecordingMinimumDistance,
             DeathReviveClickX = DeathReviveClickX,
             DeathReviveClickY = DeathReviveClickY,

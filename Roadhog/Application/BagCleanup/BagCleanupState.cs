@@ -173,9 +173,19 @@ public sealed class BagCleanupState
 
     public void ReturnAfterFailure(string reason, string error)
     {
-        ReturnAfterFailureReason = reason?.Trim() ?? string.Empty;
-        ReturnAfterFailureError = error?.Trim() ?? string.Empty;
+        SetReturnAfterFailure(reason, error);
         Advance(BagCleanupStep.ReturnByReversePath);
+    }
+
+    public void PrepareReturnAfterSuccess()
+    {
+        Advance(BagCleanupStep.PostCleanupJump);
+    }
+
+    public void PrepareReturnAfterFailure(string reason, string error)
+    {
+        SetReturnAfterFailure(reason, error);
+        Advance(BagCleanupStep.PostCleanupJump);
     }
 
     public void IncrementRetry()
@@ -252,5 +262,11 @@ public sealed class BagCleanupState
         HasRegisteredSellItems = false;
         HasClosedInventoryWindow = false;
         HasClickedSellButton = false;
+    }
+
+    private void SetReturnAfterFailure(string reason, string error)
+    {
+        ReturnAfterFailureReason = reason?.Trim() ?? string.Empty;
+        ReturnAfterFailureError = error?.Trim() ?? string.Empty;
     }
 }
