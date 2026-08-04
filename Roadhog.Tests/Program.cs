@@ -229,6 +229,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("kmbox net keyboard input accepts team keys", TestKmBoxNetKeyboardInputAcceptsTeamKeysAsync),
     ("kmbox net config store saves and loads endpoint", TestKmBoxNetConfigStoreRoundTripAsync),
     ("device lease store prevents cross process device reuse", TestDeviceLeaseStorePreventsCrossProcessReuseAsync),
+    ("device lease store explains corrupted registry recovery", TestDeviceLeaseStoreExplainsCorruptedRegistryRecoveryAsync),
     ("service options use client root environment", TestRoadhogServiceOptionsUseClientRootEnvironmentAsync),
     ("license credential store encrypts and restores credential", LicenseTests.TestDpapiCredentialStoreRoundTripAsync),
     ("signed owner license grant authorizes matching device", LicenseTests.TestSignedOwnerLicenseGrantAuthorizesMatchingDeviceAsync),
@@ -8954,6 +8955,33 @@ static Task TestDeviceLeaseStorePreventsCrossProcessReuseAsync()
         var release = store.Release(202, processStarts[202]);
         AssertFalse(!release.Success, "device lease release should succeed");
         AssertEqual(0, store.ReadActive().Value?.Count ?? -1, "released lease count");
+    }
+    finally
+    {
+        DeleteDirectoryIfExists(directory);
+    }
+
+    return Task.CompletedTask;
+}
+
+static Task TestDeviceLeaseStoreExplainsCorruptedRegistryRecoveryAsync()
+{
+    var directory = CreateTempDirectory("roadhog-device-leases-corrupt-");
+    try
+    {
+        var path = Path.Combine(directory, "device-leases.json");
+        File.WriteAllBytes(path, new byte[] { 0x00 });
+        var now = new DateTimeOffset(2026, 8, 4, 11, 11, 0, TimeSpan.Zero);
+        var store = new DeviceLeaseStore(path, () => now, (_, _) => false);
+
+        var result = store.TryAcquire(101, now, @"C:\script\1", "P0004.H0002", "fpga");
+
+        AssertFalse(result.Success, "corrupted device lease registry should fail");
+        var error = result.Error ?? string.Empty;
+        AssertFalse(!error.Contains("按 Win + R", StringComparison.Ordinal), "recovery should explain how to open the registry directory");
+        AssertFalse(!error.Contains(@"%LOCALAPPDATA%\Roadhog", StringComparison.Ordinal), "recovery should include the registry directory");
+        AssertFalse(!error.Contains("删除 device-leases.json", StringComparison.Ordinal), "recovery should explain which file to delete");
+        AssertFalse(!error.Contains("0x00", StringComparison.OrdinalIgnoreCase), "recovery should retain the original JSON error");
     }
     finally
     {

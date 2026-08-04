@@ -37,6 +37,9 @@ public sealed record DeviceLeaseAcquireResult(
 public sealed class DeviceLeaseStore
 {
     private const string MutexName = @"Local\Roadhog.DeviceLeaseStore";
+    private const string CorruptedRegistryRecovery =
+        "设备占用记录已损坏。请先关闭所有 Roadhog.exe，然后按 Win + R，输入 %LOCALAPPDATA%\\Roadhog，" +
+        "删除 device-leases.json 后重新打开程序并保存硬件配置。";
     private static readonly TimeSpan MutexTimeout = TimeSpan.FromSeconds(2);
 
     private readonly string _path;
@@ -209,6 +212,10 @@ public sealed class DeviceLeaseStore
             }
 
             return action();
+        }
+        catch (JsonException ex)
+        {
+            return failureFactory(CorruptedRegistryRecovery + " 原始错误：" + ex.Message);
         }
         catch (Exception ex)
         {
