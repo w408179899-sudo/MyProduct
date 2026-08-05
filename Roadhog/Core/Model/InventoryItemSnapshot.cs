@@ -8,4 +8,13 @@ public sealed record InventoryItemSnapshot(
     int Slot,
     bool IsEquipped,
     uint ItemType = 0,
-    byte QualityRank = 0);
+    byte QualityRank = 0,
+    ulong VendorSellUnitPrice = 0)
+{
+    public ulong VendorSellStackTotal =>
+        Count == 0 || VendorSellUnitPrice == 0
+            ? 0
+            : VendorSellUnitPrice > ulong.MaxValue / Count
+                ? ulong.MaxValue
+                : VendorSellUnitPrice * Count;
+}

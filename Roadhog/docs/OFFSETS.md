@@ -219,6 +219,7 @@ Roadhog 从 MSVC 风格的 wide string 对象读取技能名和背包物品名�
 | `InventoryItemNameOffset` | `+0x18` | 物品名 MSVC 宽字符串。 |
 | `InventoryItemTypeOffset` | `+0x60` | 物品类型，用于装备、魔石、烙印等分类。 |
 | `InventoryItemEquipmentMaskOffset` | `+0x74` | 装备类别掩码。 |
+| `InventoryItemVendorSellUnitPriceOffset` | `+0x80` | 当前 NPC 杂货商单件收购价，8 字节无符号整数；2026-08-05 在 `script\4` 实测。 |
 | `InventoryItemSlotOffset` | `+0x4F6` | 背包格子 slot；2026-07-22 版本由旧 `+0x4EE` 后移 8 字节。 |
 | `ItemStaticIndexRva + 0x04` | `+0x04` | 静态索引数量。 |
 | `ItemStaticIndexRva + 0x10` | `+0x10` | 静态索引 entries 指针。 |

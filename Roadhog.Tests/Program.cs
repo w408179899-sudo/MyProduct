@@ -78,6 +78,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("account start preserves configured indexed fpga device", TestAccountStartPreservesConfiguredIndexedFpgaDeviceAsync),
     ("account start lets configured vmm override hardware indexed device", TestAccountStartConfiguredVmmOverridesHardwareIndexedDeviceAsync),
     ("runtime inventory read uses account scoped context", TestRuntimeInventoryReadUsesAccountScopeAsync),
+    ("inventory snapshot calculates vendor sell total safely", TestInventorySnapshotCalculatesVendorSellTotalSafelyAsync),
     ("runtime world object read uses account scoped context", TestRuntimeWorldObjectReadUsesAccountScopeAsync),
     ("runtime gather read uses account scoped context", TestRuntimeGatherReadUsesAccountScopeAsync),
     ("gather source catalog loads static metadata", TestGatherSourceCatalogLoadsStaticMetadataAsync),
@@ -973,6 +974,28 @@ static async Task TestRuntimeInventoryReadUsesAccountScopeAsync()
     AssertEqual(712, gameApi.LastInventoryContext?.ProcessId ?? 0, "scoped process id");
     AssertEqual("Aion.bin", gameApi.LastInventoryContext?.TargetProcessName ?? string.Empty, "scoped process name");
     AssertEqual("fpga", gameApi.LastInventoryContext?.VmmDeviceName ?? string.Empty, "scoped vmm device");
+}
+
+static Task TestInventorySnapshotCalculatesVendorSellTotalSafelyAsync()
+{
+    var equipment = new InventoryItemSnapshot(
+        110100680,
+        3334813097,
+        "恶魔之长袍上衣",
+        1,
+        0,
+        false,
+        7,
+        0,
+        632700);
+    var stack = equipment with { Count = 222, VendorSellUnitPrice = 250 };
+    var overflow = equipment with { Count = uint.MaxValue, VendorSellUnitPrice = ulong.MaxValue };
+
+    AssertEqual(632700UL, equipment.VendorSellUnitPrice, "equipment vendor sell unit price");
+    AssertEqual(632700UL, equipment.VendorSellStackTotal, "single equipment vendor sell total");
+    AssertEqual(55500UL, stack.VendorSellStackTotal, "stack vendor sell total");
+    AssertEqual(ulong.MaxValue, overflow.VendorSellStackTotal, "overflow vendor sell total should saturate");
+    return Task.CompletedTask;
 }
 
 static async Task TestRuntimeWorldObjectReadUsesAccountScopeAsync()

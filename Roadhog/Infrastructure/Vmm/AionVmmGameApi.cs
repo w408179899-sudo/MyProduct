@@ -184,6 +184,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
     private const ulong InventoryItemNameOffset = 0x18;
     private const ulong InventoryItemTypeOffset = 0x60;
     private const ulong InventoryItemEquipmentMaskOffset = 0x74;
+    private const ulong InventoryItemVendorSellUnitPriceOffset = 0x80;
     private const ulong InventoryItemSlotOffset = 0x4F6;
     private const ulong ItemStaticIndexRva = 0xD75428;
     private const ulong StaticResolverChunkListRva = 0xD4E500;
@@ -1701,7 +1702,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                         item.Slot,
                         IsEquippedInventoryItem(item),
                         item.ItemType,
-                        item.QualityRank))
+                        item.QualityRank,
+                        item.VendorSellUnitPrice))
                     .ToArray();
 
                 _logger.Info("vmm.inventory.read", new Dictionary<string, object?>
@@ -3418,6 +3420,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
 
         TryReadUInt32(process, item + InventoryItemTypeOffset, out info.ItemType);
         TryReadUInt32(process, item + InventoryItemEquipmentMaskOffset, out info.EquipmentMask);
+        TryReadUInt64(process, item + InventoryItemVendorSellUnitPriceOffset, out info.VendorSellUnitPrice);
 
         if (TryReadInt16(process, item + InventoryItemSlotOffset, out var slot))
         {
@@ -8029,6 +8032,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         public uint ItemType;
         public byte QualityRank;
         public uint EquipmentMask;
+        public ulong VendorSellUnitPrice;
         public short Slot;
         public bool IsInEquipmentArray;
     }
