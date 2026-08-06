@@ -209,10 +209,15 @@ internal static class LicenseTests
     {
         var credential = LicenseCredential.Create("ABCD-EFGH-JKLM-NPQR-STUV-WXYZ-2345-6789").MarkActivated();
         var store = new RecordingCredentialStore { Credential = credential };
+        var heartbeatCount = 0;
         var api = new RecordingLicenseApiClient
         {
             LoginHandler = (_, _, _, _) => Task.FromResult(SuccessfulSession()),
-            HeartbeatHandler = (_, _) => Task.FromResult(LicenseApiResult.Failure("LICENSE_DISABLED"))
+            HeartbeatHandler = (_, _) =>
+            {
+                Interlocked.Increment(ref heartbeatCount);
+                return Task.FromResult(LicenseApiResult.Failure("LICENSE_DISABLED"));
+            }
         };
         var logger = new InMemoryRoadhogLogger();
         await using var coordinator = CreateCoordinator(api, store, logger, TimeSpan.FromMilliseconds(10));
@@ -231,20 +236,29 @@ internal static class LicenseTests
         var deniedState = await denied.Task.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
         AssertEqual(LicenseRuntimeStateKind.Denied, deniedState.Kind, "heartbeat denial state");
         AssertEqual("LICENSE_DISABLED", deniedState.ErrorCode, "heartbeat denial error code");
+        AssertEqual(1, heartbeatCount, "non-transient heartbeat denial should stop immediately");
     }
 
-    public static async Task TestHeartbeatTransientFailureRetriesThenDeniesAsync()
+    public static async Task TestHeartbeatThirdConsecutiveTransientFailureDeniesAsync()
     {
         var credential = LicenseCredential.Create("ABCD-EFGH-JKLM-NPQR-STUV-WXYZ-2345-6789").MarkActivated();
         var store = new RecordingCredentialStore { Credential = credential };
         var heartbeatCount = 0;
+        var thirdCycleStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseThirdCycle = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var api = new RecordingLicenseApiClient
         {
             LoginHandler = (_, _, _, _) => Task.FromResult(SuccessfulSession()),
-            HeartbeatHandler = (_, _) =>
+            HeartbeatHandler = async (_, cancellationToken) =>
             {
-                heartbeatCount++;
-                return Task.FromResult(LicenseApiResult.Failure("NETWORK_UNAVAILABLE", isTransient: true));
+                var currentCount = Interlocked.Increment(ref heartbeatCount);
+                if (currentCount == 9)
+                {
+                    thirdCycleStarted.TrySetResult(true);
+                    await releaseThirdCycle.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                return LicenseApiResult.Failure("NETWORK_UNAVAILABLE", isTransient: true);
             }
         };
         var logger = new InMemoryRoadhogLogger();
@@ -267,10 +281,78 @@ internal static class LicenseTests
         var initialized = await coordinator.InitializeAsync().ConfigureAwait(false);
         Assert(!initialized.IsAuthorized, "stored credential login should authorize runtime");
 
+        await thirdCycleStarted.Task.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+        Assert(!coordinator.State.IsAuthorized, "first two transient heartbeat cycles should keep runtime authorized");
+        var deferredEntries = logger.Entries
+            .Where(entry => entry.EventName == "license.heartbeat.transient_failure_deferred")
+            .ToArray();
+        AssertEqual(2, deferredEntries.Length, "first two transient heartbeat cycles should log deferred denial");
+        AssertEqual(
+            2,
+            Convert.ToInt32(deferredEntries[1].Fields["consecutiveFailures"]),
+            "deferred heartbeat failure count");
+        AssertEqual(
+            3,
+            Convert.ToInt32(deferredEntries[1].Fields["failureThreshold"]),
+            "deferred heartbeat failure threshold");
+
+        releaseThirdCycle.TrySetResult(true);
         var deniedState = await denied.Task.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
         AssertEqual(LicenseRuntimeStateKind.Denied, deniedState.Kind, "transient heartbeat failure state");
         AssertEqual("NETWORK_UNAVAILABLE", deniedState.ErrorCode, "transient heartbeat failure code");
-        AssertEqual(4, heartbeatCount, "initial heartbeat plus three retries");
+        AssertEqual(12, heartbeatCount, "three heartbeat cycles should each include the initial request plus three retries");
+    }
+
+    public static async Task TestHeartbeatTransientFailureCountResetsAfterSuccessAsync()
+    {
+        var credential = LicenseCredential.Create("ABCD-EFGH-JKLM-NPQR-STUV-WXYZ-2345-6789").MarkActivated();
+        var store = new RecordingCredentialStore { Credential = credential };
+        var heartbeatCount = 0;
+        var fourthHeartbeatStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFourthHeartbeat = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var api = new RecordingLicenseApiClient
+        {
+            LoginHandler = (_, _, _, _) => Task.FromResult(SuccessfulSession()),
+            HeartbeatHandler = async (_, cancellationToken) =>
+            {
+                var currentCount = Interlocked.Increment(ref heartbeatCount);
+                if (currentCount == 1 || currentCount == 3)
+                {
+                    return LicenseApiResult.Failure("NETWORK_UNAVAILABLE", isTransient: true);
+                }
+
+                if (currentCount == 4)
+                {
+                    fourthHeartbeatStarted.TrySetResult(true);
+                    await releaseFourthHeartbeat.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                return SuccessfulSession();
+            }
+        };
+        var logger = new InMemoryRoadhogLogger();
+        await using var coordinator = CreateCoordinator(
+            api,
+            store,
+            logger,
+            TimeSpan.FromMilliseconds(10),
+            heartbeatRetryCount: 0);
+
+        var initialized = await coordinator.InitializeAsync().ConfigureAwait(false);
+        Assert(!initialized.IsAuthorized, "stored credential login should authorize runtime");
+
+        await fourthHeartbeatStarted.Task.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+        Assert(!coordinator.State.IsAuthorized, "a successful heartbeat should reset the transient failure count");
+        var deferredEntries = logger.Entries
+            .Where(entry => entry.EventName == "license.heartbeat.transient_failure_deferred")
+            .ToArray();
+        AssertEqual(2, deferredEntries.Length, "separated transient heartbeat failures should both be deferred");
+        AssertEqual(
+            1,
+            Convert.ToInt32(deferredEntries[1].Fields["consecutiveFailures"]),
+            "transient heartbeat failure count after recovery");
+
+        releaseFourthHeartbeat.TrySetResult(true);
     }
 
     public static Task TestAccountOrchestratorRejectsUnauthorizedStartAsync()

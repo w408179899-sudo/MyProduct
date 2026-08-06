@@ -5,6 +5,8 @@ namespace Roadhog.Application.Licensing;
 
 public sealed class LicenseCoordinator : ILicenseRuntimeGate, IAsyncDisposable
 {
+    private const int ConsecutiveTransientHeartbeatFailuresBeforeDeny = 3;
+
     private static readonly HashSet<string> ReplaceablePendingCredentialErrors = new(StringComparer.Ordinal)
     {
         "INVALID_CDKEY_FORMAT",
@@ -407,6 +409,8 @@ public sealed class LicenseCoordinator : ILicenseRuntimeGate, IAsyncDisposable
 
     private async Task RunHeartbeatAsync(string token, CancellationToken cancellationToken)
     {
+        var consecutiveTransientFailures = 0;
+
         try
         {
             while (!cancellationToken.IsCancellationRequested)
@@ -417,6 +421,7 @@ public sealed class LicenseCoordinator : ILicenseRuntimeGate, IAsyncDisposable
 
                 if (result.Success)
                 {
+                    consecutiveTransientFailures = 0;
                     _lastVerifiedAt = now;
                     var current = State;
                     SetState(new LicenseRuntimeState(
@@ -428,10 +433,29 @@ public sealed class LicenseCoordinator : ILicenseRuntimeGate, IAsyncDisposable
                     continue;
                 }
 
+                if (result.IsTransient)
+                {
+                    consecutiveTransientFailures++;
+                    if (consecutiveTransientFailures < ConsecutiveTransientHeartbeatFailuresBeforeDeny)
+                    {
+                        _logger.Warn("license.heartbeat.transient_failure_deferred", new Dictionary<string, object?>
+                        {
+                            ["errorCode"] = result.ErrorCode,
+                            ["consecutiveFailures"] = consecutiveTransientFailures,
+                            ["failureThreshold"] = ConsecutiveTransientHeartbeatFailuresBeforeDeny
+                        });
+                        continue;
+                    }
+                }
+
                 _logger.Warn("license.heartbeat.denied", new Dictionary<string, object?>
                 {
                     ["errorCode"] = result.ErrorCode,
-                    ["transient"] = result.IsTransient
+                    ["transient"] = result.IsTransient,
+                    ["consecutiveFailures"] = result.IsTransient ? consecutiveTransientFailures : 1,
+                    ["failureThreshold"] = result.IsTransient
+                        ? ConsecutiveTransientHeartbeatFailuresBeforeDeny
+                        : 1
                 });
                 SetState(new LicenseRuntimeState(
                     LicenseRuntimeStateKind.Denied,
