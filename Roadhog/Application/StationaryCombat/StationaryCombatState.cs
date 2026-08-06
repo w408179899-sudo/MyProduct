@@ -182,6 +182,12 @@ public sealed class StationaryCombatState
 
     public bool StartupRecoveryActive { get; private set; }
 
+    public bool StartupTownReturnPending { get; private set; }
+
+    public Vector3Snapshot? StartupTownReturnStartPosition { get; private set; }
+
+    public DateTimeOffset StartupTownReturnStartedAt { get; private set; } = DateTimeOffset.MinValue;
+
     public string StartupRecoveryPathName { get; private set; } = string.Empty;
 
     public int StartupRecoveryPointIndex { get; private set; } = -1;
@@ -834,6 +840,7 @@ public sealed class StationaryCombatState
         CleanupReturnToCombatActive = true;
         StartupRecoveryChecked = false;
         StartupRecoveryActive = false;
+        ResetStartupTownReturn();
         StartupRecoveryPathName = string.Empty;
         StartupRecoveryPointIndex = -1;
         StartupRecoveryPoints = Array.Empty<Vector3Snapshot>();
@@ -882,12 +889,36 @@ public sealed class StationaryCombatState
         int pointIndex)
     {
         ClearNoTargetRest();
+        ResetStartupTownReturn();
         StartupRecoveryChecked = true;
         StartupRecoveryActive = true;
         StartupRecoveryPathName = pathName;
         StartupRecoveryPoints = points;
         StartupRecoveryPointIndex = Math.Max(0, pointIndex);
         ResetStartupRecoveryStuckTracking();
+    }
+
+    public void StartStartupTownReturn(
+        string pathName,
+        IReadOnlyList<Vector3Snapshot> points,
+        Vector3Snapshot startPosition,
+        DateTimeOffset now)
+    {
+        ClearNoTargetRest();
+        StartupRecoveryChecked = true;
+        StartupRecoveryActive = false;
+        StartupRecoveryPathName = pathName;
+        StartupRecoveryPoints = points;
+        StartupRecoveryPointIndex = -1;
+        ResetStartupRecoveryStuckTracking();
+        StartupTownReturnPending = true;
+        StartupTownReturnStartPosition = startPosition;
+        StartupTownReturnStartedAt = now;
+    }
+
+    public void CompleteStartupTownReturn()
+    {
+        ResetStartupTownReturn();
     }
 
     public void AdvanceStartupRecoveryPoint()
@@ -924,12 +955,20 @@ public sealed class StationaryCombatState
     public void ClearStartupRecovery()
     {
         ClearNoTargetRest();
+        ResetStartupTownReturn();
         StartupRecoveryChecked = true;
         StartupRecoveryActive = false;
         StartupRecoveryPathName = string.Empty;
         StartupRecoveryPointIndex = -1;
         StartupRecoveryPoints = Array.Empty<Vector3Snapshot>();
         ResetStartupRecoveryStuckTracking();
+    }
+
+    private void ResetStartupTownReturn()
+    {
+        StartupTownReturnPending = false;
+        StartupTownReturnStartPosition = null;
+        StartupTownReturnStartedAt = DateTimeOffset.MinValue;
     }
 
     public void PruneIgnoredTargets(IEnumerable<WorldObjectSnapshot> objects)

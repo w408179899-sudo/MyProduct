@@ -264,6 +264,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("tool bridge world parser reads aggressive monster flags", TestToolBridgeWorldParserReadsAggressiveFlagsAsync),
     ("vmm skill options group learned ranks by default", TestVmmSkillOptionsGroupLearnedRanksByDefaultAsync),
     ("stationary combat startup recovery follows nearest revive path point", TestStationaryCombatStartupRecoveryFollowsNearestRevivePointAsync),
+    ("stationary combat startup recovery returns before a distant revive path", TestStationaryCombatStartupRecoveryReturnsBeforeDistantRevivePathAsync),
+    ("stationary combat startup recovery keeps a nearby middle revive point", TestStationaryCombatStartupRecoveryKeepsNearbyMiddleRevivePointAsync),
+    ("stationary combat startup recovery rejects a still distant town return", TestStationaryCombatStartupRecoveryRejectsStillDistantTownReturnAsync),
     ("stationary combat startup recovery path jumps when stuck", TestStationaryCombatStartupRecoveryPathJumpsWhenStuckAsync),
     ("stationary combat startup recovery skips revive path when home is nearest", TestStationaryCombatStartupRecoverySkipsWhenHomeNearestAsync),
     ("stationary combat startup recovery defends when targeted", TestStationaryCombatStartupRecoveryDefendsWhenTargetedAsync),
@@ -10185,6 +10188,207 @@ static async Task TestStationaryCombatStartupRecoveryFollowsNearestRevivePointAs
     }
     finally
     {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestStationaryCombatStartupRecoveryReturnsBeforeDistantRevivePathAsync()
+{
+    var previousDistance = Environment.GetEnvironmentVariable("ROADHOG_STARTUP_RETURN_DISTANCE");
+    var previousSettle = Environment.GetEnvironmentVariable("ROADHOG_STARTUP_RETURN_SETTLE_MS");
+    var previousMinDistance = Environment.GetEnvironmentVariable("ROADHOG_STARTUP_RETURN_MIN_DISTANCE");
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("ROADHOG_STARTUP_RETURN_DISTANCE", "500");
+    Environment.SetEnvironmentVariable("ROADHOG_STARTUP_RETURN_SETTLE_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_STARTUP_RETURN_MIN_DISTANCE", "5");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Paths.TownReturnKey = "NumPad7";
+        settings.Paths.RevivePathName = "revive-a";
+        settings.Combat.StationaryCombatRadius = 20;
+
+        var pathStore = new InMemorySharedPathStore(
+            CreatePath(
+                "revive-a",
+                new Vector3Snapshot(0, 0, 0),
+                new Vector3Snapshot(100, 0, 0),
+                new Vector3Snapshot(200, 0, 0)));
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(
+                1, 0, "Fake", 100, 100, 100, 100, 0,
+                new Vector3Snapshot(1_000, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+            Skills = Array.Empty<SkillSnapshot>()
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto, pathStore);
+        var state = new StationaryCombatState();
+        var semiAutoState = new SemiAutoCombatState();
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad7"), "distant startup should press town return once");
+        AssertFalse(!state.StartupTownReturnPending, "distant startup should wait for town return verification");
+        AssertFalse(state.StartupRecoveryActive, "revive path should not start before town return verification");
+        AssertFalse(keyboard.KeyDowns.Contains("W"), "distant startup should not walk directly toward the revive path");
+
+        gameApi.Player = gameApi.Player with { Position = new Vector3Snapshot(0, 0, 0) };
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(state.StartupTownReturnPending, "verified town return should clear the pending state");
+        AssertFalse(!state.StartupRecoveryActive, "verified town return should start revive path recovery");
+        AssertEqual(1, state.StartupRecoveryPointIndex, "verified town return should begin at point zero before advancing");
+        AssertFalse(!keyboard.KeyDowns.Contains("W"), "verified town return should continue toward the next revive point");
+        AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad7"), "verified town return must not press the key twice");
+        AssertFalse(!logger.Entries.Any(entry =>
+                entry.EventName == "stationary_combat.startup_recovery.return.verify.ok" &&
+                Convert.ToInt32(entry.Fields["startPointIndex"]) == 0),
+            "verified town return should log point-zero recovery");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_STARTUP_RETURN_DISTANCE", previousDistance);
+        Environment.SetEnvironmentVariable("ROADHOG_STARTUP_RETURN_SETTLE_MS", previousSettle);
+        Environment.SetEnvironmentVariable("ROADHOG_STARTUP_RETURN_MIN_DISTANCE", previousMinDistance);
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestStationaryCombatStartupRecoveryKeepsNearbyMiddleRevivePointAsync()
+{
+    var previousDistance = Environment.GetEnvironmentVariable("ROADHOG_STARTUP_RETURN_DISTANCE");
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("ROADHOG_STARTUP_RETURN_DISTANCE", "500");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Paths.TownReturnKey = "NumPad7";
+        settings.Paths.RevivePathName = "revive-a";
+        settings.Combat.StationaryCombatRadius = 20;
+
+        var pathStore = new InMemorySharedPathStore(
+            CreatePath(
+                "revive-a",
+                new Vector3Snapshot(0, 0, 0),
+                new Vector3Snapshot(600, 0, 0),
+                new Vector3Snapshot(1_200, 0, 0)));
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(
+                1, 0, "Fake", 100, 100, 100, 100, 0,
+                new Vector3Snapshot(600, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+            Skills = Array.Empty<SkillSnapshot>()
+        };
+        var controller = new StationaryCombatController(
+            keyboard,
+            new SemiAutoCombatController(keyboard),
+            pathStore);
+        var state = new StationaryCombatState();
+
+        await controller
+            .TickAsync(
+                CreateContext(settings, gameApi, logger),
+                SemiAutoSkillPlan.FromSettings(settings.Skills),
+                new SemiAutoCombatState(),
+                state)
+            .ConfigureAwait(false);
+
+        AssertFalse(keyboard.Keys.Contains("NumPad7"), "a nearby middle path point must prevent town return");
+        AssertFalse(state.StartupTownReturnPending, "nearby middle path point should not start town return state");
+        AssertFalse(!state.StartupRecoveryActive, "nearby middle path point should keep existing nearest-point recovery");
+        AssertEqual(2, state.StartupRecoveryPointIndex, "middle path point should be reached before continuing");
+        AssertFalse(!logger.Entries.Any(entry =>
+                entry.EventName == "stationary_combat.startup_recovery.selected" &&
+                Convert.ToInt32(entry.Fields["startPointIndex"]) == 1),
+            "middle path point should remain the selected recovery point");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_STARTUP_RETURN_DISTANCE", previousDistance);
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestStationaryCombatStartupRecoveryRejectsStillDistantTownReturnAsync()
+{
+    var previousDistance = Environment.GetEnvironmentVariable("ROADHOG_STARTUP_RETURN_DISTANCE");
+    var previousSettle = Environment.GetEnvironmentVariable("ROADHOG_STARTUP_RETURN_SETTLE_MS");
+    var previousMinDistance = Environment.GetEnvironmentVariable("ROADHOG_STARTUP_RETURN_MIN_DISTANCE");
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("ROADHOG_STARTUP_RETURN_DISTANCE", "500");
+    Environment.SetEnvironmentVariable("ROADHOG_STARTUP_RETURN_SETTLE_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_STARTUP_RETURN_MIN_DISTANCE", "5");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Paths.TownReturnKey = "NumPad7";
+        settings.Paths.RevivePathName = "revive-a";
+        settings.Combat.StationaryCombatRadius = 20;
+
+        var pathStore = new InMemorySharedPathStore(
+            CreatePath(
+                "revive-a",
+                new Vector3Snapshot(0, 0, 0),
+                new Vector3Snapshot(100, 0, 0),
+                new Vector3Snapshot(200, 0, 0)));
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(
+                1, 0, "Fake", 100, 100, 100, 100, 0,
+                new Vector3Snapshot(-1_000, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+            Skills = Array.Empty<SkillSnapshot>()
+        };
+        var controller = new StationaryCombatController(
+            keyboard,
+            new SemiAutoCombatController(keyboard),
+            pathStore);
+        var state = new StationaryCombatState();
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
+        gameApi.Player = gameApi.Player with { Position = new Vector3Snapshot(-990, 0, 0) };
+        await controller.TickAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
+
+        AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad7"), "still distant town return should not be pressed repeatedly");
+        AssertFalse(state.StartupTownReturnPending, "still distant town return should leave the pending state");
+        AssertFalse(!state.StartupRecoveryActive, "still distant town return should fall back to existing nearest-point recovery");
+        AssertEqual(0, state.StartupRecoveryPointIndex, "fallback should retain the existing nearest revive point selection");
+        AssertFalse(!keyboard.KeyDowns.Contains("W"), "fallback should preserve existing path movement behavior");
+        AssertFalse(!logger.Entries.Any(entry =>
+                entry.EventName == "stationary_combat.startup_recovery.return.failed" &&
+                string.Equals(
+                    Convert.ToString(entry.Fields["reason"]),
+                    "town_return_destination_still_distant",
+                    StringComparison.Ordinal)),
+            "still distant town return should log the verification failure");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_STARTUP_RETURN_DISTANCE", previousDistance);
+        Environment.SetEnvironmentVariable("ROADHOG_STARTUP_RETURN_SETTLE_MS", previousSettle);
+        Environment.SetEnvironmentVariable("ROADHOG_STARTUP_RETURN_MIN_DISTANCE", previousMinDistance);
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
     }
 }

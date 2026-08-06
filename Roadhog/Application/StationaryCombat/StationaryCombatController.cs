@@ -31,6 +31,8 @@ public sealed class StationaryCombatController
     private static readonly TimeSpan DefaultNoKillTimeout = TimeSpan.FromMinutes(20);
     private static readonly TimeSpan DefaultNoKillTownReturnSettleDelay = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan DefaultNoKillRetryDelay = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan StartupTownReturnHoldDuration = TimeSpan.FromMilliseconds(35);
+    private static readonly TimeSpan DefaultStartupTownReturnSettleDelay = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan DefaultManualPathPlayerReadRetryTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DefaultManualPathPlayerReadRetryInterval = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan FightSoftRestartApproachTimeout = TimeSpan.FromSeconds(5);
@@ -44,6 +46,8 @@ public sealed class StationaryCombatController
     private const double PreLockFaceYawToleranceDegrees = 30.0D;
     private const double DefaultPathFollowReachDistance = 5.0D;
     private const double RevivePathAggressiveClearRadius = 10.0D;
+    private const double DefaultStartupTownReturnDistance = 500.0D;
+    private const double DefaultStartupTownReturnMinDistance = 5.0D;
     private const double DefaultYawPixelsPerDegree = 11.0D;
     private const double DefaultPitchPixelsPerDegree = 13.0D;
     private const int DefaultReviveClickX = PathScriptSettings.DefaultDeathReviveClickX;
@@ -177,6 +181,19 @@ public sealed class StationaryCombatController
                     home,
                     playerDistanceFromHome,
                     followRevivePath: true)
+                .ConfigureAwait(false);
+        }
+
+        if (state.StartupTownReturnPending)
+        {
+            return await TickStartupTownReturnAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    state,
+                    player,
+                    playerPosition,
+                    radius)
                 .ConfigureAwait(false);
         }
 
@@ -792,6 +809,19 @@ public sealed class StationaryCombatController
                     state,
                     followRevivePath: true)
                 .ConfigureAwait(false) ?? IdleDelay;
+        }
+
+        if (state.StartupTownReturnPending)
+        {
+            return await TickStartupTownReturnAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    state,
+                    player,
+                    playerPosition,
+                    radius)
+                .ConfigureAwait(false);
         }
 
         if (state.LootAfterKill.Active)
@@ -2128,6 +2158,19 @@ public sealed class StationaryCombatController
         double radius,
         double playerDistanceFromHome)
     {
+        if (state.StartupTownReturnPending)
+        {
+            return await TickStartupTownReturnAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    state,
+                    player,
+                    playerPosition,
+                    radius)
+                .ConfigureAwait(false);
+        }
+
         if (state.StartupRecoveryActive)
         {
             return await ContinueStartupRecoveryAsync(
@@ -2172,35 +2215,97 @@ public sealed class StationaryCombatController
             .Select(point => point.ToVector3())
             .ToArray();
         state.SetStationaryHomeFromRevivePath(revivePathName, revivePoints[^1], revivePoints.Length);
-        var nearestPointIndex = FindNearestPathPointIndex(playerPosition, revivePoints, playerDistanceFromHome);
-        if (nearestPointIndex < 0)
+
+        var nearestPathPointIndex = FindNearestPathPointIndex(playerPosition, revivePoints, double.MaxValue);
+        if (nearestPathPointIndex < 0)
         {
-            context.Logger.Info("stationary_combat.startup_recovery.home_nearest", new Dictionary<string, object?>
+            context.Logger.Warn("stationary_combat.startup_recovery.path_unavailable", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
                 ["pathName"] = revivePathName,
-                ["homeDistance"] = Math.Round(playerDistanceFromHome, 2),
+                ["reason"] = "nearest_point_missing",
                 ["pathPointCount"] = revivePoints.Length
             });
             return null;
         }
 
-        var nearestDistance = StationaryCombatTargetSelector.HorizontalDistance(
+        var nearestPathPointDistance = StationaryCombatTargetSelector.HorizontalDistance(
             playerPosition,
-            revivePoints[nearestPointIndex]);
-        state.StartStartupRecovery(revivePathName, revivePoints, nearestPointIndex);
-        state.ReturningHome = false;
-        state.ClearTarget();
-        context.Logger.Info("stationary_combat.startup_recovery.selected", new Dictionary<string, object?>
+            revivePoints[nearestPathPointIndex]);
+        var startupTownReturnDistance = ReadStartupTownReturnDistance();
+        if (context.Config.ScriptSettings?.CombatMode == AccountCombatMode.Stationary &&
+            !state.CleanupReturnToCombatActive &&
+            nearestPathPointDistance > startupTownReturnDistance)
         {
-            ["account"] = context.Config.AccountName,
-            ["pathName"] = revivePathName,
-            ["startPointIndex"] = nearestPointIndex,
-            ["startPointNumber"] = nearestPointIndex + 1,
-            ["pathPointCount"] = revivePoints.Length,
-            ["pathPointDistance"] = Math.Round(nearestDistance, 2),
-            ["homeDistance"] = Math.Round(playerDistanceFromHome, 2)
-        });
+            var key = context.Config.ScriptSettings?.Paths?.TownReturnKey?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                context.Logger.Warn("stationary_combat.startup_recovery.return.skipped", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["reason"] = "town_return_key_missing",
+                    ["pathName"] = revivePathName,
+                    ["nearestPathPointDistance"] = Math.Round(nearestPathPointDistance, 2),
+                    ["distanceThreshold"] = Math.Round(startupTownReturnDistance, 2)
+                });
+            }
+            else
+            {
+                semiAutoState.ResetAttackKeyPressThrottle();
+                await StopMovementAsync(context, state).ConfigureAwait(false);
+                StopPathFollowPoller(state);
+                state.ReturningHome = false;
+                state.ClearTarget();
+
+                var press = await _input
+                    .PressKeyAsync(key, StartupTownReturnHoldDuration, context.StopToken)
+                    .ConfigureAwait(false);
+                if (press.Success)
+                {
+                    state.StartStartupTownReturn(
+                        revivePathName,
+                        revivePoints,
+                        playerPosition,
+                        DateTimeOffset.Now);
+                    context.Logger.Warn("stationary_combat.startup_recovery.return.press", new Dictionary<string, object?>
+                    {
+                        ["account"] = context.Config.AccountName,
+                        ["key"] = key,
+                        ["pathName"] = revivePathName,
+                        ["nearestPathPointIndex"] = nearestPathPointIndex,
+                        ["nearestPathPointDistance"] = Math.Round(nearestPathPointDistance, 2),
+                        ["startPointDistance"] = Math.Round(
+                            StationaryCombatTargetSelector.HorizontalDistance(playerPosition, revivePoints[0]),
+                            2),
+                        ["endPointDistance"] = Math.Round(playerDistanceFromHome, 2),
+                        ["distanceThreshold"] = Math.Round(startupTownReturnDistance, 2)
+                    });
+                    return IdleDelay;
+                }
+
+                context.Logger.Warn("stationary_combat.startup_recovery.return.failed", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["reason"] = "town_return_press_failed",
+                    ["key"] = key,
+                    ["pathName"] = revivePathName,
+                    ["nearestPathPointDistance"] = Math.Round(nearestPathPointDistance, 2),
+                    ["distanceThreshold"] = Math.Round(startupTownReturnDistance, 2),
+                    ["error"] = press.Error
+                });
+            }
+        }
+
+        if (!TryStartStartupRecoveryFromNearestPoint(
+                context,
+                state,
+                playerPosition,
+                revivePathName,
+                revivePoints,
+                playerDistanceFromHome))
+        {
+            return null;
+        }
 
         return await ContinueStartupRecoveryAsync(
                 context,
@@ -5227,6 +5332,186 @@ public sealed class StationaryCombatController
                 allowLockedFallback: true,
                 phase: "after_tab_aggressive")
             .ConfigureAwait(false);
+    }
+
+    private async Task<TimeSpan> TickStartupTownReturnAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        PlayerSnapshot player,
+        Vector3Snapshot playerPosition,
+        double radius)
+    {
+        if (DateTimeOffset.Now - state.StartupTownReturnStartedAt < ReadStartupTownReturnSettleDelay())
+        {
+            return IdleDelay;
+        }
+
+        var startPosition = state.StartupTownReturnStartPosition;
+        var revivePathName = state.StartupRecoveryPathName;
+        var revivePoints = state.StartupRecoveryPoints;
+        state.CompleteStartupTownReturn();
+
+        if (startPosition is null || revivePoints.Count < 2)
+        {
+            state.ClearStartupRecovery();
+            context.Logger.Warn("stationary_combat.startup_recovery.return.failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["reason"] = startPosition is null ? "start_position_missing" : "revive_path_unavailable",
+                ["pathName"] = revivePathName,
+                ["pathPointCount"] = revivePoints.Count
+            });
+            return IdleDelay;
+        }
+
+        var movedDistance = StationaryCombatTargetSelector.HorizontalDistance(
+            startPosition.Value,
+            playerPosition);
+        var playerDistanceFromHome = StationaryCombatTargetSelector.HorizontalDistance(
+            playerPosition,
+            revivePoints[^1]);
+        var nearestReturnedPointIndex = FindNearestPathPointIndex(
+            playerPosition,
+            revivePoints,
+            double.MaxValue);
+        var nearestReturnedPointDistance = nearestReturnedPointIndex >= 0
+            ? StationaryCombatTargetSelector.HorizontalDistance(
+                playerPosition,
+                revivePoints[nearestReturnedPointIndex])
+            : double.MaxValue;
+        var minimumMovedDistance = ReadStartupTownReturnMinDistance();
+        var startupTownReturnDistance = ReadStartupTownReturnDistance();
+        var returnFailureReason = movedDistance < minimumMovedDistance
+            ? "town_return_position_unchanged"
+            : nearestReturnedPointDistance > startupTownReturnDistance
+                ? "town_return_destination_still_distant"
+                : string.Empty;
+        if (!string.IsNullOrEmpty(returnFailureReason))
+        {
+            context.Logger.Warn("stationary_combat.startup_recovery.return.failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["reason"] = returnFailureReason,
+                ["pathName"] = revivePathName,
+                ["movedDistance"] = Math.Round(movedDistance, 2),
+                ["minimumMovedDistance"] = Math.Round(minimumMovedDistance, 2),
+                ["nearestPathPointDistance"] = nearestReturnedPointIndex >= 0
+                    ? Math.Round(nearestReturnedPointDistance, 2)
+                    : null,
+                ["distanceThreshold"] = Math.Round(startupTownReturnDistance, 2)
+            });
+
+            if (!TryStartStartupRecoveryFromNearestPoint(
+                    context,
+                    state,
+                    playerPosition,
+                    revivePathName,
+                    revivePoints,
+                    playerDistanceFromHome))
+            {
+                return IdleDelay;
+            }
+        }
+        else
+        {
+            state.StartStartupRecovery(revivePathName, revivePoints, 0);
+            state.ReturningHome = false;
+            state.ClearTarget();
+            context.Logger.Info("stationary_combat.startup_recovery.return.verify.ok", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["pathName"] = revivePathName,
+                ["movedDistance"] = Math.Round(movedDistance, 2),
+                ["nearestPathPointDistance"] = Math.Round(nearestReturnedPointDistance, 2),
+                ["startPointIndex"] = 0,
+                ["pathPointCount"] = revivePoints.Count
+            });
+            LogStartupRecoverySelected(
+                context,
+                revivePathName,
+                revivePoints,
+                0,
+                StationaryCombatTargetSelector.HorizontalDistance(playerPosition, revivePoints[0]),
+                playerDistanceFromHome,
+                selectionReason: "town_return_verified");
+        }
+
+        return await ContinueStartupRecoveryAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                player,
+                playerPosition,
+                revivePoints[^1],
+                radius,
+                playerDistanceFromHome)
+            .ConfigureAwait(false) ?? IdleDelay;
+    }
+
+    private static bool TryStartStartupRecoveryFromNearestPoint(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        Vector3Snapshot playerPosition,
+        string revivePathName,
+        IReadOnlyList<Vector3Snapshot> revivePoints,
+        double playerDistanceFromHome)
+    {
+        var nearestPointIndex = FindNearestPathPointIndex(
+            playerPosition,
+            revivePoints,
+            playerDistanceFromHome);
+        if (nearestPointIndex < 0)
+        {
+            context.Logger.Info("stationary_combat.startup_recovery.home_nearest", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["pathName"] = revivePathName,
+                ["homeDistance"] = Math.Round(playerDistanceFromHome, 2),
+                ["pathPointCount"] = revivePoints.Count
+            });
+            return false;
+        }
+
+        var nearestDistance = StationaryCombatTargetSelector.HorizontalDistance(
+            playerPosition,
+            revivePoints[nearestPointIndex]);
+        state.StartStartupRecovery(revivePathName, revivePoints, nearestPointIndex);
+        state.ReturningHome = false;
+        state.ClearTarget();
+        LogStartupRecoverySelected(
+            context,
+            revivePathName,
+            revivePoints,
+            nearestPointIndex,
+            nearestDistance,
+            playerDistanceFromHome,
+            selectionReason: "nearest_path_point");
+        return true;
+    }
+
+    private static void LogStartupRecoverySelected(
+        AccountWorkerContext context,
+        string revivePathName,
+        IReadOnlyList<Vector3Snapshot> revivePoints,
+        int pointIndex,
+        double pointDistance,
+        double playerDistanceFromHome,
+        string selectionReason)
+    {
+        context.Logger.Info("stationary_combat.startup_recovery.selected", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["pathName"] = revivePathName,
+            ["startPointIndex"] = pointIndex,
+            ["startPointNumber"] = pointIndex + 1,
+            ["pathPointCount"] = revivePoints.Count,
+            ["pathPointDistance"] = Math.Round(pointDistance, 2),
+            ["homeDistance"] = Math.Round(playerDistanceFromHome, 2),
+            ["selectionReason"] = selectionReason
+        });
     }
 
     private async Task<bool> PrepareOrdinaryStationaryFightReacquireTabAsync(
@@ -10004,6 +10289,32 @@ public sealed class StationaryCombatController
     private static double ReadNoKillTownReturnMinDistance()
     {
         return ClampDouble(ReadDoubleFromEnv("ROADHOG_NO_KILL_RETURN_MIN_DISTANCE", 5.0D), 0.0D, 10_000.0D);
+    }
+
+    private static double ReadStartupTownReturnDistance()
+    {
+        return ClampDouble(
+            ReadDoubleFromEnv("ROADHOG_STARTUP_RETURN_DISTANCE", DefaultStartupTownReturnDistance),
+            1.0D,
+            10_000.0D);
+    }
+
+    private static TimeSpan ReadStartupTownReturnSettleDelay()
+    {
+        return TimeSpan.FromMilliseconds(ClampInt(
+            ReadRawIntFromEnv(
+                "ROADHOG_STARTUP_RETURN_SETTLE_MS",
+                (int)DefaultStartupTownReturnSettleDelay.TotalMilliseconds),
+            0,
+            60_000));
+    }
+
+    private static double ReadStartupTownReturnMinDistance()
+    {
+        return ClampDouble(
+            ReadDoubleFromEnv("ROADHOG_STARTUP_RETURN_MIN_DISTANCE", DefaultStartupTownReturnMinDistance),
+            0.0D,
+            10_000.0D);
     }
 
     private static TimeSpan ReadManualPathPlayerReadRetryTimeout()
