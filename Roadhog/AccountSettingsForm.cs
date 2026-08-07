@@ -68,6 +68,7 @@ namespace Roadhog
         private RoundedCheckBox? contestMonsterCheckBox;
         private RoundedCheckBox? counterEnemyRaceCheckBox;
         private RoundedCheckBox? preferAggressiveMonsterCheckBox;
+        private RoundedCheckBox? smartPreAimEnabledCheckBox;
         private RoundedCheckBox? returnHomeWhenNoTargetCheckBox;
         private RoundedCheckBox? sitWhenNoTargetAtHomeCheckBox;
         private RoundedComboBox? activeMonsterFilterCombo;
@@ -373,6 +374,7 @@ namespace Roadhog
             SetChecked(contestMonsterCheckBox, settings.Combat.ContestMonster);
             SetChecked(counterEnemyRaceCheckBox, settings.Combat.CounterEnemyRace);
             SetChecked(preferAggressiveMonsterCheckBox, settings.Combat.PreferAggressiveMonsters);
+            SetChecked(smartPreAimEnabledCheckBox, settings.Combat.SmartPreAimEnabled);
             SetChecked(returnHomeWhenNoTargetCheckBox, settings.Combat.ReturnHomeWhenNoTarget);
             SetChecked(sitWhenNoTargetAtHomeCheckBox, settings.Combat.SitWhenNoTargetAtHome);
             PopulateActiveMonsterFilterList(settings.Combat.ActiveMonsterNameFilters);
@@ -630,6 +632,7 @@ namespace Roadhog
                     ContestMonster = contestMonsterCheckBox?.Checked ?? false,
                     CounterEnemyRace = counterEnemyRaceCheckBox?.Checked ?? false,
                     PreferAggressiveMonsters = preferAggressiveMonsterCheckBox?.Checked ?? false,
+                    SmartPreAimEnabled = smartPreAimEnabledCheckBox?.Checked ?? false,
                     ReturnHomeWhenNoTarget = returnHomeWhenNoTargetCheckBox?.Checked ?? true,
                     SitWhenNoTargetAtHome = sitWhenNoTargetAtHomeCheckBox?.Checked ?? false,
                     ActiveMonsterNameFilters = CaptureActiveMonsterFilterList(),
@@ -1099,6 +1102,8 @@ namespace Roadhog
             sitWhenNoTargetAtHomeCheckBox = AddCheckBox(page, "\u6ca1\u602a\u5750\u5730\u677f", 594, 142, 118, false);
             jumpAssistEnabledCheckBox = AddCheckBox(page, "\u6253\u602a\u8df3\u8dc3", 716, 142, 110, false);
             jumpAssistEnabledCheckBox.Name = "jumpAssistEnabledCheckBox";
+            smartPreAimEnabledCheckBox = AddCheckBox(page, "\u667a\u80fd\u9009\u602a", 4, 176, 110, false);
+            smartPreAimEnabledCheckBox.Name = "smartPreAimEnabledCheckBox";
             RefreshCombatModeVisibility();
 
             return tab;
@@ -1173,6 +1178,11 @@ namespace Roadhog
             if (sitWhenNoTargetAtHomeCheckBox is not null)
             {
                 sitWhenNoTargetAtHomeCheckBox.Visible = stationaryVisible;
+            }
+
+            if (smartPreAimEnabledCheckBox is not null)
+            {
+                smartPreAimEnabledCheckBox.Visible = stationaryVisible;
             }
         }
 

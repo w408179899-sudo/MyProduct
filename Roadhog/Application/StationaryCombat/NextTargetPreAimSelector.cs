@@ -1,0 +1,242 @@
+using Roadhog.Core.Model;
+
+namespace Roadhog.Application.StationaryCombat;
+
+public static class NextTargetPreAimSelector
+{
+    public static NextTargetPreAimSelection? Select(
+        IEnumerable<WorldObjectSnapshot> objects,
+        Vector3Snapshot playerPosition,
+        Vector3Snapshot home,
+        double radius,
+        ushort currentTargetEntityId,
+        uint currentTargetServerObjectId,
+        uint localSideServerObjectId,
+        uint localSidePetServerObjectId,
+        bool allowClaimedByOther,
+        bool preferAggressiveMonsters,
+        IReadOnlyCollection<string>? activeMonsterNameFilters = null,
+        NextTargetPreAimSelection? currentSelection = null,
+        DateTimeOffset? now = null,
+        TimeSpan? minimumHold = null,
+        double switchDistanceMargin = 2.0D,
+        NextTargetPreAimExclusionSnapshot? exclusions = null)
+    {
+        var effectiveNow = now ?? DateTimeOffset.Now;
+        var effectiveExclusions = exclusions ?? NextTargetPreAimExclusionSnapshot.Empty;
+        var candidates = objects
+            .Where(StationaryCombatTargetSelector.IsSelectableMonster)
+            .Where(target => !StationaryCombatState.IsSameTarget(
+                target.EntityId,
+                target.ServerObjectId,
+                currentTargetEntityId,
+                currentTargetServerObjectId))
+            .Where(target => !effectiveExclusions.IsTemporarilyExcluded(target))
+            .Where(target => IsTargetingLocalSide(
+                target,
+                localSideServerObjectId,
+                localSidePetServerObjectId) ||
+                IsOrdinaryTargetEligible(
+                    target,
+                    effectiveExclusions,
+                    activeMonsterNameFilters,
+                    allowClaimedByOther,
+                    localSideServerObjectId,
+                    localSidePetServerObjectId))
+            .Select(target => BuildSelection(
+                target,
+                playerPosition,
+                home,
+                radius,
+                localSideServerObjectId,
+                localSidePetServerObjectId,
+                preferAggressiveMonsters,
+                effectiveNow))
+            .Where(selection => selection is not null)
+            .Cast<NextTargetPreAimSelection>()
+            .OrderByDescending(selection => selection.PriorityTier)
+            .ThenBy(selection => selection.DistanceToPlayer)
+            .ThenBy(selection => selection.Target.ServerObjectId)
+            .ThenBy(selection => selection.Target.EntityId)
+            .ToArray();
+
+        if (candidates.Length == 0)
+        {
+            return null;
+        }
+
+        var best = candidates[0];
+        if (currentSelection is null)
+        {
+            return best with { DecisionReason = "selected" };
+        }
+
+        var current = candidates.FirstOrDefault(candidate =>
+            StationaryCombatState.IsSameTarget(
+                candidate.Target.EntityId,
+                candidate.Target.ServerObjectId,
+                currentSelection.Target.EntityId,
+                currentSelection.Target.ServerObjectId));
+        if (current is null)
+        {
+            return best with { DecisionReason = "current_invalid" };
+        }
+
+        if (StationaryCombatState.IsSameTarget(
+            best.Target.EntityId,
+            best.Target.ServerObjectId,
+            current.Target.EntityId,
+            current.Target.ServerObjectId))
+        {
+            return current with
+            {
+                SelectedAt = currentSelection.SelectedAt,
+                DecisionReason = "kept_best"
+            };
+        }
+
+        if (best.PriorityTier > current.PriorityTier)
+        {
+            return best with { DecisionReason = "higher_priority" };
+        }
+
+        if (best.PriorityTier < current.PriorityTier)
+        {
+            return current with
+            {
+                SelectedAt = currentSelection.SelectedAt,
+                DecisionReason = "kept_higher_priority_current"
+            };
+        }
+
+        var hold = minimumHold ?? TimeSpan.FromSeconds(1);
+        if (currentSelection.SelectedAt != DateTimeOffset.MinValue &&
+            effectiveNow - currentSelection.SelectedAt < hold)
+        {
+            return current with
+            {
+                SelectedAt = currentSelection.SelectedAt,
+                DecisionReason = "kept_hold"
+            };
+        }
+
+        if (current.DistanceToPlayer - best.DistanceToPlayer < Math.Max(0.0D, switchDistanceMargin))
+        {
+            return current with
+            {
+                SelectedAt = currentSelection.SelectedAt,
+                DecisionReason = "kept_stability"
+            };
+        }
+
+        return best with { DecisionReason = "closer_after_hold" };
+    }
+
+    private static NextTargetPreAimSelection? BuildSelection(
+        WorldObjectSnapshot target,
+        Vector3Snapshot playerPosition,
+        Vector3Snapshot home,
+        double radius,
+        uint localSideServerObjectId,
+        uint localSidePetServerObjectId,
+        bool preferAggressiveMonsters,
+        DateTimeOffset selectedAt)
+    {
+        if (target.Position is null)
+        {
+            return null;
+        }
+
+        var targetingLocalSide = IsTargetingLocalSide(
+            target,
+            localSideServerObjectId,
+            localSidePetServerObjectId);
+        var homeDistance = StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, home);
+        if (!targetingLocalSide && homeDistance > Math.Max(0.0D, radius))
+        {
+            return null;
+        }
+
+        var aggressivePriority = preferAggressiveMonsters && target.IsAggressiveToPlayer;
+        var priorityTier = targetingLocalSide
+            ? 3
+            : aggressivePriority
+                ? 2
+                : 1;
+        return new NextTargetPreAimSelection(
+            target,
+            priorityTier,
+            StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, playerPosition),
+            targetingLocalSide,
+            aggressivePriority,
+            selectedAt,
+            "selected");
+    }
+
+    private static bool IsActiveMonsterFiltered(
+        WorldObjectSnapshot target,
+        IReadOnlyCollection<string>? activeMonsterNameFilters)
+    {
+        if (activeMonsterNameFilters is null ||
+            activeMonsterNameFilters.Count == 0 ||
+            string.IsNullOrWhiteSpace(target.Name))
+        {
+            return false;
+        }
+
+        var targetName = target.Name.Trim();
+        return activeMonsterNameFilters.Any(filter =>
+            !string.IsNullOrWhiteSpace(filter) &&
+            string.Equals(targetName, filter.Trim(), StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsOrdinaryTargetEligible(
+        WorldObjectSnapshot target,
+        NextTargetPreAimExclusionSnapshot exclusions,
+        IReadOnlyCollection<string>? activeMonsterNameFilters,
+        bool allowClaimedByOther,
+        uint localSideServerObjectId,
+        uint localSidePetServerObjectId)
+    {
+        return !exclusions.IsIgnored(target) &&
+               !IsActiveMonsterFiltered(target, activeMonsterNameFilters) &&
+               (allowClaimedByOther || !IsClaimedByOther(
+                   target,
+                   localSideServerObjectId,
+                   localSidePetServerObjectId));
+    }
+
+    private static bool IsClaimedByOther(
+        WorldObjectSnapshot target,
+        uint localSideServerObjectId,
+        uint localSidePetServerObjectId)
+    {
+        return target.TargetServerObjectId != 0 &&
+               target.TargetServerObjectId != target.ServerObjectId &&
+               !IsTargetingLocalSide(target, localSideServerObjectId, localSidePetServerObjectId);
+    }
+
+    private static bool IsTargetingLocalSide(
+        WorldObjectSnapshot target,
+        uint localSideServerObjectId,
+        uint localSidePetServerObjectId)
+    {
+        if (target.IsTargetingLocalPlayer)
+        {
+            return true;
+        }
+
+        return target.TargetServerObjectId != 0 &&
+               ((localSideServerObjectId != 0 && target.TargetServerObjectId == localSideServerObjectId) ||
+                (localSidePetServerObjectId != 0 && target.TargetServerObjectId == localSidePetServerObjectId));
+    }
+}
+
+public sealed record NextTargetPreAimSelection(
+    WorldObjectSnapshot Target,
+    int PriorityTier,
+    double DistanceToPlayer,
+    bool IsTargetingLocalSide,
+    bool IsAggressivePriority,
+    DateTimeOffset SelectedAt,
+    string DecisionReason);

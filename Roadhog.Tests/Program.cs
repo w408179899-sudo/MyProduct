@@ -247,6 +247,12 @@ var tests = new (string Name, Func<Task> Run)[]
     ("account config persists bag cleanup rules", TestAccountConfigPersistsBagCleanupRulesAsync),
     ("account config persists stationary combat position", TestAccountConfigPersistsStationaryCombatPositionAsync),
     ("stationary combat target selector keeps monsters inside radius", TestStationaryTargetSelectorAsync),
+    ("stationary combat smart pre-aim selector scores threats and aggressive setting", TestSmartPreAimSelectorScoresThreatsAndAggressiveSettingAsync),
+    ("stationary combat smart pre-aim selector keeps stable target", TestSmartPreAimSelectorKeepsStableTargetAsync),
+    ("stationary combat smart pre-aim selector applies normal filters", TestSmartPreAimSelectorAppliesNormalFiltersAsync),
+    ("stationary combat smart pre-aim lifecycle spans loot until finish", TestSmartPreAimLifecycleSpansLootUntilFinishAsync),
+    ("stationary combat smart pre-aim pauses during cleanup mouse work", TestSmartPreAimPausesDuringCleanupMouseWorkAsync),
+    ("stationary combat smart pre-aim uses ten degree yaw tolerance", TestSmartPreAimUsesTenDegreeYawToleranceAsync),
     ("stationary combat derives home from revive path endpoint", TestStationaryCombatDerivesHomeFromRevivePathEndpointAsync),
     ("stationary combat returns home when no target is available", TestStationaryCombatReturnsHomeWhenNoTargetAvailableAsync),
     ("stationary combat jumps when stuck returning home with no target", TestStationaryCombatJumpsWhenStuckReturningHomeWithNoTargetAsync),
@@ -2822,10 +2828,13 @@ static Task TestJumpAssistSettingDefaultsAndCloneAsync()
 {
     var defaults = new CombatScriptSettings();
     AssertFalse(defaults.JumpAssistEnabled, "jump assist must default disabled");
+    AssertFalse(defaults.SmartPreAimEnabled, "smart pre-aim must default disabled");
 
     defaults.JumpAssistEnabled = true;
+    defaults.SmartPreAimEnabled = true;
     var clone = defaults.Clone();
     AssertFalse(!clone.JumpAssistEnabled, "combat settings clone should preserve jump assist");
+    AssertFalse(!clone.SmartPreAimEnabled, "combat settings clone should preserve smart pre-aim");
     return Task.CompletedTask;
 }
 
@@ -9301,6 +9310,7 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
                 {
                     EnableLoot = true,
                     PreferAggressiveMonsters = true,
+                    SmartPreAimEnabled = true,
                     ReturnHomeWhenNoTarget = false,
                     SitWhenNoTargetAtHome = true,
                     HasStationaryCombatPosition = true,
@@ -9333,6 +9343,7 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
         AssertEqual(11.5D, combat.CameraYawPixelsPerDegree, "camera yaw pixels per degree");
         AssertEqual(13.25D, combat.CameraPitchPixelsPerDegree, "camera pitch pixels per degree");
         AssertFalse(!combat.PreferAggressiveMonsters, "prefer aggressive monsters should persist");
+        AssertFalse(!combat.SmartPreAimEnabled, "smart pre-aim should persist");
         AssertFalse(combat.ReturnHomeWhenNoTarget, "return home when no target should persist");
         AssertFalse(!combat.SitWhenNoTargetAtHome, "sit when no target at home should persist");
 
@@ -9345,6 +9356,7 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
         AssertEqual(11.5D, clone.CameraYawPixelsPerDegree, "cloned camera yaw pixels per degree");
         AssertEqual(13.25D, clone.CameraPitchPixelsPerDegree, "cloned camera pitch pixels per degree");
         AssertFalse(!clone.PreferAggressiveMonsters, "prefer aggressive monsters should clone");
+        AssertFalse(!clone.SmartPreAimEnabled, "smart pre-aim should clone");
         AssertFalse(clone.ReturnHomeWhenNoTarget, "return home when no target should clone");
         AssertFalse(!clone.SitWhenNoTargetAtHome, "sit when no target at home should clone");
     }
@@ -9384,6 +9396,425 @@ static Task TestStationaryTargetSelectorAsync()
 
     AssertEqual((ushort)21, activeSelected?.EntityId ?? 0, "aggressive monster should outrank nearer passive monster");
     return Task.CompletedTask;
+}
+
+static Task TestSmartPreAimSelectorScoresThreatsAndAggressiveSettingAsync()
+{
+    var player = new Vector3Snapshot(0, 0, 0);
+    var home = new Vector3Snapshot(0, 0, 0);
+    const uint localServerObjectId = 9000;
+    var objects = new[]
+    {
+        new WorldObjectSnapshot(10, 1010, "current", "monster", new Vector3Snapshot(1, 0, 0), 1, 100, 100),
+        new WorldObjectSnapshot(11, 1011, "passive-near", "monster", new Vector3Snapshot(3, 0, 0), 3, 100, 100, AggressiveKnown: true),
+        new WorldObjectSnapshot(12, 1012, "active-far", "monster", new Vector3Snapshot(8, 0, 0), 8, 100, 100, AggressiveKnown: true, IsAggressiveToPlayer: true),
+        new WorldObjectSnapshot(13, 1013, "local-threat", "monster", new Vector3Snapshot(12, 0, 0), 12, 100, 100, TargetServerObjectId: localServerObjectId)
+    };
+
+    var threatSelected = NextTargetPreAimSelector.Select(
+        objects,
+        player,
+        home,
+        30,
+        currentTargetEntityId: 10,
+        currentTargetServerObjectId: 1010,
+        localSideServerObjectId: localServerObjectId,
+        localSidePetServerObjectId: 0,
+        allowClaimedByOther: false,
+        preferAggressiveMonsters: true);
+
+    AssertEqual((ushort)13, threatSelected?.Target.EntityId ?? 0, "local-side threat should outrank aggressive and distance");
+    AssertEqual(3, threatSelected?.PriorityTier ?? 0, "local-side threat priority tier");
+
+    var withoutThreat = objects.Where(target => target.EntityId != 13).ToArray();
+    var normalSelected = NextTargetPreAimSelector.Select(
+        withoutThreat,
+        player,
+        home,
+        30,
+        currentTargetEntityId: 10,
+        currentTargetServerObjectId: 1010,
+        localSideServerObjectId: localServerObjectId,
+        localSidePetServerObjectId: 0,
+        allowClaimedByOther: false,
+        preferAggressiveMonsters: false);
+
+    AssertEqual((ushort)11, normalSelected?.Target.EntityId ?? 0, "without aggressive preference nearest ordinary target should win");
+
+    var aggressiveSelected = NextTargetPreAimSelector.Select(
+        withoutThreat,
+        player,
+        home,
+        30,
+        currentTargetEntityId: 10,
+        currentTargetServerObjectId: 1010,
+        localSideServerObjectId: localServerObjectId,
+        localSidePetServerObjectId: 0,
+        allowClaimedByOther: false,
+        preferAggressiveMonsters: true);
+
+    AssertEqual((ushort)12, aggressiveSelected?.Target.EntityId ?? 0, "aggressive preference should follow configured setting");
+    AssertEqual(2, aggressiveSelected?.PriorityTier ?? 0, "aggressive priority tier");
+    return Task.CompletedTask;
+}
+
+static Task TestSmartPreAimSelectorKeepsStableTargetAsync()
+{
+    var player = new Vector3Snapshot(0, 0, 0);
+    var home = new Vector3Snapshot(0, 0, 0);
+    var now = new DateTimeOffset(2026, 8, 7, 12, 0, 0, TimeSpan.Zero);
+    var currentTarget = new WorldObjectSnapshot(20, 2020, "stable", "monster", new Vector3Snapshot(7, 0, 0), 7, 100, 100);
+    var slightlyCloser = new WorldObjectSnapshot(21, 2021, "slightly-closer", "monster", new Vector3Snapshot(6, 0, 0), 6, 100, 100);
+    var muchCloser = new WorldObjectSnapshot(22, 2022, "much-closer", "monster", new Vector3Snapshot(3, 0, 0), 3, 100, 100);
+    var currentSelection = new NextTargetPreAimSelection(
+        currentTarget,
+        1,
+        7,
+        IsTargetingLocalSide: false,
+        IsAggressivePriority: false,
+        now,
+        "current");
+
+    var held = NextTargetPreAimSelector.Select(
+        new[] { currentTarget, slightlyCloser },
+        player,
+        home,
+        30,
+        currentTargetEntityId: 99,
+        currentTargetServerObjectId: 9999,
+        localSideServerObjectId: 0,
+        localSidePetServerObjectId: 0,
+        allowClaimedByOther: false,
+        preferAggressiveMonsters: false,
+        currentSelection: currentSelection,
+        now: now.AddMilliseconds(200),
+        minimumHold: TimeSpan.FromSeconds(1),
+        switchDistanceMargin: 2.0D);
+
+    AssertEqual((ushort)20, held?.Target.EntityId ?? 0, "stable target should be kept during hold window");
+
+    var smallGain = NextTargetPreAimSelector.Select(
+        new[] { currentTarget, slightlyCloser },
+        player,
+        home,
+        30,
+        currentTargetEntityId: 99,
+        currentTargetServerObjectId: 9999,
+        localSideServerObjectId: 0,
+        localSidePetServerObjectId: 0,
+        allowClaimedByOther: false,
+        preferAggressiveMonsters: false,
+        currentSelection: currentSelection,
+        now: now.AddSeconds(2),
+        minimumHold: TimeSpan.FromSeconds(1),
+        switchDistanceMargin: 2.0D);
+
+    AssertEqual((ushort)20, smallGain?.Target.EntityId ?? 0, "stable target should be kept when distance gain is small");
+
+    var largeGain = NextTargetPreAimSelector.Select(
+        new[] { currentTarget, muchCloser },
+        player,
+        home,
+        30,
+        currentTargetEntityId: 99,
+        currentTargetServerObjectId: 9999,
+        localSideServerObjectId: 0,
+        localSidePetServerObjectId: 0,
+        allowClaimedByOther: false,
+        preferAggressiveMonsters: false,
+        currentSelection: currentSelection,
+        now: now.AddSeconds(2),
+        minimumHold: TimeSpan.FromSeconds(1),
+        switchDistanceMargin: 2.0D);
+
+    AssertEqual((ushort)22, largeGain?.Target.EntityId ?? 0, "stable target should switch when a much closer peer appears");
+
+    var threat = new WorldObjectSnapshot(23, 2023, "new-threat", "monster", new Vector3Snapshot(12, 0, 0), 12, 100, 100, TargetServerObjectId: 7000);
+    var higherPriority = NextTargetPreAimSelector.Select(
+        new[] { currentTarget, threat },
+        player,
+        home,
+        30,
+        currentTargetEntityId: 99,
+        currentTargetServerObjectId: 9999,
+        localSideServerObjectId: 7000,
+        localSidePetServerObjectId: 0,
+        allowClaimedByOther: false,
+        preferAggressiveMonsters: false,
+        currentSelection: currentSelection,
+        now: now.AddMilliseconds(200),
+        minimumHold: TimeSpan.FromSeconds(1),
+        switchDistanceMargin: 2.0D);
+
+    AssertEqual((ushort)23, higherPriority?.Target.EntityId ?? 0, "higher-priority local threat should switch immediately");
+    return Task.CompletedTask;
+}
+
+static Task TestSmartPreAimSelectorAppliesNormalFiltersAsync()
+{
+    var player = new Vector3Snapshot(0, 0, 0);
+    var home = new Vector3Snapshot(0, 0, 0);
+    var now = new DateTimeOffset(2026, 8, 7, 12, 0, 0, TimeSpan.Zero);
+    var ignored = new WorldObjectSnapshot(30, 3030, "ignored", "monster", new Vector3Snapshot(2, 0, 0), 2, 100, 100);
+    var temporary = new WorldObjectSnapshot(31, 3031, "temporary", "monster", new Vector3Snapshot(3, 0, 0), 3, 100, 100);
+    var filtered = new WorldObjectSnapshot(32, 3032, "filtered", "monster", new Vector3Snapshot(4, 0, 0), 4, 100, 100);
+    var claimed = new WorldObjectSnapshot(33, 3033, "claimed", "monster", new Vector3Snapshot(5, 0, 0), 5, 100, 100, TargetServerObjectId: 9999);
+    var ordinary = new WorldObjectSnapshot(34, 3034, "ordinary", "monster", new Vector3Snapshot(8, 0, 0), 8, 100, 100);
+    var exclusions = new NextTargetPreAimExclusionSnapshot(
+        new[] { ignored.EntityId },
+        Array.Empty<uint>(),
+        Array.Empty<ushort>(),
+        new[] { temporary.ServerObjectId });
+    var currentSelection = new NextTargetPreAimSelection(
+        ignored,
+        1,
+        2,
+        IsTargetingLocalSide: false,
+        IsAggressivePriority: false,
+        now,
+        "current");
+
+    var selected = NextTargetPreAimSelector.Select(
+        new[] { ignored, temporary, filtered, claimed, ordinary },
+        player,
+        home,
+        30,
+        currentTargetEntityId: 99,
+        currentTargetServerObjectId: 9999,
+        localSideServerObjectId: 1000,
+        localSidePetServerObjectId: 0,
+        allowClaimedByOther: false,
+        preferAggressiveMonsters: false,
+        activeMonsterNameFilters: new[] { "filtered" },
+        currentSelection: currentSelection,
+        now: now.AddMilliseconds(100),
+        minimumHold: TimeSpan.FromSeconds(1),
+        switchDistanceMargin: 20.0D,
+        exclusions: exclusions);
+
+    AssertEqual((ushort)34, selected?.Target.EntityId ?? 0, "smart pre-aim ordinary target should follow normal filters before stability");
+    AssertEqual("current_invalid", selected?.DecisionReason ?? string.Empty, "filtered current pre-aim target should not be kept by stability");
+
+    var localIgnored = ignored with
+    {
+        EntityId = 35,
+        ServerObjectId = 3035,
+        Name = "ignored-local",
+        IsTargetingLocalPlayer = true,
+        Position = new Vector3Snapshot(12, 0, 0),
+        DistanceToLocalPlayer = 12
+    };
+    var localSelected = NextTargetPreAimSelector.Select(
+        new[] { localIgnored, ordinary },
+        player,
+        home,
+        30,
+        currentTargetEntityId: 99,
+        currentTargetServerObjectId: 9999,
+        localSideServerObjectId: 1000,
+        localSidePetServerObjectId: 0,
+        allowClaimedByOther: false,
+        preferAggressiveMonsters: false,
+        activeMonsterNameFilters: Array.Empty<string>(),
+        exclusions: new NextTargetPreAimExclusionSnapshot(
+            new[] { localIgnored.EntityId },
+            new[] { localIgnored.ServerObjectId },
+            Array.Empty<ushort>(),
+            Array.Empty<uint>()));
+
+    AssertEqual((ushort)35, localSelected?.Target.EntityId ?? 0, "ignored local-side threat should still follow normal defense target behavior");
+    AssertEqual(3, localSelected?.PriorityTier ?? 0, "local-side defense threat should keep highest smart pre-aim tier");
+
+    var localTemporary = localIgnored with
+    {
+        EntityId = 36,
+        ServerObjectId = 3036,
+        Name = "temporary-local"
+    };
+    var localTemporarySkipped = NextTargetPreAimSelector.Select(
+        new[] { localTemporary, ordinary },
+        player,
+        home,
+        30,
+        currentTargetEntityId: 99,
+        currentTargetServerObjectId: 9999,
+        localSideServerObjectId: 1000,
+        localSidePetServerObjectId: 0,
+        allowClaimedByOther: false,
+        preferAggressiveMonsters: false,
+        activeMonsterNameFilters: Array.Empty<string>(),
+        exclusions: new NextTargetPreAimExclusionSnapshot(
+            Array.Empty<ushort>(),
+            Array.Empty<uint>(),
+            Array.Empty<ushort>(),
+            new[] { localTemporary.ServerObjectId }));
+
+    AssertEqual((ushort)34, localTemporarySkipped?.Target.EntityId ?? 0, "temporary excluded local-side threat should be skipped like normal defense target selection");
+    return Task.CompletedTask;
+}
+
+static Task TestSmartPreAimLifecycleSpansLootUntilFinishAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        SmartPreAimEnabled = true,
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30
+    };
+
+    var logger = new InMemoryRoadhogLogger();
+    var context = CreateContext(settings, new FakeGameApi(), logger);
+    var validMethod = typeof(StationaryCombatController).GetMethod(
+        "IsSmartPreAimLoopStillValid",
+        System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+    var finishMethod = typeof(StationaryCombatController).GetMethod(
+        "FinishLootAfterKill",
+        System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+    AssertFalse(validMethod is null, "smart pre-aim validity helper should exist");
+    AssertFalse(finishMethod is null, "loot finish helper should exist");
+
+    bool IsValid(StationaryCombatState targetState)
+    {
+        return (bool)validMethod!.Invoke(
+            null,
+            new object[] { context, targetState, (ushort)100, 5000u })!;
+    }
+
+    var state = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CurrentTargetServerObjectId = 5000
+    };
+    AssertFalse(!IsValid(state), "smart pre-aim should be valid while fighting the tracked target");
+
+    var killedTarget = new LockedTargetSnapshot(
+        100,
+        5000,
+        0,
+        LockedTargetSnapshot.MonsterObjectType,
+        "dead",
+        0,
+        100,
+        new Vector3Snapshot(2, 0, 0),
+        2,
+        DateTimeOffset.Now,
+        LootableRaw: 1,
+        InteractionState: 37);
+    state.StartLootAfterKill(killedTarget, DateTimeOffset.Now);
+
+    AssertFalse(state.Fighting, "loot start should clear fighting state");
+    AssertFalse(!state.LootAfterKill.Active, "loot should be active after killed target enters loot flow");
+    AssertFalse(!IsValid(state), "smart pre-aim should remain valid during active loot for the killed target");
+
+    var worker = new TaskCompletionSource();
+    state.NextTargetPreAim.Cancellation = new CancellationTokenSource();
+    state.NextTargetPreAim.Worker = worker.Task;
+    state.NextTargetPreAim.FightTargetEntityId = 100;
+    state.NextTargetPreAim.FightTargetServerObjectId = 5000;
+    state.NextTargetPreAim.TargetEntityId = 200;
+    state.NextTargetPreAim.TargetServerObjectId = 6000;
+    state.NextTargetPreAim.TargetName = "next";
+    state.NextTargetPreAim.TargetPosition = new Vector3Snapshot(6, 0, 0);
+    state.NextTargetPreAim.LastAlignedAt = DateTimeOffset.Now;
+
+    try
+    {
+        finishMethod!.Invoke(null, new object[] { context, state, "complete", true });
+
+        AssertFalse(state.LootAfterKill.Active, "loot should be inactive after finish");
+        AssertFalse(IsValid(state), "smart pre-aim should be invalid after loot finishes");
+        AssertFalse(!state.NextTargetPreAim.StopRequested, "smart pre-aim worker should be stopped after loot finishes");
+        AssertEqual("loot_after_kill_finished", state.NextTargetPreAim.LastStopReason, "smart pre-aim stop reason after loot finish");
+        AssertFalse(!state.NextTargetPreAim.HasCandidate, "stopped smart pre-aim should keep candidate for the next normal selection consume");
+
+        var stopped = logger.Entries.LastOrDefault(entry => entry.EventName == "stationary_combat.smart_preaim.stopped");
+        AssertFalse(stopped is null, "smart pre-aim stop should be logged after loot finish");
+        AssertEqual("loot_after_kill_finished", Convert.ToString(stopped!.Fields["reason"]) ?? string.Empty, "logged smart pre-aim stop reason");
+        AssertFalse(Convert.ToBoolean(stopped.Fields["clearCandidate"]), "loot-finish stop should not clear the pre-aim candidate");
+    }
+    finally
+    {
+        worker.TrySetResult();
+        state.NextTargetPreAim.Cancellation?.Dispose();
+        state.NextTargetPreAim.Cancellation = null;
+        state.NextTargetPreAim.Worker = null;
+    }
+
+    return Task.CompletedTask;
+}
+
+static async Task TestSmartPreAimPausesDuringCleanupMouseWorkAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        SmartPreAimEnabled = true,
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30
+    };
+
+    var player = new PlayerSnapshot(
+        1,
+        100,
+        "Fake",
+        100,
+        100,
+        100,
+        100,
+        0,
+        new Vector3Snapshot(0, 0, 0),
+        DateTimeOffset.Now,
+        270,
+        10,
+        270);
+    var gameApi = new FakeGameApi { Player = player };
+    var keyboard = new RecordingKeyboardInput();
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
+    var method = typeof(StationaryCombatController).GetMethod(
+        "AdjustNextTargetPreAimAsync",
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+    AssertFalse(method is null, "smart pre-aim adjust helper should exist");
+
+    async Task InvokeAdjustAsync(StationaryCombatState state)
+    {
+        var task = (Task)method!.Invoke(
+            controller,
+            new object[]
+            {
+                context,
+                state,
+                player,
+                (ushort)200,
+                6000u,
+                "next",
+                new Vector3Snapshot(8, 0, 0),
+                CancellationToken.None
+            })!;
+        await task.ConfigureAwait(false);
+    }
+
+    var bagCleanupState = new StationaryCombatState();
+    bagCleanupState.BagCleanup.Start(freeSlots: 0, threshold: 1);
+    await InvokeAdjustAsync(bagCleanupState).ConfigureAwait(false);
+    AssertEqual(0, keyboard.MouseCommands.Count, "smart pre-aim should not move mouse during active bag cleanup");
+
+    var cleanupReturnState = new StationaryCombatState();
+    cleanupReturnState.StartCleanupReturnToCombat();
+    await InvokeAdjustAsync(cleanupReturnState).ConfigureAwait(false);
+    AssertEqual(0, keyboard.MouseCommands.Count, "smart pre-aim should not move mouse during cleanup return path");
 }
 
 static async Task TestStationaryCombatDerivesHomeFromRevivePathEndpointAsync()
@@ -13250,6 +13681,87 @@ static async Task TestStationaryCombatTargetPitchFollowsTargetHeightAsync()
     {
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
         Environment.SetEnvironmentVariable("AION_CAMERA_USE_WORLD_TARGET_PITCH", previousUseWorldPitch);
+    }
+}
+
+static Task TestSmartPreAimUsesTenDegreeYawToleranceAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    var previousYawOffset = Environment.GetEnvironmentVariable("AION_FACE_TARGET_YAW_OFFSET_DEG");
+    var previousPathPitch = Environment.GetEnvironmentVariable("AION_PATH_FOLLOW_PITCH_DEG");
+    var previousCameraPitch = Environment.GetEnvironmentVariable("AION_CAMERA_FIXED_PITCH_DEG");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_YAW_OFFSET_DEG", "0");
+    Environment.SetEnvironmentVariable("AION_PATH_FOLLOW_PITCH_DEG", "20");
+    Environment.SetEnvironmentVariable("AION_CAMERA_FIXED_PITCH_DEG", "20");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            SmartPreAimEnabled = true
+        };
+
+        var keyboard = new RecordingKeyboardInput();
+        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+        var method = typeof(StationaryCombatController).GetMethod(
+            "TryConsumeNextTargetPreAim",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        AssertFalse(method is null, "smart pre-aim consume helper should exist");
+
+        var target = new WorldObjectSnapshot(
+            200,
+            6000,
+            "next",
+            "monster",
+            new Vector3Snapshot(5, 0, 0),
+            5,
+            100,
+            100);
+        var targetPosition = target.Position ?? throw new InvalidOperationException("test target should have a position");
+
+        bool Consume(double yaw)
+        {
+            var state = new StationaryCombatState();
+            state.NextTargetPreAim.TargetEntityId = target.EntityId;
+            state.NextTargetPreAim.TargetServerObjectId = target.ServerObjectId;
+            state.NextTargetPreAim.TargetName = target.Name;
+            state.NextTargetPreAim.TargetPosition = targetPosition;
+            state.NextTargetPreAim.LastAlignedAt = DateTimeOffset.Now;
+
+            var context = CreateContext(settings, new FakeGameApi(), new InMemoryRoadhogLogger());
+            var player = new PlayerSnapshot(
+                1,
+                0,
+                "Fake",
+                100,
+                100,
+                100,
+                100,
+                0,
+                new Vector3Snapshot(0, 0, 0),
+                DateTimeOffset.Now,
+                yaw,
+                10,
+                yaw);
+
+            return (bool)method!.Invoke(
+                controller,
+                new object[] { context, state, player, targetPosition, target })!;
+        }
+
+        AssertFalse(!Consume(82), "8 degree smart pre-aim yaw error should be accepted");
+        AssertFalse(Consume(79), "11 degree smart pre-aim yaw error should be rejected");
+        return Task.CompletedTask;
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_YAW_OFFSET_DEG", previousYawOffset);
+        Environment.SetEnvironmentVariable("AION_PATH_FOLLOW_PITCH_DEG", previousPathPitch);
+        Environment.SetEnvironmentVariable("AION_CAMERA_FIXED_PITCH_DEG", previousCameraPitch);
     }
 }
 

@@ -29,6 +29,7 @@
           "enableLoot": true,
           "contestMonster": false,
           "counterEnemyRace": false,
+          "smartPreAimEnabled": false,
           "returnHomeWhenNoTarget": true,
           "sitWhenNoTargetAtHome": false,
           "stationaryCombatRadius": 30,

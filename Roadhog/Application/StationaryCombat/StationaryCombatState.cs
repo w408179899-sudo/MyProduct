@@ -22,6 +22,8 @@ public sealed class StationaryCombatState
 
     public StationaryGatherState Gather { get; } = new();
 
+    public NextTargetPreAimState NextTargetPreAim { get; } = new();
+
     public bool CleanupReturnToCombatActive { get; private set; }
 
     public bool ReturningHome { get; set; }
@@ -166,9 +168,20 @@ public sealed class StationaryCombatState
 
     private readonly Dictionary<LootCorpseKey, DateTimeOffset> _attemptedLootCorpses = new();
 
+    private readonly object _targetSelectionFilterSync = new();
+
     private readonly Dictionary<TemporaryTargetKey, DateTimeOffset> _temporaryTargetExclusions = new();
 
-    public bool HasTemporaryTargetExclusions => _temporaryTargetExclusions.Count > 0;
+    public bool HasTemporaryTargetExclusions
+    {
+        get
+        {
+            lock (_targetSelectionFilterSync)
+            {
+                return _temporaryTargetExclusions.Count > 0;
+            }
+        }
+    }
 
     public object? PathFollowPoller { get; set; }
 
@@ -580,12 +593,15 @@ public sealed class StationaryCombatState
         DateTimeOffset expiresAt,
         DateTimeOffset switchGuardUntil)
     {
-        if (TryCreateTemporaryTargetKey(entityId, serverObjectId, out var key))
+        lock (_targetSelectionFilterSync)
         {
-            _temporaryTargetExclusions[key] = expiresAt;
-            if (switchGuardUntil > TemporaryTargetSwitchGuardUntil)
+            if (TryCreateTemporaryTargetKey(entityId, serverObjectId, out var key))
             {
-                TemporaryTargetSwitchGuardUntil = switchGuardUntil;
+                _temporaryTargetExclusions[key] = expiresAt;
+                if (switchGuardUntil > TemporaryTargetSwitchGuardUntil)
+                {
+                    TemporaryTargetSwitchGuardUntil = switchGuardUntil;
+                }
             }
         }
     }
@@ -597,9 +613,12 @@ public sealed class StationaryCombatState
 
     public bool IsTargetTemporarilyExcluded(ushort entityId, uint serverObjectId, DateTimeOffset now)
     {
-        PruneExpiredTemporaryTargetExclusions(now);
-        return TryCreateTemporaryTargetKey(entityId, serverObjectId, out var key) &&
-               _temporaryTargetExclusions.ContainsKey(key);
+        lock (_targetSelectionFilterSync)
+        {
+            PruneExpiredTemporaryTargetExclusions(now);
+            return TryCreateTemporaryTargetKey(entityId, serverObjectId, out var key) &&
+                   _temporaryTargetExclusions.ContainsKey(key);
+        }
     }
 
     public bool ShouldGuardTemporaryTargetSwitch(DateTimeOffset now)
@@ -612,12 +631,6 @@ public sealed class StationaryCombatState
         IEnumerable<WorldObjectSnapshot> objects,
         DateTimeOffset now)
     {
-        PruneExpiredTemporaryTargetExclusions(now);
-        if (_temporaryTargetExclusions.Count == 0)
-        {
-            return;
-        }
-
         var liveTargets = objects
             .Where(target => target.IsAlive)
             .Select(target =>
@@ -626,11 +639,20 @@ public sealed class StationaryCombatState
                 return key;
             })
             .ToHashSet();
-        foreach (var key in _temporaryTargetExclusions.Keys.ToArray())
+        lock (_targetSelectionFilterSync)
         {
-            if (!liveTargets.Contains(key))
+            PruneExpiredTemporaryTargetExclusions(now);
+            if (_temporaryTargetExclusions.Count == 0)
             {
-                _temporaryTargetExclusions.Remove(key);
+                return;
+            }
+
+            foreach (var key in _temporaryTargetExclusions.Keys.ToArray())
+            {
+                if (!liveTargets.Contains(key))
+                {
+                    _temporaryTargetExclusions.Remove(key);
+                }
             }
         }
     }
@@ -803,8 +825,11 @@ public sealed class StationaryCombatState
 
     public bool IsTargetIgnored(ushort entityId, uint serverObjectId)
     {
-        return (serverObjectId != 0 && IgnoredTargetServerObjectIds.Contains(serverObjectId)) ||
-               (entityId != 0 && IgnoredTargetEntityIds.Contains(entityId));
+        lock (_targetSelectionFilterSync)
+        {
+            return (serverObjectId != 0 && IgnoredTargetServerObjectIds.Contains(serverObjectId)) ||
+                   (entityId != 0 && IgnoredTargetEntityIds.Contains(entityId));
+        }
     }
 
     public void IgnoreTarget(ushort entityId)
@@ -819,14 +844,17 @@ public sealed class StationaryCombatState
 
     public void IgnoreTarget(ushort entityId, uint serverObjectId)
     {
-        if (entityId != 0)
+        lock (_targetSelectionFilterSync)
         {
-            IgnoredTargetEntityIds.Add(entityId);
-        }
+            if (entityId != 0)
+            {
+                IgnoredTargetEntityIds.Add(entityId);
+            }
 
-        if (serverObjectId != 0)
-        {
-            IgnoredTargetServerObjectIds.Add(serverObjectId);
+            if (serverObjectId != 0)
+            {
+                IgnoredTargetServerObjectIds.Add(serverObjectId);
+            }
         }
     }
 
@@ -981,8 +1009,62 @@ public sealed class StationaryCombatState
             .Where(target => target.IsAlive)
             .Select(target => target.EntityId)
             .ToHashSet();
-        IgnoredTargetServerObjectIds.RemoveWhere(serverObjectId => !liveServerObjectIds.Contains(serverObjectId));
-        IgnoredTargetEntityIds.RemoveWhere(entityId => !liveEntityIds.Contains(entityId));
+        lock (_targetSelectionFilterSync)
+        {
+            IgnoredTargetServerObjectIds.RemoveWhere(serverObjectId => !liveServerObjectIds.Contains(serverObjectId));
+            IgnoredTargetEntityIds.RemoveWhere(entityId => !liveEntityIds.Contains(entityId));
+        }
+    }
+
+    public NextTargetPreAimExclusionSnapshot CreateNextTargetPreAimExclusionSnapshot(
+        IEnumerable<WorldObjectSnapshot> objects,
+        DateTimeOffset now)
+    {
+        var liveServerObjectIds = objects
+            .Where(target => target.IsAlive && target.ServerObjectId != 0)
+            .Select(target => target.ServerObjectId)
+            .ToHashSet();
+        var liveEntityIds = objects
+            .Where(target => target.IsAlive)
+            .Select(target => target.EntityId)
+            .ToHashSet();
+        var liveTemporaryKeys = objects
+            .Where(target => target.IsAlive)
+            .Select(target =>
+            {
+                TryCreateTemporaryTargetKey(target.EntityId, target.ServerObjectId, out var key);
+                return key;
+            })
+            .ToHashSet();
+
+        lock (_targetSelectionFilterSync)
+        {
+            IgnoredTargetServerObjectIds.RemoveWhere(serverObjectId => !liveServerObjectIds.Contains(serverObjectId));
+            IgnoredTargetEntityIds.RemoveWhere(entityId => !liveEntityIds.Contains(entityId));
+            PruneExpiredTemporaryTargetExclusions(now);
+            foreach (var key in _temporaryTargetExclusions.Keys.ToArray())
+            {
+                if (!liveTemporaryKeys.Contains(key))
+                {
+                    _temporaryTargetExclusions.Remove(key);
+                }
+            }
+
+            var temporaryServerObjectIds = _temporaryTargetExclusions.Keys
+                .Where(key => key.ServerObjectId != 0)
+                .Select(key => key.ServerObjectId)
+                .ToArray();
+            var temporaryEntityIds = _temporaryTargetExclusions.Keys
+                .Where(key => key.EntityId != 0)
+                .Select(key => key.EntityId)
+                .ToArray();
+
+            return new NextTargetPreAimExclusionSnapshot(
+                IgnoredTargetEntityIds.ToArray(),
+                IgnoredTargetServerObjectIds.ToArray(),
+                temporaryEntityIds,
+                temporaryServerObjectIds);
+        }
     }
 
     public bool IsPendingTabCandidate(ushort entityId)
@@ -1152,6 +1234,140 @@ public enum StationaryCombatTopLevelState
 {
     Normal,
     DeathRecovery
+}
+
+public sealed class NextTargetPreAimExclusionSnapshot
+{
+    public static NextTargetPreAimExclusionSnapshot Empty { get; } = new(
+        Array.Empty<ushort>(),
+        Array.Empty<uint>(),
+        Array.Empty<ushort>(),
+        Array.Empty<uint>());
+
+    private readonly HashSet<ushort> _ignoredEntityIds;
+    private readonly HashSet<uint> _ignoredServerObjectIds;
+    private readonly HashSet<ushort> _temporaryEntityIds;
+    private readonly HashSet<uint> _temporaryServerObjectIds;
+
+    public NextTargetPreAimExclusionSnapshot(
+        IEnumerable<ushort> ignoredEntityIds,
+        IEnumerable<uint> ignoredServerObjectIds,
+        IEnumerable<ushort> temporaryEntityIds,
+        IEnumerable<uint> temporaryServerObjectIds)
+    {
+        _ignoredEntityIds = ignoredEntityIds.Where(entityId => entityId != 0).ToHashSet();
+        _ignoredServerObjectIds = ignoredServerObjectIds.Where(serverObjectId => serverObjectId != 0).ToHashSet();
+        _temporaryEntityIds = temporaryEntityIds.Where(entityId => entityId != 0).ToHashSet();
+        _temporaryServerObjectIds = temporaryServerObjectIds.Where(serverObjectId => serverObjectId != 0).ToHashSet();
+    }
+
+    public bool IsIgnored(WorldObjectSnapshot target)
+    {
+        return (target.ServerObjectId != 0 && _ignoredServerObjectIds.Contains(target.ServerObjectId)) ||
+               (target.EntityId != 0 && _ignoredEntityIds.Contains(target.EntityId));
+    }
+
+    public bool IsTemporarilyExcluded(WorldObjectSnapshot target)
+    {
+        return (target.ServerObjectId != 0 && _temporaryServerObjectIds.Contains(target.ServerObjectId)) ||
+               (target.EntityId != 0 && _temporaryEntityIds.Contains(target.EntityId));
+    }
+}
+
+public sealed class NextTargetPreAimState
+{
+    public object SyncRoot { get; } = new();
+
+    public CancellationTokenSource? Cancellation { get; set; }
+
+    public Task? Worker { get; set; }
+
+    public bool StopRequested { get; set; }
+
+    public ushort FightTargetEntityId { get; set; }
+
+    public uint FightTargetServerObjectId { get; set; }
+
+    public ushort TargetEntityId { get; set; }
+
+    public uint TargetServerObjectId { get; set; }
+
+    public string TargetName { get; set; } = string.Empty;
+
+    public Vector3Snapshot? TargetPosition { get; set; }
+
+    public int TargetPriorityTier { get; set; }
+
+    public double TargetDistanceToPlayer { get; set; }
+
+    public bool TargetingLocalSide { get; set; }
+
+    public bool AggressivePriority { get; set; }
+
+    public DateTimeOffset TargetSelectedAt { get; set; } = DateTimeOffset.MinValue;
+
+    public DateTimeOffset LastSnapshotAt { get; set; } = DateTimeOffset.MinValue;
+
+    public DateTimeOffset LastAdjustedAt { get; set; } = DateTimeOffset.MinValue;
+
+    public DateTimeOffset LastAlignedAt { get; set; } = DateTimeOffset.MinValue;
+
+    public DateTimeOffset LastStoppedAt { get; set; } = DateTimeOffset.MinValue;
+
+    public string LastStopReason { get; set; } = string.Empty;
+
+    public bool HasCandidate =>
+        TargetEntityId != 0 || TargetServerObjectId != 0;
+
+    public bool HasAlignedCandidate =>
+        HasCandidate && LastAlignedAt != DateTimeOffset.MinValue;
+
+    public bool IsWorkerRunning =>
+        Worker is { IsCompleted: false };
+
+    public void ClearCandidate()
+    {
+        TargetEntityId = 0;
+        TargetServerObjectId = 0;
+        TargetName = string.Empty;
+        TargetPosition = null;
+        TargetPriorityTier = 0;
+        TargetDistanceToPlayer = 0.0D;
+        TargetingLocalSide = false;
+        AggressivePriority = false;
+        TargetSelectedAt = DateTimeOffset.MinValue;
+        LastSnapshotAt = DateTimeOffset.MinValue;
+        LastAdjustedAt = DateTimeOffset.MinValue;
+        LastAlignedAt = DateTimeOffset.MinValue;
+    }
+
+    public NextTargetPreAimSelection? CreateCurrentSelection()
+    {
+        if (!HasCandidate || TargetPosition is null)
+        {
+            return null;
+        }
+
+        return new NextTargetPreAimSelection(
+            new WorldObjectSnapshot(
+                TargetEntityId,
+                TargetServerObjectId,
+                TargetName,
+                "monster",
+                TargetPosition,
+                TargetDistanceToPlayer,
+                1,
+                1,
+                IsTargetingLocalPlayer: TargetingLocalSide,
+                AggressiveKnown: AggressivePriority,
+                IsAggressiveToPlayer: AggressivePriority),
+            TargetPriorityTier,
+            TargetDistanceToPlayer,
+            TargetingLocalSide,
+            AggressivePriority,
+            TargetSelectedAt,
+            "current");
+    }
 }
 
 public sealed class StationaryCombatDeathRecoveryState

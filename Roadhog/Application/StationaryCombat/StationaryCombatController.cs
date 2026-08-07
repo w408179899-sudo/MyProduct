@@ -37,6 +37,7 @@ public sealed class StationaryCombatController
     private static readonly TimeSpan DefaultManualPathPlayerReadRetryInterval = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan FightSoftRestartApproachTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan TemporaryTargetSwitchGuardGrace = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan DefaultSmartPreAimResultTtl = TimeSpan.FromSeconds(30);
     private const int GatherSnapshotUnavailableReadThreshold = 2;
     private const double ReturnStopDistance = 2.0D;
     private const double AcquireDistance = 25.0D;
@@ -44,12 +45,14 @@ public sealed class StationaryCombatController
     private const double GatherKeyActivationDistance = 20.0D;
     private const double TargetLeashExtraDistance = 5.0D;
     private const double PreLockFaceYawToleranceDegrees = 30.0D;
+    private const double SmartPreAimFaceYawToleranceDegrees = 10.0D;
     private const double DefaultPathFollowReachDistance = 5.0D;
     private const double RevivePathAggressiveClearRadius = 10.0D;
     private const double DefaultStartupTownReturnDistance = 500.0D;
     private const double DefaultStartupTownReturnMinDistance = 5.0D;
     private const double DefaultYawPixelsPerDegree = 11.0D;
     private const double DefaultPitchPixelsPerDegree = 13.0D;
+    private const double DefaultSmartPreAimSwitchDistanceMargin = 2.0D;
     private const int DefaultReviveClickX = PathScriptSettings.DefaultDeathReviveClickX;
     private const int DefaultReviveClickY = PathScriptSettings.DefaultDeathReviveClickY;
     private const int DefaultReviveFallbackClickX = 550;
@@ -70,6 +73,7 @@ public sealed class StationaryCombatController
     private readonly SemiAutoCombatController _semiAuto;
     private readonly ISharedPathStore? _pathStore;
     private readonly BagCleanupController? _bagCleanup;
+    private readonly SemaphoreSlim _cameraTurnInputSync = new(1, 1);
 
     public StationaryCombatController(
         IKeyboardInput input,
@@ -97,6 +101,11 @@ public sealed class StationaryCombatController
         }
 
         var combat = context.Config.ScriptSettings?.Combat ?? new CombatScriptSettings();
+        if (!IsSmartPreAimEnabled(context))
+        {
+            StopNextTargetPreAim(context, state, "disabled", clearCandidate: true);
+        }
+
         var gatherSettings = context.Config.ScriptSettings?.Gather ?? new GatherScriptSettings();
         if (!gatherSettings.StationaryPriorityEnabled)
         {
@@ -115,6 +124,7 @@ public sealed class StationaryCombatController
         if (!homeResult.Success || homeResult.Value is null)
         {
             semiAutoState.ResetAttackKeyPressThrottle();
+            StopNextTargetPreAim(context, state, "stationary_home_missing", clearCandidate: true);
             await StopMovementAsync(context, state).ConfigureAwait(false);
             StopPathFollowPoller(state);
             LogThrottled(context, state, "stationary_combat.position.missing", new Dictionary<string, object?>
@@ -134,6 +144,7 @@ public sealed class StationaryCombatController
         if (!playerResult.Success || playerResult.Value?.Position is null)
         {
             semiAutoState.ResetAttackKeyPressThrottle();
+            StopNextTargetPreAim(context, state, "player_read_failed", clearCandidate: true);
             await StopMovementAsync(context, state).ConfigureAwait(false);
             StopPathFollowPoller(state);
             context.RuntimeStates.MarkWarning(
@@ -155,6 +166,7 @@ public sealed class StationaryCombatController
 
         if (player.IsDead && state.TopLevelState != StationaryCombatTopLevelState.DeathRecovery)
         {
+            StopNextTargetPreAim(context, state, "player_dead", clearCandidate: true);
             state.EnterDeathRecovery(DateTimeOffset.Now);
             semiAutoState.ResetAttackKeyPressThrottle();
             context.Logger.Warn("stationary_combat.death.detected", new Dictionary<string, object?>
@@ -172,6 +184,7 @@ public sealed class StationaryCombatController
             (!state.DeathRecovery.RevivePathLeaderSiphonActive || player.IsDead))
         {
             await StopSoloJumpAsync(state, "stationary_death_recovery").ConfigureAwait(false);
+            StopNextTargetPreAim(context, state, "death_recovery", clearCandidate: true);
             return await TickDeathRecoveryAsync(
                     context,
                     plan,
@@ -186,6 +199,7 @@ public sealed class StationaryCombatController
 
         if (state.StartupTownReturnPending)
         {
+            StopNextTargetPreAim(context, state, "startup_town_return", clearCandidate: true);
             return await TickStartupTownReturnAsync(
                     context,
                     plan,
@@ -219,6 +233,7 @@ public sealed class StationaryCombatController
         if (noKillRecoveryDelay is not null)
         {
             await StopSoloJumpAsync(state, "stationary_no_kill_recovery").ConfigureAwait(false);
+            StopNextTargetPreAim(context, state, "no_kill_recovery", clearCandidate: true);
             return noKillRecoveryDelay.Value;
         }
 
@@ -427,6 +442,7 @@ public sealed class StationaryCombatController
             .ConfigureAwait(false);
         if (startupRecoveryDelay is not null)
         {
+            StopNextTargetPreAim(context, state, "startup_recovery", clearCandidate: true);
             return startupRecoveryDelay.Value;
         }
 
@@ -443,6 +459,7 @@ public sealed class StationaryCombatController
         if (state.ReturningHome)
         {
             await StopSoloJumpAsync(state, "stationary_returning_home").ConfigureAwait(false);
+            StopNextTargetPreAim(context, state, "returning_home", clearCandidate: true);
             if (playerDistanceFromHome <= ReturnStopDistance)
             {
                 state.ReturningHome = false;
@@ -470,6 +487,7 @@ public sealed class StationaryCombatController
             gatherSettings.StationaryPriorityEnabled)
         {
             await StopSoloJumpAsync(state, "stationary_gather").ConfigureAwait(false);
+            StopNextTargetPreAim(context, state, "stationary_gather", clearCandidate: true);
             var gatherTick = await TickStationaryGatherAsync(
                     context,
                     semiAutoState,
@@ -520,6 +538,7 @@ public sealed class StationaryCombatController
         {
             semiAutoState.ResetAttackKeyPressThrottle();
             await StopSoloJumpAsync(state, "stationary_target_unavailable").ConfigureAwait(false);
+            StopNextTargetPreAim(context, state, "target_unavailable", clearCandidate: true);
             state.ClearTarget();
             if (combat.ReturnHomeWhenNoTarget && playerDistanceFromHome > ReturnStopDistance)
             {
@@ -620,6 +639,7 @@ public sealed class StationaryCombatController
             targetDistanceFromHome > radius)
         {
             await StopMovementAsync(context, state).ConfigureAwait(false);
+            StopNextTargetPreAim(context, state, "candidate_outside_radius", clearCandidate: true);
             state.ClearTarget();
             return IdleDelay;
         }
@@ -667,6 +687,14 @@ public sealed class StationaryCombatController
         if (acquiredDelay is not null)
         {
             return acquiredDelay.Value;
+        }
+
+        if (state.FacedCandidateEntityId != target.EntityId)
+        {
+            if (TryConsumeNextTargetPreAim(context, state, player, targetPosition, target))
+            {
+                state.FacedCandidateEntityId = target.EntityId;
+            }
         }
 
         if (state.FacedCandidateEntityId != target.EntityId)
@@ -738,6 +766,7 @@ public sealed class StationaryCombatController
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state)
     {
+        StopNextTargetPreAim(context, state, "path_combat", clearCandidate: true);
         UpdateMaintenanceRestJumpPause(state, semiAutoState);
         if (!state.Fighting && state.CandidateEntityId == 0)
         {
@@ -3357,6 +3386,7 @@ public sealed class StationaryCombatController
         var targetResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
         if (!targetResult.Success || targetResult.Value is null)
         {
+            StopNextTargetPreAim(context, state, "current_target_read_failed", clearCandidate: true);
             if (IsTargetTimedOut(state, now))
             {
                 return await IgnoreCurrentTargetAsync(
@@ -3387,6 +3417,7 @@ public sealed class StationaryCombatController
         var target = targetResult.Value;
         if (!state.IsCurrentTarget(target))
         {
+            StopNextTargetPreAim(context, state, "current_target_mismatch", clearCandidate: true);
             if (IsTargetTimedOut(state, now))
             {
                 return await IgnoreCurrentTargetAsync(
@@ -3449,6 +3480,7 @@ public sealed class StationaryCombatController
                     .ConfigureAwait(false);
             }
 
+            StopNextTargetPreAim(context, state, "current_target_dead", clearCandidate: false);
             state.ClearTarget();
             semiAutoState.ResetAttackKeyPressThrottle();
             await StopMovementAsync(context, state).ConfigureAwait(false);
@@ -3542,6 +3574,7 @@ public sealed class StationaryCombatController
                     2),
                 ["allowedDistance"] = Math.Round(radius + TargetLeashExtraDistance, 2)
             }, TimeSpan.FromMilliseconds(500));
+            StopNextTargetPreAim(context, state, "current_target_outside_leash", clearCandidate: true);
             return await WaitForCurrentFightTargetAsync(
                     context,
                     semiAutoState,
@@ -3570,6 +3603,7 @@ public sealed class StationaryCombatController
         }
 
         await StopMovementAsync(context, state).ConfigureAwait(false);
+        EnsureNextTargetPreAimRunning(context, state, target, player, home, radius);
         return await _semiAuto
             .TickAsync(
                 context,
@@ -3927,6 +3961,7 @@ public sealed class StationaryCombatController
     {
         if (state.CleanupReturnToCombatActive)
         {
+            await WaitForNextTargetPreAimCameraIdleAsync(context, state).ConfigureAwait(false);
             var returnStatus = await TickCleanupReturnToCombatAsync(
                     context,
                     plan,
@@ -3952,6 +3987,11 @@ public sealed class StationaryCombatController
 
         if (_bagCleanup is not null)
         {
+            if (state.BagCleanup.Active)
+            {
+                await WaitForNextTargetPreAimCameraIdleAsync(context, state).ConfigureAwait(false);
+            }
+
             var cleanupResult = await _bagCleanup
                 .TickAfterLootAsync(context, state.BagCleanup)
                 .ConfigureAwait(false);
@@ -4639,6 +4679,7 @@ public sealed class StationaryCombatController
             ["targetServerObjectId"] = state.LootAfterKill.KilledTargetServerObjectId,
             ["targetName"] = state.LootAfterKill.KilledTargetName
         });
+        StopNextTargetPreAim(context, state, "loot_after_kill_finished", clearCandidate: false);
         state.MarkLootAfterKillFinished(finishedAt, lootKeyPressed);
         state.ClearLootAfterKill();
         state.ClearTarget();
@@ -6268,6 +6309,7 @@ public sealed class StationaryCombatController
         var timeout = TimeSpan.FromMilliseconds(ReadFightSoftRestartTimeoutMs());
         if (state.IsCurrentTargetSoftRestartFallbackDue(now, timeout))
         {
+            StopNextTargetPreAim(context, state, "soft_restart_fallback", clearCandidate: true);
             return await TemporarilyExcludeStalledTargetAsync(
                     context,
                     semiAutoState,
@@ -6284,6 +6326,7 @@ public sealed class StationaryCombatController
             return null;
         }
 
+        StopNextTargetPreAim(context, state, "soft_restart", clearCandidate: true);
         if (!wasPending)
         {
             semiAutoState.ClearChain();
@@ -6543,6 +6586,7 @@ public sealed class StationaryCombatController
         }
 
         context.Logger.Info("stationary_combat.target.ignored", fields);
+        StopNextTargetPreAim(context, state, "target_ignored_" + reason, clearCandidate: true);
         await StopSoloJumpAsync(state, "target_ignored_" + reason).ConfigureAwait(false);
         state.ClearTarget();
         semiAutoState.ResetAttackKeyPressThrottle();
@@ -8466,6 +8510,702 @@ public sealed class StationaryCombatController
         });
     }
 
+    private static bool IsSmartPreAimEnabled(AccountWorkerContext context)
+    {
+        return context.Config.ScriptSettings?.CombatMode == AccountCombatMode.Stationary &&
+               context.Config.ScriptSettings?.Combat?.SmartPreAimEnabled == true;
+    }
+
+    private void EnsureNextTargetPreAimRunning(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        LockedTargetSnapshot currentTarget,
+        PlayerSnapshot player,
+        Vector3Snapshot home,
+        double radius)
+    {
+        if (!IsSmartPreAimEnabled(context) ||
+            !state.Fighting ||
+            !currentTarget.IsMonsterAlive ||
+            player.Position is null)
+        {
+            return;
+        }
+
+        var preAim = state.NextTargetPreAim;
+        CancellationTokenSource linkedCancellation;
+        lock (preAim.SyncRoot)
+        {
+            if (preAim.IsWorkerRunning)
+            {
+                if (StationaryCombatState.IsSameTarget(
+                    preAim.FightTargetEntityId,
+                    preAim.FightTargetServerObjectId,
+                    currentTarget.TargetEntityId,
+                    currentTarget.ServerObjectId))
+                {
+                    return;
+                }
+
+                if (!preAim.StopRequested)
+                {
+                    preAim.StopRequested = true;
+                    preAim.LastStopReason = "fight_target_changed";
+                    preAim.Cancellation?.Cancel();
+                }
+
+                return;
+            }
+
+            linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(context.StopToken);
+            preAim.Cancellation = linkedCancellation;
+            preAim.StopRequested = false;
+            preAim.FightTargetEntityId = currentTarget.TargetEntityId;
+            preAim.FightTargetServerObjectId = currentTarget.ServerObjectId;
+            preAim.LastStopReason = string.Empty;
+        }
+
+        var worker = Task.Run(
+            () => RunNextTargetPreAimAsync(
+                context,
+                state,
+                currentTarget.TargetEntityId,
+                currentTarget.ServerObjectId,
+                home,
+                radius,
+                linkedCancellation),
+            CancellationToken.None);
+        lock (preAim.SyncRoot)
+        {
+            if (ReferenceEquals(preAim.Cancellation, linkedCancellation))
+            {
+                preAim.Worker = worker;
+            }
+        }
+
+        context.Logger.Info("stationary_combat.smart_preaim.started", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["fightTargetEntityId"] = currentTarget.TargetEntityId,
+            ["fightTargetServerObjectId"] = currentTarget.ServerObjectId,
+            ["fightTargetName"] = currentTarget.Name,
+            ["radius"] = Math.Round(radius, 2)
+        });
+    }
+
+    private static void StopNextTargetPreAim(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        string reason,
+        bool clearCandidate)
+    {
+        var preAim = state.NextTargetPreAim;
+        bool shouldLog;
+        ushort targetEntityId;
+        uint targetServerObjectId;
+        string targetName;
+        bool hadCandidate;
+        lock (preAim.SyncRoot)
+        {
+            hadCandidate = preAim.HasCandidate;
+            shouldLog = (preAim.IsWorkerRunning && !preAim.StopRequested) ||
+                        (clearCandidate && hadCandidate);
+            targetEntityId = preAim.TargetEntityId;
+            targetServerObjectId = preAim.TargetServerObjectId;
+            targetName = preAim.TargetName;
+            if (preAim.Cancellation is not null && !preAim.StopRequested)
+            {
+                preAim.StopRequested = true;
+                preAim.Cancellation.Cancel();
+            }
+
+            preAim.FightTargetEntityId = 0;
+            preAim.FightTargetServerObjectId = 0;
+            preAim.LastStoppedAt = DateTimeOffset.Now;
+            preAim.LastStopReason = reason;
+            if (clearCandidate)
+            {
+                preAim.ClearCandidate();
+            }
+        }
+
+        if (!shouldLog)
+        {
+            return;
+        }
+
+        context.Logger.Info("stationary_combat.smart_preaim.stopped", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["reason"] = reason,
+            ["clearCandidate"] = clearCandidate,
+            ["hadCandidate"] = hadCandidate,
+            ["targetEntityId"] = targetEntityId,
+            ["targetServerObjectId"] = targetServerObjectId,
+            ["targetName"] = targetName
+        });
+    }
+
+    private async Task RunNextTargetPreAimAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        ushort fightTargetEntityId,
+        uint fightTargetServerObjectId,
+        Vector3Snapshot home,
+        double radius,
+        CancellationTokenSource linkedCancellation)
+    {
+        var token = linkedCancellation.Token;
+        var scanInterval = TimeSpan.FromMilliseconds(ReadSmartPreAimWorldScanMs());
+        var adjustInterval = TimeSpan.FromMilliseconds(ReadSmartPreAimAdjustMs());
+        var nextScanAt = DateTimeOffset.MinValue;
+        try
+        {
+            while (!token.IsCancellationRequested)
+            {
+                if (!IsSmartPreAimLoopStillValid(context, state, fightTargetEntityId, fightTargetServerObjectId))
+                {
+                    break;
+                }
+
+                var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
+                if (!playerResult.Success || playerResult.Value?.Position is null)
+                {
+                    await DelayAsync(adjustInterval, token).ConfigureAwait(false);
+                    continue;
+                }
+
+                var now = DateTimeOffset.Now;
+                if (now >= nextScanAt)
+                {
+                    await RefreshNextTargetPreAimSelectionAsync(
+                            context,
+                            state,
+                            playerResult.Value.Position.Value,
+                            home,
+                            radius,
+                            fightTargetEntityId,
+                            fightTargetServerObjectId)
+                        .ConfigureAwait(false);
+                    nextScanAt = DateTimeOffset.Now + scanInterval;
+                }
+
+                if (TryGetNextTargetPreAimCandidate(
+                    state,
+                    out var targetEntityId,
+                    out var targetServerObjectId,
+                    out var targetName,
+                    out var targetPosition))
+                {
+                    await AdjustNextTargetPreAimAsync(
+                            context,
+                            state,
+                            playerResult.Value,
+                            targetEntityId,
+                            targetServerObjectId,
+                            targetName,
+                            targetPosition,
+                            token)
+                        .ConfigureAwait(false);
+                }
+
+                await DelayAsync(adjustInterval, token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            context.Logger.Warn("stationary_combat.smart_preaim.failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["fightTargetEntityId"] = fightTargetEntityId,
+                ["fightTargetServerObjectId"] = fightTargetServerObjectId,
+                ["error"] = ex.Message
+            });
+        }
+        finally
+        {
+            await ReleaseNextTargetPreAimRightMouseAsync(context, state).ConfigureAwait(false);
+            lock (state.NextTargetPreAim.SyncRoot)
+            {
+                if (ReferenceEquals(state.NextTargetPreAim.Cancellation, linkedCancellation))
+                {
+                    state.NextTargetPreAim.Cancellation = null;
+                    state.NextTargetPreAim.Worker = null;
+                    state.NextTargetPreAim.StopRequested = false;
+                    state.NextTargetPreAim.FightTargetEntityId = 0;
+                    state.NextTargetPreAim.FightTargetServerObjectId = 0;
+                    state.NextTargetPreAim.LastStoppedAt = DateTimeOffset.Now;
+                    if (string.IsNullOrWhiteSpace(state.NextTargetPreAim.LastStopReason))
+                    {
+                        state.NextTargetPreAim.LastStopReason = "completed";
+                    }
+                }
+            }
+
+            linkedCancellation.Dispose();
+        }
+    }
+
+    private static bool IsSmartPreAimLoopStillValid(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        ushort fightTargetEntityId,
+        uint fightTargetServerObjectId)
+    {
+        if (!IsSmartPreAimEnabled(context))
+        {
+            return false;
+        }
+
+        var currentFightTargetMatches = state.Fighting &&
+            StationaryCombatState.IsSameTarget(
+                state.CurrentTargetEntityId,
+                state.CurrentTargetServerObjectId,
+                fightTargetEntityId,
+                fightTargetServerObjectId);
+        var lootTargetMatches = state.LootAfterKill.Active &&
+            StationaryCombatState.IsSameTarget(
+                state.LootAfterKill.KilledTargetEntityId,
+                state.LootAfterKill.KilledTargetServerObjectId,
+                fightTargetEntityId,
+                fightTargetServerObjectId);
+        if (!currentFightTargetMatches && !lootTargetMatches)
+        {
+            return false;
+        }
+
+        lock (state.NextTargetPreAim.SyncRoot)
+        {
+            return !state.NextTargetPreAim.StopRequested;
+        }
+    }
+
+    private async Task RefreshNextTargetPreAimSelectionAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        Vector3Snapshot playerPosition,
+        Vector3Snapshot home,
+        double radius,
+        ushort fightTargetEntityId,
+        uint fightTargetServerObjectId)
+    {
+        var result = await ReadWorldObjectsAsync(context).ConfigureAwait(false);
+        if (!result.Success || result.Value is null)
+        {
+            context.Logger.Warn("stationary_combat.smart_preaim.snapshot_failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["error"] = result.Error
+            });
+            return;
+        }
+
+        NextTargetPreAimSelection? currentSelection;
+        lock (state.NextTargetPreAim.SyncRoot)
+        {
+            currentSelection = state.NextTargetPreAim.CreateCurrentSelection();
+        }
+
+        var now = DateTimeOffset.Now;
+        var exclusions = state.CreateNextTargetPreAimExclusionSnapshot(result.Value, now);
+        var selection = NextTargetPreAimSelector.Select(
+            result.Value,
+            playerPosition,
+            home,
+            radius,
+            fightTargetEntityId,
+            fightTargetServerObjectId,
+            state.LocalCombatSideServerObjectId,
+            state.LocalCombatSidePetServerObjectId,
+            AllowsClaimedTargets(context),
+            PrefersAggressiveMonsters(context),
+            GetActiveMonsterNameFilters(context),
+            currentSelection,
+            now,
+            TimeSpan.FromMilliseconds(ReadSmartPreAimMinimumHoldMs()),
+            ReadSmartPreAimSwitchDistanceMargin(),
+            exclusions);
+
+        StoreNextTargetPreAimSelection(context, state, selection, result.Value.Count, now);
+    }
+
+    private static void StoreNextTargetPreAimSelection(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        NextTargetPreAimSelection? selection,
+        int worldObjectCount,
+        DateTimeOffset now)
+    {
+        var preAim = state.NextTargetPreAim;
+        ushort previousEntityId;
+        uint previousServerObjectId;
+        string previousName;
+        bool changed;
+        lock (preAim.SyncRoot)
+        {
+            previousEntityId = preAim.TargetEntityId;
+            previousServerObjectId = preAim.TargetServerObjectId;
+            previousName = preAim.TargetName;
+            if (selection is null)
+            {
+                changed = preAim.HasCandidate;
+                preAim.ClearCandidate();
+                preAim.LastSnapshotAt = now;
+            }
+            else
+            {
+                changed = !StationaryCombatState.IsSameTarget(
+                    preAim.TargetEntityId,
+                    preAim.TargetServerObjectId,
+                    selection.Target.EntityId,
+                    selection.Target.ServerObjectId);
+                preAim.TargetEntityId = selection.Target.EntityId;
+                preAim.TargetServerObjectId = selection.Target.ServerObjectId;
+                preAim.TargetName = selection.Target.Name;
+                preAim.TargetPosition = selection.Target.Position;
+                preAim.TargetPriorityTier = selection.PriorityTier;
+                preAim.TargetDistanceToPlayer = selection.DistanceToPlayer;
+                preAim.TargetingLocalSide = selection.IsTargetingLocalSide;
+                preAim.AggressivePriority = selection.IsAggressivePriority;
+                preAim.TargetSelectedAt = changed || preAim.TargetSelectedAt == DateTimeOffset.MinValue
+                    ? now
+                    : selection.SelectedAt;
+                preAim.LastSnapshotAt = now;
+                if (changed)
+                {
+                    preAim.LastAlignedAt = DateTimeOffset.MinValue;
+                    preAim.LastAdjustedAt = DateTimeOffset.MinValue;
+                }
+            }
+        }
+
+        if (selection is null)
+        {
+            if (changed)
+            {
+                context.Logger.Info("stationary_combat.smart_preaim.discarded", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["reason"] = "no_candidate",
+                    ["previousTargetEntityId"] = previousEntityId,
+                    ["previousTargetServerObjectId"] = previousServerObjectId,
+                    ["previousTargetName"] = previousName,
+                    ["worldObjectCount"] = worldObjectCount
+                });
+            }
+
+            return;
+        }
+
+        if (!changed)
+        {
+            return;
+        }
+
+        context.Logger.Info(
+            previousEntityId == 0 && previousServerObjectId == 0
+                ? "stationary_combat.smart_preaim.target_selected"
+                : "stationary_combat.smart_preaim.target_switched",
+            new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["targetEntityId"] = selection.Target.EntityId,
+                ["targetServerObjectId"] = selection.Target.ServerObjectId,
+                ["targetName"] = selection.Target.Name,
+                ["previousTargetEntityId"] = previousEntityId,
+                ["previousTargetServerObjectId"] = previousServerObjectId,
+                ["previousTargetName"] = previousName,
+                ["priorityTier"] = selection.PriorityTier,
+                ["targetingLocalSide"] = selection.IsTargetingLocalSide,
+                ["aggressivePriority"] = selection.IsAggressivePriority,
+                ["distanceToPlayer"] = Math.Round(selection.DistanceToPlayer, 2),
+                ["decisionReason"] = selection.DecisionReason,
+                ["worldObjectCount"] = worldObjectCount
+            });
+    }
+
+    private async Task AdjustNextTargetPreAimAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        PlayerSnapshot player,
+        ushort targetEntityId,
+        uint targetServerObjectId,
+        string targetName,
+        Vector3Snapshot targetPosition,
+        CancellationToken cancellationToken)
+    {
+        if (player.Position is null ||
+            state.IsMovingForward ||
+            state.PathFollowPoller is not null ||
+            ShouldPauseNextTargetPreAimCameraAdjustment(state))
+        {
+            return;
+        }
+
+        var options = ReadPathFollowTurnOptions(context.Config.ScriptSettings?.Combat) with
+        {
+            ToleranceDegrees = SmartPreAimFaceYawToleranceDegrees,
+            YawToleranceDegrees = SmartPreAimFaceYawToleranceDegrees
+        };
+        var snapshot = BuildCameraTurnSnapshot(player, targetPosition, options);
+        if (snapshot is null)
+        {
+            return;
+        }
+
+        var needsTurn = ShouldTurn(
+            restartMoveForLargeYaw: false,
+            moveAdjustDisabledByDistance: false,
+            snapshot.YawError,
+            snapshot.PitchError,
+            options.YawToleranceDegrees,
+            options.PitchToleranceDegrees);
+        if (!needsTurn)
+        {
+            MarkNextTargetPreAimAligned(context, state, targetEntityId, targetServerObjectId, targetName, snapshot);
+            return;
+        }
+
+        var shouldLog = false;
+        lock (state.NextTargetPreAim.SyncRoot)
+        {
+            shouldLog = state.NextTargetPreAim.LastAdjustedAt == DateTimeOffset.MinValue ||
+                        DateTimeOffset.Now - state.NextTargetPreAim.LastAdjustedAt >= TimeSpan.FromSeconds(1);
+            state.NextTargetPreAim.LastAdjustedAt = DateTimeOffset.Now;
+        }
+
+        var turn = await DragCameraCombinedTwoPassFixedYawPitchAsync(
+                context,
+                state,
+                targetPosition,
+                options,
+                keepRightDown: false,
+                useFaceTargetMouseMove: true,
+                leaveRightDown: false,
+                cancellationToken: cancellationToken,
+                publishRightMouseState: false)
+            .ConfigureAwait(false);
+        if (turn.Success)
+        {
+            lock (state.NextTargetPreAim.SyncRoot)
+            {
+                state.NextTargetPreAim.LastAlignedAt = DateTimeOffset.Now;
+            }
+        }
+
+        if (shouldLog)
+        {
+            context.Logger.Info("stationary_combat.smart_preaim.adjusted", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["targetEntityId"] = targetEntityId,
+                ["targetServerObjectId"] = targetServerObjectId,
+                ["targetName"] = targetName,
+                ["yawError"] = Math.Round(snapshot.YawError, 2),
+                ["pitchError"] = Math.Round(snapshot.PitchError, 2),
+                ["success"] = turn.Success,
+                ["finalYawError"] = Math.Round(turn.FinalYawError, 2),
+                ["finalPitchError"] = Math.Round(turn.FinalPitchError, 2),
+                ["mouseDx"] = turn.TotalDx,
+                ["mouseDy"] = turn.TotalDy,
+                ["passes"] = turn.Passes,
+                ["angleChangeObserved"] = turn.AngleChangeObserved
+            });
+        }
+    }
+
+    private static void MarkNextTargetPreAimAligned(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        ushort targetEntityId,
+        uint targetServerObjectId,
+        string targetName,
+        CameraTurnSnapshot snapshot)
+    {
+        var shouldLog = false;
+        lock (state.NextTargetPreAim.SyncRoot)
+        {
+            shouldLog = state.NextTargetPreAim.LastAlignedAt == DateTimeOffset.MinValue ||
+                        DateTimeOffset.Now - state.NextTargetPreAim.LastAlignedAt >= TimeSpan.FromSeconds(2);
+            state.NextTargetPreAim.LastAlignedAt = DateTimeOffset.Now;
+        }
+
+        if (!shouldLog)
+        {
+            return;
+        }
+
+        context.Logger.Info("stationary_combat.smart_preaim.aligned", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["targetEntityId"] = targetEntityId,
+            ["targetServerObjectId"] = targetServerObjectId,
+            ["targetName"] = targetName,
+            ["yawError"] = Math.Round(snapshot.YawError, 2),
+            ["pitchError"] = Math.Round(snapshot.PitchError, 2)
+        });
+    }
+
+    private static bool ShouldPauseNextTargetPreAimCameraAdjustment(StationaryCombatState state)
+    {
+        return state.BagCleanup.Active ||
+               state.CleanupReturnToCombatActive;
+    }
+
+    private async Task WaitForNextTargetPreAimCameraIdleAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state)
+    {
+        if (!IsSmartPreAimEnabled(context))
+        {
+            return;
+        }
+
+        lock (state.NextTargetPreAim.SyncRoot)
+        {
+            if (!state.NextTargetPreAim.IsWorkerRunning)
+            {
+                return;
+            }
+        }
+
+        await _cameraTurnInputSync.WaitAsync(context.StopToken).ConfigureAwait(false);
+        _cameraTurnInputSync.Release();
+    }
+
+    private async Task ReleaseNextTargetPreAimRightMouseAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state)
+    {
+        if (!state.IsRightMouseDown)
+        {
+            return;
+        }
+
+        var result = await _input.MouseUpAsync(RoadhogMouseButton.Right, CancellationToken.None).ConfigureAwait(false);
+        state.IsRightMouseDown = false;
+        if (!result.Success)
+        {
+            context.Logger.Warn("stationary_combat.smart_preaim.mouse_up_failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["error"] = result.Error
+            });
+        }
+    }
+
+    private static bool TryGetNextTargetPreAimCandidate(
+        StationaryCombatState state,
+        out ushort targetEntityId,
+        out uint targetServerObjectId,
+        out string targetName,
+        out Vector3Snapshot targetPosition)
+    {
+        lock (state.NextTargetPreAim.SyncRoot)
+        {
+            if (!state.NextTargetPreAim.HasCandidate ||
+                state.NextTargetPreAim.TargetPosition is not { } position)
+            {
+                targetEntityId = 0;
+                targetServerObjectId = 0;
+                targetName = string.Empty;
+                targetPosition = default;
+                return false;
+            }
+
+            targetEntityId = state.NextTargetPreAim.TargetEntityId;
+            targetServerObjectId = state.NextTargetPreAim.TargetServerObjectId;
+            targetName = state.NextTargetPreAim.TargetName;
+            targetPosition = position;
+            return true;
+        }
+    }
+
+    private bool TryConsumeNextTargetPreAim(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        PlayerSnapshot player,
+        Vector3Snapshot targetPosition,
+        WorldObjectSnapshot target)
+    {
+        if (!IsSmartPreAimEnabled(context))
+        {
+            StopNextTargetPreAim(context, state, "consume_disabled", clearCandidate: true);
+            return false;
+        }
+
+        ushort preAimEntityId;
+        uint preAimServerObjectId;
+        string preAimName;
+        DateTimeOffset alignedAt;
+        lock (state.NextTargetPreAim.SyncRoot)
+        {
+            if (!state.NextTargetPreAim.HasAlignedCandidate)
+            {
+                return false;
+            }
+
+            preAimEntityId = state.NextTargetPreAim.TargetEntityId;
+            preAimServerObjectId = state.NextTargetPreAim.TargetServerObjectId;
+            preAimName = state.NextTargetPreAim.TargetName;
+            alignedAt = state.NextTargetPreAim.LastAlignedAt;
+        }
+
+        if (!StationaryCombatState.IsSameTarget(
+            preAimEntityId,
+            preAimServerObjectId,
+            target.EntityId,
+            target.ServerObjectId))
+        {
+            StopNextTargetPreAim(context, state, "selected_target_mismatch", clearCandidate: true);
+            return false;
+        }
+
+        var now = DateTimeOffset.Now;
+        if (alignedAt == DateTimeOffset.MinValue ||
+            now - alignedAt > ReadSmartPreAimResultTtl())
+        {
+            StopNextTargetPreAim(context, state, "alignment_stale", clearCandidate: true);
+            return false;
+        }
+
+        var options = ReadPathFollowTurnOptions(context.Config.ScriptSettings?.Combat) with
+        {
+            ToleranceDegrees = SmartPreAimFaceYawToleranceDegrees,
+            YawToleranceDegrees = SmartPreAimFaceYawToleranceDegrees
+        };
+        var snapshot = BuildCameraTurnSnapshot(player, targetPosition, options);
+        if (snapshot is null ||
+            ShouldTurn(
+                restartMoveForLargeYaw: false,
+                moveAdjustDisabledByDistance: false,
+                snapshot.YawError,
+                snapshot.PitchError,
+                options.YawToleranceDegrees,
+                options.PitchToleranceDegrees))
+        {
+            StopNextTargetPreAim(context, state, "alignment_verify_failed", clearCandidate: true);
+            return false;
+        }
+
+        context.Logger.Info("stationary_combat.smart_preaim.consumed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["targetEntityId"] = target.EntityId,
+            ["targetServerObjectId"] = target.ServerObjectId,
+            ["targetName"] = target.Name,
+            ["preAimName"] = preAimName,
+            ["ageMs"] = (long)Math.Max(0.0D, (now - alignedAt).TotalMilliseconds),
+            ["yawError"] = Math.Round(snapshot.YawError, 2),
+            ["pitchError"] = Math.Round(snapshot.PitchError, 2)
+        });
+        StopNextTargetPreAim(context, state, "consumed", clearCandidate: true);
+        return true;
+    }
+
     private async Task<bool> FaceTargetStepAsync(
         AccountWorkerContext context,
         StationaryCombatState state,
@@ -8613,24 +9353,51 @@ public sealed class StationaryCombatController
 
     private async Task EnsureRightMouseDownAsync(
         AccountWorkerContext context,
-        StationaryCombatState state)
+        StationaryCombatState state,
+        bool cameraInputLockHeld = false)
     {
         if (state.IsRightMouseDown)
         {
             return;
         }
 
+        if (cameraInputLockHeld)
+        {
+            await EnsureRightMouseDownCoreAsync(context, state).ConfigureAwait(false);
+            return;
+        }
+
+        await _cameraTurnInputSync.WaitAsync(context.StopToken).ConfigureAwait(false);
+        try
+        {
+            if (!state.IsRightMouseDown)
+            {
+                await EnsureRightMouseDownCoreAsync(context, state).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _cameraTurnInputSync.Release();
+        }
+    }
+
+    private async Task EnsureRightMouseDownCoreAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state)
+    {
         var down = await _input.MouseDownAsync(RoadhogMouseButton.Right, context.StopToken).ConfigureAwait(false);
         state.IsRightMouseDown = down.Success;
-        if (!down.Success)
+        if (down.Success)
         {
-            context.Logger.Warn("stationary_combat.mouse_down.failed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["button"] = "Right",
-                ["error"] = down.Error
-            });
+            return;
         }
+
+        context.Logger.Warn("stationary_combat.mouse_down.failed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["button"] = "Right",
+            ["error"] = down.Error
+        });
     }
 
     private async Task StopMoveForwardAsync(
@@ -8759,19 +9526,34 @@ public sealed class StationaryCombatController
         PathFollowTurnOptions options,
         bool keepRightDown,
         bool useFaceTargetMouseMove,
-        bool leaveRightDown)
+        bool leaveRightDown,
+        CancellationToken cancellationToken = default,
+        bool publishRightMouseState = true)
     {
+        var operationToken = ResolveOperationToken(context, cancellationToken);
         var result = new CombinedTurnResult();
+        var lockTaken = false;
         var mouseDownStartedHere = false;
         try
         {
+            await _cameraTurnInputSync.WaitAsync(operationToken).ConfigureAwait(false);
+            lockTaken = true;
+
             if (!keepRightDown)
             {
-                await _input.MouseUpAsync(RoadhogMouseButton.Right, context.StopToken).ConfigureAwait(false);
-                state.IsRightMouseDown = false;
-                await DelayAsync(TimeSpan.FromMilliseconds(8), context).ConfigureAwait(false);
-                var down = await _input.MouseDownAsync(RoadhogMouseButton.Right, context.StopToken).ConfigureAwait(false);
-                state.IsRightMouseDown = down.Success;
+                await _input.MouseUpAsync(RoadhogMouseButton.Right, operationToken).ConfigureAwait(false);
+                if (publishRightMouseState)
+                {
+                    state.IsRightMouseDown = false;
+                }
+
+                await DelayAsync(TimeSpan.FromMilliseconds(8), operationToken).ConfigureAwait(false);
+                var down = await _input.MouseDownAsync(RoadhogMouseButton.Right, operationToken).ConfigureAwait(false);
+                if (publishRightMouseState)
+                {
+                    state.IsRightMouseDown = down.Success;
+                }
+
                 mouseDownStartedHere = down.Success;
                 if (!down.Success)
                 {
@@ -8784,17 +9566,17 @@ public sealed class StationaryCombatController
                     return result;
                 }
 
-                await DelayAsync(TimeSpan.FromMilliseconds(options.MouseDownWarmupMs), context).ConfigureAwait(false);
+                await DelayAsync(TimeSpan.FromMilliseconds(options.MouseDownWarmupMs), operationToken).ConfigureAwait(false);
             }
             else
             {
-                await EnsureRightMouseDownAsync(context, state).ConfigureAwait(false);
+                await EnsureRightMouseDownAsync(context, state, cameraInputLockHeld: true).ConfigureAwait(false);
             }
 
             for (var pass = 1; pass <= options.TwoPassMaxPasses; pass++)
             {
                 result.Passes = pass;
-                var snapshot = await ReadStableTurnSnapshotAsync(context, target, options).ConfigureAwait(false);
+                var snapshot = await ReadStableTurnSnapshotAsync(context, target, options, operationToken).ConfigureAwait(false);
                 if (snapshot is null)
                 {
                     break;
@@ -8882,18 +9664,26 @@ public sealed class StationaryCombatController
                     ["minApplied"] = minXApplied || minYApplied
                 });
 
-                await DragCameraCombinedChunksAsync(context, dx, dy, options).ConfigureAwait(false);
+                await DragCameraCombinedChunksAsync(
+                        context,
+                        dx,
+                        dy,
+                        options,
+                        operationToken,
+                        cameraInputLockHeld: true)
+                    .ConfigureAwait(false);
                 result.MouseMoveAttempted |= dx != 0 || dy != 0;
                 result.TotalDx += dx;
                 result.TotalDy += dy;
-                await DelayAsync(TimeSpan.FromMilliseconds(options.MouseHoldAfterMoveMs), context).ConfigureAwait(false);
+                await DelayAsync(TimeSpan.FromMilliseconds(options.MouseHoldAfterMoveMs), operationToken).ConfigureAwait(false);
 
                 var afterSnapshot = await WaitForCameraAnglesChangeAsync(
                         context,
                         target,
                         snapshot.CurrentYaw,
                         snapshot.CurrentPitch,
-                        options)
+                        options,
+                        operationToken)
                     .ConfigureAwait(false);
                 if (afterSnapshot is null)
                 {
@@ -8936,37 +9726,56 @@ public sealed class StationaryCombatController
                 }
             }
 
-            if (result.Success || result.AngleChangeObserved)
+            if (publishRightMouseState)
             {
-                state.ResetCameraTurnNoChange();
-            }
-            else if (result.MouseMoveAttempted)
-            {
-                var failureCount = state.MarkCameraTurnNoChange();
-                if (failureCount >= CameraTurnRecoveryFailureThreshold)
+                if (result.Success || result.AngleChangeObserved)
                 {
-                    mouseDownStartedHere = await ForceResetRightMouseAfterTurnFailuresAsync(
-                            context,
-                            state,
-                            failureCount)
-                        .ConfigureAwait(false);
                     state.ResetCameraTurnNoChange();
+                }
+                else if (result.MouseMoveAttempted)
+                {
+                    var failureCount = state.MarkCameraTurnNoChange();
+                    if (failureCount >= CameraTurnRecoveryFailureThreshold)
+                    {
+                        mouseDownStartedHere = await ForceResetRightMouseAfterTurnFailuresAsync(
+                                context,
+                                state,
+                                failureCount)
+                            .ConfigureAwait(false);
+                        state.ResetCameraTurnNoChange();
+                    }
                 }
             }
         }
         finally
         {
-            if (mouseDownStartedHere && !keepRightDown && !leaveRightDown)
+            if (lockTaken)
             {
-                await _input.MouseUpAsync(RoadhogMouseButton.Right, context.StopToken).ConfigureAwait(false);
-                state.IsRightMouseDown = false;
-            }
-            else if (mouseDownStartedHere && leaveRightDown)
-            {
-                state.IsRightMouseDown = true;
-            }
+                try
+                {
+                    if (mouseDownStartedHere && !keepRightDown && !leaveRightDown)
+                    {
+                        await _input.MouseUpAsync(RoadhogMouseButton.Right, CancellationToken.None).ConfigureAwait(false);
+                        if (publishRightMouseState)
+                        {
+                            state.IsRightMouseDown = false;
+                        }
+                    }
+                    else if (mouseDownStartedHere && leaveRightDown)
+                    {
+                        if (publishRightMouseState)
+                        {
+                            state.IsRightMouseDown = true;
+                        }
+                    }
 
-            await DelayAsync(TimeSpan.FromMilliseconds(options.DurationMs), context).ConfigureAwait(false);
+                    await DelayAsync(TimeSpan.FromMilliseconds(options.DurationMs), operationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _cameraTurnInputSync.Release();
+                }
+            }
         }
 
         return result;
@@ -9131,8 +9940,11 @@ public sealed class StationaryCombatController
         AccountWorkerContext context,
         int dx,
         int dy,
-        PathFollowTurnOptions options)
+        PathFollowTurnOptions options,
+        CancellationToken cancellationToken = default,
+        bool cameraInputLockHeld = false)
     {
+        var operationToken = ResolveOperationToken(context, cancellationToken);
         var xChunks = BuildSignedCameraChunks(dx, options);
         var yChunks = BuildSignedCameraChunks(dy, options);
         var count = Math.Max(xChunks.Length, yChunks.Length);
@@ -9142,10 +9954,17 @@ public sealed class StationaryCombatController
         {
             var stepX = i < xChunks.Length ? xChunks[i] : 0;
             var stepY = i < yChunks.Length ? yChunks[i] : 0;
-            await SendCameraCombinedMoveStepAsync(context, stepX, stepY, options).ConfigureAwait(false);
+            await SendCameraCombinedMoveStepAsync(
+                    context,
+                    stepX,
+                    stepY,
+                    options,
+                    operationToken,
+                    cameraInputLockHeld)
+                .ConfigureAwait(false);
             if (i >= primeMoveCommands)
             {
-                await DelayAsync(stepDelay, context).ConfigureAwait(false);
+                await DelayAsync(stepDelay, operationToken).ConfigureAwait(false);
             }
         }
     }
@@ -9154,14 +9973,40 @@ public sealed class StationaryCombatController
         AccountWorkerContext context,
         int dx,
         int dy,
-        PathFollowTurnOptions options)
+        PathFollowTurnOptions options,
+        CancellationToken cancellationToken = default,
+        bool cameraInputLockHeld = false)
     {
         if (dx == 0 && dy == 0)
         {
             return;
         }
 
-        var move = await _input.MoveMouseRelativeAsync(dx, dy, context.StopToken).ConfigureAwait(false);
+        var operationToken = ResolveOperationToken(context, cancellationToken);
+        if (cameraInputLockHeld)
+        {
+            await SendCameraCombinedMoveStepCoreAsync(context, dx, dy, operationToken).ConfigureAwait(false);
+            return;
+        }
+
+        await _cameraTurnInputSync.WaitAsync(operationToken).ConfigureAwait(false);
+        try
+        {
+            await SendCameraCombinedMoveStepCoreAsync(context, dx, dy, operationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _cameraTurnInputSync.Release();
+        }
+    }
+
+    private async Task SendCameraCombinedMoveStepCoreAsync(
+        AccountWorkerContext context,
+        int dx,
+        int dy,
+        CancellationToken cancellationToken)
+    {
+        var move = await _input.MoveMouseRelativeAsync(dx, dy, cancellationToken).ConfigureAwait(false);
         if (!move.Success)
         {
             context.Logger.Warn("stationary_combat.mouse_move.failed", new Dictionary<string, object?>
@@ -9278,9 +10123,11 @@ public sealed class StationaryCombatController
     private async Task<CameraTurnSnapshot?> ReadStableTurnSnapshotAsync(
         AccountWorkerContext context,
         Vector3Snapshot target,
-        PathFollowTurnOptions options)
+        PathFollowTurnOptions options,
+        CancellationToken cancellationToken = default)
     {
-        await DelayAsync(TimeSpan.FromMilliseconds(options.SettleMs), context).ConfigureAwait(false);
+        var operationToken = ResolveOperationToken(context, cancellationToken);
+        await DelayAsync(TimeSpan.FromMilliseconds(options.SettleMs), operationToken).ConfigureAwait(false);
         return await ReadTurnSnapshotAsync(context, target, options).ConfigureAwait(false);
     }
 
@@ -9289,28 +10136,30 @@ public sealed class StationaryCombatController
         Vector3Snapshot target,
         double previousYaw,
         double previousPitch,
-        PathFollowTurnOptions options)
+        PathFollowTurnOptions options,
+        CancellationToken cancellationToken = default)
     {
-        await DelayAsync(TimeSpan.FromMilliseconds(options.AdaptiveReadSettleMs), context).ConfigureAwait(false);
+        var operationToken = ResolveOperationToken(context, cancellationToken);
+        await DelayAsync(TimeSpan.FromMilliseconds(options.AdaptiveReadSettleMs), operationToken).ConfigureAwait(false);
         var timeout = TimeSpan.FromMilliseconds(Math.Max(0, options.AdaptiveReadTimeoutMs));
         if (timeout <= TimeSpan.Zero)
         {
             var immediate = await ReadChangedCameraAnglesAsync(context, target, previousYaw, previousPitch, options).ConfigureAwait(false);
             return immediate is null
                 ? null
-                : await WaitForCameraAnglesStableAsync(context, target, options, immediate).ConfigureAwait(false);
+                : await WaitForCameraAnglesStableAsync(context, target, options, immediate, operationToken).ConfigureAwait(false);
         }
 
         var deadline = DateTimeOffset.UtcNow + timeout;
-        while (DateTimeOffset.UtcNow <= deadline && !context.StopToken.IsCancellationRequested)
+        while (DateTimeOffset.UtcNow <= deadline && !operationToken.IsCancellationRequested)
         {
             var observed = await ReadChangedCameraAnglesAsync(context, target, previousYaw, previousPitch, options).ConfigureAwait(false);
             if (observed is not null)
             {
-                return await WaitForCameraAnglesStableAsync(context, target, options, observed).ConfigureAwait(false);
+                return await WaitForCameraAnglesStableAsync(context, target, options, observed, operationToken).ConfigureAwait(false);
             }
 
-            await DelayAsync(TimeSpan.FromMilliseconds(10), context).ConfigureAwait(false);
+            await DelayAsync(TimeSpan.FromMilliseconds(10), operationToken).ConfigureAwait(false);
         }
 
         return null;
@@ -9341,8 +10190,10 @@ public sealed class StationaryCombatController
         AccountWorkerContext context,
         Vector3Snapshot target,
         PathFollowTurnOptions options,
-        CameraTurnSnapshot stableSnapshot)
+        CameraTurnSnapshot stableSnapshot,
+        CancellationToken cancellationToken = default)
     {
+        var operationToken = ResolveOperationToken(context, cancellationToken);
         var stableMs = Math.Max(0, options.AdaptiveStableMs);
         var timeoutMs = Math.Max(stableMs, options.AdaptiveStableTimeoutMs);
         if (stableMs <= 0 || timeoutMs <= 0)
@@ -9353,7 +10204,7 @@ public sealed class StationaryCombatController
         var deadline = DateTimeOffset.UtcNow.AddMilliseconds(timeoutMs);
         var stableSince = DateTimeOffset.UtcNow;
         var currentStable = stableSnapshot;
-        while (DateTimeOffset.UtcNow <= deadline && !context.StopToken.IsCancellationRequested)
+        while (DateTimeOffset.UtcNow <= deadline && !operationToken.IsCancellationRequested)
         {
             var snapshot = await ReadTurnSnapshotAsync(context, target, options).ConfigureAwait(false);
             if (snapshot is not null)
@@ -9372,7 +10223,7 @@ public sealed class StationaryCombatController
                 }
             }
 
-            await DelayAsync(TimeSpan.FromMilliseconds(10), context).ConfigureAwait(false);
+            await DelayAsync(TimeSpan.FromMilliseconds(10), operationToken).ConfigureAwait(false);
         }
 
         return currentStable;
@@ -10043,6 +10894,38 @@ public sealed class StationaryCombatController
         return Math.Max(0.1D, ReadDoubleFromEnv("AION_PATH_FOLLOW_MICRO_YAW_TOLERANCE_DEG", 1.5D));
     }
 
+    private static int ReadSmartPreAimWorldScanMs()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_SMART_PREAIM_WORLD_SCAN_MS", 900), 250, 5000);
+    }
+
+    private static int ReadSmartPreAimAdjustMs()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_SMART_PREAIM_ADJUST_MS", 220), 80, 2000);
+    }
+
+    private static int ReadSmartPreAimMinimumHoldMs()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_SMART_PREAIM_MIN_HOLD_MS", 1000), 0, 10000);
+    }
+
+    private static double ReadSmartPreAimSwitchDistanceMargin()
+    {
+        return ClampDouble(
+            ReadDoubleFromEnv("ROADHOG_SMART_PREAIM_SWITCH_DISTANCE_MARGIN", DefaultSmartPreAimSwitchDistanceMargin),
+            0.0D,
+            30.0D);
+    }
+
+    private static TimeSpan ReadSmartPreAimResultTtl()
+    {
+        var milliseconds = ClampInt(
+            ReadRawIntFromEnv("ROADHOG_SMART_PREAIM_RESULT_TTL_MS", (int)DefaultSmartPreAimResultTtl.TotalMilliseconds),
+            500,
+            120_000);
+        return TimeSpan.FromMilliseconds(milliseconds);
+    }
+
     private static double ReadPathFollowRestartYawThreshold()
     {
         return Math.Max(0.1D, ReadDoubleFromEnv("AION_PATH_FOLLOW_RESTART_YAW_DEG", 15.0D));
@@ -10604,6 +11487,22 @@ public sealed class StationaryCombatController
         return delay <= TimeSpan.Zero
             ? Task.CompletedTask
             : Task.Delay(delay, context.StopToken);
+    }
+
+    private static CancellationToken ResolveOperationToken(
+        AccountWorkerContext context,
+        CancellationToken cancellationToken)
+    {
+        return cancellationToken.CanBeCanceled
+            ? cancellationToken
+            : context.StopToken;
+    }
+
+    private static Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken)
+    {
+        return delay <= TimeSpan.Zero
+            ? Task.CompletedTask
+            : Task.Delay(delay, cancellationToken);
     }
 
     private static void LogThrottled(
