@@ -73,6 +73,7 @@ public sealed class StationaryCombatController
     private readonly SemiAutoCombatController _semiAuto;
     private readonly ISharedPathStore? _pathStore;
     private readonly BagCleanupController? _bagCleanup;
+    private readonly TacticalMarkCoordinator _tacticalMark;
     private readonly SemaphoreSlim _cameraTurnInputSync = new(1, 1);
 
     public StationaryCombatController(
@@ -82,6 +83,7 @@ public sealed class StationaryCombatController
     {
         _input = input;
         _semiAuto = semiAuto;
+        _tacticalMark = new TacticalMarkCoordinator(input);
         _pathStore = pathStore;
         _bagCleanup = pathStore is null
             ? null
@@ -3589,6 +3591,7 @@ public sealed class StationaryCombatController
                 .ConfigureAwait(false);
         }
 
+        await MaintainLeaderTacticalMarkAsync(context, state, target).ConfigureAwait(false);
         var openingDelay = await TryWaitForLockedTargetToTargetPlayerAsync(
                 context,
                 plan,
@@ -6090,6 +6093,7 @@ public sealed class StationaryCombatController
             return noDamageDelay.Value;
         }
 
+        await MaintainLeaderTacticalMarkAsync(context, state, effectiveLockedTarget).ConfigureAwait(false);
         var openingDelay = await TryWaitForLockedTargetToTargetPlayerAsync(
                 context,
                 plan,
@@ -7296,6 +7300,34 @@ public sealed class StationaryCombatController
             "targetServer=" + target.TargetServerObjectId,
             "hp=" + target.CurrentHp + "/" + target.MaxHp,
             "reason=" + string.Join("+", reasons));
+    }
+
+    private async Task MaintainLeaderTacticalMarkAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        LockedTargetSnapshot target)
+    {
+        var team = context.Config.ScriptSettings?.Team ?? new TeamScriptSettings();
+        var leader = team.Leader ?? new TeamLeaderScriptSettings();
+        if (team.Role != TeamRole.Leader ||
+            !leader.Enabled ||
+            !leader.TacticalMarkEnabled)
+        {
+            state.LeaderTacticalMark.Reset();
+            return;
+        }
+
+        var markKey = string.IsNullOrWhiteSpace(leader.TacticalMarkKey)
+            ? TeamLeaderScriptSettings.DefaultTacticalMarkKey
+            : leader.TacticalMarkKey.Trim();
+        await _tacticalMark
+            .MaintainLeaderTargetMarkAsync(
+                context,
+                state.LeaderTacticalMark,
+                target,
+                markKey,
+                ReadKeyHoldDuration(context))
+            .ConfigureAwait(false);
     }
 
     private async Task<WorldObjectSnapshot?> SelectMaintenanceDefenseTargetAsync(

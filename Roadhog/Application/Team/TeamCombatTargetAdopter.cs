@@ -21,6 +21,7 @@ internal static class TeamCombatTargetAdopter
         combatState.CurrentTargetIsMaintenanceDefense = true;
         combatState.CurrentTargetIsRevivePathClear = false;
         combatState.CurrentTargetBypassesHomeLeash = true;
+        combatState.CurrentTargetIsTacticalMark = false;
         combatState.FacedCandidateEntityId = 0;
         combatState.ClearPendingTabVerification();
         combatState.PathCombat.ClearCurrentTargetAnchor();
@@ -45,6 +46,30 @@ internal static class TeamCombatTargetAdopter
         combatState.CurrentTargetIsMaintenanceDefense = true;
         combatState.CurrentTargetIsRevivePathClear = false;
         combatState.CurrentTargetBypassesHomeLeash = true;
+        combatState.CurrentTargetIsTacticalMark = false;
+        combatState.FacedCandidateEntityId = 0;
+        combatState.ClearPendingTabVerification();
+        combatState.PathCombat.ClearCurrentTargetAnchor();
+        return true;
+    }
+
+    public static bool TryAdoptTacticalMarkedTarget(
+        StationaryCombatState? combatState,
+        LockedTargetSnapshot? target)
+    {
+        if (combatState is null || !TacticalMarkCoordinator.IsStrictlyLivingMonster(target))
+        {
+            return false;
+        }
+
+        combatState.ReturningHome = false;
+        combatState.Fighting = true;
+        combatState.SetCurrentTarget(target!);
+        combatState.MarkCandidate(target!.TargetEntityId, target.ServerObjectId, DateTimeOffset.Now);
+        combatState.CurrentTargetIsMaintenanceDefense = true;
+        combatState.CurrentTargetIsRevivePathClear = false;
+        combatState.CurrentTargetBypassesHomeLeash = true;
+        combatState.CurrentTargetIsTacticalMark = true;
         combatState.FacedCandidateEntityId = 0;
         combatState.ClearPendingTabVerification();
         combatState.PathCombat.ClearCurrentTargetAnchor();

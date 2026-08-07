@@ -1,5 +1,6 @@
 using Roadhog.Application.BagCleanup;
 using Roadhog.Application.JumpAssist;
+using Roadhog.Application.Team;
 using Roadhog.Core.Model;
 
 namespace Roadhog.Application.StationaryCombat;
@@ -24,6 +25,8 @@ public sealed class StationaryCombatState
 
     public NextTargetPreAimState NextTargetPreAim { get; } = new();
 
+    public LeaderTacticalMarkState LeaderTacticalMark { get; } = new();
+
     public bool CleanupReturnToCombatActive { get; private set; }
 
     public bool ReturningHome { get; set; }
@@ -47,6 +50,8 @@ public sealed class StationaryCombatState
     public bool CurrentTargetIsGatherSafetyClear { get; set; }
 
     public bool CurrentTargetBypassesHomeLeash { get; set; }
+
+    public bool CurrentTargetIsTacticalMark { get; set; }
 
     public ushort TeamLeaderProtectionTargetEntityId { get; private set; }
 
@@ -226,6 +231,7 @@ public sealed class StationaryCombatState
         CurrentTargetIsRevivePathClear = false;
         CurrentTargetIsGatherSafetyClear = false;
         CurrentTargetBypassesHomeLeash = false;
+        CurrentTargetIsTacticalMark = false;
         ClearTeamLeaderProtectionTarget();
         CandidateEntityId = 0;
         CandidateServerObjectId = 0;
@@ -238,6 +244,7 @@ public sealed class StationaryCombatState
         ResetCurrentTargetMissing();
         ClearPendingTabVerification();
         ClearWrongLockNudge();
+        LeaderTacticalMark.Reset();
     }
 
     public void EnterDeathRecovery(DateTimeOffset now)

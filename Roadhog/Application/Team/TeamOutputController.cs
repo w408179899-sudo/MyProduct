@@ -19,10 +19,12 @@ public sealed class TeamOutputController
     private const string LeaderAssistKey = "C";
 
     private readonly IKeyboardInput _keyboard;
+    private readonly TacticalMarkCoordinator _tacticalMark;
 
     public TeamOutputController(IKeyboardInput keyboard)
     {
         _keyboard = keyboard;
+        _tacticalMark = new TacticalMarkCoordinator(keyboard);
     }
 
     public async Task<TeamOutputTickResult> TickAsync(
@@ -52,8 +54,12 @@ public sealed class TeamOutputController
                 });
             }
 
-            return await RecordLeaderUnavailableTickAsync(state, combatState, "team_output_snapshot_unavailable")
-                .ConfigureAwait(false)
+            var allowNormalWork = await RecordLeaderUnavailableTickAsync(
+                    state,
+                    combatState,
+                    "team_output_snapshot_unavailable")
+                .ConfigureAwait(false);
+            return allowNormalWork && !output.TacticalMarkTargetingEnabled
                 ? TeamOutputTickResult.Continue(TeamOutputTickDelay)
                 : TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
         }
@@ -62,15 +68,19 @@ public sealed class TeamOutputController
         var leader = snapshot.LeaderMember;
         if (leader is null || leader.IsSelf)
         {
-            return await RecordLeaderUnavailableTickAsync(state, combatState, "team_output_leader_unavailable")
-                .ConfigureAwait(false)
+            var allowNormalWork = await RecordLeaderUnavailableTickAsync(
+                    state,
+                    combatState,
+                    "team_output_leader_unavailable")
+                .ConfigureAwait(false);
+            return allowNormalWork && !output.TacticalMarkTargetingEnabled
                 ? TeamOutputTickResult.Continue(TeamOutputTickDelay)
                 : TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
         }
 
         if (output.StopWhenLeaderDead && leader.PartyMember.IsDead)
         {
-            if (output.AllowSelfDefense)
+            if (!output.TacticalMarkTargetingEnabled && output.AllowSelfDefense)
             {
                 var selfDefenseResult = await TryHandleLeaderDeadSelfDefenseAsync(
                         context,
@@ -85,7 +95,8 @@ public sealed class TeamOutputController
             }
 
             if (await RecordLeaderUnavailableTickAsync(state, combatState, "team_output_leader_dead")
-                    .ConfigureAwait(false))
+                    .ConfigureAwait(false) &&
+                !output.TacticalMarkTargetingEnabled)
             {
                 return TeamOutputTickResult.Continue(TeamOutputTickDelay);
             }
@@ -96,8 +107,12 @@ public sealed class TeamOutputController
 
         if (leader.PartyMember.DistanceToLocalPlayer is null)
         {
-            return await RecordLeaderUnavailableTickAsync(state, combatState, "team_output_leader_distance_unknown")
-                .ConfigureAwait(false)
+            var allowNormalWork = await RecordLeaderUnavailableTickAsync(
+                    state,
+                    combatState,
+                    "team_output_leader_distance_unknown")
+                .ConfigureAwait(false);
+            return allowNormalWork && !output.TacticalMarkTargetingEnabled
                 ? TeamOutputTickResult.Continue(TeamOutputTickDelay)
                 : TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
         }
@@ -129,7 +144,8 @@ public sealed class TeamOutputController
             return TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
         }
 
-        if (output.AllowSelfDefense &&
+        if (!output.TacticalMarkTargetingEnabled &&
+            output.AllowSelfDefense &&
             await TryFindSelfDefenseThreatAsync(context, state, snapshot).ConfigureAwait(false) is not null)
         {
             return TeamOutputTickResult.Continue(TeamOutputTickDelay);
@@ -178,6 +194,12 @@ public sealed class TeamOutputController
                 activeGroupDistanceMeters,
                 state.LeaderGroupActive,
                 combatState);
+            if (output.TacticalMarkTargetingEnabled)
+            {
+                await SelectLeaderAndAssistAsync(context, state, leader).ConfigureAwait(false);
+                return TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
+            }
+
             return TeamOutputTickResult.Continue(TeamOutputTickDelay);
         }
 
@@ -193,6 +215,17 @@ public sealed class TeamOutputController
                 state.LeaderGroupActive,
                 combatState);
             return TeamOutputTickResult.Continue(TeamOutputTickDelay);
+        }
+
+        if (output.TacticalMarkTargetingEnabled)
+        {
+            return await TickTacticalMarkTargetingAsync(
+                    context,
+                    state,
+                    output,
+                    leader,
+                    combatState)
+                .ConfigureAwait(false);
         }
 
         if (!leader.IsScreenVisible || leader.PartyMember.LiveTargetServerObjectId == 0)
@@ -294,6 +327,69 @@ public sealed class TeamOutputController
                 "assist_key",
                 verification.PollCount)
             .ConfigureAwait(false);
+    }
+
+    private async Task<TeamOutputTickResult> TickTacticalMarkTargetingAsync(
+        AccountWorkerContext context,
+        TeamOutputState state,
+        TeamOutputScriptSettings output,
+        TeamMemberSnapshot leader,
+        StationaryCombatState? combatState)
+    {
+        var selectKey = string.IsNullOrWhiteSpace(output.SelectTacticalMarkTargetKey)
+            ? TeamOutputScriptSettings.DefaultSelectTacticalMarkTargetKey
+            : output.SelectTacticalMarkTargetKey.Trim();
+        var selection = await _tacticalMark
+            .TrySelectMarkedTargetAsync(
+                context,
+                selectKey,
+                ResolveKeyHold(context))
+            .ConfigureAwait(false);
+        if (!selection.Accepted)
+        {
+            if (ShouldLog(state.LastTacticalMarkLogAt))
+            {
+                state.LastTacticalMarkLogAt = DateTimeOffset.Now;
+                context.Logger.Info("team_output.tactical_mark.selection_deferred", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["status"] = selection.Status.ToString(),
+                    ["activeSignCount"] = selection.ActiveSignCount,
+                    ["key"] = selectKey,
+                    ["error"] = selection.Error
+                });
+            }
+
+            await SelectLeaderAndAssistAsync(context, state, leader).ConfigureAwait(false);
+            return TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
+        }
+
+        var target = selection.LockedTargetResult.Value;
+        var combatAdopted = TeamCombatTargetAdopter.TryAdoptTacticalMarkedTarget(
+            combatState,
+            target);
+        if (combatAdopted && combatState?.JumpAssist is not null)
+        {
+            await combatState.JumpAssist
+                .PrepareTeamCombatJumpAsync(target?.ServerObjectId ?? 0)
+                .ConfigureAwait(false);
+        }
+
+        context.Logger.Info("team_output.tactical_mark.target_accepted", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["targetName"] = target?.Name,
+            ["targetServerObjectId"] = target?.ServerObjectId,
+            ["targetCurrentHp"] = target?.CurrentHp,
+            ["activeSignCount"] = selection.ActiveSignCount,
+            ["confirmPollCount"] = selection.PollCount,
+            ["key"] = selectKey,
+            ["combatAdopted"] = combatAdopted
+        });
+
+        return combatAdopted
+            ? TeamOutputTickResult.Continue(TeamOutputTickDelay)
+            : TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
     }
 
     private static async Task<TeamOutputTickResult> AcceptLeaderAttackTargetAsync(

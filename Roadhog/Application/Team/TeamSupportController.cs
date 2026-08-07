@@ -27,6 +27,7 @@ public sealed class TeamSupportController
     private const string ProtectionBlessingNameWithParticle = "\u4FDD\u62A4\u7684\u795D\u798F";
 
     private readonly IKeyboardInput _keyboard;
+    private readonly TacticalMarkCoordinator _tacticalMark;
     private AbnormalStatusCatalog? _abnormalStatusCatalog;
 
     public TeamSupportController(
@@ -34,6 +35,7 @@ public sealed class TeamSupportController
         AbnormalStatusCatalog? abnormalStatusCatalog = null)
     {
         _keyboard = keyboard;
+        _tacticalMark = new TacticalMarkCoordinator(keyboard);
         _abnormalStatusCatalog = abnormalStatusCatalog;
     }
 
@@ -44,9 +46,15 @@ public sealed class TeamSupportController
     {
         var team = context.Config.ScriptSettings?.Team ?? new TeamScriptSettings();
         var support = team.Support ?? new TeamSupportScriptSettings();
+        var tacticalMarkTargetingActive = support.JoinCombat && support.TacticalMarkTargetingEnabled;
         if (team.Role != TeamRole.Support || !support.Enabled)
         {
             return TeamSupportTickResult.Continue(context.Options.TickInterval);
+        }
+
+        if (!tacticalMarkTargetingActive)
+        {
+            state.TacticalTargetRestorePending = false;
         }
 
         LogCatalogWarningIfNeeded(context.Logger, state, support);
@@ -66,8 +74,12 @@ public sealed class TeamSupportController
                 });
             }
 
-            return await RecordLeaderUnavailableTickAsync(state, combatState, "team_support_snapshot_unavailable")
-                .ConfigureAwait(false)
+            var allowNormalWork = await RecordLeaderUnavailableTickAsync(
+                    state,
+                    combatState,
+                    "team_support_snapshot_unavailable")
+                .ConfigureAwait(false);
+            return allowNormalWork && !tacticalMarkTargetingActive
                 ? TeamSupportTickResult.Continue(TeamSupportTickDelay)
                 : TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
@@ -77,8 +89,12 @@ public sealed class TeamSupportController
         var leader = snapshot.LeaderMember;
         if (leader is null || leader.IsSelf)
         {
-            return await RecordLeaderUnavailableTickAsync(state, combatState, "team_support_leader_unavailable")
-                .ConfigureAwait(false)
+            var allowNormalWork = await RecordLeaderUnavailableTickAsync(
+                    state,
+                    combatState,
+                    "team_support_leader_unavailable")
+                .ConfigureAwait(false);
+            return allowNormalWork && !tacticalMarkTargetingActive
                 ? TeamSupportTickResult.Continue(TeamSupportTickDelay)
                 : TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
@@ -88,7 +104,7 @@ public sealed class TeamSupportController
             leader.PartyMember.IsDead;
         if (leaderDeadStop)
         {
-            if (support.AllowSelfDefense)
+            if (!tacticalMarkTargetingActive && support.AllowSelfDefense)
             {
                 if (TeamLeaderRuntimePolicy.HasActiveSelfDefenseTarget(combatState))
                 {
@@ -108,7 +124,8 @@ public sealed class TeamSupportController
             }
 
             if (await RecordLeaderUnavailableTickAsync(state, combatState, "team_support_leader_dead")
-                    .ConfigureAwait(false))
+                    .ConfigureAwait(false) &&
+                !tacticalMarkTargetingActive)
             {
                 return TeamSupportTickResult.Continue(TeamSupportTickDelay);
             }
@@ -119,8 +136,12 @@ public sealed class TeamSupportController
 
         if (leader.PartyMember.DistanceToLocalPlayer is null)
         {
-            return await RecordLeaderUnavailableTickAsync(state, combatState, "team_support_leader_distance_unknown")
-                .ConfigureAwait(false)
+            var allowNormalWork = await RecordLeaderUnavailableTickAsync(
+                    state,
+                    combatState,
+                    "team_support_leader_distance_unknown")
+                .ConfigureAwait(false);
+            return allowNormalWork && !tacticalMarkTargetingActive
                 ? TeamSupportTickResult.Continue(TeamSupportTickDelay)
                 : TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
@@ -166,7 +187,7 @@ public sealed class TeamSupportController
             return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
 
-        if (support.AllowSelfDefense)
+        if (!tacticalMarkTargetingActive && support.AllowSelfDefense)
         {
             var selfDefenseResult = await TryHandleSelfDefenseAsync(
                     context,
@@ -223,6 +244,12 @@ public sealed class TeamSupportController
                 state.LeaderGroupActive,
                 support.JoinCombat,
                 combatState);
+            if (tacticalMarkTargetingActive)
+            {
+                await SelectLeaderAndAssistAsync(context, state, leader).ConfigureAwait(false);
+                return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
+            }
+
             return TeamSupportTickResult.Continue(TeamSupportTickDelay);
         }
 
@@ -234,8 +261,34 @@ public sealed class TeamSupportController
                 MaintenanceRuleRunTiming.InCombat);
             if (combatHealAction is not null)
             {
-                await ExecuteActionAsync(context, state, combatHealAction, combatState).ConfigureAwait(false);
+                var performed = await ExecuteActionAsync(context, state, combatHealAction, combatState).ConfigureAwait(false);
+                if (performed &&
+                    tacticalMarkTargetingActive &&
+                    combatHealAction.Target is not null)
+                {
+                    state.TacticalTargetRestorePending = true;
+                    context.Logger.Info("team_support.tactical_mark.restore_pending", new Dictionary<string, object?>
+                    {
+                        ["account"] = context.Config.AccountName,
+                        ["action"] = combatHealAction.Kind.ToString(),
+                        ["member"] = combatHealAction.Target.Name,
+                        ["memberServerObjectId"] = combatHealAction.Target.ServerObjectId,
+                        ["combatTargetServerObjectId"] = combatState?.CurrentTargetServerObjectId
+                    });
+                }
+
                 return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
+            }
+
+            if (tacticalMarkTargetingActive && state.TacticalTargetRestorePending)
+            {
+                return await SelectTacticalMarkedTargetForCombatAsync(
+                        context,
+                        state,
+                        support,
+                        leader,
+                        combatState)
+                    .ConfigureAwait(false);
             }
 
             LogFollowDecision(
@@ -269,6 +322,17 @@ public sealed class TeamSupportController
         {
             await SelectLeaderAndAssistAsync(context, state, snapshot).ConfigureAwait(false);
             return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
+        }
+
+        if (tacticalMarkTargetingActive)
+        {
+            return await SelectTacticalMarkedTargetForCombatAsync(
+                    context,
+                    state,
+                    support,
+                    leader,
+                    combatState)
+                .ConfigureAwait(false);
         }
 
         return await SelectLeaderTargetForCombatAsync(context, state, snapshot, support, leader, combatState).ConfigureAwait(false);
@@ -592,6 +656,74 @@ public sealed class TeamSupportController
             ["key"] = LeaderAssistKey
         });
         return true;
+    }
+
+    private async Task<TeamSupportTickResult> SelectTacticalMarkedTargetForCombatAsync(
+        AccountWorkerContext context,
+        TeamSupportState state,
+        TeamSupportScriptSettings support,
+        TeamMemberSnapshot leader,
+        StationaryCombatState? combatState)
+    {
+        var selectKey = string.IsNullOrWhiteSpace(support.SelectTacticalMarkTargetKey)
+            ? TeamSupportScriptSettings.DefaultSelectTacticalMarkTargetKey
+            : support.SelectTacticalMarkTargetKey.Trim();
+        var selection = await _tacticalMark
+            .TrySelectMarkedTargetAsync(
+                context,
+                selectKey,
+                ResolveKeyHold(context))
+            .ConfigureAwait(false);
+        if (!selection.Accepted)
+        {
+            if (ShouldLog(state.LastTacticalMarkLogAt))
+            {
+                state.LastTacticalMarkLogAt = DateTimeOffset.Now;
+                context.Logger.Info("team_support.tactical_mark.selection_deferred", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["status"] = selection.Status.ToString(),
+                    ["activeSignCount"] = selection.ActiveSignCount,
+                    ["key"] = selectKey,
+                    ["error"] = selection.Error
+                });
+            }
+
+            await SelectLeaderAndAssistAsync(context, state, leader).ConfigureAwait(false);
+            return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
+        }
+
+        var target = selection.LockedTargetResult.Value;
+        var combatAdopted = TeamCombatTargetAdopter.TryAdoptTacticalMarkedTarget(
+            combatState,
+            target);
+        if (combatAdopted)
+        {
+            state.TacticalTargetRestorePending = false;
+        }
+
+        if (combatAdopted && combatState?.JumpAssist is not null)
+        {
+            await combatState.JumpAssist
+                .PrepareTeamCombatJumpAsync(target?.ServerObjectId ?? 0)
+                .ConfigureAwait(false);
+        }
+
+        context.Logger.Info("team_support.tactical_mark.target_accepted", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["targetName"] = target?.Name,
+            ["targetServerObjectId"] = target?.ServerObjectId,
+            ["targetCurrentHp"] = target?.CurrentHp,
+            ["activeSignCount"] = selection.ActiveSignCount,
+            ["confirmPollCount"] = selection.PollCount,
+            ["key"] = selectKey,
+            ["combatAdopted"] = combatAdopted
+        });
+
+        return combatAdopted
+            ? TeamSupportTickResult.Continue(TeamSupportTickDelay)
+            : TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
     }
 
     private async Task<TeamSupportTickResult> SelectLeaderTargetForCombatAsync(

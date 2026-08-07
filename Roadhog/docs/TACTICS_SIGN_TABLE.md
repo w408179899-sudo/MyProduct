@@ -9,7 +9,7 @@
 战术标记不存放在怪物 `Actor` 内部。客户端维护了一张全局标记表：
 
 ```text
-GameBase +0xD1BA68
+GameBase +0xD668E0
 类型：uint32[16]
 含义：16 个战术标记槽对应的目标 ServerObjectId
 ```
@@ -32,23 +32,23 @@ ServerObjectId == 0
 ServerObjectId != 0
 ```
 
-虽然 IDA 把起始位置命名成 `qword_180D1BA68`，但实际代码按 16 个 `uint32` 遍历和写入，不是 8 个 `uint64`。
+当前运行版从 `GameBase +0xD668E0` 读取；实际代码按 16 个 `uint32` 遍历和写入，不是 8 个 `uint64`。
 
 ## 标记表结构
 
 ```text
-GameBase +0xD1BA68 +0x00 = 标记槽 0 的 ServerObjectId
-GameBase +0xD1BA68 +0x04 = 标记槽 1 的 ServerObjectId
-GameBase +0xD1BA68 +0x08 = 标记槽 2 的 ServerObjectId
+GameBase +0xD668E0 +0x00 = 标记槽 0 的 ServerObjectId
+GameBase +0xD668E0 +0x04 = 标记槽 1 的 ServerObjectId
+GameBase +0xD668E0 +0x08 = 标记槽 2 的 ServerObjectId
 ...
-GameBase +0xD1BA68 +0x3C = 标记槽 15 的 ServerObjectId
+GameBase +0xD668E0 +0x3C = 标记槽 15 的 ServerObjectId
 ```
 
 读取公式：
 
 ```csharp
 uint markedServerId =
-    memory.ReadUInt32(gameBase + 0xD1BA68 + (nuint)(markIndex * 4));
+    memory.ReadUInt32(gameBase + 0xD668E0 + (nuint)(markIndex * 4));
 ```
 
 索引范围：
@@ -80,7 +80,7 @@ Roadhog 现有 VMM 代码里，`objectType == 2` 已经被召唤物识别链路�
 
 ```text
 读取标记表时：
-  只认 GameBase +0xD1BA68 的 uint32 ServerObjectId[16]
+  只认 GameBase +0xD668E0 的 uint32 ServerObjectId[16]
 
 需要把标记对应到可见怪物时：
   先用 ServerObjectId 对上已加载对象
@@ -92,7 +92,7 @@ Roadhog 现有 VMM 代码里，`objectType == 2` 已经被召唤物识别链路�
 ```text
 monsterServerId = *(monsterActor +0x2C)
 
-遍历 GameBase +0xD1BA68 + i*4
+遍历 GameBase +0xD668E0 + i*4
 
 某一项 == monsterServerId
   -> 怪物身上有战术标记
@@ -129,7 +129,7 @@ public static Dictionary<uint, TacticsSignInfo> ReadTacticsSignMapByServerId(
     IMemoryReader memory,
     nuint gameBase)
 {
-    const nuint TacticsSignTableRva = 0xD1BA68;
+    const nuint TacticsSignTableRva = 0xD668E0;
     const int SignCount = 16;
 
     var result = new Dictionary<uint, TacticsSignInfo>(SignCount);
@@ -155,11 +155,10 @@ public static Dictionary<uint, TacticsSignInfo> ReadTacticsSignMapByServerId(
 
 ## 队长标记目标读取
 
-组队模式第一版可以使用固定标记槽，或者允许配置标记槽。比如：
+当前实现不固定标记槽，而是一次读取全部 16 个槽：
 
 ```text
-leaderMarkIndex = 0
-markedTargetId = *(GameBase +0xD1BA68 + leaderMarkIndex * 4)
+activeMarkedTargetIds = all nonzero uint32 values from GameBase +0xD668E0
 ```
 
 `markedTargetId == 0` 表示当前没有标记目标。
@@ -170,8 +169,8 @@ markedTargetId = *(GameBase +0xD1BA68 + leaderMarkIndex * 4)
 
 ```text
 队长标记怪物
-  -> VMM 读取 D1BA68[leaderMarkIndex]
-  -> TeamTargetSync 发布 markedTargetId
+  -> VMM 一次读取 D668E0 的全部 16 个槽
+  -> 任意槽出现目标 ServerObjectId 即表示标记成功
   -> 输出队员按“锁定标记怪物”键
   -> 队员确认自己已锁定怪物
   -> 进入半自动输出
@@ -223,8 +222,8 @@ TacticsSignSummary CurrentTargetMatched=yes
 因此输出队员选怪问题第一版已经解决。后续实现时，输出队员不需要主动遍历怪物找队长目标，也不需要额外验证“是不是队长目标”。第一版流程只需要：
 
 ```text
-1. 读取配置的 leaderMarkIndex 对应 SignSlot。
-2. 如果 MarkedTargetId != 0，则按“锁定标记怪物”键。
+1. 一次读取全部 16 个 SignSlot。
+2. 如果任意槽的 ServerObjectId != 0，则按“锁定标记怪物”键。
 3. 读取当前锁定目标，确认当前已经锁定到怪物。
 4. 进入现有半自动输出逻辑。
 5. 如果没有锁定到怪物，则等待或重试，不输出。
@@ -235,7 +234,7 @@ TacticsSignSummary CurrentTargetMatched=yes
 标记表只保存 `ServerObjectId`，所以可能出现：
 
 ```text
-D1BA68 表里有 ServerObjectId
+D668E0 表里有 ServerObjectId
 但当前遍历不到对应 Actor
 ```
 
@@ -274,13 +273,13 @@ targetServerObjectId
 sub_180067480(context, signIndex, targetServerObjectId)
 ```
 
-客户端收到更新后，最终写入 `GameBase +0xD1BA68` 这张 16 槽表。怪物/NPC 生成后，也会用 `ServerObjectId` 检查这张表并刷新头顶标记。
+客户端收到更新后，最终写入 `GameBase +0xD668E0` 这张 16 槽表。怪物/NPC 生成后，也会用 `ServerObjectId` 检查这张表并刷新头顶标记。
 
 ## 待验证
 
 - 游戏里每个具体标记图案/中文名称与内部 `markIndex` 的对应关系。
-- 队长第一版使用哪个标记槽作为组队输出目标槽。
-- 已验证队员按“锁定标记怪物”键后，可以锁定队长标记的怪物；但仍需要在配置层明确第一版使用的标记槽和对应按键。
+- 队长和队员可以配置相应的游戏按键；业务层不绑定具体标记图案或槽号。
+- 已验证队员按“锁定标记怪物”键后，可以锁定队长标记的怪物；按键后只需确认当前目标是活怪。
 
 ## 只读 Live Probe
 
@@ -314,5 +313,5 @@ TacticsSignSummary.MarkedTargetId
 3. 队长按战术标记键
 4. 再运行 probe
 5. 预期某个 SignSlot 的 ServerId == CurrentTargetServerId
-6. 如果使用固定 leaderMarkIndex，则该槽的 MarkedTargetId 应等于目标 ServerId
+6. 预期至少一个槽的 ServerId 等于目标 ServerId
 ```

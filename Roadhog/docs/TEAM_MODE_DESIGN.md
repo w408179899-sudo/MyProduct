@@ -108,8 +108,8 @@
 - 游戏内有“标记怪物”机制。
 - 标记怪物可以配置一个按键，由队长在锁定当前目标后触发。
 - VMM 从战术标记全局表读取标记目标，技术细节见 `TACTICS_SIGN_TABLE.md`。
-- 战术标记表位于 `GameBase +0xD1BA68`，结构是 `uint32 ServerObjectId[16]`。
-- `markedTargetId` 第一版定义为指定标记槽里的目标 `ServerObjectId`。
+- 战术标记表位于 `GameBase +0xD668E0`，结构是 `uint32 ServerObjectId[16]`。
+- 当前实现扫描全部标记槽，不固定具体图案或槽号。
 - 输出队员可以通过游戏机制绑定一个“锁定标记怪物”的指定按键。
 - 输出队员按下该指定按键后，直接锁定被标记的怪物。
 - 因为游戏机制会直接锁定标记怪物，所以队员不需要验证目标 ID 是否等于队长目标。
@@ -119,13 +119,15 @@
 
 目标同步不再依赖不可靠的 Tab 选择或附近怪筛选。队长负责“标记当前目标”，队员负责“按指定键锁定标记目标，并确认当前已有怪物锁定”。
 
+当前治疗角色也提供同一套默认关闭的“战术标记选怪”配置，但只有同时开启“加入打怪”时才切换选怪方式。该分支只替换怪物选择：治疗、解状态、F2-F6 选队友以及 F2/C 跟随队长保持原顺序；战斗中单体治疗切到队友后，下一次无更高优先级治疗的 Tick 必须重新按选标记键、验证活怪并恢复攻击。没有活动标记或按键后未锁定活怪时停手并恢复队长跟随，不回落普通选怪。
+
 建议目标同步流程：
 
 ```text
 队长锁定怪物
   -> 队长按标记怪物键
-  -> VMM 读取 D1BA68[leaderMarkIndex] 得到 markedTargetId
-  -> TeamMonitor / TeamTargetSync 发布 markedTargetId
+  -> VMM 一次读取 D668E0 的全部 16 个槽
+  -> 任意活动槽作为按键选怪信号
   -> 输出队员按锁定标记怪物键
   -> 输出队员读取自己的 LockedTargetSnapshot
   -> 当前已锁定怪物
@@ -135,7 +137,7 @@
 现场验证结论（2026-07-13）：
 
 - 队长标记怪物后，队员客户端的战术标记表也能读到同一标记。
-- 队员客户端 `GameBase +0xD1BA68` 的 `SignSlot#00` 读到 `ServerId=2219430696`，即 `MarkedTargetId=2219430696`。
+- 队员客户端战术标记表的 `SignSlot#00` 读到 `ServerId=2219430696`，即 `MarkedTargetId=2219430696`。
 - 队员按下游戏内“锁定标记怪物”按键后，队员当前目标变为 `CurrentTargetServerId=2219430696`。
 - probe 输出 `MatchesCurrentTarget=yes`、`CurrentTargetMatched=yes`。
 - 因此输出队员选怪问题第一版已闭环：队员不需要自己筛怪、Tab 找怪或计算队长目标，只需要读标记槽、按锁定标记怪物键、确认当前已锁定怪物，然后复用现有半自动输出。
@@ -821,7 +823,7 @@ TeamModeSettings
   followerType: Dps / Support
   leaderAccountName
   markTargetKey
-  leaderMarkIndex
+  scanAllTacticalSignSlots
   lockMarkedTargetKey
   teamId
   allowLoot

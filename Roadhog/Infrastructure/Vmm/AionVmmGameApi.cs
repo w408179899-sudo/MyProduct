@@ -15,7 +15,7 @@ using Vmmsharp;
 
 namespace Roadhog.Infrastructure.Vmm;
 
-public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi
+public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi
 #if DEBUG
     , IRoadhogApiAddressProbe
 #endif
@@ -41,6 +41,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
     private const ulong PrimaryPartyListRva = 0xD66960;
     private const ulong PrimaryPartyCountRva = 0xD66968;
     private const ulong SecondaryPartyListRva = 0xD669C8;
+    private const ulong TacticsSignTableRva = 0xD668E0;
+    private const int TacticsSignCount = 16;
     private const ulong LocalEntityIdRva = 0xD6CB18;
     private const ulong LocalMaxHpRva = 0xD71BC4;
     private const ulong LocalCurrentHpRva = 0xD71BC8;
@@ -300,6 +302,20 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         CancellationToken cancellationToken = default)
     {
         return Task.Run(() => ReadPartyCore(context), cancellationToken);
+    }
+
+    public Task<OperationResult<TacticsSignSnapshot>> ReadTacticsSignsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var context = new GameApiReadContext(string.Empty, 0, string.Empty, string.Empty);
+        return ReadTacticsSignsAsync(context, cancellationToken);
+    }
+
+    public Task<OperationResult<TacticsSignSnapshot>> ReadTacticsSignsAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => ReadTacticsSignsCore(context), cancellationToken);
     }
 
     public Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(CancellationToken cancellationToken = default)
@@ -1569,6 +1585,58 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         {
             _logger.Error("vmm.party.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
             return OperationResult<PartySnapshot>.Fail(ex.Message);
+        }
+    }
+
+    private OperationResult<TacticsSignSnapshot> ReadTacticsSignsCore(GameApiReadContext context)
+    {
+        try
+        {
+            var connection = GetOrCreateConnection(context.VmmDeviceName);
+            lock (connection.SyncRoot)
+            {
+                if (!TryResolveProcess(connection.Vmm, context, out var process, out var processError))
+                {
+                    return OperationResult<TacticsSignSnapshot>.Fail(processError);
+                }
+
+                var moduleName = ResolveModuleName();
+                var gameBase = process.GetModuleBase(moduleName);
+                if (gameBase == 0)
+                {
+                    return OperationResult<TacticsSignSnapshot>.Fail("Module not found: " + moduleName);
+                }
+
+                const int byteCount = TacticsSignCount * sizeof(uint);
+                if (!TryReadBytes(
+                        process,
+                        gameBase + TacticsSignTableRva,
+                        byteCount,
+                        out var bytes,
+                        context.BypassMemoryCache))
+                {
+                    return OperationResult<TacticsSignSnapshot>.Fail(
+                        "failed to read tactics sign table at Game.dll+0x" +
+                        TacticsSignTableRva.ToString("X", CultureInfo.InvariantCulture));
+                }
+
+                var serverObjectIds = new uint[TacticsSignCount];
+                for (var index = 0; index < serverObjectIds.Length; index++)
+                {
+                    serverObjectIds[index] = BitConverter.ToUInt32(bytes, index * sizeof(uint));
+                }
+
+                return OperationResult<TacticsSignSnapshot>.Ok(
+                    new TacticsSignSnapshot(serverObjectIds, DateTimeOffset.Now));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("vmm.tactics_signs.exception", ex, new Dictionary<string, object?>
+            {
+                ["account"] = context.AccountName
+            });
+            return OperationResult<TacticsSignSnapshot>.Fail(ex.Message);
         }
     }
 

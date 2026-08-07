@@ -18,6 +18,10 @@ public sealed class TeamSupportState
 
     public DateTimeOffset LastFollowDecisionLogAt { get; set; } = DateTimeOffset.MinValue;
 
+    public DateTimeOffset LastTacticalMarkLogAt { get; set; } = DateTimeOffset.MinValue;
+
+    public bool TacticalTargetRestorePending { get; set; }
+
     public DateTimeOffset LastActionAt { get; set; } = DateTimeOffset.MinValue;
 
     public int ConsecutiveLeaderUnavailableTicks { get; set; }

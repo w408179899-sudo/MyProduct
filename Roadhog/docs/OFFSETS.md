@@ -22,6 +22,7 @@
 | `PrimaryPartyListRva` | `0xD66960` | 主队伍成员 `std::list` 哨兵节点指针；用于队伍快照、召唤物归属和队伍召唤物快照。 |
 | `PrimaryPartyCountRva` | `0xD66968` | 主队伍成员记录数量；队伍快照保留原始数量，并和链表读取互相诊断。 |
 | `SecondaryPartyListRva` | `0xD669C8` | 备用队伍成员链表；和主链表合并、去重。 |
+| `TacticsSignTableRva` | `0xD668E0` | 16 个 `uint32 ServerObjectId` 战术标记槽；队长验证和输出队员选怪信号均扫描全部槽。 |
 | `LocalEntityIdRva` | `0xD6CB18` | 本地玩家 entity id；`+0x2` 是当前目标 entity id，用于玩家状态、锁定目标、距离和排除自己。 |
 | `LocalMaxHpRva` | `0xD71BC4` | 本地最大 HP；用于维护、死亡判断、回血阈值。 |
 | `LocalCurrentHpRva` | `0xD71BC8` | 本地当前 HP；用于维护、死亡判断、回血阈值。 |

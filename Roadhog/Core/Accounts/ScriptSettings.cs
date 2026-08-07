@@ -300,6 +300,8 @@ public enum TeamRole
 
 public sealed class TeamLeaderScriptSettings
 {
+    public const string DefaultTacticalMarkKey = "`";
+
     public bool Enabled { get; set; }
 
     public bool DungeonMode { get; set; }
@@ -308,6 +310,10 @@ public sealed class TeamLeaderScriptSettings
 
     public bool StopAdvanceWhenMemberDisconnected { get; set; }
 
+    public bool TacticalMarkEnabled { get; set; }
+
+    public string TacticalMarkKey { get; set; } = DefaultTacticalMarkKey;
+
     public TeamLeaderScriptSettings Clone()
     {
         return new TeamLeaderScriptSettings
@@ -315,7 +321,11 @@ public sealed class TeamLeaderScriptSettings
             Enabled = Enabled,
             DungeonMode = DungeonMode,
             AllowSelfDefense = AllowSelfDefense,
-            StopAdvanceWhenMemberDisconnected = StopAdvanceWhenMemberDisconnected
+            StopAdvanceWhenMemberDisconnected = StopAdvanceWhenMemberDisconnected,
+            TacticalMarkEnabled = TacticalMarkEnabled,
+            TacticalMarkKey = string.IsNullOrWhiteSpace(TacticalMarkKey)
+                ? DefaultTacticalMarkKey
+                : TacticalMarkKey.Trim()
         };
     }
 }
@@ -323,6 +333,8 @@ public sealed class TeamLeaderScriptSettings
 public sealed class TeamOutputScriptSettings
 {
     public const string DefaultAssistTargetKey = "`";
+
+    public const string DefaultSelectTacticalMarkTargetKey = "`";
 
     public bool Enabled { get; set; }
 
@@ -344,6 +356,10 @@ public sealed class TeamOutputScriptSettings
 
     public string AssistTargetKey { get; set; } = DefaultAssistTargetKey;
 
+    public bool TacticalMarkTargetingEnabled { get; set; }
+
+    public string SelectTacticalMarkTargetKey { get; set; } = DefaultSelectTacticalMarkTargetKey;
+
     public TeamOutputScriptSettings Clone()
     {
         return new TeamOutputScriptSettings
@@ -359,13 +375,19 @@ public sealed class TeamOutputScriptSettings
             LeaderDistanceMeters = LeaderDistanceMeters,
             AssistTargetKey = string.IsNullOrWhiteSpace(AssistTargetKey)
                 ? DefaultAssistTargetKey
-                : AssistTargetKey.Trim()
+                : AssistTargetKey.Trim(),
+            TacticalMarkTargetingEnabled = TacticalMarkTargetingEnabled,
+            SelectTacticalMarkTargetKey = string.IsNullOrWhiteSpace(SelectTacticalMarkTargetKey)
+                ? DefaultSelectTacticalMarkTargetKey
+                : SelectTacticalMarkTargetKey.Trim()
         };
     }
 }
 
 public sealed class TeamSupportScriptSettings
 {
+    public const string DefaultSelectTacticalMarkTargetKey = "`";
+
     public bool Enabled { get; set; }
 
     public bool DungeonMode { get; set; }
@@ -383,6 +405,10 @@ public sealed class TeamSupportScriptSettings
     public bool StopWhenLeaderDead { get; set; } = true;
 
     public double LeaderDistanceMeters { get; set; } = 12.0D;
+
+    public bool TacticalMarkTargetingEnabled { get; set; }
+
+    public string SelectTacticalMarkTargetKey { get; set; } = DefaultSelectTacticalMarkTargetKey;
 
     public List<TeamHealSkillRuleConfig> HealSkillRules { get; set; } = new();
 
@@ -405,6 +431,10 @@ public sealed class TeamSupportScriptSettings
             FollowJumpEnabled = FollowJumpEnabled,
             StopWhenLeaderDead = StopWhenLeaderDead,
             LeaderDistanceMeters = LeaderDistanceMeters,
+            TacticalMarkTargetingEnabled = TacticalMarkTargetingEnabled,
+            SelectTacticalMarkTargetKey = string.IsNullOrWhiteSpace(SelectTacticalMarkTargetKey)
+                ? DefaultSelectTacticalMarkTargetKey
+                : SelectTacticalMarkTargetKey.Trim(),
             HealSkillRules = HealSkillRules?.Select(rule => rule.Clone()).ToList() ?? new List<TeamHealSkillRuleConfig>(),
             MentalCleanseKey = MentalCleanseKey ?? string.Empty,
             PhysicalCleanseKey = PhysicalCleanseKey ?? string.Empty,

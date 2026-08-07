@@ -130,6 +130,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team support uses group heal without target select", TestTeamSupportUsesGroupHealWithoutTargetSelectAsync),
     ("team support heals while fighting when always", TestTeamSupportHealsWhileFightingWhenAlwaysAsync),
     ("team support heals while fighting when in combat", TestTeamSupportHealsWhileFightingWhenInCombatAsync),
+    ("team support restores tactical target after in-combat targeted heal", TestTeamSupportRestoresTacticalTargetAfterInCombatTargetedHealAsync),
     ("team support defers after-combat heal while fighting", TestTeamSupportDefersAfterCombatHealWhileFightingAsync),
     ("team support applies whitelisted maintenance buff", TestTeamSupportAppliesWhitelistedMaintenanceBuffAsync),
     ("team support defers team buff while fighting", TestTeamSupportDefersTeamBuffWhileFightingAsync),
@@ -147,6 +148,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team support waits for five consecutive leader unavailable ticks", TestTeamSupportWaitsForFiveConsecutiveLeaderUnavailableTicksAsync),
     ("team support join combat defers follow while fighting", TestTeamSupportJoinCombatDefersFollowWhileFightingAsync),
     ("team support join combat selects leader target inside group range", TestTeamSupportJoinCombatSelectsLeaderTargetInsideGroupRangeAsync),
+    ("team support tactical mark key adopts selected living monster", TestTeamSupportTacticalMarkKeyAdoptsSelectedLivingMonsterAsync),
+    ("team support tactical mark waits and restores leader follow without active sign", TestTeamSupportTacticalMarkWaitsAndRestoresLeaderFollowWithoutActiveSignAsync),
+    ("team support tactical mark stays inactive without join combat", TestTeamSupportTacticalMarkStaysInactiveWithoutJoinCombatAsync),
     ("team support self defense accepts leader target attacking local player", TestTeamSupportSelfDefenseAcceptsLeaderTargetAttackingLocalPlayerAsync),
     ("team support self defense disabled rejects local target", TestTeamSupportSelfDefenseDisabledRejectsLocalTargetAsync),
     ("team support self defense scans local attacker before maintenance", TestTeamSupportSelfDefenseScansLocalAttackerBeforeMaintenanceAsync),
@@ -164,6 +168,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team output sits when leader rests", TestTeamOutputSitsWhenLeaderRestsAsync),
     ("team output holds while leader rests", TestTeamOutputHoldsWhileLeaderRestsAsync),
     ("team output stands when leader stands", TestTeamOutputStandsWhenLeaderStandsAsync),
+    ("team leader tactical mark retries and accepts any sign slot", TestTeamLeaderTacticalMarkPressesBeforeVerificationAndAcceptsAnySignSlotAsync),
+    ("team output tactical mark key adopts selected living monster", TestTeamOutputTacticalMarkKeyAdoptsSelectedLivingMonsterAsync),
+    ("team output tactical mark waits and restores leader follow without active sign", TestTeamOutputTacticalMarkWaitsAndRestoresLeaderFollowWithoutActiveSignAsync),
     ("team output assists only leader attacked monster", TestTeamOutputAssistsOnlyLeaderAttackedMonsterAsync),
     ("team output uses configured assist target key", TestTeamOutputUsesConfiguredAssistTargetKeyAsync),
     ("team output rejects non monster leader target", TestTeamOutputRejectsNonMonsterLeaderTargetAsync),
@@ -3830,6 +3837,8 @@ static async Task TestTeamSupportHealsWhileFightingWhenInCombatAsync()
     var settings = CreateTeamSupportSettings();
     settings.Team.Support!.HealSkillRules[0].RunTiming = MaintenanceRuleRunTiming.InCombat;
     settings.Team.Support.HealSkillRules[0].TargetType = TeamHealSkillTargetType.Group;
+    settings.Team.Support.JoinCombat = true;
+    settings.Team.Support.TacticalMarkTargetingEnabled = true;
     var combatState = new StationaryCombatState
     {
         Fighting = true,
@@ -3837,13 +3846,110 @@ static async Task TestTeamSupportHealsWhileFightingWhenInCombatAsync()
         CurrentTargetServerObjectId = 5000
     };
     var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
+    var state = new TeamSupportState();
 
     var result = await controller
-        .TickAsync(CreateContext(settings, CreateTeamSupportGameApi(self, leader), logger), new TeamSupportState(), combatState)
+        .TickAsync(CreateContext(settings, CreateTeamSupportGameApi(self, leader), logger), state, combatState)
         .ConfigureAwait(false);
 
     AssertFalse(!result.ShouldSkipNormalWork, "in-combat heal should consume the active-combat team support tick");
     AssertSequence(new[] { "NumPad1" }, keyboard.Keys.ToArray(), "in-combat group heal should press without changing target");
+    AssertFalse(state.TacticalTargetRestorePending, "group heal should not require tactical target restoration");
+}
+
+static async Task TestTeamSupportRestoresTacticalTargetAfterInCombatTargetedHealAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint markedTargetServerObjectId = 9000;
+    const string selectKey = "NumPad2";
+    var self = CreatePartyMemberSnapshot(1000, "Healer", true, false, 0.0) with
+    {
+        Class = AionClassId.Cleric,
+        ClassId = (byte)AionClassId.Cleric,
+        ClassName = "Cleric"
+    };
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
+    {
+        CurrentHp = 50,
+        MaxHp = 100
+    };
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    SetFakeLockedTarget(
+        gameApi,
+        markedTargetServerObjectId,
+        LockedTargetSnapshot.MonsterObjectType,
+        0,
+        100);
+    gameApi.TacticsSigns = new TacticsSignSnapshot(
+        new uint[] { 0, markedTargetServerObjectId, 0 },
+        DateTimeOffset.Now);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "F2", StringComparison.Ordinal))
+        {
+            SetFakeLockedTarget(gameApi, leader.ServerObjectId, LockedTargetSnapshot.PlayerObjectType, 0, 100);
+        }
+        else if (string.Equals(key, "NumPad1", StringComparison.Ordinal))
+        {
+            leader = leader with { CurrentHp = 100 };
+            gameApi.Party = CreateTeamSupportParty(self, leader);
+        }
+        else if (string.Equals(key, selectKey, StringComparison.Ordinal))
+        {
+            SetFakeLockedTarget(
+                gameApi,
+                markedTargetServerObjectId,
+                LockedTargetSnapshot.MonsterObjectType,
+                0,
+                100);
+        }
+    };
+
+    var settings = CreateTeamSupportSettings();
+    settings.Team.Support!.JoinCombat = true;
+    settings.Team.Support.TacticalMarkTargetingEnabled = true;
+    settings.Team.Support.SelectTacticalMarkTargetKey = selectKey;
+    var combatState = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CurrentTargetServerObjectId = markedTargetServerObjectId,
+        CandidateEntityId = 100,
+        CandidateServerObjectId = markedTargetServerObjectId,
+        CurrentTargetIsMaintenanceDefense = true,
+        CurrentTargetBypassesHomeLeash = true,
+        CurrentTargetIsTacticalMark = true
+    };
+    var state = new TeamSupportState();
+    var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
+    var context = CreateContext(settings, gameApi, logger);
+
+    var healResult = await controller
+        .TickAsync(context, state, combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(!healResult.ShouldSkipNormalWork, "targeted combat heal should consume its support tick");
+    AssertSequence(new[] { "F2", "NumPad1" }, keyboard.Keys.ToArray(), "targeted combat heal should select and heal the injured member first");
+    AssertFalse(!state.TacticalTargetRestorePending, "targeted combat heal should schedule tactical target restoration");
+    AssertEqual(0, gameApi.TacticsSignReadCount, "healing tick should not interrupt healing to restore the tactical target early");
+
+    var restoreResult = await controller
+        .TickAsync(context, state, combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(restoreResult.ShouldSkipNormalWork, "restored living tactical target should continue normal combat");
+    AssertSequence(
+        new[] { "F2", "NumPad1", selectKey },
+        keyboard.Keys.ToArray(),
+        "support should restore the tactical monster by configured key after healing");
+    AssertFalse(state.TacticalTargetRestorePending, "successful tactical selection should clear the pending restoration");
+    AssertLeaderTargetAdopted(combatState, markedTargetServerObjectId, "support should resume the marked monster after healing");
+    AssertFalse(!combatState.CurrentTargetIsTacticalMark, "restored combat target should keep tactical origin");
+    AssertEqual(1, gameApi.TacticsSignReadCount, "restore tick should scan tactical signs once");
+    AssertFalse(
+        keyboard.Keys.Any(key => string.Equals(key, "Tab", StringComparison.Ordinal)),
+        "support tactical restoration should never fall back to Tab");
 }
 
 static async Task TestTeamSupportDefersAfterCombatHealWhileFightingAsync()
@@ -4587,6 +4693,129 @@ static async Task TestTeamSupportJoinCombatSelectsLeaderTargetInsideGroupRangeAs
     AssertFalse(
         !(gameApi.LastLockedTargetContext?.BypassMemoryCache ?? false),
         "support assist target verification should bypass VMM cache");
+    AssertEqual(0, gameApi.TacticsSignReadCount, "disabled support tactical targeting should not read sign slots");
+}
+
+static async Task TestTeamSupportTacticalMarkKeyAdoptsSelectedLivingMonsterAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint signedServerObjectId = 7000;
+    const uint selectedServerObjectId = 9000;
+    const string selectKey = "NumPad2";
+    var self = CreatePartyMemberSnapshot(1000, "Chanter", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0);
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(1, "ready", 1, 1, "ready", 1, false, 10_000, 0)
+    };
+    gameApi.TacticsSigns = new TacticsSignSnapshot(
+        new uint[] { 0, 0, signedServerObjectId, 0 },
+        DateTimeOffset.Now);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, selectKey, StringComparison.Ordinal))
+        {
+            SetFakeLockedTarget(
+                gameApi,
+                selectedServerObjectId,
+                LockedTargetSnapshot.MonsterObjectType,
+                0,
+                100);
+        }
+    };
+
+    var settings = CreateTeamSupportSettings();
+    settings.Team.Support!.JoinCombat = true;
+    settings.Team.Support.TacticalMarkTargetingEnabled = true;
+    settings.Team.Support.SelectTacticalMarkTargetKey = selectKey;
+    var combatState = new StationaryCombatState();
+    var result = await new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog())
+        .TickAsync(CreateContext(settings, gameApi, logger), new TeamSupportState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(result.ShouldSkipNormalWork, "selected living tactical target should continue support into combat");
+    AssertSequence(new[] { selectKey }, keyboard.Keys.ToArray(), "support tactical mode should select the marked monster by configured key");
+    AssertLeaderTargetAdopted(combatState, selectedServerObjectId, "support should adopt the living monster selected by tactical key");
+    AssertFalse(!combatState.CurrentTargetIsTacticalMark, "support selected target should retain tactical target origin");
+    AssertEqual(1, gameApi.TacticsSignReadCount, "support tactical mode should scan all sign slots before pressing the key");
+    AssertFalse(
+        !(gameApi.LastTacticsSignContext?.BypassMemoryCache ?? false),
+        "support tactical sign scan should bypass VMM cache");
+    AssertFalse(
+        !(gameApi.LastLockedTargetContext?.BypassMemoryCache ?? false),
+        "support tactical target validation should bypass VMM cache");
+}
+
+static async Task TestTeamSupportTacticalMarkWaitsAndRestoresLeaderFollowWithoutActiveSignAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = CreatePartyMemberSnapshot(1000, "Chanter", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0);
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(1, "ready", 1, 1, "ready", 1, false, 10_000, 0)
+    };
+    gameApi.TacticsSigns = TacticsSignSnapshot.Empty(DateTimeOffset.Now);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "F2", StringComparison.Ordinal))
+        {
+            SetFakeLockedTarget(gameApi, leader.ServerObjectId, 0, 0, 0);
+        }
+    };
+
+    var settings = CreateTeamSupportSettings();
+    settings.Team.Support!.JoinCombat = true;
+    settings.Team.Support.TacticalMarkTargetingEnabled = true;
+    settings.Team.Support.SelectTacticalMarkTargetKey = "NumPad2";
+    var combatState = new StationaryCombatState();
+    var result = await new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog())
+        .TickAsync(CreateContext(settings, gameApi, logger), new TeamSupportState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(!result.ShouldSkipNormalWork, "no active tactical sign should block support ordinary target selection");
+    AssertSequence(new[] { "F2", "C" }, keyboard.Keys.ToArray(), "support without a tactical sign should restore leader follow");
+    AssertFalse(combatState.Fighting, "support without a tactical sign should not adopt an ordinary target");
+    AssertEqual(1, gameApi.TacticsSignReadCount, "support no-sign wait should still scan tactical sign slots");
+}
+
+static async Task TestTeamSupportTacticalMarkStaysInactiveWithoutJoinCombatAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = CreatePartyMemberSnapshot(1000, "Chanter", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0);
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(1, "ready", 1, 1, "ready", 1, false, 10_000, 0)
+    };
+    gameApi.TacticsSigns = new TacticsSignSnapshot(new uint[] { 7000 }, DateTimeOffset.Now);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "F2", StringComparison.Ordinal))
+        {
+            SetFakeLockedTarget(gameApi, leader.ServerObjectId, 0, 0, 0);
+        }
+    };
+
+    var settings = CreateTeamSupportSettings();
+    settings.Team.Support!.JoinCombat = false;
+    settings.Team.Support.TacticalMarkTargetingEnabled = true;
+    settings.Team.Support.SelectTacticalMarkTargetKey = "NumPad2";
+    var combatState = new StationaryCombatState();
+    var result = await new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog())
+        .TickAsync(CreateContext(settings, gameApi, logger), new TeamSupportState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(!result.ShouldSkipNormalWork, "support without join combat should remain in follower mode");
+    AssertSequence(new[] { "F2", "C" }, keyboard.Keys.ToArray(), "support without join combat should keep leader follow");
+    AssertEqual(0, gameApi.TacticsSignReadCount, "support tactical switch should not read signs while join combat is disabled");
+    AssertFalse(combatState.Fighting, "support without join combat should not adopt a tactical target");
 }
 
 static async Task TestTeamSupportSelfDefenseAcceptsLeaderTargetAttackingLocalPlayerAsync()
@@ -5302,6 +5531,132 @@ static async Task TestTeamOutputStandsWhenLeaderStandsAsync()
     AssertEqual(0, keyboard.KeyUps.Count, "standing sync should not release movement keys");
 }
 
+static async Task TestTeamLeaderTacticalMarkPressesBeforeVerificationAndAcceptsAnySignSlotAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi();
+    var context = CreateContext(CreateScriptSettings(), gameApi, logger);
+    var coordinator = new TacticalMarkCoordinator(keyboard);
+    var state = new LeaderTacticalMarkState();
+    const uint targetServerObjectId = 5000;
+    const string markKey = "NumPad1";
+    var target = CreateFakeLockedTargetResult(
+        targetServerObjectId,
+        LockedTargetSnapshot.MonsterObjectType,
+        0,
+        100).Value!;
+
+    await coordinator
+        .MaintainLeaderTargetMarkAsync(context, state, target, markKey, TimeSpan.FromMilliseconds(1))
+        .ConfigureAwait(false);
+
+    AssertSequence(new[] { markKey }, keyboard.Keys.ToArray(), "new leader target should be marked immediately");
+    AssertEqual(0, gameApi.TacticsSignReadCount, "first mark press should not wait for verification");
+    AssertFalse(state.Verified, "new target should remain unverified until a later combat tick");
+
+    state.MarkPressed(DateTimeOffset.Now - TimeSpan.FromSeconds(1));
+    await coordinator
+        .MaintainLeaderTargetMarkAsync(context, state, target, markKey, TimeSpan.FromMilliseconds(1))
+        .ConfigureAwait(false);
+
+    AssertFalse(state.Verified, "missing tactical sign should remain unverified");
+    AssertSequence(new[] { markKey, markKey }, keyboard.Keys.ToArray(), "missing tactical sign should retry the mark key");
+    AssertEqual(1, gameApi.TacticsSignReadCount, "failed verification should read tactical sign slots once");
+
+    gameApi.TacticsSigns = new TacticsSignSnapshot(
+        new uint[] { 0, 0, 0, targetServerObjectId, 0 },
+        DateTimeOffset.Now);
+    state.MarkVerifiedAt(DateTimeOffset.MinValue);
+    await coordinator
+        .MaintainLeaderTargetMarkAsync(context, state, target, markKey, TimeSpan.FromMilliseconds(1))
+        .ConfigureAwait(false);
+
+    AssertFalse(!state.Verified, "leader target should verify from any occupied tactical sign slot");
+    AssertSequence(new[] { markKey, markKey }, keyboard.Keys.ToArray(), "successful verification should not press mark again");
+    AssertEqual(2, gameApi.TacticsSignReadCount, "failed and successful verification should each read tactical sign slots");
+    AssertFalse(
+        !(gameApi.LastTacticsSignContext?.BypassMemoryCache ?? false),
+        "leader tactical sign verification should bypass VMM cache");
+}
+
+static async Task TestTeamOutputTacticalMarkKeyAdoptsSelectedLivingMonsterAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint signedServerObjectId = 7000;
+    const uint selectedServerObjectId = 9000;
+    const string selectKey = "NumPad2";
+    var self = CreatePartyMemberSnapshot(1000, "Dps", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0);
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    gameApi.TacticsSigns = new TacticsSignSnapshot(
+        new uint[] { 0, 0, signedServerObjectId, 0 },
+        DateTimeOffset.Now);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, selectKey, StringComparison.Ordinal))
+        {
+            SetFakeLockedTarget(
+                gameApi,
+                selectedServerObjectId,
+                LockedTargetSnapshot.MonsterObjectType,
+                0,
+                100);
+        }
+    };
+
+    var settings = CreateTeamOutputSettings();
+    settings.Team.Output!.TacticalMarkTargetingEnabled = true;
+    settings.Team.Output.SelectTacticalMarkTargetKey = selectKey;
+    var combatState = new StationaryCombatState();
+    var result = await new TeamOutputController(keyboard)
+        .TickAsync(CreateContext(settings, gameApi, logger), new TeamOutputState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(result.ShouldSkipNormalWork, "selected living tactical target should continue into combat");
+    AssertSequence(new[] { selectKey }, keyboard.Keys.ToArray(), "tactical mode should select the marked monster by configured key");
+    AssertLeaderTargetAdopted(combatState, selectedServerObjectId, "output should adopt the living monster selected by tactical key");
+    AssertFalse(!combatState.CurrentTargetIsTacticalMark, "selected target should retain tactical target origin");
+    AssertEqual(1, gameApi.TacticsSignReadCount, "tactical mode should scan all sign slots before pressing the key");
+    AssertFalse(
+        !(gameApi.LastTacticsSignContext?.BypassMemoryCache ?? false),
+        "output tactical sign scan should bypass VMM cache");
+    AssertFalse(
+        !(gameApi.LastLockedTargetContext?.BypassMemoryCache ?? false),
+        "output tactical target validation should bypass VMM cache");
+}
+
+static async Task TestTeamOutputTacticalMarkWaitsAndRestoresLeaderFollowWithoutActiveSignAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = CreatePartyMemberSnapshot(1000, "Dps", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0);
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    gameApi.TacticsSigns = TacticsSignSnapshot.Empty(DateTimeOffset.Now);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "F2", StringComparison.Ordinal))
+        {
+            SetFakeLockedTarget(gameApi, leader.ServerObjectId, 0, 0, 0);
+        }
+    };
+
+    var settings = CreateTeamOutputSettings();
+    settings.Team.Output!.TacticalMarkTargetingEnabled = true;
+    settings.Team.Output.SelectTacticalMarkTargetKey = "NumPad2";
+    var combatState = new StationaryCombatState();
+    var result = await new TeamOutputController(keyboard)
+        .TickAsync(CreateContext(settings, gameApi, logger), new TeamOutputState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(!result.ShouldSkipNormalWork, "no active tactical sign should block ordinary autonomous target selection");
+    AssertSequence(new[] { "F2", "C" }, keyboard.Keys.ToArray(), "no tactical sign should restore existing leader follow");
+    AssertFalse(combatState.Fighting, "no tactical sign should not adopt an ordinary target");
+    AssertEqual(1, gameApi.TacticsSignReadCount, "no-sign wait should still scan tactical sign slots");
+}
+
 static async Task TestTeamOutputAssistsOnlyLeaderAttackedMonsterAsync()
 {
     var keyboard = new RecordingKeyboardInput();
@@ -5345,6 +5700,7 @@ static async Task TestTeamOutputAssistsOnlyLeaderAttackedMonsterAsync()
     AssertFalse(
         !(gameApi.LastLockedTargetContext?.BypassMemoryCache ?? false),
         "output assist target verification should bypass VMM cache");
+    AssertEqual(0, gameApi.TacticsSignReadCount, "disabled tactical targeting should not read sign slots");
 }
 
 static async Task TestTeamOutputUsesConfiguredAssistTargetKeyAsync()
@@ -6326,7 +6682,20 @@ static Task TestTeamGroupDistancePersistsFromUiAsync()
                 GroupDistanceMeters = 18.5D,
                 Leader = new TeamLeaderScriptSettings
                 {
-                    Enabled = true
+                    Enabled = true,
+                    TacticalMarkEnabled = true,
+                    TacticalMarkKey = "F7"
+                },
+                Output = new TeamOutputScriptSettings
+                {
+                    OnlyAttackLeaderMarkedTarget = false,
+                    TacticalMarkTargetingEnabled = true,
+                    SelectTacticalMarkTargetKey = "F8"
+                },
+                Support = new TeamSupportScriptSettings
+                {
+                    TacticalMarkTargetingEnabled = true,
+                    SelectTacticalMarkTargetKey = "F9"
                 }
             };
             var configStore = new InMemoryAccountConfigStore(new AccountConfig
@@ -6337,6 +6706,18 @@ static Task TestTeamGroupDistancePersistsFromUiAsync()
 
             using var form = CreateAccountSettingsFormForTestsWithStore(configStore);
             AssertEqual("18.5", GetTextBoxTextForTest(form, "teamGroupDistanceTextBox"), "team group distance should load into UI");
+            AssertFalse(
+                !GetCheckBoxCheckedForTest(form, "teamLeaderTacticalMarkCheckBox"),
+                "leader tactical mark switch should load into UI");
+            AssertFalse(
+                !GetCheckBoxCheckedForTest(form, "teamOutputTacticalMarkTargetingCheckBox"),
+                "output tactical target switch should load into UI");
+            AssertFalse(
+                !GetCheckBoxCheckedForTest(form, "teamSupportTacticalMarkTargetingCheckBox"),
+                "support tactical target switch should load into UI");
+            AssertFalse(
+                GetCheckBoxCheckedForTest(form, "teamOutputOnlyAttackLeaderMarkedTargetCheckBox"),
+                "legacy output switch should remain independent from tactical targeting");
 
             SetTextBoxTextForTest(form, "teamGroupDistanceTextBox", "22.5");
             var saved = InvokeSaveCurrentSettingsForTest(form, out var error);
@@ -6350,6 +6731,31 @@ static Task TestTeamGroupDistancePersistsFromUiAsync()
                 ?.Team
                 ?.GroupDistanceMeters ?? 0.0D;
             AssertEqual(22.5D, savedDistance, "team group distance should persist from UI");
+            var savedTeam = load.Value!
+                .Single(account => string.Equals(account.AccountName, "account1", StringComparison.OrdinalIgnoreCase))
+                .ScriptSettings
+                ?.Team;
+            AssertFalse(
+                !(savedTeam?.Leader?.TacticalMarkEnabled ?? false),
+                "leader tactical mark switch should persist from UI");
+            AssertEqual("F7", savedTeam?.Leader?.TacticalMarkKey ?? string.Empty, "leader tactical mark key should persist from UI");
+            AssertFalse(
+                !(savedTeam?.Output?.TacticalMarkTargetingEnabled ?? false),
+                "output tactical target switch should persist from UI");
+            AssertEqual(
+                "F8",
+                savedTeam?.Output?.SelectTacticalMarkTargetKey ?? string.Empty,
+                "output tactical target key should persist from UI");
+            AssertFalse(
+                !(savedTeam?.Support?.TacticalMarkTargetingEnabled ?? false),
+                "support tactical target switch should persist from UI");
+            AssertEqual(
+                "F9",
+                savedTeam?.Support?.SelectTacticalMarkTargetKey ?? string.Empty,
+                "support tactical target key should persist from UI");
+            AssertFalse(
+                savedTeam?.Output?.OnlyAttackLeaderMarkedTarget ?? true,
+                "legacy output switch should preserve its own value");
         }
         catch (Exception ex)
         {
@@ -24735,7 +25141,7 @@ sealed class InMemoryScriptProfileStore : IScriptProfileStore
     }
 }
 
-sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi
+sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi
 #if DEBUG
     , IRoadhogApiAddressProbe
 #endif
@@ -24780,6 +25186,13 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, II
     public PartySnapshot Party { get; set; } =
         PartySnapshot.Empty(DateTimeOffset.Now);
 
+    public TacticsSignSnapshot TacticsSigns { get; set; } =
+        TacticsSignSnapshot.Empty(DateTimeOffset.Now);
+
+    public Queue<OperationResult<TacticsSignSnapshot>> TacticsSignReadResults { get; } = new();
+
+    public int TacticsSignReadCount { get; private set; }
+
     public IReadOnlyList<uint>? LastRequestedSkillIds { get; private set; }
 
     public GameApiReadContext? LastPlayerContext { get; private set; }
@@ -24799,6 +25212,8 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, II
     public GameApiReadContext? LastSummonedPetRosterContext { get; private set; }
 
     public GameApiReadContext? LastPartyContext { get; private set; }
+
+    public GameApiReadContext? LastTacticsSignContext { get; private set; }
 
     public GameApiReadContext? LastLockedTargetContext { get; private set; }
 
@@ -24942,6 +25357,23 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, II
     {
         LastPartyContext = context;
         return ReadPartyAsync(cancellationToken);
+    }
+
+    public Task<OperationResult<TacticsSignSnapshot>> ReadTacticsSignsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        TacticsSignReadCount++;
+        return Task.FromResult(TacticsSignReadResults.Count > 0
+            ? TacticsSignReadResults.Dequeue()
+            : OperationResult<TacticsSignSnapshot>.Ok(TacticsSigns));
+    }
+
+    public Task<OperationResult<TacticsSignSnapshot>> ReadTacticsSignsAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        LastTacticsSignContext = context;
+        return ReadTacticsSignsAsync(cancellationToken);
     }
 
     public Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(CancellationToken cancellationToken = default)

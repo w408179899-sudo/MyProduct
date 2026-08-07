@@ -65,7 +65,8 @@ internal static class TeamLeaderRuntimePolicy
                combatState is
                {
                    CurrentTargetIsMaintenanceDefense: true,
-                   CurrentTargetBypassesHomeLeash: true
+                   CurrentTargetBypassesHomeLeash: true,
+                   CurrentTargetIsTacticalMark: false
                };
     }
 }

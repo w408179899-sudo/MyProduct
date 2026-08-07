@@ -138,6 +138,8 @@ namespace Roadhog
         private RoundedCheckBox? teamLeaderDungeonModeCheckBox;
         private RoundedCheckBox? teamLeaderAllowSelfDefenseCheckBox;
         private RoundedCheckBox? teamLeaderStopAdvanceWhenMemberDisconnectedCheckBox;
+        private RoundedCheckBox? teamLeaderTacticalMarkCheckBox;
+        private Button? teamLeaderTacticalMarkKeyButton;
         private RoundedTextBox? teamGroupDistanceTextBox;
         private RoundedCheckBox? teamOutputEnabledCheckBox;
         private RoundedCheckBox? teamOutputDungeonModeCheckBox;
@@ -148,6 +150,8 @@ namespace Roadhog
         private RoundedCheckBox? teamOutputStopWhenLeaderDeadCheckBox;
         private RoundedTextBox? teamOutputLeaderDistanceTextBox;
         private Button? teamOutputAssistTargetKeyButton;
+        private RoundedCheckBox? teamOutputTacticalMarkTargetingCheckBox;
+        private Button? teamOutputSelectTacticalMarkTargetKeyButton;
         private RoundedCheckBox? teamSupportEnabledCheckBox;
         private RoundedCheckBox? teamSupportDungeonModeCheckBox;
         private RoundedCheckBox? teamSupportJoinCombatCheckBox;
@@ -156,6 +160,8 @@ namespace Roadhog
         private RoundedCheckBox? teamSupportAllowSelfDefenseCheckBox;
         private RoundedCheckBox? teamSupportStopWhenLeaderDeadCheckBox;
         private RoundedTextBox? teamSupportLeaderDistanceTextBox;
+        private RoundedCheckBox? teamSupportTacticalMarkTargetingCheckBox;
+        private Button? teamSupportSelectTacticalMarkTargetKeyButton;
         private FlowLayoutPanel? teamHealSkillRuleList;
         private Label? teamHealSkillEmptyLabel;
         private Button? teamMentalCleanseKeyButton;
@@ -2859,6 +2865,13 @@ namespace Roadhog
             teamLeaderDungeonModeCheckBox = AddCheckBox(leaderPanel, "刷本模式", 132, 30, 92, false);
             teamLeaderAllowSelfDefenseCheckBox = AddCheckBox(leaderPanel, "允许自卫", 240, 30, 92, true);
             teamLeaderStopAdvanceWhenMemberDisconnectedCheckBox = AddCheckBox(leaderPanel, "队员掉线停止推进", 24, 62, 170, false);
+            teamLeaderTacticalMarkCheckBox = AddCheckBox(leaderPanel, "攻击目标标记", 24, 94, 130, false);
+            AddLabel(leaderPanel, "标记键", 170, 97, 62, 24, _textGreen, FontStyle.Bold);
+            teamLeaderTacticalMarkKeyButton = AddTeamKeyButton(
+                leaderPanel,
+                236,
+                92,
+                TeamLeaderScriptSettings.DefaultTacticalMarkKey);
 
             var dpsPanel = CreateTeamRolePanel(page);
             teamOutputPanel = dpsPanel;
@@ -2879,6 +2892,13 @@ namespace Roadhog
                 316,
                 92,
                 TeamOutputScriptSettings.DefaultAssistTargetKey);
+            teamOutputTacticalMarkTargetingCheckBox = AddCheckBox(dpsPanel, "战术标记选怪", 24, 126, 130, false);
+            AddLabel(dpsPanel, "选标记键", 170, 129, 74, 24, _textGreen, FontStyle.Bold);
+            teamOutputSelectTacticalMarkTargetKeyButton = AddTeamKeyButton(
+                dpsPanel,
+                248,
+                124,
+                TeamOutputScriptSettings.DefaultSelectTacticalMarkTargetKey);
 
             var supportPanel = CreateTeamRolePanel(page);
             teamSupportPanel = supportPanel;
@@ -2893,6 +2913,19 @@ namespace Roadhog
             AddLabel(supportPanel, "和队长距离", 24, 94, 90, 24, _textGreen, FontStyle.Bold);
             teamSupportLeaderDistanceTextBox = AddTextBox(supportPanel, "12.0", 116, 92, 72, 28);
             AddLabel(supportPanel, "m", 194, 94, 24, 24, _textGreen, FontStyle.Bold);
+            teamSupportTacticalMarkTargetingCheckBox = AddCheckBox(
+                supportPanel,
+                "\u6218\u672f\u6807\u8bb0\u9009\u602a",
+                240,
+                94,
+                130,
+                false);
+            AddLabel(supportPanel, "\u9009\u6807\u8bb0\u952e", 386, 97, 74, 24, _textGreen, FontStyle.Bold);
+            teamSupportSelectTacticalMarkTargetKeyButton = AddTeamKeyButton(
+                supportPanel,
+                464,
+                92,
+                TeamSupportScriptSettings.DefaultSelectTacticalMarkTargetKey);
             AddLabel(supportPanel, "加血技能", 24, 132, 70, 24, _textGreen, FontStyle.Bold);
             teamHealSkillRuleList = CreateMaintenanceRuleList(supportPanel, 24, 166, 790, 82);
             teamHealSkillEmptyLabel = AddLabel(supportPanel, "暂无加血技能", 24, 166, 140, 24);
@@ -3092,12 +3125,19 @@ namespace Roadhog
             SetChecked(
                 teamLeaderStopAdvanceWhenMemberDisconnectedCheckBox,
                 leader.StopAdvanceWhenMemberDisconnected);
+            SetChecked(teamLeaderTacticalMarkCheckBox, leader.TacticalMarkEnabled);
+            SetKeyButton(
+                teamLeaderTacticalMarkKeyButton,
+                string.IsNullOrWhiteSpace(leader.TacticalMarkKey)
+                    ? TeamLeaderScriptSettings.DefaultTacticalMarkKey
+                    : leader.TacticalMarkKey);
             var output = team.Output ?? new TeamOutputScriptSettings();
             SetChecked(teamOutputEnabledCheckBox, output.Enabled);
             SetChecked(teamOutputDungeonModeCheckBox, output.DungeonMode);
             SetChecked(teamOutputAllowSelfDefenseCheckBox, output.AllowSelfDefense);
             SetChecked(teamOutputFollowLeaderCheckBox, output.FollowLeader);
             SetChecked(teamOutputOnlyAttackLeaderMarkedTargetCheckBox, output.OnlyAttackLeaderMarkedTarget);
+            SetChecked(teamOutputTacticalMarkTargetingCheckBox, output.TacticalMarkTargetingEnabled);
             SetChecked(teamOutputStopWhenLeaderHasNoTargetCheckBox, output.StopWhenLeaderHasNoTarget);
             SetChecked(teamOutputStopWhenLeaderDeadCheckBox, output.StopWhenLeaderDead);
             SetText(
@@ -3108,6 +3148,11 @@ namespace Roadhog
                 string.IsNullOrWhiteSpace(output.AssistTargetKey)
                     ? TeamOutputScriptSettings.DefaultAssistTargetKey
                     : output.AssistTargetKey);
+            SetKeyButton(
+                teamOutputSelectTacticalMarkTargetKeyButton,
+                string.IsNullOrWhiteSpace(output.SelectTacticalMarkTargetKey)
+                    ? TeamOutputScriptSettings.DefaultSelectTacticalMarkTargetKey
+                    : output.SelectTacticalMarkTargetKey);
 
             var support = team.Support ?? new TeamSupportScriptSettings();
             SetChecked(teamSupportEnabledCheckBox, support.Enabled);
@@ -3117,9 +3162,15 @@ namespace Roadhog
             SetChecked(teamSupportPhysicalCleanseCheckBox, support.PhysicalCleanseEnabled);
             SetChecked(teamSupportAllowSelfDefenseCheckBox, support.AllowSelfDefense);
             SetChecked(teamSupportStopWhenLeaderDeadCheckBox, support.StopWhenLeaderDead);
+            SetChecked(teamSupportTacticalMarkTargetingCheckBox, support.TacticalMarkTargetingEnabled);
             SetText(
                 teamSupportLeaderDistanceTextBox,
                 support.LeaderDistanceMeters.ToString("0.###", CultureInfo.InvariantCulture));
+            SetKeyButton(
+                teamSupportSelectTacticalMarkTargetKeyButton,
+                string.IsNullOrWhiteSpace(support.SelectTacticalMarkTargetKey)
+                    ? TeamSupportScriptSettings.DefaultSelectTacticalMarkTargetKey
+                    : support.SelectTacticalMarkTargetKey);
             PopulateTeamHealSkillRules(teamHealSkillRuleList, teamHealSkillEmptyLabel, support.HealSkillRules);
             SetKeyButton(teamMentalCleanseKeyButton, support.MentalCleanseKey);
             SetKeyButton(teamPhysicalCleanseKeyButton, support.PhysicalCleanseKey);
@@ -3140,7 +3191,11 @@ namespace Roadhog
                     DungeonMode = teamLeaderDungeonModeCheckBox?.Checked ?? false,
                     AllowSelfDefense = teamLeaderAllowSelfDefenseCheckBox?.Checked ?? true,
                     StopAdvanceWhenMemberDisconnected =
-                        teamLeaderStopAdvanceWhenMemberDisconnectedCheckBox?.Checked ?? false
+                        teamLeaderStopAdvanceWhenMemberDisconnectedCheckBox?.Checked ?? false,
+                    TacticalMarkEnabled = teamLeaderTacticalMarkCheckBox?.Checked ?? false,
+                    TacticalMarkKey =
+                        teamLeaderTacticalMarkKeyButton?.Tag as string ??
+                        TeamLeaderScriptSettings.DefaultTacticalMarkKey
                 },
                 Output = new TeamOutputScriptSettings
                 {
@@ -3156,7 +3211,12 @@ namespace Roadhog
                     LeaderDistanceMeters = ReadDouble(teamOutputLeaderDistanceTextBox, 12.0D, 0.0D, 100.0D),
                     AssistTargetKey =
                         teamOutputAssistTargetKeyButton?.Tag as string ??
-                        TeamOutputScriptSettings.DefaultAssistTargetKey
+                        TeamOutputScriptSettings.DefaultAssistTargetKey,
+                    TacticalMarkTargetingEnabled =
+                        teamOutputTacticalMarkTargetingCheckBox?.Checked ?? false,
+                    SelectTacticalMarkTargetKey =
+                        teamOutputSelectTacticalMarkTargetKeyButton?.Tag as string ??
+                        TeamOutputScriptSettings.DefaultSelectTacticalMarkTargetKey
                 },
                 Support = new TeamSupportScriptSettings
                 {
@@ -3168,6 +3228,11 @@ namespace Roadhog
                     AllowSelfDefense = teamSupportAllowSelfDefenseCheckBox?.Checked ?? false,
                     StopWhenLeaderDead = teamSupportStopWhenLeaderDeadCheckBox?.Checked ?? true,
                     LeaderDistanceMeters = ReadDouble(teamSupportLeaderDistanceTextBox, 12.0D, 0.0D, 100.0D),
+                    TacticalMarkTargetingEnabled =
+                        teamSupportTacticalMarkTargetingCheckBox?.Checked ?? false,
+                    SelectTacticalMarkTargetKey =
+                        teamSupportSelectTacticalMarkTargetKeyButton?.Tag as string ??
+                        TeamSupportScriptSettings.DefaultSelectTacticalMarkTargetKey,
                     HealSkillRules = CaptureTeamHealSkillRules(teamHealSkillRuleList),
                     MentalCleanseKey = teamMentalCleanseKeyButton?.Tag as string ?? string.Empty,
                     PhysicalCleanseKey = teamPhysicalCleanseKeyButton?.Tag as string ?? string.Empty,
