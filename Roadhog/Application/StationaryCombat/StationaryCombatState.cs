@@ -1288,6 +1288,8 @@ public sealed class NextTargetPreAimState
 
     public uint FightTargetServerObjectId { get; set; }
 
+    public Vector3Snapshot? FightTargetPosition { get; set; }
+
     public ushort TargetEntityId { get; set; }
 
     public uint TargetServerObjectId { get; set; }
@@ -1298,7 +1300,7 @@ public sealed class NextTargetPreAimState
 
     public int TargetPriorityTier { get; set; }
 
-    public double TargetDistanceToPlayer { get; set; }
+    public double TargetDistanceToOrigin { get; set; }
 
     public bool TargetingLocalSide { get; set; }
 
@@ -1332,7 +1334,7 @@ public sealed class NextTargetPreAimState
         TargetName = string.Empty;
         TargetPosition = null;
         TargetPriorityTier = 0;
-        TargetDistanceToPlayer = 0.0D;
+        TargetDistanceToOrigin = 0.0D;
         TargetingLocalSide = false;
         AggressivePriority = false;
         TargetSelectedAt = DateTimeOffset.MinValue;
@@ -1355,14 +1357,14 @@ public sealed class NextTargetPreAimState
                 TargetName,
                 "monster",
                 TargetPosition,
-                TargetDistanceToPlayer,
+                null,
                 1,
                 1,
                 IsTargetingLocalPlayer: TargetingLocalSide,
                 AggressiveKnown: AggressivePriority,
                 IsAggressiveToPlayer: AggressivePriority),
             TargetPriorityTier,
-            TargetDistanceToPlayer,
+            TargetDistanceToOrigin,
             TargetingLocalSide,
             AggressivePriority,
             TargetSelectedAt,

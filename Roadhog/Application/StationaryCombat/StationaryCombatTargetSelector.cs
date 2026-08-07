@@ -6,7 +6,7 @@ public static class StationaryCombatTargetSelector
 {
     public static WorldObjectSnapshot? SelectNearest(
         IEnumerable<WorldObjectSnapshot> objects,
-        Vector3Snapshot playerPosition,
+        Vector3Snapshot distanceOrigin,
         Vector3Snapshot stationaryPosition,
         double stationaryRadius,
         bool preferAggressiveMonsters = false)
@@ -21,14 +21,14 @@ public static class StationaryCombatTargetSelector
         {
             return candidates
                 .OrderByDescending(target => target.IsAggressiveToPlayer)
-                .ThenBy(target => HorizontalDistance(target.Position!.Value, playerPosition))
+                .ThenBy(target => HorizontalDistance(target.Position!.Value, distanceOrigin))
                 .ThenBy(target => target.ServerObjectId)
                 .ThenBy(target => target.EntityId)
                 .FirstOrDefault();
         }
 
         return candidates
-            .OrderBy(target => HorizontalDistance(target.Position!.Value, playerPosition))
+            .OrderBy(target => HorizontalDistance(target.Position!.Value, distanceOrigin))
             .ThenBy(target => target.ServerObjectId)
             .ThenBy(target => target.EntityId)
             .FirstOrDefault();

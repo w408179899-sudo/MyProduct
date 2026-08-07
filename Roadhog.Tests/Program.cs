@@ -248,6 +248,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("account config persists stationary combat position", TestAccountConfigPersistsStationaryCombatPositionAsync),
     ("stationary combat target selector keeps monsters inside radius", TestStationaryTargetSelectorAsync),
     ("stationary combat smart pre-aim selector scores threats and aggressive setting", TestSmartPreAimSelectorScoresThreatsAndAggressiveSettingAsync),
+    ("stationary combat smart pre-aim supports fight-target distance origin", TestSmartPreAimSupportsFightTargetDistanceOriginAsync),
     ("stationary combat smart pre-aim selector keeps stable target", TestSmartPreAimSelectorKeepsStableTargetAsync),
     ("stationary combat smart pre-aim selector applies normal filters", TestSmartPreAimSelectorAppliesNormalFiltersAsync),
     ("stationary combat smart pre-aim lifecycle spans loot until finish", TestSmartPreAimLifecycleSpansLootUntilFinishAsync),
@@ -2829,12 +2830,15 @@ static Task TestJumpAssistSettingDefaultsAndCloneAsync()
     var defaults = new CombatScriptSettings();
     AssertFalse(defaults.JumpAssistEnabled, "jump assist must default disabled");
     AssertFalse(defaults.SmartPreAimEnabled, "smart pre-aim must default disabled");
+    AssertFalse(defaults.SmartPreAimUseFightTargetPosition, "fight-target smart pre-aim origin must default disabled");
 
     defaults.JumpAssistEnabled = true;
     defaults.SmartPreAimEnabled = true;
+    defaults.SmartPreAimUseFightTargetPosition = true;
     var clone = defaults.Clone();
     AssertFalse(!clone.JumpAssistEnabled, "combat settings clone should preserve jump assist");
     AssertFalse(!clone.SmartPreAimEnabled, "combat settings clone should preserve smart pre-aim");
+    AssertFalse(!clone.SmartPreAimUseFightTargetPosition, "combat settings clone should preserve fight-target smart pre-aim origin");
     return Task.CompletedTask;
 }
 
@@ -9311,6 +9315,7 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
                     EnableLoot = true,
                     PreferAggressiveMonsters = true,
                     SmartPreAimEnabled = true,
+                    SmartPreAimUseFightTargetPosition = true,
                     ReturnHomeWhenNoTarget = false,
                     SitWhenNoTargetAtHome = true,
                     HasStationaryCombatPosition = true,
@@ -9344,6 +9349,7 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
         AssertEqual(13.25D, combat.CameraPitchPixelsPerDegree, "camera pitch pixels per degree");
         AssertFalse(!combat.PreferAggressiveMonsters, "prefer aggressive monsters should persist");
         AssertFalse(!combat.SmartPreAimEnabled, "smart pre-aim should persist");
+        AssertFalse(!combat.SmartPreAimUseFightTargetPosition, "fight-target smart pre-aim origin should persist");
         AssertFalse(combat.ReturnHomeWhenNoTarget, "return home when no target should persist");
         AssertFalse(!combat.SitWhenNoTargetAtHome, "sit when no target at home should persist");
 
@@ -9357,6 +9363,7 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
         AssertEqual(13.25D, clone.CameraPitchPixelsPerDegree, "cloned camera pitch pixels per degree");
         AssertFalse(!clone.PreferAggressiveMonsters, "prefer aggressive monsters should clone");
         AssertFalse(!clone.SmartPreAimEnabled, "smart pre-aim should clone");
+        AssertFalse(!clone.SmartPreAimUseFightTargetPosition, "fight-target smart pre-aim origin should clone");
         AssertFalse(clone.ReturnHomeWhenNoTarget, "return home when no target should clone");
         AssertFalse(!clone.SitWhenNoTargetAtHome, "sit when no target at home should clone");
     }
@@ -9455,6 +9462,136 @@ static Task TestSmartPreAimSelectorScoresThreatsAndAggressiveSettingAsync()
 
     AssertEqual((ushort)12, aggressiveSelected?.Target.EntityId ?? 0, "aggressive preference should follow configured setting");
     AssertEqual(2, aggressiveSelected?.PriorityTier ?? 0, "aggressive priority tier");
+    return Task.CompletedTask;
+}
+
+static Task TestSmartPreAimSupportsFightTargetDistanceOriginAsync()
+{
+    var player = new Vector3Snapshot(0, 0, 0);
+    var home = new Vector3Snapshot(0, 0, 0);
+    var fightTargetPosition = new Vector3Snapshot(10, 0, 0);
+    var currentTarget = new WorldObjectSnapshot(40, 4040, "current", "monster", fightTargetPosition, 10, 100, 100);
+    var nearPlayer = new WorldObjectSnapshot(41, 4041, "near-player", "monster", new Vector3Snapshot(2, 0, 0), 2, 100, 100);
+    var nearFightTarget = new WorldObjectSnapshot(42, 4042, "near-fight-target", "monster", new Vector3Snapshot(11, 0, 0), 11, 100, 100);
+    var objects = new[] { currentTarget, nearPlayer, nearFightTarget };
+
+    var playerOriginSelection = NextTargetPreAimSelector.Select(
+        objects,
+        player,
+        home,
+        30,
+        currentTargetEntityId: currentTarget.EntityId,
+        currentTargetServerObjectId: currentTarget.ServerObjectId,
+        localSideServerObjectId: 0,
+        localSidePetServerObjectId: 0,
+        allowClaimedByOther: false,
+        preferAggressiveMonsters: false);
+    var fightTargetOriginSelection = NextTargetPreAimSelector.Select(
+        objects,
+        fightTargetPosition,
+        home,
+        30,
+        currentTargetEntityId: currentTarget.EntityId,
+        currentTargetServerObjectId: currentTarget.ServerObjectId,
+        localSideServerObjectId: 0,
+        localSidePetServerObjectId: 0,
+        allowClaimedByOther: false,
+        preferAggressiveMonsters: false);
+
+    AssertEqual(nearPlayer.EntityId, playerOriginSelection?.Target.EntityId ?? 0, "player origin should keep the existing nearest-target behavior");
+    AssertEqual(nearFightTarget.EntityId, fightTargetOriginSelection?.Target.EntityId ?? 0, "fight-target origin should select the target nearest the current fight");
+
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        SmartPreAimEnabled = true,
+        SmartPreAimUseFightTargetPosition = true
+    };
+    var context = CreateContext(settings, new FakeGameApi(), new InMemoryRoadhogLogger());
+    var state = new StationaryCombatState();
+    state.NextTargetPreAim.TargetEntityId = nearFightTarget.EntityId;
+    state.NextTargetPreAim.TargetServerObjectId = nearFightTarget.ServerObjectId;
+    state.NextTargetPreAim.TargetPosition = nearFightTarget.Position;
+    state.NextTargetPreAim.FightTargetPosition = fightTargetPosition;
+
+    var pendingOriginMethod = typeof(StationaryCombatController).GetMethod(
+        "ResolvePendingNextTargetSelectionOrigin",
+        System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+    var scanOriginMethod = typeof(StationaryCombatController).GetMethod(
+        "ResolveSmartPreAimDistanceOrigin",
+        System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+    AssertFalse(pendingOriginMethod is null, "normal next-target origin helper should exist");
+    AssertFalse(scanOriginMethod is null, "smart pre-aim scan origin helper should exist");
+
+    var pendingOrigin = (Vector3Snapshot)pendingOriginMethod!.Invoke(
+        null,
+        new object[] { context, state, player })!;
+    var normalSelected = StationaryCombatTargetSelector.SelectNearest(
+        new[] { nearPlayer, nearFightTarget },
+        pendingOrigin,
+        home,
+        30);
+    AssertEqual(nearFightTarget.EntityId, normalSelected?.EntityId ?? 0, "normal next-target selection should reuse the pre-aim fight-target origin");
+
+    var movedFightTarget = currentTarget with { Position = new Vector3Snapshot(14, 0, 0) };
+    var refreshedOrigin = (Vector3Snapshot)scanOriginMethod!.Invoke(
+        null,
+        new object[]
+        {
+            context,
+            state,
+            new[] { movedFightTarget, nearPlayer, nearFightTarget },
+            player,
+            currentTarget.EntityId,
+            currentTarget.ServerObjectId
+        })!;
+    AssertEqual(14D, refreshedOrigin.X, "live fight-target position should refresh from the batch world snapshot");
+
+    var cachedOrigin = (Vector3Snapshot)scanOriginMethod.Invoke(
+        null,
+        new object[]
+        {
+            context,
+            state,
+            new[] { nearPlayer, nearFightTarget },
+            player,
+            currentTarget.EntityId,
+            currentTarget.ServerObjectId
+        })!;
+    AssertEqual(14D, cachedOrigin.X, "last fight-target position should remain after the target disappears during loot");
+
+    state.NextTargetPreAim.FightTargetPosition = null;
+    var fallbackOrigin = (Vector3Snapshot)scanOriginMethod.Invoke(
+        null,
+        new object[]
+        {
+            context,
+            state,
+            new[] { nearPlayer, nearFightTarget },
+            player,
+            currentTarget.EntityId,
+            currentTarget.ServerObjectId
+        })!;
+    AssertEqual(player.X, fallbackOrigin.X, "missing fight-target coordinates should fall back to player position");
+    AssertEqual(player.Y, fallbackOrigin.Y, "missing fight-target coordinates should fall back to player position");
+
+    settings.Combat.SmartPreAimUseFightTargetPosition = false;
+    state.NextTargetPreAim.FightTargetPosition = fightTargetPosition;
+    var disabledOrigin = (Vector3Snapshot)scanOriginMethod.Invoke(
+        null,
+        new object[]
+        {
+            context,
+            state,
+            new[] { movedFightTarget, nearPlayer, nearFightTarget },
+            player,
+            currentTarget.EntityId,
+            currentTarget.ServerObjectId
+        })!;
+    AssertEqual(player.X, disabledOrigin.X, "disabled fight-target origin should preserve player-based selection");
+    AssertEqual(player.Y, disabledOrigin.Y, "disabled fight-target origin should preserve player-based selection");
     return Task.CompletedTask;
 }
 
@@ -9722,6 +9859,7 @@ static Task TestSmartPreAimLifecycleSpansLootUntilFinishAsync()
     state.NextTargetPreAim.TargetServerObjectId = 6000;
     state.NextTargetPreAim.TargetName = "next";
     state.NextTargetPreAim.TargetPosition = new Vector3Snapshot(6, 0, 0);
+    state.NextTargetPreAim.FightTargetPosition = new Vector3Snapshot(2, 0, 0);
     state.NextTargetPreAim.LastAlignedAt = DateTimeOffset.Now;
 
     try
@@ -9733,6 +9871,7 @@ static Task TestSmartPreAimLifecycleSpansLootUntilFinishAsync()
         AssertFalse(!state.NextTargetPreAim.StopRequested, "smart pre-aim worker should be stopped after loot finishes");
         AssertEqual("loot_after_kill_finished", state.NextTargetPreAim.LastStopReason, "smart pre-aim stop reason after loot finish");
         AssertFalse(!state.NextTargetPreAim.HasCandidate, "stopped smart pre-aim should keep candidate for the next normal selection consume");
+        AssertEqual(2D, state.NextTargetPreAim.FightTargetPosition?.X ?? double.NaN, "loot finish should preserve the fight-target distance origin for normal selection");
 
         var stopped = logger.Entries.LastOrDefault(entry => entry.EventName == "stationary_combat.smart_preaim.stopped");
         AssertFalse(stopped is null, "smart pre-aim stop should be logged after loot finish");

@@ -30,6 +30,7 @@
           "contestMonster": false,
           "counterEnemyRace": false,
           "smartPreAimEnabled": false,
+          "smartPreAimUseFightTargetPosition": false,
           "returnHomeWhenNoTarget": true,
           "sitWhenNoTargetAtHome": false,
           "stationaryCombatRadius": 30,

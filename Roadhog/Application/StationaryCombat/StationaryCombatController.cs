@@ -7067,6 +7067,7 @@ public sealed class StationaryCombatController
         var now = DateTimeOffset.Now;
         var preferAggressiveMonsters = PrefersAggressiveMonsters(context);
         var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
+        var selectionOrigin = ResolvePendingNextTargetSelectionOrigin(context, state, playerPosition);
 
         if (state.CandidateEntityId != 0 || state.CandidateServerObjectId != 0)
         {
@@ -7126,7 +7127,7 @@ public sealed class StationaryCombatController
 
         var selected = StationaryCombatTargetSelector.SelectNearest(
             candidates,
-            playerPosition,
+            selectionOrigin,
             home,
             radius,
             preferAggressiveMonsters);
@@ -7305,6 +7306,7 @@ public sealed class StationaryCombatController
     {
         var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh).ConfigureAwait(false);
         var now = DateTimeOffset.Now;
+        var selectionOrigin = ResolvePendingNextTargetSelectionOrigin(context, state, playerPosition);
         var availableObjects = objects
             .Where(target => !state.IsTargetTemporarilyExcluded(target, now))
             .ToArray();
@@ -7338,7 +7340,7 @@ public sealed class StationaryCombatController
             .Where(target => IsTargetingLocalSide(target, state))
             .Where(StationaryCombatTargetSelector.IsSelectableMonster)
             .Where(target => target.Position is not null)
-            .OrderBy(target => StationaryCombatTargetSelector.HorizontalDistance(target.Position!.Value, playerPosition))
+            .OrderBy(target => StationaryCombatTargetSelector.HorizontalDistance(target.Position!.Value, selectionOrigin))
             .ThenBy(target => target.ServerObjectId)
             .ThenBy(target => target.EntityId)
             .FirstOrDefault();
@@ -8516,6 +8518,31 @@ public sealed class StationaryCombatController
                context.Config.ScriptSettings?.Combat?.SmartPreAimEnabled == true;
     }
 
+    private static bool UsesFightTargetPositionForSmartPreAim(AccountWorkerContext context)
+    {
+        return IsSmartPreAimEnabled(context) &&
+               context.Config.ScriptSettings?.Combat?.SmartPreAimUseFightTargetPosition == true;
+    }
+
+    private static Vector3Snapshot ResolvePendingNextTargetSelectionOrigin(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        Vector3Snapshot playerPosition)
+    {
+        if (!UsesFightTargetPositionForSmartPreAim(context))
+        {
+            return playerPosition;
+        }
+
+        lock (state.NextTargetPreAim.SyncRoot)
+        {
+            return state.NextTargetPreAim.HasCandidate &&
+                   state.NextTargetPreAim.FightTargetPosition is { } fightTargetPosition
+                ? fightTargetPosition
+                : playerPosition;
+        }
+    }
+
     private void EnsureNextTargetPreAimRunning(
         AccountWorkerContext context,
         StationaryCombatState state,
@@ -8562,6 +8589,7 @@ public sealed class StationaryCombatController
             preAim.StopRequested = false;
             preAim.FightTargetEntityId = currentTarget.TargetEntityId;
             preAim.FightTargetServerObjectId = currentTarget.ServerObjectId;
+            preAim.FightTargetPosition = currentTarget.Position;
             preAim.LastStopReason = string.Empty;
         }
 
@@ -8589,6 +8617,7 @@ public sealed class StationaryCombatController
             ["fightTargetEntityId"] = currentTarget.TargetEntityId,
             ["fightTargetServerObjectId"] = currentTarget.ServerObjectId,
             ["fightTargetName"] = currentTarget.Name,
+            ["useFightTargetPosition"] = UsesFightTargetPositionForSmartPreAim(context),
             ["radius"] = Math.Round(radius, 2)
         });
     }
@@ -8626,6 +8655,7 @@ public sealed class StationaryCombatController
             if (clearCandidate)
             {
                 preAim.ClearCandidate();
+                preAim.FightTargetPosition = null;
             }
         }
 
@@ -8811,9 +8841,16 @@ public sealed class StationaryCombatController
 
         var now = DateTimeOffset.Now;
         var exclusions = state.CreateNextTargetPreAimExclusionSnapshot(result.Value, now);
-        var selection = NextTargetPreAimSelector.Select(
+        var distanceOrigin = ResolveSmartPreAimDistanceOrigin(
+            context,
+            state,
             result.Value,
             playerPosition,
+            fightTargetEntityId,
+            fightTargetServerObjectId);
+        var selection = NextTargetPreAimSelector.Select(
+            result.Value,
+            distanceOrigin,
             home,
             radius,
             fightTargetEntityId,
@@ -8829,7 +8866,61 @@ public sealed class StationaryCombatController
             ReadSmartPreAimSwitchDistanceMargin(),
             exclusions);
 
-        StoreNextTargetPreAimSelection(context, state, selection, result.Value.Count, now);
+        StoreNextTargetPreAimSelection(
+            context,
+            state,
+            selection,
+            result.Value.Count,
+            distanceOrigin,
+            now);
+    }
+
+    private static Vector3Snapshot ResolveSmartPreAimDistanceOrigin(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        IReadOnlyList<WorldObjectSnapshot> objects,
+        Vector3Snapshot playerPosition,
+        ushort fightTargetEntityId,
+        uint fightTargetServerObjectId)
+    {
+        if (!UsesFightTargetPositionForSmartPreAim(context))
+        {
+            return playerPosition;
+        }
+
+        var latestFightTargetPosition = objects
+            .FirstOrDefault(target => StationaryCombatState.IsSameTarget(
+                target.EntityId,
+                target.ServerObjectId,
+                fightTargetEntityId,
+                fightTargetServerObjectId))
+            ?.Position;
+        lock (state.NextTargetPreAim.SyncRoot)
+        {
+            if (latestFightTargetPosition is not null)
+            {
+                state.NextTargetPreAim.FightTargetPosition = latestFightTargetPosition;
+            }
+
+            return state.NextTargetPreAim.FightTargetPosition ?? playerPosition;
+        }
+    }
+
+    private static string ResolveSmartPreAimDistanceOriginSource(
+        AccountWorkerContext context,
+        StationaryCombatState state)
+    {
+        if (!UsesFightTargetPositionForSmartPreAim(context))
+        {
+            return "player";
+        }
+
+        lock (state.NextTargetPreAim.SyncRoot)
+        {
+            return state.NextTargetPreAim.FightTargetPosition is null
+                ? "player_fallback"
+                : "fight_target";
+        }
     }
 
     private static void StoreNextTargetPreAimSelection(
@@ -8837,6 +8928,7 @@ public sealed class StationaryCombatController
         StationaryCombatState state,
         NextTargetPreAimSelection? selection,
         int worldObjectCount,
+        Vector3Snapshot distanceOrigin,
         DateTimeOffset now)
     {
         var preAim = state.NextTargetPreAim;
@@ -8867,7 +8959,7 @@ public sealed class StationaryCombatController
                 preAim.TargetName = selection.Target.Name;
                 preAim.TargetPosition = selection.Target.Position;
                 preAim.TargetPriorityTier = selection.PriorityTier;
-                preAim.TargetDistanceToPlayer = selection.DistanceToPlayer;
+                preAim.TargetDistanceToOrigin = selection.DistanceToOrigin;
                 preAim.TargetingLocalSide = selection.IsTargetingLocalSide;
                 preAim.AggressivePriority = selection.IsAggressivePriority;
                 preAim.TargetSelectedAt = changed || preAim.TargetSelectedAt == DateTimeOffset.MinValue
@@ -8921,7 +9013,10 @@ public sealed class StationaryCombatController
                 ["priorityTier"] = selection.PriorityTier,
                 ["targetingLocalSide"] = selection.IsTargetingLocalSide,
                 ["aggressivePriority"] = selection.IsAggressivePriority,
-                ["distanceToPlayer"] = Math.Round(selection.DistanceToPlayer, 2),
+                ["distanceToOrigin"] = Math.Round(selection.DistanceToOrigin, 2),
+                ["distanceOriginX"] = Math.Round(distanceOrigin.X, 2),
+                ["distanceOriginY"] = Math.Round(distanceOrigin.Y, 2),
+                ["distanceOriginSource"] = ResolveSmartPreAimDistanceOriginSource(context, state),
                 ["decisionReason"] = selection.DecisionReason,
                 ["worldObjectCount"] = worldObjectCount
             });

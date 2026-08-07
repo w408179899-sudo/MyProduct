@@ -6,7 +6,7 @@ public static class NextTargetPreAimSelector
 {
     public static NextTargetPreAimSelection? Select(
         IEnumerable<WorldObjectSnapshot> objects,
-        Vector3Snapshot playerPosition,
+        Vector3Snapshot distanceOrigin,
         Vector3Snapshot home,
         double radius,
         ushort currentTargetEntityId,
@@ -45,7 +45,7 @@ public static class NextTargetPreAimSelector
                     localSidePetServerObjectId))
             .Select(target => BuildSelection(
                 target,
-                playerPosition,
+                distanceOrigin,
                 home,
                 radius,
                 localSideServerObjectId,
@@ -55,7 +55,7 @@ public static class NextTargetPreAimSelector
             .Where(selection => selection is not null)
             .Cast<NextTargetPreAimSelection>()
             .OrderByDescending(selection => selection.PriorityTier)
-            .ThenBy(selection => selection.DistanceToPlayer)
+            .ThenBy(selection => selection.DistanceToOrigin)
             .ThenBy(selection => selection.Target.ServerObjectId)
             .ThenBy(selection => selection.Target.EntityId)
             .ToArray();
@@ -120,7 +120,7 @@ public static class NextTargetPreAimSelector
             };
         }
 
-        if (current.DistanceToPlayer - best.DistanceToPlayer < Math.Max(0.0D, switchDistanceMargin))
+        if (current.DistanceToOrigin - best.DistanceToOrigin < Math.Max(0.0D, switchDistanceMargin))
         {
             return current with
             {
@@ -134,7 +134,7 @@ public static class NextTargetPreAimSelector
 
     private static NextTargetPreAimSelection? BuildSelection(
         WorldObjectSnapshot target,
-        Vector3Snapshot playerPosition,
+        Vector3Snapshot distanceOrigin,
         Vector3Snapshot home,
         double radius,
         uint localSideServerObjectId,
@@ -166,7 +166,7 @@ public static class NextTargetPreAimSelector
         return new NextTargetPreAimSelection(
             target,
             priorityTier,
-            StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, playerPosition),
+            StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, distanceOrigin),
             targetingLocalSide,
             aggressivePriority,
             selectedAt,
@@ -235,7 +235,7 @@ public static class NextTargetPreAimSelector
 public sealed record NextTargetPreAimSelection(
     WorldObjectSnapshot Target,
     int PriorityTier,
-    double DistanceToPlayer,
+    double DistanceToOrigin,
     bool IsTargetingLocalSide,
     bool IsAggressivePriority,
     DateTimeOffset SelectedAt,
