@@ -314,7 +314,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("worker waits for spiritmaster pet summon verification", TestWorkerWaitsForSpiritmasterPetSummonVerificationAsync),
     ("stationary combat faces selected target before tab", TestStationaryCombatFacesTargetBeforeTabAsync),
     ("stationary combat jump assist starts after facing and stops on damage", TestStationaryCombatJumpAssistStartsAfterFacingAndStopsOnDamageAsync),
-    ("stationary combat resets right mouse and nudges forward after repeated unchanged turns", TestStationaryCombatResetsRightMouseAfterRepeatedUnchangedTurnsAsync),
+    ("stationary combat moves cursor top left after repeated unchanged turns", TestStationaryCombatMovesCursorTopLeftAfterRepeatedUnchangedTurnsAsync),
     ("stationary combat target pitch follows target height", TestStationaryCombatTargetPitchFollowsTargetHeightAsync),
     ("stationary combat accepts thirty degree pre-lock face tolerance", TestStationaryCombatAcceptsThirtyDegreePreLockFaceToleranceAsync),
     ("stationary combat tabs until selected target is verified", TestStationaryCombatTabsUntilTargetVerifiedAsync),
@@ -14132,7 +14132,7 @@ static async Task TestStationaryCombatFacesTargetBeforeTabAsync()
     }
 }
 
-static async Task TestStationaryCombatResetsRightMouseAfterRepeatedUnchangedTurnsAsync()
+static async Task TestStationaryCombatMovesCursorTopLeftAfterRepeatedUnchangedTurnsAsync()
 {
     var environment = new Dictionary<string, string?>
     {
@@ -14197,7 +14197,9 @@ static async Task TestStationaryCombatResetsRightMouseAfterRepeatedUnchangedTurn
         AssertFalse(
             logger.Entries.Any(entry => entry.EventName == "stationary_combat.right_mouse.recovered"),
             "right mouse recovery should not run before the third unchanged turn");
-        AssertEqual(0, keyboard.Keys.Count(key => key == "W"), "forward nudge should not run before the third unchanged turn");
+        AssertFalse(
+            keyboard.MouseCommands.Contains("move:-2000,-2000"),
+            "cursor should not move to top left before the third unchanged turn");
         AssertEqual(2, state.ConsecutiveCameraTurnNoChangeCount, "unchanged turn count before recovery");
 
         await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
@@ -14205,25 +14207,37 @@ static async Task TestStationaryCombatResetsRightMouseAfterRepeatedUnchangedTurn
         var recovery = logger.Entries.SingleOrDefault(entry => entry.EventName == "stationary_combat.right_mouse.recovered");
         AssertFalse(recovery is null, "third unchanged turn should force right mouse recovery");
         AssertEqual(3, Convert.ToInt32(recovery!.Fields["consecutiveFailures"]), "right mouse recovery failure threshold");
-        var firstNudge = logger.Entries.SingleOrDefault(
-            entry => entry.EventName == "stationary_combat.camera_turn.forward_nudge_pressed");
-        AssertFalse(firstNudge is null, "third unchanged turn should press W once");
-        AssertEqual(3, Convert.ToInt32(firstNudge!.Fields["consecutiveFailures"]), "forward nudge failure threshold");
-        AssertEqual(25, Convert.ToInt32(firstNudge.Fields["holdMs"]), "forward nudge hold duration");
-        AssertEqual(1, keyboard.Keys.Count(key => key == "W"), "third unchanged turn should emit one W press");
+        AssertFalse(!Convert.ToBoolean(recovery.Fields["cursorTopLeftSuccess"]), "third unchanged turn should move cursor to top left");
+        AssertSequence(
+            new[] { "up:Right", "move:-2000,-2000", "move:-2000,-2000", "move:0,0", "down:Right" },
+            keyboard.MouseCommands.TakeLast(5).ToArray(),
+            "recovery should release right mouse, move cursor to top left, then restore right mouse");
+        AssertEqual(0, keyboard.Keys.Count(key => key == "W"), "cursor recovery should not press W");
+        AssertFalse(
+            logger.Entries.Any(entry => entry.EventName.StartsWith("stationary_combat.camera_turn.forward_nudge", StringComparison.Ordinal)),
+            "cursor recovery should not emit forward nudge logs");
         AssertEqual(0, state.ConsecutiveCameraTurnNoChangeCount, "successful recovery should reset unchanged turn count");
 
+        var commandsAfterFirstRecovery = keyboard.MouseCommands.Count;
         await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        AssertFalse(
+            !keyboard.MouseCommands.Skip(commandsAfterFirstRecovery).Any(command => command.StartsWith("move:", StringComparison.Ordinal)),
+            "next tick should continue the original camera turn after moving cursor to top left");
+        AssertEqual(1, state.ConsecutiveCameraTurnNoChangeCount, "next failed turn should start a new recovery cycle");
+
         await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
-        AssertEqual(1, keyboard.Keys.Count(key => key == "W"), "next two unchanged turns should not emit another W press");
         AssertEqual(2, state.ConsecutiveCameraTurnNoChangeCount, "second recovery cycle should count independently");
 
         await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
-        AssertEqual(2, keyboard.Keys.Count(key => key == "W"), "sixth unchanged turn should emit the second W press");
         AssertEqual(
             2,
-            logger.Entries.Count(entry => entry.EventName == "stationary_combat.camera_turn.forward_nudge_pressed"),
-            "each three-failure cycle should emit exactly one forward nudge");
+            logger.Entries.Count(entry => entry.EventName == "stationary_combat.right_mouse.recovered"),
+            "each three-failure cycle should move cursor to top left once");
+        AssertEqual(
+            4,
+            keyboard.MouseCommands.Count(command => command == "move:-2000,-2000"),
+            "each three-failure cycle should use the two-step top-left reset");
+        AssertEqual(0, keyboard.Keys.Count(key => key == "W"), "repeated cursor recovery should never press W");
         AssertEqual(0, state.ConsecutiveCameraTurnNoChangeCount, "second recovery cycle should reset unchanged turn count");
     }
     finally
