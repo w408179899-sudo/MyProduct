@@ -139,6 +139,7 @@ namespace Roadhog
         private RoundedCheckBox? teamLeaderAllowSelfDefenseCheckBox;
         private RoundedCheckBox? teamLeaderStopAdvanceWhenMemberDisconnectedCheckBox;
         private RoundedCheckBox? teamLeaderTacticalMarkCheckBox;
+        private Label? teamLeaderTacticalMarkKeyLabel;
         private Button? teamLeaderTacticalMarkKeyButton;
         private RoundedTextBox? teamGroupDistanceTextBox;
         private RoundedCheckBox? teamOutputEnabledCheckBox;
@@ -151,6 +152,7 @@ namespace Roadhog
         private RoundedTextBox? teamOutputLeaderDistanceTextBox;
         private Button? teamOutputAssistTargetKeyButton;
         private RoundedCheckBox? teamOutputTacticalMarkTargetingCheckBox;
+        private Label? teamOutputSelectTacticalMarkTargetKeyLabel;
         private Button? teamOutputSelectTacticalMarkTargetKeyButton;
         private RoundedCheckBox? teamSupportEnabledCheckBox;
         private RoundedCheckBox? teamSupportDungeonModeCheckBox;
@@ -161,6 +163,7 @@ namespace Roadhog
         private RoundedCheckBox? teamSupportStopWhenLeaderDeadCheckBox;
         private RoundedTextBox? teamSupportLeaderDistanceTextBox;
         private RoundedCheckBox? teamSupportTacticalMarkTargetingCheckBox;
+        private Label? teamSupportSelectTacticalMarkTargetKeyLabel;
         private Button? teamSupportSelectTacticalMarkTargetKeyButton;
         private FlowLayoutPanel? teamHealSkillRuleList;
         private Label? teamHealSkillEmptyLabel;
@@ -2866,7 +2869,7 @@ namespace Roadhog
             teamLeaderAllowSelfDefenseCheckBox = AddCheckBox(leaderPanel, "允许自卫", 240, 30, 92, true);
             teamLeaderStopAdvanceWhenMemberDisconnectedCheckBox = AddCheckBox(leaderPanel, "队员掉线停止推进", 24, 62, 170, false);
             teamLeaderTacticalMarkCheckBox = AddCheckBox(leaderPanel, "攻击目标标记", 24, 94, 130, false);
-            AddLabel(leaderPanel, "标记键", 170, 97, 62, 24, _textGreen, FontStyle.Bold);
+            teamLeaderTacticalMarkKeyLabel = AddLabel(leaderPanel, "标记键", 170, 97, 62, 24, _textGreen, FontStyle.Bold);
             teamLeaderTacticalMarkKeyButton = AddTeamKeyButton(
                 leaderPanel,
                 236,
@@ -2893,7 +2896,7 @@ namespace Roadhog
                 92,
                 TeamOutputScriptSettings.DefaultAssistTargetKey);
             teamOutputTacticalMarkTargetingCheckBox = AddCheckBox(dpsPanel, "战术标记选怪", 24, 126, 130, false);
-            AddLabel(dpsPanel, "选标记键", 170, 129, 74, 24, _textGreen, FontStyle.Bold);
+            teamOutputSelectTacticalMarkTargetKeyLabel = AddLabel(dpsPanel, "选标记键", 170, 129, 74, 24, _textGreen, FontStyle.Bold);
             teamOutputSelectTacticalMarkTargetKeyButton = AddTeamKeyButton(
                 dpsPanel,
                 248,
@@ -2920,7 +2923,15 @@ namespace Roadhog
                 94,
                 130,
                 false);
-            AddLabel(supportPanel, "\u9009\u6807\u8bb0\u952e", 386, 97, 74, 24, _textGreen, FontStyle.Bold);
+            teamSupportSelectTacticalMarkTargetKeyLabel = AddLabel(
+                supportPanel,
+                "\u9009\u6807\u8bb0\u952e",
+                386,
+                97,
+                74,
+                24,
+                _textGreen,
+                FontStyle.Bold);
             teamSupportSelectTacticalMarkTargetKeyButton = AddTeamKeyButton(
                 supportPanel,
                 464,
@@ -2954,7 +2965,11 @@ namespace Roadhog
             teamGroupCleanseKeyButton = AddTeamKeyButton(supportPanel, 486, 297, string.Empty);
 
             teamRoleCombo.SelectedIndexChanged += (_, _) => RefreshTeamRolePanelVisibility();
+            teamLeaderTacticalMarkCheckBox.Click += (_, _) => RefreshTeamTacticalMarkKeyVisibility();
+            teamOutputTacticalMarkTargetingCheckBox.Click += (_, _) => RefreshTeamTacticalMarkKeyVisibility();
+            teamSupportTacticalMarkTargetingCheckBox.Click += (_, _) => RefreshTeamTacticalMarkKeyVisibility();
             RefreshTeamRolePanelVisibility();
+            RefreshTeamTacticalMarkKeyVisibility();
 
             return tab;
         }
@@ -3110,6 +3125,33 @@ namespace Roadhog
             UpdateTeamRolePanelVisibility(teamRoleCombo, teamLeaderPanel, teamOutputPanel, teamSupportPanel);
         }
 
+        private void RefreshTeamTacticalMarkKeyVisibility()
+        {
+            UpdateOptionalSettingVisibility(
+                teamLeaderTacticalMarkCheckBox?.Checked == true,
+                teamLeaderTacticalMarkKeyLabel,
+                teamLeaderTacticalMarkKeyButton);
+            UpdateOptionalSettingVisibility(
+                teamOutputTacticalMarkTargetingCheckBox?.Checked == true,
+                teamOutputSelectTacticalMarkTargetKeyLabel,
+                teamOutputSelectTacticalMarkTargetKeyButton);
+            UpdateOptionalSettingVisibility(
+                teamSupportTacticalMarkTargetingCheckBox?.Checked == true,
+                teamSupportSelectTacticalMarkTargetKeyLabel,
+                teamSupportSelectTacticalMarkTargetKeyButton);
+        }
+
+        private static void UpdateOptionalSettingVisibility(bool visible, params Control?[] controls)
+        {
+            foreach (var control in controls)
+            {
+                if (control is not null)
+                {
+                    control.Visible = visible;
+                }
+            }
+        }
+
         private void ApplyTeamSettings(TeamScriptSettings? settings)
         {
             var team = (settings ?? new TeamScriptSettings()).Clone();
@@ -3177,6 +3219,7 @@ namespace Roadhog
             SetKeyButton(teamGroupCleanseKeyButton, support.GroupCleanseKey);
 
             RefreshTeamRolePanelVisibility();
+            RefreshTeamTacticalMarkKeyVisibility();
         }
 
         private TeamScriptSettings CaptureTeamSettings()

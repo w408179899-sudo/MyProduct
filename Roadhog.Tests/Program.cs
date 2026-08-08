@@ -6705,6 +6705,9 @@ static Task TestTeamGroupDistancePersistsFromUiAsync()
             });
 
             using var form = CreateAccountSettingsFormForTestsWithStore(configStore);
+            SetComboSelectedIndexForTest(form, "settingsTabs", 6);
+            form.Show();
+            System.Windows.Forms.Application.DoEvents();
             AssertEqual("18.5", GetTextBoxTextForTest(form, "teamGroupDistanceTextBox"), "team group distance should load into UI");
             AssertFalse(
                 !GetCheckBoxCheckedForTest(form, "teamLeaderTacticalMarkCheckBox"),
@@ -6718,6 +6721,54 @@ static Task TestTeamGroupDistancePersistsFromUiAsync()
             AssertFalse(
                 GetCheckBoxCheckedForTest(form, "teamOutputOnlyAttackLeaderMarkedTargetCheckBox"),
                 "legacy output switch should remain independent from tactical targeting");
+
+            AssertFalse(
+                !GetControlVisibleForTest(form, "teamLeaderTacticalMarkKeyLabel"),
+                "enabled leader tactical mark should show its key label");
+            AssertFalse(
+                !GetControlVisibleForTest(form, "teamLeaderTacticalMarkKeyButton"),
+                "enabled leader tactical mark should show its key button");
+            ClickControlForTest(form, "teamLeaderTacticalMarkCheckBox");
+            AssertFalse(
+                GetControlVisibleForTest(form, "teamLeaderTacticalMarkKeyLabel"),
+                "disabled leader tactical mark should hide its key label");
+            AssertFalse(
+                GetControlVisibleForTest(form, "teamLeaderTacticalMarkKeyButton"),
+                "disabled leader tactical mark should hide its key button");
+            ClickControlForTest(form, "teamLeaderTacticalMarkCheckBox");
+
+            SetComboSelectedIndexForTest(form, "teamRoleCombo", 1);
+            AssertFalse(
+                !GetControlVisibleForTest(form, "teamOutputSelectTacticalMarkTargetKeyLabel"),
+                "enabled output tactical targeting should show its key label");
+            AssertFalse(
+                !GetControlVisibleForTest(form, "teamOutputSelectTacticalMarkTargetKeyButton"),
+                "enabled output tactical targeting should show its key button");
+            ClickControlForTest(form, "teamOutputTacticalMarkTargetingCheckBox");
+            AssertFalse(
+                GetControlVisibleForTest(form, "teamOutputSelectTacticalMarkTargetKeyLabel"),
+                "disabled output tactical targeting should hide its key label");
+            AssertFalse(
+                GetControlVisibleForTest(form, "teamOutputSelectTacticalMarkTargetKeyButton"),
+                "disabled output tactical targeting should hide its key button");
+            ClickControlForTest(form, "teamOutputTacticalMarkTargetingCheckBox");
+
+            SetComboSelectedIndexForTest(form, "teamRoleCombo", 2);
+            AssertFalse(
+                !GetControlVisibleForTest(form, "teamSupportSelectTacticalMarkTargetKeyLabel"),
+                "enabled support tactical targeting should show its key label");
+            AssertFalse(
+                !GetControlVisibleForTest(form, "teamSupportSelectTacticalMarkTargetKeyButton"),
+                "enabled support tactical targeting should show its key button");
+            ClickControlForTest(form, "teamSupportTacticalMarkTargetingCheckBox");
+            AssertFalse(
+                GetControlVisibleForTest(form, "teamSupportSelectTacticalMarkTargetKeyLabel"),
+                "disabled support tactical targeting should hide its key label");
+            AssertFalse(
+                GetControlVisibleForTest(form, "teamSupportSelectTacticalMarkTargetKeyButton"),
+                "disabled support tactical targeting should hide its key button");
+            ClickControlForTest(form, "teamSupportTacticalMarkTargetingCheckBox");
+            SetComboSelectedIndexForTest(form, "teamRoleCombo", 0);
 
             SetTextBoxTextForTest(form, "teamGroupDistanceTextBox", "22.5");
             var saved = InvokeSaveCurrentSettingsForTest(form, out var error);
@@ -24136,6 +24187,36 @@ static void SetCheckBoxCheckedForTest(AccountSettingsForm form, string fieldName
         System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
     AssertFalse(property is null, fieldName + " checked property should exist");
     property!.SetValue(checkBox, isChecked);
+}
+
+static bool GetControlVisibleForTest(AccountSettingsForm form, string fieldName)
+{
+    var control = GetPrivateFieldForTest(form, fieldName);
+    var property = control.GetType().GetProperty(
+        "Visible",
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+    AssertFalse(property is null, fieldName + " visible property should exist");
+    return (bool)property!.GetValue(control)!;
+}
+
+static void ClickControlForTest(AccountSettingsForm form, string fieldName)
+{
+    var control = GetPrivateFieldForTest(form, fieldName);
+    var method = control.GetType().GetMethod(
+        "OnClick",
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+    AssertFalse(method is null, fieldName + " click method should exist");
+    method!.Invoke(control, new object[] { EventArgs.Empty });
+}
+
+static void SetComboSelectedIndexForTest(AccountSettingsForm form, string fieldName, int selectedIndex)
+{
+    var combo = GetPrivateFieldForTest(form, fieldName);
+    var property = combo.GetType().GetProperty(
+        "SelectedIndex",
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+    AssertFalse(property is null, fieldName + " selected index property should exist");
+    property!.SetValue(combo, selectedIndex);
 }
 
 static string GetTextBoxTextForTest(AccountSettingsForm form, string fieldName)
