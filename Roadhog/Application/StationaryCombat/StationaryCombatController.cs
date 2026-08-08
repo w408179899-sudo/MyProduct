@@ -65,6 +65,7 @@ public sealed class StationaryCombatController
     private const int CameraTurnRecoveryFailureThreshold = 3;
     private const int CameraTurnRecoveryReleaseMs = 80;
     private const int CameraTurnRecoveryWarmupMs = 80;
+    private const int CameraTurnRecoveryForwardNudgeHoldMs = 25;
     private const string NoTargetRestEnterKey = "OemComma";
     private const string NoTargetRestExitKey = "X";
     private const ushort NpcEntityType = 3;
@@ -9609,6 +9610,33 @@ public sealed class StationaryCombatController
         return down.Success;
     }
 
+    private async Task PressForwardAfterTurnFailuresAsync(
+        AccountWorkerContext context,
+        int failureCount)
+    {
+        var result = await _input
+            .PressKeyAsync(
+                "W",
+                TimeSpan.FromMilliseconds(CameraTurnRecoveryForwardNudgeHoldMs),
+                context.StopToken)
+            .ConfigureAwait(false);
+        var fields = new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["consecutiveFailures"] = failureCount,
+            ["key"] = "W",
+            ["holdMs"] = CameraTurnRecoveryForwardNudgeHoldMs
+        };
+        if (result.Success)
+        {
+            context.Logger.Info("stationary_combat.camera_turn.forward_nudge_pressed", fields);
+            return;
+        }
+
+        fields["error"] = result.Error;
+        context.Logger.Warn("stationary_combat.camera_turn.forward_nudge_failed", fields);
+    }
+
     private async Task StopMovementBestEffortAsync(
         AccountWorkerContext context,
         StationaryCombatState state)
@@ -9869,6 +9897,7 @@ public sealed class StationaryCombatController
                                 state,
                                 failureCount)
                             .ConfigureAwait(false);
+                        await PressForwardAfterTurnFailuresAsync(context, failureCount).ConfigureAwait(false);
                         state.ResetCameraTurnNoChange();
                     }
                 }

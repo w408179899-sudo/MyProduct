@@ -314,7 +314,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("worker waits for spiritmaster pet summon verification", TestWorkerWaitsForSpiritmasterPetSummonVerificationAsync),
     ("stationary combat faces selected target before tab", TestStationaryCombatFacesTargetBeforeTabAsync),
     ("stationary combat jump assist starts after facing and stops on damage", TestStationaryCombatJumpAssistStartsAfterFacingAndStopsOnDamageAsync),
-    ("stationary combat resets right mouse after repeated unchanged turns", TestStationaryCombatResetsRightMouseAfterRepeatedUnchangedTurnsAsync),
+    ("stationary combat resets right mouse and nudges forward after repeated unchanged turns", TestStationaryCombatResetsRightMouseAfterRepeatedUnchangedTurnsAsync),
     ("stationary combat target pitch follows target height", TestStationaryCombatTargetPitchFollowsTargetHeightAsync),
     ("stationary combat accepts thirty degree pre-lock face tolerance", TestStationaryCombatAcceptsThirtyDegreePreLockFaceToleranceAsync),
     ("stationary combat tabs until selected target is verified", TestStationaryCombatTabsUntilTargetVerifiedAsync),
@@ -14197,6 +14197,7 @@ static async Task TestStationaryCombatResetsRightMouseAfterRepeatedUnchangedTurn
         AssertFalse(
             logger.Entries.Any(entry => entry.EventName == "stationary_combat.right_mouse.recovered"),
             "right mouse recovery should not run before the third unchanged turn");
+        AssertEqual(0, keyboard.Keys.Count(key => key == "W"), "forward nudge should not run before the third unchanged turn");
         AssertEqual(2, state.ConsecutiveCameraTurnNoChangeCount, "unchanged turn count before recovery");
 
         await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
@@ -14204,7 +14205,26 @@ static async Task TestStationaryCombatResetsRightMouseAfterRepeatedUnchangedTurn
         var recovery = logger.Entries.SingleOrDefault(entry => entry.EventName == "stationary_combat.right_mouse.recovered");
         AssertFalse(recovery is null, "third unchanged turn should force right mouse recovery");
         AssertEqual(3, Convert.ToInt32(recovery!.Fields["consecutiveFailures"]), "right mouse recovery failure threshold");
+        var firstNudge = logger.Entries.SingleOrDefault(
+            entry => entry.EventName == "stationary_combat.camera_turn.forward_nudge_pressed");
+        AssertFalse(firstNudge is null, "third unchanged turn should press W once");
+        AssertEqual(3, Convert.ToInt32(firstNudge!.Fields["consecutiveFailures"]), "forward nudge failure threshold");
+        AssertEqual(25, Convert.ToInt32(firstNudge.Fields["holdMs"]), "forward nudge hold duration");
+        AssertEqual(1, keyboard.Keys.Count(key => key == "W"), "third unchanged turn should emit one W press");
         AssertEqual(0, state.ConsecutiveCameraTurnNoChangeCount, "successful recovery should reset unchanged turn count");
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        AssertEqual(1, keyboard.Keys.Count(key => key == "W"), "next two unchanged turns should not emit another W press");
+        AssertEqual(2, state.ConsecutiveCameraTurnNoChangeCount, "second recovery cycle should count independently");
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        AssertEqual(2, keyboard.Keys.Count(key => key == "W"), "sixth unchanged turn should emit the second W press");
+        AssertEqual(
+            2,
+            logger.Entries.Count(entry => entry.EventName == "stationary_combat.camera_turn.forward_nudge_pressed"),
+            "each three-failure cycle should emit exactly one forward nudge");
+        AssertEqual(0, state.ConsecutiveCameraTurnNoChangeCount, "second recovery cycle should reset unchanged turn count");
     }
     finally
     {
