@@ -9,6 +9,10 @@ namespace Roadhog.Application.Workers;
 
 public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
 {
+    private const int StartupScrollCount = 10;
+    private const int StartupScrollDelta = -1;
+    private static readonly TimeSpan StartupScrollInterval = TimeSpan.FromMilliseconds(100);
+
     private readonly IKeyboardInput _keyboard;
     private readonly SemiAutoCombatController _semiAuto;
     private readonly StationaryCombatController _stationaryCombat;
@@ -38,6 +42,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
             ["hardwareKey"] = context.Config.HardwareKey,
             ["vmmDevice"] = context.Config.VmmDeviceName
         });
+        await ScrollStartupMouseAsync(context).ConfigureAwait(false);
         await ReleaseStartupMovementAsync(context).ConfigureAwait(false);
 
         var scriptSettings = context.Config.ScriptSettings ?? new ScriptSettings
@@ -308,6 +313,46 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
     }
 
     private readonly record struct TeamWorkerTickResult(bool ShouldSkipNormalWork, TimeSpan Delay);
+
+    private async Task ScrollStartupMouseAsync(AccountWorkerContext context)
+    {
+        var sent = 0;
+        for (var attempt = 1; attempt <= StartupScrollCount; attempt++)
+        {
+            var result = await _keyboard
+                .ScrollMouseAsync(StartupScrollDelta, context.StopToken)
+                .ConfigureAwait(false);
+            if (result.Success)
+            {
+                sent++;
+            }
+            else
+            {
+                context.Logger.Warn("worker.startup.scroll_failed", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["delta"] = StartupScrollDelta,
+                    ["attempt"] = attempt,
+                    ["targetCount"] = StartupScrollCount,
+                    ["error"] = result.Error
+                });
+            }
+
+            if (attempt < StartupScrollCount)
+            {
+                await Task.Delay(StartupScrollInterval, context.StopToken).ConfigureAwait(false);
+            }
+        }
+
+        context.Logger.Info("worker.startup.scroll_complete", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["delta"] = StartupScrollDelta,
+            ["count"] = StartupScrollCount,
+            ["sent"] = sent,
+            ["intervalMs"] = (long)StartupScrollInterval.TotalMilliseconds
+        });
+    }
 
     private async Task ReleaseStartupMovementAsync(AccountWorkerContext context)
     {

@@ -308,6 +308,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("path combat resumes path after kill", TestPathCombatResumesPathAfterKillAsync),
     ("path combat skips sit maintenance while fighting", TestPathCombatSkipsSitMaintenanceWhileFightingAsync),
     ("path combat jump assist starts after facing and stops on damage", TestPathCombatJumpAssistStartsAfterFacingAndStopsOnDamageAsync),
+    ("worker scrolls mouse before startup input and checks", TestWorkerScrollsMouseBeforeStartupInputAndChecksAsync),
     ("worker life guard revives before semi-auto combat", TestWorkerLifeGuardRevivesBeforeSemiAutoAsync),
     ("worker life guard revives before stationary position validation", TestWorkerLifeGuardRevivesBeforeStationaryPositionValidationAsync),
     ("worker ensures spiritmaster pet before normal work", TestWorkerEnsuresSpiritmasterPetBeforeNormalWorkAsync),
@@ -3471,7 +3472,7 @@ static async Task TestJumpAssistDisabledWorkerEmitsNoExtraSpaceAsync()
     var semiAuto = new SemiAutoCombatController(keyboard);
     var stationary = new StationaryCombatController(keyboard, semiAuto);
     var worker = new DefaultAccountWorkerLoop(keyboard, semiAuto, stationary);
-    using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(120));
+    using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(3));
     var context = CreateContext(
         settings,
         gameApi,
@@ -3479,7 +3480,14 @@ static async Task TestJumpAssistDisabledWorkerEmitsNoExtraSpaceAsync()
         options: new AccountWorkerOptions { TickInterval = TimeSpan.FromMilliseconds(10) },
         stopToken: cancellation.Token);
 
-    await IgnoreCancellationAsync(worker.RunAsync(context)).ConfigureAwait(false);
+    var runTask = worker.RunAsync(context);
+    await WaitUntilAsync(
+            () => logger.Entries.Any(entry => entry.EventName == "worker.startup.key_up"),
+            "disabled jump assist worker startup")
+        .ConfigureAwait(false);
+    await Task.Delay(120).ConfigureAwait(false);
+    cancellation.Cancel();
+    await IgnoreCancellationAsync(runTask).ConfigureAwait(false);
 
     AssertFalse(keyboard.Keys.Any(key => string.Equals(key, "Space", StringComparison.Ordinal)), "disabled jump assist should add no Space");
     AssertFalse(
@@ -13700,6 +13708,55 @@ static async Task TestPathCombatSkipsSitMaintenanceWhileFightingAsync()
     AssertFalse(semiAutoState.IsMaintenanceResting, "path combat should not mark maintenance rest while fighting");
 }
 
+static async Task TestWorkerScrollsMouseBeforeStartupInputAndChecksAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.Gather;
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi();
+    var playerReadsDuringScroll = new List<int>();
+    keyboard.AfterScroll = _ => playerReadsDuringScroll.Add(gameApi.PlayerReadCount);
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var stationary = new StationaryCombatController(keyboard, semiAuto);
+    var worker = new DefaultAccountWorkerLoop(keyboard, semiAuto, stationary);
+    using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+    var context = CreateContext(
+        settings,
+        gameApi,
+        logger,
+        options: new AccountWorkerOptions
+        {
+            TickInterval = TimeSpan.FromMilliseconds(40),
+            PollPlayerSnapshot = false
+        },
+        stopToken: cancellation.Token);
+
+    var runTask = worker.RunAsync(context);
+    await WaitUntilAsync(
+            () => logger.Entries.Any(entry => entry.EventName == "worker.startup.key_up"),
+            "worker startup mouse scroll sequence")
+        .ConfigureAwait(false);
+    cancellation.Cancel();
+    await IgnoreCancellationAsync(runTask).ConfigureAwait(false);
+
+    AssertEqual(10, keyboard.MouseCommands.Count, "worker startup should send exactly ten mouse wheel inputs");
+    AssertSequence(
+        Enumerable.Repeat("wheel:-1", 10).ToArray(),
+        keyboard.MouseCommands.ToArray(),
+        "worker startup should scroll down ten times before ordinary work");
+
+    var entries = logger.Entries.ToArray();
+    var scrollCompleteIndex = Array.FindIndex(entries, entry => entry.EventName == "worker.startup.scroll_complete");
+    var startupKeyUpIndex = Array.FindIndex(entries, entry => entry.EventName == "worker.startup.key_up");
+    AssertFalse(scrollCompleteIndex < 0, "worker startup should log completed mouse scrolling");
+    AssertFalse(startupKeyUpIndex <= scrollCompleteIndex, "worker startup should finish mouse scrolling before releasing W");
+    AssertEqual(10, playerReadsDuringScroll.Count, "worker startup should observe all ten scroll attempts");
+    AssertFalse(
+        playerReadsDuringScroll.Any(count => count != 0),
+        "worker startup should not read player state before the startup sequence completes");
+}
+
 static async Task TestWorkerLifeGuardRevivesBeforeSemiAutoAsync()
 {
     var previousClickDelay = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS");
@@ -13751,7 +13808,7 @@ static async Task TestWorkerLifeGuardRevivesBeforeSemiAutoAsync()
 
         AssertSequence(
             new[] { "move:-2000,-2000", "move:-2000,-2000", "move:701,402", "down:Left", "up:Left" },
-            keyboard.MouseCommands.Take(5).ToArray(),
+            keyboard.MouseCommands.Skip(10).Take(5).ToArray(),
             "semi-auto death guard should absolute-click configured revive button");
         AssertFalse(keyboard.Keys.Any(key => key.StartsWith("D", StringComparison.OrdinalIgnoreCase)), "semi-auto combat keys must not run while dead");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "player_life.death.detected"), "worker life guard should log death detection");
@@ -24974,6 +25031,8 @@ sealed class RecordingKeyboardInput : IKeyboardInput
 
     public Action<int, int>? AfterMove { get; set; }
 
+    public Action<int>? AfterScroll { get; set; }
+
     public Task<OperationResult> PressKeyAsync(
         string key,
         TimeSpan holdDuration,
@@ -25038,6 +25097,7 @@ sealed class RecordingKeyboardInput : IKeyboardInput
         CancellationToken cancellationToken = default)
     {
         MouseCommands.Add("wheel:" + wheelDelta);
+        AfterScroll?.Invoke(wheelDelta);
         return Task.FromResult(OperationResult.Ok());
     }
 }
