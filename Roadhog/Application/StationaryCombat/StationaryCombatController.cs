@@ -62,11 +62,9 @@ public sealed class StationaryCombatController
     private const int DefaultPostReviveScrollCount = 30;
     private const int DefaultPostReviveScrollDelta = -1;
     private const int DefaultPostCombatMaintenanceRoundLimit = 8;
-    private const int CameraTurnRecoveryFailureThreshold = 3;
+    private const int CameraTurnRecoveryFailureThreshold = 2;
     private const int CameraTurnRecoveryReleaseMs = 80;
     private const int CameraTurnRecoveryWarmupMs = 80;
-    private const int CameraTurnRecoveryCursorDeltaX = 1000;
-    private const int CameraTurnRecoveryCursorDeltaY = -1000;
     private const string NoTargetRestEnterKey = "OemComma";
     private const string NoTargetRestExitKey = "X";
     private const ushort NpcEntityType = 3;
@@ -9573,7 +9571,7 @@ public sealed class StationaryCombatController
         }
     }
 
-    private async Task<bool> RecoverRightMouseAtUpperRightAfterTurnFailuresAsync(
+    private async Task<bool> RecoverRightMouseAtRevivePointAfterTurnFailuresAsync(
         AccountWorkerContext context,
         StationaryCombatState state,
         int failureCount)
@@ -9582,14 +9580,10 @@ public sealed class StationaryCombatController
         state.IsRightMouseDown = false;
         await DelayAsync(TimeSpan.FromMilliseconds(CameraTurnRecoveryReleaseMs), context).ConfigureAwait(false);
 
-        var cursorMove = up.Success
-            ? await _input
-                .MoveMouseRelativeAsync(
-                    CameraTurnRecoveryCursorDeltaX,
-                    CameraTurnRecoveryCursorDeltaY,
-                    context.StopToken)
-                .ConfigureAwait(false)
-            : OperationResult.Fail("Right mouse release failed; cursor move skipped.");
+        var (cursorResetX, cursorResetY) = ReadDeathReviveClickPoint(context, reviveClickCount: 0);
+        var cursorReset = up.Success
+            ? await MoveMouseToAbsoluteScreenPointAsync(context, cursorResetX, cursorResetY).ConfigureAwait(false)
+            : OperationResult.Fail("Right mouse release failed; cursor reset skipped.");
         var down = await _input.MouseDownAsync(RoadhogMouseButton.Right, context.StopToken).ConfigureAwait(false);
         state.IsRightMouseDown = down.Success;
         if (down.Success)
@@ -9604,12 +9598,12 @@ public sealed class StationaryCombatController
             ["releaseMs"] = CameraTurnRecoveryReleaseMs,
             ["warmupMs"] = CameraTurnRecoveryWarmupMs,
             ["mouseUpSuccess"] = up.Success,
-            ["cursorMoveSuccess"] = cursorMove.Success,
-            ["cursorMoveDx"] = CameraTurnRecoveryCursorDeltaX,
-            ["cursorMoveDy"] = CameraTurnRecoveryCursorDeltaY,
+            ["cursorResetSuccess"] = cursorReset.Success,
+            ["cursorResetX"] = cursorResetX,
+            ["cursorResetY"] = cursorResetY,
             ["mouseDownSuccess"] = down.Success
         };
-        if (up.Success && cursorMove.Success && down.Success)
+        if (up.Success && cursorReset.Success && down.Success)
         {
             context.Logger.Info("stationary_combat.right_mouse.recovered", fields);
         }
@@ -9617,8 +9611,8 @@ public sealed class StationaryCombatController
         {
             fields["error"] = !up.Success
                 ? up.Error
-                : !cursorMove.Success
-                    ? cursorMove.Error
+                : !cursorReset.Success
+                    ? cursorReset.Error
                     : down.Error;
             context.Logger.Warn("stationary_combat.right_mouse.recovery_failed", fields);
         }
@@ -9881,7 +9875,7 @@ public sealed class StationaryCombatController
                     var failureCount = state.MarkCameraTurnNoChange();
                     if (failureCount >= CameraTurnRecoveryFailureThreshold)
                     {
-                        mouseDownStartedHere = await RecoverRightMouseAtUpperRightAfterTurnFailuresAsync(
+                        mouseDownStartedHere = await RecoverRightMouseAtRevivePointAfterTurnFailuresAsync(
                                 context,
                                 state,
                                 failureCount)
