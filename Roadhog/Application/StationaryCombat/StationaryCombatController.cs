@@ -65,6 +65,8 @@ public sealed class StationaryCombatController
     private const int CameraTurnRecoveryFailureThreshold = 3;
     private const int CameraTurnRecoveryReleaseMs = 80;
     private const int CameraTurnRecoveryWarmupMs = 80;
+    private const int CameraTurnRecoveryCursorDeltaX = 1000;
+    private const int CameraTurnRecoveryCursorDeltaY = -1000;
     private const string NoTargetRestEnterKey = "OemComma";
     private const string NoTargetRestExitKey = "X";
     private const ushort NpcEntityType = 3;
@@ -9571,7 +9573,7 @@ public sealed class StationaryCombatController
         }
     }
 
-    private async Task<bool> RecoverRightMouseAtTopLeftAfterTurnFailuresAsync(
+    private async Task<bool> RecoverRightMouseAtUpperRightAfterTurnFailuresAsync(
         AccountWorkerContext context,
         StationaryCombatState state,
         int failureCount)
@@ -9580,9 +9582,12 @@ public sealed class StationaryCombatController
         state.IsRightMouseDown = false;
         await DelayAsync(TimeSpan.FromMilliseconds(CameraTurnRecoveryReleaseMs), context).ConfigureAwait(false);
 
-        var cursorTopLeft = up.Success
-            ? await ScreenPointMouseMover
-                .MoveToAsync(_input, 0, 0, cancellationToken: context.StopToken)
+        var cursorMove = up.Success
+            ? await _input
+                .MoveMouseRelativeAsync(
+                    CameraTurnRecoveryCursorDeltaX,
+                    CameraTurnRecoveryCursorDeltaY,
+                    context.StopToken)
                 .ConfigureAwait(false)
             : OperationResult.Fail("Right mouse release failed; cursor move skipped.");
         var down = await _input.MouseDownAsync(RoadhogMouseButton.Right, context.StopToken).ConfigureAwait(false);
@@ -9599,12 +9604,12 @@ public sealed class StationaryCombatController
             ["releaseMs"] = CameraTurnRecoveryReleaseMs,
             ["warmupMs"] = CameraTurnRecoveryWarmupMs,
             ["mouseUpSuccess"] = up.Success,
-            ["cursorTopLeftSuccess"] = cursorTopLeft.Success,
-            ["cursorResetDelta"] = ScreenPointMouseMover.AbsoluteMouseResetDelta,
-            ["cursorResetCount"] = ScreenPointMouseMover.DefaultResetCount,
+            ["cursorMoveSuccess"] = cursorMove.Success,
+            ["cursorMoveDx"] = CameraTurnRecoveryCursorDeltaX,
+            ["cursorMoveDy"] = CameraTurnRecoveryCursorDeltaY,
             ["mouseDownSuccess"] = down.Success
         };
-        if (up.Success && cursorTopLeft.Success && down.Success)
+        if (up.Success && cursorMove.Success && down.Success)
         {
             context.Logger.Info("stationary_combat.right_mouse.recovered", fields);
         }
@@ -9612,8 +9617,8 @@ public sealed class StationaryCombatController
         {
             fields["error"] = !up.Success
                 ? up.Error
-                : !cursorTopLeft.Success
-                    ? cursorTopLeft.Error
+                : !cursorMove.Success
+                    ? cursorMove.Error
                     : down.Error;
             context.Logger.Warn("stationary_combat.right_mouse.recovery_failed", fields);
         }
@@ -9876,7 +9881,7 @@ public sealed class StationaryCombatController
                     var failureCount = state.MarkCameraTurnNoChange();
                     if (failureCount >= CameraTurnRecoveryFailureThreshold)
                     {
-                        mouseDownStartedHere = await RecoverRightMouseAtTopLeftAfterTurnFailuresAsync(
+                        mouseDownStartedHere = await RecoverRightMouseAtUpperRightAfterTurnFailuresAsync(
                                 context,
                                 state,
                                 failureCount)

@@ -314,7 +314,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("worker waits for spiritmaster pet summon verification", TestWorkerWaitsForSpiritmasterPetSummonVerificationAsync),
     ("stationary combat faces selected target before tab", TestStationaryCombatFacesTargetBeforeTabAsync),
     ("stationary combat jump assist starts after facing and stops on damage", TestStationaryCombatJumpAssistStartsAfterFacingAndStopsOnDamageAsync),
-    ("stationary combat moves cursor top left after repeated unchanged turns", TestStationaryCombatMovesCursorTopLeftAfterRepeatedUnchangedTurnsAsync),
+    ("stationary combat moves cursor upper right after repeated unchanged turns", TestStationaryCombatMovesCursorUpperRightAfterRepeatedUnchangedTurnsAsync),
     ("stationary combat target pitch follows target height", TestStationaryCombatTargetPitchFollowsTargetHeightAsync),
     ("stationary combat accepts thirty degree pre-lock face tolerance", TestStationaryCombatAcceptsThirtyDegreePreLockFaceToleranceAsync),
     ("stationary combat tabs until selected target is verified", TestStationaryCombatTabsUntilTargetVerifiedAsync),
@@ -14132,7 +14132,7 @@ static async Task TestStationaryCombatFacesTargetBeforeTabAsync()
     }
 }
 
-static async Task TestStationaryCombatMovesCursorTopLeftAfterRepeatedUnchangedTurnsAsync()
+static async Task TestStationaryCombatMovesCursorUpperRightAfterRepeatedUnchangedTurnsAsync()
 {
     var environment = new Dictionary<string, string?>
     {
@@ -14198,8 +14198,8 @@ static async Task TestStationaryCombatMovesCursorTopLeftAfterRepeatedUnchangedTu
             logger.Entries.Any(entry => entry.EventName == "stationary_combat.right_mouse.recovered"),
             "right mouse recovery should not run before the third unchanged turn");
         AssertFalse(
-            keyboard.MouseCommands.Contains("move:-2000,-2000"),
-            "cursor should not move to top left before the third unchanged turn");
+            keyboard.MouseCommands.Contains("move:1000,-1000"),
+            "cursor should not move upper right before the third unchanged turn");
         AssertEqual(2, state.ConsecutiveCameraTurnNoChangeCount, "unchanged turn count before recovery");
 
         await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
@@ -14207,11 +14207,13 @@ static async Task TestStationaryCombatMovesCursorTopLeftAfterRepeatedUnchangedTu
         var recovery = logger.Entries.SingleOrDefault(entry => entry.EventName == "stationary_combat.right_mouse.recovered");
         AssertFalse(recovery is null, "third unchanged turn should force right mouse recovery");
         AssertEqual(3, Convert.ToInt32(recovery!.Fields["consecutiveFailures"]), "right mouse recovery failure threshold");
-        AssertFalse(!Convert.ToBoolean(recovery.Fields["cursorTopLeftSuccess"]), "third unchanged turn should move cursor to top left");
+        AssertFalse(!Convert.ToBoolean(recovery.Fields["cursorMoveSuccess"]), "third unchanged turn should move cursor upper right");
+        AssertEqual(1000, Convert.ToInt32(recovery.Fields["cursorMoveDx"]), "cursor recovery x delta");
+        AssertEqual(-1000, Convert.ToInt32(recovery.Fields["cursorMoveDy"]), "cursor recovery y delta");
         AssertSequence(
-            new[] { "up:Right", "move:-2000,-2000", "move:-2000,-2000", "move:0,0", "down:Right" },
-            keyboard.MouseCommands.TakeLast(5).ToArray(),
-            "recovery should release right mouse, move cursor to top left, then restore right mouse");
+            new[] { "up:Right", "move:1000,-1000", "down:Right" },
+            keyboard.MouseCommands.TakeLast(3).ToArray(),
+            "recovery should release right mouse, move cursor upper right, then restore right mouse");
         AssertEqual(0, keyboard.Keys.Count(key => key == "W"), "cursor recovery should not press W");
         AssertFalse(
             logger.Entries.Any(entry => entry.EventName.StartsWith("stationary_combat.camera_turn.forward_nudge", StringComparison.Ordinal)),
@@ -14222,7 +14224,7 @@ static async Task TestStationaryCombatMovesCursorTopLeftAfterRepeatedUnchangedTu
         await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
         AssertFalse(
             !keyboard.MouseCommands.Skip(commandsAfterFirstRecovery).Any(command => command.StartsWith("move:", StringComparison.Ordinal)),
-            "next tick should continue the original camera turn after moving cursor to top left");
+            "next tick should continue the original camera turn after moving cursor upper right");
         AssertEqual(1, state.ConsecutiveCameraTurnNoChangeCount, "next failed turn should start a new recovery cycle");
 
         await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
@@ -14232,11 +14234,11 @@ static async Task TestStationaryCombatMovesCursorTopLeftAfterRepeatedUnchangedTu
         AssertEqual(
             2,
             logger.Entries.Count(entry => entry.EventName == "stationary_combat.right_mouse.recovered"),
-            "each three-failure cycle should move cursor to top left once");
+            "each three-failure cycle should move cursor upper right once");
         AssertEqual(
-            4,
-            keyboard.MouseCommands.Count(command => command == "move:-2000,-2000"),
-            "each three-failure cycle should use the two-step top-left reset");
+            2,
+            keyboard.MouseCommands.Count(command => command == "move:1000,-1000"),
+            "each three-failure cycle should use one upper-right cursor move");
         AssertEqual(0, keyboard.Keys.Count(key => key == "W"), "repeated cursor recovery should never press W");
         AssertEqual(0, state.ConsecutiveCameraTurnNoChangeCount, "second recovery cycle should reset unchanged turn count");
     }
