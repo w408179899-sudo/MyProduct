@@ -10,15 +10,54 @@ public static class BagCleanupItemMatcher
         IEnumerable<InventoryItemSnapshot> items,
         MaintenanceScriptSettings settings)
     {
+        return SelectItems(items, settings, BagCleanupAction.Sell, resolveSellDiscardConflict: false);
+    }
+
+    public static IReadOnlyList<InventoryItemSnapshot> SelectDiscardItems(
+        IEnumerable<InventoryItemSnapshot> items,
+        MaintenanceScriptSettings settings)
+    {
+        return SelectItems(items, settings, BagCleanupAction.Discard, resolveSellDiscardConflict: true);
+    }
+
+    public static IReadOnlyList<InventoryItemSnapshot> SelectSellDiscardConflicts(
+        IEnumerable<InventoryItemSnapshot> items,
+        MaintenanceScriptSettings settings)
+    {
+        var rules = BagCleanupRuleCatalog
+            .MergeWithDefaults(settings.BagCleanupRules)
+            .Where(rule => rule.Enabled)
+            .ToArray();
+        var sellRules = rules.Where(rule => rule.Action == BagCleanupAction.Sell).ToArray();
+        var discardRules = rules.Where(rule => rule.Action == BagCleanupAction.Discard).ToArray();
+        return FilterBagItems(items, settings)
+            .Where(item => sellRules.Any(rule => MatchesRule(item, rule)) &&
+                           discardRules.Any(rule => MatchesRule(item, rule)))
+            .OrderBy(item => item.Slot)
+            .ThenBy(item => item.TemplateId)
+            .ThenBy(item => item.InstanceId)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<InventoryItemSnapshot> SelectItems(
+        IEnumerable<InventoryItemSnapshot> items,
+        MaintenanceScriptSettings settings,
+        BagCleanupAction action,
+        bool resolveSellDiscardConflict)
+    {
         var excludedNameKeywords = settings.BagCleanupExcludedItemNames
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .Select(name => name.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        var rules = BagCleanupRuleCatalog
+        var allRules = BagCleanupRuleCatalog
             .MergeWithDefaults(settings.BagCleanupRules)
-            .Where(rule => rule.Enabled && rule.Action == BagCleanupAction.Sell)
+            .Where(rule => rule.Enabled)
             .ToArray();
+        var rules = allRules.Where(rule => rule.Action == action).ToArray();
+        var sellRules = resolveSellDiscardConflict
+            ? allRules.Where(rule => rule.Action == BagCleanupAction.Sell).ToArray()
+            : Array.Empty<BagCleanupRuleConfig>();
 
         if (rules.Length == 0)
         {
@@ -28,10 +67,24 @@ public static class BagCleanupItemMatcher
         return items
             .Where(item => IsBagItem(item) && !IsExcludedByNameKeyword(item.Name, excludedNameKeywords))
             .Where(item => rules.Any(rule => MatchesRule(item, rule)))
+            .Where(item => !resolveSellDiscardConflict || !sellRules.Any(rule => MatchesRule(item, rule)))
             .OrderBy(item => item.Slot)
             .ThenBy(item => item.TemplateId)
             .ThenBy(item => item.InstanceId)
             .ToArray();
+    }
+
+    private static IEnumerable<InventoryItemSnapshot> FilterBagItems(
+        IEnumerable<InventoryItemSnapshot> items,
+        MaintenanceScriptSettings settings)
+    {
+        var excludedNameKeywords = settings.BagCleanupExcludedItemNames
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        return items.Where(item =>
+            IsBagItem(item) && !IsExcludedByNameKeyword(item.Name, excludedNameKeywords));
     }
 
     public static bool MatchesRule(InventoryItemSnapshot item, BagCleanupRuleConfig rule)

@@ -70,7 +70,9 @@
           "bagCleanupEnabled": false,
           "autoEquip": true,
           "autoDecompose": true,
-          "bagCleanupThreshold": 5
+          "bagCleanupThreshold": 5,
+          "bagCleanupDiscardConfirmClickX": 650,
+          "bagCleanupDiscardConfirmClickY": 470
         },
         "skills": {
           "mode": "Auto",

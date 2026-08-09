@@ -4685,6 +4685,13 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         await StopMovementAsync(context, state).ConfigureAwait(false);
         StopPathFollowPoller(state);
 
+        if (_bagCleanup is not null && state.BagCleanup.DiscardActive)
+        {
+            await _bagCleanup
+                .AbortDiscardForAttackAsync(context, state.BagCleanup, target.Name)
+                .ConfigureAwait(false);
+        }
+
         FinishLootAfterKill(
             context,
             state,

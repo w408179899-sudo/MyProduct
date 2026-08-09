@@ -19,6 +19,12 @@ public sealed class BagCleanupState
 
     public int InitialCandidateCount { get; private set; }
 
+    public int InitialDiscardCandidateCount { get; private set; }
+
+    public int DiscardedItemCount { get; private set; }
+
+    public int DiscardConfirmClickCount { get; private set; }
+
     public int TotalRegisteredSellItemCount { get; private set; }
 
     public int SellBatchCount { get; private set; }
@@ -48,6 +54,12 @@ public sealed class BagCleanupState
     public IReadOnlyList<InventoryItemSnapshot> SellCandidates { get; private set; } =
         Array.Empty<InventoryItemSnapshot>();
 
+    public InventoryItemSnapshot? DiscardTarget { get; private set; }
+
+    public InventoryWindowSnapshot? DiscardWindow { get; private set; }
+
+    public bool DiscardConfirmSeen { get; private set; }
+
     public bool HasPressedTownReturn { get; private set; }
 
     public bool HasOpenedNpcDialog { get; private set; }
@@ -63,6 +75,14 @@ public sealed class BagCleanupState
     public bool HasClickedSellButton { get; private set; }
 
     public bool IsReturningAfterFailure => !string.IsNullOrWhiteSpace(ReturnAfterFailureReason);
+
+    public bool DiscardActive => Step is BagCleanupStep.PrepareDiscardInventory or
+        BagCleanupStep.ReadDiscardCandidates or
+        BagCleanupStep.DragDiscardItem or
+        BagCleanupStep.WaitDiscardConfirm or
+        BagCleanupStep.ClickDiscardConfirm or
+        BagCleanupStep.VerifyDiscardItem or
+        BagCleanupStep.CloseDiscardInventory;
 
     public bool Active => Step != BagCleanupStep.Inactive &&
                           Step != BagCleanupStep.Complete &&
@@ -96,6 +116,45 @@ public sealed class BagCleanupState
         HasRegisteredSellItems = false;
         HasClosedInventoryWindow = false;
         HasClickedSellButton = false;
+        ResetDiscardFields();
+    }
+
+    public void StartDiscard(int freeSlots, int threshold, int candidateCount)
+    {
+        Start(freeSlots, threshold);
+        Step = BagCleanupStep.PrepareDiscardInventory;
+        StepStartedAt = StartedAt;
+        InitialDiscardCandidateCount = Math.Max(0, candidateCount);
+    }
+
+    public void SetDiscardWindow(InventoryWindowSnapshot window)
+    {
+        DiscardWindow = window;
+    }
+
+    public void SetDiscardTarget(InventoryItemSnapshot item)
+    {
+        DiscardTarget = item;
+        DiscardConfirmSeen = false;
+        DiscardConfirmClickCount = 0;
+    }
+
+    public void MarkDiscardConfirmSeen()
+    {
+        DiscardConfirmSeen = true;
+    }
+
+    public void MarkDiscardConfirmClicked()
+    {
+        DiscardConfirmClickCount++;
+    }
+
+    public void MarkDiscardVerified()
+    {
+        DiscardedItemCount++;
+        DiscardTarget = null;
+        DiscardConfirmSeen = false;
+        DiscardConfirmClickCount = 0;
     }
 
     public void SetPath(SharedPathDocument path)
@@ -262,6 +321,17 @@ public sealed class BagCleanupState
         HasRegisteredSellItems = false;
         HasClosedInventoryWindow = false;
         HasClickedSellButton = false;
+        ResetDiscardFields();
+    }
+
+    private void ResetDiscardFields()
+    {
+        InitialDiscardCandidateCount = 0;
+        DiscardedItemCount = 0;
+        DiscardConfirmClickCount = 0;
+        DiscardTarget = null;
+        DiscardWindow = null;
+        DiscardConfirmSeen = false;
     }
 
     private void SetReturnAfterFailure(string reason, string error)

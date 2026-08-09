@@ -88,6 +88,20 @@ internal static class BagCleanupGameApi
         return capacityApi.ReadInventoryCapacityAsync(CreateReadContext(context), context.StopToken);
     }
 
+    public static Task<OperationResult<InventoryDiscardConfirmSnapshot>> ReadInventoryDiscardConfirmAsync(
+        AccountWorkerContext context)
+    {
+        if (context.GameApi is not IInventoryDiscardConfirmGameApi discardConfirmApi)
+        {
+            return Task.FromResult(OperationResult<InventoryDiscardConfirmSnapshot>.Fail(
+                "Inventory discard confirmation VMM API is not available."));
+        }
+
+        return discardConfirmApi.ReadInventoryDiscardConfirmAsync(
+            CreateReadContext(context),
+            context.StopToken);
+    }
+
     public static GameApiReadContext CreateReadContext(AccountWorkerContext context)
     {
         return new GameApiReadContext(

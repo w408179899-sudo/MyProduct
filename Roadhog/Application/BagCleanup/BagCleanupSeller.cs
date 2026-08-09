@@ -396,7 +396,7 @@ public sealed class BagCleanupSeller
             ClampInt((int)Math.Round(topLeft.Y + yOffset), 0, short.MaxValue));
     }
 
-    private static (int X, int Y) EstimateBagItemScreenPoint(
+    internal static (int X, int Y) EstimateBagItemScreenPoint(
         int slot,
         BagCleanupItemCoordinateMode coordinateMode,
         InventoryWindowSnapshot? window)

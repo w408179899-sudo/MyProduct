@@ -132,6 +132,7 @@ namespace Roadhog
         private Label? dpMaintenanceEmptyLabel;
         private RoundedTextBox? bagCleanupThresholdTextBox;
         private RoundedCheckBox? bagCleanupEnabledCheckBox;
+        private RoundedTextBox? bagCleanupDiscardConfirmPointTextBox;
         private RoundedTextBox? bagCleanupSellItemClickPointTextBox;
         private RoundedTextBox? bagCleanupSellButtonClickPointTextBox;
         private RoundedComboBox? bagCleanupItemCoordinateModeCombo;
@@ -446,6 +447,11 @@ namespace Roadhog
             SetChecked(bagCleanupEnabledCheckBox, settings.Maintenance.BagCleanupEnabled);
             SetText(bagCleanupThresholdTextBox, settings.Maintenance.BagCleanupThreshold.ToString());
             SetText(
+                bagCleanupDiscardConfirmPointTextBox,
+                FormatScreenPoint(
+                    settings.Maintenance.BagCleanupDiscardConfirmClickX,
+                    settings.Maintenance.BagCleanupDiscardConfirmClickY));
+            SetText(
                 bagCleanupSellItemClickPointTextBox,
                 FormatScreenPoint(settings.Maintenance.BagCleanupSellItemClickX, settings.Maintenance.BagCleanupSellItemClickY));
             SetText(
@@ -686,6 +692,10 @@ namespace Roadhog
                 PathScriptSettings.DefaultDeathReviveClickY);
             var bagCleanupSellItemClickPoint = ReadScreenPoint(bagCleanupSellItemClickPointTextBox, 0, 0);
             var bagCleanupSellButtonClickPoint = ReadScreenPoint(bagCleanupSellButtonClickPointTextBox, 0, 0);
+            var bagCleanupDiscardConfirmPoint = ReadScreenPoint(
+                bagCleanupDiscardConfirmPointTextBox,
+                MaintenanceScriptSettings.DefaultBagCleanupDiscardConfirmClickX,
+                MaintenanceScriptSettings.DefaultBagCleanupDiscardConfirmClickY);
 
             var settings = new ScriptSettings
             {
@@ -761,6 +771,8 @@ namespace Roadhog
                     BagCleanupSellItemClickY = bagCleanupSellItemClickPoint.Y,
                     BagCleanupSellButtonClickX = bagCleanupSellButtonClickPoint.X,
                     BagCleanupSellButtonClickY = bagCleanupSellButtonClickPoint.Y,
+                    BagCleanupDiscardConfirmClickX = bagCleanupDiscardConfirmPoint.X,
+                    BagCleanupDiscardConfirmClickY = bagCleanupDiscardConfirmPoint.Y,
                     BagCleanupItemCoordinateMode = CaptureBagCleanupItemCoordinateMode(),
                     BagCleanupRules = CaptureBagCleanupRules(),
                     BagCleanupExcludedItemNames = CaptureBagCleanupExcludedItemList()
@@ -2930,6 +2942,26 @@ namespace Roadhog
             bagCleanupEnabledCheckBox = AddCheckBox(page, "自动清包", 4, 16, 100, false);
             AddLabel(page, "剩余格低于", 100, 16, 82, 26, _textGreen, FontStyle.Bold);
             bagCleanupThresholdTextBox = AddTextBox(page, "5", 184, 14, 72, 28);
+            AddLabel(page, "丢弃确认", 278, 16, 72, 24, _textGreen, FontStyle.Bold);
+            bagCleanupDiscardConfirmPointTextBox = AddTextBox(
+                page,
+                FormatScreenPoint(
+                    MaintenanceScriptSettings.DefaultBagCleanupDiscardConfirmClickX,
+                    MaintenanceScriptSettings.DefaultBagCleanupDiscardConfirmClickY),
+                350,
+                14,
+                90,
+                28);
+            bagCleanupDiscardConfirmPointTextBox.Name = "bagCleanupDiscardConfirmPointTextBox";
+            var testDiscardConfirmMoveButton = AddButton(page, "测试移动", 448, 14, 92, 28);
+            testDiscardConfirmMoveButton.Name = "bagCleanupDiscardConfirmTestMoveButton";
+            testDiscardConfirmMoveButton.Click += async (_, _) =>
+                await TestScreenPointMoveAsync(
+                    bagCleanupDiscardConfirmPointTextBox,
+                    testDiscardConfirmMoveButton,
+                    MaintenanceScriptSettings.DefaultBagCleanupDiscardConfirmClickX,
+                    MaintenanceScriptSettings.DefaultBagCleanupDiscardConfirmClickY,
+                    "丢弃确认").ConfigureAwait(true);
 
             const int leftOptionX = 24;
             const int leftComboX = 144;

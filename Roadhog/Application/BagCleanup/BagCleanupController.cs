@@ -30,6 +30,7 @@ public sealed class BagCleanupController
     private readonly BagCleanupSafetyChecker _safetyChecker;
     private readonly BagCleanupNpcInteractor _npcInteractor;
     private readonly BagCleanupSeller _seller;
+    private readonly BagCleanupDiscarder _discarder;
 
     public BagCleanupController(
         IKeyboardInput input,
@@ -37,7 +38,8 @@ public sealed class BagCleanupController
         BagCleanupPathExecutor pathExecutor,
         BagCleanupSafetyChecker? safetyChecker = null,
         BagCleanupNpcInteractor? npcInteractor = null,
-        BagCleanupSeller? seller = null)
+        BagCleanupSeller? seller = null,
+        BagCleanupDiscarder? discarder = null)
     {
         _input = input;
         _pathStore = pathStore;
@@ -45,6 +47,7 @@ public sealed class BagCleanupController
         _safetyChecker = safetyChecker ?? new BagCleanupSafetyChecker();
         _npcInteractor = npcInteractor ?? new BagCleanupNpcInteractor(input);
         _seller = seller ?? new BagCleanupSeller(input);
+        _discarder = discarder ?? new BagCleanupDiscarder(input, _seller);
     }
 
     public async Task<BagCleanupTickResult> TickAfterLootAsync(
@@ -58,6 +61,13 @@ public sealed class BagCleanupController
 
         return state.Step switch
         {
+            BagCleanupStep.PrepareDiscardInventory => await TickPrepareDiscardInventoryAsync(context, state).ConfigureAwait(false),
+            BagCleanupStep.ReadDiscardCandidates => await TickReadDiscardCandidatesAsync(context, state).ConfigureAwait(false),
+            BagCleanupStep.DragDiscardItem => await TickDragDiscardItemAsync(context, state).ConfigureAwait(false),
+            BagCleanupStep.WaitDiscardConfirm => await TickWaitDiscardConfirmAsync(context, state).ConfigureAwait(false),
+            BagCleanupStep.ClickDiscardConfirm => await TickClickDiscardConfirmAsync(context, state).ConfigureAwait(false),
+            BagCleanupStep.VerifyDiscardItem => await TickVerifyDiscardItemAsync(context, state).ConfigureAwait(false),
+            BagCleanupStep.CloseDiscardInventory => await TickCloseDiscardInventoryAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.WaitSafeToReturn => await TickWaitSafeToReturnAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.PressTownReturn => await TickPressTownReturnAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.WaitTownReturnSettle => await TickWaitTownReturnSettleAsync(context, state).ConfigureAwait(false),
@@ -126,32 +136,19 @@ public sealed class BagCleanupController
             return BagCleanupTickResult.Skipped("threshold_disabled");
         }
 
-        var now = DateTimeOffset.Now;
-        var cleanupCooldown = ReadCleanupCooldown();
-        if (state.IsCompletionCooldownActive(now, cleanupCooldown))
+        // Keep the original full-cleanup cooldown fast path when no discard rule is configured.
+        // Configured discard work remains eligible during that cooldown; once it is exhausted,
+        // TryBeginFullCleanup applies the cooldown before any town-return work can begin.
+        var hasConfiguredDiscardRule = BagCleanupRuleCatalog
+            .MergeWithDefaults(settings.BagCleanupRules)
+            .Any(rule => rule.Enabled && rule.Action == BagCleanupAction.Discard);
+        if (!hasConfiguredDiscardRule)
         {
-            var remaining = cleanupCooldown - (now - state.LastCompletedAt);
-            context.Logger.Info("bag_cleanup.skip.cooldown", new Dictionary<string, object?>
+            var cooldownResult = TryGetFullCleanupCooldownResult(context, state);
+            if (cooldownResult is not null)
             {
-                ["account"] = context.Config.AccountName,
-                ["lastCompletedAt"] = state.LastCompletedAt,
-                ["remainingMs"] = Math.Max(0, (int)remaining.TotalMilliseconds)
-            });
-            return BagCleanupTickResult.Skipped("cleanup_cooldown");
-        }
-
-        var failureCooldown = ReadFailureCooldown(cleanupCooldown);
-        if (state.IsFailureCooldownActive(now, failureCooldown))
-        {
-            var remaining = failureCooldown - (now - state.LastFailedAt);
-            context.Logger.Info("bag_cleanup.skip.failure_cooldown", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["lastFailedAt"] = state.LastFailedAt,
-                ["lastFailureReason"] = state.LastFailureReason,
-                ["remainingMs"] = Math.Max(0, (int)remaining.TotalMilliseconds)
-            });
-            return BagCleanupTickResult.Skipped("cleanup_failure_cooldown");
+                return cooldownResult;
+            }
         }
 
         var read = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
@@ -169,7 +166,9 @@ public sealed class BagCleanupController
         var totalSlots = capacity.Value;
         var occupiedSlots = CountOccupiedSlots(read.Value, totalSlots);
         var freeSlots = CountFreeSlots(read.Value, totalSlots);
-        var candidates = BagCleanupItemMatcher.SelectSellRegistrationItems(read.Value, settings);
+        var sellCandidates = BagCleanupItemMatcher.SelectSellRegistrationItems(read.Value, settings);
+        var discardCandidates = BagCleanupItemMatcher.SelectDiscardItems(read.Value, settings);
+        var conflicts = BagCleanupItemMatcher.SelectSellDiscardConflicts(read.Value, settings);
         context.Logger.Info("bag_cleanup.check", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
@@ -179,12 +178,87 @@ public sealed class BagCleanupController
             ["totalSlotsSource"] = "vmm",
             ["inventoryItemCount"] = read.Value.Count,
             ["occupiedSlots"] = occupiedSlots,
-            ["candidateCount"] = candidates.Count
+            ["candidateCount"] = sellCandidates.Count,
+            ["sellCandidateCount"] = sellCandidates.Count,
+            ["discardCandidateCount"] = discardCandidates.Count,
+            ["sellDiscardConflictCount"] = conflicts.Count
         });
 
         if (freeSlots >= threshold)
         {
             return BagCleanupTickResult.NotStarted("enough_free_slots");
+        }
+
+        if (conflicts.Count > 0)
+        {
+            context.Logger.Warn("bag_cleanup.discard.conflict", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["count"] = conflicts.Count,
+                ["instanceIds"] = string.Join(",", conflicts.Select(item => item.InstanceId)),
+                ["resolution"] = "sell_wins"
+            });
+        }
+
+        if (discardCandidates.Count > 0)
+        {
+            var paths = context.Config.ScriptSettings?.Paths ?? new PathScriptSettings();
+            if (paths.DeathReviveClickX <= 0 || paths.DeathReviveClickY <= 0 ||
+                settings.BagCleanupDiscardConfirmClickX <= 0 ||
+                settings.BagCleanupDiscardConfirmClickY <= 0)
+            {
+                context.Logger.Warn("bag_cleanup.discard.config.invalid", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["destinationX"] = paths.DeathReviveClickX,
+                    ["destinationY"] = paths.DeathReviveClickY,
+                    ["confirmX"] = settings.BagCleanupDiscardConfirmClickX,
+                    ["confirmY"] = settings.BagCleanupDiscardConfirmClickY
+                });
+                return BagCleanupTickResult.Skipped("discard_coordinates_invalid");
+            }
+
+            var safe = await _safetyChecker.CheckSafeToReturnAsync(context).ConfigureAwait(false);
+            if (!safe.Success)
+            {
+                context.Logger.Info("bag_cleanup.discard.start.blocked", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["reason"] = safe.Error
+                });
+                return BagCleanupTickResult.Skipped("discard_unsafe");
+            }
+
+            state.StartDiscard(freeSlots, threshold, discardCandidates.Count);
+            context.Logger.Info("bag_cleanup.discard.start", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["freeSlots"] = freeSlots,
+                ["threshold"] = threshold,
+                ["candidateCount"] = discardCandidates.Count
+            });
+            return BagCleanupTickResult.Running("discard_started");
+        }
+
+        return TryBeginFullCleanup(
+            context,
+            state,
+            freeSlots,
+            threshold,
+            sellCandidates);
+    }
+
+    private static BagCleanupTickResult TryBeginFullCleanup(
+        AccountWorkerContext context,
+        BagCleanupState state,
+        int freeSlots,
+        int threshold,
+        IReadOnlyList<InventoryItemSnapshot> candidates)
+    {
+        var cooldownResult = TryGetFullCleanupCooldownResult(context, state);
+        if (cooldownResult is not null)
+        {
+            return cooldownResult;
         }
 
         var paths = context.Config.ScriptSettings?.Paths ?? new PathScriptSettings();
@@ -230,6 +304,614 @@ public sealed class BagCleanupController
             ["candidateCount"] = candidates.Count
         });
         return BagCleanupTickResult.Running("started");
+    }
+
+    private static BagCleanupTickResult? TryGetFullCleanupCooldownResult(
+        AccountWorkerContext context,
+        BagCleanupState state)
+    {
+        var now = DateTimeOffset.Now;
+        var cleanupCooldown = ReadCleanupCooldown();
+        if (state.IsCompletionCooldownActive(now, cleanupCooldown))
+        {
+            var remaining = cleanupCooldown - (now - state.LastCompletedAt);
+            context.Logger.Info("bag_cleanup.skip.cooldown", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["lastCompletedAt"] = state.LastCompletedAt,
+                ["remainingMs"] = Math.Max(0, (int)remaining.TotalMilliseconds)
+            });
+            return BagCleanupTickResult.Skipped("cleanup_cooldown");
+        }
+
+        var failureCooldown = ReadFailureCooldown(cleanupCooldown);
+        if (state.IsFailureCooldownActive(now, failureCooldown))
+        {
+            var remaining = failureCooldown - (now - state.LastFailedAt);
+            context.Logger.Info("bag_cleanup.skip.failure_cooldown", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["lastFailedAt"] = state.LastFailedAt,
+                ["lastFailureReason"] = state.LastFailureReason,
+                ["remainingMs"] = Math.Max(0, (int)remaining.TotalMilliseconds)
+            });
+            return BagCleanupTickResult.Skipped("cleanup_failure_cooldown");
+        }
+
+        return null;
+    }
+
+    private async Task<BagCleanupTickResult> TickPrepareDiscardInventoryAsync(
+        AccountWorkerContext context,
+        BagCleanupState state)
+    {
+        var interrupted = await TryAbortDiscardIfUnsafeAsync(context, state).ConfigureAwait(false);
+        if (interrupted is not null)
+        {
+            return interrupted;
+        }
+
+        var result = await _discarder.EnsureInventoryWindowTopLeftAsync(context).ConfigureAwait(false);
+        if (!result.Success || result.Value is null)
+        {
+            return await FailDiscardLocallyAsync(
+                context,
+                state,
+                "discard_inventory_prepare_failed",
+                result.Error ?? "Inventory window preparation failed.").ConfigureAwait(false);
+        }
+
+        state.SetDiscardWindow(result.Value);
+        state.Advance(BagCleanupStep.ReadDiscardCandidates);
+        return BagCleanupTickResult.Running("discard_inventory_ready");
+    }
+
+    private async Task<BagCleanupTickResult> TickReadDiscardCandidatesAsync(
+        AccountWorkerContext context,
+        BagCleanupState state)
+    {
+        var interrupted = await TryAbortDiscardIfUnsafeAsync(context, state).ConfigureAwait(false);
+        if (interrupted is not null)
+        {
+            return interrupted;
+        }
+
+        var read = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
+        if (!read.Success || read.Value is null)
+        {
+            return await FailDiscardLocallyAsync(
+                context,
+                state,
+                "discard_inventory_read_failed",
+                read.Error ?? "Inventory read failed during discard.").ConfigureAwait(false);
+        }
+
+        var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
+        var candidates = BagCleanupItemMatcher.SelectDiscardItems(read.Value, maintenance);
+        if (candidates.Count == 0)
+        {
+            state.Advance(BagCleanupStep.CloseDiscardInventory);
+            return BagCleanupTickResult.Running("discard_candidates_exhausted");
+        }
+
+        var target = candidates[0];
+        if (target.InstanceId == 0 || target.InstanceId > uint.MaxValue)
+        {
+            return await FailDiscardLocallyAsync(
+                context,
+                state,
+                "discard_instance_id_invalid",
+                "Discard target instance id is outside uint32 range: " + target.InstanceId)
+                .ConfigureAwait(false);
+        }
+
+        state.SetDiscardTarget(target);
+        state.Advance(BagCleanupStep.DragDiscardItem);
+        context.Logger.Info("bag_cleanup.discard.target.selected", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["name"] = target.Name,
+            ["instanceId"] = target.InstanceId,
+            ["slot"] = target.Slot,
+            ["remainingCandidateCount"] = candidates.Count
+        });
+        return BagCleanupTickResult.Running("discard_target_selected");
+    }
+
+    private async Task<BagCleanupTickResult> TickDragDiscardItemAsync(
+        AccountWorkerContext context,
+        BagCleanupState state)
+    {
+        var interrupted = await TryAbortDiscardIfUnsafeAsync(context, state).ConfigureAwait(false);
+        if (interrupted is not null)
+        {
+            return interrupted;
+        }
+
+        if (state.DiscardTarget is not { } lockedTarget)
+        {
+            return await FailDiscardLocallyAsync(
+                context,
+                state,
+                "discard_target_missing",
+                "Discard target state is missing before drag.").ConfigureAwait(false);
+        }
+
+        var inventoryRead = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
+        var currentTarget = inventoryRead.Value?.FirstOrDefault(item =>
+            !item.IsEquipped && item.InstanceId == lockedTarget.InstanceId);
+        if (!inventoryRead.Success || currentTarget is null)
+        {
+            return await FailDiscardLocallyAsync(
+                context,
+                state,
+                "discard_target_changed",
+                inventoryRead.Error ?? "Discard target disappeared before drag.").ConfigureAwait(false);
+        }
+
+        var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
+        InventoryWindowSnapshot? coordinateWindow = state.DiscardWindow;
+        if (maintenance.BagCleanupItemCoordinateMode == BagCleanupItemCoordinateMode.WindowRectRelativeExperimental)
+        {
+            var windowRead = await BagCleanupGameApi
+                .ReadInventoryWindowAsync(context, InventoryWindowRectSource.RootWidgetRectExperimental)
+                .ConfigureAwait(false);
+            if (!windowRead.Success || windowRead.Value is null)
+            {
+                return await FailDiscardLocallyAsync(
+                    context,
+                    state,
+                    "discard_inventory_rect_failed",
+                    windowRead.Error ?? "Discard inventory Rect read failed.").ConfigureAwait(false);
+            }
+
+            coordinateWindow = windowRead.Value;
+        }
+
+        var paths = context.Config.ScriptSettings?.Paths ?? new PathScriptSettings();
+        var drag = await _discarder
+            .DragItemToDiscardPointAsync(
+                context,
+                maintenance,
+                currentTarget,
+                coordinateWindow,
+                paths.DeathReviveClickX,
+                paths.DeathReviveClickY)
+            .ConfigureAwait(false);
+        if (!drag.Success)
+        {
+            return await FailDiscardLocallyAsync(
+                context,
+                state,
+                "discard_drag_failed",
+                drag.Error ?? "Discard drag failed.").ConfigureAwait(false);
+        }
+
+        state.SetDiscardTarget(currentTarget);
+        state.Advance(BagCleanupStep.WaitDiscardConfirm);
+        return BagCleanupTickResult.Running("discard_dragged_waiting_confirm");
+    }
+
+    private async Task<BagCleanupTickResult> TickWaitDiscardConfirmAsync(
+        AccountWorkerContext context,
+        BagCleanupState state)
+    {
+        if (state.DiscardTarget is not { } target)
+        {
+            return await FailDiscardLocallyAsync(
+                context,
+                state,
+                "discard_target_missing",
+                "Discard target state is missing while waiting for confirmation.").ConfigureAwait(false);
+        }
+
+        var confirmRead = await BagCleanupGameApi.ReadInventoryDiscardConfirmAsync(context).ConfigureAwait(false);
+        if (!confirmRead.Success || confirmRead.Value is null)
+        {
+            return await FailDiscardLocallyAsync(
+                context,
+                state,
+                "discard_confirm_read_failed",
+                confirmRead.Error ?? "Discard confirmation read failed.").ConfigureAwait(false);
+        }
+
+        var targetId = checked((uint)target.InstanceId);
+        var confirm = confirmRead.Value;
+        if (confirm.IsOpen && confirm.PendingItemInstanceId == targetId)
+        {
+            state.MarkDiscardConfirmSeen();
+            state.Advance(BagCleanupStep.ClickDiscardConfirm);
+            return BagCleanupTickResult.Running("discard_confirm_visible");
+        }
+
+        if (confirm.PendingItemInstanceId != 0 && confirm.PendingItemInstanceId != targetId)
+        {
+            return await FailDiscardLocallyAsync(
+                context,
+                state,
+                "discard_confirm_target_mismatch",
+                "Discard confirmation belongs to another item. expected=" + targetId +
+                ", actual=" + confirm.PendingItemInstanceId).ConfigureAwait(false);
+        }
+
+        var interrupted = await TryAbortDiscardIfUnsafeAsync(context, state).ConfigureAwait(false);
+        if (interrupted is not null)
+        {
+            return interrupted;
+        }
+
+        if (DateTimeOffset.Now - state.StepStartedAt < ReadDiscardConfirmTimeout())
+        {
+            return BagCleanupTickResult.Running("waiting_for_discard_confirm");
+        }
+
+        return await FailDiscardLocallyAsync(
+            context,
+            state,
+            "discard_confirm_timeout",
+            "Discard confirmation did not appear for item " + targetId).ConfigureAwait(false);
+    }
+
+    private async Task<BagCleanupTickResult> TickClickDiscardConfirmAsync(
+        AccountWorkerContext context,
+        BagCleanupState state)
+    {
+        if (state.DiscardTarget is not { } target)
+        {
+            return await FailDiscardLocallyAsync(
+                context,
+                state,
+                "discard_target_missing",
+                "Discard target state is missing before confirmation click.").ConfigureAwait(false);
+        }
+
+        var confirmRead = await BagCleanupGameApi.ReadInventoryDiscardConfirmAsync(context).ConfigureAwait(false);
+        if (!confirmRead.Success || confirmRead.Value is null)
+        {
+            return await FailDiscardLocallyAsync(
+                context,
+                state,
+                "discard_confirm_read_failed",
+                confirmRead.Error ?? "Discard confirmation re-read failed.").ConfigureAwait(false);
+        }
+
+        var targetId = checked((uint)target.InstanceId);
+        var confirm = confirmRead.Value;
+        if (confirm.PendingItemInstanceId == 0)
+        {
+            state.Advance(BagCleanupStep.VerifyDiscardItem);
+            return BagCleanupTickResult.Running("discard_confirm_already_cleared");
+        }
+
+        if (!confirm.IsOpen || confirm.PendingItemInstanceId != targetId)
+        {
+            return await FailDiscardLocallyAsync(
+                context,
+                state,
+                "discard_confirm_changed",
+                "Discard confirmation changed before click. expected=" + targetId +
+                ", actual=" + confirm.PendingItemInstanceId).ConfigureAwait(false);
+        }
+
+        state.MarkDiscardConfirmSeen();
+        var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
+        var click = await _discarder
+            .ClickDiscardConfirmAsync(
+                context,
+                maintenance.BagCleanupDiscardConfirmClickX,
+                maintenance.BagCleanupDiscardConfirmClickY,
+                targetId,
+                confirm.Kind)
+            .ConfigureAwait(false);
+        if (!click.Success)
+        {
+            return await FailDiscardLocallyAsync(
+                context,
+                state,
+                "discard_confirm_click_failed",
+                click.Error ?? "Discard confirmation click failed.").ConfigureAwait(false);
+        }
+
+        state.MarkDiscardConfirmClicked();
+        state.Advance(confirm.Kind == InventoryDiscardConfirmKind.Special
+            ? BagCleanupStep.WaitDiscardConfirm
+            : BagCleanupStep.VerifyDiscardItem);
+        return BagCleanupTickResult.Running(confirm.Kind == InventoryDiscardConfirmKind.Special
+            ? "discard_special_confirm_clicked"
+            : "discard_confirm_clicked");
+    }
+
+    private async Task<BagCleanupTickResult> TickVerifyDiscardItemAsync(
+        AccountWorkerContext context,
+        BagCleanupState state)
+    {
+        if (state.DiscardTarget is not { } target)
+        {
+            return await FailDiscardLocallyAsync(
+                context,
+                state,
+                "discard_target_missing",
+                "Discard target state is missing during verification.").ConfigureAwait(false);
+        }
+
+        var confirmRead = await BagCleanupGameApi.ReadInventoryDiscardConfirmAsync(context).ConfigureAwait(false);
+        var inventoryRead = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
+        if (!confirmRead.Success || confirmRead.Value is null ||
+            !inventoryRead.Success || inventoryRead.Value is null)
+        {
+            return await FailDiscardLocallyAsync(
+                context,
+                state,
+                "discard_verify_read_failed",
+                confirmRead.Error ?? inventoryRead.Error ?? "Discard verification read failed.")
+                .ConfigureAwait(false);
+        }
+
+        var targetId = checked((uint)target.InstanceId);
+        var targetStillPresent = inventoryRead.Value.Any(item => item.InstanceId == target.InstanceId);
+        if (!targetStillPresent && confirmRead.Value.PendingItemInstanceId == 0)
+        {
+            context.Logger.Info("bag_cleanup.discard.verified", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["name"] = target.Name,
+                ["instanceId"] = target.InstanceId,
+                ["confirmClickCount"] = state.DiscardConfirmClickCount,
+                ["discardedCount"] = state.DiscardedItemCount + 1
+            });
+            state.MarkDiscardVerified();
+            state.Advance(BagCleanupStep.ReadDiscardCandidates);
+            return BagCleanupTickResult.Running("discard_verified");
+        }
+
+        if (confirmRead.Value.IsOpen && confirmRead.Value.PendingItemInstanceId == targetId)
+        {
+            state.MarkDiscardConfirmSeen();
+            state.Advance(BagCleanupStep.ClickDiscardConfirm);
+            return BagCleanupTickResult.Running("discard_additional_confirm_visible");
+        }
+
+        if (confirmRead.Value.PendingItemInstanceId != 0 &&
+            confirmRead.Value.PendingItemInstanceId != targetId)
+        {
+            return await FailDiscardLocallyAsync(
+                context,
+                state,
+                "discard_verify_foreign_confirm",
+                "Another discard confirmation appeared during verification.").ConfigureAwait(false);
+        }
+
+        if (DateTimeOffset.Now - state.StepStartedAt < ReadDiscardVerifyTimeout())
+        {
+            return BagCleanupTickResult.Running("waiting_for_discard_verification");
+        }
+
+        return await FailDiscardLocallyAsync(
+            context,
+            state,
+            "discard_verify_timeout",
+            "Discarded item remained present or confirmation remained pending. instanceId=" + targetId)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<BagCleanupTickResult> TickCloseDiscardInventoryAsync(
+        AccountWorkerContext context,
+        BagCleanupState state)
+    {
+        var discardedCount = state.DiscardedItemCount;
+        var close = await _discarder.CloseInventoryWindowIfOpenAsync(context).ConfigureAwait(false);
+        if (!close.Success)
+        {
+            return await FailDiscardLocallyAsync(
+                context,
+                state,
+                "discard_inventory_close_failed",
+                close.Error ?? "Inventory window close failed after discard.").ConfigureAwait(false);
+        }
+
+        var inventoryRead = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
+        var capacityRead = await ReadInventoryCapacityAsync(context).ConfigureAwait(false);
+        if (!inventoryRead.Success || inventoryRead.Value is null || !capacityRead.Success)
+        {
+            state.Reset();
+            context.Logger.Warn("bag_cleanup.discard.complete_read_failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["inventoryError"] = inventoryRead.Error,
+                ["capacityError"] = capacityRead.Error
+            });
+            return BagCleanupTickResult.Skipped("discard_complete_read_failed");
+        }
+
+        var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
+        var discardCandidates = BagCleanupItemMatcher.SelectDiscardItems(inventoryRead.Value, maintenance);
+        var sellCandidates = BagCleanupItemMatcher.SelectSellRegistrationItems(inventoryRead.Value, maintenance);
+        var freeSlots = CountFreeSlots(inventoryRead.Value, capacityRead.Value);
+        var threshold = state.TriggerThreshold;
+        state.Reset();
+
+        context.Logger.Info("bag_cleanup.discard.complete", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["discardedCount"] = discardedCount,
+            ["freeSlots"] = freeSlots,
+            ["threshold"] = threshold,
+            ["remainingDiscardCandidateCount"] = discardCandidates.Count,
+            ["inventoryClosed"] = true
+        });
+
+        if (freeSlots < threshold && discardCandidates.Count > 0)
+        {
+            state.StartDiscard(freeSlots, threshold, discardCandidates.Count);
+            return BagCleanupTickResult.Running("discard_candidates_refreshed");
+        }
+
+        if (freeSlots < threshold)
+        {
+            return TryBeginFullCleanup(context, state, freeSlots, threshold, sellCandidates);
+        }
+
+        return BagCleanupTickResult.Skipped("discard_completed_capacity_recovered");
+    }
+
+    private async Task<BagCleanupTickResult?> TryAbortDiscardIfUnsafeAsync(
+        AccountWorkerContext context,
+        BagCleanupState state)
+    {
+        var attacker = await _safetyChecker.FindAttackingTargetNameAsync(context).ConfigureAwait(false);
+        if (!attacker.Success)
+        {
+            return await FailDiscardLocallyAsync(
+                context,
+                state,
+                "discard_safety_read_failed",
+                attacker.Error ?? "Discard safety read failed.").ConfigureAwait(false);
+        }
+
+        return string.IsNullOrWhiteSpace(attacker.Value)
+            ? null
+            : await AbortDiscardForAttackAsync(context, state, attacker.Value).ConfigureAwait(false);
+    }
+
+    public async Task<BagCleanupTickResult> AbortDiscardForAttackAsync(
+        AccountWorkerContext context,
+        BagCleanupState state,
+        string? attackerName)
+    {
+        var target = state.DiscardTarget;
+        var targetId = target is { InstanceId: > 0 and <= uint.MaxValue }
+            ? checked((uint)target.InstanceId)
+            : 0;
+        var confirmRead = await BagCleanupGameApi.ReadInventoryDiscardConfirmAsync(context).ConfigureAwait(false);
+        var liveConfirmVisible = confirmRead.Success && confirmRead.Value is
+        {
+            IsOpen: true
+        } confirm && targetId != 0 && confirm.PendingItemInstanceId == targetId;
+        var completionAttempted = state.DiscardConfirmSeen || liveConfirmVisible;
+        OperationResult completion = OperationResult.Ok();
+        if (completionAttempted && target is not null)
+        {
+            completion = await CompleteCurrentDiscardBeforeCombatAsync(context, state, target).ConfigureAwait(false);
+        }
+
+        OperationResult cancel = OperationResult.Ok();
+        if (!completionAttempted || !completion.Success)
+        {
+            cancel = await _discarder.CancelPendingDiscardAsync(context).ConfigureAwait(false);
+        }
+
+        var close = await _discarder.CloseInventoryWindowIfOpenAsync(context).ConfigureAwait(false);
+        context.Logger.Warn("bag_cleanup.discard.interrupted_by_attack", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["attackerName"] = attackerName,
+            ["targetInstanceId"] = target?.InstanceId,
+            ["confirmSeen"] = state.DiscardConfirmSeen || liveConfirmVisible,
+            ["completionSuccess"] = completion.Success,
+            ["completionError"] = completion.Error,
+            ["cancelSuccess"] = cancel.Success,
+            ["cancelError"] = cancel.Error,
+            ["inventoryCloseSuccess"] = close.Success,
+            ["inventoryCloseError"] = close.Error,
+            ["resumePolicy"] = "restart_on_next_bag_check"
+        });
+        state.Reset();
+        return BagCleanupTickResult.Skipped("discard_interrupted_by_attack");
+    }
+
+    private async Task<OperationResult> CompleteCurrentDiscardBeforeCombatAsync(
+        AccountWorkerContext context,
+        BagCleanupState state,
+        InventoryItemSnapshot target)
+    {
+        if (target.InstanceId == 0 || target.InstanceId > uint.MaxValue)
+        {
+            return OperationResult.Fail("Interrupted discard target instance id is invalid.");
+        }
+
+        var targetId = checked((uint)target.InstanceId);
+        var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
+        var deadline = DateTimeOffset.Now + ReadDiscardVerifyTimeout();
+        var clickCount = 0;
+        while (DateTimeOffset.Now < deadline && clickCount < 2)
+        {
+            var confirmRead = await BagCleanupGameApi.ReadInventoryDiscardConfirmAsync(context).ConfigureAwait(false);
+            var inventoryRead = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
+            if (!confirmRead.Success || confirmRead.Value is null ||
+                !inventoryRead.Success || inventoryRead.Value is null)
+            {
+                return OperationResult.Fail(
+                    confirmRead.Error ?? inventoryRead.Error ?? "Interrupted discard verification read failed.");
+            }
+
+            var targetStillPresent = inventoryRead.Value.Any(item => item.InstanceId == target.InstanceId);
+            if (!targetStillPresent && confirmRead.Value.PendingItemInstanceId == 0)
+            {
+                return OperationResult.Ok();
+            }
+
+            if (confirmRead.Value.PendingItemInstanceId != 0 &&
+                confirmRead.Value.PendingItemInstanceId != targetId)
+            {
+                return OperationResult.Fail("Interrupted discard confirmation belongs to another item.");
+            }
+
+            if (confirmRead.Value.IsOpen && confirmRead.Value.PendingItemInstanceId == targetId)
+            {
+                state.MarkDiscardConfirmSeen();
+                var click = await _discarder
+                    .ClickDiscardConfirmAsync(
+                        context,
+                        maintenance.BagCleanupDiscardConfirmClickX,
+                        maintenance.BagCleanupDiscardConfirmClickY,
+                        targetId,
+                        confirmRead.Value.Kind)
+                    .ConfigureAwait(false);
+                if (!click.Success)
+                {
+                    return click;
+                }
+
+                clickCount++;
+                await DelayAsync(TimeSpan.FromMilliseconds(ReadDiscardPollDelayMs()), context.StopToken)
+                    .ConfigureAwait(false);
+                continue;
+            }
+
+            await DelayAsync(TimeSpan.FromMilliseconds(ReadDiscardPollDelayMs()), context.StopToken)
+                .ConfigureAwait(false);
+        }
+
+        var finalConfirm = await BagCleanupGameApi.ReadInventoryDiscardConfirmAsync(context).ConfigureAwait(false);
+        var finalInventory = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
+        var removed = finalInventory.Success && finalInventory.Value is not null &&
+            finalInventory.Value.All(item => item.InstanceId != target.InstanceId);
+        return removed && finalConfirm.Success && finalConfirm.Value?.PendingItemInstanceId == 0
+            ? OperationResult.Ok()
+            : OperationResult.Fail("Interrupted discard could not be completed before combat.");
+    }
+
+    private async Task<BagCleanupTickResult> FailDiscardLocallyAsync(
+        AccountWorkerContext context,
+        BagCleanupState state,
+        string reason,
+        string error)
+    {
+        var cancel = await _discarder.CancelPendingDiscardAsync(context).ConfigureAwait(false);
+        var close = await _discarder.CloseInventoryWindowIfOpenAsync(context).ConfigureAwait(false);
+        context.Logger.Warn("bag_cleanup.discard.failed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["reason"] = reason,
+            ["error"] = error,
+            ["cancelSuccess"] = cancel.Success,
+            ["cancelError"] = cancel.Error,
+            ["inventoryCloseSuccess"] = close.Success,
+            ["inventoryCloseError"] = close.Error,
+            ["step"] = state.Step.ToString()
+        });
+        state.Reset();
+        return BagCleanupTickResult.Skipped(reason);
     }
 
     private async Task<BagCleanupTickResult> TickWaitSafeToReturnAsync(
@@ -1262,6 +1944,27 @@ public sealed class BagCleanupController
     private static int ReadSellVerifyDelayMs()
     {
         return Math.Clamp(ReadIntFromEnv("ROADHOG_BAG_CLEANUP_SELL_VERIFY_DELAY_MS", 1000), 0, 10000);
+    }
+
+    private static TimeSpan ReadDiscardConfirmTimeout()
+    {
+        return TimeSpan.FromMilliseconds(Math.Clamp(
+            ReadIntFromEnv("ROADHOG_BAG_DISCARD_CONFIRM_TIMEOUT_MS", 8000),
+            100,
+            60000));
+    }
+
+    private static TimeSpan ReadDiscardVerifyTimeout()
+    {
+        return TimeSpan.FromMilliseconds(Math.Clamp(
+            ReadIntFromEnv("ROADHOG_BAG_DISCARD_VERIFY_TIMEOUT_MS", 6000),
+            100,
+            60000));
+    }
+
+    private static int ReadDiscardPollDelayMs()
+    {
+        return Math.Clamp(ReadIntFromEnv("ROADHOG_BAG_DISCARD_POLL_MS", 150), 0, 2000);
     }
 
     private static double ReadTownReturnMinDistance()

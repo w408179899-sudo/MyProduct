@@ -15,7 +15,7 @@ using Vmmsharp;
 
 namespace Roadhog.Infrastructure.Vmm;
 
-public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi
+public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi
 #if DEBUG
     , IRoadhogApiAddressProbe
 #endif
@@ -214,6 +214,22 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
     private const ulong DlgInventoryPageDirtyFlagBaseOffset = 0x585;
     private const ulong DlgInventoryWindowRectOffset = 0x58;
     private const ulong DlgInventoryRootWidgetOffset = 0x4D8;
+    private const ulong DlgInventoryPendingDestroyItemIdOffset = 0x598;
+    private const int FirstNormalDiscardDialogId = 336;
+    private const int LastNormalDiscardDialogId = 355;
+    private const int FirstSpecialDiscardDialogId = 356;
+    private const int LastSpecialDiscardDialogId = 365;
+    private const ulong DiscardMsgBoxTypeOffset = 0x4D8;
+    private const ulong DiscardMsgBoxConfirmActionOffset = 0x4DC;
+    private const ulong DiscardMsgBoxCancelActionOffset = 0x4E0;
+    private const ulong DiscardMsgBoxItemInstanceIdOffset = 0x4E8;
+    private const ulong DiscardMsgBoxItemInstanceId2Offset = 0x508;
+    private const uint NormalDiscardMsgBoxType = 2049;
+    private const uint NormalDiscardConfirmAction = 2101;
+    private const uint NormalDiscardCancelAction = 2104;
+    private const uint SpecialDiscardMsgBoxType = 3;
+    private const uint SpecialDiscardConfirmAction = 2105;
+    private const uint SpecialDiscardCancelAction = 2106;
     private const int DlgInventoryVtableBackSlots = 256;
     private const ulong RootWidgetRectScanBytes = 0x800;
     private const ulong RootWidgetRectScanStep = 0x08;
@@ -466,6 +482,13 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         CancellationToken cancellationToken = default)
     {
         return Task.Run(() => ReadInventoryWindowCore(context, rectSource), cancellationToken);
+    }
+
+    public Task<OperationResult<InventoryDiscardConfirmSnapshot>> ReadInventoryDiscardConfirmAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => ReadInventoryDiscardConfirmCore(context), cancellationToken);
     }
 
 #if DEBUG
@@ -2228,6 +2251,148 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
 
             return created;
         }
+    }
+
+    private OperationResult<InventoryDiscardConfirmSnapshot> ReadInventoryDiscardConfirmCore(
+        GameApiReadContext context)
+    {
+        try
+        {
+            var connection = GetOrCreateConnection(context.VmmDeviceName);
+            lock (connection.SyncRoot)
+            {
+                if (!TryResolveProcess(connection.Vmm, context, out var process, out var processError))
+                {
+                    return OperationResult<InventoryDiscardConfirmSnapshot>.Fail(processError);
+                }
+
+                var moduleName = ResolveModuleName();
+                var gameBase = process.GetModuleBase(moduleName);
+                if (gameBase == 0)
+                {
+                    return OperationResult<InventoryDiscardConfirmSnapshot>.Fail("Module not found: " + moduleName);
+                }
+
+                var capturedAt = DateTimeOffset.Now;
+                if (!TryReadPointer(process, gameBase + DlgInventoryDialog27PointerRva, out var inventoryDialog))
+                {
+                    return OperationResult<InventoryDiscardConfirmSnapshot>.Fail(
+                        "DlgInventory pointer is not readable for discard confirmation.");
+                }
+
+                if (!TryReadUInt32(
+                        process,
+                        inventoryDialog + DlgInventoryPendingDestroyItemIdOffset,
+                        out var pendingItemInstanceId))
+                {
+                    return OperationResult<InventoryDiscardConfirmSnapshot>.Fail(
+                        "DlgInventory pending discard item id is not readable.");
+                }
+
+                if (pendingItemInstanceId == 0)
+                {
+                    return OperationResult<InventoryDiscardConfirmSnapshot>.Ok(
+                        InventoryDiscardConfirmSnapshot.Closed(capturedAt));
+                }
+
+                if (TryFindDiscardConfirmDialog(
+                        process,
+                        gameBase,
+                        pendingItemInstanceId,
+                        FirstNormalDiscardDialogId,
+                        LastNormalDiscardDialogId,
+                        NormalDiscardMsgBoxType,
+                        NormalDiscardConfirmAction,
+                        NormalDiscardCancelAction,
+                        InventoryDiscardConfirmKind.Normal,
+                        capturedAt,
+                        out var normal))
+                {
+                    return OperationResult<InventoryDiscardConfirmSnapshot>.Ok(normal);
+                }
+
+                if (TryFindDiscardConfirmDialog(
+                        process,
+                        gameBase,
+                        pendingItemInstanceId,
+                        FirstSpecialDiscardDialogId,
+                        LastSpecialDiscardDialogId,
+                        SpecialDiscardMsgBoxType,
+                        SpecialDiscardConfirmAction,
+                        SpecialDiscardCancelAction,
+                        InventoryDiscardConfirmKind.Special,
+                        capturedAt,
+                        out var special))
+                {
+                    return OperationResult<InventoryDiscardConfirmSnapshot>.Ok(special);
+                }
+
+                return OperationResult<InventoryDiscardConfirmSnapshot>.Ok(
+                    new InventoryDiscardConfirmSnapshot(
+                        false,
+                        pendingItemInstanceId,
+                        InventoryDiscardConfirmKind.PendingWithoutVisibleDialog,
+                        -1,
+                        0,
+                        capturedAt));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("vmm.inventory.discard_confirm.exception", ex, new Dictionary<string, object?>
+            {
+                ["account"] = context.AccountName
+            });
+            return OperationResult<InventoryDiscardConfirmSnapshot>.Fail(ex.Message);
+        }
+    }
+
+    private static bool TryFindDiscardConfirmDialog(
+        VmmProcess process,
+        ulong gameBase,
+        uint pendingItemInstanceId,
+        int firstDialogId,
+        int lastDialogId,
+        uint expectedType,
+        uint expectedConfirmAction,
+        uint expectedCancelAction,
+        InventoryDiscardConfirmKind kind,
+        DateTimeOffset capturedAt,
+        out InventoryDiscardConfirmSnapshot snapshot)
+    {
+        for (var dialogId = firstDialogId; dialogId <= lastDialogId; dialogId++)
+        {
+            if (!TryReadPointer(
+                    process,
+                    gameBase + DlgInventoryDialogTableRva + ((ulong)dialogId * 8UL),
+                    out var dialog) ||
+                !TryReadUInt64(process, dialog + DlgInventoryWidgetFlagsOffset, out var flags) ||
+                (flags & DlgInventoryVisibleMask) == 0 ||
+                !TryReadUInt32(process, dialog + DiscardMsgBoxTypeOffset, out var type) ||
+                !TryReadUInt32(process, dialog + DiscardMsgBoxConfirmActionOffset, out var confirmAction) ||
+                !TryReadUInt32(process, dialog + DiscardMsgBoxCancelActionOffset, out var cancelAction) ||
+                type != expectedType ||
+                confirmAction != expectedConfirmAction ||
+                cancelAction != expectedCancelAction ||
+                !TryReadUInt32(process, dialog + DiscardMsgBoxItemInstanceIdOffset, out var firstItemId) ||
+                !TryReadUInt32(process, dialog + DiscardMsgBoxItemInstanceId2Offset, out var secondItemId) ||
+                (firstItemId != pendingItemInstanceId && secondItemId != pendingItemInstanceId))
+            {
+                continue;
+            }
+
+            snapshot = new InventoryDiscardConfirmSnapshot(
+                true,
+                pendingItemInstanceId,
+                kind,
+                dialogId,
+                dialog,
+                capturedAt);
+            return true;
+        }
+
+        snapshot = InventoryDiscardConfirmSnapshot.Closed(capturedAt);
+        return false;
     }
 
     private void ConfigureVmmReadCache(MemProcVmm vmm, string deviceName, string remote)

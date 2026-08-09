@@ -540,6 +540,10 @@ public enum TeamHealSkillTargetType
 
 public sealed class MaintenanceScriptSettings
 {
+    public const int DefaultBagCleanupDiscardConfirmClickX = 650;
+
+    public const int DefaultBagCleanupDiscardConfirmClickY = 470;
+
     public bool BagCleanupEnabled { get; set; }
 
     public bool SitMaintenanceEnabled { get; set; } = true;
@@ -574,6 +578,10 @@ public sealed class MaintenanceScriptSettings
 
     public int BagCleanupSellButtonClickY { get; set; }
 
+    public int BagCleanupDiscardConfirmClickX { get; set; } = DefaultBagCleanupDiscardConfirmClickX;
+
+    public int BagCleanupDiscardConfirmClickY { get; set; } = DefaultBagCleanupDiscardConfirmClickY;
+
     public BagCleanupItemCoordinateMode BagCleanupItemCoordinateMode { get; set; } =
         BagCleanupItemCoordinateMode.LegacyNormalizedTopLeft;
 
@@ -602,6 +610,8 @@ public sealed class MaintenanceScriptSettings
             BagCleanupSellItemClickY = BagCleanupSellItemClickY,
             BagCleanupSellButtonClickX = BagCleanupSellButtonClickX,
             BagCleanupSellButtonClickY = BagCleanupSellButtonClickY,
+            BagCleanupDiscardConfirmClickX = BagCleanupDiscardConfirmClickX,
+            BagCleanupDiscardConfirmClickY = BagCleanupDiscardConfirmClickY,
             BagCleanupItemCoordinateMode = BagCleanupItemCoordinateMode,
             BagCleanupExcludedItemNames = BagCleanupExcludedItemNames?
                 .Where(value => !string.IsNullOrWhiteSpace(value))
