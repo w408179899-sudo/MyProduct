@@ -277,6 +277,19 @@ public sealed class SemiAutoCombatState
         }
     }
 
+    public void ClearMaintenanceKeyAttempt(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key) ||
+            !maintenanceKeyPressedAt.Remove(key.Trim()))
+        {
+            return;
+        }
+
+        lastMaintenanceKeyPressedAt = maintenanceKeyPressedAt.Count == 0
+            ? DateTimeOffset.MinValue
+            : maintenanceKeyPressedAt.Values.Max();
+    }
+
     public bool ShouldAttemptSpiritmasterSummon(DateTimeOffset now, TimeSpan interval)
     {
         return lastSpiritmasterSummonAttemptAt == DateTimeOffset.MinValue ||

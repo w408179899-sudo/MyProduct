@@ -60,7 +60,8 @@ public sealed class SemiAutoCombatController
         SemiAutoSkillPlan plan,
         SemiAutoCombatState state,
         bool requireCooldownCalibrationForMaintenance = false,
-        CombatJumpAssistSession? jumpAssist = null)
+        CombatJumpAssistSession? jumpAssist = null,
+        Func<Task<bool>>? ensureHpMaintenanceTargetBeforeKeyPress = null)
     {
         var settings = context.Config.ScriptSettings?.SemiAuto ?? new SemiAutoScriptSettings();
         var now = DateTimeOffset.Now;
@@ -349,7 +350,8 @@ public sealed class SemiAutoCombatController
                         plan: plan,
                         requireCooldownCalibrationForMaintenance: requireCooldownCalibrationForMaintenance,
                         runTiming: MaintenanceRuleRunTiming.InCombat,
-                        includeAlwaysRules: plan.UsesSpiritmasterAutoLogic))
+                        includeAlwaysRules: plan.UsesSpiritmasterAutoLogic,
+                        ensureHpMaintenanceTargetBeforeKeyPress: ensureHpMaintenanceTargetBeforeKeyPress))
                 .ConfigureAwait(false))
         {
             return Ms(settings.TickIntervalMs, 40);
@@ -797,7 +799,8 @@ public sealed class SemiAutoCombatController
         bool requireCooldownCalibrationForMaintenance = false,
         MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.Always,
         bool includeAlwaysRules = true,
-        bool includeStatusMaintenance = true)
+        bool includeStatusMaintenance = true,
+        Func<Task<bool>>? ensureHpMaintenanceTargetBeforeKeyPress = null)
     {
         var settings = context.Config.ScriptSettings?.SemiAuto ?? new SemiAutoScriptSettings();
         var maintenance = context.Config.ScriptSettings?.Maintenance;
@@ -845,7 +848,8 @@ public sealed class SemiAutoCombatController
                 requireCooldownCalibrationForMaintenance: requireCooldownCalibrationForMaintenance,
                 runTiming: runTiming,
                 includeAlwaysRules: includeAlwaysRules,
-                includeStatusMaintenance: includeStatusMaintenance)
+                includeStatusMaintenance: includeStatusMaintenance,
+                ensureHpMaintenanceTargetBeforeKeyPress: ensureHpMaintenanceTargetBeforeKeyPress)
             .ConfigureAwait(false);
     }
 
@@ -862,7 +866,8 @@ public sealed class SemiAutoCombatController
         bool requireCooldownCalibrationForMaintenance = false,
         MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.Always,
         bool includeAlwaysRules = true,
-        bool includeStatusMaintenance = true)
+        bool includeStatusMaintenance = true,
+        Func<Task<bool>>? ensureHpMaintenanceTargetBeforeKeyPress = null)
     {
         if (player.HasKnownHealth && player.IsDead)
         {
@@ -908,7 +913,8 @@ public sealed class SemiAutoCombatController
                     runTiming,
                     includeAlwaysRules,
                     allowPotionWhileResting: true,
-                    includeStatusMaintenance: includeStatusMaintenance)
+                    includeStatusMaintenance: includeStatusMaintenance,
+                    ensureHpMaintenanceTargetBeforeKeyPress: ensureHpMaintenanceTargetBeforeKeyPress)
                 .ConfigureAwait(false))
             {
                 return true;
@@ -929,7 +935,8 @@ public sealed class SemiAutoCombatController
                 runTiming,
                 includeAlwaysRules,
                 allowPotionWhileResting: false,
-                includeStatusMaintenance: includeStatusMaintenance)
+                includeStatusMaintenance: includeStatusMaintenance,
+                ensureHpMaintenanceTargetBeforeKeyPress: ensureHpMaintenanceTargetBeforeKeyPress)
             .ConfigureAwait(false))
         {
             return true;
@@ -963,7 +970,8 @@ public sealed class SemiAutoCombatController
         MaintenanceRuleRunTiming runTiming,
         bool includeAlwaysRules,
         bool allowPotionWhileResting,
-        bool includeStatusMaintenance = true)
+        bool includeStatusMaintenance = true,
+        Func<Task<bool>>? ensureHpMaintenanceTargetBeforeKeyPress = null)
     {
         if (includeStatusMaintenance &&
             await TryPressStatusMaintenanceRuleAsync(
@@ -1013,7 +1021,8 @@ public sealed class SemiAutoCombatController
                 requireCooldownCalibrationForMaintenance,
                 runTiming,
                 includeAlwaysRules,
-                allowPotionWhileResting)
+                allowPotionWhileResting,
+                ensureHpMaintenanceTargetBeforeKeyPress)
             .ConfigureAwait(false))
         {
             return true;
@@ -1051,7 +1060,8 @@ public sealed class SemiAutoCombatController
         bool requireCooldownCalibrationForMaintenance = false,
         MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.Always,
         bool includeAlwaysRules = true,
-        bool allowPotionWhileResting = false)
+        bool allowPotionWhileResting = false,
+        Func<Task<bool>>? ensureTargetBeforeKeyPress = null)
     {
         if (max == 0)
         {
@@ -1188,7 +1198,10 @@ public sealed class SemiAutoCombatController
                     threshold,
                     player,
                     beforeMaintenanceKeyPress,
-                    maintenanceSkill)
+                    maintenanceSkill,
+                    rule.RunTiming == MaintenanceRuleRunTiming.InCombat
+                        ? ensureTargetBeforeKeyPress
+                        : null)
                 .ConfigureAwait(false);
         }
 
@@ -2153,7 +2166,8 @@ public sealed class SemiAutoCombatController
         int threshold,
         PlayerSnapshot player,
         Func<Task>? beforeMaintenanceKeyPress,
-        SkillSnapshot? maintenanceSkill)
+        SkillSnapshot? maintenanceSkill,
+        Func<Task<bool>>? ensureTargetBeforeKeyPress)
     {
         if (beforeMaintenanceKeyPress is not null)
         {
@@ -2183,6 +2197,21 @@ public sealed class SemiAutoCombatController
 
         while (DateTimeOffset.Now <= deadline)
         {
+            if (ensureTargetBeforeKeyPress is not null &&
+                !await ensureTargetBeforeKeyPress().ConfigureAwait(false))
+            {
+                state.ClearMaintenanceKeyAttempt(rule.Key);
+                context.Logger.Info("semi_auto.maintenance.target_guard_blocked", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["resource"] = resource,
+                    ["key"] = rule.Key,
+                    ["maintenanceSkillId"] = maintenanceSkill?.SkillId,
+                    ["maintenanceSkillName"] = maintenanceSkill?.Name
+                });
+                return true;
+            }
+
             attempts++;
             var result = await _keyboard
                 .PressKeyAsync(rule.Key, Ms(settings.KeyHoldMs, 25), context.StopToken)

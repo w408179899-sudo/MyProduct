@@ -247,6 +247,31 @@ public sealed class StationaryCombatState
         LeaderTacticalMark.Reset();
     }
 
+    public void PrepareForFixedChannelCorrection(DateTimeOffset now)
+    {
+        ReturningHome = false;
+        LootAfterKill.Reset();
+        BagCleanup.Reset();
+        NoKillRecovery.ResetWatch(now);
+        CleanupReturnToCombatActive = false;
+        PathCombat.Reset();
+        Gather.Reset();
+        CachedGatherSnapshot = null;
+        CachedWorldObjects = Array.Empty<WorldObjectSnapshot>();
+        LastGatherScanAt = DateTimeOffset.MinValue;
+        LastWorldScanAt = DateTimeOffset.MinValue;
+        ClearNoTargetRest();
+        ClearStartupRecovery();
+        ClearTarget();
+        ResetReturnHomeStuckTracking();
+        IgnoredTargetEntityIds.Clear();
+        IgnoredTargetServerObjectIds.Clear();
+        lock (_targetSelectionFilterSync)
+        {
+            _temporaryTargetExclusions.Clear();
+        }
+    }
+
     public void EnterDeathRecovery(DateTimeOffset now)
     {
         TopLevelState = StationaryCombatTopLevelState.DeathRecovery;

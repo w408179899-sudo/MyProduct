@@ -25,6 +25,15 @@
         "profileName": "default_profile",
         "mainMode": "SemiAuto",
         "combatMode": "Stationary",
+        "fixedChannelNumber": 0,
+        "fixedChannelMouse": {
+          "menu": { "x": 0, "y": 0 },
+          "service": { "x": 0, "y": 0 },
+          "switchChannel": { "x": 0, "y": 0 },
+          "channelMove": { "x": 0, "y": 0 },
+          "selectChannel": { "x": 0, "y": 0 },
+          "move": { "x": 0, "y": 0 }
+        },
         "combat": {
           "enableLoot": true,
           "contestMonster": false,
@@ -46,7 +55,8 @@
           "bagCleanupReturnByReversePath": true,
           "loopPath": true,
           "reverseAtEnd": false,
-          "deathStopPath": true
+          "deathStopPath": true,
+          "revivePathAggressiveClearRadius": 10
         },
         "maintenance": {
           "sitMaintenanceEnabled": true,

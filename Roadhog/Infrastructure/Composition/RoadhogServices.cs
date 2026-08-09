@@ -1,4 +1,5 @@
 using Roadhog.Application;
+using Roadhog.Application.Channels;
 using Roadhog.Application.Licensing;
 using Roadhog.Application.SemiAuto;
 using Roadhog.Application.Shell;
@@ -186,8 +187,17 @@ public sealed class RoadhogServices : IDisposable
         var keyboardInput = CreateKeyboardInput(options);
         var semiAutoController = new SemiAutoCombatController(keyboardInput);
         var stationaryCombatController = new StationaryCombatController(keyboardInput, semiAutoController, sharedPathStore);
-        var teamSupportController = new TeamSupportController(keyboardInput);
-        var teamOutputController = new TeamOutputController(keyboardInput);
+        var fixedChannelSwitchExecutor = new FixedChannelMouseSwitchExecutor(keyboardInput, logger);
+        var fixedChannelController = new FixedChannelController(
+            keyboardInput,
+            sharedPathStore,
+            fixedChannelSwitchExecutor);
+        var teamSupportController = new TeamSupportController(
+            keyboardInput,
+            tacticalTargetRangePolicy: stationaryCombatController);
+        var teamOutputController = new TeamOutputController(
+            keyboardInput,
+            stationaryCombatController);
         var workerOptions = new AccountWorkerOptions
         {
             TickInterval = options.AccountWorkerTickInterval,
@@ -200,7 +210,13 @@ public sealed class RoadhogServices : IDisposable
             accounts,
             hardwareResolver,
             processResolver,
-            new DefaultAccountWorkerLoop(keyboardInput, semiAutoController, stationaryCombatController, teamSupportController, teamOutputController),
+            new DefaultAccountWorkerLoop(
+                keyboardInput,
+                semiAutoController,
+                stationaryCombatController,
+                teamSupportController,
+                teamOutputController,
+                fixedChannelController),
             workerOptions,
             licenseCoordinator);
         var runtime = new RoadhogRuntime(

@@ -52,6 +52,14 @@ namespace Roadhog
         private RoundedComboBox? mainModeCombo;
         private Label? combatModeLabel;
         private RoundedComboBox? combatModeCombo;
+        private RoundedComboBox? fixedChannelCombo;
+        private Panel? fixedChannelMousePanel;
+        private RoundedTextBox? fixedChannelMenuPointTextBox;
+        private RoundedTextBox? fixedChannelServicePointTextBox;
+        private RoundedTextBox? fixedChannelSwitchChannelPointTextBox;
+        private RoundedTextBox? fixedChannelChannelMovePointTextBox;
+        private RoundedTextBox? fixedChannelSelectChannelPointTextBox;
+        private RoundedTextBox? fixedChannelMovePointTextBox;
         private Label? stationaryCombatRadiusLabel;
         private RoundedTextBox? stationaryCombatRadiusTextBox;
         private Label? stationaryCombatRadiusUnitLabel;
@@ -108,6 +116,7 @@ namespace Roadhog
         private RoundedCheckBox? loopPathCheckBox;
         private RoundedCheckBox? reverseAtEndCheckBox;
         private RoundedCheckBox? deathStopPathCheckBox;
+        private RoundedTextBox? revivePathAggressiveClearRadiusTextBox;
         private RoundedCheckBox? sitMaintenanceCheckBox;
         private RoundedTextBox? sitMpBelowTextBox;
         private RoundedTextBox? sitMpRecoverToTextBox;
@@ -373,6 +382,13 @@ namespace Roadhog
             SelectProfileComboItem(settings.ProfileName, loadProfile: false);
             SetComboText(mainModeCombo, FormatMainMode(settings.MainMode));
             SetComboText(combatModeCombo, FormatCombatMode(settings.CombatMode));
+            if (fixedChannelCombo is not null)
+            {
+                fixedChannelCombo.SelectedIndex = settings.FixedChannelNumber is >= ScriptSettings.MinimumFixedChannelNumber and <= ScriptSettings.MaximumFixedChannelNumber
+                    ? settings.FixedChannelNumber
+                    : 0;
+            }
+            ApplyFixedChannelMouseSettings(settings.FixedChannelMouse ?? new FixedChannelMouseScriptSettings());
             SetStationaryCombatRadius(settings.Combat);
             SetPathCombatRadius(settings.Combat);
             SetPathFollowReachDistance(settings.Combat);
@@ -411,6 +427,7 @@ namespace Roadhog
             SetChecked(loopPathCheckBox, paths.LoopPath);
             SetChecked(reverseAtEndCheckBox, paths.ReverseAtEnd);
             SetChecked(deathStopPathCheckBox, paths.DeathStopPath);
+            SetRevivePathAggressiveClearRadius(paths);
             RefreshPathLibrary();
             SelectConfiguredPath(SharedPathKind.Revive, paths.RevivePathName);
             SelectConfiguredPath(SharedPathKind.Combat, paths.CombatPathName);
@@ -473,6 +490,44 @@ namespace Roadhog
                     AddManualSkillMappingRow(manualSkillMappingList, mapping.SkillType, mapping.SkillName, mapping.Key);
                 }
             }
+        }
+
+        private void ApplyFixedChannelMouseSettings(FixedChannelMouseScriptSettings settings)
+        {
+            SetText(fixedChannelMenuPointTextBox, FormatFixedChannelPoint(settings.Menu));
+            SetText(fixedChannelServicePointTextBox, FormatFixedChannelPoint(settings.Service));
+            SetText(fixedChannelSwitchChannelPointTextBox, FormatFixedChannelPoint(settings.SwitchChannel));
+            SetText(fixedChannelChannelMovePointTextBox, FormatFixedChannelPoint(settings.ChannelMove));
+            SetText(fixedChannelSelectChannelPointTextBox, FormatFixedChannelPoint(settings.SelectChannel));
+            SetText(fixedChannelMovePointTextBox, FormatFixedChannelPoint(settings.Move));
+        }
+
+        private FixedChannelMouseScriptSettings CaptureFixedChannelMouseSettings()
+        {
+            return new FixedChannelMouseScriptSettings
+            {
+                Menu = ReadFixedChannelPoint(fixedChannelMenuPointTextBox),
+                Service = ReadFixedChannelPoint(fixedChannelServicePointTextBox),
+                SwitchChannel = ReadFixedChannelPoint(fixedChannelSwitchChannelPointTextBox),
+                ChannelMove = ReadFixedChannelPoint(fixedChannelChannelMovePointTextBox),
+                SelectChannel = ReadFixedChannelPoint(fixedChannelSelectChannelPointTextBox),
+                Move = ReadFixedChannelPoint(fixedChannelMovePointTextBox)
+            };
+        }
+
+        private static string FormatFixedChannelPoint(ScreenPointScriptSettings? point)
+        {
+            return FormatScreenPoint(point?.X ?? 0, point?.Y ?? 0);
+        }
+
+        private static ScreenPointScriptSettings ReadFixedChannelPoint(RoundedTextBox? textBox)
+        {
+            var point = ReadScreenPoint(textBox, 0, 0);
+            return new ScreenPointScriptSettings
+            {
+                X = point.X,
+                Y = point.Y
+            };
         }
 
         private bool SaveCurrentSettings(out string error)
@@ -637,6 +692,10 @@ namespace Roadhog
                 ProfileName = GetText(profileNameTextBox, "default_profile"),
                 MainMode = ParseMainMode(mainModeCombo?.Text),
                 CombatMode = ParseCombatMode(combatModeCombo?.Text),
+                FixedChannelNumber = fixedChannelCombo?.SelectedIndex is >= ScriptSettings.MinimumFixedChannelNumber and <= ScriptSettings.MaximumFixedChannelNumber
+                    ? fixedChannelCombo.SelectedIndex
+                    : 0,
+                FixedChannelMouse = CaptureFixedChannelMouseSettings(),
                 Combat = new CombatScriptSettings
                 {
                     EnableLoot = enableLootCheckBox?.Checked ?? true,
@@ -678,7 +737,12 @@ namespace Roadhog
                     DeathReviveClickY = deathReviveClickPoint.Y,
                     LoopPath = loopPathCheckBox?.Checked ?? true,
                     ReverseAtEnd = reverseAtEndCheckBox?.Checked ?? false,
-                    DeathStopPath = deathStopPathCheckBox?.Checked ?? true
+                    DeathStopPath = deathStopPathCheckBox?.Checked ?? true,
+                    RevivePathAggressiveClearRadius = ReadDouble(
+                        revivePathAggressiveClearRadiusTextBox,
+                        PathScriptSettings.DefaultRevivePathAggressiveClearRadius,
+                        1.0D,
+                        500.0D)
                 },
                 Maintenance = new MaintenanceScriptSettings
                 {
@@ -1126,10 +1190,99 @@ namespace Roadhog
                 170,
                 false);
             smartPreAimUseFightTargetPositionCheckBox.Name = "smartPreAimUseFightTargetPositionCheckBox";
+            AddLabel(page, "\u56fa\u5b9a\u9891\u9053", 306, 180, 76, 22);
+            fixedChannelCombo = AddCombo(
+                page,
+                386,
+                176,
+                120,
+                28,
+                new[] { "\u4e0d\u56fa\u5b9a" }
+                    .Concat(Enumerable.Range(1, ScriptSettings.MaximumFixedChannelNumber).Select(number => number + "\u9891\u9053"))
+                    .ToArray());
+            fixedChannelCombo.Name = "fixedChannelCombo";
+            CreateFixedChannelMousePanel(page);
             RefreshSmartPreAimOriginControlState();
             RefreshCombatModeVisibility();
 
             return tab;
+        }
+
+        private void CreateFixedChannelMousePanel(Control page)
+        {
+            fixedChannelMousePanel = new Panel
+            {
+                BackColor = _pageBackground,
+                BorderStyle = BorderStyle.FixedSingle,
+                Location = new Point(552, 154),
+                Name = "fixedChannelMousePanel",
+                Size = new Size(294, 254)
+            };
+            page.Controls.Add(fixedChannelMousePanel);
+
+            AddLabel(
+                fixedChannelMousePanel,
+                "\u9891\u9053\u5207\u6362\u5750\u6807",
+                8,
+                6,
+                120,
+                24,
+                _textGreen,
+                FontStyle.Bold);
+
+            fixedChannelMenuPointTextBox = AddFixedChannelPointEditor(
+                fixedChannelMousePanel,
+                "\u83dc\u5355",
+                34,
+                "fixedChannelMenuPointTextBox",
+                "fixedChannelMenuTestMoveButton");
+            fixedChannelServicePointTextBox = AddFixedChannelPointEditor(
+                fixedChannelMousePanel,
+                "\u670d\u52a1",
+                68,
+                "fixedChannelServicePointTextBox",
+                "fixedChannelServiceTestMoveButton");
+            fixedChannelSwitchChannelPointTextBox = AddFixedChannelPointEditor(
+                fixedChannelMousePanel,
+                "\u5207\u6362\u9891\u9053",
+                102,
+                "fixedChannelSwitchChannelPointTextBox",
+                "fixedChannelSwitchChannelTestMoveButton");
+            fixedChannelChannelMovePointTextBox = AddFixedChannelPointEditor(
+                fixedChannelMousePanel,
+                "\u9891\u9053\u79fb\u52a8",
+                136,
+                "fixedChannelChannelMovePointTextBox",
+                "fixedChannelChannelMoveTestMoveButton");
+            fixedChannelSelectChannelPointTextBox = AddFixedChannelPointEditor(
+                fixedChannelMousePanel,
+                "\u9009\u62e9\u9891\u9053",
+                170,
+                "fixedChannelSelectChannelPointTextBox",
+                "fixedChannelSelectChannelTestMoveButton");
+            fixedChannelMovePointTextBox = AddFixedChannelPointEditor(
+                fixedChannelMousePanel,
+                "\u79fb\u52a8",
+                204,
+                "fixedChannelMovePointTextBox",
+                "fixedChannelMoveTestMoveButton");
+        }
+
+        private RoundedTextBox AddFixedChannelPointEditor(
+            Control parent,
+            string label,
+            int y,
+            string textBoxName,
+            string buttonName)
+        {
+            AddLabel(parent, label, 8, y + 2, 76, 24, _textGreen, FontStyle.Bold);
+            var textBox = AddTextBox(parent, "0,0", 86, y, 96, 28);
+            textBox.Name = textBoxName;
+            var testButton = AddButton(parent, "\u79fb\u52a8\u6d4b\u8bd5", 190, y, 92, 28);
+            testButton.Name = buttonName;
+            testButton.Click += async (_, _) =>
+                await TestScreenPointMoveAsync(textBox, testButton, 0, 0, label).ConfigureAwait(true);
+            return textBox;
         }
 
         private void RefreshCombatModeVisibility()
@@ -1428,6 +1581,16 @@ namespace Roadhog
             SetText(pathFollowReachDistanceTextBox, reachDistance.ToString("F1", CultureInfo.InvariantCulture));
         }
 
+        private void SetRevivePathAggressiveClearRadius(PathScriptSettings paths)
+        {
+            var radius = paths.RevivePathAggressiveClearRadius <= 0.0D
+                ? PathScriptSettings.DefaultRevivePathAggressiveClearRadius
+                : Math.Min(paths.RevivePathAggressiveClearRadius, 500.0D);
+            SetText(
+                revivePathAggressiveClearRadiusTextBox,
+                radius.ToString("F1", CultureInfo.InvariantCulture));
+        }
+
         private void SetCameraTurnScales(CombatScriptSettings combat)
         {
             var yaw = combat.CameraYawPixelsPerDegree <= 0.0D
@@ -1656,6 +1819,16 @@ namespace Roadhog
                 loopPathCheckBox = loopCheckBox;
                 reverseAtEndCheckBox = reverseCheckBox;
                 deathStopPathCheckBox = deathStopCheckBox;
+                AddLabel(pathAdvanced.Content, "主动怪清除半径", 6, 42, 126, 22, _textGreen, FontStyle.Bold);
+                revivePathAggressiveClearRadiusTextBox = AddTextBox(
+                    pathAdvanced.Content,
+                    PathScriptSettings.DefaultRevivePathAggressiveClearRadius.ToString("F1", CultureInfo.InvariantCulture),
+                    136,
+                    38,
+                    70,
+                    28);
+                revivePathAggressiveClearRadiusTextBox.Name = "revivePathAggressiveClearRadiusTextBox";
+                AddLabel(pathAdvanced.Content, "米", 212, 42, 28, 22);
             }
 
             RefreshPathEditor(editor);
@@ -2005,7 +2178,7 @@ namespace Roadhog
             bagCleanupSellItemClickPointTextBox = AddTextBox(page, "0,0", x + 68, y, 84, 28);
             var testSellItemPointButton = AddButton(page, "移动测试", x + 158, y, 66, 28);
             testSellItemPointButton.Click += async (_, _) =>
-                await TestBagCleanupPointMoveAsync(
+                await TestScreenPointMoveAsync(
                         bagCleanupSellItemClickPointTextBox,
                         testSellItemPointButton,
                         0,
@@ -2017,7 +2190,7 @@ namespace Roadhog
             bagCleanupSellButtonClickPointTextBox = AddTextBox(page, "0,0", x + 68, y + 38, 84, 28);
             var testSellButtonPointButton = AddButton(page, "移动测试", x + 158, y + 38, 66, 28);
             testSellButtonPointButton.Click += async (_, _) =>
-                await TestBagCleanupPointMoveAsync(
+                await TestScreenPointMoveAsync(
                         bagCleanupSellButtonClickPointTextBox,
                         testSellButtonPointButton,
                         0,
@@ -3639,7 +3812,7 @@ namespace Roadhog
             }
         }
 
-        private async Task TestBagCleanupPointMoveAsync(
+        private async Task TestScreenPointMoveAsync(
             RoundedTextBox? textBox,
             Button button,
             int fallbackX,

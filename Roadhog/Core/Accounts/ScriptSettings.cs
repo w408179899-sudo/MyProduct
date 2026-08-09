@@ -2,11 +2,19 @@ namespace Roadhog.Core.Accounts;
 
 public sealed class ScriptSettings
 {
+    public const int MinimumFixedChannelNumber = 1;
+
+    public const int MaximumFixedChannelNumber = 10;
+
     public string ProfileName { get; set; } = "default_profile";
 
     public AccountMainMode MainMode { get; set; } = AccountMainMode.CustomCombat;
 
     public AccountCombatMode CombatMode { get; set; } = AccountCombatMode.Stationary;
+
+    public int FixedChannelNumber { get; set; }
+
+    public FixedChannelMouseScriptSettings FixedChannelMouse { get; set; } = new();
 
     public CombatScriptSettings Combat { get; set; } = new();
 
@@ -29,6 +37,8 @@ public sealed class ScriptSettings
             ProfileName = ProfileName,
             MainMode = MainMode,
             CombatMode = CombatMode,
+            FixedChannelNumber = FixedChannelNumber,
+            FixedChannelMouse = (FixedChannelMouse ?? new FixedChannelMouseScriptSettings()).Clone(),
             Combat = (Combat ?? new CombatScriptSettings()).Clone(),
             Gather = (Gather ?? new GatherScriptSettings()).Clone(),
             Paths = (Paths ?? new PathScriptSettings()).Clone(),
@@ -36,6 +46,52 @@ public sealed class ScriptSettings
             Team = (Team ?? new TeamScriptSettings()).Clone(),
             Skills = (Skills ?? new SkillScriptSettings()).Clone(),
             SemiAuto = (SemiAuto ?? new SemiAutoScriptSettings()).Clone()
+        };
+    }
+}
+
+public sealed class FixedChannelMouseScriptSettings
+{
+    public ScreenPointScriptSettings Menu { get; set; } = new();
+
+    public ScreenPointScriptSettings Service { get; set; } = new();
+
+    public ScreenPointScriptSettings SwitchChannel { get; set; } = new();
+
+    public ScreenPointScriptSettings ChannelMove { get; set; } = new();
+
+    public ScreenPointScriptSettings SelectChannel { get; set; } = new();
+
+    public ScreenPointScriptSettings Move { get; set; } = new();
+
+    public FixedChannelMouseScriptSettings Clone()
+    {
+        return new FixedChannelMouseScriptSettings
+        {
+            Menu = (Menu ?? new ScreenPointScriptSettings()).Clone(),
+            Service = (Service ?? new ScreenPointScriptSettings()).Clone(),
+            SwitchChannel = (SwitchChannel ?? new ScreenPointScriptSettings()).Clone(),
+            ChannelMove = (ChannelMove ?? new ScreenPointScriptSettings()).Clone(),
+            SelectChannel = (SelectChannel ?? new ScreenPointScriptSettings()).Clone(),
+            Move = (Move ?? new ScreenPointScriptSettings()).Clone()
+        };
+    }
+}
+
+public sealed class ScreenPointScriptSettings
+{
+    public int X { get; set; }
+
+    public int Y { get; set; }
+
+    public bool IsConfigured => X > 0 && Y > 0 && X <= short.MaxValue && Y <= short.MaxValue;
+
+    public ScreenPointScriptSettings Clone()
+    {
+        return new ScreenPointScriptSettings
+        {
+            X = X,
+            Y = Y
         };
     }
 }
@@ -215,6 +271,8 @@ public sealed class PathScriptSettings
 {
     public const double DefaultRecordingMinimumDistance = 5.0D;
 
+    public const double DefaultRevivePathAggressiveClearRadius = 10.0D;
+
     public const int DefaultDeathReviveClickX = 470;
 
     public const int DefaultDeathReviveClickY = 300;
@@ -245,6 +303,8 @@ public sealed class PathScriptSettings
 
     public bool DeathStopPath { get; set; } = true;
 
+    public double RevivePathAggressiveClearRadius { get; set; } = DefaultRevivePathAggressiveClearRadius;
+
     public PathScriptSettings Clone()
     {
         return new PathScriptSettings
@@ -261,7 +321,8 @@ public sealed class PathScriptSettings
             DeathReviveClickY = DeathReviveClickY,
             LoopPath = LoopPath,
             ReverseAtEnd = ReverseAtEnd,
-            DeathStopPath = DeathStopPath
+            DeathStopPath = DeathStopPath,
+            RevivePathAggressiveClearRadius = RevivePathAggressiveClearRadius
         };
     }
 }

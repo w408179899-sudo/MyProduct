@@ -86,7 +86,8 @@ internal static class TeamLeaderTargetValidator
         }
 
         if (!IsTargetingLeaderSide(target, leader) &&
-            !IsTargetingProtectedSide(target, extraProtectedServerObjectIds))
+            !IsTargetingProtectedSide(target, extraProtectedServerObjectIds) &&
+            !IsTargetingSelf(target))
         {
             rejectReason = "not_targeting_leader_side";
             return false;
@@ -123,5 +124,11 @@ internal static class TeamLeaderTargetValidator
         return target.TargetServerObjectId != 0 &&
                protectedServerObjectIds is { Count: > 0 } &&
                protectedServerObjectIds.Contains(target.TargetServerObjectId);
+    }
+
+    private static bool IsTargetingSelf(LockedTargetSnapshot target)
+    {
+        return target.ServerObjectId != 0 &&
+               target.TargetServerObjectId == target.ServerObjectId;
     }
 }

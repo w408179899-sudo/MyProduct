@@ -22,6 +22,8 @@ public sealed class TeamSupportState
 
     public bool TacticalTargetRestorePending { get; set; }
 
+    public TacticalMarkRangeRetryState TacticalMarkRangeRetry { get; } = new();
+
     public DateTimeOffset LastActionAt { get; set; } = DateTimeOffset.MinValue;
 
     public int ConsecutiveLeaderUnavailableTicks { get; set; }

@@ -16,6 +16,8 @@ public sealed class TeamOutputState
 
     public DateTimeOffset LastTacticalMarkLogAt { get; set; } = DateTimeOffset.MinValue;
 
+    public TacticalMarkRangeRetryState TacticalMarkRangeRetry { get; } = new();
+
     public DateTimeOffset LastActionAt { get; set; } = DateTimeOffset.MinValue;
 
     public int ConsecutiveLeaderUnavailableTicks { get; set; }

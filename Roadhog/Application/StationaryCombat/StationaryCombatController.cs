@@ -12,7 +12,7 @@ using Roadhog.Core.Paths;
 
 namespace Roadhog.Application.StationaryCombat;
 
-public sealed class StationaryCombatController
+public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 {
     private static readonly TimeSpan ScanInterval = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan TabInterval = TimeSpan.FromMilliseconds(180);
@@ -47,7 +47,6 @@ public sealed class StationaryCombatController
     private const double PreLockFaceYawToleranceDegrees = 30.0D;
     private const double SmartPreAimFaceYawToleranceDegrees = 10.0D;
     private const double DefaultPathFollowReachDistance = 5.0D;
-    private const double RevivePathAggressiveClearRadius = 10.0D;
     private const double DefaultStartupTownReturnDistance = 500.0D;
     private const double DefaultStartupTownReturnMinDistance = 5.0D;
     private const double DefaultYawPixelsPerDegree = 11.0D;
@@ -88,6 +87,66 @@ public sealed class StationaryCombatController
         _bagCleanup = pathStore is null
             ? null
             : new BagCleanupController(input, pathStore, ExecutePathOnceAsync);
+    }
+
+    public async Task SuspendForFixedChannelCorrectionAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state)
+    {
+        semiAutoState.ResetAttackKeyPressThrottle();
+        await StopSoloJumpAsync(state, "fixed_channel_correction").ConfigureAwait(false);
+        StopNextTargetPreAim(context, state, "fixed_channel_correction", clearCandidate: true);
+        await StopMovementAsync(context, state).ConfigureAwait(false);
+        StopPathFollowPoller(state);
+        if (state.TopLevelState != StationaryCombatTopLevelState.DeathRecovery)
+        {
+            state.PrepareForFixedChannelCorrection(DateTimeOffset.Now);
+        }
+    }
+
+    public async Task<TeamTacticalTargetRangeDecision> EvaluateNewTargetAsync(
+        AccountWorkerContext context,
+        StationaryCombatState combatState,
+        LockedTargetSnapshot target)
+    {
+        var scriptSettings = context.Config.ScriptSettings;
+        var mainMode = scriptSettings?.MainMode ?? context.Config.MainMode;
+        var combatMode = scriptSettings?.CombatMode ?? context.Config.CombatMode;
+        if (mainMode != AccountMainMode.CustomCombat ||
+            combatMode != AccountCombatMode.Stationary)
+        {
+            return TeamTacticalTargetRangeDecision.NotApplicable();
+        }
+
+        var radius = Math.Max(1.0D, scriptSettings?.Combat?.StationaryCombatRadius ?? 1.0D);
+        if (target.Position is null)
+        {
+            return TeamTacticalTargetRangeDecision.Rejected(
+                "target_position_unavailable",
+                null,
+                radius);
+        }
+
+        var homeResult = await TryResolveStationaryHomeAsync(context, combatState).ConfigureAwait(false);
+        if (!homeResult.Success || homeResult.Value is null)
+        {
+            return TeamTacticalTargetRangeDecision.Rejected(
+                "stationary_home_unavailable",
+                null,
+                radius,
+                homeResult.Error);
+        }
+
+        var distanceFromHome = StationaryCombatTargetSelector.HorizontalDistance(
+            target.Position.Value,
+            homeResult.Value.Position);
+        return distanceFromHome <= radius
+            ? TeamTacticalTargetRangeDecision.Inside(distanceFromHome, radius)
+            : TeamTacticalTargetRangeDecision.Rejected(
+                "outside_stationary_radius",
+                distanceFromHome,
+                radius);
     }
 
     public async Task<TimeSpan> TickAsync(
@@ -3613,8 +3672,121 @@ public sealed class StationaryCombatController
                 plan,
                 semiAutoState,
                 requireCooldownCalibrationForMaintenance: true,
-                jumpAssist: state.JumpAssist)
+                jumpAssist: state.JumpAssist,
+                ensureHpMaintenanceTargetBeforeKeyPress: () =>
+                    EnsureOrdinaryFightTargetAfterOwnPetSelectionAsync(context, state))
             .ConfigureAwait(false);
+    }
+
+    private async Task<bool> EnsureOrdinaryFightTargetAfterOwnPetSelectionAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state)
+    {
+        var scriptSettings = context.Config.ScriptSettings;
+        var mainMode = scriptSettings?.MainMode ?? context.Config.MainMode;
+        var combatMode = scriptSettings?.CombatMode ?? context.Config.CombatMode;
+        var expectedEntityId = state.CurrentTargetEntityId;
+        var expectedServerObjectId = state.CurrentTargetServerObjectId;
+        var localPetServerObjectId = state.LocalCombatSidePetServerObjectId;
+        if (mainMode != AccountMainMode.CustomCombat ||
+            combatMode != AccountCombatMode.Stationary ||
+            !state.Fighting ||
+            state.CurrentTargetIsRevivePathClear ||
+            state.CurrentTargetIsGatherSafetyClear ||
+            state.CurrentTargetIsTacticalMark ||
+            expectedEntityId == 0 ||
+            expectedServerObjectId == 0 ||
+            localPetServerObjectId == 0)
+        {
+            return true;
+        }
+
+        var lockedResult = await ReadFreshLockedTargetAsync(context).ConfigureAwait(false);
+        if (!lockedResult.Success ||
+            lockedResult.Value is null ||
+            lockedResult.Value.ServerObjectId != localPetServerObjectId)
+        {
+            return true;
+        }
+
+        var petTarget = lockedResult.Value;
+        context.Logger.Warn("stationary_combat.own_pet_target_recovery.detected", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["expectedEntityId"] = expectedEntityId,
+            ["expectedServerObjectId"] = expectedServerObjectId,
+            ["lockedEntityId"] = petTarget.TargetEntityId,
+            ["lockedServerObjectId"] = petTarget.ServerObjectId,
+            ["localPetServerObjectId"] = localPetServerObjectId,
+            ["lockedName"] = petTarget.Name
+        });
+
+        var tabResult = await _input
+            .PressKeyAsync("Tab", TimeSpan.FromMilliseconds(25), context.StopToken)
+            .ConfigureAwait(false);
+        if (!tabResult.Success)
+        {
+            context.Logger.Warn("stationary_combat.own_pet_target_recovery.tab_failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["expectedEntityId"] = expectedEntityId,
+                ["expectedServerObjectId"] = expectedServerObjectId,
+                ["localPetServerObjectId"] = localPetServerObjectId,
+                ["error"] = tabResult.Error
+            });
+            return false;
+        }
+
+        context.Logger.Info("stationary_combat.own_pet_target_recovery.tab_pressed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["expectedEntityId"] = expectedEntityId,
+            ["expectedServerObjectId"] = expectedServerObjectId,
+            ["localPetServerObjectId"] = localPetServerObjectId
+        });
+
+        var verifyDelayMs = ReadTabVerifyDelayMs();
+        var pollMs = ReadTabVerifyPollMs();
+        var elapsedMs = 0;
+        do
+        {
+            if (verifyDelayMs > 0)
+            {
+                var waitMs = Math.Min(pollMs, verifyDelayMs - elapsedMs);
+                await DelayAsync(TimeSpan.FromMilliseconds(waitMs), context).ConfigureAwait(false);
+                elapsedMs += waitMs;
+            }
+
+            var verifyResult = await ReadFreshLockedTargetAsync(context).ConfigureAwait(false);
+            var matched = verifyResult.Success &&
+                          verifyResult.Value is { IsMonsterAlive: true } verifiedTarget &&
+                          StationaryCombatState.IsSameTarget(
+                              expectedEntityId,
+                              expectedServerObjectId,
+                              verifiedTarget.TargetEntityId,
+                              verifiedTarget.ServerObjectId);
+            context.Logger.Info("stationary_combat.own_pet_target_recovery.verify", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["expectedEntityId"] = expectedEntityId,
+                ["expectedServerObjectId"] = expectedServerObjectId,
+                ["lockedReadSuccess"] = verifyResult.Success,
+                ["lockedEntityId"] = verifyResult.Value?.TargetEntityId ?? 0,
+                ["lockedServerObjectId"] = verifyResult.Value?.ServerObjectId ?? 0,
+                ["lockedName"] = verifyResult.Value?.Name ?? string.Empty,
+                ["lockedAlive"] = verifyResult.Value?.IsMonsterAlive ?? false,
+                ["matched"] = matched,
+                ["elapsedMs"] = elapsedMs,
+                ["error"] = verifyResult.Error
+            });
+            if (matched)
+            {
+                return true;
+            }
+        }
+        while (elapsedMs < verifyDelayMs);
+
+        return false;
     }
 
     private async Task<TimeSpan> TickLootAfterKillAsync(
@@ -7033,6 +7205,14 @@ public sealed class StationaryCombatController
         return Math.Max(1.0D, combat.PathCombatRadius);
     }
 
+    private static double ResolveRevivePathAggressiveClearRadius(PathScriptSettings? paths)
+    {
+        return ClampDouble(
+            paths?.RevivePathAggressiveClearRadius ?? PathScriptSettings.DefaultRevivePathAggressiveClearRadius,
+            1.0D,
+            500.0D);
+    }
+
     private static double ResolvePathFollowReachDistance(CombatScriptSettings? combat)
     {
         return ClampDouble(combat?.PathFollowReachDistance ?? DefaultPathFollowReachDistance, 0.5D, 50.0D);
@@ -7426,6 +7606,7 @@ public sealed class StationaryCombatController
     {
         var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh).ConfigureAwait(false);
         var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
+        var clearRadius = ResolveRevivePathAggressiveClearRadius(context.Config.ScriptSettings?.Paths);
         return objects
             .Where(target => !state.IsTargetIgnored(target))
             .Where(target => !state.IsTargetTemporarilyExcluded(target, DateTimeOffset.Now))
@@ -7436,7 +7617,7 @@ public sealed class StationaryCombatController
             .Where(target => !IsActiveMonsterFiltered(target, activeMonsterNameFilters))
             .Where(target => StationaryCombatTargetSelector.HorizontalDistance(
                 target.Position!.Value,
-                playerPosition) <= RevivePathAggressiveClearRadius)
+                playerPosition) <= clearRadius)
             .OrderBy(target => StationaryCombatTargetSelector.HorizontalDistance(target.Position!.Value, playerPosition))
             .ThenBy(target => target.ServerObjectId)
             .ThenBy(target => target.EntityId)
@@ -10211,6 +10392,13 @@ public sealed class StationaryCombatController
     {
         return context.GameApi is IRoadhogScopedGameApi scopedApi
             ? scopedApi.ReadLockedTargetAsync(CreateReadContext(context), context.StopToken)
+            : context.GameApi.ReadLockedTargetAsync(context.StopToken);
+    }
+
+    private static Task<OperationResult<LockedTargetSnapshot>> ReadFreshLockedTargetAsync(AccountWorkerContext context)
+    {
+        return context.GameApi is IRoadhogScopedGameApi scopedApi
+            ? scopedApi.ReadLockedTargetAsync(CreateReadContext(context, bypassMemoryCache: true), context.StopToken)
             : context.GameApi.ReadLockedTargetAsync(context.StopToken);
     }
 

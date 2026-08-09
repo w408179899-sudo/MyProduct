@@ -1,4 +1,5 @@
 using Roadhog.Application.JumpAssist;
+using Roadhog.Application.Channels;
 using Roadhog.Application.SemiAuto;
 using Roadhog.Application.StationaryCombat;
 using Roadhog.Application.Team;
@@ -18,19 +19,22 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
     private readonly StationaryCombatController _stationaryCombat;
     private readonly TeamSupportController? _teamSupport;
     private readonly TeamOutputController? _teamOutput;
+    private readonly FixedChannelController? _fixedChannel;
 
     public DefaultAccountWorkerLoop(
         IKeyboardInput keyboard,
         SemiAutoCombatController semiAuto,
         StationaryCombatController stationaryCombat,
         TeamSupportController? teamSupport = null,
-        TeamOutputController? teamOutput = null)
+        TeamOutputController? teamOutput = null,
+        FixedChannelController? fixedChannel = null)
     {
         _keyboard = keyboard;
         _semiAuto = semiAuto;
         _stationaryCombat = stationaryCombat;
         _teamSupport = teamSupport;
         _teamOutput = teamOutput;
+        _fixedChannel = fixedChannel;
     }
 
     public async Task RunAsync(AccountWorkerContext context)
@@ -56,6 +60,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         var stationaryCombatState = new StationaryCombatState();
         var teamSupportState = new TeamSupportState();
         var teamOutputState = new TeamOutputState();
+        var fixedChannelState = new FixedChannelState();
         CombatJumpAssistSession? jumpAssist = null;
         if (scriptSettings.Combat.JumpAssistEnabled)
         {
@@ -96,56 +101,80 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                     mainMode == AccountMainMode.CustomCombat &&
                     combatMode == AccountCombatMode.Path;
                 var followRevivePath = isStationaryCombat || isPathCombat;
-                var lifeGuardDelay = await _stationaryCombat
-                    .TickPlayerLifeGuardAsync(
+                var fixedChannelDelay = _fixedChannel is null
+                    ? null
+                    : await _fixedChannel
+                        .TickAsync(
+                            context,
+                            scriptSettings,
+                            fixedChannelState,
+                            stationaryCombatState,
+                            () => _stationaryCombat.SuspendForFixedChannelCorrectionAsync(
+                                context,
+                                semiAutoState,
+                                stationaryCombatState))
+                        .ConfigureAwait(false);
+                if (fixedChannelDelay.HasValue)
+                {
+                    if (jumpAssist is not null)
+                    {
+                        await jumpAssist.StopAsync("fixed_channel_correction").ConfigureAwait(false);
+                    }
+
+                    delay = fixedChannelDelay.Value;
+                }
+                else
+                {
+                    var lifeGuardDelay = await _stationaryCombat
+                        .TickPlayerLifeGuardAsync(
                         context,
                         semiAutoPlan,
                         semiAutoState,
                         stationaryCombatState,
                         followRevivePath)
-                    .ConfigureAwait(false);
-                if (lifeGuardDelay.HasValue)
-                {
-                    if (jumpAssist is not null)
+                        .ConfigureAwait(false);
+                    if (lifeGuardDelay.HasValue)
                     {
-                        await jumpAssist.StopAsync("player_life_guard").ConfigureAwait(false);
-                    }
+                        if (jumpAssist is not null)
+                        {
+                            await jumpAssist.StopAsync("player_life_guard").ConfigureAwait(false);
+                        }
 
-                    delay = lifeGuardDelay.Value;
-                    if (stationaryCombatState.DeathRecovery.RevivePathLeaderSiphonActive)
-                    {
-                        var normalWorkBlocked = true;
-                        var teamResult = await TryTickTeamControllersAsync(
+                        delay = lifeGuardDelay.Value;
+                        if (stationaryCombatState.DeathRecovery.RevivePathLeaderSiphonActive)
+                        {
+                            var normalWorkBlocked = true;
+                            var teamResult = await TryTickTeamControllersAsync(
                                 context,
                                 scriptSettings,
                                 teamSupportState,
                                 teamOutputState,
                                 stationaryCombatState)
-                            .ConfigureAwait(false);
-                        if (teamResult.HasValue)
-                        {
-                            delay = teamResult.Value.Delay;
-                            normalWorkBlocked = teamResult.Value.ShouldSkipNormalWork;
-                        }
-                        else if (stationaryCombatState.LootAfterKill.Active)
-                        {
-                            normalWorkBlocked = false;
-                        }
+                                .ConfigureAwait(false);
+                            if (teamResult.HasValue)
+                            {
+                                delay = teamResult.Value.Delay;
+                                normalWorkBlocked = teamResult.Value.ShouldSkipNormalWork;
+                            }
+                            else if (stationaryCombatState.LootAfterKill.Active)
+                            {
+                                normalWorkBlocked = false;
+                            }
 
-                        if (!normalWorkBlocked &&
-                            await _semiAuto
-                                .EnsureSpiritmasterPetAsync(
+                            if (!normalWorkBlocked &&
+                                await _semiAuto
+                                    .EnsureSpiritmasterPetAsync(
                                     context,
                                     semiAutoPlan,
                                     semiAutoState,
                                     beforeSummonKeyPress: () => ReleaseActiveInputAsync(context, stationaryCombatState))
-                                .ConfigureAwait(false))
-                        {
-                            delay = context.Options.TickInterval;
-                        }
-                        else if (!normalWorkBlocked)
-                        {
-                            delay = await TickNormalWorkAsync(
+                                    .ConfigureAwait(false))
+                            {
+                                delay = context.Options.TickInterval;
+                            }
+                            else if (!normalWorkBlocked)
+                            {
+                                delay = await TickNormalWorkAsync(
                                     context,
                                     semiAutoPlan,
                                     semiAutoState,
@@ -153,39 +182,39 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                                     mainMode,
                                     isStationaryCombat,
                                     isPathCombat)
-                                .ConfigureAwait(false);
+                                    .ConfigureAwait(false);
+                            }
                         }
                     }
-                }
-                else if (await _semiAuto
-                             .EnsureSpiritmasterPetAsync(
+                    else if (await _semiAuto
+                                 .EnsureSpiritmasterPetAsync(
                                  context,
                                  semiAutoPlan,
                                  semiAutoState,
                                  beforeSummonKeyPress: () => ReleaseActiveInputAsync(context, stationaryCombatState))
-                             .ConfigureAwait(false))
-                {
-                    delay = context.Options.TickInterval;
-                }
-                else
-                {
-                    var normalWorkBlocked = false;
-                    var teamResult = await TryTickTeamControllersAsync(
+                                 .ConfigureAwait(false))
+                    {
+                        delay = context.Options.TickInterval;
+                    }
+                    else
+                    {
+                        var normalWorkBlocked = false;
+                        var teamResult = await TryTickTeamControllersAsync(
                             context,
                             scriptSettings,
                             teamSupportState,
                             teamOutputState,
                             stationaryCombatState)
-                        .ConfigureAwait(false);
-                    if (teamResult.HasValue)
-                    {
-                        delay = teamResult.Value.Delay;
-                        normalWorkBlocked = teamResult.Value.ShouldSkipNormalWork;
-                    }
+                            .ConfigureAwait(false);
+                        if (teamResult.HasValue)
+                        {
+                            delay = teamResult.Value.Delay;
+                            normalWorkBlocked = teamResult.Value.ShouldSkipNormalWork;
+                        }
 
-                    if (!normalWorkBlocked)
-                    {
-                        delay = await TickNormalWorkAsync(
+                        if (!normalWorkBlocked)
+                        {
+                            delay = await TickNormalWorkAsync(
                                 context,
                                 semiAutoPlan,
                                 semiAutoState,
@@ -193,7 +222,8 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                                 mainMode,
                                 isStationaryCombat,
                                 isPathCombat)
-                            .ConfigureAwait(false);
+                                .ConfigureAwait(false);
+                        }
                     }
                 }
 

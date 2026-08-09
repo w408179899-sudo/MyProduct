@@ -5,6 +5,19 @@ namespace Roadhog.Application.Team;
 
 internal static class TeamCombatTargetAdopter
 {
+    public static bool IsCurrentTacticalMarkedTarget(
+        StationaryCombatState? combatState,
+        LockedTargetSnapshot? target)
+    {
+        return combatState is { CurrentTargetIsTacticalMark: true } &&
+               target is not null &&
+               StationaryCombatState.IsSameTarget(
+                   combatState.CurrentTargetEntityId,
+                   combatState.CurrentTargetServerObjectId,
+                   target.TargetEntityId,
+                   target.ServerObjectId);
+    }
+
     public static bool TryAdoptLeaderAttackTarget(
         StationaryCombatState? combatState,
         LockedTargetSnapshot? target)

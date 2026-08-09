@@ -20,11 +20,15 @@ public sealed class TeamOutputController
 
     private readonly IKeyboardInput _keyboard;
     private readonly TacticalMarkCoordinator _tacticalMark;
+    private readonly ITeamTacticalTargetRangePolicy? _tacticalTargetRangePolicy;
 
-    public TeamOutputController(IKeyboardInput keyboard)
+    public TeamOutputController(
+        IKeyboardInput keyboard,
+        ITeamTacticalTargetRangePolicy? tacticalTargetRangePolicy = null)
     {
         _keyboard = keyboard;
         _tacticalMark = new TacticalMarkCoordinator(keyboard);
+        _tacticalTargetRangePolicy = tacticalTargetRangePolicy;
     }
 
     public async Task<TeamOutputTickResult> TickAsync(
@@ -37,6 +41,11 @@ public sealed class TeamOutputController
         if (team.Role != TeamRole.Output || !output.Enabled)
         {
             return TeamOutputTickResult.Continue(context.Options.TickInterval);
+        }
+
+        if (!output.TacticalMarkTargetingEnabled)
+        {
+            state.TacticalMarkRangeRetry.Clear();
         }
 
         var readContext = CreateReadContext(context);
@@ -59,7 +68,7 @@ public sealed class TeamOutputController
                     combatState,
                     "team_output_snapshot_unavailable")
                 .ConfigureAwait(false);
-            return allowNormalWork && !output.TacticalMarkTargetingEnabled
+            return allowNormalWork
                 ? TeamOutputTickResult.Continue(TeamOutputTickDelay)
                 : TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
         }
@@ -73,7 +82,7 @@ public sealed class TeamOutputController
                     combatState,
                     "team_output_leader_unavailable")
                 .ConfigureAwait(false);
-            return allowNormalWork && !output.TacticalMarkTargetingEnabled
+            return allowNormalWork
                 ? TeamOutputTickResult.Continue(TeamOutputTickDelay)
                 : TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
         }
@@ -112,7 +121,7 @@ public sealed class TeamOutputController
                     combatState,
                     "team_output_leader_distance_unknown")
                 .ConfigureAwait(false);
-            return allowNormalWork && !output.TacticalMarkTargetingEnabled
+            return allowNormalWork
                 ? TeamOutputTickResult.Continue(TeamOutputTickDelay)
                 : TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
         }
@@ -336,6 +345,11 @@ public sealed class TeamOutputController
         TeamMemberSnapshot leader,
         StationaryCombatState? combatState)
     {
+        if (state.TacticalMarkRangeRetry.ShouldWait(DateTimeOffset.Now))
+        {
+            return TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
+        }
+
         var selectKey = string.IsNullOrWhiteSpace(output.SelectTacticalMarkTargetKey)
             ? TeamOutputScriptSettings.DefaultSelectTacticalMarkTargetKey
             : output.SelectTacticalMarkTargetKey.Trim();
@@ -347,6 +361,7 @@ public sealed class TeamOutputController
             .ConfigureAwait(false);
         if (!selection.Accepted)
         {
+            state.TacticalMarkRangeRetry.Clear();
             if (ShouldLog(state.LastTacticalMarkLogAt))
             {
                 state.LastTacticalMarkLogAt = DateTimeOffset.Now;
@@ -365,6 +380,24 @@ public sealed class TeamOutputController
         }
 
         var target = selection.LockedTargetResult.Value;
+        if (!TeamCombatTargetAdopter.IsCurrentTacticalMarkedTarget(combatState, target) &&
+            _tacticalTargetRangePolicy is not null &&
+            combatState is not null &&
+            target is not null)
+        {
+            var rangeDecision = await _tacticalTargetRangePolicy
+                .EvaluateNewTargetAsync(context, combatState, target)
+                .ConfigureAwait(false);
+            if (!rangeDecision.Allowed)
+            {
+                state.TacticalMarkRangeRetry.RememberRejected(target, DateTimeOffset.Now);
+                LogTacticalMarkedTargetRangeRejected(context, state, target, rangeDecision);
+                await SelectLeaderAndAssistAsync(context, state, leader).ConfigureAwait(false);
+                return TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
+            }
+        }
+
+        state.TacticalMarkRangeRetry.Clear();
         var combatAdopted = TeamCombatTargetAdopter.TryAdoptTacticalMarkedTarget(
             combatState,
             target);
@@ -390,6 +423,33 @@ public sealed class TeamOutputController
         return combatAdopted
             ? TeamOutputTickResult.Continue(TeamOutputTickDelay)
             : TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
+    }
+
+    private static void LogTacticalMarkedTargetRangeRejected(
+        AccountWorkerContext context,
+        TeamOutputState state,
+        LockedTargetSnapshot target,
+        TeamTacticalTargetRangeDecision decision)
+    {
+        if (!ShouldLog(state.LastTacticalMarkLogAt))
+        {
+            return;
+        }
+
+        state.LastTacticalMarkLogAt = DateTimeOffset.Now;
+        context.Logger.Info("team_output.tactical_mark.target_rejected", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["reason"] = decision.Reason,
+            ["targetName"] = target.Name,
+            ["targetEntityId"] = target.TargetEntityId,
+            ["targetServerObjectId"] = target.ServerObjectId,
+            ["targetX"] = target.Position?.X,
+            ["targetY"] = target.Position?.Y,
+            ["distanceFromHome"] = decision.DistanceFromHome,
+            ["radius"] = decision.Radius,
+            ["error"] = decision.Error
+        });
     }
 
     private static async Task<TeamOutputTickResult> AcceptLeaderAttackTargetAsync(

@@ -2,6 +2,7 @@ using Roadhog;
 using Roadhog.Application;
 using Roadhog.Application.AbnormalStatuses;
 using Roadhog.Application.BagCleanup;
+using Roadhog.Application.Channels;
 using Roadhog.Application.Input;
 using Roadhog.Application.JumpAssist;
 using Roadhog.Application.Shell;
@@ -103,6 +104,19 @@ var tests = new (string Name, Func<Task> Run)[]
     ("runtime summoned pet read uses account scoped context", TestRuntimeSummonedPetReadUsesAccountScopeAsync),
     ("runtime summoned pet roster read uses account scoped context", TestRuntimeSummonedPetRosterReadUsesAccountScopeAsync),
     ("runtime team snapshot uses account scoped context", TestRuntimeTeamSnapshotUsesAccountScopeAsync),
+    ("fixed channel defaults disabled and persists from ui", TestFixedChannelDefaultsCloneJsonAndUiAsync),
+    ("vmm channel reader implements scoped production offsets", TestVmmChannelReaderImplementsScopedProductionOffsetsAsync),
+    ("fixed channel mouse executor clicks exactly six points in order", TestFixedChannelMouseExecutorClicksExactlySixPointsInOrderAsync),
+    ("fixed channel mouse executor rejects incomplete points before input", TestFixedChannelMouseExecutorRejectsIncompletePointsBeforeInputAsync),
+    ("fixed channel disabled performs no runtime reads", TestFixedChannelDisabledPerformsNoRuntimeReadsAsync),
+    ("fixed channel revival radius is twenty meters", TestFixedChannelUsesTwentyMeterRevivalRadiusAsync),
+    ("fixed channel waits once then retries every thirty seconds", TestFixedChannelWaitsOnceThenRetriesEveryThirtySecondsAsync),
+    ("fixed channel read failure retries at verification deadline", TestFixedChannelReadFailureRetriesAtVerificationDeadlineAsync),
+    ("fixed channel initial read failure hard gates ordinary work", TestFixedChannelInitialReadFailureHardGatesOrdinaryWorkAsync),
+    ("fixed channel target unavailable blocks switch attempts", TestFixedChannelTargetUnavailableBlocksSwitchAttemptsAsync),
+    ("fixed channel map change cannot verify previous attempt", TestFixedChannelMapChangeCannotVerifyPreviousAttemptAsync),
+    ("fixed channel death yields to life guard", TestFixedChannelDeathYieldsToLifeGuardAsync),
+    ("fixed channel switch exception remains retryable", TestFixedChannelSwitchExceptionRemainsRetryableAsync),
     ("jump assist defaults disabled and clone preserves setting", TestJumpAssistSettingDefaultsAndCloneAsync),
     ("jump assist solo repeats and stops on target damage", TestJumpAssistSoloRepeatsAndStopsOnDamageAsync),
     ("jump assist target switch replaces solo session", TestJumpAssistTargetSwitchReplacesSoloSessionAsync),
@@ -149,8 +163,12 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team support join combat defers follow while fighting", TestTeamSupportJoinCombatDefersFollowWhileFightingAsync),
     ("team support join combat selects leader target inside group range", TestTeamSupportJoinCombatSelectsLeaderTargetInsideGroupRangeAsync),
     ("team support tactical mark key adopts selected living monster", TestTeamSupportTacticalMarkKeyAdoptsSelectedLivingMonsterAsync),
+    ("team support tactical mark rejects new target outside stationary radius", TestTeamSupportTacticalMarkRejectsNewTargetOutsideStationaryRadiusAsync),
+    ("team support tactical mark accepts new target on stationary radius boundary", TestTeamSupportTacticalMarkAcceptsNewTargetOnStationaryRadiusBoundaryAsync),
+    ("team support tactical mark restores same target outside stationary radius", TestTeamSupportTacticalMarkRestoresSameTargetOutsideStationaryRadiusAsync),
     ("team support tactical mark waits and restores leader follow without active sign", TestTeamSupportTacticalMarkWaitsAndRestoresLeaderFollowWithoutActiveSignAsync),
     ("team support tactical mark stays inactive without join combat", TestTeamSupportTacticalMarkStaysInactiveWithoutJoinCombatAsync),
+    ("team support accepts self-targeting leader monster", TestTeamSupportAcceptsSelfTargetingLeaderMonsterAsync),
     ("team support self defense accepts leader target attacking local player", TestTeamSupportSelfDefenseAcceptsLeaderTargetAttackingLocalPlayerAsync),
     ("team support self defense disabled rejects local target", TestTeamSupportSelfDefenseDisabledRejectsLocalTargetAsync),
     ("team support self defense scans local attacker before maintenance", TestTeamSupportSelfDefenseScansLocalAttackerBeforeMaintenanceAsync),
@@ -170,8 +188,11 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team output stands when leader stands", TestTeamOutputStandsWhenLeaderStandsAsync),
     ("team leader tactical mark retries and accepts any sign slot", TestTeamLeaderTacticalMarkPressesBeforeVerificationAndAcceptsAnySignSlotAsync),
     ("team output tactical mark key adopts selected living monster", TestTeamOutputTacticalMarkKeyAdoptsSelectedLivingMonsterAsync),
+    ("team output tactical mark rejects new target outside stationary radius", TestTeamOutputTacticalMarkRejectsNewTargetOutsideStationaryRadiusAsync),
+    ("team output tactical mark keeps path combat behavior", TestTeamOutputTacticalMarkKeepsPathCombatBehaviorAsync),
     ("team output tactical mark waits and restores leader follow without active sign", TestTeamOutputTacticalMarkWaitsAndRestoresLeaderFollowWithoutActiveSignAsync),
     ("team output assists only leader attacked monster", TestTeamOutputAssistsOnlyLeaderAttackedMonsterAsync),
+    ("team output accepts self-targeting leader monster", TestTeamOutputAcceptsSelfTargetingLeaderMonsterAsync),
     ("team output uses configured assist target key", TestTeamOutputUsesConfiguredAssistTargetKeyAsync),
     ("team output rejects non monster leader target", TestTeamOutputRejectsNonMonsterLeaderTargetAsync),
     ("team output accepts already locked leader target", TestTeamOutputAcceptsAlreadyLockedLeaderTargetAsync),
@@ -253,6 +274,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("account config stores shared path names only", TestAccountConfigStoresSharedPathNamesOnlyAsync),
     ("account config persists bag cleanup rules", TestAccountConfigPersistsBagCleanupRulesAsync),
     ("account config persists stationary combat position", TestAccountConfigPersistsStationaryCombatPositionAsync),
+    ("revive path aggressive clear radius defaults persists and saves from ui", TestRevivePathAggressiveClearRadiusDefaultsCloneJsonAndUiAsync),
     ("stationary combat target selector keeps monsters inside radius", TestStationaryTargetSelectorAsync),
     ("stationary combat smart pre-aim selector scores threats and aggressive setting", TestSmartPreAimSelectorScoresThreatsAndAggressiveSettingAsync),
     ("stationary combat smart pre-aim supports fight-target distance origin", TestSmartPreAimSupportsFightTargetDistanceOriginAsync),
@@ -371,6 +393,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat faces adopted defense target before reacquire tab", TestStationaryCombatFacesAdoptedDefenseTargetBeforeReacquireTabAsync),
     ("stationary combat interrupts maintenance sit for defense target", TestStationaryCombatInterruptsMaintenanceSitForDefenseTargetAsync),
     ("stationary combat hp rule runs before defense target workflow", TestStationaryCombatHpRuleRunsBeforeDefenseTargetWorkflowAsync),
+    ("stationary combat restores own pet lock inside hp maintenance", TestStationaryCombatRestoresOwnPetLockInsideHpMaintenanceAsync),
+    ("stationary combat blocks hp retry when own pet tab verification misses", TestStationaryCombatBlocksHpRetryWhenOwnPetTabVerificationMissesAsync),
     ("stationary combat stops movement before hp maintenance", TestStationaryCombatStopsMovementBeforeHpMaintenanceAsync),
     ("stationary combat mp sit maintenance runs without defense target", TestStationaryCombatMpSitMaintenanceRunsWithoutDefenseTargetAsync),
     ("stationary combat mp sit maintenance preempts target and potion", TestStationaryCombatMpSitMaintenancePreemptsTargetAndPotionAsync),
@@ -2833,6 +2857,626 @@ static async Task TestRuntimeTeamSnapshotUsesAccountScopeAsync()
     AssertEqual("fpga", gameApi.LastPartyContext?.VmmDeviceName ?? string.Empty, "party scoped vmm device");
 }
 
+static async Task TestFixedChannelDefaultsCloneJsonAndUiAsync()
+{
+    var defaults = new ScriptSettings();
+    AssertEqual(0, defaults.FixedChannelNumber, "fixed channel must default disabled");
+    AssertFalse(defaults.FixedChannelMouse.Menu.IsConfigured, "fixed channel menu point must default unset");
+
+    defaults.FixedChannelNumber = 3;
+    defaults.FixedChannelMouse = CreateFixedChannelMouseSettings();
+    var clone = defaults.Clone();
+    AssertEqual(3, clone.FixedChannelNumber, "script settings clone should preserve fixed channel");
+    AssertEqual(106, clone.FixedChannelMouse.Move.X, "script settings clone should preserve all six mouse points");
+
+    var directory = CreateTempDirectory("roadhog-fixed-channel-");
+    try
+    {
+        var accountPath = Path.Combine(directory, "accounts.json");
+        var jsonStore = new JsonAccountConfigStore(accountPath);
+        var save = await jsonStore.UpsertAsync(new AccountConfig
+        {
+            AccountName = "fixed-channel-json",
+            ScriptSettings = defaults
+        }).ConfigureAwait(false);
+        AssertFalse(!save.Success, "fixed channel json save should succeed");
+
+        var load = await jsonStore.LoadAllAsync().ConfigureAwait(false);
+        AssertFalse(!load.Success, "fixed channel json load should succeed");
+        AssertEqual(
+            3,
+            load.Value?.Single().ScriptSettings?.FixedChannelNumber ?? 0,
+            "fixed channel should round-trip through account json");
+        AssertEqual(
+            205,
+            load.Value?.Single().ScriptSettings?.FixedChannelMouse?.SelectChannel.Y ?? 0,
+            "sixth-step configuration should round-trip through account json");
+    }
+    finally
+    {
+        DeleteDirectoryIfExists(directory);
+    }
+
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        try
+        {
+            var configured = CreateScriptSettings();
+            configured.FixedChannelNumber = 3;
+            configured.FixedChannelMouse = CreateFixedChannelMouseSettings();
+            var configStore = new InMemoryAccountConfigStore(new AccountConfig
+            {
+                AccountName = "account1",
+                ScriptSettings = configured
+            });
+
+            using var form = CreateAccountSettingsFormForTestsWithStore(configStore);
+            form.Show();
+            System.Windows.Forms.Application.DoEvents();
+            AssertEqual(3, GetComboSelectedIndexForTest(form, "fixedChannelCombo"), "fixed channel should load into home combo");
+            AssertFalse(!GetControlVisibleForTest(form, "fixedChannelMousePanel"), "six-point panel should show when fixed channel is enabled");
+            AssertEqual("101,201", GetTextBoxTextForTest(form, "fixedChannelMenuPointTextBox"), "menu point should load into home page");
+            AssertEqual("106,206", GetTextBoxTextForTest(form, "fixedChannelMovePointTextBox"), "move point should load into home page");
+
+            var buttonNames = new[]
+            {
+                "fixedChannelMenuTestMoveButton",
+                "fixedChannelServiceTestMoveButton",
+                "fixedChannelSwitchChannelTestMoveButton",
+                "fixedChannelChannelMoveTestMoveButton",
+                "fixedChannelSelectChannelTestMoveButton",
+                "fixedChannelMoveTestMoveButton"
+            };
+            foreach (var buttonName in buttonNames)
+            {
+                var button = FindNamedControlForTest(form, buttonName);
+                AssertEqual("移动测试", button.Text, buttonName + " should be an independent move test");
+            }
+
+            SetComboSelectedIndexForTest(form, "fixedChannelCombo", 0);
+            System.Windows.Forms.Application.DoEvents();
+            AssertFalse(!GetControlVisibleForTest(form, "fixedChannelMousePanel"), "six-point panel should remain visible while fixed channel is disabled");
+
+            SetComboSelectedIndexForTest(form, "fixedChannelCombo", 5);
+            System.Windows.Forms.Application.DoEvents();
+            AssertFalse(!GetControlVisibleForTest(form, "fixedChannelMousePanel"), "six-point panel should remain visible when fixed channel is enabled");
+            AssertEqual("101,201", GetTextBoxTextForTest(form, "fixedChannelMenuPointTextBox"), "coordinates should be retained while changing fixed channel");
+            SetTextBoxTextForTest(form, "fixedChannelMenuPointTextBox", "301,401");
+            SetTextBoxTextForTest(form, "fixedChannelServicePointTextBox", "302,402");
+            SetTextBoxTextForTest(form, "fixedChannelSwitchChannelPointTextBox", "303,403");
+            SetTextBoxTextForTest(form, "fixedChannelChannelMovePointTextBox", "304,404");
+            SetTextBoxTextForTest(form, "fixedChannelSelectChannelPointTextBox", "305,405");
+            SetTextBoxTextForTest(form, "fixedChannelMovePointTextBox", "306,406");
+            var saved = InvokeSaveCurrentSettingsForTest(form, out var error);
+            AssertFalse(!saved, "fixed channel ui save failed: " + error);
+            var savedSettings = configStore
+                .LoadAllAsync()
+                .GetAwaiter()
+                .GetResult()
+                .Value?
+                .Single()
+                .ScriptSettings;
+            AssertEqual(5, savedSettings?.FixedChannelNumber ?? 0, "fixed channel should persist from home combo");
+            AssertEqual(301, savedSettings?.FixedChannelMouse?.Menu.X ?? 0, "menu point should persist from home page");
+            AssertEqual(406, savedSettings?.FixedChannelMouse?.Move.Y ?? 0, "all six points should persist from home page");
+        }
+        catch (Exception ex)
+        {
+            failure = ex;
+        }
+    });
+
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    thread.Join();
+    if (failure is not null)
+    {
+        throw failure;
+    }
+}
+
+static Task TestVmmChannelReaderImplementsScopedProductionOffsetsAsync()
+{
+    var apiType = typeof(Roadhog.Infrastructure.Vmm.AionVmmGameApi);
+    AssertFalse(
+        !typeof(IRoadhogScopedChannelGameApi).IsAssignableFrom(apiType),
+        "production VMM API should provide account-scoped channel reads");
+
+    static ulong ReadConstant(Type type, string name)
+    {
+        var field = type.GetField(
+            name,
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+        AssertFalse(field is null, name + " should remain defined on the production VMM API");
+        return Convert.ToUInt64(field!.GetRawConstantValue());
+    }
+
+    AssertEqual(0xD647D0UL, ReadConstant(apiType, "CurrentMapContextPointerRva"), "current map context pointer RVA");
+    AssertEqual(0x20DCUL, ReadConstant(apiType, "CurrentMapIdOffset"), "current map id offset");
+    AssertEqual(0xD71CC0UL, ReadConstant(apiType, "CurrentChannelIndexRva"), "current channel index RVA");
+    AssertEqual(0xD71CC4UL, ReadConstant(apiType, "CurrentChannelCountRva"), "current channel count RVA");
+    return Task.CompletedTask;
+}
+
+static async Task TestFixedChannelMouseExecutorClicksExactlySixPointsInOrderAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var executor = new FixedChannelMouseSwitchExecutor(
+        keyboard,
+        logger,
+        pointHoverDelay: TimeSpan.Zero,
+        clickHoldDelay: TimeSpan.Zero,
+        interClickDelay: TimeSpan.Zero,
+        mouseStepDelay: TimeSpan.Zero);
+    var settings = CreateFixedChannelMouseSettings();
+    settings.Service = new ScreenPointScriptSettings { X = 880, Y = 733 };
+    settings.SwitchChannel = new ScreenPointScriptSettings { X = 1040, Y = 750 };
+    var points = FixedChannelClickPlan.FromSettings(settings);
+
+    var result = await executor
+        .ExecuteAsync(new FixedChannelSwitchRequest("account1", 3, 100, 1, points))
+        .ConfigureAwait(false);
+
+    AssertFalse(!result.Success, "six-point channel click sequence should succeed: " + result.Error);
+    AssertEqual(6, keyboard.MouseCommands.Count(command => command == "down:Left"), "one channel operation must contain six left mouse downs");
+    AssertEqual(6, keyboard.MouseCommands.Count(command => command == "up:Left"), "one channel operation must contain six left mouse ups");
+    AssertEqual(10, keyboard.MouseCommands.Count(command => command == "move:-2000,-2000"), "only five steps should use two top-left resets");
+    AssertSequence(
+        new[] { "move:101,201", "move:880,733", "move:160,17", "move:104,204", "move:105,205", "move:106,206" },
+        keyboard.MouseCommands
+            .Where(command => command.StartsWith("move:", StringComparison.Ordinal) && command != "move:-2000,-2000")
+            .ToArray(),
+        "channel operation target coordinates must follow the configured six-step order");
+    var secondMouseUpIndex = keyboard.MouseCommands
+        .Select((command, index) => (command, index))
+        .Where(item => item.command == "up:Left")
+        .Skip(1)
+        .Select(item => item.index)
+        .First();
+    AssertEqual("move:160,17", keyboard.MouseCommands[secondMouseUpIndex + 1], "switch-channel step should move directly from the service point without a top-left reset");
+    AssertSequence(
+        new[] { "menu", "service", "switch_channel", "channel_move", "select_channel", "move" },
+        logger.Entries
+            .Where(entry => entry.EventName == "fixed_channel.mouse.step_clicked")
+            .Select(entry => Convert.ToString(entry.Fields["step"]) ?? string.Empty)
+            .ToArray(),
+        "structured click steps must preserve the required order");
+}
+
+static async Task TestFixedChannelMouseExecutorRejectsIncompletePointsBeforeInputAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var settings = CreateFixedChannelMouseSettings();
+    settings.SelectChannel = new ScreenPointScriptSettings();
+    var executor = new FixedChannelMouseSwitchExecutor(
+        keyboard,
+        new InMemoryRoadhogLogger(),
+        pointHoverDelay: TimeSpan.Zero,
+        clickHoldDelay: TimeSpan.Zero,
+        interClickDelay: TimeSpan.Zero,
+        mouseStepDelay: TimeSpan.Zero);
+
+    var result = await executor
+        .ExecuteAsync(new FixedChannelSwitchRequest(
+            "account1",
+            3,
+            100,
+            1,
+            FixedChannelClickPlan.FromSettings(settings)))
+        .ConfigureAwait(false);
+
+    AssertFalse(result.Success, "an incomplete six-point configuration must fail");
+    AssertEqual(0, keyboard.MouseCommands.Count, "validation must finish before any mouse input is sent");
+}
+
+static async Task TestFixedChannelUsesTwentyMeterRevivalRadiusAsync()
+{
+    var exactKeyboard = new RecordingKeyboardInput();
+    var exactClock = new ManualTimeProvider();
+    var exactGameApi = CreateFixedChannelGameApi(new Vector3Snapshot(12, 16, 500));
+    var exactSettings = CreateFixedChannelSettings();
+    var exactController = new FixedChannelController(
+        exactKeyboard,
+        CreateFixedChannelPathStore(),
+        new RecordingFixedChannelSwitchExecutor(),
+        exactClock);
+    var exactState = new FixedChannelState();
+    await ConfirmFixedChannelMismatchAsync(
+        exactController,
+        CreateContext(exactSettings, exactGameApi, new InMemoryRoadhogLogger()),
+        exactSettings,
+        exactState,
+        new StationaryCombatState(),
+        exactClock).ConfigureAwait(false);
+
+    AssertEqual(FixedChannelCorrectionStep.WaitingBeforeSwitch, exactState.Step, "twenty meter boundary should count as revival point nearby");
+    AssertEqual(0, exactKeyboard.Keys.Count, "twenty meter boundary should not press town return");
+
+    var outsideKeyboard = new RecordingKeyboardInput();
+    var outsideClock = new ManualTimeProvider();
+    var outsideGameApi = CreateFixedChannelGameApi(new Vector3Snapshot(20.01F, 0, 0));
+    var outsideSettings = CreateFixedChannelSettings();
+    var outsideController = new FixedChannelController(
+        outsideKeyboard,
+        CreateFixedChannelPathStore(),
+        new RecordingFixedChannelSwitchExecutor(),
+        outsideClock);
+    var outsideState = new FixedChannelState();
+    await ConfirmFixedChannelMismatchAsync(
+        outsideController,
+        CreateContext(outsideSettings, outsideGameApi, new InMemoryRoadhogLogger()),
+        outsideSettings,
+        outsideState,
+        new StationaryCombatState(),
+        outsideClock).ConfigureAwait(false);
+
+    AssertEqual(FixedChannelCorrectionStep.ReturningToRevivalPoint, outsideState.Step, "outside twenty meters should require town return");
+    AssertSequence(new[] { "NumPad7" }, outsideKeyboard.Keys.ToArray(), "outside twenty meters should press town return once");
+}
+
+static async Task TestFixedChannelDisabledPerformsNoRuntimeReadsAsync()
+{
+    var clock = new ManualTimeProvider();
+    var gameApi = CreateFixedChannelGameApi(new Vector3Snapshot(0, 0, 0));
+    var settings = CreateFixedChannelSettings();
+    settings.FixedChannelNumber = 0;
+    var controller = new FixedChannelController(
+        new RecordingKeyboardInput(),
+        CreateFixedChannelPathStore(),
+        new RecordingFixedChannelSwitchExecutor(),
+        clock);
+    var state = new FixedChannelState();
+    var suspendCount = 0;
+
+    var result = await controller
+        .TickAsync(
+            CreateContext(settings, gameApi, new InMemoryRoadhogLogger()),
+            settings,
+            state,
+            new StationaryCombatState(),
+            () =>
+            {
+                suspendCount++;
+                return Task.CompletedTask;
+            })
+        .ConfigureAwait(false);
+
+    AssertFalse(result.HasValue, "disabled fixed channel should not block ordinary work");
+    AssertEqual(0, gameApi.ChannelReadCount, "disabled fixed channel should not read channel snapshots");
+    AssertEqual(0, gameApi.PlayerReadCount, "disabled fixed channel should not add player reads");
+    AssertEqual(0, suspendCount, "disabled fixed channel should not suspend existing behavior");
+}
+
+static async Task TestFixedChannelWaitsOnceThenRetriesEveryThirtySecondsAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var clock = new ManualTimeProvider();
+    var switchExecutor = new RecordingFixedChannelSwitchExecutor();
+    var gameApi = CreateFixedChannelGameApi(new Vector3Snapshot(0, 0, 0));
+    var settings = CreateFixedChannelSettings();
+    var controller = new FixedChannelController(keyboard, CreateFixedChannelPathStore(), switchExecutor, clock);
+    var state = new FixedChannelState();
+    var combatState = new StationaryCombatState();
+    var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
+    var suspendCount = 0;
+    Func<Task> suspend = () =>
+    {
+        suspendCount++;
+        return Task.CompletedTask;
+    };
+    switchExecutor.BeforeReturn = request =>
+    {
+        if (request.AttemptNumber == 1)
+        {
+            clock.Advance(TimeSpan.FromSeconds(12));
+        }
+    };
+
+    await ConfirmFixedChannelMismatchAsync(
+        controller,
+        context,
+        settings,
+        state,
+        combatState,
+        clock,
+        suspend).ConfigureAwait(false);
+    AssertEqual(FixedChannelCorrectionStep.WaitingBeforeSwitch, state.Step, "nearby mismatch should enter initial wait");
+    AssertEqual(0, switchExecutor.Requests.Count, "initial wait should not switch immediately");
+
+    clock.Advance(FixedChannelController.InitialSwitchWait);
+    await controller.TickAsync(context, settings, state, combatState, suspend).ConfigureAwait(false);
+    AssertEqual(1, switchExecutor.Requests.Count, "initial wait completion should execute first switch");
+    AssertEqual(clock.GetUtcNow(), state.SwitchAttemptStartedAt, "thirty-second verification must begin after the complete mouse operation returns");
+
+    clock.Advance(TimeSpan.FromSeconds(29));
+    await controller.TickAsync(context, settings, state, combatState, suspend).ConfigureAwait(false);
+    AssertEqual(1, switchExecutor.Requests.Count, "switch should not retry before thirty second verification deadline");
+
+    clock.Advance(TimeSpan.FromSeconds(1));
+    await controller.TickAsync(context, settings, state, combatState, suspend).ConfigureAwait(false);
+    AssertEqual(2, switchExecutor.Requests.Count, "thirty second timeout should execute the full switch again");
+    AssertEqual(2, switchExecutor.Requests[1].AttemptNumber, "second switch attempt number");
+
+    gameApi.Channel = gameApi.Channel with { Index = 2, CapturedAt = clock.GetUtcNow() };
+    clock.Advance(TimeSpan.FromMilliseconds(250));
+    var completed = await controller.TickAsync(context, settings, state, combatState, suspend).ConfigureAwait(false);
+
+    AssertFalse(completed.HasValue, "verified target channel should release hard gate");
+    AssertEqual(FixedChannelCorrectionStep.Monitoring, state.Step, "verified target channel should reset correction state");
+    AssertFalse(!combatState.StartupRecoveryActive, "verified switch at revival point should resume through revive path");
+    AssertEqual(0, combatState.StartupRecoveryPointIndex, "verified switch should resume from revive path point zero");
+    AssertEqual(1, suspendCount, "one correction session should suspend ordinary work once");
+}
+
+static async Task TestFixedChannelReadFailureRetriesAtVerificationDeadlineAsync()
+{
+    var clock = new ManualTimeProvider();
+    var switchExecutor = new RecordingFixedChannelSwitchExecutor();
+    var gameApi = CreateFixedChannelGameApi(new Vector3Snapshot(0, 0, 0));
+    var settings = CreateFixedChannelSettings();
+    var controller = new FixedChannelController(
+        new RecordingKeyboardInput(),
+        CreateFixedChannelPathStore(),
+        switchExecutor,
+        clock);
+    var state = new FixedChannelState();
+    var combatState = new StationaryCombatState();
+    var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
+
+    await ConfirmFixedChannelMismatchAsync(controller, context, settings, state, combatState, clock).ConfigureAwait(false);
+    clock.Advance(FixedChannelController.InitialSwitchWait);
+    await controller.TickAsync(context, settings, state, combatState, clock.NoOpAsync).ConfigureAwait(false);
+    AssertEqual(1, switchExecutor.Requests.Count, "first complete switch operation should run");
+
+    clock.Advance(FixedChannelController.SwitchVerificationWindow);
+    gameApi.ChannelReadResults.Enqueue(OperationResult<ChannelSnapshot>.Fail("temporary channel read failure"));
+    await controller.TickAsync(context, settings, state, combatState, clock.NoOpAsync).ConfigureAwait(false);
+
+    AssertEqual(2, switchExecutor.Requests.Count, "a missing snapshot at the deadline must execute all six clicks again");
+    AssertEqual(6, switchExecutor.Requests[1].ClickPoints.Count, "retry request must contain all six click points");
+}
+
+static async Task TestFixedChannelInitialReadFailureHardGatesOrdinaryWorkAsync()
+{
+    var clock = new ManualTimeProvider();
+    var gameApi = CreateFixedChannelGameApi(new Vector3Snapshot(0, 0, 0));
+    gameApi.ChannelReadResults.Enqueue(OperationResult<ChannelSnapshot>.Fail("temporary channel read failure"));
+    var settings = CreateFixedChannelSettings();
+    var controller = new FixedChannelController(
+        new RecordingKeyboardInput(),
+        CreateFixedChannelPathStore(),
+        new RecordingFixedChannelSwitchExecutor(),
+        clock);
+    var state = new FixedChannelState();
+    var suspendCount = 0;
+
+    var result = await controller
+        .TickAsync(
+            CreateContext(settings, gameApi, new InMemoryRoadhogLogger()),
+            settings,
+            state,
+            new StationaryCombatState(),
+            () =>
+            {
+                suspendCount++;
+                return Task.CompletedTask;
+            })
+        .ConfigureAwait(false);
+
+    AssertFalse(!result.HasValue, "channel read failure must keep ordinary work hard gated");
+    AssertEqual(1, suspendCount, "channel read failure should suspend active ordinary work once");
+    AssertFalse(state.NormalWorkSuspended == false, "channel read failure should retain the hard gate until a valid target snapshot is read");
+}
+
+static async Task TestFixedChannelTargetUnavailableBlocksSwitchAttemptsAsync()
+{
+    var clock = new ManualTimeProvider();
+    var switchExecutor = new RecordingFixedChannelSwitchExecutor();
+    var gameApi = CreateFixedChannelGameApi(new Vector3Snapshot(0, 0, 0));
+    gameApi.Channel = gameApi.Channel with { Count = 2 };
+    var settings = CreateFixedChannelSettings();
+    var controller = new FixedChannelController(
+        new RecordingKeyboardInput(),
+        CreateFixedChannelPathStore(),
+        switchExecutor,
+        clock);
+    var state = new FixedChannelState();
+    var combatState = new StationaryCombatState();
+    var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
+
+    await ConfirmFixedChannelMismatchAsync(controller, context, settings, state, combatState, clock).ConfigureAwait(false);
+    clock.Advance(FixedChannelController.InitialSwitchWait);
+    await controller.TickAsync(context, settings, state, combatState, clock.NoOpAsync).ConfigureAwait(false);
+    AssertEqual(0, switchExecutor.Requests.Count, "unavailable target channel should not click");
+    AssertEqual(FixedChannelCorrectionStep.WaitingBeforeSwitch, state.Step, "unavailable target channel should stay hard blocked");
+
+    gameApi.Channel = gameApi.Channel with { Count = 5 };
+    clock.Advance(TimeSpan.FromMilliseconds(250));
+    await controller.TickAsync(context, settings, state, combatState, clock.NoOpAsync).ConfigureAwait(false);
+    AssertEqual(1, switchExecutor.Requests.Count, "switch should begin when target channel becomes available");
+}
+
+static async Task TestFixedChannelMapChangeCannotVerifyPreviousAttemptAsync()
+{
+    var clock = new ManualTimeProvider();
+    var switchExecutor = new RecordingFixedChannelSwitchExecutor();
+    var gameApi = CreateFixedChannelGameApi(new Vector3Snapshot(0, 0, 0));
+    var settings = CreateFixedChannelSettings();
+    var controller = new FixedChannelController(
+        new RecordingKeyboardInput(),
+        CreateFixedChannelPathStore(),
+        switchExecutor,
+        clock);
+    var state = new FixedChannelState();
+    var combatState = new StationaryCombatState();
+    var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
+
+    await ConfirmFixedChannelMismatchAsync(controller, context, settings, state, combatState, clock).ConfigureAwait(false);
+    clock.Advance(FixedChannelController.InitialSwitchWait);
+    await controller.TickAsync(context, settings, state, combatState, clock.NoOpAsync).ConfigureAwait(false);
+    AssertEqual(1, switchExecutor.Requests.Count, "first map should execute first switch attempt");
+
+    gameApi.Channel = gameApi.Channel with { Index = 2, MapId = 200 };
+    clock.Advance(TimeSpan.FromMilliseconds(250));
+    var wrongMap = await controller.TickAsync(context, settings, state, combatState, clock.NoOpAsync).ConfigureAwait(false);
+    AssertFalse(!wrongMap.HasValue, "target channel on another map must remain blocked");
+    AssertEqual(FixedChannelCorrectionStep.VerifyingSwitch, state.Step, "wrong-map target channel must not verify previous attempt");
+
+    clock.Advance(FixedChannelController.SwitchVerificationWindow);
+    await controller.TickAsync(context, settings, state, combatState, clock.NoOpAsync).ConfigureAwait(false);
+    AssertEqual(2, switchExecutor.Requests.Count, "wrong-map timeout should execute another full switch");
+    AssertEqual(200u, switchExecutor.Requests[1].MapId, "retry should bind verification to current map");
+
+    clock.Advance(TimeSpan.FromMilliseconds(250));
+    var verified = await controller.TickAsync(context, settings, state, combatState, clock.NoOpAsync).ConfigureAwait(false);
+    AssertFalse(verified.HasValue, "target channel on retry map should verify new attempt");
+    AssertEqual(FixedChannelCorrectionStep.Monitoring, state.Step, "new attempt map should become valid baseline");
+}
+
+static async Task TestFixedChannelDeathYieldsToLifeGuardAsync()
+{
+    var clock = new ManualTimeProvider();
+    var gameApi = CreateFixedChannelGameApi(new Vector3Snapshot(0, 0, 0));
+    gameApi.Player = gameApi.Player with { CurrentHp = 0 };
+    var settings = CreateFixedChannelSettings();
+    var controller = new FixedChannelController(
+        new RecordingKeyboardInput(),
+        CreateFixedChannelPathStore(),
+        new RecordingFixedChannelSwitchExecutor(),
+        clock);
+    var state = new FixedChannelState();
+    var suspendCount = 0;
+    Func<Task> suspend = () =>
+    {
+        suspendCount++;
+        return Task.CompletedTask;
+    };
+    var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
+    var combatState = new StationaryCombatState();
+
+    var first = await controller.TickAsync(context, settings, state, combatState, suspend).ConfigureAwait(false);
+    AssertFalse(first.HasValue, "dead player should yield to the existing life guard on the first mismatch read");
+    clock.Advance(TimeSpan.FromMilliseconds(250));
+    var second = await controller.TickAsync(context, settings, state, combatState, suspend).ConfigureAwait(false);
+
+    AssertFalse(second.HasValue, "dead player should yield to existing life guard");
+    AssertFalse(state.CorrectionActive, "dead player should not start channel correction before revive");
+    AssertEqual(0, suspendCount, "dead player should not suspend death recovery state");
+}
+
+static async Task TestFixedChannelSwitchExceptionRemainsRetryableAsync()
+{
+    var clock = new ManualTimeProvider();
+    var switchExecutor = new RecordingFixedChannelSwitchExecutor
+    {
+        ExceptionToThrow = new InvalidOperationException("mouse adapter failure")
+    };
+    var gameApi = CreateFixedChannelGameApi(new Vector3Snapshot(0, 0, 0));
+    var settings = CreateFixedChannelSettings();
+    var controller = new FixedChannelController(
+        new RecordingKeyboardInput(),
+        CreateFixedChannelPathStore(),
+        switchExecutor,
+        clock);
+    var state = new FixedChannelState();
+    var combatState = new StationaryCombatState();
+    var logger = new InMemoryRoadhogLogger();
+    var context = CreateContext(settings, gameApi, logger);
+
+    await ConfirmFixedChannelMismatchAsync(controller, context, settings, state, combatState, clock).ConfigureAwait(false);
+    clock.Advance(FixedChannelController.InitialSwitchWait);
+    await controller.TickAsync(context, settings, state, combatState, clock.NoOpAsync).ConfigureAwait(false);
+
+    AssertEqual(1, switchExecutor.Requests.Count, "throwing switch adapter should still record first attempt");
+    AssertEqual(FixedChannelCorrectionStep.VerifyingSwitch, state.Step, "throwing switch adapter should remain in verification gate");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "fixed_channel.switch.execute_failed" &&
+            (Convert.ToString(entry.Fields["error"]) ?? string.Empty).Contains("mouse adapter failure", StringComparison.Ordinal)),
+        "throwing switch adapter should log a structured failure");
+
+    switchExecutor.ExceptionToThrow = null;
+    clock.Advance(FixedChannelController.SwitchVerificationWindow);
+    await controller.TickAsync(context, settings, state, combatState, clock.NoOpAsync).ConfigureAwait(false);
+    AssertEqual(2, switchExecutor.Requests.Count, "throwing switch adapter should retry after thirty seconds");
+}
+
+static ScriptSettings CreateFixedChannelSettings()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.FixedChannelNumber = 3;
+    settings.FixedChannelMouse = CreateFixedChannelMouseSettings();
+    settings.Paths.RevivePathName = "fixed-channel-revive";
+    settings.Paths.TownReturnKey = "NumPad7";
+    return settings;
+}
+
+static FixedChannelMouseScriptSettings CreateFixedChannelMouseSettings()
+{
+    return new FixedChannelMouseScriptSettings
+    {
+        Menu = new ScreenPointScriptSettings { X = 101, Y = 201 },
+        Service = new ScreenPointScriptSettings { X = 102, Y = 202 },
+        SwitchChannel = new ScreenPointScriptSettings { X = 103, Y = 203 },
+        ChannelMove = new ScreenPointScriptSettings { X = 104, Y = 204 },
+        SelectChannel = new ScreenPointScriptSettings { X = 105, Y = 205 },
+        Move = new ScreenPointScriptSettings { X = 106, Y = 206 }
+    };
+}
+
+static FakeGameApi CreateFixedChannelGameApi(Vector3Snapshot position)
+{
+    return new FakeGameApi
+    {
+        Player = new PlayerSnapshot(
+            1,
+            0,
+            "FixedChannel",
+            100,
+            100,
+            100,
+            100,
+            0,
+            position,
+            DateTimeOffset.Now),
+        Channel = new ChannelSnapshot(0, 5, 100, DateTimeOffset.Now)
+    };
+}
+
+static InMemorySharedPathStore CreateFixedChannelPathStore()
+{
+    return new InMemorySharedPathStore(CreatePath(
+        "fixed-channel-revive",
+        new Vector3Snapshot(0, 0, 0),
+        new Vector3Snapshot(100, 0, 0)));
+}
+
+static async Task ConfirmFixedChannelMismatchAsync(
+    FixedChannelController controller,
+    AccountWorkerContext context,
+    ScriptSettings settings,
+    FixedChannelState state,
+    StationaryCombatState combatState,
+    ManualTimeProvider clock,
+    Func<Task>? suspend = null)
+{
+    var suspendWork = suspend ?? clock.NoOpAsync;
+    var first = await controller
+        .TickAsync(context, settings, state, combatState, suspendWork)
+        .ConfigureAwait(false);
+    AssertFalse(!first.HasValue, "first valid channel mismatch should hard block while confirming");
+
+    clock.Advance(TimeSpan.FromMilliseconds(250));
+    var second = await controller
+        .TickAsync(context, settings, state, combatState, suspendWork)
+        .ConfigureAwait(false);
+    AssertFalse(!second.HasValue, "second valid channel mismatch should enter correction gate");
+}
+
 static Task TestJumpAssistSettingDefaultsAndCloneAsync()
 {
     var defaults = new CombatScriptSettings();
@@ -4604,18 +5248,44 @@ static async Task TestTeamSupportWaitsForFiveConsecutiveLeaderUnavailableTicksAs
 
     keyboard.Keys.Clear();
     gameApi.Party = CreateTeamPartyWithoutLeader(self);
+    settings.Team.Support!.JoinCombat = true;
+    settings.Team.Support.TacticalMarkTargetingEnabled = true;
     for (var i = 1; i <= 4; i++)
     {
         var missing = await controller.TickAsync(context, state).ConfigureAwait(false);
-        AssertFalse(!missing.ShouldSkipNormalWork, "support should keep blocking normal work for the first four misses");
+        AssertFalse(!missing.ShouldSkipNormalWork, "support tactical targeting should keep blocking normal work for the first four misses");
     }
 
     var fifth = await controller.TickAsync(context, state).ConfigureAwait(false);
 
-    AssertFalse(fifth.ShouldSkipNormalWork, "support should release normal work on the fifth consecutive leader miss");
+    AssertFalse(fifth.ShouldSkipNormalWork, "support tactical targeting should release normal work on the fifth consecutive leader miss");
     AssertEqual(5, state.ConsecutiveLeaderUnavailableTicks, "support missing count at fallback threshold");
     AssertFalse(state.LeaderGroupActive, "support should clear active group state when leader has been missing for five ticks");
     AssertEqual(0, keyboard.Keys.Count, "support should not press follow keys while the leader is unavailable");
+    AssertEqual(0, gameApi.TacticsSignReadCount, "support should not scan tactical signs without an available leader");
+
+    var distanceUnknownLeader = leader with
+    {
+        HasLiveActor = false,
+        LivePosition = null,
+        DistanceToLocalPlayer = null,
+        VisibilityState = PartyMemberVisibilityState.NotLoaded
+    };
+    var distanceUnknownState = new TeamSupportState { LeaderGroupActive = true };
+    gameApi.Party = CreateTeamSupportParty(self, distanceUnknownLeader);
+    for (var i = 1; i <= 4; i++)
+    {
+        var missingDistance = await controller.TickAsync(context, distanceUnknownState).ConfigureAwait(false);
+        AssertFalse(!missingDistance.ShouldSkipNormalWork, "support tactical targeting should wait through four unknown leader-distance ticks");
+    }
+
+    var fifthMissingDistance = await controller.TickAsync(context, distanceUnknownState).ConfigureAwait(false);
+
+    AssertFalse(fifthMissingDistance.ShouldSkipNormalWork, "support tactical targeting should release normal work when leader distance stays unknown for five ticks");
+    AssertEqual(5, distanceUnknownState.ConsecutiveLeaderUnavailableTicks, "support unknown leader-distance count at fallback threshold");
+    AssertFalse(distanceUnknownState.LeaderGroupActive, "support should clear active group state after five unknown leader-distance ticks");
+    AssertEqual(0, keyboard.Keys.Count, "support should not press follow keys when leader distance is unavailable");
+    AssertEqual(0, gameApi.TacticsSignReadCount, "support should not scan tactical signs when leader distance is unavailable");
 }
 
 static async Task TestTeamSupportJoinCombatDefersFollowWhileFightingAsync()
@@ -4756,6 +5426,223 @@ static async Task TestTeamSupportTacticalMarkKeyAdoptsSelectedLivingMonsterAsync
         "support tactical target validation should bypass VMM cache");
 }
 
+static async Task TestTeamSupportTacticalMarkRejectsNewTargetOutsideStationaryRadiusAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint signedServerObjectId = 7000;
+    const uint selectedServerObjectId = 9000;
+    const string selectKey = "NumPad2";
+    const string homePathName = "team-home";
+    var self = CreatePartyMemberSnapshot(1000, "Chanter", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0);
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(1, "ready", 1, 1, "ready", 1, false, 10_000, 0)
+    };
+    gameApi.TacticsSigns = new TacticsSignSnapshot(
+        new uint[] { signedServerObjectId },
+        DateTimeOffset.Now);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, selectKey, StringComparison.Ordinal))
+        {
+            SetFakeLockedTarget(
+                gameApi,
+                selectedServerObjectId,
+                LockedTargetSnapshot.MonsterObjectType,
+                0,
+                100);
+            gameApi.TargetPosition = new Vector3Snapshot(10.01F, 0, 0);
+        }
+        else if (string.Equals(key, "F2", StringComparison.Ordinal))
+        {
+            SetFakeLockedTarget(gameApi, leader.ServerObjectId, 0, 0, 0);
+            gameApi.TargetPosition = null;
+        }
+    };
+
+    var settings = CreateTeamSupportSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat.StationaryCombatRadius = 10.0D;
+    settings.Paths.RevivePathName = homePathName;
+    settings.Team.Support!.JoinCombat = true;
+    settings.Team.Support.TacticalMarkTargetingEnabled = true;
+    settings.Team.Support.SelectTacticalMarkTargetKey = selectKey;
+    var combatState = new StationaryCombatState();
+    var supportState = new TeamSupportState();
+    var rangePolicy = new StationaryCombatController(
+        keyboard,
+        new SemiAutoCombatController(keyboard),
+        new InMemorySharedPathStore(CreatePath(homePathName, new Vector3Snapshot(0, 0, 0))));
+    var controller = new TeamSupportController(
+        keyboard,
+        CreateTeamSupportAbnormalCatalog(),
+        rangePolicy);
+    var context = CreateContext(settings, gameApi, logger);
+
+    var firstResult = await controller
+        .TickAsync(context, supportState, combatState)
+        .ConfigureAwait(false);
+    var keysAfterFirstTick = keyboard.Keys.ToArray();
+    var signReadsAfterFirstTick = gameApi.TacticsSignReadCount;
+    var secondResult = await controller
+        .TickAsync(context, supportState, combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(!firstResult.ShouldSkipNormalWork, "outside support tactical target should block ordinary target selection");
+    AssertFalse(!secondResult.ShouldSkipNormalWork, "outside support tactical target retry window should stay blocked");
+    AssertFalse(combatState.Fighting, "outside support tactical target should not start combat");
+    AssertEqual(0u, combatState.CurrentTargetServerObjectId, "outside support tactical target should not become current target");
+    AssertSequence(new[] { selectKey, "F2", "C" }, keysAfterFirstTick, "support should reject the target then restore leader follow");
+    AssertSequence(keysAfterFirstTick, keyboard.Keys.ToArray(), "support retry throttle should not press the mark key again immediately");
+    AssertEqual(signReadsAfterFirstTick, gameApi.TacticsSignReadCount, "support retry throttle should not rescan signs immediately");
+    var rejection = logger.Entries.LastOrDefault(entry =>
+        entry.EventName == "team_support.tactical_mark.target_rejected");
+    AssertFalse(rejection is null, "outside support tactical target should log a range rejection");
+    AssertEqual(
+        "outside_stationary_radius",
+        Convert.ToString(rejection!.Fields["reason"]) ?? string.Empty,
+        "support tactical range rejection reason");
+}
+
+static async Task TestTeamSupportTacticalMarkAcceptsNewTargetOnStationaryRadiusBoundaryAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint signedServerObjectId = 7000;
+    const uint selectedServerObjectId = 9000;
+    const string selectKey = "NumPad2";
+    const string homePathName = "team-home";
+    var self = CreatePartyMemberSnapshot(1000, "Chanter", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0);
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(1, "ready", 1, 1, "ready", 1, false, 10_000, 0)
+    };
+    gameApi.TacticsSigns = new TacticsSignSnapshot(
+        new uint[] { signedServerObjectId },
+        DateTimeOffset.Now);
+    keyboard.AfterPress = key =>
+    {
+        if (!string.Equals(key, selectKey, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        SetFakeLockedTarget(
+            gameApi,
+            selectedServerObjectId,
+            LockedTargetSnapshot.MonsterObjectType,
+            0,
+            100);
+        gameApi.TargetPosition = new Vector3Snapshot(6, 8, 500);
+    };
+
+    var settings = CreateTeamSupportSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat.StationaryCombatRadius = 10.0D;
+    settings.Paths.RevivePathName = homePathName;
+    settings.Team.Support!.JoinCombat = true;
+    settings.Team.Support.TacticalMarkTargetingEnabled = true;
+    settings.Team.Support.SelectTacticalMarkTargetKey = selectKey;
+    var combatState = new StationaryCombatState();
+    var rangePolicy = new StationaryCombatController(
+        keyboard,
+        new SemiAutoCombatController(keyboard),
+        new InMemorySharedPathStore(CreatePath(homePathName, new Vector3Snapshot(0, 0, 0))));
+    var result = await new TeamSupportController(
+            keyboard,
+            CreateTeamSupportAbnormalCatalog(),
+            rangePolicy)
+        .TickAsync(CreateContext(settings, gameApi, logger), new TeamSupportState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(result.ShouldSkipNormalWork, "support tactical target exactly on the horizontal radius should start combat");
+    AssertLeaderTargetAdopted(combatState, selectedServerObjectId, "support boundary tactical target should be adopted");
+    AssertSequence(new[] { selectKey }, keyboard.Keys.ToArray(), "support boundary target should not restore leader follow");
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName == "team_support.tactical_mark.target_rejected"),
+        "support boundary target should not log a range rejection");
+}
+
+static async Task TestTeamSupportTacticalMarkRestoresSameTargetOutsideStationaryRadiusAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint signedServerObjectId = 7000;
+    const uint selectedServerObjectId = 9000;
+    const string selectKey = "NumPad2";
+    const string homePathName = "team-home";
+    var self = CreatePartyMemberSnapshot(1000, "Chanter", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0);
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(1, "ready", 1, 1, "ready", 1, false, 10_000, 0)
+    };
+    gameApi.TacticsSigns = new TacticsSignSnapshot(
+        new uint[] { signedServerObjectId },
+        DateTimeOffset.Now);
+    keyboard.AfterPress = key =>
+    {
+        if (!string.Equals(key, selectKey, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        SetFakeLockedTarget(
+            gameApi,
+            selectedServerObjectId,
+            LockedTargetSnapshot.MonsterObjectType,
+            0,
+            100);
+    };
+
+    var settings = CreateTeamSupportSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat.StationaryCombatRadius = 10.0D;
+    settings.Paths.RevivePathName = homePathName;
+    settings.Team.Support!.JoinCombat = true;
+    settings.Team.Support.TacticalMarkTargetingEnabled = true;
+    settings.Team.Support.SelectTacticalMarkTargetKey = selectKey;
+    var combatState = new StationaryCombatState();
+    var supportState = new TeamSupportState();
+    var rangePolicy = new StationaryCombatController(
+        keyboard,
+        new SemiAutoCombatController(keyboard),
+        new InMemorySharedPathStore(CreatePath(homePathName, new Vector3Snapshot(0, 0, 0))));
+    var controller = new TeamSupportController(
+        keyboard,
+        CreateTeamSupportAbnormalCatalog(),
+        rangePolicy);
+    var context = CreateContext(settings, gameApi, logger);
+
+    gameApi.TargetPosition = new Vector3Snapshot(9, 0, 0);
+    var firstResult = await controller
+        .TickAsync(context, supportState, combatState)
+        .ConfigureAwait(false);
+    supportState.TacticalTargetRestorePending = true;
+    gameApi.TargetPosition = new Vector3Snapshot(25, 0, 0);
+    var restoreResult = await controller
+        .TickAsync(context, supportState, combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(firstResult.ShouldSkipNormalWork, "inside support tactical target should start the fight");
+    AssertFalse(restoreResult.ShouldSkipNormalWork, "same support tactical target should restore after moving outside the radius");
+    AssertLeaderTargetAdopted(combatState, selectedServerObjectId, "same outside support tactical target should remain adopted");
+    AssertFalse(supportState.TacticalTargetRestorePending, "successful same-target restore should clear the pending flag");
+    AssertSequence(new[] { selectKey, selectKey }, keyboard.Keys.ToArray(), "same target restore should only press the tactical select key");
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName == "team_support.tactical_mark.target_rejected"),
+        "same target outside the radius should not be rejected after combat started");
+}
+
 static async Task TestTeamSupportTacticalMarkWaitsAndRestoresLeaderFollowWithoutActiveSignAsync()
 {
     var keyboard = new RecordingKeyboardInput();
@@ -4824,6 +5711,59 @@ static async Task TestTeamSupportTacticalMarkStaysInactiveWithoutJoinCombatAsync
     AssertSequence(new[] { "F2", "C" }, keyboard.Keys.ToArray(), "support without join combat should keep leader follow");
     AssertEqual(0, gameApi.TacticsSignReadCount, "support tactical switch should not read signs while join combat is disabled");
     AssertFalse(combatState.Fighting, "support without join combat should not adopt a tactical target");
+}
+
+static async Task TestTeamSupportAcceptsSelfTargetingLeaderMonsterAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint targetServerObjectId = 5000;
+    var self = CreatePartyMemberSnapshot(1000, "Chanter", true, false, 0.0) with
+    {
+        Class = AionClassId.Chanter,
+        ClassId = (byte)AionClassId.Chanter,
+        ClassName = "Chanter"
+    };
+    var leader = CreatePartyMemberSnapshot(2000, "Guardian", false, true, 10.0) with
+    {
+        LiveTargetServerObjectId = targetServerObjectId
+    };
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "F2", StringComparison.Ordinal))
+        {
+            SetFakeLockedTarget(gameApi, leader.ServerObjectId, 0, 0, 0);
+        }
+        else if (string.Equals(key, "Oem3", StringComparison.Ordinal))
+        {
+            SetFakeLockedTarget(
+                gameApi,
+                targetServerObjectId,
+                LockedTargetSnapshot.MonsterObjectType,
+                targetServerObjectId,
+                100);
+        }
+    };
+
+    var settings = CreateTeamSupportSettings();
+    settings.Team.GroupDistanceMeters = 20.0D;
+    settings.Team.Support!.JoinCombat = true;
+    settings.Team.Support.AllowSelfDefense = false;
+    var combatState = new StationaryCombatState();
+    var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
+    var result = await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), new TeamSupportState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(result.ShouldSkipNormalWork, "self-targeting leader monster should allow support combat");
+    AssertSequence(new[] { "F2", "C", "Oem3" }, keyboard.Keys.ToArray(), "support should assist the self-targeting leader monster");
+    AssertLeaderTargetAdopted(combatState, targetServerObjectId, "support should adopt the self-targeting leader monster");
+    AssertFalse(
+        logger.Entries.Any(entry =>
+            entry.EventName == "team_support.target.rejected" &&
+            string.Equals(entry.Fields["reason"]?.ToString(), "not_targeting_leader_side", StringComparison.Ordinal)),
+        "self-targeting leader monster should not be rejected as outside the leader side");
 }
 
 static async Task TestTeamSupportSelfDefenseAcceptsLeaderTargetAttackingLocalPlayerAsync()
@@ -5635,6 +6575,132 @@ static async Task TestTeamOutputTacticalMarkKeyAdoptsSelectedLivingMonsterAsync(
         "output tactical target validation should bypass VMM cache");
 }
 
+static async Task TestTeamOutputTacticalMarkRejectsNewTargetOutsideStationaryRadiusAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint signedServerObjectId = 7000;
+    const uint selectedServerObjectId = 9000;
+    const string selectKey = "NumPad2";
+    const string homePathName = "team-home";
+    var self = CreatePartyMemberSnapshot(1000, "Dps", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0);
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    gameApi.TacticsSigns = new TacticsSignSnapshot(
+        new uint[] { signedServerObjectId },
+        DateTimeOffset.Now);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, selectKey, StringComparison.Ordinal))
+        {
+            SetFakeLockedTarget(
+                gameApi,
+                selectedServerObjectId,
+                LockedTargetSnapshot.MonsterObjectType,
+                0,
+                100);
+            gameApi.TargetPosition = new Vector3Snapshot(10.01F, 0, 0);
+        }
+        else if (string.Equals(key, "F2", StringComparison.Ordinal))
+        {
+            SetFakeLockedTarget(gameApi, leader.ServerObjectId, 0, 0, 0);
+            gameApi.TargetPosition = null;
+        }
+    };
+
+    var settings = CreateTeamOutputSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat.StationaryCombatRadius = 10.0D;
+    settings.Paths.RevivePathName = homePathName;
+    settings.Team.Output!.TacticalMarkTargetingEnabled = true;
+    settings.Team.Output.SelectTacticalMarkTargetKey = selectKey;
+    var combatState = new StationaryCombatState();
+    var outputState = new TeamOutputState();
+    var rangePolicy = new StationaryCombatController(
+        keyboard,
+        new SemiAutoCombatController(keyboard),
+        new InMemorySharedPathStore(CreatePath(homePathName, new Vector3Snapshot(0, 0, 0))));
+    var controller = new TeamOutputController(keyboard, rangePolicy);
+    var context = CreateContext(settings, gameApi, logger);
+
+    var firstResult = await controller
+        .TickAsync(context, outputState, combatState)
+        .ConfigureAwait(false);
+    var keysAfterFirstTick = keyboard.Keys.ToArray();
+    var signReadsAfterFirstTick = gameApi.TacticsSignReadCount;
+    var secondResult = await controller
+        .TickAsync(context, outputState, combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(!firstResult.ShouldSkipNormalWork, "outside output tactical target should block ordinary target selection");
+    AssertFalse(!secondResult.ShouldSkipNormalWork, "outside output tactical target retry window should stay blocked");
+    AssertFalse(combatState.Fighting, "outside output tactical target should not start combat");
+    AssertEqual(0u, combatState.CurrentTargetServerObjectId, "outside output tactical target should not become current target");
+    AssertSequence(new[] { selectKey, "F2", "C" }, keysAfterFirstTick, "output should reject the target then restore leader follow");
+    AssertSequence(keysAfterFirstTick, keyboard.Keys.ToArray(), "output retry throttle should not press the mark key again immediately");
+    AssertEqual(signReadsAfterFirstTick, gameApi.TacticsSignReadCount, "output retry throttle should not rescan signs immediately");
+    var rejection = logger.Entries.LastOrDefault(entry =>
+        entry.EventName == "team_output.tactical_mark.target_rejected");
+    AssertFalse(rejection is null, "outside output tactical target should log a range rejection");
+    AssertEqual(
+        "outside_stationary_radius",
+        Convert.ToString(rejection!.Fields["reason"]) ?? string.Empty,
+        "output tactical range rejection reason");
+}
+
+static async Task TestTeamOutputTacticalMarkKeepsPathCombatBehaviorAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint signedServerObjectId = 7000;
+    const uint selectedServerObjectId = 9000;
+    const string selectKey = "NumPad2";
+    var self = CreatePartyMemberSnapshot(1000, "Dps", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0);
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    gameApi.TacticsSigns = new TacticsSignSnapshot(
+        new uint[] { signedServerObjectId },
+        DateTimeOffset.Now);
+    keyboard.AfterPress = key =>
+    {
+        if (!string.Equals(key, selectKey, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        SetFakeLockedTarget(
+            gameApi,
+            selectedServerObjectId,
+            LockedTargetSnapshot.MonsterObjectType,
+            0,
+            100);
+        gameApi.TargetPosition = new Vector3Snapshot(1000, 1000, 0);
+    };
+
+    var settings = CreateTeamOutputSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Path;
+    settings.Combat.StationaryCombatRadius = 10.0D;
+    settings.Team.Output!.TacticalMarkTargetingEnabled = true;
+    settings.Team.Output.SelectTacticalMarkTargetKey = selectKey;
+    var combatState = new StationaryCombatState();
+    var rangePolicy = new StationaryCombatController(
+        keyboard,
+        new SemiAutoCombatController(keyboard),
+        new InMemorySharedPathStore());
+    var result = await new TeamOutputController(keyboard, rangePolicy)
+        .TickAsync(CreateContext(settings, gameApi, logger), new TeamOutputState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(result.ShouldSkipNormalWork, "path combat tactical targeting should keep its existing behavior");
+    AssertLeaderTargetAdopted(combatState, selectedServerObjectId, "path combat tactical target should remain adopted");
+    AssertSequence(new[] { selectKey }, keyboard.Keys.ToArray(), "path combat should not restore leader follow because of stationary radius");
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName == "team_output.tactical_mark.target_rejected"),
+        "path combat target should not be checked against the stationary radius");
+}
+
 static async Task TestTeamOutputTacticalMarkWaitsAndRestoresLeaderFollowWithoutActiveSignAsync()
 {
     var keyboard = new RecordingKeyboardInput();
@@ -5709,6 +6775,55 @@ static async Task TestTeamOutputAssistsOnlyLeaderAttackedMonsterAsync()
         !(gameApi.LastLockedTargetContext?.BypassMemoryCache ?? false),
         "output assist target verification should bypass VMM cache");
     AssertEqual(0, gameApi.TacticsSignReadCount, "disabled tactical targeting should not read sign slots");
+}
+
+static async Task TestTeamOutputAcceptsSelfTargetingLeaderMonsterAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint targetServerObjectId = 5000;
+    var self = CreatePartyMemberSnapshot(1000, "Dps", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
+    {
+        LiveTargetServerObjectId = targetServerObjectId
+    };
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "F2", StringComparison.Ordinal))
+        {
+            SetFakeLockedTarget(gameApi, leader.ServerObjectId, 0, 0, 0);
+        }
+        else if (string.Equals(key, TeamOutputScriptSettings.DefaultAssistTargetKey, StringComparison.Ordinal))
+        {
+            SetFakeLockedTarget(
+                gameApi,
+                targetServerObjectId,
+                LockedTargetSnapshot.MonsterObjectType,
+                targetServerObjectId,
+                100);
+        }
+    };
+
+    var settings = CreateTeamOutputSettings();
+    settings.Team.Output!.AllowSelfDefense = false;
+    var combatState = new StationaryCombatState();
+    var controller = new TeamOutputController(keyboard);
+    var result = await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), new TeamOutputState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(result.ShouldSkipNormalWork, "self-targeting leader monster should allow output combat");
+    AssertSequence(
+        new[] { "F2", "C", TeamOutputScriptSettings.DefaultAssistTargetKey },
+        keyboard.Keys.ToArray(),
+        "output should assist the self-targeting leader monster");
+    AssertLeaderTargetAdopted(combatState, targetServerObjectId, "output should adopt the self-targeting leader monster");
+    AssertFalse(
+        logger.Entries.Any(entry =>
+            entry.EventName == "team_output.target.rejected" &&
+            string.Equals(entry.Fields["reason"]?.ToString(), "not_targeting_leader_side", StringComparison.Ordinal)),
+        "self-targeting leader monster should not be rejected as outside the leader side");
 }
 
 static async Task TestTeamOutputUsesConfiguredAssistTargetKeyAsync()
@@ -6260,18 +7375,20 @@ static async Task TestTeamOutputWaitsForFiveConsecutiveLeaderUnavailableTicksAsy
 
     keyboard.Keys.Clear();
     gameApi.Party = CreateTeamPartyWithoutLeader(self);
+    settings.Team.Output!.TacticalMarkTargetingEnabled = true;
     for (var i = 1; i <= 4; i++)
     {
         var missing = await controller.TickAsync(context, state).ConfigureAwait(false);
-        AssertFalse(!missing.ShouldSkipNormalWork, "output should keep blocking normal work for the first four misses");
+        AssertFalse(!missing.ShouldSkipNormalWork, "output tactical targeting should keep blocking normal work for the first four misses");
     }
 
     var fifth = await controller.TickAsync(context, state).ConfigureAwait(false);
 
-    AssertFalse(fifth.ShouldSkipNormalWork, "output should release normal work on the fifth consecutive leader miss");
+    AssertFalse(fifth.ShouldSkipNormalWork, "output tactical targeting should release normal work on the fifth consecutive leader miss");
     AssertEqual(5, state.ConsecutiveLeaderUnavailableTicks, "output missing count at fallback threshold");
     AssertFalse(state.LeaderGroupActive, "output should clear active group state when leader has been missing for five ticks");
     AssertEqual(0, keyboard.Keys.Count, "output should not press follow keys while the leader is unavailable");
+    AssertEqual(0, gameApi.TacticsSignReadCount, "output should not scan tactical signs without an available leader");
 }
 
 static async Task TestTeamOutputContinuesWhenLeaderInvisibleStopDisabledAsync()
@@ -9761,6 +10878,119 @@ static async Task TestAccountConfigPersistsBagCleanupRulesAsync()
     }
 }
 
+static async Task TestRevivePathAggressiveClearRadiusDefaultsCloneJsonAndUiAsync()
+{
+    var defaults = new PathScriptSettings();
+    AssertEqual(
+        PathScriptSettings.DefaultRevivePathAggressiveClearRadius,
+        defaults.RevivePathAggressiveClearRadius,
+        "revive path aggressive clear radius should default to ten meters");
+
+    defaults.RevivePathAggressiveClearRadius = 17.5D;
+    AssertEqual(
+        17.5D,
+        defaults.Clone().RevivePathAggressiveClearRadius,
+        "path settings clone should preserve revive path aggressive clear radius");
+
+    var directory = CreateTempDirectory("roadhog-revive-clear-radius-");
+    try
+    {
+        var accountPath = Path.Combine(directory, "accounts.json");
+        var jsonStore = new JsonAccountConfigStore(accountPath);
+        var save = await jsonStore.UpsertAsync(new AccountConfig
+        {
+            AccountName = "revive-clear-radius-json",
+            ScriptSettings = new ScriptSettings
+            {
+                Paths = defaults
+            }
+        }).ConfigureAwait(false);
+        AssertFalse(!save.Success, "revive path clear radius json save should succeed");
+
+        var load = await jsonStore.LoadAllAsync().ConfigureAwait(false);
+        AssertFalse(!load.Success, "revive path clear radius json load should succeed");
+        AssertEqual(
+            17.5D,
+            load.Value?.Single().ScriptSettings?.Paths.RevivePathAggressiveClearRadius ?? 0.0D,
+            "revive path aggressive clear radius should round-trip through account json");
+    }
+    finally
+    {
+        DeleteDirectoryIfExists(directory);
+    }
+
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        try
+        {
+            var configured = CreateScriptSettings();
+            configured.Paths.RevivePathAggressiveClearRadius = 18.5D;
+            var configStore = new InMemoryAccountConfigStore(new AccountConfig
+            {
+                AccountName = "account1",
+                ScriptSettings = configured
+            });
+
+            using var form = CreateAccountSettingsFormForTestsWithStore(configStore);
+            SetComboSelectedIndexForTest(form, "settingsTabs", 1);
+            var pathTabs = (System.Windows.Forms.TabControl)FindNamedControlForTest(form, "pathTabs");
+            pathTabs.SelectedIndex = 0;
+            form.Show();
+            System.Windows.Forms.Application.DoEvents();
+
+            AssertEqual(
+                "18.5",
+                GetTextBoxTextForTest(form, "revivePathAggressiveClearRadiusTextBox"),
+                "configured revive path aggressive clear radius should load into UI");
+            AssertFalse(
+                !GetControlVisibleForTest(form, "revivePathAggressiveClearRadiusTextBox"),
+                "revive path aggressive clear radius should be visible in expanded advanced settings");
+
+            System.Windows.Forms.Control? ancestor = FindNamedControlForTest(
+                form,
+                "revivePathAggressiveClearRadiusTextBox").Parent;
+            while (ancestor is not null && ancestor is not System.Windows.Forms.TabPage)
+            {
+                ancestor = ancestor.Parent;
+            }
+
+            AssertEqual(
+                "复活路径",
+                ancestor?.Text ?? string.Empty,
+                "revive path aggressive clear radius should belong to the revive path tab");
+
+            SetTextBoxTextForTest(form, "revivePathAggressiveClearRadiusTextBox", "12.5");
+            var saved = InvokeSaveCurrentSettingsForTest(form, out var error);
+            AssertFalse(!saved, "revive path aggressive clear radius ui save failed: " + error);
+
+            var savedSettings = configStore
+                .LoadAllAsync()
+                .GetAwaiter()
+                .GetResult()
+                .Value?
+                .Single()
+                .ScriptSettings;
+            AssertEqual(
+                12.5D,
+                savedSettings?.Paths.RevivePathAggressiveClearRadius ?? 0.0D,
+                "revive path aggressive clear radius should persist from UI");
+        }
+        catch (Exception ex)
+        {
+            failure = ex;
+        }
+    });
+
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    thread.Join();
+    if (failure is not null)
+    {
+        throw failure;
+    }
+}
+
 static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
 {
     var directory = CreateTempDirectory("roadhog-stationary-combat-");
@@ -11645,6 +12875,7 @@ static async Task TestStationaryCombatStartupRecoveryPathClearsNearbyAggressiveM
         settings.MainMode = AccountMainMode.CustomCombat;
         settings.CombatMode = AccountCombatMode.Stationary;
         settings.Paths.RevivePathName = "revive-a";
+        settings.Paths.RevivePathAggressiveClearRadius = 3.0D;
         settings.SemiAuto.AttackKeyLoopEnabled = true;
         settings.SemiAuto.AttackKeyLoopIntervalMs = 1;
         settings.Combat = new CombatScriptSettings
@@ -11737,11 +12968,19 @@ static async Task TestStationaryCombatStartupRecoveryPathClearsNearbyAggressiveM
 
         await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
 
+        AssertFalse(stationaryState.Fighting, "aggressive monster outside configured revive path clear radius should not interrupt recovery");
+        AssertFalse(stationaryState.CurrentTargetIsRevivePathClear, "out-of-radius monster should not be marked as a revive path clear target");
+
+        settings.Paths.RevivePathAggressiveClearRadius = 4.0D;
+        keyboard.Keys.Clear();
+        keyboard.KeyUps.Clear();
+        await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+
         AssertFalse(!stationaryState.StartupRecoveryActive, "startup recovery should remain active while clearing");
         AssertFalse(!stationaryState.Fighting, "nearby aggressive monster should interrupt startup recovery path into combat");
         AssertFalse(!stationaryState.CurrentTargetIsRevivePathClear, "nearby aggressive monster should be tracked as a revive path clear target");
         AssertFalse(stationaryState.CurrentTargetIsMaintenanceDefense, "nearby aggressive monster should not be treated as targeting-defense yet");
-        AssertEqual((ushort)210, stationaryState.CandidateEntityId, "nearest aggressive monster inside 15m should become candidate");
+        AssertEqual((ushort)210, stationaryState.CandidateEntityId, "aggressive monster on configured revive path clear radius boundary should become candidate");
         AssertFalse(!keyboard.KeyUps.Contains("W"), "startup recovery clear should stop path movement first");
         AssertFalse(!keyboard.Keys.Contains("C"), "startup recovery clear should press the opening attack key while waiting for target aggro");
         AssertFalse(!logger.Entries.Any(entry =>
@@ -12325,7 +13564,7 @@ static async Task TestStationaryCombatDeathRecoveryPathClearsNearbyAggressiveMon
         AssertFalse(!stationaryState.Fighting, "nearby aggressive monster should interrupt death recovery path into combat");
         AssertFalse(!stationaryState.CurrentTargetIsRevivePathClear, "nearby aggressive monster should be tracked as a revive path clear target");
         AssertFalse(stationaryState.CurrentTargetIsMaintenanceDefense, "nearby aggressive monster should not be treated as targeting-defense yet");
-        AssertEqual((ushort)210, stationaryState.CandidateEntityId, "nearest aggressive monster inside 15m should become candidate");
+        AssertEqual((ushort)210, stationaryState.CandidateEntityId, "nearest aggressive monster inside default ten meter clear radius should become candidate");
         AssertFalse(!keyboard.KeyUps.Contains("W"), "death recovery clear should stop path movement first");
         AssertFalse(!keyboard.Keys.Contains("C"), "death recovery clear should press the opening attack key while waiting for target aggro");
         AssertFalse(!logger.Entries.Any(entry =>
@@ -18747,6 +19986,298 @@ static async Task TestStationaryCombatHpRuleRunsBeforeDefenseTargetWorkflowAsync
     AssertEqual((ushort)0, stationaryState.CandidateEntityId, "target workflow should wait until maintenance key tick finishes");
 }
 
+static async Task TestStationaryCombatRestoresOwnPetLockInsideHpMaintenanceAsync()
+{
+    var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", "0");
+    try
+    {
+        const ushort monsterEntityId = 100;
+        const uint monsterServerObjectId = 9000;
+        const uint localServerObjectId = 1000;
+        const uint localPetServerObjectId = 2000;
+        const uint lifeDrainSkillId = 1790;
+        const string lifeDrainKey = "NumPad4";
+        var settings = CreateSpiritmasterScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 30
+        };
+        settings.Maintenance.SitMaintenanceEnabled = false;
+        settings.Maintenance.HpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+        {
+            BelowPercent = 80,
+            Key = lifeDrainKey,
+            SkillId = lifeDrainSkillId,
+            SkillName = "Life Drain",
+            RunTiming = MaintenanceRuleRunTiming.InCombat
+        });
+
+        var lifeDrain = new SkillSnapshot(
+            lifeDrainSkillId,
+            "Life Drain",
+            1,
+            1,
+            "Life Drain",
+            1,
+            false,
+            1_000,
+            0);
+        var target = new WorldObjectSnapshot(
+            monsterEntityId,
+            monsterServerObjectId,
+            "Monster",
+            "monster",
+            new Vector3Snapshot(5, 0, 0),
+            5,
+            1000,
+            1000,
+            TargetServerObjectId: localServerObjectId,
+            IsTargetingLocalPlayer: true,
+            AggressiveKnown: true,
+            IsAggressiveToPlayer: true);
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = CreateSpiritmasterPlayer() with { CurrentHp = 40 },
+            SummonedPetRoster = CreateLocalPetRoster(isSummoned: true),
+            TargetEntityId = monsterEntityId,
+            TargetOwnServerObjectId = monsterServerObjectId,
+            TargetObjectType = LockedTargetSnapshot.MonsterObjectType,
+            TargetCurrentHp = 1000,
+            TargetMaxHp = 1000,
+            TargetPosition = target.Position,
+            TargetServerObjectId = localServerObjectId,
+            LocalServerObjectId = localServerObjectId,
+            TargetIsTargetingLocalPlayer = true,
+            WorldObjects = new[] { target },
+            Skills = CreateSpiritmasterSkillSnapshots(lifeDrain)
+        };
+        var hpPressCount = 0;
+        keyboard.AfterPress = key =>
+        {
+            if (string.Equals(key, lifeDrainKey, StringComparison.Ordinal))
+            {
+                hpPressCount++;
+                if (hpPressCount == 1)
+                {
+                    gameApi.TargetEntityId = 2;
+                    gameApi.TargetOwnServerObjectId = localPetServerObjectId;
+                    gameApi.TargetName = "Pet";
+                    gameApi.TargetCurrentHp = 100;
+                    gameApi.TargetMaxHp = 100;
+                    gameApi.TargetServerObjectId = 0;
+                    gameApi.TargetIsTargetingLocalPlayer = false;
+                }
+                else
+                {
+                    gameApi.Skills = CreateSpiritmasterSkillSnapshots(
+                        lifeDrain with { CooldownEndTime = ActiveCooldownEnd() });
+                }
+            }
+            else if (string.Equals(key, "Tab", StringComparison.Ordinal))
+            {
+                gameApi.TargetEntityId = monsterEntityId;
+                gameApi.TargetOwnServerObjectId = monsterServerObjectId;
+                gameApi.TargetName = "Monster";
+                gameApi.TargetCurrentHp = 1000;
+                gameApi.TargetMaxHp = 1000;
+                gameApi.TargetServerObjectId = localServerObjectId;
+                gameApi.TargetIsTargetingLocalPlayer = true;
+            }
+        };
+
+        var semiAutoState = new SemiAutoCombatState();
+        CalibrateCooldownClock(semiAutoState);
+        var stationaryState = new StationaryCombatState { Fighting = true };
+        stationaryState.SetCurrentTarget(target);
+        stationaryState.MarkCandidate(target, DateTimeOffset.Now);
+        var controller = new StationaryCombatController(
+            keyboard,
+            new SemiAutoCombatController(keyboard));
+
+        await controller
+            .TickAsync(
+                CreateContext(settings, gameApi, logger),
+                SemiAutoSkillPlan.FromSettings(settings.Skills),
+                semiAutoState,
+                stationaryState)
+            .ConfigureAwait(false);
+
+        AssertSequence(
+            new[] { lifeDrainKey, "Tab", lifeDrainKey },
+            keyboard.Keys.ToArray(),
+            "own pet selection should recover the original monster before retrying hp absorption");
+        AssertEqual(1, keyboard.Keys.Count(key => string.Equals(key, "Tab", StringComparison.Ordinal)), "own pet recovery should press Tab exactly once");
+        AssertFalse(
+            !logger.Entries.Any(entry => entry.EventName == "stationary_combat.own_pet_target_recovery.detected"),
+            "own pet target should be detected inside the hp confirmation loop");
+        AssertFalse(
+            !logger.Entries.Any(entry =>
+                entry.EventName == "stationary_combat.own_pet_target_recovery.verify" &&
+                Convert.ToBoolean(entry.Fields["matched"])),
+            "own pet recovery should verify the original monster identity");
+        AssertFalse(
+            gameApi.LastLockedTargetContext?.BypassMemoryCache != true,
+            "own pet recovery verification should bypass the target cache");
+        AssertFalse(
+            !logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.key_pressed"),
+            "hp absorption should complete after target recovery");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
+    }
+}
+
+static async Task TestStationaryCombatBlocksHpRetryWhenOwnPetTabVerificationMissesAsync()
+{
+    var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", "0");
+    try
+    {
+        const ushort monsterEntityId = 100;
+        const uint monsterServerObjectId = 9000;
+        const uint localServerObjectId = 1000;
+        const uint localPetServerObjectId = 2000;
+        const uint lifeDrainSkillId = 1790;
+        const string lifeDrainKey = "NumPad4";
+        var settings = CreateSpiritmasterScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 30
+        };
+        settings.Maintenance.SitMaintenanceEnabled = false;
+        settings.Maintenance.HpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+        {
+            BelowPercent = 80,
+            Key = lifeDrainKey,
+            SkillId = lifeDrainSkillId,
+            SkillName = "Life Drain",
+            RunTiming = MaintenanceRuleRunTiming.InCombat
+        });
+
+        var lifeDrain = new SkillSnapshot(
+            lifeDrainSkillId,
+            "Life Drain",
+            1,
+            1,
+            "Life Drain",
+            1,
+            false,
+            1_000,
+            0);
+        var target = new WorldObjectSnapshot(
+            monsterEntityId,
+            monsterServerObjectId,
+            "Monster",
+            "monster",
+            new Vector3Snapshot(5, 0, 0),
+            5,
+            1000,
+            1000,
+            TargetServerObjectId: localServerObjectId,
+            IsTargetingLocalPlayer: true,
+            AggressiveKnown: true,
+            IsAggressiveToPlayer: true);
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = CreateSpiritmasterPlayer() with { CurrentHp = 40 },
+            SummonedPetRoster = CreateLocalPetRoster(isSummoned: true),
+            TargetEntityId = monsterEntityId,
+            TargetOwnServerObjectId = monsterServerObjectId,
+            TargetObjectType = LockedTargetSnapshot.MonsterObjectType,
+            TargetCurrentHp = 1000,
+            TargetMaxHp = 1000,
+            TargetPosition = target.Position,
+            TargetServerObjectId = localServerObjectId,
+            LocalServerObjectId = localServerObjectId,
+            TargetIsTargetingLocalPlayer = true,
+            WorldObjects = new[] { target },
+            Skills = CreateSpiritmasterSkillSnapshots(lifeDrain)
+        };
+        keyboard.AfterPress = key =>
+        {
+            if (string.Equals(key, lifeDrainKey, StringComparison.Ordinal))
+            {
+                gameApi.TargetEntityId = 2;
+                gameApi.TargetOwnServerObjectId = localPetServerObjectId;
+                gameApi.TargetName = "Pet";
+                gameApi.TargetCurrentHp = 100;
+                gameApi.TargetMaxHp = 100;
+                gameApi.TargetServerObjectId = 0;
+                gameApi.TargetIsTargetingLocalPlayer = false;
+            }
+            else if (string.Equals(key, "Tab", StringComparison.Ordinal))
+            {
+                gameApi.TargetEntityId = 101;
+                gameApi.TargetOwnServerObjectId = 9100;
+                gameApi.TargetName = "Wrong Monster";
+                gameApi.TargetCurrentHp = 1000;
+                gameApi.TargetMaxHp = 1000;
+                gameApi.TargetServerObjectId = localServerObjectId;
+                gameApi.TargetIsTargetingLocalPlayer = true;
+            }
+        };
+
+        var semiAutoState = new SemiAutoCombatState();
+        CalibrateCooldownClock(semiAutoState);
+        var stationaryState = new StationaryCombatState { Fighting = true };
+        stationaryState.SetCurrentTarget(target);
+        stationaryState.MarkCandidate(target, DateTimeOffset.Now);
+        var controller = new StationaryCombatController(
+            keyboard,
+            new SemiAutoCombatController(keyboard));
+
+        await controller
+            .TickAsync(
+                CreateContext(settings, gameApi, logger),
+                SemiAutoSkillPlan.FromSettings(settings.Skills),
+                semiAutoState,
+                stationaryState)
+            .ConfigureAwait(false);
+
+        AssertSequence(
+            new[] { lifeDrainKey, "Tab" },
+            keyboard.Keys.ToArray(),
+            "failed Tab verification must stop the hp absorption retry loop");
+        AssertFalse(
+            !logger.Entries.Any(entry =>
+                entry.EventName == "stationary_combat.own_pet_target_recovery.verify" &&
+                !Convert.ToBoolean(entry.Fields["matched"])),
+            "wrong monster after Tab should fail exact target verification");
+        AssertFalse(
+            !logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.target_guard_blocked"),
+            "failed own pet recovery should consume the maintenance tick without another hp key");
+        AssertFalse(
+            !semiAutoState.ShouldPressMaintenanceKey(
+                lifeDrainKey,
+                DateTimeOffset.Now,
+                TimeSpan.FromSeconds(3),
+                TimeSpan.FromMilliseconds(600)),
+            "failed own pet recovery should clear only the unconfirmed hp key throttle");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
+    }
+}
+
 static async Task TestStationaryCombatStopsMovementBeforeHpMaintenanceAsync()
 {
     var settings = CreateScriptSettings();
@@ -24295,6 +25826,15 @@ static bool GetControlVisibleForTest(AccountSettingsForm form, string fieldName)
     return (bool)property!.GetValue(control)!;
 }
 
+static System.Windows.Forms.Control FindNamedControlForTest(
+    AccountSettingsForm form,
+    string controlName)
+{
+    var controls = form.Controls.Find(controlName, searchAllChildren: true);
+    AssertEqual(1, controls.Length, controlName + " should exist exactly once");
+    return controls[0];
+}
+
 static void ClickControlForTest(AccountSettingsForm form, string fieldName)
 {
     var control = GetPrivateFieldForTest(form, fieldName);
@@ -24313,6 +25853,16 @@ static void SetComboSelectedIndexForTest(AccountSettingsForm form, string fieldN
         System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
     AssertFalse(property is null, fieldName + " selected index property should exist");
     property!.SetValue(combo, selectedIndex);
+}
+
+static int GetComboSelectedIndexForTest(AccountSettingsForm form, string fieldName)
+{
+    var combo = GetPrivateFieldForTest(form, fieldName);
+    var property = combo.GetType().GetProperty(
+        "SelectedIndex",
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+    AssertFalse(property is null, fieldName + " selected index property should exist");
+    return (int)property!.GetValue(combo)!;
 }
 
 static string GetTextBoxTextForTest(AccountSettingsForm form, string fieldName)
@@ -25102,6 +26652,51 @@ sealed class RecordingKeyboardInput : IKeyboardInput
     }
 }
 
+sealed class ManualTimeProvider : TimeProvider
+{
+    private DateTimeOffset _utcNow = new(2026, 8, 9, 0, 0, 0, TimeSpan.Zero);
+
+    public override DateTimeOffset GetUtcNow()
+    {
+        return _utcNow;
+    }
+
+    public void Advance(TimeSpan duration)
+    {
+        _utcNow += duration;
+    }
+
+    public Task NoOpAsync()
+    {
+        return Task.CompletedTask;
+    }
+}
+
+sealed class RecordingFixedChannelSwitchExecutor : IFixedChannelSwitchExecutor
+{
+    public List<FixedChannelSwitchRequest> Requests { get; } = new();
+
+    public OperationResult Result { get; set; } = OperationResult.Ok();
+
+    public Exception? ExceptionToThrow { get; set; }
+
+    public Action<FixedChannelSwitchRequest>? BeforeReturn { get; set; }
+
+    public Task<OperationResult> ExecuteAsync(
+        FixedChannelSwitchRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        Requests.Add(request);
+        BeforeReturn?.Invoke(request);
+        if (ExceptionToThrow is not null)
+        {
+            throw ExceptionToThrow;
+        }
+
+        return Task.FromResult(Result);
+    }
+}
+
 sealed class InMemoryAccountConfigStore : IAccountConfigStore
 {
     private readonly Dictionary<string, AccountConfig> _accounts;
@@ -25321,7 +26916,7 @@ sealed class InMemoryScriptProfileStore : IScriptProfileStore
     }
 }
 
-sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi
+sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi
 #if DEBUG
     , IRoadhogApiAddressProbe
 #endif
@@ -25369,6 +26964,13 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
     public TacticsSignSnapshot TacticsSigns { get; set; } =
         TacticsSignSnapshot.Empty(DateTimeOffset.Now);
 
+    public ChannelSnapshot Channel { get; set; } =
+        new(0, 1, 1, DateTimeOffset.Now);
+
+    public Queue<OperationResult<ChannelSnapshot>> ChannelReadResults { get; } = new();
+
+    public int ChannelReadCount { get; private set; }
+
     public Queue<OperationResult<TacticsSignSnapshot>> TacticsSignReadResults { get; } = new();
 
     public int TacticsSignReadCount { get; private set; }
@@ -25394,6 +26996,8 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
     public GameApiReadContext? LastPartyContext { get; private set; }
 
     public GameApiReadContext? LastTacticsSignContext { get; private set; }
+
+    public GameApiReadContext? LastChannelContext { get; private set; }
 
     public GameApiReadContext? LastLockedTargetContext { get; private set; }
 
@@ -25554,6 +27158,23 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
     {
         LastTacticsSignContext = context;
         return ReadTacticsSignsAsync(cancellationToken);
+    }
+
+    public Task<OperationResult<ChannelSnapshot>> ReadChannelAsync(
+        CancellationToken cancellationToken = default)
+    {
+        ChannelReadCount++;
+        return Task.FromResult(ChannelReadResults.Count > 0
+            ? ChannelReadResults.Dequeue()
+            : OperationResult<ChannelSnapshot>.Ok(Channel));
+    }
+
+    public Task<OperationResult<ChannelSnapshot>> ReadChannelAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        LastChannelContext = context;
+        return ReadChannelAsync(cancellationToken);
     }
 
     public Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(CancellationToken cancellationToken = default)

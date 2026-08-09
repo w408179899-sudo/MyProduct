@@ -15,7 +15,7 @@ using Vmmsharp;
 
 namespace Roadhog.Infrastructure.Vmm;
 
-public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi
+public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi
 #if DEBUG
     , IRoadhogApiAddressProbe
 #endif
@@ -43,6 +43,10 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
     private const ulong SecondaryPartyListRva = 0xD669C8;
     private const ulong TacticsSignTableRva = 0xD668E0;
     private const int TacticsSignCount = 16;
+    private const ulong CurrentMapContextPointerRva = 0xD647D0;
+    private const ulong CurrentMapIdOffset = 0x20DC;
+    private const ulong CurrentChannelIndexRva = 0xD71CC0;
+    private const ulong CurrentChannelCountRva = 0xD71CC4;
     private const ulong LocalEntityIdRva = 0xD6CB18;
     private const ulong LocalMaxHpRva = 0xD71BC4;
     private const ulong LocalCurrentHpRva = 0xD71BC8;
@@ -316,6 +320,20 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         CancellationToken cancellationToken = default)
     {
         return Task.Run(() => ReadTacticsSignsCore(context), cancellationToken);
+    }
+
+    public Task<OperationResult<ChannelSnapshot>> ReadChannelAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var context = new GameApiReadContext(string.Empty, 0, string.Empty, string.Empty);
+        return ReadChannelAsync(context, cancellationToken);
+    }
+
+    public Task<OperationResult<ChannelSnapshot>> ReadChannelAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => ReadChannelCore(context), cancellationToken);
     }
 
     public Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(CancellationToken cancellationToken = default)
@@ -1637,6 +1655,77 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 ["account"] = context.AccountName
             });
             return OperationResult<TacticsSignSnapshot>.Fail(ex.Message);
+        }
+    }
+
+    private OperationResult<ChannelSnapshot> ReadChannelCore(GameApiReadContext context)
+    {
+        try
+        {
+            var connection = GetOrCreateConnection(context.VmmDeviceName);
+            lock (connection.SyncRoot)
+            {
+                if (!TryResolveProcess(connection.Vmm, context, out var process, out var processError))
+                {
+                    return OperationResult<ChannelSnapshot>.Fail(processError);
+                }
+
+                var moduleName = ResolveModuleName();
+                var gameBase = process.GetModuleBase(moduleName);
+                if (gameBase == 0)
+                {
+                    return OperationResult<ChannelSnapshot>.Fail("Module not found: " + moduleName);
+                }
+
+                const int channelByteCount = sizeof(uint) * 2;
+                if (!TryReadBytes(
+                        process,
+                        gameBase + CurrentChannelIndexRva,
+                        channelByteCount,
+                        out var channelBytes,
+                        context.BypassMemoryCache))
+                {
+                    return OperationResult<ChannelSnapshot>.Fail(
+                        "failed to read channel index/count at Game.dll+0x" +
+                        CurrentChannelIndexRva.ToString("X", CultureInfo.InvariantCulture));
+                }
+
+                if (!TryReadPointer(
+                        process,
+                        gameBase + CurrentMapContextPointerRva,
+                        out var mapContext,
+                        context.BypassMemoryCache) ||
+                    mapContext == 0)
+                {
+                    return OperationResult<ChannelSnapshot>.Fail(
+                        "failed to read current map context at Game.dll+0x" +
+                        CurrentMapContextPointerRva.ToString("X", CultureInfo.InvariantCulture));
+                }
+
+                if (!TryReadUInt32(
+                        process,
+                        mapContext + CurrentMapIdOffset,
+                        out var mapId,
+                        context.BypassMemoryCache))
+                {
+                    return OperationResult<ChannelSnapshot>.Fail(
+                        "failed to read current map id at MapContext+0x" +
+                        CurrentMapIdOffset.ToString("X", CultureInfo.InvariantCulture));
+                }
+
+                var channelIndex = unchecked((int)BitConverter.ToUInt32(channelBytes, 0));
+                var channelCount = unchecked((int)BitConverter.ToUInt32(channelBytes, sizeof(uint)));
+                return OperationResult<ChannelSnapshot>.Ok(
+                    new ChannelSnapshot(channelIndex, channelCount, mapId, DateTimeOffset.Now));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("vmm.channel.exception", ex, new Dictionary<string, object?>
+            {
+                ["account"] = context.AccountName
+            });
+            return OperationResult<ChannelSnapshot>.Fail(ex.Message);
         }
     }
 
