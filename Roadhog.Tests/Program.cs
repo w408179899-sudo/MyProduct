@@ -164,6 +164,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team support join combat selects leader target inside group range", TestTeamSupportJoinCombatSelectsLeaderTargetInsideGroupRangeAsync),
     ("team support tactical mark key adopts selected living monster", TestTeamSupportTacticalMarkKeyAdoptsSelectedLivingMonsterAsync),
     ("team support tactical mark rejects new target outside stationary radius", TestTeamSupportTacticalMarkRejectsNewTargetOutsideStationaryRadiusAsync),
+    ("team support tactical mark accepts leader target outside stationary radius", TestTeamSupportTacticalMarkAcceptsLeaderTargetOutsideStationaryRadiusAsync),
     ("team support tactical mark accepts new target on stationary radius boundary", TestTeamSupportTacticalMarkAcceptsNewTargetOnStationaryRadiusBoundaryAsync),
     ("team support tactical mark restores same target outside stationary radius", TestTeamSupportTacticalMarkRestoresSameTargetOutsideStationaryRadiusAsync),
     ("team support tactical mark waits and restores leader follow without active sign", TestTeamSupportTacticalMarkWaitsAndRestoresLeaderFollowWithoutActiveSignAsync),
@@ -189,6 +190,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team leader tactical mark retries and accepts any sign slot", TestTeamLeaderTacticalMarkPressesBeforeVerificationAndAcceptsAnySignSlotAsync),
     ("team output tactical mark key adopts selected living monster", TestTeamOutputTacticalMarkKeyAdoptsSelectedLivingMonsterAsync),
     ("team output tactical mark rejects new target outside stationary radius", TestTeamOutputTacticalMarkRejectsNewTargetOutsideStationaryRadiusAsync),
+    ("team output tactical mark accepts leader target outside stationary radius", TestTeamOutputTacticalMarkAcceptsLeaderTargetOutsideStationaryRadiusAsync),
     ("team output tactical mark keeps path combat behavior", TestTeamOutputTacticalMarkKeepsPathCombatBehaviorAsync),
     ("team output tactical mark waits and restores leader follow without active sign", TestTeamOutputTacticalMarkWaitsAndRestoresLeaderFollowWithoutActiveSignAsync),
     ("team output assists only leader attacked monster", TestTeamOutputAssistsOnlyLeaderAttackedMonsterAsync),
@@ -5449,7 +5451,10 @@ static async Task TestTeamSupportTacticalMarkRejectsNewTargetOutsideStationaryRa
     const string selectKey = "NumPad2";
     const string homePathName = "team-home";
     var self = CreatePartyMemberSnapshot(1000, "Chanter", true, false, 0.0);
-    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
+    {
+        LiveTargetServerObjectId = 8000
+    };
     var gameApi = CreateTeamSupportGameApi(self, leader);
     gameApi.Skills = new[]
     {
@@ -5466,7 +5471,7 @@ static async Task TestTeamSupportTacticalMarkRejectsNewTargetOutsideStationaryRa
                 gameApi,
                 selectedServerObjectId,
                 LockedTargetSnapshot.MonsterObjectType,
-                0,
+                leader.ServerObjectId,
                 100);
             gameApi.TargetPosition = new Vector3Snapshot(10.01F, 0, 0);
         }
@@ -5520,6 +5525,76 @@ static async Task TestTeamSupportTacticalMarkRejectsNewTargetOutsideStationaryRa
         "outside_stationary_radius",
         Convert.ToString(rejection!.Fields["reason"]) ?? string.Empty,
         "support tactical range rejection reason");
+}
+
+static async Task TestTeamSupportTacticalMarkAcceptsLeaderTargetOutsideStationaryRadiusAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint signedServerObjectId = 7000;
+    const uint selectedServerObjectId = 9000;
+    const string selectKey = "NumPad2";
+    const string homePathName = "team-home";
+    var self = CreatePartyMemberSnapshot(1000, "Chanter", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
+    {
+        LiveTargetServerObjectId = selectedServerObjectId
+    };
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(1, "ready", 1, 1, "ready", 1, false, 10_000, 0)
+    };
+    gameApi.TacticsSigns = new TacticsSignSnapshot(
+        new uint[] { signedServerObjectId },
+        DateTimeOffset.Now);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, selectKey, StringComparison.Ordinal))
+        {
+            SetFakeLockedTarget(
+                gameApi,
+                selectedServerObjectId,
+                LockedTargetSnapshot.MonsterObjectType,
+                leader.ServerObjectId,
+                100);
+            gameApi.TargetPosition = new Vector3Snapshot(100, 0, 0);
+        }
+    };
+
+    var settings = CreateTeamSupportSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat.StationaryCombatRadius = 10.0D;
+    settings.Paths.RevivePathName = homePathName;
+    settings.Team.Support!.JoinCombat = true;
+    settings.Team.Support.TacticalMarkTargetingEnabled = true;
+    settings.Team.Support.SelectTacticalMarkTargetKey = selectKey;
+    var combatState = new StationaryCombatState();
+    var rangePolicy = new StationaryCombatController(
+        keyboard,
+        new SemiAutoCombatController(keyboard),
+        new InMemorySharedPathStore(CreatePath(homePathName, new Vector3Snapshot(0, 0, 0))));
+    var controller = new TeamSupportController(
+        keyboard,
+        CreateTeamSupportAbnormalCatalog(),
+        rangePolicy);
+
+    var result = await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), new TeamSupportState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(result.ShouldSkipNormalWork, "support should engage the leader target outside stationary radius");
+    AssertSequence(new[] { selectKey }, keyboard.Keys.ToArray(), "support should keep the selected leader target");
+    AssertLeaderTargetAdopted(combatState, selectedServerObjectId, "support should adopt the marked leader target");
+    AssertFalse(!combatState.CurrentTargetIsTacticalMark, "support leader target should retain tactical target origin");
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName == "team_support.tactical_mark.target_rejected"),
+        "support leader target should bypass stationary radius rejection");
+    var accepted = logger.Entries.LastOrDefault(entry =>
+        entry.EventName == "team_support.tactical_mark.target_accepted");
+    AssertFalse(accepted is null, "support leader target should log tactical acceptance");
+    AssertEqual(true, Convert.ToBoolean(accepted!.Fields["isLeaderCurrentTarget"]), "support acceptance should identify the leader target");
 }
 
 static async Task TestTeamSupportTacticalMarkAcceptsNewTargetOnStationaryRadiusBoundaryAsync()
@@ -6598,7 +6673,10 @@ static async Task TestTeamOutputTacticalMarkRejectsNewTargetOutsideStationaryRad
     const string selectKey = "NumPad2";
     const string homePathName = "team-home";
     var self = CreatePartyMemberSnapshot(1000, "Dps", true, false, 0.0);
-    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
+    {
+        LiveTargetServerObjectId = 8000
+    };
     var gameApi = CreateTeamSupportGameApi(self, leader);
     gameApi.TacticsSigns = new TacticsSignSnapshot(
         new uint[] { signedServerObjectId },
@@ -6611,7 +6689,7 @@ static async Task TestTeamOutputTacticalMarkRejectsNewTargetOutsideStationaryRad
                 gameApi,
                 selectedServerObjectId,
                 LockedTargetSnapshot.MonsterObjectType,
-                0,
+                leader.ServerObjectId,
                 100);
             gameApi.TargetPosition = new Vector3Snapshot(10.01F, 0, 0);
         }
@@ -6661,6 +6739,68 @@ static async Task TestTeamOutputTacticalMarkRejectsNewTargetOutsideStationaryRad
         "outside_stationary_radius",
         Convert.ToString(rejection!.Fields["reason"]) ?? string.Empty,
         "output tactical range rejection reason");
+}
+
+static async Task TestTeamOutputTacticalMarkAcceptsLeaderTargetOutsideStationaryRadiusAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint signedServerObjectId = 7000;
+    const uint selectedServerObjectId = 9000;
+    const string selectKey = "NumPad2";
+    const string homePathName = "team-home";
+    var self = CreatePartyMemberSnapshot(1000, "Dps", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
+    {
+        LiveTargetServerObjectId = selectedServerObjectId
+    };
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    gameApi.TacticsSigns = new TacticsSignSnapshot(
+        new uint[] { signedServerObjectId },
+        DateTimeOffset.Now);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, selectKey, StringComparison.Ordinal))
+        {
+            SetFakeLockedTarget(
+                gameApi,
+                selectedServerObjectId,
+                LockedTargetSnapshot.MonsterObjectType,
+                leader.ServerObjectId,
+                100);
+            gameApi.TargetPosition = new Vector3Snapshot(100, 0, 0);
+        }
+    };
+
+    var settings = CreateTeamOutputSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat.StationaryCombatRadius = 10.0D;
+    settings.Paths.RevivePathName = homePathName;
+    settings.Team.Output!.TacticalMarkTargetingEnabled = true;
+    settings.Team.Output.SelectTacticalMarkTargetKey = selectKey;
+    var combatState = new StationaryCombatState();
+    var rangePolicy = new StationaryCombatController(
+        keyboard,
+        new SemiAutoCombatController(keyboard),
+        new InMemorySharedPathStore(CreatePath(homePathName, new Vector3Snapshot(0, 0, 0))));
+    var controller = new TeamOutputController(keyboard, rangePolicy);
+
+    var result = await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), new TeamOutputState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(result.ShouldSkipNormalWork, "output should engage the leader target outside stationary radius");
+    AssertSequence(new[] { selectKey }, keyboard.Keys.ToArray(), "output should keep the selected leader target");
+    AssertLeaderTargetAdopted(combatState, selectedServerObjectId, "output should adopt the marked leader target");
+    AssertFalse(!combatState.CurrentTargetIsTacticalMark, "output leader target should retain tactical target origin");
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName == "team_output.tactical_mark.target_rejected"),
+        "output leader target should bypass stationary radius rejection");
+    var accepted = logger.Entries.LastOrDefault(entry =>
+        entry.EventName == "team_output.tactical_mark.target_accepted");
+    AssertFalse(accepted is null, "output leader target should log tactical acceptance");
+    AssertEqual(true, Convert.ToBoolean(accepted!.Fields["isLeaderCurrentTarget"]), "output acceptance should identify the leader target");
 }
 
 static async Task TestTeamOutputTacticalMarkKeepsPathCombatBehaviorAsync()

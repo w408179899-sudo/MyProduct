@@ -5,6 +5,16 @@ namespace Roadhog.Application.Team;
 
 internal static class TeamLeaderTargetValidator
 {
+    public static bool IsLeaderCurrentLivingTarget(
+        LockedTargetSnapshot? target,
+        TeamMemberSnapshot leader)
+    {
+        var leaderTargetServerObjectId = leader.PartyMember.LiveTargetServerObjectId;
+        return target is { IsMonsterAlive: true } &&
+               leaderTargetServerObjectId != 0 &&
+               target.ServerObjectId == leaderTargetServerObjectId;
+    }
+
     public static bool IsKnownTeamSideTarget(
         TeamSnapshot snapshot,
         uint serverObjectId,

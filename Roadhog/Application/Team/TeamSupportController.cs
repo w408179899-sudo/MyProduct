@@ -704,7 +704,9 @@ public sealed class TeamSupportController
         }
 
         var target = selection.LockedTargetResult.Value;
-        if (!TeamCombatTargetAdopter.IsCurrentTacticalMarkedTarget(combatState, target) &&
+        var isLeaderCurrentTarget = TeamLeaderTargetValidator.IsLeaderCurrentLivingTarget(target, leader);
+        if (!isLeaderCurrentTarget &&
+            !TeamCombatTargetAdopter.IsCurrentTacticalMarkedTarget(combatState, target) &&
             _tacticalTargetRangePolicy is not null &&
             combatState is not null &&
             target is not null)
@@ -746,6 +748,7 @@ public sealed class TeamSupportController
             ["activeSignCount"] = selection.ActiveSignCount,
             ["confirmPollCount"] = selection.PollCount,
             ["key"] = selectKey,
+            ["isLeaderCurrentTarget"] = isLeaderCurrentTarget,
             ["combatAdopted"] = combatAdopted
         });
 
