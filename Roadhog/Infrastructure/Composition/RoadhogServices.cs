@@ -38,6 +38,7 @@ public sealed class RoadhogServices : IDisposable
         IHardwareDeviceResolver hardwareResolver,
         ITargetProcessResolver processResolver,
         IAccountConfigStore accountConfigStore,
+        IBagCleanupNameListStore bagCleanupNameListStore,
         ISharedPathStore sharedPathStore,
         IScriptProfileStore scriptProfileStore,
         IFolderLauncher folderLauncher,
@@ -57,6 +58,7 @@ public sealed class RoadhogServices : IDisposable
         HardwareResolver = hardwareResolver;
         ProcessResolver = processResolver;
         AccountConfigStore = accountConfigStore;
+        BagCleanupNameListStore = bagCleanupNameListStore;
         SharedPathStore = sharedPathStore;
         ScriptProfileStore = scriptProfileStore;
         FolderLauncher = folderLauncher;
@@ -84,6 +86,8 @@ public sealed class RoadhogServices : IDisposable
     public ITargetProcessResolver ProcessResolver { get; }
 
     public IAccountConfigStore AccountConfigStore { get; }
+
+    public IBagCleanupNameListStore BagCleanupNameListStore { get; }
 
     public ISharedPathStore SharedPathStore { get; }
 
@@ -158,6 +162,12 @@ public sealed class RoadhogServices : IDisposable
         var hardwareResolver = new WindowsHardwareDeviceResolver(options.HardwareResolver);
         var processResolver = new AionProcessResolver(options.ProcessResolver);
         var accountConfigStore = new JsonAccountConfigStore(options.AccountConfigPath);
+        var configDirectory = Path.GetDirectoryName(Path.GetFullPath(options.AccountConfigPath)) ??
+                              Path.Combine(AppContext.BaseDirectory, "config");
+        var bagCleanupNameListStore = new JsonBagCleanupNameListStore(
+            Path.Combine(configDirectory, JsonBagCleanupNameListStore.DefaultFileName),
+            Path.Combine(configDirectory, JsonBagCleanupNameListStore.LegacyFileName),
+            logger);
         var sharedPathStore = new JsonSharedPathStore(options.PathLibraryDirectory);
         var scriptProfileStore = new JsonScriptProfileStore(options.ProfileLibraryDirectory);
         var folderLauncher = new WindowsFolderLauncher();
@@ -236,6 +246,7 @@ public sealed class RoadhogServices : IDisposable
             hardwareResolver,
             processResolver,
             accountConfigStore,
+            bagCleanupNameListStore,
             sharedPathStore,
             scriptProfileStore,
             folderLauncher,

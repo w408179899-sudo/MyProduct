@@ -45,11 +45,8 @@ public static class BagCleanupItemMatcher
         BagCleanupAction action,
         bool resolveSellDiscardConflict)
     {
-        var excludedNameKeywords = settings.BagCleanupExcludedItemNames
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .Select(name => name.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        var whitelistKeywords = ReadKeywords(settings.BagCleanupExcludedItemNames);
+        var blacklistKeywords = ReadKeywords(settings.BagCleanupDiscardItemNameKeywords);
         var allRules = BagCleanupRuleCatalog
             .MergeWithDefaults(settings.BagCleanupRules)
             .Where(rule => rule.Enabled)
@@ -59,15 +56,20 @@ public static class BagCleanupItemMatcher
             ? allRules.Where(rule => rule.Action == BagCleanupAction.Sell).ToArray()
             : Array.Empty<BagCleanupRuleConfig>();
 
-        if (rules.Length == 0)
+        if (rules.Length == 0 &&
+            (action != BagCleanupAction.Discard || blacklistKeywords.Length == 0))
         {
             return Array.Empty<InventoryItemSnapshot>();
         }
 
         return items
-            .Where(item => IsBagItem(item) && !IsExcludedByNameKeyword(item.Name, excludedNameKeywords))
-            .Where(item => rules.Any(rule => MatchesRule(item, rule)))
-            .Where(item => !resolveSellDiscardConflict || !sellRules.Any(rule => MatchesRule(item, rule)))
+            .Where(item => IsBagItem(item) && !MatchesNameKeyword(item.Name, whitelistKeywords))
+            .Where(item => action == BagCleanupAction.Discard
+                ? MatchesNameKeyword(item.Name, blacklistKeywords) ||
+                  (rules.Any(rule => MatchesRule(item, rule)) &&
+                   (!resolveSellDiscardConflict || !sellRules.Any(rule => MatchesRule(item, rule))))
+                : !MatchesNameKeyword(item.Name, blacklistKeywords) &&
+                  rules.Any(rule => MatchesRule(item, rule)))
             .OrderBy(item => item.Slot)
             .ThenBy(item => item.TemplateId)
             .ThenBy(item => item.InstanceId)
@@ -78,13 +80,32 @@ public static class BagCleanupItemMatcher
         IEnumerable<InventoryItemSnapshot> items,
         MaintenanceScriptSettings settings)
     {
-        var excludedNameKeywords = settings.BagCleanupExcludedItemNames
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .Select(name => name.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        var whitelistKeywords = ReadKeywords(settings.BagCleanupExcludedItemNames);
+        var blacklistKeywords = ReadKeywords(settings.BagCleanupDiscardItemNameKeywords);
         return items.Where(item =>
-            IsBagItem(item) && !IsExcludedByNameKeyword(item.Name, excludedNameKeywords));
+            IsBagItem(item) &&
+            !MatchesNameKeyword(item.Name, whitelistKeywords) &&
+            !MatchesNameKeyword(item.Name, blacklistKeywords));
+    }
+
+    public static int CountWhitelistedBagItems(
+        IEnumerable<InventoryItemSnapshot> items,
+        MaintenanceScriptSettings settings)
+    {
+        var keywords = ReadKeywords(settings.BagCleanupExcludedItemNames);
+        return items.Count(item => IsBagItem(item) && MatchesNameKeyword(item.Name, keywords));
+    }
+
+    public static int CountBlacklistedBagItems(
+        IEnumerable<InventoryItemSnapshot> items,
+        MaintenanceScriptSettings settings)
+    {
+        var whitelistKeywords = ReadKeywords(settings.BagCleanupExcludedItemNames);
+        var blacklistKeywords = ReadKeywords(settings.BagCleanupDiscardItemNameKeywords);
+        return items.Count(item =>
+            IsBagItem(item) &&
+            !MatchesNameKeyword(item.Name, whitelistKeywords) &&
+            MatchesNameKeyword(item.Name, blacklistKeywords));
     }
 
     public static bool MatchesRule(InventoryItemSnapshot item, BagCleanupRuleConfig rule)
@@ -99,7 +120,12 @@ public static class BagCleanupItemMatcher
                !string.IsNullOrWhiteSpace(item.Name);
     }
 
-    private static bool IsExcludedByNameKeyword(string itemName, IReadOnlyList<string> keywords)
+    private static string[] ReadKeywords(IEnumerable<string>? values)
+    {
+        return BagCleanupNameListsDocument.NormalizeKeywords(values).ToArray();
+    }
+
+    private static bool MatchesNameKeyword(string itemName, IReadOnlyList<string> keywords)
     {
         return keywords.Any(keyword => itemName.Contains(keyword, StringComparison.OrdinalIgnoreCase));
     }

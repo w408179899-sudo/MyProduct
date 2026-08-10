@@ -1280,7 +1280,8 @@ namespace Roadhog
                 _services.ScriptProfileStore,
                 _services.FolderLauncher,
                 _services.PathLibraryDirectory,
-                titleDisplayText);
+                titleDisplayText,
+                _services.BagCleanupNameListStore);
             settingsForm.ShowDialog(this);
         }
 
@@ -1395,6 +1396,7 @@ namespace Roadhog
             config.AccountName = account;
             config.Enabled = true;
             await ApplySelectedProfileAsync(config).ConfigureAwait(true);
+            await ApplySharedBagCleanupNameListsAsync(config).ConfigureAwait(true);
             if (config.ScriptSettings is not null)
             {
                 config.ProfileName = config.ScriptSettings.ProfileName;
@@ -1420,6 +1422,47 @@ namespace Roadhog
             }
 
             return StartConfigBuildResult.Ok(config);
+        }
+
+        private async Task ApplySharedBagCleanupNameListsAsync(Core.Accounts.AccountConfig config)
+        {
+            var load = await _services.BagCleanupNameListStore.LoadAsync().ConfigureAwait(true);
+            config.ScriptSettings ??= new Core.Accounts.ScriptSettings
+            {
+                ProfileName = string.IsNullOrWhiteSpace(config.ProfileName)
+                    ? "default_profile"
+                    : config.ProfileName,
+                MainMode = config.MainMode,
+                CombatMode = config.CombatMode
+            };
+
+            if (!load.Success)
+            {
+                config.ScriptSettings.Maintenance.BagCleanupEnabled = false;
+                _services.Logger.Warn("bag_cleanup.name_lists.apply_failed", new Dictionary<string, object?>
+                {
+                    ["account"] = config.AccountName,
+                    ["path"] = _services.BagCleanupNameListStore.FilePath,
+                    ["error"] = load.Error,
+                    ["bagCleanupDisabled"] = true
+                });
+                return;
+            }
+
+            if (load.Value is not { Found: true, Document: { } document })
+            {
+                return;
+            }
+
+            document.ApplyTo(config.ScriptSettings.Maintenance);
+            _services.Logger.Info("bag_cleanup.name_lists.applied", new Dictionary<string, object?>
+            {
+                ["account"] = config.AccountName,
+                ["path"] = _services.BagCleanupNameListStore.FilePath,
+                ["source"] = load.Value.Source.ToString(),
+                ["whitelistCount"] = document.Whitelist.Count,
+                ["blacklistCount"] = document.Blacklist.Count
+            });
         }
 
         private async Task ApplySelectedProfileAsync(Core.Accounts.AccountConfig config)

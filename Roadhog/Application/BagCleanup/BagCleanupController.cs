@@ -140,10 +140,13 @@ public sealed class BagCleanupController
         // Keep the original full-cleanup cooldown fast path when no discard rule is configured.
         // Configured discard work remains eligible during that cooldown; once it is exhausted,
         // TryBeginFullCleanup applies the cooldown before any town-return work can begin.
-        var hasConfiguredDiscardRule = BagCleanupRuleCatalog
+        var hasConfiguredDiscardWork = BagCleanupRuleCatalog
             .MergeWithDefaults(settings.BagCleanupRules)
-            .Any(rule => rule.Enabled && rule.Action == BagCleanupAction.Discard);
-        if (!hasConfiguredDiscardRule)
+            .Any(rule => rule.Enabled && rule.Action == BagCleanupAction.Discard) ||
+            BagCleanupNameListsDocument
+                .NormalizeKeywords(settings.BagCleanupDiscardItemNameKeywords)
+                .Count > 0;
+        if (!hasConfiguredDiscardWork)
         {
             var cooldownResult = TryGetFullCleanupCooldownResult(context, state);
             if (cooldownResult is not null)
@@ -170,6 +173,8 @@ public sealed class BagCleanupController
         var sellCandidates = BagCleanupItemMatcher.SelectSellRegistrationItems(read.Value, settings);
         var discardCandidates = BagCleanupItemMatcher.SelectDiscardItems(read.Value, settings);
         var conflicts = BagCleanupItemMatcher.SelectSellDiscardConflicts(read.Value, settings);
+        var whitelistMatchCount = BagCleanupItemMatcher.CountWhitelistedBagItems(read.Value, settings);
+        var blacklistMatchCount = BagCleanupItemMatcher.CountBlacklistedBagItems(read.Value, settings);
         context.Logger.Info("bag_cleanup.check", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
@@ -182,6 +187,8 @@ public sealed class BagCleanupController
             ["candidateCount"] = sellCandidates.Count,
             ["sellCandidateCount"] = sellCandidates.Count,
             ["discardCandidateCount"] = discardCandidates.Count,
+            ["whitelistMatchCount"] = whitelistMatchCount,
+            ["blacklistMatchCount"] = blacklistMatchCount,
             ["sellDiscardConflictCount"] = conflicts.Count
         });
 

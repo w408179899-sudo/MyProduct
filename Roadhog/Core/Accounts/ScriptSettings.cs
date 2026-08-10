@@ -596,6 +596,8 @@ public sealed class MaintenanceScriptSettings
 
     public List<string> BagCleanupExcludedItemNames { get; set; } = new();
 
+    public List<string> BagCleanupDiscardItemNameKeywords { get; set; } = new();
+
     public List<BagCleanupRuleConfig> BagCleanupRules { get; set; } = BagCleanupRuleCatalog.CreateDefaultRules();
 
     public MaintenanceScriptSettings Clone()
@@ -623,6 +625,11 @@ public sealed class MaintenanceScriptSettings
             BagCleanupDiscardConfirmClickY = BagCleanupDiscardConfirmClickY,
             BagCleanupItemCoordinateMode = BagCleanupItemCoordinateMode,
             BagCleanupExcludedItemNames = BagCleanupExcludedItemNames?
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList() ?? new List<string>(),
+            BagCleanupDiscardItemNameKeywords = BagCleanupDiscardItemNameKeywords?
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)

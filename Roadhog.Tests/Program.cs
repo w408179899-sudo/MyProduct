@@ -251,7 +251,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("bag cleanup controller returns by reverse path when npc is not found", TestBagCleanupControllerReturnsWhenNpcNotFoundAsync),
     ("bag cleanup controller skips within cooldown", TestBagCleanupControllerSkipsWithinCooldownAsync),
     ("bag cleanup controller failure cools down instead of stopping", TestBagCleanupControllerFailureCoolsDownAsync),
+    ("bag cleanup name-list store round trips and preserves legacy whitelist", TestBagCleanupNameListStoreRoundTripAndLegacyAsync),
     ("bag cleanup matcher separates discard and resolves sell conflicts", TestBagCleanupMatcherSeparatesDiscardAndResolvesConflictsAsync),
+    ("bag cleanup matcher applies whitelist then blacklist precedence", TestBagCleanupMatcherAppliesWhitelistThenBlacklistPrecedenceAsync),
+    ("bag cleanup blacklist starts discard during full cleanup cooldown", TestBagCleanupBlacklistStartsDiscardDuringFullCleanupCooldownAsync),
     ("bag cleanup discard deletes all candidates and closes inventory", TestBagCleanupDiscardDeletesAllCandidatesAndClosesInventoryAsync),
     ("bag cleanup discard transitions to full cleanup only after exhaustion", TestBagCleanupDiscardTransitionsToFullCleanupAfterExhaustionAsync),
     ("bag cleanup discard aborts before confirm and does not resume", TestBagCleanupDiscardAbortsBeforeConfirmAsync),
@@ -286,6 +289,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("account config stores shared path names only", TestAccountConfigStoresSharedPathNamesOnlyAsync),
     ("account config persists bag cleanup rules", TestAccountConfigPersistsBagCleanupRulesAsync),
     ("bag cleanup discard confirm point loads and saves from ui", TestBagCleanupDiscardConfirmPointUiAsync),
+    ("bag cleanup name-list ui auto saves both lists and rolls back failures", TestBagCleanupNameListUiAutoSavesAndRollsBackAsync),
     ("account config persists stationary combat position", TestAccountConfigPersistsStationaryCombatPositionAsync),
     ("revive path aggressive clear radius defaults persists and saves from ui", TestRevivePathAggressiveClearRadiusDefaultsCloneJsonAndUiAsync),
     ("stalled target exclusion defaults persists and saves from ui", TestStalledTargetExclusionSecondsDefaultsCloneJsonAndUiAsync),
@@ -10491,6 +10495,60 @@ static async Task TestBagCleanupControllerFailureCoolsDownAsync()
     }
 }
 
+static async Task TestBagCleanupNameListStoreRoundTripAndLegacyAsync()
+{
+    var directory = Path.Combine(Path.GetTempPath(), "roadhog-bag-name-lists-" + Guid.NewGuid().ToString("N"));
+    var jsonPath = Path.Combine(directory, JsonBagCleanupNameListStore.DefaultFileName);
+    var legacyPath = Path.Combine(directory, JsonBagCleanupNameListStore.LegacyFileName);
+    Directory.CreateDirectory(directory);
+    try
+    {
+        var store = new JsonBagCleanupNameListStore(jsonPath, legacyPath);
+        var save = await store.SaveAsync(new BagCleanupNameListsDocument
+        {
+            Whitelist = new List<string> { " 保留 ", "保留", "闪光" },
+            Blacklist = new List<string> { " 丢弃 ", "丢弃" }
+        }).ConfigureAwait(false);
+        AssertFalse(!save.Success, "name-list json should save");
+
+        var text = await File.ReadAllTextAsync(jsonPath).ConfigureAwait(false);
+        AssertFalse(!text.Contains("\"version\": 1", StringComparison.Ordinal), "name-list json should persist version");
+        AssertFalse(!text.Contains("\"whitelist\"", StringComparison.Ordinal), "name-list json should persist whitelist");
+        AssertFalse(!text.Contains("\"blacklist\"", StringComparison.Ordinal), "name-list json should persist blacklist");
+
+        var load = await store.LoadAsync().ConfigureAwait(false);
+        AssertFalse(!load.Success || load.Value is not { Found: true, Document: { } }, "name-list json should load");
+        AssertEqual(BagCleanupNameListsSource.Json, load.Value!.Source, "json should be the primary source");
+        AssertSequence(new[] { "保留", "闪光" }, load.Value.Document!.Whitelist.ToArray(), "whitelist should trim and deduplicate");
+        AssertSequence(new[] { "丢弃" }, load.Value.Document.Blacklist.ToArray(), "blacklist should trim and deduplicate");
+
+        var copiedDirectory = Path.Combine(directory, "copied-client", "config");
+        Directory.CreateDirectory(copiedDirectory);
+        var copiedPath = Path.Combine(copiedDirectory, JsonBagCleanupNameListStore.DefaultFileName);
+        File.Copy(jsonPath, copiedPath);
+        var copiedLoad = await new JsonBagCleanupNameListStore(copiedPath).LoadAsync().ConfigureAwait(false);
+        AssertFalse(!copiedLoad.Success || copiedLoad.Value is not { Found: true, Document: { } }, "copied client should load the same single file");
+        AssertSequence(new[] { "保留", "闪光" }, copiedLoad.Value!.Document!.Whitelist.ToArray(), "copied whitelist should remain reusable");
+        AssertSequence(new[] { "丢弃" }, copiedLoad.Value.Document.Blacklist.ToArray(), "copied blacklist should remain reusable");
+
+        File.Delete(jsonPath);
+        await File.WriteAllLinesAsync(legacyPath, new[] { " 旧保留 ", "旧保留", "旧闪光" }).ConfigureAwait(false);
+        var legacyLoad = await store.LoadAsync().ConfigureAwait(false);
+        AssertFalse(!legacyLoad.Success || legacyLoad.Value is not { Found: true, Document: { } }, "legacy whitelist should load");
+        AssertEqual(BagCleanupNameListsSource.LegacyText, legacyLoad.Value!.Source, "legacy text should be reported as source");
+        AssertSequence(new[] { "旧保留", "旧闪光" }, legacyLoad.Value.Document!.Whitelist.ToArray(), "legacy lines should become whitelist");
+        AssertEqual(0, legacyLoad.Value.Document.Blacklist.Count, "legacy file should default blacklist empty");
+
+        await File.WriteAllTextAsync(jsonPath, "{\"version\":1,\"whitelist\":[]}").ConfigureAwait(false);
+        var invalidLoad = await store.LoadAsync().ConfigureAwait(false);
+        AssertFalse(invalidLoad.Success, "present invalid json must fail closed instead of falling back");
+    }
+    finally
+    {
+        DeleteDirectoryIfExists(directory);
+    }
+}
+
 static Task TestBagCleanupMatcherSeparatesDiscardAndResolvesConflictsAsync()
 {
     var rules = BagCleanupRuleCatalog.CreateDefaultRules();
@@ -10521,6 +10579,91 @@ static Task TestBagCleanupMatcherSeparatesDiscardAndResolvesConflictsAsync()
     AssertSequence(new[] { 12UL }, discard.Select(item => item.InstanceId).ToArray(), "discard should exclude sell conflicts");
     AssertSequence(new[] { 11UL }, conflicts.Select(item => item.InstanceId).ToArray(), "matcher should report sell discard conflicts");
     return Task.CompletedTask;
+}
+
+static Task TestBagCleanupMatcherAppliesWhitelistThenBlacklistPrecedenceAsync()
+{
+    var rules = BagCleanupRuleCatalog.CreateDefaultRules();
+    var green = rules.First(rule => rule.Key == BagCleanupRuleCatalog.GreenEquipment);
+    green.Enabled = true;
+    green.Action = BagCleanupAction.Sell;
+    var white = rules.First(rule => rule.Key == BagCleanupRuleCatalog.WhiteEquipment);
+    white.Enabled = true;
+    white.Action = BagCleanupAction.Discard;
+    var settings = new MaintenanceScriptSettings
+    {
+        BagCleanupRules = rules,
+        BagCleanupExcludedItemNames = new List<string> { "protect" },
+        BagCleanupDiscardItemNameKeywords = new List<string> { "tRaSh" }
+    };
+    var items = new[]
+    {
+        new InventoryItemSnapshot(1001, 11, "protect trash green", 1, 0, false, 1, 2),
+        new InventoryItemSnapshot(1002, 12, "TRASH green", 1, 1, false, 1, 2),
+        new InventoryItemSnapshot(1003, 13, "normal green", 1, 2, false, 1, 2),
+        new InventoryItemSnapshot(1004, 14, "normal white", 1, 3, false, 1, 1),
+        new InventoryItemSnapshot(1005, 15, "trash equipped", 1, 4, true, 1, 2)
+    };
+
+    var sell = BagCleanupItemMatcher.SelectSellRegistrationItems(items, settings);
+    var discard = BagCleanupItemMatcher.SelectDiscardItems(items, settings);
+    var conflicts = BagCleanupItemMatcher.SelectSellDiscardConflicts(items, settings);
+
+    AssertSequence(new[] { 13UL }, sell.Select(item => item.InstanceId).ToArray(), "blacklist should remove sell matches while whitelist protects all actions");
+    AssertSequence(new[] { 12UL, 14UL }, discard.Select(item => item.InstanceId).ToArray(), "blacklist should force discard before normal discard rules");
+    AssertEqual(0, conflicts.Count, "blacklist resolution should not be reported as a normal sell-wins conflict");
+    AssertEqual(1, BagCleanupItemMatcher.CountWhitelistedBagItems(items, settings), "whitelist match count");
+    AssertEqual(1, BagCleanupItemMatcher.CountBlacklistedBagItems(items, settings), "blacklist count should exclude whitelist and equipped items");
+    return Task.CompletedTask;
+}
+
+static async Task TestBagCleanupBlacklistStartsDiscardDuringFullCleanupCooldownAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var keyboard = new RecordingKeyboardInput();
+    var settings = CreateScriptSettings();
+    settings.Paths.DeathReviveClickX = 680;
+    settings.Paths.DeathReviveClickY = 467;
+    settings.Maintenance = new MaintenanceScriptSettings
+    {
+        BagCleanupEnabled = true,
+        BagCleanupThreshold = 2,
+        BagCleanupRules = BagCleanupRuleCatalog.CreateDefaultRules(),
+        BagCleanupDiscardItemNameKeywords = new List<string> { "trash" },
+        BagCleanupDiscardConfirmClickX = 650,
+        BagCleanupDiscardConfirmClickY = 470
+    };
+    var gameApi = CreateSafeDiscardGameApi(
+        capacity: 2,
+        new InventoryItemSnapshot(1001, 41, "trash item", 1, 0, false, 99, 4));
+    gameApi.InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0);
+    var state = new BagCleanupState();
+    state.MarkCompleted(DateTimeOffset.Now);
+    WireDiscardInputSimulation(keyboard, gameApi, state, firstItemUsesSpecialConfirm: false);
+    var controller = new BagCleanupController(
+        keyboard,
+        new InMemorySharedPathStore(),
+        (_, _, _) => Task.FromResult(OperationResult.Ok()));
+
+    var result = await controller
+        .TickAfterLootAsync(CreateContext(settings, gameApi, logger), state)
+        .ConfigureAwait(false);
+
+    AssertEqual(BagCleanupTickStatus.Running, result.Status, "blacklist discard should bypass full-cleanup cooldown");
+    AssertEqual("discard_started", result.Reason, "blacklist should start the existing discard flow");
+    AssertFalse(!state.DiscardActive, "blacklist-only settings should enter discard state");
+    var check = logger.Entries.Last(entry => entry.EventName == "bag_cleanup.check");
+    AssertEqual(1, Convert.ToInt32(check.Fields["blacklistMatchCount"]), "blacklist match should be logged");
+
+    for (var i = 0; i < 40 && result.Status == BagCleanupTickStatus.Running; i++)
+    {
+        result = await controller
+            .TickAfterLootAsync(CreateContext(settings, gameApi, logger), state)
+            .ConfigureAwait(false);
+    }
+
+    AssertEqual("discard_completed_capacity_recovered", result.Reason, "blacklist should finish through the existing discard flow");
+    AssertFalse(gameApi.InventoryItems.Any(item => item.InstanceId == 41), "blacklisted item should be verified removed");
 }
 
 static async Task TestBagCleanupDiscardDeletesAllCandidatesAndClosesInventoryAsync()
@@ -11529,7 +11672,9 @@ static async Task TestAccountConfigPersistsBagCleanupRulesAsync()
                             RunTiming = MaintenanceRuleRunTiming.AfterCombat
                         }
                     },
-                    BagCleanupRules = rules
+                    BagCleanupRules = rules,
+                    BagCleanupExcludedItemNames = new List<string> { "protected-item" },
+                    BagCleanupDiscardItemNameKeywords = new List<string> { "discard-item" }
                 }
             }
         };
@@ -11540,6 +11685,7 @@ static async Task TestAccountConfigPersistsBagCleanupRulesAsync()
         var text = await File.ReadAllTextAsync(accountPath).ConfigureAwait(false);
         AssertFalse(!text.Contains("\"BagCleanupEnabled\": true", StringComparison.Ordinal), "account config should contain bag cleanup enabled");
         AssertFalse(!text.Contains("\"BagCleanupRules\"", StringComparison.Ordinal), "account config should contain bag cleanup rules");
+        AssertFalse(!text.Contains("\"BagCleanupDiscardItemNameKeywords\"", StringComparison.Ordinal), "account config should contain bag cleanup blacklist fallback");
         AssertFalse(!text.Contains("\"BagCleanupSellItemClickX\": 111", StringComparison.Ordinal), "account config should contain sell item click x");
         AssertFalse(!text.Contains("\"BagCleanupSellItemClickY\": 222", StringComparison.Ordinal), "account config should contain sell item click y");
         AssertFalse(!text.Contains("\"BagCleanupSellButtonClickX\": 333", StringComparison.Ordinal), "account config should contain sell button click x");
@@ -11574,6 +11720,8 @@ static async Task TestAccountConfigPersistsBagCleanupRulesAsync()
         AssertEqual(444, maintenance?.BagCleanupSellButtonClickY ?? 0, "loaded sell button click y");
         AssertEqual(555, maintenance?.BagCleanupDiscardConfirmClickX ?? 0, "loaded discard confirm click x");
         AssertEqual(666, maintenance?.BagCleanupDiscardConfirmClickY ?? 0, "loaded discard confirm click y");
+        AssertSequence(new[] { "protected-item" }, maintenance?.BagCleanupExcludedItemNames.ToArray() ?? Array.Empty<string>(), "loaded bag cleanup whitelist fallback");
+        AssertSequence(new[] { "discard-item" }, maintenance?.BagCleanupDiscardItemNameKeywords.ToArray() ?? Array.Empty<string>(), "loaded bag cleanup blacklist fallback");
         AssertEqual(
             BagCleanupItemCoordinateMode.WindowRectRelativeExperimental,
             maintenance?.BagCleanupItemCoordinateMode ?? BagCleanupItemCoordinateMode.LegacyNormalizedTopLeft,
@@ -11656,6 +11804,86 @@ static Task TestBagCleanupDiscardConfirmPointUiAsync()
         .Maintenance;
     AssertEqual(777, persisted?.BagCleanupDiscardConfirmClickX ?? 0, "saved discard confirm click x");
     AssertEqual(888, persisted?.BagCleanupDiscardConfirmClickY ?? 0, "saved discard confirm click y");
+    return Task.CompletedTask;
+}
+
+static Task TestBagCleanupNameListUiAutoSavesAndRollsBackAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.BagCleanupExcludedItemNames = new List<string> { "profile-only" };
+    var configStore = new InMemoryAccountConfigStore(new AccountConfig
+    {
+        AccountName = "account1",
+        ScriptSettings = settings
+    });
+    var nameListStore = new InMemoryBagCleanupNameListStore(new BagCleanupNameListsDocument
+    {
+        Whitelist = new List<string> { "shared-keep" },
+        Blacklist = new List<string> { "shared-discard" }
+    });
+
+    using var form = CreateAccountSettingsFormForTestsWithStore(
+        configStore,
+        bagCleanupNameListStore: nameListStore);
+    var combo = (System.Windows.Forms.Control)GetPrivateFieldForTest(form, "bagCleanupInventoryCombo");
+    var listBox = (System.Windows.Forms.ListBox)GetPrivateFieldForTest(form, "bagCleanupExcludedItemListBox");
+    var blacklistRadio = (System.Windows.Forms.RadioButton)GetPrivateFieldForTest(form, "bagCleanupBlacklistRadio");
+    var addButton = (System.Windows.Forms.Button)GetPrivateFieldForTest(form, "bagCleanupAddNameButton");
+
+    AssertSequence(new[] { "shared-keep" }, listBox.Items.Cast<string>().ToArray(), "shared whitelist should override profile list in ui");
+    combo.Text = "new-keep";
+    InvokePrivateTaskForTest(form, "AddSelectedBagCleanupNameAsync");
+    AssertEqual(1, nameListStore.SaveCount, "adding whitelist should auto-save once");
+    AssertSequence(new[] { "shared-keep", "new-keep" }, nameListStore.Document.Whitelist.ToArray(), "whitelist add should persist");
+    AssertSequence(new[] { "shared-discard" }, nameListStore.Document.Blacklist.ToArray(), "whitelist add must preserve blacklist");
+
+    blacklistRadio.Checked = true;
+    AssertEqual("加入处理（丢弃）", addButton.Text, "blacklist radio should change add action text");
+    AssertSequence(new[] { "shared-discard" }, listBox.Items.Cast<string>().ToArray(), "blacklist radio should show blacklist");
+    combo.Text = "new-discard";
+    InvokePrivateTaskForTest(form, "AddSelectedBagCleanupNameAsync");
+    AssertEqual(2, nameListStore.SaveCount, "adding blacklist should auto-save once");
+    AssertSequence(new[] { "shared-discard", "new-discard" }, nameListStore.Document.Blacklist.ToArray(), "blacklist add should persist");
+    AssertSequence(new[] { "shared-keep", "new-keep" }, nameListStore.Document.Whitelist.ToArray(), "blacklist add must preserve whitelist");
+
+    InvokePrivateTaskForTest(form, "RemoveSelectedBagCleanupNameAsync");
+    AssertEqual(3, nameListStore.SaveCount, "removing blacklist should auto-save");
+    AssertSequence(new[] { "shared-discard" }, nameListStore.Document.Blacklist.ToArray(), "selected blacklist entry should be removed");
+
+    InvokePrivateTaskForTest(form, "ClearSelectedBagCleanupNameListAsync");
+    AssertEqual(4, nameListStore.SaveCount, "clearing blacklist should auto-save");
+    AssertEqual(0, nameListStore.Document.Blacklist.Count, "blacklist clear should persist empty array");
+    AssertSequence(new[] { "shared-keep", "new-keep" }, nameListStore.Document.Whitelist.ToArray(), "blacklist clear must preserve whitelist");
+
+    nameListStore.FailSaves = true;
+    combo.Text = "must-roll-back";
+    InvokePrivateTaskForTest(form, "AddSelectedBagCleanupNameAsync");
+    var capturedBlacklist = (List<string>)(InvokePrivateMethodForTest(form, "CaptureBagCleanupDiscardItemList") ?? new List<string>());
+    AssertEqual(0, capturedBlacklist.Count, "failed save should roll back blacklist editor");
+    AssertEqual(0, nameListStore.Document.Blacklist.Count, "failed save must not mutate persisted blacklist");
+
+    nameListStore.FailSaves = false;
+    nameListStore.BlockSaves = true;
+    combo.Text = "slow-discard";
+    var slowSaveTask = InvokePrivateMethodForTest(form, "AddSelectedBagCleanupNameAsync") as Task;
+    AssertFalse(slowSaveTask is null || slowSaveTask.IsCompleted, "delayed save should keep the first mutation in flight");
+    var removeButton = (System.Windows.Forms.Button)GetPrivateFieldForTest(form, "bagCleanupRemoveNameButton");
+    var clearButton = (System.Windows.Forms.Button)GetPrivateFieldForTest(form, "bagCleanupClearNamesButton");
+    AssertFalse(addButton.Enabled, "add should be disabled while a name-list save is in flight");
+    AssertFalse(removeButton.Enabled, "remove should be disabled while a name-list save is in flight");
+    AssertFalse(clearButton.Enabled, "clear should be disabled while a name-list save is in flight");
+    AssertFalse(blacklistRadio.Enabled, "list switching should be disabled while a name-list save is in flight");
+
+    combo.Text = "must-not-overlap";
+    var overlappingTask = InvokePrivateMethodForTest(form, "AddSelectedBagCleanupNameAsync") as Task;
+    AssertFalse(overlappingTask is null || !overlappingTask.IsCompleted, "overlapping mutation should be ignored immediately");
+    AssertEqual(6, nameListStore.SaveCount, "overlapping mutation must not start another save");
+
+    nameListStore.CompletePendingSave();
+    slowSaveTask!.GetAwaiter().GetResult();
+    AssertFalse(!addButton.Enabled || !removeButton.Enabled || !clearButton.Enabled, "mutation buttons should be restored after save");
+    AssertFalse(!blacklistRadio.Enabled, "list switching should be restored after save");
+    AssertSequence(new[] { "slow-discard" }, nameListStore.Document.Blacklist.ToArray(), "only the first in-flight mutation should persist");
     return Task.CompletedTask;
 }
 
@@ -26868,7 +27096,8 @@ static AccountSettingsForm CreateAccountSettingsFormForTests(
 static AccountSettingsForm CreateAccountSettingsFormForTestsWithStore(
     InMemoryAccountConfigStore configStore,
     IFolderLauncher? folderLauncher = null,
-    string pathLibraryDirectory = "test-paths")
+    string pathLibraryDirectory = "test-paths",
+    IBagCleanupNameListStore? bagCleanupNameListStore = null)
 {
     var logger = new InMemoryRoadhogLogger();
     var accounts = new AccountRuntimeManager(logger);
@@ -26880,7 +27109,8 @@ static AccountSettingsForm CreateAccountSettingsFormForTestsWithStore(
         new InMemorySharedPathStore(),
         new InMemoryScriptProfileStore(),
         folderLauncher ?? new RecordingFolderLauncher(),
-        pathLibraryDirectory);
+        pathLibraryDirectory,
+        bagCleanupNameListStore: bagCleanupNameListStore);
 }
 
 static AccountSettingsForm CreateAccountSettingsFormForTestsWithApi(FakeGameApi gameApi)
@@ -27901,6 +28131,71 @@ sealed class InMemoryAccountConfigStore : IAccountConfigStore
     {
         _accounts[account.AccountName] = account.Clone();
         return Task.FromResult(OperationResult.Ok());
+    }
+}
+
+sealed class InMemoryBagCleanupNameListStore : IBagCleanupNameListStore
+{
+    private BagCleanupNameListsDocument _document;
+    private BagCleanupNameListsDocument? _pendingDocument;
+    private TaskCompletionSource<OperationResult>? _pendingSave;
+
+    public InMemoryBagCleanupNameListStore(BagCleanupNameListsDocument? document = null)
+    {
+        _document = document?.Clone() ?? new BagCleanupNameListsDocument();
+    }
+
+    public string FilePath => "memory://bag-cleanup-name-lists.json";
+
+    public int SaveCount { get; private set; }
+
+    public bool FailSaves { get; set; }
+
+    public bool BlockSaves { get; set; }
+
+    public BagCleanupNameListsDocument Document => _document.Clone();
+
+    public Task<OperationResult<BagCleanupNameListsLoadResult>> LoadAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(OperationResult<BagCleanupNameListsLoadResult>.Ok(
+            new BagCleanupNameListsLoadResult(_document, BagCleanupNameListsSource.Json)));
+    }
+
+    public Task<OperationResult> SaveAsync(
+        BagCleanupNameListsDocument document,
+        CancellationToken cancellationToken = default)
+    {
+        SaveCount++;
+        if (FailSaves)
+        {
+            return Task.FromResult(OperationResult.Fail("simulated name-list save failure"));
+        }
+
+        if (BlockSaves)
+        {
+            _pendingDocument = document.Clone();
+            _pendingSave = new TaskCompletionSource<OperationResult>();
+            return _pendingSave.Task;
+        }
+
+        _document = document.Clone();
+        return Task.FromResult(OperationResult.Ok());
+    }
+
+    public void CompletePendingSave()
+    {
+        if (_pendingSave is null || _pendingDocument is null)
+        {
+            throw new InvalidOperationException("A blocked name-list save should be pending.");
+        }
+
+        _document = _pendingDocument!.Clone();
+        BlockSaves = false;
+        var pendingSave = _pendingSave!;
+        _pendingDocument = null;
+        _pendingSave = null;
+        pendingSave.SetResult(OperationResult.Ok());
     }
 }
 

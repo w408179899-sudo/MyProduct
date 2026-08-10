@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text;
 using System.Drawing.Drawing2D;
 using Roadhog.Application;
 using Roadhog.Application.Shell;
@@ -13,10 +12,8 @@ namespace Roadhog
     public sealed class AccountSettingsForm : Form
     {
         private const string ManualSkillMappingRowDragFormat = "Roadhog.ManualSkillMappingRow";
-        private const string BagCleanupExcludedFileName = "bag-cleanup-excluded.txt";
         private const double CleanupNpcSearchRadiusMeters = 10.0D;
         private const int PathRecordTimerIntervalMs = 100;
-        private static readonly Encoding TextFileEncoding = new UTF8Encoding(false);
 
         private readonly string _account;
         private readonly string _windowTitle;
@@ -26,6 +23,7 @@ namespace Roadhog
         private readonly IScriptProfileStore _profileStore;
         private readonly IFolderLauncher _folderLauncher;
         private readonly string _pathLibraryDirectory;
+        private readonly IBagCleanupNameListStore? _bagCleanupNameListStore;
         private readonly Dictionary<SharedPathKind, PathEditorControls> pathEditors = new();
         private readonly Dictionary<SharedPathKind, Label> pathOverviewLabels = new();
         private readonly System.Windows.Forms.Timer pathRecordTimer = new() { Interval = PathRecordTimerIntervalMs };
@@ -142,6 +140,16 @@ namespace Roadhog
         private RoundedComboBox? bagCleanupInventoryCombo;
         private ListBox? bagCleanupExcludedItemListBox;
         private Label? bagCleanupInventoryStatusLabel;
+        private Label? bagCleanupNameListTitleLabel;
+        private RadioButton? bagCleanupWhitelistRadio;
+        private RadioButton? bagCleanupBlacklistRadio;
+        private Button? bagCleanupAddNameButton;
+        private Button? bagCleanupRemoveNameButton;
+        private Button? bagCleanupClearNamesButton;
+        private readonly List<string> bagCleanupWhitelistItemNames = new();
+        private readonly List<string> bagCleanupBlacklistItemNames = new();
+        private bool loadingBagCleanupNameListEditor;
+        private bool bagCleanupNameListMutationInFlight;
         private readonly Dictionary<string, BagCleanupRuleControls> bagCleanupRuleControls = new(StringComparer.OrdinalIgnoreCase);
         private RoundedComboBox? teamRoleCombo;
         private Panel? teamLeaderPanel;
@@ -211,7 +219,8 @@ namespace Roadhog
             IScriptProfileStore profileStore,
             IFolderLauncher folderLauncher,
             string pathLibraryDirectory,
-            string accountDisplayText = "")
+            string accountDisplayText = "",
+            IBagCleanupNameListStore? bagCleanupNameListStore = null)
         {
             _account = account;
             _windowTitle = BuildWindowTitle(account, accountDisplayText);
@@ -221,6 +230,7 @@ namespace Roadhog
             _profileStore = profileStore;
             _folderLauncher = folderLauncher;
             _pathLibraryDirectory = pathLibraryDirectory;
+            _bagCleanupNameListStore = bagCleanupNameListStore;
             pathRecordTimer.Tick += PathRecordTimer_Tick;
             InitializeSettingsForm();
         }
@@ -289,7 +299,36 @@ namespace Roadhog
         {
             var account = LoadAccountConfigOrDefault();
             RefreshProfileLibrary();
-            ApplyScriptSettings(BuildEffectiveScriptSettings(account));
+            var settings = BuildEffectiveScriptSettings(account);
+            var nameListLoadError = TryApplySharedBagCleanupNameLists(settings);
+            ApplyScriptSettings(settings);
+            if (!string.IsNullOrWhiteSpace(nameListLoadError))
+            {
+                SetBagCleanupInventoryStatus(
+                    "黑白名单读取失败，背包清理启动时将被禁用: " + nameListLoadError,
+                    true);
+            }
+        }
+
+        private string? TryApplySharedBagCleanupNameLists(ScriptSettings settings)
+        {
+            if (_bagCleanupNameListStore is null)
+            {
+                return null;
+            }
+
+            var load = _bagCleanupNameListStore.LoadAsync().GetAwaiter().GetResult();
+            if (!load.Success)
+            {
+                return load.Error ?? "未知读取错误";
+            }
+
+            if (load.Value is { Found: true, Document: { } document })
+            {
+                document.ApplyTo(settings.Maintenance);
+            }
+
+            return null;
         }
 
         private async void SaveSettingsButton_Click(object? sender, EventArgs e)
@@ -465,7 +504,9 @@ namespace Roadhog
                 bagCleanupItemCoordinateModeCombo,
                 FormatBagCleanupItemCoordinateMode(settings.Maintenance.BagCleanupItemCoordinateMode));
             ApplyBagCleanupRules(settings.Maintenance.BagCleanupRules);
-            PopulateBagCleanupExcludedItemList(settings.Maintenance.BagCleanupExcludedItemNames);
+            PopulateBagCleanupNameLists(
+                settings.Maintenance.BagCleanupExcludedItemNames,
+                settings.Maintenance.BagCleanupDiscardItemNameKeywords);
             ApplyTeamSettings(settings.Team ?? new TeamScriptSettings());
             SetChecked(openingAttackKeyCheckBox, settings.SemiAuto.AttackKeyLoopEnabled);
             SetChecked(conditionSkillPreemptsChainCheckBox, settings.SemiAuto.ConditionSkillPreemptsChain);
@@ -785,7 +826,8 @@ namespace Roadhog
                     BagCleanupDiscardConfirmClickY = bagCleanupDiscardConfirmPoint.Y,
                     BagCleanupItemCoordinateMode = CaptureBagCleanupItemCoordinateMode(),
                     BagCleanupRules = CaptureBagCleanupRules(),
-                    BagCleanupExcludedItemNames = CaptureBagCleanupExcludedItemList()
+                    BagCleanupExcludedItemNames = CaptureBagCleanupExcludedItemList(),
+                    BagCleanupDiscardItemNameKeywords = CaptureBagCleanupDiscardItemList()
                 },
                 Team = CaptureTeamSettings(),
                 Skills = new SkillScriptSettings
@@ -1520,7 +1562,15 @@ namespace Roadhog
                 return;
             }
 
-            ApplyScriptSettings(result.Value.Settings);
+            var settings = result.Value.Settings.Clone();
+            var nameListLoadError = TryApplySharedBagCleanupNameLists(settings);
+            ApplyScriptSettings(settings);
+            if (!string.IsNullOrWhiteSpace(nameListLoadError))
+            {
+                SetBagCleanupInventoryStatus(
+                    "黑白名单读取失败，背包清理启动时将被禁用: " + nameListLoadError,
+                    true);
+            }
             SetProfileStatus("已加载方案: " + result.Value.Name, false);
         }
 
@@ -3066,14 +3116,21 @@ namespace Roadhog
                 bagCleanupItemCoordinateModeCombo,
                 FormatBagCleanupItemCoordinateMode(BagCleanupItemCoordinateMode.LegacyNormalizedTopLeft));
 
-            AddLabel(page, "不处理物品", 430, 54, 120, 24, _textGreen, FontStyle.Bold);
-            var refreshInventoryButton = AddButton(page, "刷新背包", 542, 50, 96, 30);
+            AddLabel(page, "名单", 430, 54, 46, 24, _textGreen, FontStyle.Bold);
+            bagCleanupWhitelistRadio = AddRadioButton(page, "白名单（不处理）", 480, 50, 126, true);
+            bagCleanupWhitelistRadio.Name = "bagCleanupWhitelistRadio";
+            bagCleanupBlacklistRadio = AddRadioButton(page, "黑名单（丢弃）", 608, 50, 126, false);
+            bagCleanupBlacklistRadio.Name = "bagCleanupBlacklistRadio";
+            bagCleanupWhitelistRadio.CheckedChanged += (_, _) => RefreshBagCleanupNameListEditor();
+            bagCleanupBlacklistRadio.CheckedChanged += (_, _) => RefreshBagCleanupNameListEditor();
+
+            var refreshInventoryButton = AddButton(page, "刷新背包", 738, 50, 96, 30);
             refreshInventoryButton.Click += async (_, _) =>
                 await RefreshBagCleanupInventoryAsync(refreshInventoryButton).ConfigureAwait(true);
-            var testInventoryWindowButton = AddButton(page, "测试背包归位", 678, 50, 156, 30);
+            var testInventoryWindowButton = AddButton(page, "测试背包归位", 688, 330, 146, 30);
             testInventoryWindowButton.Click += async (_, _) =>
                 await TestBagCleanupInventoryWindowNormalizeAsync(testInventoryWindowButton).ConfigureAwait(true);
-            var testSellRegisterButton = AddButton(page, "测试登记出售", 678, 84, 156, 30);
+            var testSellRegisterButton = AddButton(page, "测试登记出售", 688, 368, 146, 30);
             testSellRegisterButton.Click += async (_, _) =>
                 await TestBagCleanupSellRegisterAsync(testSellRegisterButton).ConfigureAwait(true);
 
@@ -3081,15 +3138,21 @@ namespace Roadhog
             bagCleanupInventoryCombo = AddCombo(page, 430, 118, 248, 28);
             bagCleanupInventoryCombo.DropDownStyle = ComboBoxStyle.DropDown;
             bagCleanupInventoryCombo.Name = "bagCleanupInventoryCombo";
-            AddButton(page, "加入不处理", 688, 118, 100, 30, (_, _) => AddSelectedBagCleanupExcludedItem());
+            bagCleanupAddNameButton = AddButton(page, "加入不处理", 688, 118, 120, 30);
+            bagCleanupAddNameButton.Name = "bagCleanupAddNameButton";
+            bagCleanupAddNameButton.Click += async (_, _) =>
+                await AddSelectedBagCleanupNameAsync().ConfigureAwait(true);
 
-            bagCleanupInventoryStatusLabel = AddLabel(page, "等待刷新背包", 430, 154, 360, 24);
+            bagCleanupInventoryStatusLabel = AddLabel(page, "等待刷新背包", 430, 154, 404, 24);
 
-            AddLabel(page, "已选不处理", 430, 190, 120, 24, _textGreen, FontStyle.Bold);
+            bagCleanupNameListTitleLabel = AddLabel(page, "白名单：以下物品不处理", 430, 190, 248, 24, _textGreen, FontStyle.Bold);
             bagCleanupExcludedItemListBox = CreateFilterListBox(page, 430, 216, 248, 280);
-            AddButton(page, "移除", 688, 216, 80, 30, (_, _) => RemoveSelectedBagCleanupExcludedItem());
-            AddButton(page, "清空", 688, 254, 80, 30, (_, _) => ClearBagCleanupExcludedItemList());
-            AddButton(page, "导出", 688, 292, 80, 30, (_, _) => ExportBagCleanupExcludedItemList());
+            bagCleanupRemoveNameButton = AddButton(page, "移除", 688, 216, 80, 30);
+            bagCleanupRemoveNameButton.Click += async (_, _) =>
+                await RemoveSelectedBagCleanupNameAsync().ConfigureAwait(true);
+            bagCleanupClearNamesButton = AddButton(page, "清空", 688, 254, 80, 30);
+            bagCleanupClearNamesButton.Click += async (_, _) =>
+                await ClearSelectedBagCleanupNameListAsync().ConfigureAwait(true);
 
             return tab;
         }
@@ -3779,7 +3842,8 @@ namespace Roadhog
                 {
                     BagCleanupItemCoordinateMode = CaptureBagCleanupItemCoordinateMode(),
                     BagCleanupRules = CaptureBagCleanupRules(),
-                    BagCleanupExcludedItemNames = CaptureBagCleanupExcludedItemList()
+                    BagCleanupExcludedItemNames = CaptureBagCleanupExcludedItemList(),
+                    BagCleanupDiscardItemNameKeywords = CaptureBagCleanupDiscardItemList()
                 };
                 var result = await _runtime
                     .TestRegisterBagCleanupSellItemsAsync(_account, settings)
@@ -3992,131 +4056,273 @@ namespace Roadhog
             return text;
         }
 
-        private void AddSelectedBagCleanupExcludedItem()
+        private Task AddSelectedBagCleanupNameAsync()
         {
-            AddBagCleanupExcludedItemName(GetSelectedBagCleanupInventoryItemName());
+            return RunBagCleanupNameListMutationAsync(AddSelectedBagCleanupNameCoreAsync);
         }
 
-        private void AddBagCleanupExcludedItemName(string? name)
+        private async Task AddSelectedBagCleanupNameCoreAsync()
         {
-            if (bagCleanupExcludedItemListBox is null || string.IsNullOrWhiteSpace(name))
+            var name = GetSelectedBagCleanupInventoryItemName();
+            if (string.IsNullOrWhiteSpace(name))
             {
+                SetBagCleanupInventoryStatus("请选择物品或输入关键字", true);
                 return;
             }
 
             var trimmed = name.Trim();
-            foreach (var existing in bagCleanupExcludedItemListBox.Items.Cast<object>())
+            var target = GetActiveBagCleanupNameList();
+            var existingIndex = target.FindIndex(value =>
+                string.Equals(value, trimmed, StringComparison.OrdinalIgnoreCase));
+            if (existingIndex >= 0)
             {
-                if (string.Equals(Convert.ToString(existing), trimmed, StringComparison.OrdinalIgnoreCase))
+                if (bagCleanupExcludedItemListBox is not null)
                 {
-                    bagCleanupExcludedItemListBox.SelectedItem = existing;
-                    return;
+                    bagCleanupExcludedItemListBox.SelectedIndex = existingIndex;
                 }
+
+                SetBagCleanupInventoryStatus("该关键字已在当前名单中: " + target[existingIndex], false);
+                return;
             }
 
-            var index = bagCleanupExcludedItemListBox.Items.Add(trimmed);
-            bagCleanupExcludedItemListBox.SelectedIndex = index;
-            SetBagCleanupInventoryStatus("已加入不处理: " + trimmed, false);
+            var whitelistBefore = CaptureBagCleanupExcludedItemList();
+            var blacklistBefore = CaptureBagCleanupDiscardItemList();
+            target.Add(trimmed);
+            NormalizeBagCleanupNameLists();
+            RefreshBagCleanupNameListEditor(trimmed);
+            var actionText = IsEditingBagCleanupBlacklist
+                ? "已自动保存黑名单，将走丢弃逻辑: "
+                : "已自动保存白名单，不会处理: ";
+            await SaveBagCleanupNameListsOrRollbackAsync(
+                    whitelistBefore,
+                    blacklistBefore,
+                    actionText + trimmed)
+                .ConfigureAwait(true);
         }
 
-        private void RemoveSelectedBagCleanupExcludedItem()
+        private Task RemoveSelectedBagCleanupNameAsync()
+        {
+            return RunBagCleanupNameListMutationAsync(RemoveSelectedBagCleanupNameCoreAsync);
+        }
+
+        private async Task RemoveSelectedBagCleanupNameCoreAsync()
         {
             if (bagCleanupExcludedItemListBox is null || bagCleanupExcludedItemListBox.SelectedItems.Count == 0)
             {
                 return;
             }
 
-            var selected = bagCleanupExcludedItemListBox.SelectedItems.Cast<object>().ToArray();
-            foreach (var item in selected)
-            {
-                bagCleanupExcludedItemListBox.Items.Remove(item);
-            }
+            var selected = bagCleanupExcludedItemListBox.SelectedItems
+                .Cast<object>()
+                .Select(item => Convert.ToString(item)?.Trim() ?? string.Empty)
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .ToArray();
+            var whitelistBefore = CaptureBagCleanupExcludedItemList();
+            var blacklistBefore = CaptureBagCleanupDiscardItemList();
+            var target = GetActiveBagCleanupNameList();
+            target.RemoveAll(value => selected.Any(selectedValue =>
+                string.Equals(value, selectedValue, StringComparison.OrdinalIgnoreCase)));
+            RefreshBagCleanupNameListEditor();
+            await SaveBagCleanupNameListsOrRollbackAsync(
+                    whitelistBefore,
+                    blacklistBefore,
+                    "已自动保存，移除 " + selected.Length + " 个关键字")
+                .ConfigureAwait(true);
         }
 
-        private void ClearBagCleanupExcludedItemList()
+        private Task ClearSelectedBagCleanupNameListAsync()
         {
-            bagCleanupExcludedItemListBox?.Items.Clear();
+            return RunBagCleanupNameListMutationAsync(ClearSelectedBagCleanupNameListCoreAsync);
         }
 
-        private void ExportBagCleanupExcludedItemList()
+        private async Task ClearSelectedBagCleanupNameListCoreAsync()
         {
-            var itemNames = CaptureBagCleanupExcludedItemList();
-            if (itemNames.Count == 0)
+            var target = GetActiveBagCleanupNameList();
+            if (target.Count == 0)
             {
-                SetBagCleanupInventoryStatus("没有可导出的不处理关键字", true);
                 return;
             }
 
-            var path = ResolveBagCleanupExcludedFilePath();
+            var whitelistBefore = CaptureBagCleanupExcludedItemList();
+            var blacklistBefore = CaptureBagCleanupDiscardItemList();
+            target.Clear();
+            RefreshBagCleanupNameListEditor();
+            await SaveBagCleanupNameListsOrRollbackAsync(
+                    whitelistBefore,
+                    blacklistBefore,
+                    IsEditingBagCleanupBlacklist
+                        ? "已自动保存：黑名单已清空"
+                        : "已自动保存：白名单已清空")
+                .ConfigureAwait(true);
+        }
+
+        private async Task RunBagCleanupNameListMutationAsync(Func<Task> mutation)
+        {
+            if (bagCleanupNameListMutationInFlight)
+            {
+                return;
+            }
+
+            bagCleanupNameListMutationInFlight = true;
+            SetBagCleanupNameListMutationControlsEnabled(false);
             try
             {
-                var directory = Path.GetDirectoryName(path);
-                if (!string.IsNullOrWhiteSpace(directory))
-                {
-                    Directory.CreateDirectory(directory);
-                }
-
-                File.WriteAllLines(path, itemNames, TextFileEncoding);
-                SetBagCleanupInventoryStatus("已导出不处理文件: " + path, false);
+                await mutation().ConfigureAwait(true);
             }
-            catch (Exception ex)
+            finally
             {
-                SetBagCleanupInventoryStatus("导出不处理文件失败: " + ex.Message, true);
-                MessageBox.Show(
-                    this,
-                    "导出不处理文件失败：" + Environment.NewLine + ex.Message,
-                    "导出不处理文件",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning);
+                bagCleanupNameListMutationInFlight = false;
+                SetBagCleanupNameListMutationControlsEnabled(true);
             }
         }
 
-        private string ResolveBagCleanupExcludedFilePath()
+        private void SetBagCleanupNameListMutationControlsEnabled(bool enabled)
         {
-            return Path.Combine(ResolveConfigDirectory(), BagCleanupExcludedFileName);
+            if (bagCleanupAddNameButton is not null)
+            {
+                bagCleanupAddNameButton.Enabled = enabled;
+            }
+
+            if (bagCleanupRemoveNameButton is not null)
+            {
+                bagCleanupRemoveNameButton.Enabled = enabled;
+            }
+
+            if (bagCleanupClearNamesButton is not null)
+            {
+                bagCleanupClearNamesButton.Enabled = enabled;
+            }
+
+            if (bagCleanupWhitelistRadio is not null)
+            {
+                bagCleanupWhitelistRadio.Enabled = enabled;
+            }
+
+            if (bagCleanupBlacklistRadio is not null)
+            {
+                bagCleanupBlacklistRadio.Enabled = enabled;
+            }
         }
 
-        private string ResolveConfigDirectory()
+        private async Task SaveBagCleanupNameListsOrRollbackAsync(
+            IReadOnlyList<string> whitelistBefore,
+            IReadOnlyList<string> blacklistBefore,
+            string successText)
         {
-            if (_configStore is global::Roadhog.Infrastructure.Config.JsonAccountConfigStore jsonStore)
+            if (_bagCleanupNameListStore is null)
             {
-                var directory = Path.GetDirectoryName(jsonStore.ConfigPath);
-                if (!string.IsNullOrWhiteSpace(directory))
+                SetBagCleanupInventoryStatus(successText, false);
+                return;
+            }
+
+            var document = new BagCleanupNameListsDocument
+            {
+                Whitelist = CaptureBagCleanupExcludedItemList(),
+                Blacklist = CaptureBagCleanupDiscardItemList()
+            };
+            var save = await _bagCleanupNameListStore.SaveAsync(document).ConfigureAwait(true);
+            if (save.Success)
+            {
+                SetBagCleanupInventoryStatus(successText, false);
+                return;
+            }
+
+            PopulateBagCleanupNameLists(whitelistBefore, blacklistBefore);
+            SetBagCleanupInventoryStatus(
+                "黑白名单保存失败，界面已恢复: " + (save.Error ?? "未知保存错误"),
+                true);
+        }
+
+        private void PopulateBagCleanupNameLists(
+            IEnumerable<string>? whitelist,
+            IEnumerable<string>? blacklist)
+        {
+            loadingBagCleanupNameListEditor = true;
+            try
+            {
+                bagCleanupWhitelistItemNames.Clear();
+                bagCleanupWhitelistItemNames.AddRange(BagCleanupNameListsDocument.NormalizeKeywords(whitelist));
+                bagCleanupBlacklistItemNames.Clear();
+                bagCleanupBlacklistItemNames.AddRange(BagCleanupNameListsDocument.NormalizeKeywords(blacklist));
+                if (bagCleanupWhitelistRadio?.Checked != true && bagCleanupBlacklistRadio?.Checked != true &&
+                    bagCleanupWhitelistRadio is not null)
                 {
-                    return directory;
+                    bagCleanupWhitelistRadio.Checked = true;
                 }
             }
+            finally
+            {
+                loadingBagCleanupNameListEditor = false;
+            }
 
-            return Path.Combine(AppContext.BaseDirectory, "config");
+            RefreshBagCleanupNameListEditor();
         }
 
-        private void PopulateBagCleanupExcludedItemList(IEnumerable<string>? itemNames)
+        private void NormalizeBagCleanupNameLists()
         {
-            if (bagCleanupExcludedItemListBox is null)
+            var whitelist = BagCleanupNameListsDocument.NormalizeKeywords(bagCleanupWhitelistItemNames);
+            var blacklist = BagCleanupNameListsDocument.NormalizeKeywords(bagCleanupBlacklistItemNames);
+            bagCleanupWhitelistItemNames.Clear();
+            bagCleanupWhitelistItemNames.AddRange(whitelist);
+            bagCleanupBlacklistItemNames.Clear();
+            bagCleanupBlacklistItemNames.AddRange(blacklist);
+        }
+
+        private void RefreshBagCleanupNameListEditor(string? selectedName = null)
+        {
+            if (loadingBagCleanupNameListEditor || bagCleanupExcludedItemListBox is null)
             {
                 return;
             }
 
+            var blacklist = IsEditingBagCleanupBlacklist;
+            var values = GetActiveBagCleanupNameList();
             bagCleanupExcludedItemListBox.Items.Clear();
-            foreach (var itemName in itemNames?
-                         .Where(value => !string.IsNullOrWhiteSpace(value))
-                         .Select(value => value.Trim())
-                         .Distinct(StringComparer.OrdinalIgnoreCase) ?? Array.Empty<string>())
+            foreach (var value in values)
             {
-                bagCleanupExcludedItemListBox.Items.Add(itemName);
+                bagCleanupExcludedItemListBox.Items.Add(value);
             }
+
+            if (!string.IsNullOrWhiteSpace(selectedName))
+            {
+                var selectedIndex = values.FindIndex(value =>
+                    string.Equals(value, selectedName, StringComparison.OrdinalIgnoreCase));
+                if (selectedIndex >= 0)
+                {
+                    bagCleanupExcludedItemListBox.SelectedIndex = selectedIndex;
+                }
+            }
+
+            if (bagCleanupAddNameButton is not null)
+            {
+                bagCleanupAddNameButton.Text = blacklist ? "加入处理（丢弃）" : "加入不处理";
+            }
+
+            if (bagCleanupNameListTitleLabel is not null)
+            {
+                bagCleanupNameListTitleLabel.Text = blacklist
+                    ? "黑名单：以下物品强制丢弃"
+                    : "白名单：以下物品不处理";
+            }
+        }
+
+        private bool IsEditingBagCleanupBlacklist => bagCleanupBlacklistRadio?.Checked == true;
+
+        private List<string> GetActiveBagCleanupNameList()
+        {
+            return IsEditingBagCleanupBlacklist
+                ? bagCleanupBlacklistItemNames
+                : bagCleanupWhitelistItemNames;
         }
 
         private List<string> CaptureBagCleanupExcludedItemList()
         {
-            return bagCleanupExcludedItemListBox is null
-                ? new List<string>()
-                : bagCleanupExcludedItemListBox.Items
-                    .Cast<object>()
-                    .Select(item => Convert.ToString(item)?.Trim() ?? string.Empty)
-                    .Where(value => !string.IsNullOrWhiteSpace(value))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
+            return BagCleanupNameListsDocument.NormalizeKeywords(bagCleanupWhitelistItemNames);
+        }
+
+        private List<string> CaptureBagCleanupDiscardItemList()
+        {
+            return BagCleanupNameListsDocument.NormalizeKeywords(bagCleanupBlacklistItemNames);
         }
 
         private void SetBagCleanupInventoryStatus(string text, bool isError)
