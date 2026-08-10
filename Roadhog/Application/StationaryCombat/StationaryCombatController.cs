@@ -6629,7 +6629,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         DateTimeOffset now,
         TimeSpan timeout)
     {
-        var exclusion = TimeSpan.FromMilliseconds(ReadStalledTargetExclusionMs());
+        var exclusion = TimeSpan.FromMilliseconds(
+            ReadStalledTargetExclusionMs(context.Config.ScriptSettings?.Combat));
         var expiresAt = now + exclusion;
         state.TemporarilyExcludeTarget(
             target.TargetEntityId,
@@ -11484,9 +11485,24 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         return ClampInt(ReadRawIntFromEnv("ROADHOG_FIGHT_SOFT_RESTART_TIMEOUT_MS", 8_000), 1, 60_000);
     }
 
-    private static int ReadStalledTargetExclusionMs()
+    private static int ReadStalledTargetExclusionMs(CombatScriptSettings? combat)
     {
-        return ClampInt(ReadRawIntFromEnv("ROADHOG_STALLED_TARGET_EXCLUSION_MS", 10_000), 1, 300_000);
+        var configuredSeconds = combat?.StalledTargetExclusionSeconds ??
+                                CombatScriptSettings.DefaultStalledTargetExclusionSeconds;
+        if (configuredSeconds <= 0)
+        {
+            configuredSeconds = CombatScriptSettings.DefaultStalledTargetExclusionSeconds;
+        }
+
+        configuredSeconds = Math.Clamp(
+            configuredSeconds,
+            CombatScriptSettings.MinimumStalledTargetExclusionSeconds,
+            CombatScriptSettings.MaximumStalledTargetExclusionSeconds);
+        var configuredMilliseconds = (int)(configuredSeconds * 1000L);
+        return ClampInt(
+            ReadRawIntFromEnv("ROADHOG_STALLED_TARGET_EXCLUSION_MS", configuredMilliseconds),
+            1,
+            CombatScriptSettings.MaximumStalledTargetExclusionSeconds * 1000);
     }
 
     private static int ReadFaceTargetTimeoutMs()

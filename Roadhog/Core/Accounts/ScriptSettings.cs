@@ -202,6 +202,12 @@ public sealed class SemiAutoScriptSettings
 
 public sealed class CombatScriptSettings
 {
+    public const int DefaultStalledTargetExclusionSeconds = 60;
+
+    public const int MinimumStalledTargetExclusionSeconds = 1;
+
+    public const int MaximumStalledTargetExclusionSeconds = 300;
+
     public bool EnableLoot { get; set; } = true;
 
     public bool JumpAssistEnabled { get; set; }
@@ -232,6 +238,8 @@ public sealed class CombatScriptSettings
 
     public double StationaryCombatRadius { get; set; } = 30.0D;
 
+    public int StalledTargetExclusionSeconds { get; set; } = DefaultStalledTargetExclusionSeconds;
+
     public double PathCombatRadius { get; set; } = 30.0D;
 
     public double PathFollowReachDistance { get; set; } = 5.0D;
@@ -259,6 +267,7 @@ public sealed class CombatScriptSettings
             StationaryCombatY = StationaryCombatY,
             StationaryCombatZ = StationaryCombatZ,
             StationaryCombatRadius = StationaryCombatRadius,
+            StalledTargetExclusionSeconds = StalledTargetExclusionSeconds,
             PathCombatRadius = PathCombatRadius,
             PathFollowReachDistance = PathFollowReachDistance,
             CameraYawPixelsPerDegree = CameraYawPixelsPerDegree,

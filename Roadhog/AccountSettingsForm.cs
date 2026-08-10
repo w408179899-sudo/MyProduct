@@ -63,6 +63,9 @@ namespace Roadhog
         private Label? stationaryCombatRadiusLabel;
         private RoundedTextBox? stationaryCombatRadiusTextBox;
         private Label? stationaryCombatRadiusUnitLabel;
+        private Label? stalledTargetExclusionSecondsLabel;
+        private RoundedTextBox? stalledTargetExclusionSecondsTextBox;
+        private Label? stalledTargetExclusionSecondsUnitLabel;
         private Label? pathCombatRadiusLabel;
         private RoundedTextBox? pathCombatRadiusTextBox;
         private Label? pathCombatRadiusUnitLabel;
@@ -391,6 +394,7 @@ namespace Roadhog
             }
             ApplyFixedChannelMouseSettings(settings.FixedChannelMouse ?? new FixedChannelMouseScriptSettings());
             SetStationaryCombatRadius(settings.Combat);
+            SetStalledTargetExclusionSeconds(settings.Combat);
             SetPathCombatRadius(settings.Combat);
             SetPathFollowReachDistance(settings.Combat);
             SetCameraTurnScales(settings.Combat);
@@ -723,6 +727,12 @@ namespace Roadhog
                     StationaryCombatY = 0.0D,
                     StationaryCombatZ = 0.0D,
                     StationaryCombatRadius = ReadDouble(stationaryCombatRadiusTextBox, 30.0D, 1.0D, 500.0D),
+                    StalledTargetExclusionSeconds = Math.Clamp(
+                        ReadInt(
+                            stalledTargetExclusionSecondsTextBox,
+                            CombatScriptSettings.DefaultStalledTargetExclusionSeconds),
+                        CombatScriptSettings.MinimumStalledTargetExclusionSeconds,
+                        CombatScriptSettings.MaximumStalledTargetExclusionSeconds),
                     PathCombatRadius = ReadDouble(pathCombatRadiusTextBox, 30.0D, 1.0D, 500.0D),
                     PathFollowReachDistance = ReadDouble(pathFollowReachDistanceTextBox, 5.0D, 0.5D, 50.0D),
                     CameraYawPixelsPerDegree = ReadDouble(cameraYawPixelsPerDegreeTextBox, 11.0D, 0.1D, 100.0D),
@@ -1168,6 +1178,10 @@ namespace Roadhog
             stationaryCombatRadiusLabel = AddLabel(page, "半径", 306, 108, 38, 22);
             stationaryCombatRadiusTextBox = AddTextBox(page, "30.0", 346, 104, 70, 28);
             stationaryCombatRadiusUnitLabel = AddLabel(page, "m", 422, 108, 20, 22);
+            stalledTargetExclusionSecondsLabel = AddLabel(page, "卡怪排除", 482, 108, 70, 22);
+            stalledTargetExclusionSecondsTextBox = AddTextBox(page, "60", 554, 104, 70, 28);
+            stalledTargetExclusionSecondsTextBox.Name = "stalledTargetExclusionSecondsTextBox";
+            stalledTargetExclusionSecondsUnitLabel = AddLabel(page, "秒", 630, 108, 24, 22);
             pathCombatRadiusLabel = AddLabel(page, "半径", 306, 108, 38, 22);
             pathCombatRadiusTextBox = AddTextBox(page, "30.0", 346, 104, 70, 28);
             pathCombatRadiusUnitLabel = AddLabel(page, "m", 422, 108, 20, 22);
@@ -1326,6 +1340,21 @@ namespace Roadhog
             if (stationaryCombatRadiusUnitLabel is not null)
             {
                 stationaryCombatRadiusUnitLabel.Visible = stationaryVisible;
+            }
+
+            if (stalledTargetExclusionSecondsLabel is not null)
+            {
+                stalledTargetExclusionSecondsLabel.Visible = stationaryVisible;
+            }
+
+            if (stalledTargetExclusionSecondsTextBox is not null)
+            {
+                stalledTargetExclusionSecondsTextBox.Visible = stationaryVisible;
+            }
+
+            if (stalledTargetExclusionSecondsUnitLabel is not null)
+            {
+                stalledTargetExclusionSecondsUnitLabel.Visible = stationaryVisible;
             }
 
             if (pathCombatRadiusLabel is not null)
@@ -1575,6 +1604,19 @@ namespace Roadhog
                 ? 30.0D
                 : Math.Min(combat.StationaryCombatRadius, 500.0D);
             SetText(stationaryCombatRadiusTextBox, radius.ToString("F1", CultureInfo.InvariantCulture));
+        }
+
+        private void SetStalledTargetExclusionSeconds(CombatScriptSettings combat)
+        {
+            var seconds = combat.StalledTargetExclusionSeconds <= 0
+                ? CombatScriptSettings.DefaultStalledTargetExclusionSeconds
+                : Math.Clamp(
+                    combat.StalledTargetExclusionSeconds,
+                    CombatScriptSettings.MinimumStalledTargetExclusionSeconds,
+                    CombatScriptSettings.MaximumStalledTargetExclusionSeconds);
+            SetText(
+                stalledTargetExclusionSecondsTextBox,
+                seconds.ToString(CultureInfo.InvariantCulture));
         }
 
         private void SetPathCombatRadius(CombatScriptSettings combat)

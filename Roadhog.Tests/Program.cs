@@ -288,6 +288,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("bag cleanup discard confirm point loads and saves from ui", TestBagCleanupDiscardConfirmPointUiAsync),
     ("account config persists stationary combat position", TestAccountConfigPersistsStationaryCombatPositionAsync),
     ("revive path aggressive clear radius defaults persists and saves from ui", TestRevivePathAggressiveClearRadiusDefaultsCloneJsonAndUiAsync),
+    ("stalled target exclusion defaults persists and saves from ui", TestStalledTargetExclusionSecondsDefaultsCloneJsonAndUiAsync),
     ("stationary combat target selector keeps monsters inside radius", TestStationaryTargetSelectorAsync),
     ("stationary combat smart pre-aim selector scores threats and aggressive setting", TestSmartPreAimSelectorScoresThreatsAndAggressiveSettingAsync),
     ("stationary combat smart pre-aim supports fight-target distance origin", TestSmartPreAimSupportsFightTargetDistanceOriginAsync),
@@ -11771,6 +11772,105 @@ static async Task TestRevivePathAggressiveClearRadiusDefaultsCloneJsonAndUiAsync
     }
 }
 
+static async Task TestStalledTargetExclusionSecondsDefaultsCloneJsonAndUiAsync()
+{
+    var defaults = new CombatScriptSettings();
+    AssertEqual(
+        CombatScriptSettings.DefaultStalledTargetExclusionSeconds,
+        defaults.StalledTargetExclusionSeconds,
+        "stalled target exclusion should default to sixty seconds");
+
+    defaults.StalledTargetExclusionSeconds = 75;
+    AssertEqual(
+        75,
+        defaults.Clone().StalledTargetExclusionSeconds,
+        "combat settings clone should preserve stalled target exclusion seconds");
+
+    var directory = CreateTempDirectory("roadhog-stalled-target-exclusion-");
+    try
+    {
+        var accountPath = Path.Combine(directory, "accounts.json");
+        var jsonStore = new JsonAccountConfigStore(accountPath);
+        var save = await jsonStore.UpsertAsync(new AccountConfig
+        {
+            AccountName = "stalled-target-exclusion-json",
+            ScriptSettings = new ScriptSettings
+            {
+                Combat = defaults
+            }
+        }).ConfigureAwait(false);
+        AssertFalse(!save.Success, "stalled target exclusion json save should succeed");
+
+        var load = await jsonStore.LoadAllAsync().ConfigureAwait(false);
+        AssertFalse(!load.Success, "stalled target exclusion json load should succeed");
+        AssertEqual(
+            75,
+            load.Value?.Single().ScriptSettings?.Combat.StalledTargetExclusionSeconds ?? 0,
+            "stalled target exclusion should round-trip through account json");
+    }
+    finally
+    {
+        DeleteDirectoryIfExists(directory);
+    }
+
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        try
+        {
+            var configured = CreateScriptSettings();
+            configured.MainMode = AccountMainMode.CustomCombat;
+            configured.CombatMode = AccountCombatMode.Stationary;
+            configured.Combat.StalledTargetExclusionSeconds = 90;
+            var configStore = new InMemoryAccountConfigStore(new AccountConfig
+            {
+                AccountName = "account1",
+                ScriptSettings = configured
+            });
+
+            using var form = CreateAccountSettingsFormForTestsWithStore(configStore);
+            form.Show();
+            System.Windows.Forms.Application.DoEvents();
+
+            AssertEqual(
+                "90",
+                GetTextBoxTextForTest(form, "stalledTargetExclusionSecondsTextBox"),
+                "configured stalled target exclusion should load into UI");
+            AssertFalse(
+                !GetControlVisibleForTest(form, "stalledTargetExclusionSecondsTextBox"),
+                "stalled target exclusion should be visible for stationary combat");
+
+            SetTextBoxTextForTest(form, "stalledTargetExclusionSecondsTextBox", "120");
+            var saved = InvokeSaveCurrentSettingsForTest(form, out var error);
+            AssertFalse(!saved, "stalled target exclusion ui save failed: " + error);
+
+            var savedSettings = configStore
+                .LoadAllAsync()
+                .GetAwaiter()
+                .GetResult()
+                .Value?
+                .Single()
+                .ScriptSettings;
+            AssertEqual(
+                120,
+                savedSettings?.Combat.StalledTargetExclusionSeconds ?? 0,
+                "stalled target exclusion should persist from UI");
+        }
+        catch (Exception ex)
+        {
+            failure = ex;
+        }
+    });
+
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    thread.Join();
+    if (failure is not null)
+    {
+        throw failure;
+    }
+}
+
 static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
 {
     var directory = CreateTempDirectory("roadhog-stationary-combat-");
@@ -18032,10 +18132,11 @@ static async Task TestStationaryCombatTemporarilyExcludesStalledTargetAfterOneSo
     try
     {
         Environment.SetEnvironmentVariable(restartTimeoutEnvVar, "1");
-        Environment.SetEnvironmentVariable(exclusionEnvVar, "1000");
+        Environment.SetEnvironmentVariable(exclusionEnvVar, null);
         Environment.SetEnvironmentVariable(discardTimeoutEnvVar, "60000");
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
         var settings = CreateStationarySoftRestartSettings();
+        settings.Combat.StalledTargetExclusionSeconds = 45;
         var keyboard = new RecordingKeyboardInput();
         var logger = new InMemoryRoadhogLogger();
         var gameApi = CreateStationarySoftRestartGameApi(4);
@@ -18088,7 +18189,13 @@ static async Task TestStationaryCombatTemporarilyExcludesStalledTargetAfterOneSo
         AssertFalse(state.Fighting, "second stalled window should leave the old fight");
         AssertFalse(!state.IsTargetTemporarilyExcluded(100, 9000, DateTimeOffset.Now), "old target should be temporarily excluded");
         AssertFalse(state.IsTargetIgnored(100, 9000), "temporary exclusion must not permanently ignore the old target");
-        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.stall_temporarily_excluded"), "temporary exclusion should be logged");
+        var exclusionEntry = logger.Entries.LastOrDefault(entry =>
+            entry.EventName == "stationary_combat.target.stall_temporarily_excluded");
+        AssertFalse(exclusionEntry is null, "temporary exclusion should be logged");
+        AssertEqual(
+            45_000L,
+            Convert.ToInt64(exclusionEntry!.Fields["exclusionMs"]),
+            "temporary exclusion should use the configured account duration");
         AssertEqual(2, keyboard.Keys.Count(key => key == "NumPad0"), "same stalled episode must replay opening only once");
 
         await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);

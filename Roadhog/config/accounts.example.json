@@ -43,6 +43,7 @@
           "returnHomeWhenNoTarget": true,
           "sitWhenNoTargetAtHome": false,
           "stationaryCombatRadius": 30,
+          "stalledTargetExclusionSeconds": 60,
           "pathCombatRadius": 30,
           "pathFollowReachDistance": 5
         },
