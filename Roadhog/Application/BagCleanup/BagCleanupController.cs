@@ -23,6 +23,7 @@ public sealed class BagCleanupController
     private static readonly TimeSpan DefaultTownReturnTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DefaultSafeWaitTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan DefaultCleanupCooldown = TimeSpan.FromMinutes(25);
+    private const int MaxDiscardConfirmClicksPerItem = 2;
 
     private readonly IKeyboardInput _input;
     private readonly ISharedPathStore _pathStore;
@@ -519,7 +520,7 @@ public sealed class BagCleanupController
         var confirm = confirmRead.Value;
         if (confirm.IsOpen && confirm.PendingItemInstanceId == targetId)
         {
-            state.MarkDiscardConfirmSeen();
+            state.MarkDiscardConfirmSeen(confirm);
             state.Advance(BagCleanupStep.ClickDiscardConfirm);
             return BagCleanupTickResult.Running("discard_confirm_visible");
         }
@@ -565,8 +566,33 @@ public sealed class BagCleanupController
                 "Discard target state is missing before confirmation click.").ConfigureAwait(false);
         }
 
+        var targetId = checked((uint)target.InstanceId);
         var confirmRead = await BagCleanupGameApi.ReadInventoryDiscardConfirmAsync(context).ConfigureAwait(false);
-        if (!confirmRead.Success || confirmRead.Value is null)
+        InventoryDiscardConfirmSnapshot confirm;
+        if (confirmRead.Success && confirmRead.Value is not null)
+        {
+            confirm = confirmRead.Value;
+            if (!confirm.IsOpen || confirm.PendingItemInstanceId != targetId)
+            {
+                state.ClearLatchedDiscardConfirm();
+            }
+        }
+        else if (state.LatchedDiscardConfirm is
+                 {
+                     IsOpen: true
+                 } latched && latched.PendingItemInstanceId == targetId)
+        {
+            confirm = latched;
+            context.Logger.Warn("bag_cleanup.discard.confirm_latch_fallback", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["instanceId"] = targetId,
+                ["kind"] = latched.Kind.ToString(),
+                ["dialogId"] = latched.DialogId,
+                ["readError"] = confirmRead.Error
+            });
+        }
+        else
         {
             return await FailDiscardLocallyAsync(
                 context,
@@ -575,8 +601,6 @@ public sealed class BagCleanupController
                 confirmRead.Error ?? "Discard confirmation re-read failed.").ConfigureAwait(false);
         }
 
-        var targetId = checked((uint)target.InstanceId);
-        var confirm = confirmRead.Value;
         if (confirm.PendingItemInstanceId == 0)
         {
             state.Advance(BagCleanupStep.VerifyDiscardItem);
@@ -593,7 +617,17 @@ public sealed class BagCleanupController
                 ", actual=" + confirm.PendingItemInstanceId).ConfigureAwait(false);
         }
 
-        state.MarkDiscardConfirmSeen();
+        if (state.DiscardConfirmClickCount >= MaxDiscardConfirmClicksPerItem)
+        {
+            return await FailDiscardLocallyAsync(
+                context,
+                state,
+                "discard_confirm_click_limit",
+                "Discard confirmation exceeded the two-layer safety limit. instanceId=" + targetId)
+                .ConfigureAwait(false);
+        }
+
+        state.MarkDiscardConfirmSeen(confirm);
         var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
         var click = await _discarder
             .ClickDiscardConfirmAsync(
@@ -666,7 +700,7 @@ public sealed class BagCleanupController
 
         if (confirmRead.Value.IsOpen && confirmRead.Value.PendingItemInstanceId == targetId)
         {
-            state.MarkDiscardConfirmSeen();
+            state.MarkDiscardConfirmSeen(confirmRead.Value);
             state.Advance(BagCleanupStep.ClickDiscardConfirm);
             return BagCleanupTickResult.Running("discard_additional_confirm_visible");
         }
@@ -773,10 +807,41 @@ public sealed class BagCleanupController
             : await AbortDiscardForAttackAsync(context, state, attacker.Value).ConfigureAwait(false);
     }
 
-    public async Task<BagCleanupTickResult> AbortDiscardForAttackAsync(
+    public Task<BagCleanupTickResult> AbortDiscardForAttackAsync(
         AccountWorkerContext context,
         BagCleanupState state,
         string? attackerName)
+    {
+        return AbortDiscardForInterruptionAsync(
+            context,
+            state,
+            "attack",
+            attackerName,
+            "bag_cleanup.discard.interrupted_by_attack",
+            "discard_interrupted_by_attack");
+    }
+
+    public Task<BagCleanupTickResult> AbortDiscardForExternalInterruptionAsync(
+        AccountWorkerContext context,
+        BagCleanupState state,
+        string reason)
+    {
+        return AbortDiscardForInterruptionAsync(
+            context,
+            state,
+            reason,
+            null,
+            "bag_cleanup.discard.interrupted",
+            "discard_interrupted");
+    }
+
+    private async Task<BagCleanupTickResult> AbortDiscardForInterruptionAsync(
+        AccountWorkerContext context,
+        BagCleanupState state,
+        string interruptionReason,
+        string? attackerName,
+        string eventName,
+        string resultReason)
     {
         var target = state.DiscardTarget;
         var targetId = target is { InstanceId: > 0 and <= uint.MaxValue }
@@ -787,6 +852,15 @@ public sealed class BagCleanupController
         {
             IsOpen: true
         } confirm && targetId != 0 && confirm.PendingItemInstanceId == targetId;
+        if (liveConfirmVisible && confirmRead.Value is not null)
+        {
+            state.MarkDiscardConfirmSeen(confirmRead.Value);
+        }
+        else if (confirmRead.Success)
+        {
+            state.ClearLatchedDiscardConfirm();
+        }
+
         var completionAttempted = state.DiscardConfirmSeen || liveConfirmVisible;
         OperationResult completion = OperationResult.Ok();
         if (completionAttempted && target is not null)
@@ -801,10 +875,11 @@ public sealed class BagCleanupController
         }
 
         var close = await _discarder.CloseInventoryWindowIfOpenAsync(context).ConfigureAwait(false);
-        context.Logger.Warn("bag_cleanup.discard.interrupted_by_attack", new Dictionary<string, object?>
+        context.Logger.Warn(eventName, new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
             ["attackerName"] = attackerName,
+            ["interruptionReason"] = interruptionReason,
             ["targetInstanceId"] = target?.InstanceId,
             ["confirmSeen"] = state.DiscardConfirmSeen || liveConfirmVisible,
             ["completionSuccess"] = completion.Success,
@@ -816,7 +891,7 @@ public sealed class BagCleanupController
             ["resumePolicy"] = "restart_on_next_bag_check"
         });
         state.Reset();
-        return BagCleanupTickResult.Skipped("discard_interrupted_by_attack");
+        return BagCleanupTickResult.Skipped(resultReason);
     }
 
     private async Task<OperationResult> CompleteCurrentDiscardBeforeCombatAsync(
@@ -832,47 +907,95 @@ public sealed class BagCleanupController
         var targetId = checked((uint)target.InstanceId);
         var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
         var deadline = DateTimeOffset.Now + ReadDiscardVerifyTimeout();
-        var clickCount = 0;
-        while (DateTimeOffset.Now < deadline && clickCount < 2)
+        while (DateTimeOffset.Now < deadline)
         {
             var confirmRead = await BagCleanupGameApi.ReadInventoryDiscardConfirmAsync(context).ConfigureAwait(false);
             var inventoryRead = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
-            if (!confirmRead.Success || confirmRead.Value is null ||
-                !inventoryRead.Success || inventoryRead.Value is null)
+            if (!inventoryRead.Success || inventoryRead.Value is null)
             {
                 return OperationResult.Fail(
-                    confirmRead.Error ?? inventoryRead.Error ?? "Interrupted discard verification read failed.");
+                    inventoryRead.Error ?? "Interrupted discard inventory verification read failed.");
             }
 
             var targetStillPresent = inventoryRead.Value.Any(item => item.InstanceId == target.InstanceId);
-            if (!targetStillPresent && confirmRead.Value.PendingItemInstanceId == 0)
+            if (!confirmRead.Success || confirmRead.Value is null)
+            {
+                if (targetStillPresent &&
+                    state.DiscardConfirmClickCount < MaxDiscardConfirmClicksPerItem &&
+                    state.LatchedDiscardConfirm is
+                    {
+                        IsOpen: true
+                    } latched && latched.PendingItemInstanceId == targetId)
+                {
+                    context.Logger.Warn("bag_cleanup.discard.confirm_latch_fallback", new Dictionary<string, object?>
+                    {
+                        ["account"] = context.Config.AccountName,
+                        ["instanceId"] = targetId,
+                        ["kind"] = latched.Kind.ToString(),
+                        ["dialogId"] = latched.DialogId,
+                        ["readError"] = confirmRead.Error,
+                        ["interruptionReason"] = "combat_handoff"
+                    });
+                    var latchedClick = await _discarder
+                        .ClickDiscardConfirmAsync(
+                            context,
+                            maintenance.BagCleanupDiscardConfirmClickX,
+                            maintenance.BagCleanupDiscardConfirmClickY,
+                            targetId,
+                            latched.Kind)
+                        .ConfigureAwait(false);
+                    if (!latchedClick.Success)
+                    {
+                        return latchedClick;
+                    }
+
+                    state.MarkDiscardConfirmClicked();
+                }
+
+                await DelayAsync(TimeSpan.FromMilliseconds(ReadDiscardPollDelayMs()), context.StopToken)
+                    .ConfigureAwait(false);
+                continue;
+            }
+
+            var confirm = confirmRead.Value;
+            if (!confirm.IsOpen || confirm.PendingItemInstanceId != targetId)
+            {
+                state.ClearLatchedDiscardConfirm();
+            }
+
+            if (!targetStillPresent && confirm.PendingItemInstanceId == 0)
             {
                 return OperationResult.Ok();
             }
 
-            if (confirmRead.Value.PendingItemInstanceId != 0 &&
-                confirmRead.Value.PendingItemInstanceId != targetId)
+            if (confirm.PendingItemInstanceId != 0 &&
+                confirm.PendingItemInstanceId != targetId)
             {
                 return OperationResult.Fail("Interrupted discard confirmation belongs to another item.");
             }
 
-            if (confirmRead.Value.IsOpen && confirmRead.Value.PendingItemInstanceId == targetId)
+            if (confirm.IsOpen && confirm.PendingItemInstanceId == targetId)
             {
-                state.MarkDiscardConfirmSeen();
+                if (state.DiscardConfirmClickCount >= MaxDiscardConfirmClicksPerItem)
+                {
+                    return OperationResult.Fail("Interrupted discard exceeded the two-layer confirmation safety limit.");
+                }
+
+                state.MarkDiscardConfirmSeen(confirm);
                 var click = await _discarder
                     .ClickDiscardConfirmAsync(
                         context,
                         maintenance.BagCleanupDiscardConfirmClickX,
                         maintenance.BagCleanupDiscardConfirmClickY,
                         targetId,
-                        confirmRead.Value.Kind)
+                        confirm.Kind)
                     .ConfigureAwait(false);
                 if (!click.Success)
                 {
                     return click;
                 }
 
-                clickCount++;
+                state.MarkDiscardConfirmClicked();
                 await DelayAsync(TimeSpan.FromMilliseconds(ReadDiscardPollDelayMs()), context.StopToken)
                     .ConfigureAwait(false);
                 continue;

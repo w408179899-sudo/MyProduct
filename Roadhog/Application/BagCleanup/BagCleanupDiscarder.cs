@@ -212,27 +212,50 @@ public sealed class BagCleanupDiscarder
     public async Task<OperationResult> CloseInventoryWindowIfOpenAsync(AccountWorkerContext context)
     {
         await _input.MouseUpAsync(RoadhogMouseButton.Left, CancellationToken.None).ConfigureAwait(false);
-        var read = await BagCleanupGameApi.ReadInventoryWindowAsync(context).ConfigureAwait(false);
-        if (!read.Success || read.Value is null)
+        string? lastError = null;
+        for (var attempt = 1; attempt <= 2; attempt++)
         {
-            return OperationResult.Fail("Inventory window read before close failed: " + read.Error);
+            var read = await BagCleanupGameApi.ReadInventoryWindowAsync(context).ConfigureAwait(false);
+            if (!read.Success || read.Value is null)
+            {
+                lastError = "Inventory window read before close failed: " + read.Error;
+            }
+            else if (!read.Value.IsOpen)
+            {
+                return OperationResult.Ok();
+            }
+            else
+            {
+                var close = await _inventoryWindow.CloseInventoryWindowAsync(context).ConfigureAwait(false);
+                if (!close.Success)
+                {
+                    lastError = close.Error;
+                }
+                else
+                {
+                    var verify = await BagCleanupGameApi.ReadInventoryWindowAsync(context).ConfigureAwait(false);
+                    if (verify.Success && verify.Value is { IsOpen: false })
+                    {
+                        return OperationResult.Ok();
+                    }
+
+                    lastError = "Inventory window did not close after discard. " + verify.Error;
+                }
+            }
+
+            if (attempt < 2)
+            {
+                context.Logger.Warn("bag_cleanup.discard.inventory_close_retry", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["attempt"] = attempt,
+                    ["error"] = lastError
+                });
+                await DelayAsync(TimeSpan.FromMilliseconds(100), context.StopToken).ConfigureAwait(false);
+            }
         }
 
-        if (!read.Value.IsOpen)
-        {
-            return OperationResult.Ok();
-        }
-
-        var close = await _inventoryWindow.CloseInventoryWindowAsync(context).ConfigureAwait(false);
-        if (!close.Success)
-        {
-            return close;
-        }
-
-        var verify = await BagCleanupGameApi.ReadInventoryWindowAsync(context).ConfigureAwait(false);
-        return verify.Success && verify.Value is { IsOpen: false }
-            ? OperationResult.Ok()
-            : OperationResult.Fail("Inventory window did not close after discard. " + verify.Error);
+        return OperationResult.Fail(lastError ?? "Inventory window close failed after discard.");
     }
 
     private static TimeSpan ReadDelayMs(string name, int fallback)

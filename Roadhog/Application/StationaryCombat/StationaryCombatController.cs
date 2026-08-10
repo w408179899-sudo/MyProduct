@@ -99,6 +99,11 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         StopNextTargetPreAim(context, state, "fixed_channel_correction", clearCandidate: true);
         await StopMovementAsync(context, state).ConfigureAwait(false);
         StopPathFollowPoller(state);
+        await AbortDiscardForExternalInterruptionIfActiveAsync(
+                context,
+                state,
+                "fixed_channel_correction")
+            .ConfigureAwait(false);
         if (state.TopLevelState != StationaryCombatTopLevelState.DeathRecovery)
         {
             state.PrepareForFixedChannelCorrection(DateTimeOffset.Now);
@@ -228,6 +233,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         if (player.IsDead && state.TopLevelState != StationaryCombatTopLevelState.DeathRecovery)
         {
             StopNextTargetPreAim(context, state, "player_dead", clearCandidate: true);
+            await AbortDiscardForExternalInterruptionIfActiveAsync(context, state, "death_recovery")
+                .ConfigureAwait(false);
             state.EnterDeathRecovery(DateTimeOffset.Now);
             semiAutoState.ResetAttackKeyPressThrottle();
             context.Logger.Warn("stationary_combat.death.detected", new Dictionary<string, object?>
@@ -875,6 +882,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 
         if (player.IsDead && state.TopLevelState != StationaryCombatTopLevelState.DeathRecovery)
         {
+            await AbortDiscardForExternalInterruptionIfActiveAsync(context, state, "death_recovery")
+                .ConfigureAwait(false);
             state.EnterDeathRecovery(DateTimeOffset.Now);
             semiAutoState.ResetAttackKeyPressThrottle();
             context.Logger.Warn("stationary_combat.path_combat.death.detected", new Dictionary<string, object?>
@@ -1211,6 +1220,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         var player = playerResult.Value;
         if (player.IsDead && state.TopLevelState != StationaryCombatTopLevelState.DeathRecovery)
         {
+            await AbortDiscardForExternalInterruptionIfActiveAsync(context, state, "death_recovery")
+                .ConfigureAwait(false);
             state.EnterDeathRecovery(DateTimeOffset.Now);
             semiAutoState.ResetAttackKeyPressThrottle();
             context.Logger.Warn("player_life.death.detected", new Dictionary<string, object?>
@@ -4212,6 +4223,21 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             .ConfigureAwait(false);
 
         return StationaryCombatBehaviorStatus.Success;
+    }
+
+    private async Task AbortDiscardForExternalInterruptionIfActiveAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        string reason)
+    {
+        if (_bagCleanup is null || !state.BagCleanup.DiscardActive)
+        {
+            return;
+        }
+
+        await _bagCleanup
+            .AbortDiscardForExternalInterruptionAsync(context, state.BagCleanup, reason)
+            .ConfigureAwait(false);
     }
 
     private async Task<bool> TryHandleStationaryMaintenanceAsync(

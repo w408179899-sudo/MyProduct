@@ -60,6 +60,8 @@ public sealed class BagCleanupState
 
     public bool DiscardConfirmSeen { get; private set; }
 
+    public InventoryDiscardConfirmSnapshot? LatchedDiscardConfirm { get; private set; }
+
     public bool HasPressedTownReturn { get; private set; }
 
     public bool HasOpenedNpcDialog { get; private set; }
@@ -137,16 +139,27 @@ public sealed class BagCleanupState
         DiscardTarget = item;
         DiscardConfirmSeen = false;
         DiscardConfirmClickCount = 0;
+        LatchedDiscardConfirm = null;
     }
 
-    public void MarkDiscardConfirmSeen()
+    public void MarkDiscardConfirmSeen(InventoryDiscardConfirmSnapshot? confirm = null)
     {
         DiscardConfirmSeen = true;
+        if (confirm is { IsOpen: true, PendingItemInstanceId: > 0 })
+        {
+            LatchedDiscardConfirm = confirm;
+        }
     }
 
     public void MarkDiscardConfirmClicked()
     {
         DiscardConfirmClickCount++;
+        LatchedDiscardConfirm = null;
+    }
+
+    public void ClearLatchedDiscardConfirm()
+    {
+        LatchedDiscardConfirm = null;
     }
 
     public void MarkDiscardVerified()
@@ -155,6 +168,7 @@ public sealed class BagCleanupState
         DiscardTarget = null;
         DiscardConfirmSeen = false;
         DiscardConfirmClickCount = 0;
+        LatchedDiscardConfirm = null;
     }
 
     public void SetPath(SharedPathDocument path)
@@ -332,6 +346,7 @@ public sealed class BagCleanupState
         DiscardTarget = null;
         DiscardWindow = null;
         DiscardConfirmSeen = false;
+        LatchedDiscardConfirm = null;
     }
 
     private void SetReturnAfterFailure(string reason, string error)

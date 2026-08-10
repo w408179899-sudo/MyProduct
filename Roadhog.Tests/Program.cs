@@ -254,6 +254,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("bag cleanup discard transitions to full cleanup only after exhaustion", TestBagCleanupDiscardTransitionsToFullCleanupAfterExhaustionAsync),
     ("bag cleanup discard aborts before confirm and does not resume", TestBagCleanupDiscardAbortsBeforeConfirmAsync),
     ("bag cleanup discard confirms current item before attack handoff", TestBagCleanupDiscardConfirmsBeforeAttackHandoffAsync),
+    ("bag cleanup discard uses latched confirm after reread failure", TestBagCleanupDiscardUsesLatchedConfirmAfterRereadFailureAsync),
+    ("bag cleanup discard clears stale confirm latch after successful read", TestBagCleanupDiscardClearsStaleConfirmLatchAfterSuccessfulReadAsync),
+    ("bag cleanup discard limits each item to two confirm clicks", TestBagCleanupDiscardLimitsConfirmClicksPerItemAsync),
+    ("bag cleanup discard retries inventory close", TestBagCleanupDiscardRetriesInventoryCloseAsync),
     ("bag cleanup discard waits until all attackers are cleared", TestBagCleanupDiscardWaitsUntilAllAttackersAreClearedAsync),
     ("bag cleanup matcher groups weapon armor and accessory as equipment", TestBagCleanupMatcherGroupsEquipmentTypesAsync),
     ("bag cleanup matcher maps stigma item type", TestBagCleanupMatcherMapsStigmaItemTypeAsync),
@@ -396,6 +400,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat refreshes position after bag cleanup return", TestStationaryCombatRefreshesPositionAfterBagCleanupReturnAsync),
     ("stationary combat postpones after-combat maintenance while pet is targeted", TestStationaryCombatPostponesAfterCombatMaintenanceWhilePetIsTargetedAsync),
     ("stationary combat abandons discard before adopting defense target", TestStationaryCombatAbandonsDiscardBeforeAdoptingDefenseTargetAsync),
+    ("stationary combat closes discard before death recovery", TestStationaryCombatClosesDiscardBeforeDeathRecoveryAsync),
+    ("stationary combat closes discard before fixed channel correction", TestStationaryCombatClosesDiscardBeforeFixedChannelCorrectionAsync),
     ("stationary combat finishes current fight before returning home", TestStationaryCombatFinishesFightBeforeReturningHomeAsync),
     ("stationary combat reacquires adopted defense target when locked on party member", TestStationaryCombatReacquiresAdoptedDefenseTargetWhenLockedOnPartyMemberAsync),
     ("stationary combat faces adopted defense target before reacquire tab", TestStationaryCombatFacesAdoptedDefenseTargetBeforeReacquireTabAsync),
@@ -10564,6 +10570,189 @@ static async Task TestBagCleanupDiscardConfirmsBeforeAttackHandoffAsync()
     AssertEqual(DateTimeOffset.MinValue, state.LastFailedAt, "confirm-visible interruption must not start failure cooldown");
 }
 
+static async Task TestBagCleanupDiscardUsesLatchedConfirmAfterRereadFailureAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var keyboard = new RecordingKeyboardInput();
+    var settings = CreateDiscardScriptSettings(BagCleanupRuleCatalog.GreenManastone, threshold: 2);
+    var target = new InventoryItemSnapshot(167000450, 42, "green-manastone", 1, 0, false, 24, 2);
+    var gameApi = CreateSafeDiscardGameApi(capacity: 3, target);
+    gameApi.InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0);
+    var confirm = new InventoryDiscardConfirmSnapshot(
+        true,
+        42,
+        InventoryDiscardConfirmKind.Normal,
+        336,
+        0x1234,
+        DateTimeOffset.Now);
+    gameApi.InventoryDiscardConfirm = confirm;
+    gameApi.InventoryDiscardConfirmReadResults.Enqueue(
+        OperationResult<InventoryDiscardConfirmSnapshot>.Fail("transient confirm reread failure"));
+    var confirmMouseDown = false;
+    keyboard.AfterMouseDown = button =>
+    {
+        if (button == RoadhogMouseButton.Left && gameApi.InventoryDiscardConfirm.IsOpen)
+        {
+            confirmMouseDown = true;
+        }
+    };
+    keyboard.AfterMouseUp = button =>
+    {
+        if (button != RoadhogMouseButton.Left || !confirmMouseDown)
+        {
+            return;
+        }
+
+        confirmMouseDown = false;
+        gameApi.InventoryItems = gameApi.InventoryItems
+            .Where(item => item.InstanceId != target.InstanceId)
+            .ToArray();
+        gameApi.InventoryDiscardConfirm = InventoryDiscardConfirmSnapshot.Closed(DateTimeOffset.Now);
+    };
+    var state = new BagCleanupState();
+    state.StartDiscard(1, 2, 1);
+    state.SetDiscardWindow(gameApi.InventoryWindow);
+    state.SetDiscardTarget(target);
+    state.MarkDiscardConfirmSeen(confirm);
+    state.Advance(BagCleanupStep.ClickDiscardConfirm);
+    var controller = new BagCleanupController(
+        keyboard,
+        new InMemorySharedPathStore(),
+        (_, _, _) => Task.FromResult(OperationResult.Ok()));
+
+    var result = await controller.TickAfterLootAsync(CreateContext(settings, gameApi, logger), state).ConfigureAwait(false);
+
+    AssertEqual(BagCleanupTickStatus.Running, result.Status, "latched confirm fallback should keep discard running");
+    AssertEqual("discard_confirm_clicked", result.Reason, "latched normal confirm should use the normal completion path");
+    AssertFalse(gameApi.InventoryItems.Any(item => item.InstanceId == target.InstanceId), "latched exact confirm should discard the same item");
+    AssertFalse(!keyboard.MouseCommands.Contains("move:650,470"), "latched confirm should use the configured customer coordinate");
+    AssertEqual(1, state.DiscardConfirmClickCount, "latched confirm should count as exactly one click");
+    AssertFalse(
+        !logger.Entries.Any(entry => entry.EventName == "bag_cleanup.discard.confirm_latch_fallback"),
+        "transient reread fallback should be logged");
+}
+
+static async Task TestBagCleanupDiscardClearsStaleConfirmLatchAfterSuccessfulReadAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var keyboard = new RecordingKeyboardInput();
+    var settings = CreateDiscardScriptSettings(BagCleanupRuleCatalog.GreenManastone, threshold: 2);
+    var target = new InventoryItemSnapshot(167000450, 46, "green-manastone", 1, 0, false, 24, 2);
+    var gameApi = CreateSafeDiscardGameApi(capacity: 3, target);
+    var staleConfirm = new InventoryDiscardConfirmSnapshot(
+        true,
+        46,
+        InventoryDiscardConfirmKind.Normal,
+        336,
+        0x5678,
+        DateTimeOffset.Now);
+    gameApi.InventoryDiscardConfirm = InventoryDiscardConfirmSnapshot.Closed(DateTimeOffset.Now);
+    var state = new BagCleanupState();
+    state.StartDiscard(1, 2, 1);
+    state.SetDiscardTarget(target);
+    state.MarkDiscardConfirmSeen(staleConfirm);
+    state.Advance(BagCleanupStep.ClickDiscardConfirm);
+    var controller = new BagCleanupController(
+        keyboard,
+        new InMemorySharedPathStore(),
+        (_, _, _) => Task.FromResult(OperationResult.Ok()));
+
+    var result = await controller.TickAfterLootAsync(CreateContext(settings, gameApi, logger), state).ConfigureAwait(false);
+
+    AssertEqual(BagCleanupTickStatus.Running, result.Status, "confirmed cleared dialog should continue to item verification");
+    AssertEqual("discard_confirm_already_cleared", result.Reason, "successful closed read should win over the older latch");
+    AssertEqual(BagCleanupStep.VerifyDiscardItem, state.Step, "cleared confirm should advance to verification");
+    AssertEqual<InventoryDiscardConfirmSnapshot?>(null, state.LatchedDiscardConfirm, "successful closed read should invalidate the old confirm latch");
+    AssertFalse(keyboard.MouseCommands.Contains("move:650,470"), "stale confirm latch must not be clicked");
+}
+
+static async Task TestBagCleanupDiscardLimitsConfirmClicksPerItemAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var keyboard = new RecordingKeyboardInput();
+    var settings = CreateDiscardScriptSettings(BagCleanupRuleCatalog.GreenManastone, threshold: 2);
+    var target = new InventoryItemSnapshot(167000450, 43, "green-manastone", 1, 0, false, 24, 2);
+    var gameApi = CreateSafeDiscardGameApi(capacity: 3, target);
+    gameApi.InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0);
+    var confirm = new InventoryDiscardConfirmSnapshot(
+        true,
+        43,
+        InventoryDiscardConfirmKind.Normal,
+        336,
+        0x3456,
+        DateTimeOffset.Now);
+    gameApi.InventoryDiscardConfirm = confirm;
+    keyboard.AfterPress = key =>
+    {
+        if (key == "Escape")
+        {
+            gameApi.InventoryDiscardConfirm = InventoryDiscardConfirmSnapshot.Closed(DateTimeOffset.Now);
+        }
+        else if (key == "I")
+        {
+            gameApi.InventoryWindow = CreateInventoryWindow(false, 0.0, 0.0);
+        }
+    };
+    var state = new BagCleanupState();
+    state.StartDiscard(1, 2, 1);
+    state.SetDiscardWindow(gameApi.InventoryWindow);
+    state.SetDiscardTarget(target);
+    state.MarkDiscardConfirmSeen(confirm);
+    state.MarkDiscardConfirmClicked();
+    state.MarkDiscardConfirmClicked();
+    state.MarkDiscardConfirmSeen(confirm);
+    state.Advance(BagCleanupStep.ClickDiscardConfirm);
+    var controller = new BagCleanupController(
+        keyboard,
+        new InMemorySharedPathStore(),
+        (_, _, _) => Task.FromResult(OperationResult.Ok()));
+
+    var result = await controller.TickAfterLootAsync(CreateContext(settings, gameApi, logger), state).ConfigureAwait(false);
+
+    AssertEqual(BagCleanupTickStatus.Skipped, result.Status, "third confirm should stop the local discard session");
+    AssertEqual("discard_confirm_click_limit", result.Reason, "third confirm should report the safety limit");
+    AssertFalse(keyboard.MouseCommands.Contains("move:650,470"), "third confirm must never be clicked");
+    AssertFalse(!keyboard.Keys.Contains("Escape"), "third confirm should be cancelled safely");
+    AssertFalse(gameApi.InventoryWindow.IsOpen, "click-limit cleanup should close inventory");
+    AssertFalse(!gameApi.InventoryItems.Any(item => item.InstanceId == target.InstanceId), "click-limit cleanup must keep the item");
+    AssertFalse(state.Active, "click-limit cleanup should use no-resume policy");
+}
+
+static async Task TestBagCleanupDiscardRetriesInventoryCloseAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var keyboard = new RecordingKeyboardInput();
+    var settings = CreateDiscardScriptSettings(BagCleanupRuleCatalog.GreenManastone, threshold: 2);
+    var gameApi = CreateSafeDiscardGameApi(capacity: 3);
+    gameApi.InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0);
+    var closeAttempts = 0;
+    keyboard.AfterPress = key =>
+    {
+        if (key != "I")
+        {
+            return;
+        }
+
+        closeAttempts++;
+        if (closeAttempts == 2)
+        {
+            gameApi.InventoryWindow = CreateInventoryWindow(false, 0.0, 0.0);
+        }
+    };
+    var discarder = new BagCleanupDiscarder(keyboard, new BagCleanupSeller(keyboard));
+
+    var result = await discarder
+        .CloseInventoryWindowIfOpenAsync(CreateContext(settings, gameApi, logger))
+        .ConfigureAwait(false);
+
+    AssertFalse(!result.Success, "second close attempt should recover an inventory window that stayed open");
+    AssertEqual(2, closeAttempts, "inventory close should retry exactly once");
+    AssertFalse(gameApi.InventoryWindow.IsOpen, "retry should leave inventory closed");
+    AssertFalse(
+        !logger.Entries.Any(entry => entry.EventName == "bag_cleanup.discard.inventory_close_retry"),
+        "inventory close retry should be logged");
+}
+
 static async Task TestBagCleanupDiscardWaitsUntilAllAttackersAreClearedAsync()
 {
     var logger = new InMemoryRoadhogLogger();
@@ -20156,6 +20345,166 @@ static async Task TestStationaryCombatAbandonsDiscardBeforeAdoptingDefenseTarget
     AssertFalse(
         !logger.Entries.Any(entry => entry.EventName == "bag_cleanup.discard.interrupted_by_attack"),
         "discard interruption should be logged before combat handoff");
+}
+
+static async Task TestStationaryCombatClosesDiscardBeforeDeathRecoveryAsync()
+{
+    var settings = CreateDiscardScriptSettings(BagCleanupRuleCatalog.GreenManastone, threshold: 2);
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    const uint discardInstanceId = 44;
+    var discardTarget = new InventoryItemSnapshot(
+        167000450,
+        discardInstanceId,
+        "discard-target",
+        1,
+        0,
+        false,
+        24,
+        2);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = CreateSafeDiscardGameApi(capacity: 3, discardTarget);
+    gameApi.Player = new PlayerSnapshot(
+        1,
+        100,
+        "Fake",
+        0,
+        100,
+        100,
+        100,
+        0,
+        new Vector3Snapshot(0, 0, 0),
+        DateTimeOffset.Now);
+    gameApi.InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0);
+    gameApi.InventoryDiscardConfirm = new InventoryDiscardConfirmSnapshot(
+        true,
+        discardInstanceId,
+        InventoryDiscardConfirmKind.Normal,
+        336,
+        0x4567,
+        DateTimeOffset.Now);
+    var confirmMouseDown = false;
+    keyboard.AfterMouseDown = button =>
+    {
+        if (button == RoadhogMouseButton.Left && gameApi.InventoryDiscardConfirm.IsOpen)
+        {
+            confirmMouseDown = true;
+        }
+    };
+    keyboard.AfterMouseUp = button =>
+    {
+        if (button != RoadhogMouseButton.Left || !confirmMouseDown)
+        {
+            return;
+        }
+
+        confirmMouseDown = false;
+        gameApi.InventoryItems = gameApi.InventoryItems
+            .Where(item => item.InstanceId != discardInstanceId)
+            .ToArray();
+        gameApi.InventoryDiscardConfirm = InventoryDiscardConfirmSnapshot.Closed(DateTimeOffset.Now);
+    };
+    keyboard.AfterPress = key =>
+    {
+        if (key == "I")
+        {
+            gameApi.InventoryWindow = CreateInventoryWindow(false, 0.0, 0.0);
+        }
+    };
+    var controller = new StationaryCombatController(
+        keyboard,
+        new SemiAutoCombatController(keyboard),
+        new InMemorySharedPathStore());
+    var state = new StationaryCombatState();
+    state.BagCleanup.StartDiscard(1, 2, 1);
+    state.BagCleanup.SetDiscardWindow(gameApi.InventoryWindow);
+    state.BagCleanup.SetDiscardTarget(discardTarget);
+    state.BagCleanup.Advance(BagCleanupStep.WaitDiscardConfirm);
+
+    await controller
+        .TickPlayerLifeGuardAsync(
+            CreateContext(settings, gameApi, logger),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            state,
+            followRevivePath: false)
+        .ConfigureAwait(false);
+
+    AssertEqual(StationaryCombatTopLevelState.DeathRecovery, state.TopLevelState, "death recovery should start after discard shutdown");
+    AssertFalse(state.BagCleanup.Active, "death recovery should not preserve a resumable discard session");
+    AssertFalse(gameApi.InventoryItems.Any(item => item.InstanceId == discardInstanceId), "visible confirm should be completed before death recovery");
+    AssertFalse(gameApi.InventoryWindow.IsOpen, "inventory should close before death recovery continues");
+    AssertFalse(!keyboard.MouseCommands.Contains("move:650,470"), "death handoff should click the configured discard confirm point");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "bag_cleanup.discard.interrupted" &&
+            string.Equals(Convert.ToString(entry.Fields["interruptionReason"]), "death_recovery", StringComparison.Ordinal)),
+        "death discard shutdown should be logged");
+}
+
+static async Task TestStationaryCombatClosesDiscardBeforeFixedChannelCorrectionAsync()
+{
+    var settings = CreateDiscardScriptSettings(BagCleanupRuleCatalog.GreenManastone, threshold: 2);
+    const uint discardInstanceId = 45;
+    var discardTarget = new InventoryItemSnapshot(
+        167000450,
+        discardInstanceId,
+        "discard-target",
+        1,
+        0,
+        false,
+        24,
+        2);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = CreateSafeDiscardGameApi(capacity: 3, discardTarget);
+    gameApi.InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0);
+    gameApi.InventoryDiscardConfirm = new InventoryDiscardConfirmSnapshot(
+        false,
+        discardInstanceId,
+        InventoryDiscardConfirmKind.PendingWithoutVisibleDialog,
+        0,
+        0,
+        DateTimeOffset.Now);
+    keyboard.AfterPress = key =>
+    {
+        if (key == "Escape")
+        {
+            gameApi.InventoryDiscardConfirm = InventoryDiscardConfirmSnapshot.Closed(DateTimeOffset.Now);
+        }
+        else if (key == "I")
+        {
+            gameApi.InventoryWindow = CreateInventoryWindow(false, 0.0, 0.0);
+        }
+    };
+    var controller = new StationaryCombatController(
+        keyboard,
+        new SemiAutoCombatController(keyboard),
+        new InMemorySharedPathStore());
+    var state = new StationaryCombatState();
+    state.BagCleanup.StartDiscard(1, 2, 1);
+    state.BagCleanup.SetDiscardWindow(gameApi.InventoryWindow);
+    state.BagCleanup.SetDiscardTarget(discardTarget);
+    state.BagCleanup.Advance(BagCleanupStep.WaitDiscardConfirm);
+
+    await controller
+        .SuspendForFixedChannelCorrectionAsync(
+            CreateContext(settings, gameApi, logger),
+            new SemiAutoCombatState(),
+            state)
+        .ConfigureAwait(false);
+
+    AssertFalse(state.BagCleanup.Active, "fixed channel correction should not preserve a resumable discard session");
+    AssertFalse(gameApi.InventoryWindow.IsOpen, "fixed channel correction should close inventory first");
+    AssertFalse(!gameApi.InventoryItems.Any(item => item.InstanceId == discardInstanceId), "pre-confirm fixed channel interruption must keep the item");
+    AssertFalse(!keyboard.Keys.Contains("Escape"), "fixed channel correction should cancel a pending pre-confirm drag");
+    AssertFalse(!keyboard.Keys.Contains("I"), "fixed channel correction should close inventory before resetting combat state");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "bag_cleanup.discard.interrupted" &&
+            string.Equals(Convert.ToString(entry.Fields["interruptionReason"]), "fixed_channel_correction", StringComparison.Ordinal)),
+        "fixed channel discard shutdown should be logged");
 }
 
 static async Task TestStationaryCombatFinishesFightBeforeReturningHomeAsync()
