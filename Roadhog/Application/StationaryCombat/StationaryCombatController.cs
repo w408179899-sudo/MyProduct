@@ -3311,7 +3311,9 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 
         if (semiAutoState.IsMaintenanceResting)
         {
-            if (isRevivePathClearTarget && !IsMaintenanceDefenseTarget(target, state))
+            if (isRevivePathClearTarget &&
+                !IsMaintenanceDefenseTarget(target, state) &&
+                !IsDeathRecoveryRevivePathActive(state))
             {
                 return IdleDelay;
             }
@@ -4702,10 +4704,24 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 playerPosition,
                 forceRefresh: true)
             .ConfigureAwait(false);
+        var isRevivePathClearTarget = false;
+        if (target?.Position is null && IsDeathRecoveryRevivePathActive(state))
+        {
+            target = await SelectRevivePathAggressiveClearTargetAsync(
+                    context,
+                    state,
+                    playerPosition,
+                    forceRefresh: true)
+                .ConfigureAwait(false);
+            isRevivePathClearTarget = target?.Position is not null;
+        }
+
         if (target?.Position is null)
         {
             return false;
         }
+
+        var isMaintenanceDefenseTarget = IsMaintenanceDefenseTarget(target, state);
 
         semiAutoState.ResetAttackKeyPressThrottle();
         await StopMovementAsync(context, state).ConfigureAwait(false);
@@ -4725,7 +4741,9 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             success: true);
         state.Fighting = true;
         state.SetCurrentTarget(target);
-        state.CurrentTargetIsMaintenanceDefense = true;
+        state.CurrentTargetIsMaintenanceDefense = isMaintenanceDefenseTarget;
+        state.CurrentTargetIsRevivePathClear = isRevivePathClearTarget;
+        state.CurrentTargetBypassesHomeLeash = isRevivePathClearTarget || isMaintenanceDefenseTarget;
         state.MarkCandidate(target, DateTimeOffset.Now);
         state.FacedCandidateEntityId = 0;
         state.ClearPendingTabVerification();
@@ -4738,7 +4756,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             ["targetServerObjectId"] = target.ServerObjectId,
             ["targetName"] = target.Name,
             ["targetingServerObjectId"] = target.TargetServerObjectId,
-            ["targetingMe"] = IsTargetingLocalSide(target, state)
+            ["targetingMe"] = IsTargetingLocalSide(target, state),
+            ["revivePathClear"] = isRevivePathClearTarget
         });
         return true;
     }
@@ -8382,6 +8401,12 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     {
         return string.Equals(recoveryPhase, "death_recovery", StringComparison.Ordinal) ||
                string.Equals(recoveryPhase, "startup_recovery", StringComparison.Ordinal);
+    }
+
+    private static bool IsDeathRecoveryRevivePathActive(StationaryCombatState state)
+    {
+        return state.TopLevelState == StationaryCombatTopLevelState.DeathRecovery &&
+               state.DeathRecovery.Step == StationaryCombatDeathRecoveryStep.FollowRevivePath;
     }
 
     private static IReadOnlyList<string> GetActiveMonsterNameFilters(AccountWorkerContext context)

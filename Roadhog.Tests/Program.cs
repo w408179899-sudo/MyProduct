@@ -330,6 +330,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat death recovery summons spiritmaster pet before maintenance and revive path", TestStationaryCombatDeathRecoverySummonsSpiritmasterPetBeforeMaintenanceAndRevivePathAsync),
     ("stationary combat death recovery path defends when targeted", TestStationaryCombatDeathRecoveryPathDefendsWhenTargetedAsync),
     ("stationary combat death recovery path clears nearby aggressive monsters", TestStationaryCombatDeathRecoveryPathClearsNearbyAggressiveMonstersAsync),
+    ("stationary combat death recovery path postpones rest for nearby aggressive after loot", TestStationaryCombatDeathRecoveryPathPostponesRestForNearbyAggressiveAfterLootAsync),
+    ("stationary combat death recovery path interrupts rest for nearby aggressive", TestStationaryCombatDeathRecoveryPathInterruptsRestForNearbyAggressiveAsync),
     ("stationary combat death recovery path rests before continuing low hp", TestStationaryCombatDeathRecoveryPathRestsBeforeContinuingLowHpAsync),
     ("stationary combat death recovery path jumps when stuck", TestStationaryCombatDeathRecoveryPathJumpsWhenStuckAsync),
     ("stationary combat death recovery leader siphon pauses and resumes revive path", TestStationaryCombatDeathRecoveryLeaderSiphonPausesAndResumesRevivePathAsync),
@@ -14699,6 +14701,204 @@ static async Task TestStationaryCombatDeathRecoveryPathClearsNearbyAggressiveMon
     }
 }
 
+static async Task TestStationaryCombatDeathRecoveryPathPostponesRestForNearbyAggressiveAfterLootAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Paths.RevivePathAggressiveClearRadius = 10;
+    settings.Maintenance.SitMaintenanceEnabled = true;
+    settings.Maintenance.SitHpBelowPercent = 30;
+    settings.Maintenance.SitHpRecoverToPercent = 75;
+    settings.Combat = new CombatScriptSettings
+    {
+        EnableLoot = true,
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 20,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 10
+    };
+
+    const ushort aggressiveEntityId = 210;
+    const uint aggressiveServerObjectId = 2100;
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(
+            1,
+            0,
+            "Fake",
+            20,
+            100,
+            100,
+            100,
+            0,
+            new Vector3Snapshot(0, 0, 0),
+            DateTimeOffset.Now),
+        TargetEntityId = 0,
+        TargetCurrentHp = 0,
+        TargetMaxHp = 0,
+        TargetPosition = null,
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>()),
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(
+                aggressiveEntityId,
+                aggressiveServerObjectId,
+                "active-near",
+                "monster",
+                new Vector3Snapshot(4, 0, 0),
+                4,
+                1000,
+                1000,
+                AggressiveKnown: true,
+                IsAggressiveToPlayer: true)
+        }
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var stationaryState = new StationaryCombatState();
+    stationaryState.EnterDeathRecovery(DateTimeOffset.Now);
+    for (var i = 0; i < 7; i++)
+    {
+        stationaryState.DeathRecovery.Advance(DateTimeOffset.Now);
+    }
+
+    stationaryState.StartLootAfterKill(
+        new LockedTargetSnapshot(
+            100,
+            5000,
+            0,
+            LockedTargetSnapshot.MonsterObjectType,
+            "dead-target",
+            0,
+            100,
+            new Vector3Snapshot(2, 0, 0),
+            2,
+            DateTimeOffset.Now),
+        DateTimeOffset.Now);
+    stationaryState.LootAfterKill.MoveToPostCombatMaintenance(DateTimeOffset.Now);
+    var semiAutoState = new SemiAutoCombatState();
+
+    await controller
+        .TickAsync(
+            CreateContext(settings, gameApi, logger),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            semiAutoState,
+            stationaryState)
+        .ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Contains("OemComma"), "nearby aggressive monster should block death recovery rest before it starts");
+    AssertFalse(semiAutoState.IsMaintenanceResting, "blocked death recovery rest should not enter maintenance sitting state");
+    AssertFalse(!stationaryState.Fighting, "nearby aggressive monster should become the next death recovery fight");
+    AssertFalse(!stationaryState.CurrentTargetIsRevivePathClear, "post-loot aggressive target should be marked as revive path clear");
+    AssertFalse(stationaryState.CurrentTargetIsMaintenanceDefense, "generic aggressive target should not be marked as local-side defense");
+    AssertEqual(aggressiveEntityId, stationaryState.CurrentTargetEntityId, "post-loot aggressive target entity");
+    AssertEqual(aggressiveServerObjectId, stationaryState.CurrentTargetServerObjectId, "post-loot aggressive target server object");
+    AssertFalse(stationaryState.LootAfterKill.Active, "loot should finish before the aggressive target handoff");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.loot.post_combat_maintenance_postponed" &&
+            entry.Fields.TryGetValue("revivePathClear", out var value) &&
+            value is true),
+        "death recovery post-loot rest postponement should identify revive path clear target");
+}
+
+static async Task TestStationaryCombatDeathRecoveryPathInterruptsRestForNearbyAggressiveAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Paths.RevivePathAggressiveClearRadius = 10;
+    settings.Maintenance.SitMaintenanceEnabled = true;
+    settings.Maintenance.SitHpBelowPercent = 30;
+    settings.Maintenance.SitHpRecoverToPercent = 75;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 20,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 10
+    };
+
+    const ushort aggressiveEntityId = 220;
+    const uint aggressiveServerObjectId = 2200;
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(
+            1,
+            aggressiveEntityId,
+            "Fake",
+            20,
+            100,
+            100,
+            100,
+            0,
+            new Vector3Snapshot(0, 0, 0),
+            DateTimeOffset.Now,
+            StanceFlags: 5,
+            MotionMode: 1),
+        TargetEntityId = aggressiveEntityId,
+        TargetOwnServerObjectId = aggressiveServerObjectId,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        TargetPosition = new Vector3Snapshot(4, 0, 0),
+        TargetServerObjectId = 0,
+        TargetIsTargetingLocalPlayer = false,
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>()),
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(
+                aggressiveEntityId,
+                aggressiveServerObjectId,
+                "active-near",
+                "monster",
+                new Vector3Snapshot(4, 0, 0),
+                4,
+                1000,
+                1000,
+                AggressiveKnown: true,
+                IsAggressiveToPlayer: true)
+        }
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var stationaryState = new StationaryCombatState();
+    stationaryState.EnterDeathRecovery(DateTimeOffset.Now);
+    for (var i = 0; i < 7; i++)
+    {
+        stationaryState.DeathRecovery.Advance(DateTimeOffset.Now);
+    }
+
+    var semiAutoState = new SemiAutoCombatState();
+    semiAutoState.StartMaintenanceRest(forHp: true, forMp: false);
+    CalibrateCooldownClock(semiAutoState);
+
+    await controller
+        .TickAsync(
+            CreateContext(settings, gameApi, logger),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            semiAutoState,
+            stationaryState)
+        .ConfigureAwait(false);
+
+    AssertFalse(!keyboard.Keys.Contains("X"), "nearby aggressive monster should interrupt an active death recovery sit");
+    AssertFalse(semiAutoState.IsMaintenanceResting, "interrupted death recovery sit should clear maintenance resting state");
+    AssertFalse(!stationaryState.CurrentTargetIsRevivePathClear, "rest interruption target should be marked as revive path clear");
+    AssertFalse(stationaryState.CurrentTargetIsMaintenanceDefense, "generic aggressive rest interruption target should not be local-side defense");
+    AssertEqual(aggressiveEntityId, stationaryState.CandidateEntityId, "rest interruption aggressive target candidate");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "semi_auto.maintenance.rest_interrupt" &&
+            string.Equals(Convert.ToString(entry.Fields["reason"]), "death_recovery_defense_target_detected", StringComparison.Ordinal)),
+        "death recovery aggressive target should log the rest interruption");
+}
+
 static async Task TestStationaryCombatDeathRecoveryPathRestsBeforeContinuingLowHpAsync()
 {
     var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
@@ -14709,6 +14909,7 @@ static async Task TestStationaryCombatDeathRecoveryPathRestsBeforeContinuingLowH
         settings.MainMode = AccountMainMode.CustomCombat;
         settings.CombatMode = AccountCombatMode.Stationary;
         settings.Paths.RevivePathName = "revive-a";
+        settings.Paths.RevivePathAggressiveClearRadius = 10;
         settings.Maintenance.SitMaintenanceEnabled = true;
         settings.Maintenance.SitHpBelowPercent = 30;
         settings.Maintenance.SitHpRecoverToPercent = 75;
@@ -14730,7 +14931,31 @@ static async Task TestStationaryCombatDeathRecoveryPathRestsBeforeContinuingLowH
             TargetCurrentHp = 0,
             TargetMaxHp = 0,
             TargetPosition = null,
-            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(
+                    230,
+                    2300,
+                    "passive-near",
+                    "monster",
+                    new Vector3Snapshot(2, 0, 0),
+                    2,
+                    1000,
+                    1000,
+                    AggressiveKnown: true,
+                    IsAggressiveToPlayer: false),
+                new WorldObjectSnapshot(
+                    231,
+                    2310,
+                    "active-outside",
+                    "monster",
+                    new Vector3Snapshot(11, 0, 0),
+                    11,
+                    1000,
+                    1000,
+                    AggressiveKnown: true,
+                    IsAggressiveToPlayer: true)
+            },
             Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
         };
         var semiAuto = new SemiAutoCombatController(keyboard);
@@ -20116,7 +20341,21 @@ static async Task TestStationaryCombatRunsAfterCombatMaintenanceAfterLootAsync()
                 [5] = 0,
                 [6] = 0,
                 [8] = 0
-            })
+            }),
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(
+                    200,
+                    2000,
+                    "generic-aggressive",
+                    "monster",
+                    new Vector3Snapshot(4, 0, 0),
+                    4,
+                    1000,
+                    1000,
+                    AggressiveKnown: true,
+                    IsAggressiveToPlayer: true)
+            }
         };
         keyboard.AfterPress = key =>
         {
@@ -20150,6 +20389,9 @@ static async Task TestStationaryCombatRunsAfterCombatMaintenanceAfterLootAsync()
 
         AssertSequence(new[] { "NumPadDecimal", "D8" }, keyboard.Keys, "after-combat maintenance should run after loot key");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.loot.post_combat_maintenance"), "post-combat maintenance should be logged");
+        AssertFalse(
+            logger.Entries.Any(entry => entry.EventName == "stationary_combat.loot.post_combat_maintenance_postponed"),
+            "normal stationary mode should not use the death recovery aggressive-clear rest guard");
         AssertFalse(state.LootAfterKill.Active, "loot state should finish after post-combat maintenance");
     }
     finally
