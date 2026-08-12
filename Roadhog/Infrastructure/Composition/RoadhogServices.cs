@@ -1,6 +1,7 @@
 using Roadhog.Application;
 using Roadhog.Application.Channels;
 using Roadhog.Application.Licensing;
+using Roadhog.Application.Radar;
 using Roadhog.Application.SemiAuto;
 using Roadhog.Application.Shell;
 using Roadhog.Application.StationaryCombat;
@@ -12,6 +13,7 @@ using Roadhog.Core.Diagnostics;
 using Roadhog.Core.Hardware;
 using Roadhog.Core.Input;
 using Roadhog.Core.Processes;
+using Roadhog.Core.Radar;
 using Roadhog.Infrastructure.Config;
 using Roadhog.Infrastructure.Diagnostics;
 using Roadhog.Infrastructure.Hardware;
@@ -24,6 +26,7 @@ using Roadhog.Core.Profiles;
 using Roadhog.Infrastructure.Paths;
 using Roadhog.Infrastructure.Processes;
 using Roadhog.Infrastructure.Profiles;
+using Roadhog.Infrastructure.Radar;
 using Roadhog.Infrastructure.Shell;
 using Roadhog.Infrastructure.ToolBridge;
 using Roadhog.Infrastructure.Vmm;
@@ -40,6 +43,7 @@ public sealed class RoadhogServices : IDisposable
         IAccountConfigStore accountConfigStore,
         IBagCleanupNameListStore bagCleanupNameListStore,
         ISharedPathStore sharedPathStore,
+        IRadarMapStore radarMapStore,
         IScriptProfileStore scriptProfileStore,
         IFolderLauncher folderLauncher,
         AccountRuntimeManager accountRuntimeManager,
@@ -60,6 +64,7 @@ public sealed class RoadhogServices : IDisposable
         AccountConfigStore = accountConfigStore;
         BagCleanupNameListStore = bagCleanupNameListStore;
         SharedPathStore = sharedPathStore;
+        RadarMapStore = radarMapStore;
         ScriptProfileStore = scriptProfileStore;
         FolderLauncher = folderLauncher;
         AccountRuntimeManager = accountRuntimeManager;
@@ -90,6 +95,8 @@ public sealed class RoadhogServices : IDisposable
     public IBagCleanupNameListStore BagCleanupNameListStore { get; }
 
     public ISharedPathStore SharedPathStore { get; }
+
+    public IRadarMapStore RadarMapStore { get; }
 
     public IScriptProfileStore ScriptProfileStore { get; }
 
@@ -135,6 +142,7 @@ public sealed class RoadhogServices : IDisposable
             ["accountConfigPath"] = options.AccountConfigPath,
             ["pathLibraryDirectory"] = options.PathLibraryDirectory,
             ["profileLibraryDirectory"] = options.ProfileLibraryDirectory,
+            ["radarMapDirectory"] = options.RadarMapDirectory,
             ["kmBoxNetConfigPath"] = options.KmBoxNetConfigPath,
             ["licenseCredentialPath"] = options.LicenseCredentialPath,
             ["ownerLicenseGrantPath"] = options.OwnerLicenseGrantPath,
@@ -169,6 +177,13 @@ public sealed class RoadhogServices : IDisposable
             Path.Combine(configDirectory, JsonBagCleanupNameListStore.LegacyFileName),
             logger);
         var sharedPathStore = new JsonSharedPathStore(options.PathLibraryDirectory);
+        var radarMapStore = new JsonRadarMapStore(options.RadarMapDirectory);
+        var radarMapRevisions = new RadarMapRevisionRegistry();
+        var radarSnapshots = new RadarLiveSnapshotRegistry();
+        var stationaryObstacleNavigator = new StationaryObstacleNavigator(
+            radarMapStore,
+            new RadarRoutePlanner(),
+            radarMapRevisions);
         var scriptProfileStore = new JsonScriptProfileStore(options.ProfileLibraryDirectory);
         var folderLauncher = new WindowsFolderLauncher();
         var accounts = new AccountRuntimeManager(logger);
@@ -196,7 +211,12 @@ public sealed class RoadhogServices : IDisposable
                 deviceIdentityProvider));
         var keyboardInput = CreateKeyboardInput(options);
         var semiAutoController = new SemiAutoCombatController(keyboardInput);
-        var stationaryCombatController = new StationaryCombatController(keyboardInput, semiAutoController, sharedPathStore);
+        var stationaryCombatController = new StationaryCombatController(
+            keyboardInput,
+            semiAutoController,
+            sharedPathStore,
+            stationaryObstacleNavigator,
+            radarSnapshots);
         var fixedChannelSwitchExecutor = new FixedChannelMouseSwitchExecutor(keyboardInput, logger);
         var fixedChannelController = new FixedChannelController(
             keyboardInput,
@@ -237,7 +257,9 @@ public sealed class RoadhogServices : IDisposable
             accountConfigStore,
             hardwareResolver,
             keyboardInput,
-            stationaryCombatController);
+            stationaryCombatController,
+            stationaryObstacleNavigator,
+            radarSnapshots);
         var offsets = new OffsetCatalogProvider(new OffsetCatalogLoader(), logger);
 
         return new RoadhogServices(
@@ -248,6 +270,7 @@ public sealed class RoadhogServices : IDisposable
             accountConfigStore,
             bagCleanupNameListStore,
             sharedPathStore,
+            radarMapStore,
             scriptProfileStore,
             folderLauncher,
             accounts,

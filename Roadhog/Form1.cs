@@ -1281,7 +1281,8 @@ namespace Roadhog
                 _services.FolderLauncher,
                 _services.PathLibraryDirectory,
                 titleDisplayText,
-                _services.BagCleanupNameListStore);
+                _services.BagCleanupNameListStore,
+                _services.RadarMapStore);
             settingsForm.ShowDialog(this);
         }
 

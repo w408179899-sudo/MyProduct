@@ -3,10 +3,13 @@ using Roadhog.Application.JumpAssist;
 using Roadhog.Application.Team;
 using Roadhog.Core.Model;
 
+using Roadhog.Application.Radar;
+
 namespace Roadhog.Application.StationaryCombat;
 
 public sealed class StationaryCombatState
 {
+    public StationaryObstacleNavigationState ObstacleNavigation { get; } = new();
     public CombatJumpAssistSession? JumpAssist { get; set; }
 
     public StationaryCombatTopLevelState TopLevelState { get; private set; } = StationaryCombatTopLevelState.Normal;
@@ -224,6 +227,7 @@ public sealed class StationaryCombatState
 
     public void ClearTarget()
     {
+        ObstacleNavigation.ClearRoute();
         Fighting = false;
         CurrentTargetEntityId = 0;
         CurrentTargetServerObjectId = 0;
@@ -249,6 +253,7 @@ public sealed class StationaryCombatState
 
     public void PrepareForFixedChannelCorrection(DateTimeOffset now)
     {
+        ObstacleNavigation.Reset();
         ReturningHome = false;
         LootAfterKill.Reset();
         BagCleanup.Reset();
@@ -274,6 +279,7 @@ public sealed class StationaryCombatState
 
     public void EnterDeathRecovery(DateTimeOffset now)
     {
+        ObstacleNavigation.ClearRoute();
         TopLevelState = StationaryCombatTopLevelState.DeathRecovery;
         ReturningHome = false;
         LootAfterKill.Reset();

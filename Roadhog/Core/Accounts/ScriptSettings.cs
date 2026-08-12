@@ -248,6 +248,8 @@ public sealed class CombatScriptSettings
 
     public double CameraPitchPixelsPerDegree { get; set; } = 13.0D;
 
+    public RadarObstacleScriptSettings RadarObstacleAvoidance { get; set; } = new();
+
     public CombatScriptSettings Clone()
     {
         return new CombatScriptSettings
@@ -271,7 +273,52 @@ public sealed class CombatScriptSettings
             PathCombatRadius = PathCombatRadius,
             PathFollowReachDistance = PathFollowReachDistance,
             CameraYawPixelsPerDegree = CameraYawPixelsPerDegree,
-            CameraPitchPixelsPerDegree = CameraPitchPixelsPerDegree
+            CameraPitchPixelsPerDegree = CameraPitchPixelsPerDegree,
+            RadarObstacleAvoidance = (RadarObstacleAvoidance ?? new RadarObstacleScriptSettings()).Clone()
+        };
+    }
+}
+
+public sealed class RadarObstacleScriptSettings
+{
+    public const double DefaultClearanceMeters = 2.5D;
+
+    public const double DefaultWaypointReachMeters = 1.5D;
+
+    public const double DefaultTargetReplanDistanceMeters = 2.5D;
+
+    public const double DefaultMaximumDetourExtraMeters = 30.0D;
+
+    public const double DefaultDisplayRangeMeters = 100.0D;
+
+    public bool Enabled { get; set; }
+
+    public double ClearanceMeters { get; set; } = DefaultClearanceMeters;
+
+    public double WaypointReachMeters { get; set; } = DefaultWaypointReachMeters;
+
+    public double TargetReplanDistanceMeters { get; set; } = DefaultTargetReplanDistanceMeters;
+
+    public double MaximumDetourExtraMeters { get; set; } = DefaultMaximumDetourExtraMeters;
+
+    public double DisplayRangeMeters { get; set; } = DefaultDisplayRangeMeters;
+
+    public bool ShowClearance { get; set; } = true;
+
+    public bool ShowPlannedRoute { get; set; } = true;
+
+    public RadarObstacleScriptSettings Clone()
+    {
+        return new RadarObstacleScriptSettings
+        {
+            Enabled = Enabled,
+            ClearanceMeters = ClearanceMeters,
+            WaypointReachMeters = WaypointReachMeters,
+            TargetReplanDistanceMeters = TargetReplanDistanceMeters,
+            MaximumDetourExtraMeters = MaximumDetourExtraMeters,
+            DisplayRangeMeters = DisplayRangeMeters,
+            ShowClearance = ShowClearance,
+            ShowPlannedRoute = ShowPlannedRoute
         };
     }
 }

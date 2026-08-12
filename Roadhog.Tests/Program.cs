@@ -5,6 +5,7 @@ using Roadhog.Application.BagCleanup;
 using Roadhog.Application.Channels;
 using Roadhog.Application.Input;
 using Roadhog.Application.JumpAssist;
+using Roadhog.Application.Radar;
 using Roadhog.Application.Shell;
 using Roadhog.Application.SemiAuto;
 using Roadhog.Application.StationaryCombat;
@@ -20,6 +21,7 @@ using Roadhog.Core.Model;
 using Roadhog.Core.Paths;
 using Roadhog.Core.Processes;
 using Roadhog.Core.Profiles;
+using Roadhog.Core.Radar;
 using Roadhog.Infrastructure.Config;
 using Roadhog.Infrastructure.Composition;
 using Roadhog.Infrastructure.Diagnostics;
@@ -67,6 +69,19 @@ if (KmboxKeyPressProbe.ShouldRun(args))
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("radar canvas projection is north up", RadarTests.CanvasProjectionIsNorthUpAsync),
+    ("radar canvas marker colors match disposition", RadarTests.CanvasMarkerColorsMatchDispositionAsync),
+    ("radar canvas draws obstacle with two clicks", RadarTests.CanvasDrawsObstacleWithTwoClicksAsync),
+    ("radar settings default disabled and clone", RadarTests.SettingsDefaultDisabledAndCloneAsync),
+    ("radar geometry detects intersection and clearance", RadarTests.GeometryDetectsIntersectionAndClearanceAsync),
+    ("radar planner keeps clear direct route", RadarTests.PlannerKeepsClearDirectRouteAsync),
+    ("radar planner routes around wall", RadarTests.PlannerRoutesAroundWallAsync),
+    ("radar planner routes around right angle", RadarTests.PlannerRoutesAroundRightAngleAsync),
+    ("radar spatial index filters large map to local corridor", RadarTests.SpatialIndexFiltersLargeMapToLocalCorridorAsync),
+    ("radar json store round trips and atomically replaces", RadarTests.JsonStoreRoundTripsAndAtomicallyReplacesAsync),
+    ("radar navigator honors disabled switch and plans when enabled", RadarTests.NavigatorHonorsDisabledSwitchAndPlansWhenEnabledAsync),
+    ("radar obstacle switch persists from stationary ui", TestRadarObstacleSwitchPersistsFromStationaryUiAsync),
+    ("stationary combat locked target waits for clear radar route", TestStationaryCombatLockedTargetWaitsForClearRadarRouteAsync),
     ("path recorder enforces five meter minimum", TestPathRecorderMinimumDistanceAsync),
     ("shared path store saves loads and deletes path files", TestSharedPathStoreRoundTripAsync),
     ("path tab opens configured path folder", TestPathTabOpensConfiguredPathFolderAsync),
@@ -18747,6 +18762,170 @@ static async Task TestStationaryCombatTemporaryExclusionExpiresWithoutSittingAsy
     }
 }
 
+static Task TestRadarObstacleSwitchPersistsFromStationaryUiAsync()
+{
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        try
+        {
+            var configured = CreateScriptSettings();
+            configured.MainMode = AccountMainMode.CustomCombat;
+            configured.CombatMode = AccountCombatMode.Stationary;
+            configured.Combat.RadarObstacleAvoidance = new RadarObstacleScriptSettings
+            {
+                Enabled = true,
+                ClearanceMeters = 4.5D,
+                DisplayRangeMeters = 160.0D
+            };
+            var configStore = new InMemoryAccountConfigStore(new AccountConfig
+            {
+                AccountName = "account1",
+                ScriptSettings = configured
+            });
+            var mapStore = new StaticRadarMapStore(new RadarMapDocument { MapId = 777 });
+
+            using var form = CreateAccountSettingsFormForTestsWithStore(
+                configStore,
+                radarMapStore: mapStore);
+            form.Show();
+            System.Windows.Forms.Application.DoEvents();
+            AssertFalse(
+                !GetControlVisibleForTest(form, "radarEditorButton"),
+                "radar editor button should show only for custom stationary combat");
+
+            var editorOpened = false;
+            using (var closeEditorTimer = new System.Windows.Forms.Timer { Interval = 50 })
+            {
+                closeEditorTimer.Tick += (_, _) =>
+                {
+                    foreach (System.Windows.Forms.Form openForm in System.Windows.Forms.Application.OpenForms)
+                    {
+                        if (openForm.GetType().Name != "RadarEditorForm")
+                        {
+                            continue;
+                        }
+
+                        editorOpened = true;
+                        openForm.Close();
+                        break;
+                    }
+                };
+                closeEditorTimer.Start();
+                InvokePrivateMethodForTest(form, "OpenRadarEditor");
+            }
+            AssertFalse(!editorOpened, "radar editor should open without a splitter layout exception");
+
+            var captured = (ScriptSettings)InvokePrivateMethodForTest(form, "CaptureScriptSettings")!;
+            AssertFalse(!captured.Combat.RadarObstacleAvoidance.Enabled, "radar enabled switch should load and capture");
+            AssertEqual(4.5D, captured.Combat.RadarObstacleAvoidance.ClearanceMeters, "radar clearance should load and capture");
+
+            SetComboSelectedIndexForTest(form, "combatModeCombo", 1);
+            System.Windows.Forms.Application.DoEvents();
+            AssertFalse(
+                GetControlVisibleForTest(form, "radarEditorButton"),
+                "radar editor button should hide for path combat");
+            SetComboSelectedIndexForTest(form, "combatModeCombo", 0);
+            System.Windows.Forms.Application.DoEvents();
+
+            var saved = InvokeSaveCurrentSettingsForTest(form, out var error);
+            AssertFalse(!saved, "radar stationary ui save failed: " + error);
+            var savedRadar = configStore
+                .LoadAllAsync()
+                .GetAwaiter()
+                .GetResult()
+                .Value?
+                .Single()
+                .ScriptSettings?
+                .Combat?
+                .RadarObstacleAvoidance;
+            AssertFalse(savedRadar is null || !savedRadar.Enabled, "radar switch should persist in account settings");
+            AssertEqual(160.0D, savedRadar!.DisplayRangeMeters, "radar display range should persist");
+        }
+        catch (Exception ex)
+        {
+            failure = ex;
+        }
+    });
+
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    thread.Join();
+    if (failure is not null)
+    {
+        throw failure;
+    }
+
+    return Task.CompletedTask;
+}
+
+static async Task TestStationaryCombatLockedTargetWaitsForClearRadarRouteAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        const uint mapId = 777;
+        var settings = CreateStationarySoftRestartSettings();
+        settings.Combat.RadarObstacleAvoidance = new RadarObstacleScriptSettings
+        {
+            Enabled = true,
+            ClearanceMeters = 2.0D,
+            WaypointReachMeters = 1.5D,
+            MaximumDetourExtraMeters = 30.0D
+        };
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = CreateStationarySoftRestartGameApi(20);
+        gameApi.Channel = new ChannelSnapshot(0, 1, mapId, DateTimeOffset.Now);
+        var mapStore = new StaticRadarMapStore(new RadarMapDocument
+        {
+            MapId = mapId,
+            Segments = new List<RadarObstacleSegment>
+            {
+                new()
+                {
+                    Start = new RadarPoint(10.0D, -8.0D),
+                    End = new RadarPoint(10.0D, 8.0D)
+                }
+            }
+        });
+        var navigator = new StationaryObstacleNavigator(
+            mapStore,
+            new RadarRoutePlanner(),
+            new RadarMapRevisionRegistry());
+        var controller = new StationaryCombatController(
+            keyboard,
+            new SemiAutoCombatController(keyboard),
+            obstacleNavigator: navigator);
+        var state = new StationaryCombatState { Fighting = true };
+        state.SetCurrentTarget(100, 9000);
+        state.MarkCandidate(100, 9000, DateTimeOffset.Now);
+
+        await controller.TickAsync(
+                CreateContext(settings, gameApi, logger),
+                SemiAutoSkillPlan.FromSettings(settings.Skills),
+                new SemiAutoCombatState(),
+                state)
+            .ConfigureAwait(false);
+
+        AssertFalse(keyboard.Keys.Contains("NumPad0"), "locked target must not press the opening skill before the final clear segment");
+        AssertFalse(keyboard.Keys.Contains("D1"), "locked target must not enter the normal skill loop before the final clear segment");
+        AssertFalse(
+            state.ObstacleNavigation.LastPlan is not { Success: true, Direct: false },
+            "locked target should retain a non-direct radar detour plan");
+        AssertFalse(
+            !logger.Entries.Any(entry =>
+                entry.EventName == "stationary_combat.radar.navigation" &&
+                string.Equals(Convert.ToString(entry.Fields["phase"]), "locked_target_approach", StringComparison.Ordinal)),
+            "locked target radar movement should be logged");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
 static ScriptSettings CreateStationarySoftRestartSettings()
 {
     var settings = CreateScriptSettings();
@@ -27339,7 +27518,8 @@ static AccountSettingsForm CreateAccountSettingsFormForTestsWithStore(
     InMemoryAccountConfigStore configStore,
     IFolderLauncher? folderLauncher = null,
     string pathLibraryDirectory = "test-paths",
-    IBagCleanupNameListStore? bagCleanupNameListStore = null)
+    IBagCleanupNameListStore? bagCleanupNameListStore = null,
+    IRadarMapStore? radarMapStore = null)
 {
     var logger = new InMemoryRoadhogLogger();
     var accounts = new AccountRuntimeManager(logger);
@@ -27352,7 +27532,8 @@ static AccountSettingsForm CreateAccountSettingsFormForTestsWithStore(
         new InMemoryScriptProfileStore(),
         folderLauncher ?? new RecordingFolderLauncher(),
         pathLibraryDirectory,
-        bagCleanupNameListStore: bagCleanupNameListStore);
+        bagCleanupNameListStore: bagCleanupNameListStore,
+        radarMapStore: radarMapStore);
 }
 
 static AccountSettingsForm CreateAccountSettingsFormForTestsWithApi(FakeGameApi gameApi)

@@ -6,6 +6,7 @@ using Roadhog.Core.Accounts;
 using Roadhog.Core.Model;
 using Roadhog.Core.Paths;
 using Roadhog.Core.Profiles;
+using Roadhog.Core.Radar;
 
 namespace Roadhog
 {
@@ -24,6 +25,7 @@ namespace Roadhog
         private readonly IFolderLauncher _folderLauncher;
         private readonly string _pathLibraryDirectory;
         private readonly IBagCleanupNameListStore? _bagCleanupNameListStore;
+        private readonly IRadarMapStore? _radarMapStore;
         private readonly Dictionary<SharedPathKind, PathEditorControls> pathEditors = new();
         private readonly Dictionary<SharedPathKind, Label> pathOverviewLabels = new();
         private readonly System.Windows.Forms.Timer pathRecordTimer = new() { Interval = PathRecordTimerIntervalMs };
@@ -81,6 +83,9 @@ namespace Roadhog
         private RoundedCheckBox? smartPreAimUseFightTargetPositionCheckBox;
         private RoundedCheckBox? returnHomeWhenNoTargetCheckBox;
         private RoundedCheckBox? sitWhenNoTargetAtHomeCheckBox;
+        private Button? radarEditorButton;
+        private Label? radarStatusLabel;
+        private RadarObstacleScriptSettings currentRadarSettings = new();
         private RoundedComboBox? activeMonsterFilterCombo;
         private ListBox? activeMonsterFilterListBox;
         private Label? activeMonsterFilterStatusLabel;
@@ -220,7 +225,8 @@ namespace Roadhog
             IFolderLauncher folderLauncher,
             string pathLibraryDirectory,
             string accountDisplayText = "",
-            IBagCleanupNameListStore? bagCleanupNameListStore = null)
+            IBagCleanupNameListStore? bagCleanupNameListStore = null,
+            IRadarMapStore? radarMapStore = null)
         {
             _account = account;
             _windowTitle = BuildWindowTitle(account, accountDisplayText);
@@ -231,6 +237,7 @@ namespace Roadhog
             _folderLauncher = folderLauncher;
             _pathLibraryDirectory = pathLibraryDirectory;
             _bagCleanupNameListStore = bagCleanupNameListStore;
+            _radarMapStore = radarMapStore;
             pathRecordTimer.Tick += PathRecordTimer_Tick;
             InitializeSettingsForm();
         }
@@ -437,6 +444,8 @@ namespace Roadhog
             SetPathCombatRadius(settings.Combat);
             SetPathFollowReachDistance(settings.Combat);
             SetCameraTurnScales(settings.Combat);
+            currentRadarSettings = (settings.Combat.RadarObstacleAvoidance ?? new RadarObstacleScriptSettings()).Clone();
+            RefreshRadarStatus();
             RefreshCombatModeVisibility();
 
             SetChecked(enableLootCheckBox, settings.Combat.EnableLoot);
@@ -640,6 +649,9 @@ namespace Roadhog
             RefreshProfileLibrary();
             SelectProfileComboItem(profileName, loadProfile: false);
             UpdateCurrentProfileDisplay(profileName);
+            _runtime.ApplyRadarObstacleSettings(_account, capturedSettings.Combat.RadarObstacleAvoidance);
+            currentRadarSettings = capturedSettings.Combat.RadarObstacleAvoidance.Clone();
+            RefreshRadarStatus();
             SetProfileStatus("已保存方案: " + profileName, false);
             return true;
         }
@@ -777,7 +789,8 @@ namespace Roadhog
                     PathCombatRadius = ReadDouble(pathCombatRadiusTextBox, 30.0D, 1.0D, 500.0D),
                     PathFollowReachDistance = ReadDouble(pathFollowReachDistanceTextBox, 5.0D, 0.5D, 50.0D),
                     CameraYawPixelsPerDegree = ReadDouble(cameraYawPixelsPerDegreeTextBox, 11.0D, 0.1D, 100.0D),
-                    CameraPitchPixelsPerDegree = ReadDouble(cameraPitchPixelsPerDegreeTextBox, 13.0D, 0.1D, 100.0D)
+                    CameraPitchPixelsPerDegree = ReadDouble(cameraPitchPixelsPerDegreeTextBox, 13.0D, 0.1D, 100.0D),
+                    RadarObstacleAvoidance = currentRadarSettings.Clone()
                 },
                 Gather = CaptureGatherSettings(),
                 Paths = new PathScriptSettings
@@ -1258,6 +1271,25 @@ namespace Roadhog
                 170,
                 false);
             smartPreAimUseFightTargetPositionCheckBox.Name = "smartPreAimUseFightTargetPositionCheckBox";
+            radarEditorButton = AddButton(
+                page,
+                "\u7ed8\u5236\u96f7\u8fbe",
+                680,
+                72,
+                156,
+                34,
+                (_, _) => OpenRadarEditor());
+            radarEditorButton.Name = "radarEditorButton";
+            radarStatusLabel = AddLabel(
+                page,
+                string.Empty,
+                680,
+                108,
+                156,
+                30,
+                _textGreen,
+                FontStyle.Regular);
+            radarStatusLabel.Name = "radarStatusLabel";
             AddLabel(page, "\u56fa\u5b9a\u9891\u9053", 306, 180, 76, 22);
             fixedChannelCombo = AddCombo(
                 page,
@@ -1449,7 +1481,70 @@ namespace Roadhog
                 smartPreAimUseFightTargetPositionCheckBox.Visible = stationaryVisible;
             }
 
+            if (radarEditorButton is not null)
+            {
+                radarEditorButton.Visible = stationaryVisible && _radarMapStore is not null;
+            }
+
+            if (radarStatusLabel is not null)
+            {
+                radarStatusLabel.Visible = stationaryVisible && _radarMapStore is not null;
+            }
+
             RefreshSmartPreAimOriginControlState();
+        }
+
+        private void OpenRadarEditor()
+        {
+            if (_radarMapStore is null)
+            {
+                MessageBox.Show(
+                    this,
+                    "\u96f7\u8fbe\u5730\u56fe\u5b58\u50a8\u672a\u521d\u59cb\u5316\u3002",
+                    "\u7ed8\u5236\u96f7\u8fbe",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
+
+            using var editor = new RadarEditorForm(
+                _account,
+                _runtime,
+                _radarMapStore,
+                _folderLauncher,
+                currentRadarSettings,
+                ApplyRadarSettingsFromEditor);
+            editor.ShowDialog(this);
+            RefreshRadarStatus();
+        }
+
+        private Core.Common.OperationResult ApplyRadarSettingsFromEditor(RadarObstacleScriptSettings settings)
+        {
+            var previous = currentRadarSettings.Clone();
+            currentRadarSettings = settings.Clone();
+            if (!SaveCurrentSettings(out var error))
+            {
+                currentRadarSettings = previous;
+                RefreshRadarStatus();
+                return Core.Common.OperationResult.Fail(error);
+            }
+
+            return Core.Common.OperationResult.Ok();
+        }
+
+        private void RefreshRadarStatus()
+        {
+            if (radarStatusLabel is null)
+            {
+                return;
+            }
+
+            radarStatusLabel.Text = currentRadarSettings.Enabled
+                ? "\u7ed5\u969c\uff1a\u5df2\u5f00\u542f"
+                : "\u7ed5\u969c\uff1a\u672a\u5f00\u542f";
+            radarStatusLabel.ForeColor = currentRadarSettings.Enabled
+                ? _darkGreen
+                : Color.FromArgb(107, 114, 128);
         }
 
         private void RefreshSmartPreAimOriginControlState()

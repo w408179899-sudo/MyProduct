@@ -1,6 +1,7 @@
 using Roadhog.Application.Input;
 using Roadhog.Application.BagCleanup;
 using Roadhog.Application.SemiAuto;
+using Roadhog.Application.Radar;
 using Roadhog.Application.Team;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
@@ -9,6 +10,7 @@ using Roadhog.Core.Common;
 using Roadhog.Core.Input;
 using Roadhog.Core.Model;
 using Roadhog.Core.Paths;
+using Roadhog.Core.Radar;
 
 namespace Roadhog.Application.StationaryCombat;
 
@@ -71,6 +73,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     private readonly IKeyboardInput _input;
     private readonly SemiAutoCombatController _semiAuto;
     private readonly ISharedPathStore? _pathStore;
+    private readonly StationaryObstacleNavigator? _obstacleNavigator;
+    private readonly RadarLiveSnapshotRegistry? _radarSnapshots;
     private readonly BagCleanupController? _bagCleanup;
     private readonly TacticalMarkCoordinator _tacticalMark;
     private readonly SemaphoreSlim _cameraTurnInputSync = new(1, 1);
@@ -78,12 +82,16 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     public StationaryCombatController(
         IKeyboardInput input,
         SemiAutoCombatController semiAuto,
-        ISharedPathStore? pathStore = null)
+        ISharedPathStore? pathStore = null,
+        StationaryObstacleNavigator? obstacleNavigator = null,
+        RadarLiveSnapshotRegistry? radarSnapshots = null)
     {
         _input = input;
         _semiAuto = semiAuto;
         _tacticalMark = new TacticalMarkCoordinator(input);
         _pathStore = pathStore;
+        _obstacleNavigator = obstacleNavigator;
+        _radarSnapshots = radarSnapshots;
         _bagCleanup = pathStore is null
             ? null
             : new BagCleanupController(input, pathStore, ExecutePathOnceAsync);
@@ -99,6 +107,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         StopNextTargetPreAim(context, state, "fixed_channel_correction", clearCandidate: true);
         await StopMovementAsync(context, state).ConfigureAwait(false);
         StopPathFollowPoller(state);
+        state.ObstacleNavigation.Reset();
         await AbortDiscardForExternalInterruptionIfActiveAsync(
                 context,
                 state,
@@ -167,6 +176,14 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
 
         var combat = context.Config.ScriptSettings?.Combat ?? new CombatScriptSettings();
+        var radarSettings = _obstacleNavigator?.ResolveSettings(
+                                context.Config.AccountName,
+                                combat.RadarObstacleAvoidance)
+                            ?? new RadarObstacleScriptSettings();
+        if (!radarSettings.Enabled)
+        {
+            state.ObstacleNavigation.Reset();
+        }
         if (!IsSmartPreAimEnabled(context))
         {
             StopNextTargetPreAim(context, state, "disabled", clearCandidate: true);
@@ -226,6 +243,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 
         context.RuntimeStates.ClearWarning(context.Config.AccountName);
         var player = playerResult.Value;
+        _radarSnapshots?.PublishPlayer(context.Config.AccountName, player);
         var playerPosition = player.Position.Value;
         var playerDistanceFromHome = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, home);
         await RefreshLocalCombatSideAsync(context, plan, state, player).ConfigureAwait(false);
@@ -537,7 +555,32 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             else
             {
                 semiAutoState.ResetAttackKeyPressThrottle();
-                await PathFollowStepAsync(context, state, player, home, ReturnStopDistance).ConfigureAwait(false);
+                var navigation = await ResolveObstacleNavigationAsync(
+                        context,
+                        state,
+                        playerPosition,
+                        home,
+                        RadarNavigationPurpose.ReturnHome,
+                        targetServerObjectId: 0,
+                        radarSettings,
+                        ReturnStopDistance)
+                    .ConfigureAwait(false);
+                if (navigation?.Action == RadarNavigationAction.Unreachable)
+                {
+                    await StopMovementAsync(context, state).ConfigureAwait(false);
+                    LogRadarNavigation(context, state, navigation, "outside_radius");
+                    return IdleDelay;
+                }
+
+                var destination = navigation is null
+                    ? home
+                    : ToVector3(navigation.Destination, playerPosition.Z);
+                var reachDistance = navigation?.ReachDistanceMeters ?? ReturnStopDistance;
+                await PathFollowStepAsync(context, state, player, destination, reachDistance).ConfigureAwait(false);
+                if (navigation is not null)
+                {
+                    LogRadarNavigation(context, state, navigation, "outside_radius");
+                }
                 await TryJumpReturnHomeIfStuckAsync(
                         context,
                         state,
@@ -619,7 +662,32 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     ["homeX"] = Math.Round(home.X, 2),
                     ["homeY"] = Math.Round(home.Y, 2)
                 }, TimeSpan.FromMilliseconds(500));
-                await PathFollowStepAsync(context, state, player, home, ReturnStopDistance).ConfigureAwait(false);
+                var navigation = await ResolveObstacleNavigationAsync(
+                        context,
+                        state,
+                        playerPosition,
+                        home,
+                        RadarNavigationPurpose.ReturnHome,
+                        targetServerObjectId: 0,
+                        radarSettings,
+                        ReturnStopDistance)
+                    .ConfigureAwait(false);
+                if (navigation?.Action == RadarNavigationAction.Unreachable)
+                {
+                    await StopMovementAsync(context, state).ConfigureAwait(false);
+                    LogRadarNavigation(context, state, navigation, "no_target");
+                    return IdleDelay;
+                }
+
+                var destination = navigation is null
+                    ? home
+                    : ToVector3(navigation.Destination, playerPosition.Z);
+                var reachDistance = navigation?.ReachDistanceMeters ?? ReturnStopDistance;
+                await PathFollowStepAsync(context, state, player, destination, reachDistance).ConfigureAwait(false);
+                if (navigation is not null)
+                {
+                    LogRadarNavigation(context, state, navigation, "no_target");
+                }
                 await TryJumpReturnHomeIfStuckAsync(
                         context,
                         state,
@@ -723,6 +791,53 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     target.Name,
                     "not_locked")
                 .ConfigureAwait(false);
+        }
+
+        var radarNavigation = await ResolveObstacleNavigationAsync(
+                context,
+                state,
+                playerPosition,
+                targetPosition,
+                RadarNavigationPurpose.ApproachTarget,
+                target.ServerObjectId,
+                radarSettings,
+                AcquireDistance)
+            .ConfigureAwait(false);
+        if (radarNavigation?.Action == RadarNavigationAction.Unreachable)
+        {
+            return await TemporarilyExcludeRadarUnreachableTargetAsync(
+                    context,
+                    semiAutoState,
+                    state,
+                    target,
+                    radarNavigation)
+                .ConfigureAwait(false);
+        }
+
+        var radarRequiresMovement = radarNavigation?.Action == RadarNavigationAction.MoveToWaypoint ||
+                                    radarNavigation?.Action == RadarNavigationAction.Direct &&
+                                    playerDistanceToTarget > AcquireDistance;
+        if (radarRequiresMovement && radarNavigation is not null)
+        {
+            semiAutoState.ResetAttackKeyPressThrottle();
+            var destination = ToVector3(radarNavigation.Destination, playerPosition.Z);
+            await PathFollowStepAsync(
+                    context,
+                    state,
+                    player,
+                    destination,
+                    radarNavigation.ReachDistanceMeters)
+                .ConfigureAwait(false);
+            LogRadarNavigation(context, state, radarNavigation, "target_approach");
+            await TryJumpCombatApproachIfStuckAsync(
+                    context,
+                    state,
+                    target,
+                    playerPosition,
+                    playerDistanceToTarget,
+                    "radar_approach")
+                .ConfigureAwait(false);
+            return MoveTickDelay;
         }
 
         var lockedResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
@@ -3589,6 +3704,20 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return claimedDelay.Value;
         }
 
+        var radarApproachDelay = await TryHandleLockedRadarApproachAsync(
+                context,
+                semiAutoState,
+                state,
+                player,
+                target,
+                home,
+                radius)
+            .ConfigureAwait(false);
+        if (radarApproachDelay is not null)
+        {
+            return radarApproachDelay.Value;
+        }
+
         var softRestartDelay = await TryRecoverStalledLockedTargetAsync(
                 context,
                 plan,
@@ -3689,6 +3818,100 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 ensureHpMaintenanceTargetBeforeKeyPress: () =>
                     EnsureOrdinaryFightTargetAfterOwnPetSelectionAsync(context, state))
             .ConfigureAwait(false);
+    }
+
+    private async Task<TimeSpan?> TryHandleLockedRadarApproachAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        PlayerSnapshot player,
+        LockedTargetSnapshot target,
+        Vector3Snapshot home,
+        double radius)
+    {
+        var combat = context.Config.ScriptSettings?.Combat ?? new CombatScriptSettings();
+        var radarSettings = _obstacleNavigator?.ResolveSettings(
+                                context.Config.AccountName,
+                                combat.RadarObstacleAvoidance)
+                            ?? new RadarObstacleScriptSettings();
+        if (!radarSettings.Enabled ||
+            player.Position is not { } playerPosition ||
+            target.Position is not { } targetPosition)
+        {
+            return null;
+        }
+
+        var outsideLeash = !state.CurrentTargetIsMaintenanceDefense &&
+                           !state.CurrentTargetIsRevivePathClear &&
+                           !state.CurrentTargetBypassesHomeLeash &&
+                           StationaryCombatTargetSelector.HorizontalDistance(targetPosition, home) >
+                           radius + TargetLeashExtraDistance;
+        if (outsideLeash)
+        {
+            return null;
+        }
+
+        var distanceToTarget = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, targetPosition);
+        var navigation = await ResolveObstacleNavigationAsync(
+                context,
+                state,
+                playerPosition,
+                targetPosition,
+                RadarNavigationPurpose.ApproachTarget,
+                target.ServerObjectId,
+                radarSettings,
+                AcquireDistance)
+            .ConfigureAwait(false);
+        if (navigation?.Action == RadarNavigationAction.Unreachable)
+        {
+            return await TemporarilyExcludeRadarUnreachableLockedTargetAsync(
+                    context,
+                    semiAutoState,
+                    state,
+                    target,
+                    navigation)
+                .ConfigureAwait(false);
+        }
+
+        var requiresMovement = navigation?.Action == RadarNavigationAction.MoveToWaypoint ||
+                               navigation?.Action == RadarNavigationAction.Direct &&
+                               distanceToTarget > AcquireDistance;
+        if (!requiresMovement || navigation is null)
+        {
+            return null;
+        }
+
+        state.ResetCurrentTargetStallObservation();
+        state.ResetCurrentTargetDamageObservation();
+        semiAutoState.ResetAttackKeyPressThrottle();
+        await PathFollowStepAsync(
+                context,
+                state,
+                player,
+                ToVector3(navigation.Destination, playerPosition.Z),
+                navigation.ReachDistanceMeters)
+            .ConfigureAwait(false);
+        LogRadarNavigation(context, state, navigation, "locked_target_approach");
+        var worldTarget = new WorldObjectSnapshot(
+            target.TargetEntityId,
+            target.ServerObjectId,
+            target.Name,
+            "monster",
+            target.Position,
+            target.DistanceToLocalPlayer,
+            target.CurrentHp,
+            target.MaxHp,
+            target.TargetServerObjectId,
+            target.IsTargetingLocalPlayer);
+        await TryJumpCombatApproachIfStuckAsync(
+                context,
+                state,
+                worldTarget,
+                playerPosition,
+                distanceToTarget,
+                "radar_locked_target")
+            .ConfigureAwait(false);
+        return MoveTickDelay;
     }
 
     private async Task<bool> EnsureOrdinaryFightTargetAfterOwnPetSelectionAsync(
@@ -5107,10 +5330,48 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 state.FacedCandidateEntityId = target.EntityId;
             }
 
-            if (playerDistanceToTarget > AcquireDistance)
+            var combat = context.Config.ScriptSettings?.Combat ?? new CombatScriptSettings();
+            var radarSettings = _obstacleNavigator?.ResolveSettings(
+                                    context.Config.AccountName,
+                                    combat.RadarObstacleAvoidance)
+                                ?? new RadarObstacleScriptSettings();
+            var navigation = await ResolveObstacleNavigationAsync(
+                    context,
+                    state,
+                    playerPosition,
+                    targetPosition,
+                    RadarNavigationPurpose.ApproachTarget,
+                    target.ServerObjectId,
+                    radarSettings,
+                    AcquireDistance)
+                .ConfigureAwait(false);
+            if (navigation?.Action == RadarNavigationAction.Unreachable)
+            {
+                return await TemporarilyExcludeRadarUnreachableTargetAsync(
+                        context,
+                        semiAutoState,
+                        state,
+                        target,
+                        navigation)
+                    .ConfigureAwait(false);
+            }
+
+            var requiresMovement = navigation?.Action == RadarNavigationAction.MoveToWaypoint ||
+                                   navigation?.Action == RadarNavigationAction.Direct &&
+                                   playerDistanceToTarget > AcquireDistance ||
+                                   navigation is null && playerDistanceToTarget > AcquireDistance;
+            if (requiresMovement)
             {
                 semiAutoState.ResetAttackKeyPressThrottle();
-                await PathFollowStepAsync(context, state, player, targetPosition, AcquireDistance).ConfigureAwait(false);
+                var destination = navigation is null
+                    ? targetPosition
+                    : ToVector3(navigation.Destination, playerPosition.Z);
+                var reachDistance = navigation?.ReachDistanceMeters ?? AcquireDistance;
+                await PathFollowStepAsync(context, state, player, destination, reachDistance).ConfigureAwait(false);
+                if (navigation is not null)
+                {
+                    LogRadarNavigation(context, state, navigation, "reacquire");
+                }
                 await TryJumpCombatApproachIfStuckAsync(
                         context,
                         state,
@@ -6680,6 +6941,75 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         await StopMovementAsync(context, state).ConfigureAwait(false);
         StopPathFollowPoller(state);
         return IdleDelay;
+    }
+
+    private async Task<TimeSpan> TemporarilyExcludeRadarUnreachableTargetAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        WorldObjectSnapshot target,
+        RadarNavigationDecision navigation)
+    {
+        var now = DateTimeOffset.Now;
+        var exclusion = TimeSpan.FromMilliseconds(
+            ReadStalledTargetExclusionMs(context.Config.ScriptSettings?.Combat));
+        var expiresAt = now + exclusion;
+        state.TemporarilyExcludeTarget(
+            target.EntityId,
+            target.ServerObjectId,
+            expiresAt,
+            expiresAt + TemporaryTargetSwitchGuardGrace);
+        context.Logger.Warn("stationary_combat.radar.target_unreachable", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["mapId"] = navigation.MapId,
+            ["targetEntityId"] = target.EntityId,
+            ["targetServerObjectId"] = target.ServerObjectId,
+            ["targetName"] = target.Name,
+            ["reason"] = navigation.Reason,
+            ["relevantObstacleCount"] = navigation.RelevantObstacleCount,
+            ["exclusionMs"] = (long)exclusion.TotalMilliseconds,
+            ["expiresAt"] = expiresAt
+        });
+
+        StopNextTargetPreAim(context, state, "radar_target_unreachable", clearCandidate: true);
+        await StopSoloJumpAsync(state, "radar_target_unreachable").ConfigureAwait(false);
+        state.ClearNoTargetRest();
+        state.ClearTarget();
+        semiAutoState.ClearChain();
+        semiAutoState.ClearPressedSkillCooldownTracking();
+        semiAutoState.ResetOpeningSkill();
+        semiAutoState.ResetAttackKeyPressThrottle();
+        await StopMovementAsync(context, state).ConfigureAwait(false);
+        StopPathFollowPoller(state);
+        return IdleDelay;
+    }
+
+    private async Task<TimeSpan> TemporarilyExcludeRadarUnreachableLockedTargetAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        LockedTargetSnapshot target,
+        RadarNavigationDecision navigation)
+    {
+        var worldTarget = new WorldObjectSnapshot(
+            target.TargetEntityId,
+            target.ServerObjectId,
+            target.Name,
+            "monster",
+            target.Position,
+            target.DistanceToLocalPlayer,
+            target.CurrentHp,
+            target.MaxHp,
+            target.TargetServerObjectId,
+            target.IsTargetingLocalPlayer);
+        return await TemporarilyExcludeRadarUnreachableTargetAsync(
+                context,
+                semiAutoState,
+                state,
+                worldTarget,
+                navigation)
+            .ConfigureAwait(false);
     }
 
     private async Task<TimeSpan?> TryWaitForLockedTargetToTargetPlayerAsync(
@@ -8300,6 +8630,10 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             {
                 state.CachedWorldObjects = result.Value.NearbyMonsters;
                 state.LastWorldScanAt = now;
+                _radarSnapshots?.PublishWorldObjects(
+                    context.Config.AccountName,
+                    state.CachedWorldObjects,
+                    now);
             }
         }
 
@@ -8347,6 +8681,10 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             else
             {
                 state.CachedWorldObjects = objectsResult.Value;
+                _radarSnapshots?.PublishWorldObjects(
+                    context.Config.AccountName,
+                    state.CachedWorldObjects,
+                    now);
             }
 
             state.LastWorldScanAt = now;
@@ -8355,6 +8693,134 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         state.PruneIgnoredTargets(state.CachedWorldObjects);
         state.PruneTemporaryTargetExclusions(state.CachedWorldObjects, now);
         return state.CachedWorldObjects;
+    }
+
+    private async Task<RadarNavigationDecision?> ResolveObstacleNavigationAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        Vector3Snapshot start,
+        Vector3Snapshot goal,
+        RadarNavigationPurpose purpose,
+        uint targetServerObjectId,
+        RadarObstacleScriptSettings settings,
+        double finalReachDistanceMeters)
+    {
+        if (!settings.Enabled || _obstacleNavigator is null)
+        {
+            return null;
+        }
+
+        var mapId = await ReadCurrentRadarMapIdAsync(context, state).ConfigureAwait(false);
+        if (mapId == 0)
+        {
+            LogActionThrottled(
+                context,
+                state,
+                "stationary_combat.radar.fallback",
+                "map_unavailable",
+                new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["reason"] = "map_id_unavailable"
+                },
+                TimeSpan.FromSeconds(3));
+            return null;
+        }
+
+        return await _obstacleNavigator.ResolveAsync(
+                state.ObstacleNavigation,
+                mapId,
+                ToRadarPoint(start),
+                ToRadarPoint(goal),
+                purpose,
+                targetServerObjectId,
+                settings,
+                finalReachDistanceMeters,
+                context.StopToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<uint> ReadCurrentRadarMapIdAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state)
+    {
+        var navigation = state.ObstacleNavigation;
+        var now = DateTimeOffset.Now;
+        if (navigation.LastObservedMapReadAt != DateTimeOffset.MinValue &&
+            now - navigation.LastObservedMapReadAt < TimeSpan.FromSeconds(1))
+        {
+            return navigation.ObservedMapId;
+        }
+
+        OperationResult<ChannelSnapshot> result;
+        if (context.GameApi is IRoadhogScopedChannelGameApi scopedApi)
+        {
+            result = await scopedApi
+                .ReadChannelAsync(CreateReadContext(context), context.StopToken)
+                .ConfigureAwait(false);
+        }
+        else if (context.GameApi is IRoadhogChannelGameApi channelApi)
+        {
+            result = await channelApi.ReadChannelAsync(context.StopToken).ConfigureAwait(false);
+        }
+        else
+        {
+            return 0;
+        }
+
+        navigation.LastObservedMapReadAt = now;
+        if (!result.Success || result.Value is null || result.Value.MapId == 0)
+        {
+            navigation.ObservedMapId = 0;
+            return 0;
+        }
+
+        navigation.ObservedMapId = result.Value.MapId;
+        _radarSnapshots?.PublishMapId(context.Config.AccountName, result.Value.MapId, now);
+        return result.Value.MapId;
+    }
+
+    private static RadarPoint ToRadarPoint(Vector3Snapshot point)
+    {
+        return new RadarPoint(point.X, point.Y);
+    }
+
+    private static Vector3Snapshot ToVector3(RadarPoint point, float z)
+    {
+        return new Vector3Snapshot((float)point.X, (float)point.Y, z);
+    }
+
+    private static void LogRadarNavigation(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        RadarNavigationDecision navigation,
+        string phase)
+    {
+        LogActionThrottled(
+            context,
+            state,
+            "stationary_combat.radar.navigation",
+            phase + ":" + navigation.Action + ":" + navigation.Reason,
+            new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["mapId"] = navigation.MapId,
+                ["phase"] = phase,
+                ["action"] = navigation.Action.ToString(),
+                ["reason"] = navigation.Reason,
+                ["destinationX"] = Math.Round(navigation.Destination.X, 2),
+                ["destinationY"] = Math.Round(navigation.Destination.Y, 2),
+                ["reachDistance"] = Math.Round(navigation.ReachDistanceMeters, 2),
+                ["waypointCount"] = navigation.Plan?.WaypointCount ?? 0,
+                ["relevantObstacleCount"] = navigation.RelevantObstacleCount,
+                ["routeDistance"] = navigation.Plan is null
+                    ? null
+                    : Math.Round(navigation.Plan.RouteDistance, 2),
+                ["elapsedMs"] = navigation.Plan is null
+                    ? null
+                    : Math.Round(navigation.Plan.Elapsed.TotalMilliseconds, 2)
+            },
+            TimeSpan.FromMilliseconds(500));
     }
 
     private static bool IsCandidateStillSelectable(

@@ -1,6 +1,7 @@
 using Roadhog.Application.Input;
 using Roadhog.Application.BagCleanup;
 using Roadhog.Application.StationaryCombat;
+using Roadhog.Application.Radar;
 using Roadhog.Application.Team;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Api;
@@ -10,6 +11,7 @@ using Roadhog.Core.Diagnostics;
 using Roadhog.Core.Hardware;
 using Roadhog.Core.Input;
 using Roadhog.Core.Model;
+using Roadhog.Core.Radar;
 using Roadhog.Core.Paths;
 using System.Globalization;
 
@@ -23,6 +25,8 @@ public sealed class RoadhogRuntime
     private readonly IHardwareDeviceResolver? _hardwareResolver;
     private readonly IKeyboardInput? _keyboardInput;
     private readonly StationaryCombatController? _stationaryCombatController;
+    private readonly StationaryObstacleNavigator? _stationaryObstacleNavigator;
+    private readonly RadarLiveSnapshotRegistry? _radarSnapshots;
     private const string InventoryToggleKey = "I";
     private const double InventoryUiMaxWindowX = 699.2;
     private const double InventoryUiMaxWindowY = 324.8;
@@ -60,7 +64,9 @@ public sealed class RoadhogRuntime
         IAccountConfigStore? accountConfigStore = null,
         IHardwareDeviceResolver? hardwareResolver = null,
         IKeyboardInput? keyboardInput = null,
-        StationaryCombatController? stationaryCombatController = null)
+        StationaryCombatController? stationaryCombatController = null,
+        StationaryObstacleNavigator? stationaryObstacleNavigator = null,
+        RadarLiveSnapshotRegistry? radarSnapshots = null)
     {
         _gameApi = gameApi;
         _logger = logger;
@@ -68,6 +74,8 @@ public sealed class RoadhogRuntime
         _hardwareResolver = hardwareResolver;
         _keyboardInput = keyboardInput;
         _stationaryCombatController = stationaryCombatController;
+        _stationaryObstacleNavigator = stationaryObstacleNavigator;
+        _radarSnapshots = radarSnapshots;
         Accounts = accounts;
         Orchestrator = orchestrator;
     }
@@ -75,6 +83,62 @@ public sealed class RoadhogRuntime
     public AccountRuntimeManager Accounts { get; }
 
     public AccountOrchestrator Orchestrator { get; }
+
+    public void ApplyRadarObstacleSettings(string accountName, RadarObstacleScriptSettings settings)
+    {
+        _stationaryObstacleNavigator?.SetSettingsOverride(accountName, settings);
+    }
+
+    public void NotifyRadarMapSaved(uint mapId)
+    {
+        _stationaryObstacleNavigator?.NotifyMapSaved(mapId);
+    }
+
+    public async Task<OperationResult<RadarLiveSnapshot>> ReadRadarSnapshotAsync(
+        string accountName,
+        CancellationToken cancellationToken = default)
+    {
+        var now = DateTimeOffset.Now;
+        if (_radarSnapshots is not null &&
+            _radarSnapshots.TryGetFresh(
+                accountName,
+                now,
+                TimeSpan.FromMilliseconds(500),
+                TimeSpan.FromMilliseconds(750),
+                TimeSpan.FromSeconds(2),
+                out var cached))
+        {
+            return OperationResult<RadarLiveSnapshot>.Ok(cached);
+        }
+
+        var mapResult = await ReadChannelSnapshotAsync(accountName, cancellationToken).ConfigureAwait(false);
+        var playerResult = await ReadPlayerSnapshotAsync(accountName, cancellationToken).ConfigureAwait(false);
+        var objectsResult = await ReadWorldObjectsAsync(accountName, cancellationToken).ConfigureAwait(false);
+        if (!mapResult.Success || mapResult.Value is null || mapResult.Value.MapId == 0)
+        {
+            return OperationResult<RadarLiveSnapshot>.Fail(mapResult.Error ?? "MapId is unavailable.");
+        }
+
+        if (!playerResult.Success || playerResult.Value?.Position is null)
+        {
+            return OperationResult<RadarLiveSnapshot>.Fail(playerResult.Error ?? "Player position is unavailable.");
+        }
+
+        if (!objectsResult.Success || objectsResult.Value is null)
+        {
+            return OperationResult<RadarLiveSnapshot>.Fail(objectsResult.Error ?? "World objects are unavailable.");
+        }
+
+        var capturedAt = DateTimeOffset.Now;
+        _radarSnapshots?.PublishMapId(accountName, mapResult.Value.MapId, capturedAt);
+        _radarSnapshots?.PublishPlayer(accountName, playerResult.Value);
+        _radarSnapshots?.PublishWorldObjects(accountName, objectsResult.Value, capturedAt);
+        return OperationResult<RadarLiveSnapshot>.Ok(new RadarLiveSnapshot(
+            mapResult.Value.MapId,
+            playerResult.Value,
+            objectsResult.Value,
+            capturedAt));
+    }
 
     public async Task<OperationResult<PlayerSnapshot>> ReadPlayerAsync(
         string? accountName = null,
@@ -1466,6 +1530,24 @@ public sealed class RoadhogRuntime
         }
 
         return _gameApi.ReadWorldObjectsAsync(cancellationToken);
+    }
+
+    private Task<OperationResult<ChannelSnapshot>> ReadChannelSnapshotAsync(
+        string? accountName,
+        CancellationToken cancellationToken)
+    {
+        if (_gameApi is IRoadhogScopedChannelGameApi scopedApi &&
+            !string.IsNullOrWhiteSpace(accountName))
+        {
+            return scopedApi.ReadChannelAsync(CreateReadContext(accountName), cancellationToken);
+        }
+
+        if (_gameApi is IRoadhogChannelGameApi channelApi)
+        {
+            return channelApi.ReadChannelAsync(cancellationToken);
+        }
+
+        return Task.FromResult(OperationResult<ChannelSnapshot>.Fail("MapId API is unavailable."));
     }
 
     private Task<OperationResult<GatherSnapshot>> ReadGatherSnapshotAsync(

@@ -13,6 +13,7 @@ public sealed class RoadhogServiceOptions
     public const string AccountConfigPathEnvironmentVariable = "ROADHOG_ACCOUNT_CONFIG_PATH";
     public const string PathLibraryDirectoryEnvironmentVariable = "ROADHOG_PATH_LIBRARY_DIRECTORY";
     public const string ProfileLibraryDirectoryEnvironmentVariable = "ROADHOG_PROFILE_LIBRARY_DIRECTORY";
+    public const string RadarMapDirectoryEnvironmentVariable = "ROADHOG_RADAR_MAP_DIRECTORY";
     public const string KmBoxNetConfigPathEnvironmentVariable = "ROADHOG_KMBOX_NET_CONFIG_PATH";
     public const string LogDirectoryEnvironmentVariable = "ROADHOG_LOG_DIRECTORY";
     public const string EnableLoggingEnvironmentVariable = "ROADHOG_ENABLE_LOGGING";
@@ -35,6 +36,8 @@ public sealed class RoadhogServiceOptions
     public string PathLibraryDirectory { get; set; } = Path.Combine(AppContext.BaseDirectory, "config", "paths");
 
     public string ProfileLibraryDirectory { get; set; } = Path.Combine(AppContext.BaseDirectory, "config", "profiles");
+
+    public string RadarMapDirectory { get; set; } = Path.Combine(AppContext.BaseDirectory, "config", "radar-maps");
 
     public string KmBoxNetConfigPath { get; set; } = Path.Combine(AppContext.BaseDirectory, "config", "kmbox-net.json");
 
@@ -85,6 +88,7 @@ public sealed class RoadhogServiceOptions
             AccountConfigPath = Path.Combine(clientRoot, "config", "accounts.json");
             PathLibraryDirectory = Path.Combine(clientRoot, "config", "paths");
             ProfileLibraryDirectory = Path.Combine(clientRoot, "config", "profiles");
+            RadarMapDirectory = Path.Combine(clientRoot, "config", "radar-maps");
             KmBoxNetConfigPath = Path.Combine(clientRoot, "config", "kmbox-net.json");
             LicenseCredentialPath = Path.Combine(clientRoot, "config", "license.dat");
             OwnerLicenseGrantPath = Path.Combine(clientRoot, "config", "owner-license.json");
@@ -97,6 +101,7 @@ public sealed class RoadhogServiceOptions
             AccountConfigPath = Path.Combine(configRoot, "accounts.json");
             PathLibraryDirectory = Path.Combine(configRoot, "paths");
             ProfileLibraryDirectory = Path.Combine(configRoot, "profiles");
+            RadarMapDirectory = Path.Combine(configRoot, "radar-maps");
             KmBoxNetConfigPath = Path.Combine(configRoot, "kmbox-net.json");
             LicenseCredentialPath = Path.Combine(configRoot, "license.dat");
             OwnerLicenseGrantPath = Path.Combine(configRoot, "owner-license.json");
@@ -105,6 +110,7 @@ public sealed class RoadhogServiceOptions
         AccountConfigPath = ReadPathFromEnvironment(AccountConfigPathEnvironmentVariable) ?? AccountConfigPath;
         PathLibraryDirectory = ReadPathFromEnvironment(PathLibraryDirectoryEnvironmentVariable) ?? PathLibraryDirectory;
         ProfileLibraryDirectory = ReadPathFromEnvironment(ProfileLibraryDirectoryEnvironmentVariable) ?? ProfileLibraryDirectory;
+        RadarMapDirectory = ReadPathFromEnvironment(RadarMapDirectoryEnvironmentVariable) ?? RadarMapDirectory;
         KmBoxNetConfigPath = ReadPathFromEnvironment(KmBoxNetConfigPathEnvironmentVariable) ?? KmBoxNetConfigPath;
         LicenseCredentialPath = ReadPathFromEnvironment(LicenseCredentialPathEnvironmentVariable) ?? LicenseCredentialPath;
         OwnerLicenseGrantPath = ReadPathFromEnvironment(OwnerLicenseGrantPathEnvironmentVariable)
