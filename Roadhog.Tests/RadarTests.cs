@@ -261,6 +261,14 @@ internal static class RadarTests
         Require(!plan.Direct, "wall detour must not be marked direct");
         Require(plan.Points.Count >= 3, "wall detour should generate automatic waypoint(s)");
         Require(plan.RouteDistance > plan.DirectDistance, "detour should be longer than direct distance");
+        foreach (var waypoint in plan.Points.Skip(1).SkipLast(1))
+        {
+            var nearestEndpointDistance = Math.Min(
+                waypoint.DistanceTo(obstacles[0].Start),
+                waypoint.DistanceTo(obstacles[0].End));
+            RequireNear(3.0D, nearestEndpointDistance, "wall waypoint should use the three meter endpoint radius");
+        }
+
         AssertEveryLegClear(plan, obstacles);
         return Task.CompletedTask;
     }
@@ -490,16 +498,22 @@ internal static class RadarTests
                 .ConfigureAwait(false);
             Require(first.Action == RadarNavigationAction.MoveToWaypoint, "wall should produce a waypoint");
             Require(first.Plan is { Success: true, Direct: false }, "wall route should be a successful detour");
+            RequireNear(1.5D, first.ReachDistanceMeters, "intermediate waypoint reach must be capped at 1.5 meters");
 
-            var waypoint = first.Destination;
-            var distanceToStart = waypoint.DistanceTo(start);
-            Require(distanceToStart > 2.5D, "test waypoint must allow a point inside the reach tolerance");
-            var nearWaypoint = new RadarPoint(
-                waypoint.X + (start.X - waypoint.X) / distanceToStart * 2.5D,
-                waypoint.Y + (start.Y - waypoint.Y) / distanceToStart * 2.5D);
+            var waypoint = new RadarPoint(10.0D, 5.5D);
+            var nearWaypoint = new RadarPoint(9.0D, 4.75D);
             Require(
                 !RadarGeometry.IsPathClear(nearWaypoint, goal, new[] { wall }),
                 "the early next leg must still cross the wall");
+            Require(
+                RadarGeometry.IsPathClear(nearWaypoint, waypoint, new[] { wall }),
+                "the current waypoint must remain directly reachable");
+
+            state.Purpose = RadarNavigationPurpose.ApproachTarget;
+            state.TargetServerObjectId = 99;
+            state.PlannedGoal = goal;
+            state.Route = new[] { waypoint, goal };
+            state.WaypointIndex = 0;
 
             var second = await navigator.ResolveAsync(
                     state,
@@ -515,6 +529,8 @@ internal static class RadarTests
             Require(second.Action == RadarNavigationAction.MoveToWaypoint, "navigator should keep moving to the safe waypoint");
             RequireNear(waypoint.X, second.Destination.X, "unsafe early advance must keep waypoint X");
             RequireNear(waypoint.Y, second.Destination.Y, "unsafe early advance must keep waypoint Y");
+            RequireNear(0.0D, second.ReachDistanceMeters, "blocked next leg must keep moving instead of reporting arrival");
+            Require(second.Reason == "move_waypoint_precise", "blocked next leg should use precise waypoint movement");
             Require(
                 RadarGeometry.IsPathClear(nearWaypoint, second.Destination, new[] { wall }),
                 "retained waypoint leg must not intersect the wall");

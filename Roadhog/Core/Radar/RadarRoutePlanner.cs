@@ -42,7 +42,7 @@ public sealed class RadarRoutePlanner
 {
     private const int EndpointCandidateCount = 16;
     private const int MaximumCandidateNodeCount = 1200;
-    private const double EndpointCandidateRadiusMeters = 0.5D;
+    private const double EndpointCandidateRadiusMeters = 3.0D;
     private const double EndpointCandidateMinimumSeparationMeters = 0.05D;
 
     public RadarRoutePlan Plan(RadarRouteRequest request)

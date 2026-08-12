@@ -83,6 +83,9 @@ public sealed class StationaryObstacleNavigationState
 
 public sealed class StationaryObstacleNavigator
 {
+    private const double MinimumWaypointReachMeters = 0.25D;
+    private const double MaximumWaypointReachMeters = 1.5D;
+
     private readonly IRadarMapStore _mapStore;
     private readonly RadarRoutePlanner _planner;
     private readonly RadarMapRevisionRegistry _revisions;
@@ -255,8 +258,9 @@ public sealed class StationaryObstacleNavigator
             }
         }
 
+        var waypointReachDistance = ResolveWaypointReachDistance(settings);
         while (state.WaypointIndex < state.Route.Count - 1 &&
-               start.DistanceTo(state.Route[state.WaypointIndex]) <= Math.Max(0.25D, settings.WaypointReachMeters) &&
+               start.DistanceTo(state.Route[state.WaypointIndex]) <= waypointReachDistance &&
                IsRouteLegClear(index, start, state.Route[state.WaypointIndex + 1]))
         {
             state.WaypointIndex++;
@@ -264,14 +268,33 @@ public sealed class StationaryObstacleNavigator
 
         var destination = state.Route[Math.Clamp(state.WaypointIndex, 0, state.Route.Count - 1)];
         var isFinal = state.WaypointIndex == state.Route.Count - 1;
+        var nextLegBlockedInsideReach = !isFinal &&
+                                        start.DistanceTo(destination) <= waypointReachDistance &&
+                                        !IsRouteLegClear(index, start, state.Route[state.WaypointIndex + 1]);
         return new RadarNavigationDecision(
             RadarNavigationAction.MoveToWaypoint,
             destination,
-            isFinal ? finalReachDistanceMeters : Math.Max(0.25D, settings.WaypointReachMeters),
+            isFinal
+                ? finalReachDistanceMeters
+                : nextLegBlockedInsideReach
+                    ? 0.0D
+                    : waypointReachDistance,
             state.LastPlan,
             mapId,
             state.LastPlan?.EvaluatedObstacleCount ?? directObstacles.Count,
-            isFinal ? "move_final" : "move_waypoint");
+            isFinal
+                ? "move_final"
+                : nextLegBlockedInsideReach
+                    ? "move_waypoint_precise"
+                    : "move_waypoint");
+    }
+
+    private static double ResolveWaypointReachDistance(RadarObstacleScriptSettings settings)
+    {
+        return Math.Clamp(
+            settings.WaypointReachMeters,
+            MinimumWaypointReachMeters,
+            MaximumWaypointReachMeters);
     }
 
     private static bool IsRouteLegClear(

@@ -206,7 +206,7 @@ internal sealed class RadarEditorForm : Form
         _enabledCheckBox.Margin = new Padding(3, 8, 3, 8);
         panel.Controls.Add(_enabledCheckBox);
 
-        AddNumericRow(panel, "\u7ed5\u884c\u70b9\u5230\u8fbe\u8ddd\u79bb (m)", _waypointReachNumeric, 0.25M, 10M, 0.25M);
+        AddNumericRow(panel, "\u7ed5\u884c\u70b9\u5230\u8fbe\u8ddd\u79bb (m)", _waypointReachNumeric, 0.25M, 1.5M, 0.25M);
         AddNumericRow(panel, "\u602a\u7269\u79fb\u52a8\u91cd\u7b97 (m)", _replanNumeric, 0.5M, 20M, 0.5M);
         AddNumericRow(panel, "\u5141\u8bb8\u989d\u5916\u7ed5\u8def (m)", _detourNumeric, 0M, 500M, 1M);
         AddNumericRow(panel, "\u663e\u793a\u534a\u5f84 (m)", _rangeNumeric, 10M, 1000M, 5M);
