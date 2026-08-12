@@ -28,9 +28,7 @@ internal sealed class RadarEditorForm : Form
     private readonly Label _selectionLabel = new();
     private readonly Label _statusLabel = new();
     private readonly CheckBox _enabledCheckBox = new();
-    private readonly CheckBox _showClearanceCheckBox = new();
     private readonly CheckBox _showRouteCheckBox = new();
-    private readonly NumericUpDown _clearanceNumeric = new();
     private readonly NumericUpDown _waypointReachNumeric = new();
     private readonly NumericUpDown _replanNumeric = new();
     private readonly NumericUpDown _detourNumeric = new();
@@ -208,15 +206,11 @@ internal sealed class RadarEditorForm : Form
         _enabledCheckBox.Margin = new Padding(3, 8, 3, 8);
         panel.Controls.Add(_enabledCheckBox);
 
-        AddNumericRow(panel, "\u5b89\u5168\u95f4\u9694 (m)", _clearanceNumeric, 0.1M, 20M, 0.1M);
         AddNumericRow(panel, "\u7ed5\u884c\u70b9\u5230\u8fbe\u8ddd\u79bb (m)", _waypointReachNumeric, 0.25M, 10M, 0.25M);
         AddNumericRow(panel, "\u602a\u7269\u79fb\u52a8\u91cd\u7b97 (m)", _replanNumeric, 0.5M, 20M, 0.5M);
         AddNumericRow(panel, "\u5141\u8bb8\u989d\u5916\u7ed5\u8def (m)", _detourNumeric, 0M, 500M, 1M);
         AddNumericRow(panel, "\u663e\u793a\u534a\u5f84 (m)", _rangeNumeric, 10M, 1000M, 5M);
 
-        _showClearanceCheckBox.AutoSize = true;
-        _showClearanceCheckBox.Text = "\u663e\u793a\u5b89\u5168\u8fb9\u754c";
-        panel.Controls.Add(_showClearanceCheckBox);
         _showRouteCheckBox.AutoSize = true;
         _showRouteCheckBox.Text = "\u663e\u793a\u9884\u89c8\u8def\u7ebf";
         panel.Controls.Add(_showRouteCheckBox);
@@ -250,7 +244,7 @@ internal sealed class RadarEditorForm : Form
                    "1. \u753b\u7ebf\u6a21\u5f0f\u5de6\u952e\u70b9\u8d77\u70b9\uff0c\u518d\u70b9\u7ec8\u70b9\uff1bEsc \u53d6\u6d88\u3002\n" +
                    "2. \u6eda\u8f6e\u7f29\u653e\uff0c\u53f3\u952e/\u4e2d\u952e\u62d6\u52a8\u5e73\u79fb\u3002\n" +
                    "3. \u5730\u56fe\u6309 MapId \u4fdd\u5b58\uff0c\u540c\u811a\u672c\u8d26\u53f7\u5171\u4eab\u3002\n" +
-                   "4. \u89d2\u8272\u84dd\u70b9\uff0c\u4e3b\u52a8\u602a\u7ea2\u70b9\uff0c\u88ab\u52a8\u602a\u7eff\u70b9\uff0c\u672a\u77e5\u602a\u7070\u70b9\uff1b\u9ed1\u7ebf\u662f\u969c\u788d\u3002\n" +
+                   "4. \u89d2\u8272\u84dd\u70b9\uff0c\u4e3b\u52a8\u602a\u7ea2\u70b9\uff0c\u88ab\u52a8\u602a\u7eff\u70b9\uff0c\u672a\u77e5\u602a\u7070\u70b9\uff1b\u8def\u7ebf\u53ea\u5728\u7a7f\u8fc7\u9ed1\u7ebf\u65f6\u89c6\u4e3a\u88ab\u6321\u3002\n" +
                    "5. \u96f7\u8fbe\u4e0a\u5317\u53f3\u4e1c\uff1a\u5317 -X\uff0c\u4e1c +Y\u3002"
         };
         panel.Controls.Add(help);
@@ -262,20 +256,9 @@ internal sealed class RadarEditorForm : Form
         _refreshTimer.Tick += async (_, _) => await RefreshLiveAsync(force: false).ConfigureAwait(true);
         _canvas.SegmentCreated += (_, args) => AddSegment(args.Start, args.End);
         _canvas.SelectionChanged += (_, _) => UpdateSelectionText();
-        _showClearanceCheckBox.CheckedChanged += (_, _) =>
-        {
-            _canvas.ShowClearance = _showClearanceCheckBox.Checked;
-            _canvas.Invalidate();
-        };
         _showRouteCheckBox.CheckedChanged += (_, _) =>
         {
             _canvas.ShowPlannedRoute = _showRouteCheckBox.Checked;
-            _canvas.Invalidate();
-        };
-        _clearanceNumeric.ValueChanged += (_, _) =>
-        {
-            _canvas.ClearanceMeters = (double)_clearanceNumeric.Value;
-            _canvas.RoutePlan = null;
             _canvas.Invalidate();
         };
         _rangeNumeric.ValueChanged += (_, _) => _canvas.DisplayRangeMeters = (double)_rangeNumeric.Value;
@@ -493,7 +476,6 @@ internal sealed class RadarEditorForm : Form
             new RadarPoint(playerPosition.X, playerPosition.Y),
             new RadarPoint(monsterPosition.X, monsterPosition.Y),
             _document.Segments,
-            settings.ClearanceMeters,
             settings.MaximumDetourExtraMeters));
         _canvas.RoutePlan = plan;
         SetStatus(
@@ -525,12 +507,10 @@ internal sealed class RadarEditorForm : Form
         return new RadarObstacleScriptSettings
         {
             Enabled = _enabledCheckBox.Checked,
-            ClearanceMeters = (double)_clearanceNumeric.Value,
             WaypointReachMeters = (double)_waypointReachNumeric.Value,
             TargetReplanDistanceMeters = (double)_replanNumeric.Value,
             MaximumDetourExtraMeters = (double)_detourNumeric.Value,
             DisplayRangeMeters = (double)_rangeNumeric.Value,
-            ShowClearance = _showClearanceCheckBox.Checked,
             ShowPlannedRoute = _showRouteCheckBox.Checked
         };
     }
@@ -539,16 +519,12 @@ internal sealed class RadarEditorForm : Form
     {
         var value = settings ?? new RadarObstacleScriptSettings();
         _enabledCheckBox.Checked = value.Enabled;
-        SetNumeric(_clearanceNumeric, value.ClearanceMeters);
         SetNumeric(_waypointReachNumeric, value.WaypointReachMeters);
         SetNumeric(_replanNumeric, value.TargetReplanDistanceMeters);
         SetNumeric(_detourNumeric, value.MaximumDetourExtraMeters);
         SetNumeric(_rangeNumeric, value.DisplayRangeMeters);
-        _showClearanceCheckBox.Checked = value.ShowClearance;
         _showRouteCheckBox.Checked = value.ShowPlannedRoute;
-        _canvas.ClearanceMeters = value.ClearanceMeters;
         _canvas.DisplayRangeMeters = value.DisplayRangeMeters;
-        _canvas.ShowClearance = value.ShowClearance;
         _canvas.ShowPlannedRoute = value.ShowPlannedRoute;
     }
 

@@ -7,13 +7,11 @@ public static class RadarGeometry
     public static bool IsPathClear(
         RadarPoint start,
         RadarPoint end,
-        IReadOnlyList<RadarObstacleSegment> obstacles,
-        double clearanceMeters)
+        IReadOnlyList<RadarObstacleSegment> obstacles)
     {
-        var clearance = Math.Max(0.0D, clearanceMeters);
         foreach (var obstacle in obstacles)
         {
-            if (SegmentDistance(start, end, obstacle.Start, obstacle.End) <= clearance + Epsilon)
+            if (SegmentsIntersect(start, end, obstacle.Start, obstacle.End))
             {
                 return false;
             }

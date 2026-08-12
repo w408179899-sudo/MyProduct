@@ -6,7 +6,6 @@ public sealed record RadarRouteRequest(
     RadarPoint Start,
     RadarPoint Goal,
     IReadOnlyList<RadarObstacleSegment> Obstacles,
-    double ClearanceMeters,
     double MaximumExtraDistanceMeters = 30.0D);
 
 public sealed record RadarRoutePlan(
@@ -43,12 +42,13 @@ public sealed class RadarRoutePlanner
 {
     private const int EndpointCandidateCount = 16;
     private const int MaximumCandidateNodeCount = 1200;
+    private const double EndpointCandidateRadiusMeters = 0.5D;
+    private const double EndpointCandidateMinimumSeparationMeters = 0.05D;
 
     public RadarRoutePlan Plan(RadarRouteRequest request)
     {
         var stopwatch = Stopwatch.StartNew();
         var obstacles = request.Obstacles ?? Array.Empty<RadarObstacleSegment>();
-        var clearance = Math.Max(0.0D, request.ClearanceMeters);
         var directDistance = request.Start.DistanceTo(request.Goal);
         if (directDistance <= 0.001D)
         {
@@ -63,7 +63,7 @@ public sealed class RadarRoutePlanner
                 "already_at_goal");
         }
 
-        if (RadarGeometry.IsPathClear(request.Start, request.Goal, obstacles, clearance))
+        if (RadarGeometry.IsPathClear(request.Start, request.Goal, obstacles))
         {
             return new RadarRoutePlan(
                 true,
@@ -76,7 +76,7 @@ public sealed class RadarRoutePlanner
                 "direct");
         }
 
-        var nodes = BuildCandidateNodes(request.Start, request.Goal, obstacles, clearance);
+        var nodes = BuildCandidateNodes(request.Start, request.Goal, obstacles);
         if (nodes.Count > MaximumCandidateNodeCount)
         {
             return RadarRoutePlan.Unreachable(
@@ -86,7 +86,7 @@ public sealed class RadarRoutePlanner
                 "candidate_budget_exceeded");
         }
 
-        var adjacency = BuildVisibilityGraph(nodes, obstacles, clearance);
+        var adjacency = BuildVisibilityGraph(nodes, obstacles);
         var pathIndices = FindShortestPath(nodes, adjacency);
         if (pathIndices.Count == 0)
         {
@@ -98,7 +98,7 @@ public sealed class RadarRoutePlanner
         }
 
         var rawPoints = pathIndices.Select(index => nodes[index]).ToArray();
-        var points = Simplify(rawPoints, obstacles, clearance);
+        var points = Simplify(rawPoints, obstacles);
         var routeDistance = CalculateLength(points);
         if (routeDistance > directDistance + Math.Max(0.0D, request.MaximumExtraDistanceMeters))
         {
@@ -123,15 +123,13 @@ public sealed class RadarRoutePlanner
     private static List<RadarPoint> BuildCandidateNodes(
         RadarPoint start,
         RadarPoint goal,
-        IReadOnlyList<RadarObstacleSegment> obstacles,
-        double clearance)
+        IReadOnlyList<RadarObstacleSegment> obstacles)
     {
         var nodes = new List<RadarPoint> { start, goal };
-        var radius = Math.Max(0.5D, clearance * 1.35D + 0.25D);
         foreach (var obstacle in obstacles)
         {
-            AddEndpointCandidates(nodes, obstacle.Start, obstacles, clearance, radius);
-            AddEndpointCandidates(nodes, obstacle.End, obstacles, clearance, radius);
+            AddEndpointCandidates(nodes, obstacle.Start, obstacles);
+            AddEndpointCandidates(nodes, obstacle.End, obstacles);
         }
 
         return Deduplicate(nodes);
@@ -140,18 +138,17 @@ public sealed class RadarRoutePlanner
     private static void AddEndpointCandidates(
         List<RadarPoint> nodes,
         RadarPoint endpoint,
-        IReadOnlyList<RadarObstacleSegment> obstacles,
-        double clearance,
-        double radius)
+        IReadOnlyList<RadarObstacleSegment> obstacles)
     {
         for (var index = 0; index < EndpointCandidateCount; index++)
         {
             var angle = index * Math.PI * 2.0D / EndpointCandidateCount;
             var candidate = new RadarPoint(
-                endpoint.X + Math.Cos(angle) * radius,
-                endpoint.Y + Math.Sin(angle) * radius);
+                endpoint.X + Math.Cos(angle) * EndpointCandidateRadiusMeters,
+                endpoint.Y + Math.Sin(angle) * EndpointCandidateRadiusMeters);
             if (obstacles.All(obstacle =>
-                    RadarGeometry.PointToSegmentDistance(candidate, obstacle.Start, obstacle.End) > clearance + 0.05D))
+                    RadarGeometry.PointToSegmentDistance(candidate, obstacle.Start, obstacle.End) >
+                    EndpointCandidateMinimumSeparationMeters))
             {
                 nodes.Add(candidate);
             }
@@ -176,8 +173,7 @@ public sealed class RadarRoutePlanner
 
     private static List<(int Target, double Cost)>[] BuildVisibilityGraph(
         IReadOnlyList<RadarPoint> nodes,
-        IReadOnlyList<RadarObstacleSegment> obstacles,
-        double clearance)
+        IReadOnlyList<RadarObstacleSegment> obstacles)
     {
         var graph = Enumerable.Range(0, nodes.Count)
             .Select(_ => new List<(int Target, double Cost)>())
@@ -186,7 +182,7 @@ public sealed class RadarRoutePlanner
         {
             for (var right = left + 1; right < nodes.Count; right++)
             {
-                if (!RadarGeometry.IsPathClear(nodes[left], nodes[right], obstacles, clearance))
+                if (!RadarGeometry.IsPathClear(nodes[left], nodes[right], obstacles))
                 {
                     continue;
                 }
@@ -255,8 +251,7 @@ public sealed class RadarRoutePlanner
 
     private static IReadOnlyList<RadarPoint> Simplify(
         IReadOnlyList<RadarPoint> points,
-        IReadOnlyList<RadarObstacleSegment> obstacles,
-        double clearance)
+        IReadOnlyList<RadarObstacleSegment> obstacles)
     {
         if (points.Count <= 2)
         {
@@ -269,7 +264,7 @@ public sealed class RadarRoutePlanner
         {
             var next = points.Count - 1;
             while (next > current + 1 &&
-                   !RadarGeometry.IsPathClear(points[current], points[next], obstacles, clearance))
+                   !RadarGeometry.IsPathClear(points[current], points[next], obstacles))
             {
                 next--;
             }

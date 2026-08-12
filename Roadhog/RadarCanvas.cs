@@ -63,11 +63,7 @@ internal sealed class RadarCanvas : Control
 
     public bool FollowPlayer { get; set; } = true;
 
-    public bool ShowClearance { get; set; } = true;
-
     public bool ShowPlannedRoute { get; set; } = true;
-
-    public double ClearanceMeters { get; set; } = RadarObstacleScriptSettings.DefaultClearanceMeters;
 
     public double DisplayRangeMeters
     {
@@ -279,7 +275,6 @@ internal sealed class RadarCanvas : Control
         base.OnPaint(e);
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
         DrawGrid(e.Graphics);
-        DrawClearance(e.Graphics);
         DrawObstacles(e.Graphics);
         DrawRoute(e.Graphics);
         DrawWorldObjects(e.Graphics);
@@ -313,25 +308,6 @@ internal sealed class RadarCanvas : Control
             var top = WorldToScreen(new RadarPoint(center.X - halfVerticalMeters, y));
             var bottom = WorldToScreen(new RadarPoint(center.X + halfVerticalMeters, y));
             graphics.DrawLine(Math.Abs(y) < 0.001D ? axisPen : gridPen, top, bottom);
-        }
-    }
-
-    private void DrawClearance(Graphics graphics)
-    {
-        if (!ShowClearance || ClearanceMeters <= 0.0D)
-        {
-            return;
-        }
-
-        var width = Math.Max(2.0F, (float)(ClearanceMeters * PixelsPerMeter() * 2.0D));
-        using var clearancePen = new Pen(Color.FromArgb(42, 239, 68, 68), width)
-        {
-            StartCap = LineCap.Round,
-            EndCap = LineCap.Round
-        };
-        foreach (var segment in _document.Segments)
-        {
-            graphics.DrawLine(clearancePen, WorldToScreen(segment.Start), WorldToScreen(segment.End));
         }
     }
 

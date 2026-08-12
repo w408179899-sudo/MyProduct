@@ -78,15 +78,15 @@ internal static class RadarTests
         var settings = new RadarObstacleScriptSettings();
         Require(!settings.Enabled, "radar obstacle avoidance must default to disabled");
         settings.Enabled = true;
-        settings.ClearanceMeters = 4.25D;
+        settings.WaypointReachMeters = 4.25D;
         settings.DisplayRangeMeters = 180.0D;
 
         var clone = settings.Clone();
         Require(clone.Enabled, "clone should preserve enabled state");
-        RequireNear(4.25D, clone.ClearanceMeters, "clone should preserve clearance");
+        RequireNear(4.25D, clone.WaypointReachMeters, "clone should preserve waypoint reach distance");
         RequireNear(180.0D, clone.DisplayRangeMeters, "clone should preserve display range");
-        clone.ClearanceMeters = 1.0D;
-        RequireNear(4.25D, settings.ClearanceMeters, "clone should be independent");
+        clone.WaypointReachMeters = 1.0D;
+        RequireNear(4.25D, settings.WaypointReachMeters, "clone should be independent");
         return Task.CompletedTask;
     }
 
@@ -208,30 +208,27 @@ internal static class RadarTests
         return Task.CompletedTask;
     }
 
-    public static Task GeometryDetectsIntersectionAndClearanceAsync()
+    public static Task GeometryDetectsSegmentIntersectionAsync()
     {
         var wall = Segment(10.0D, -5.0D, 10.0D, 5.0D);
         Require(
             !RadarGeometry.IsPathClear(
                 new RadarPoint(0.0D, 0.0D),
                 new RadarPoint(20.0D, 0.0D),
-                new[] { wall },
-                0.0D),
+                new[] { wall }),
             "crossing wall must block direct path");
         Require(
             !RadarGeometry.IsPathClear(
-                new RadarPoint(0.0D, 6.0D),
-                new RadarPoint(20.0D, 6.0D),
-                new[] { wall },
-                1.0D),
-            "path touching clearance boundary must be blocked");
+                new RadarPoint(0.0D, 5.0D),
+                new RadarPoint(20.0D, 5.0D),
+                new[] { wall }),
+            "path touching a wall endpoint must be blocked");
         Require(
             RadarGeometry.IsPathClear(
-                new RadarPoint(0.0D, 6.1D),
-                new RadarPoint(20.0D, 6.1D),
-                new[] { wall },
-                1.0D),
-            "path outside clearance boundary should be clear");
+                new RadarPoint(0.0D, 5.01D),
+                new RadarPoint(20.0D, 5.01D),
+                new[] { wall }),
+            "nearby path that does not intersect the wall should be clear");
         return Task.CompletedTask;
     }
 
@@ -241,8 +238,7 @@ internal static class RadarTests
         var plan = planner.Plan(new RadarRouteRequest(
             new RadarPoint(0.0D, 0.0D),
             new RadarPoint(40.0D, 0.0D),
-            new[] { Segment(100.0D, -5.0D, 100.0D, 5.0D) },
-            2.0D));
+            new[] { Segment(100.0D, -5.0D, 100.0D, 5.0D) }));
 
         Require(plan.Success, "clear direct route should succeed");
         Require(plan.Direct, "clear route should remain direct");
@@ -259,14 +255,13 @@ internal static class RadarTests
             new RadarPoint(0.0D, 0.0D),
             new RadarPoint(40.0D, 0.0D),
             obstacles,
-            2.0D,
             30.0D));
 
         Require(plan.Success, "wall detour should be routable");
         Require(!plan.Direct, "wall detour must not be marked direct");
         Require(plan.Points.Count >= 3, "wall detour should generate automatic waypoint(s)");
         Require(plan.RouteDistance > plan.DirectDistance, "detour should be longer than direct distance");
-        AssertEveryLegClear(plan, obstacles, 2.0D);
+        AssertEveryLegClear(plan, obstacles);
         return Task.CompletedTask;
     }
 
@@ -282,12 +277,11 @@ internal static class RadarTests
             new RadarPoint(0.0D, 0.0D),
             new RadarPoint(40.0D, 0.0D),
             obstacles,
-            2.0D,
             40.0D));
 
         Require(plan.Success, "right-angle obstacle should be routable");
         Require(plan.Points.Count >= 3, "right-angle obstacle should produce waypoint(s)");
-        AssertEveryLegClear(plan, obstacles, 2.0D);
+        AssertEveryLegClear(plan, obstacles);
         return Task.CompletedTask;
     }
 
@@ -400,7 +394,6 @@ internal static class RadarTests
                     new RadarObstacleScriptSettings
                     {
                         Enabled = true,
-                        ClearanceMeters = 2.0D,
                         MaximumDetourExtraMeters = 30.0D
                     },
                     25.0D)
@@ -415,16 +408,132 @@ internal static class RadarTests
         }
     }
 
+    public static async Task NavigatorAllowsScript4NearWallRouteAsync()
+    {
+        var directory = CreateTemporaryDirectory();
+        try
+        {
+            var store = new JsonRadarMapStore(directory);
+            var save = await store.SaveAsync(new RadarMapDocument
+            {
+                MapId = 47,
+                Segments = new List<RadarObstacleSegment>
+                {
+                    Segment(2363.938D, 1498.532D, 2382.528D, 1488.109D),
+                    Segment(2382.528D, 1488.109D, 2398.439D, 1502.21D)
+                }
+            }).ConfigureAwait(false);
+            Require(save.Success, "script 4 radar map should save");
+
+            var navigator = new StationaryObstacleNavigator(
+                store,
+                new RadarRoutePlanner(),
+                new RadarMapRevisionRegistry());
+            var decision = await navigator.ResolveAsync(
+                    new StationaryObstacleNavigationState(),
+                    47,
+                    new RadarPoint(2386.553D, 1488.57D),
+                    new RadarPoint(2427.03D, 1475.54D),
+                    RadarNavigationPurpose.ApproachTarget,
+                    123,
+                    new RadarObstacleScriptSettings { Enabled = true },
+                    25.0D)
+                .ConfigureAwait(false);
+
+            Require(
+                decision.Action == RadarNavigationAction.Direct,
+                "script 4 near-wall route should remain direct when it does not intersect a drawn line");
+            Require(decision.Reason == "direct", "script 4 near-wall route should resolve as direct");
+        }
+        finally
+        {
+            DeleteVerifiedTemporaryDirectory(directory);
+        }
+    }
+
+    public static async Task NavigatorDoesNotSkipWaypointAcrossWallAsync()
+    {
+        var directory = CreateTemporaryDirectory();
+        try
+        {
+            var wall = Segment(10.0D, -5.0D, 10.0D, 5.0D);
+            var store = new JsonRadarMapStore(directory);
+            var save = await store.SaveAsync(new RadarMapDocument
+            {
+                MapId = 124,
+                Segments = new List<RadarObstacleSegment> { wall }
+            }).ConfigureAwait(false);
+            Require(save.Success, "waypoint safety map should save");
+
+            var navigator = new StationaryObstacleNavigator(
+                store,
+                new RadarRoutePlanner(),
+                new RadarMapRevisionRegistry());
+            var state = new StationaryObstacleNavigationState();
+            var settings = new RadarObstacleScriptSettings
+            {
+                Enabled = true,
+                WaypointReachMeters = 3.0D,
+                MaximumDetourExtraMeters = 30.0D
+            };
+            var start = new RadarPoint(0.0D, 0.0D);
+            var goal = new RadarPoint(20.0D, 0.0D);
+            var first = await navigator.ResolveAsync(
+                    state,
+                    124,
+                    start,
+                    goal,
+                    RadarNavigationPurpose.ApproachTarget,
+                    99,
+                    settings,
+                    1.0D)
+                .ConfigureAwait(false);
+            Require(first.Action == RadarNavigationAction.MoveToWaypoint, "wall should produce a waypoint");
+            Require(first.Plan is { Success: true, Direct: false }, "wall route should be a successful detour");
+
+            var waypoint = first.Destination;
+            var distanceToStart = waypoint.DistanceTo(start);
+            Require(distanceToStart > 2.5D, "test waypoint must allow a point inside the reach tolerance");
+            var nearWaypoint = new RadarPoint(
+                waypoint.X + (start.X - waypoint.X) / distanceToStart * 2.5D,
+                waypoint.Y + (start.Y - waypoint.Y) / distanceToStart * 2.5D);
+            Require(
+                !RadarGeometry.IsPathClear(nearWaypoint, goal, new[] { wall }),
+                "the early next leg must still cross the wall");
+
+            var second = await navigator.ResolveAsync(
+                    state,
+                    124,
+                    nearWaypoint,
+                    goal,
+                    RadarNavigationPurpose.ApproachTarget,
+                    99,
+                    settings,
+                    1.0D)
+                .ConfigureAwait(false);
+
+            Require(second.Action == RadarNavigationAction.MoveToWaypoint, "navigator should keep moving to the safe waypoint");
+            RequireNear(waypoint.X, second.Destination.X, "unsafe early advance must keep waypoint X");
+            RequireNear(waypoint.Y, second.Destination.Y, "unsafe early advance must keep waypoint Y");
+            Require(
+                RadarGeometry.IsPathClear(nearWaypoint, second.Destination, new[] { wall }),
+                "retained waypoint leg must not intersect the wall");
+        }
+        finally
+        {
+            DeleteVerifiedTemporaryDirectory(directory);
+        }
+    }
+
     private static void AssertEveryLegClear(
         RadarRoutePlan plan,
-        IReadOnlyList<RadarObstacleSegment> obstacles,
-        double clearance)
+        IReadOnlyList<RadarObstacleSegment> obstacles)
     {
         for (var index = 1; index < plan.Points.Count; index++)
         {
             Require(
-                RadarGeometry.IsPathClear(plan.Points[index - 1], plan.Points[index], obstacles, clearance),
-                "every planned route leg must respect obstacle clearance");
+                RadarGeometry.IsPathClear(plan.Points[index - 1], plan.Points[index], obstacles),
+                "every planned route leg must avoid crossing an obstacle segment");
         }
     }
 

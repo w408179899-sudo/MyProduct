@@ -172,8 +172,8 @@ public sealed class StationaryObstacleNavigator
         }
 
         var index = state.SpatialIndex;
-        var directObstacles = index.QueryCorridor(start, goal, settings.ClearanceMeters + 1.0D);
-        var directClear = RadarGeometry.IsPathClear(start, goal, directObstacles, settings.ClearanceMeters);
+        var directObstacles = index.QueryCorridor(start, goal, 1.0D);
+        var directClear = RadarGeometry.IsPathClear(start, goal, directObstacles);
         var distanceToGoal = start.DistanceTo(goal);
         if (directClear && distanceToGoal <= Math.Max(0.1D, finalReachDistanceMeters))
         {
@@ -195,10 +195,13 @@ public sealed class StationaryObstacleNavigator
         }
 
         var goalMoved = state.PlannedGoal.DistanceTo(goal) > Math.Max(0.1D, settings.TargetReplanDistanceMeters);
+        var hasCurrentWaypoint = state.WaypointIndex >= 0 && state.WaypointIndex < state.Route.Count;
         var routeMatches = state.Route.Count > 0 &&
+                           hasCurrentWaypoint &&
                            state.Purpose == purpose &&
                            state.TargetServerObjectId == targetServerObjectId &&
-                           !goalMoved;
+                           !goalMoved &&
+                           IsRouteLegClear(index, start, state.Route[state.WaypointIndex]);
         if (state.LastPlan is { Success: false } failedPlan &&
             state.Purpose == purpose &&
             state.TargetServerObjectId == targetServerObjectId &&
@@ -219,13 +222,12 @@ public sealed class StationaryObstacleNavigator
         {
             var margin = Math.Max(
                 10.0D,
-                settings.MaximumDetourExtraMeters + settings.ClearanceMeters + 2.0D);
+                settings.MaximumDetourExtraMeters + 2.0D);
             var localObstacles = index.QueryCorridor(start, goal, margin);
             var request = new RadarRouteRequest(
                 start,
                 goal,
                 localObstacles,
-                settings.ClearanceMeters,
                 settings.MaximumDetourExtraMeters);
             var plan = _planner.Plan(request);
             if (!plan.Success && localObstacles.Count < index.All.Count)
@@ -254,7 +256,8 @@ public sealed class StationaryObstacleNavigator
         }
 
         while (state.WaypointIndex < state.Route.Count - 1 &&
-               start.DistanceTo(state.Route[state.WaypointIndex]) <= Math.Max(0.25D, settings.WaypointReachMeters))
+               start.DistanceTo(state.Route[state.WaypointIndex]) <= Math.Max(0.25D, settings.WaypointReachMeters) &&
+               IsRouteLegClear(index, start, state.Route[state.WaypointIndex + 1]))
         {
             state.WaypointIndex++;
         }
@@ -269,6 +272,15 @@ public sealed class StationaryObstacleNavigator
             mapId,
             state.LastPlan?.EvaluatedObstacleCount ?? directObstacles.Count,
             isFinal ? "move_final" : "move_waypoint");
+    }
+
+    private static bool IsRouteLegClear(
+        RadarObstacleSpatialIndex index,
+        RadarPoint start,
+        RadarPoint end)
+    {
+        var obstacles = index.QueryCorridor(start, end, 1.0D);
+        return RadarGeometry.IsPathClear(start, end, obstacles);
     }
 
     private static RadarNavigationDecision Direct(

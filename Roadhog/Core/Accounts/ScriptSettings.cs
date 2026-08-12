@@ -281,8 +281,6 @@ public sealed class CombatScriptSettings
 
 public sealed class RadarObstacleScriptSettings
 {
-    public const double DefaultClearanceMeters = 2.5D;
-
     public const double DefaultWaypointReachMeters = 1.5D;
 
     public const double DefaultTargetReplanDistanceMeters = 2.5D;
@@ -293,8 +291,6 @@ public sealed class RadarObstacleScriptSettings
 
     public bool Enabled { get; set; }
 
-    public double ClearanceMeters { get; set; } = DefaultClearanceMeters;
-
     public double WaypointReachMeters { get; set; } = DefaultWaypointReachMeters;
 
     public double TargetReplanDistanceMeters { get; set; } = DefaultTargetReplanDistanceMeters;
@@ -303,8 +299,6 @@ public sealed class RadarObstacleScriptSettings
 
     public double DisplayRangeMeters { get; set; } = DefaultDisplayRangeMeters;
 
-    public bool ShowClearance { get; set; } = true;
-
     public bool ShowPlannedRoute { get; set; } = true;
 
     public RadarObstacleScriptSettings Clone()
@@ -312,12 +306,10 @@ public sealed class RadarObstacleScriptSettings
         return new RadarObstacleScriptSettings
         {
             Enabled = Enabled,
-            ClearanceMeters = ClearanceMeters,
             WaypointReachMeters = WaypointReachMeters,
             TargetReplanDistanceMeters = TargetReplanDistanceMeters,
             MaximumDetourExtraMeters = MaximumDetourExtraMeters,
             DisplayRangeMeters = DisplayRangeMeters,
-            ShowClearance = ShowClearance,
             ShowPlannedRoute = ShowPlannedRoute
         };
     }

@@ -73,13 +73,15 @@ var tests = new (string Name, Func<Task> Run)[]
     ("radar canvas marker colors match disposition", RadarTests.CanvasMarkerColorsMatchDispositionAsync),
     ("radar canvas draws obstacle with two clicks", RadarTests.CanvasDrawsObstacleWithTwoClicksAsync),
     ("radar settings default disabled and clone", RadarTests.SettingsDefaultDisabledAndCloneAsync),
-    ("radar geometry detects intersection and clearance", RadarTests.GeometryDetectsIntersectionAndClearanceAsync),
+    ("radar geometry detects segment intersection", RadarTests.GeometryDetectsSegmentIntersectionAsync),
     ("radar planner keeps clear direct route", RadarTests.PlannerKeepsClearDirectRouteAsync),
     ("radar planner routes around wall", RadarTests.PlannerRoutesAroundWallAsync),
     ("radar planner routes around right angle", RadarTests.PlannerRoutesAroundRightAngleAsync),
     ("radar spatial index filters large map to local corridor", RadarTests.SpatialIndexFiltersLargeMapToLocalCorridorAsync),
     ("radar json store round trips and atomically replaces", RadarTests.JsonStoreRoundTripsAndAtomicallyReplacesAsync),
     ("radar navigator honors disabled switch and plans when enabled", RadarTests.NavigatorHonorsDisabledSwitchAndPlansWhenEnabledAsync),
+    ("radar navigator allows script 4 near wall route", RadarTests.NavigatorAllowsScript4NearWallRouteAsync),
+    ("radar navigator does not skip waypoint across wall", RadarTests.NavigatorDoesNotSkipWaypointAcrossWallAsync),
     ("radar obstacle switch persists from stationary ui", TestRadarObstacleSwitchPersistsFromStationaryUiAsync),
     ("stationary combat locked target waits for clear radar route", TestStationaryCombatLockedTargetWaitsForClearRadarRouteAsync),
     ("path recorder enforces five meter minimum", TestPathRecorderMinimumDistanceAsync),
@@ -18775,7 +18777,7 @@ static Task TestRadarObstacleSwitchPersistsFromStationaryUiAsync()
             configured.Combat.RadarObstacleAvoidance = new RadarObstacleScriptSettings
             {
                 Enabled = true,
-                ClearanceMeters = 4.5D,
+                WaypointReachMeters = 4.5D,
                 DisplayRangeMeters = 160.0D
             };
             var configStore = new InMemoryAccountConfigStore(new AccountConfig
@@ -18818,7 +18820,7 @@ static Task TestRadarObstacleSwitchPersistsFromStationaryUiAsync()
 
             var captured = (ScriptSettings)InvokePrivateMethodForTest(form, "CaptureScriptSettings")!;
             AssertFalse(!captured.Combat.RadarObstacleAvoidance.Enabled, "radar enabled switch should load and capture");
-            AssertEqual(4.5D, captured.Combat.RadarObstacleAvoidance.ClearanceMeters, "radar clearance should load and capture");
+            AssertEqual(4.5D, captured.Combat.RadarObstacleAvoidance.WaypointReachMeters, "radar waypoint reach should load and capture");
 
             SetComboSelectedIndexForTest(form, "combatModeCombo", 1);
             System.Windows.Forms.Application.DoEvents();
@@ -18870,7 +18872,6 @@ static async Task TestStationaryCombatLockedTargetWaitsForClearRadarRouteAsync()
         settings.Combat.RadarObstacleAvoidance = new RadarObstacleScriptSettings
         {
             Enabled = true,
-            ClearanceMeters = 2.0D,
             WaypointReachMeters = 1.5D,
             MaximumDetourExtraMeters = 30.0D
         };
