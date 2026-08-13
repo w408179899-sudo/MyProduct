@@ -181,6 +181,12 @@ internal sealed class RadarCanvas : Control
     {
         base.OnMouseDown(e);
         Focus();
+        if (e.Button == MouseButtons.Right && Mode == RadarCanvasMode.DrawObstacle)
+        {
+            CancelPendingSegment();
+            return;
+        }
+
         if (e.Button is MouseButtons.Middle or MouseButtons.Right)
         {
             _panning = true;
@@ -265,8 +271,8 @@ internal sealed class RadarCanvas : Control
             return null;
         }
 
-        _drawStart = null;
-        _drawCurrent = null;
+        _drawStart = point;
+        _drawCurrent = point;
         return new RadarSegmentCreatedEventArgs(start, point);
     }
 

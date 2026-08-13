@@ -241,9 +241,9 @@ internal sealed class RadarEditorForm : Form
             Margin = new Padding(3, 12, 3, 3),
             ForeColor = Color.FromArgb(71, 85, 105),
             Text = "\u64cd\u4f5c\uff1a\n" +
-                   "1. \u753b\u7ebf\u6a21\u5f0f\u5de6\u952e\u70b9\u8d77\u70b9\uff0c\u518d\u70b9\u7ec8\u70b9\uff1bEsc \u53d6\u6d88\u3002\n" +
-                   "2. \u6eda\u8f6e\u7f29\u653e\uff0c\u53f3\u952e/\u4e2d\u952e\u62d6\u52a8\u5e73\u79fb\u3002\n" +
-                   "3. \u5730\u56fe\u6309 MapId \u4fdd\u5b58\uff0c\u540c\u811a\u672c\u8d26\u53f7\u5171\u4eab\u3002\n" +
+                   "1. \u753b\u7ebf\u6a21\u5f0f\u5de6\u952e\u8fde\u7eed\u70b9\u9009\u53ef\u751f\u6210\u6298\u7ebf\uff1b\u53f3\u952e/Esc \u7ed3\u675f\u5f53\u524d\u8fde\u7ebf\u3002\n" +
+                   "2. \u6eda\u8f6e\u7f29\u653e\uff0c\u4e2d\u952e\u62d6\u52a8\u5e73\u79fb\u3002\n" +
+                   "3. \u7ebf\u6bb5\u5148\u7559\u5728\u7f16\u8f91\u5668\uff1b\u70b9\u4fdd\u5b58\u5730\u56fe/Ctrl+S \u624d\u6309 MapId \u5199\u5165\u6587\u4ef6\u3002\n" +
                    "4. \u89d2\u8272\u84dd\u70b9\uff0c\u4e3b\u52a8\u602a\u7ea2\u70b9\uff0c\u88ab\u52a8\u602a\u7eff\u70b9\uff0c\u672a\u77e5\u602a\u7070\u70b9\uff1b\u8def\u7ebf\u53ea\u5728\u7a7f\u8fc7\u9ed1\u7ebf\u65f6\u89c6\u4e3a\u88ab\u6321\u3002\n" +
                    "5. \u96f7\u8fbe\u4e0a\u5317\u53f3\u4e1c\uff1a\u5317 -X\uff0c\u4e1c +Y\u3002"
         };
@@ -658,7 +658,7 @@ internal sealed class RadarEditorForm : Form
         else if (e.KeyCode == Keys.Escape && _canvas.CancelPendingSegment())
         {
             e.SuppressKeyPress = true;
-            SetStatus("\u5df2\u53d6\u6d88\u5f53\u524d\u7ebf\u6bb5\u8d77\u70b9\u3002", false);
+            SetStatus("\u5df2\u7ed3\u675f\u5f53\u524d\u8fde\u7ebf\u3002", false);
         }
     }
 

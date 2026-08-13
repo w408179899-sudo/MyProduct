@@ -135,7 +135,7 @@ internal static class RadarTests
         return Task.CompletedTask;
     }
 
-    public static Task CanvasDrawsObstacleWithTwoClicksAsync()
+    public static Task CanvasDrawsContinuousObstaclesUntilCancelledAsync()
     {
         Exception? failure = null;
         var thread = new Thread(() =>
@@ -151,28 +151,21 @@ internal static class RadarTests
                 var drawStart = canvasType.GetField(
                     "_drawStart",
                     System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-                var mouseUp = canvasType.GetMethod(
-                    "OnMouseUp",
+                var mouseDown = canvasType.GetMethod(
+                    "OnMouseDown",
                     System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
                 var cancelPending = canvasType.GetMethod("CancelPendingSegment");
+                var panning = canvasType.GetField(
+                    "_panning",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
                 Require(
-                    registerClick is not null && drawStart is not null && mouseUp is not null && cancelPending is not null,
-                    "radar two-click drawing members should exist");
+                    registerClick is not null && drawStart is not null && mouseDown is not null &&
+                    cancelPending is not null && panning is not null,
+                    "radar continuous drawing members should exist");
 
                 var first = registerClick!.Invoke(canvas, new object[] { new RadarPoint(10.0D, 20.0D) });
                 Require(first is null, "first click should only set the obstacle start point");
-                mouseUp!.Invoke(
-                    canvas,
-                    new object[]
-                    {
-                        new System.Windows.Forms.MouseEventArgs(
-                            System.Windows.Forms.MouseButtons.Left,
-                            1,
-                            100,
-                            100,
-                            0)
-                    });
-                Require(drawStart!.GetValue(canvas) is RadarPoint, "first click should remain pending after mouse release");
+                Require(drawStart!.GetValue(canvas) is RadarPoint, "first click should enter continuous drawing state");
 
                 var tooClose = registerClick.Invoke(canvas, new object[] { new RadarPoint(10.05D, 20.0D) });
                 Require(tooClose is null, "a near-identical second click should not create a tiny obstacle");
@@ -180,17 +173,44 @@ internal static class RadarTests
 
                 var second = registerClick.Invoke(canvas, new object[] { new RadarPoint(15.0D, 25.0D) });
                 Require(second is not null, "second valid click should create the obstacle segment");
-                Require(drawStart.GetValue(canvas) is null, "completed obstacle should clear the pending start point");
+                Require(drawStart.GetValue(canvas) is RadarPoint, "completed obstacle should retain the endpoint as the next start");
+                var secondAnchor = (RadarPoint)drawStart.GetValue(canvas)!;
+                RequireNear(15.0D, secondAnchor.X, "second endpoint should become the next start X");
+                RequireNear(25.0D, secondAnchor.Y, "second endpoint should become the next start Y");
                 var start = (RadarPoint)second!.GetType().GetProperty("Start")!.GetValue(second)!;
                 var end = (RadarPoint)second.GetType().GetProperty("End")!.GetValue(second)!;
-                RequireNear(10.0D, start.X, "two-click obstacle should preserve start X");
-                RequireNear(20.0D, start.Y, "two-click obstacle should preserve start Y");
-                RequireNear(15.0D, end.X, "two-click obstacle should preserve end X");
-                RequireNear(25.0D, end.Y, "two-click obstacle should preserve end Y");
+                RequireNear(10.0D, start.X, "first continuous obstacle should preserve start X");
+                RequireNear(20.0D, start.Y, "first continuous obstacle should preserve start Y");
+                RequireNear(15.0D, end.X, "first continuous obstacle should preserve end X");
+                RequireNear(25.0D, end.Y, "first continuous obstacle should preserve end Y");
 
-                registerClick.Invoke(canvas, new object[] { new RadarPoint(30.0D, 40.0D) });
-                Require((bool)cancelPending!.Invoke(canvas, null)!, "cancel should report a pending obstacle start");
-                Require(drawStart.GetValue(canvas) is null, "cancel should clear the pending obstacle start");
+                var third = registerClick.Invoke(canvas, new object[] { new RadarPoint(30.0D, 40.0D) });
+                Require(third is not null, "third click should create a connected obstacle segment");
+                var thirdStart = (RadarPoint)third!.GetType().GetProperty("Start")!.GetValue(third)!;
+                var thirdEnd = (RadarPoint)third.GetType().GetProperty("End")!.GetValue(third)!;
+                RequireNear(15.0D, thirdStart.X, "connected obstacle should start at the previous endpoint X");
+                RequireNear(25.0D, thirdStart.Y, "connected obstacle should start at the previous endpoint Y");
+                RequireNear(30.0D, thirdEnd.X, "connected obstacle should preserve its endpoint X");
+                RequireNear(40.0D, thirdEnd.Y, "connected obstacle should preserve its endpoint Y");
+
+                mouseDown!.Invoke(
+                    canvas,
+                    new object[]
+                    {
+                        new System.Windows.Forms.MouseEventArgs(
+                            System.Windows.Forms.MouseButtons.Right,
+                            1,
+                            100,
+                            100,
+                            0)
+                    });
+                Require(drawStart.GetValue(canvas) is null, "right click should end the current continuous drawing state");
+                Require(!(bool)panning!.GetValue(canvas)!, "right click must not pan while drawing obstacles");
+
+                var restarted = registerClick.Invoke(canvas, new object[] { new RadarPoint(50.0D, 60.0D) });
+                Require(restarted is null, "the first click after cancellation should start a new independent chain");
+                Require((bool)cancelPending!.Invoke(canvas, null)!, "explicit cancellation should report the restarted chain");
+                Require(drawStart.GetValue(canvas) is null, "explicit cancellation should clear the restarted chain");
             }
             catch (Exception ex)
             {
