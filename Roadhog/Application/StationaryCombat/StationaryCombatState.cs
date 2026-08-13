@@ -1352,6 +1352,8 @@ public sealed class NextTargetPreAimState
 
     public DateTimeOffset LastAlignedAt { get; set; } = DateTimeOffset.MinValue;
 
+    public int ConsecutiveMissingSnapshots { get; set; }
+
     public DateTimeOffset LastStoppedAt { get; set; } = DateTimeOffset.MinValue;
 
     public string LastStopReason { get; set; } = string.Empty;
@@ -1379,6 +1381,7 @@ public sealed class NextTargetPreAimState
         LastSnapshotAt = DateTimeOffset.MinValue;
         LastAdjustedAt = DateTimeOffset.MinValue;
         LastAlignedAt = DateTimeOffset.MinValue;
+        ConsecutiveMissingSnapshots = 0;
     }
 
     public NextTargetPreAimSelection? CreateCurrentSelection()

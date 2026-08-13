@@ -48,6 +48,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     private const double TargetLeashExtraDistance = 5.0D;
     private const double PreLockFaceYawToleranceDegrees = 30.0D;
     private const double SmartPreAimFaceYawToleranceDegrees = 10.0D;
+    private const int SmartPreAimMissingSnapshotSwitchThreshold = 3;
     private const double DefaultPathFollowReachDistance = 5.0D;
     private const double DefaultStartupTownReturnDistance = 500.0D;
     private const double DefaultStartupTownReturnMinDistance = 5.0D;
@@ -9572,9 +9573,11 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
 
         NextTargetPreAimSelection? currentSelection;
+        bool hasAlignedCandidate;
         lock (state.NextTargetPreAim.SyncRoot)
         {
             currentSelection = state.NextTargetPreAim.CreateCurrentSelection();
+            hasAlignedCandidate = state.NextTargetPreAim.HasAlignedCandidate;
         }
 
         var now = DateTimeOffset.Now;
@@ -9586,6 +9589,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             playerPosition,
             fightTargetEntityId,
             fightTargetServerObjectId);
+        var switchDistanceMargin = ReadSmartPreAimSwitchDistanceMargin();
         var selection = NextTargetPreAimSelector.Select(
             result.Value,
             distanceOrigin,
@@ -9601,8 +9605,16 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             currentSelection,
             now,
             TimeSpan.FromMilliseconds(ReadSmartPreAimMinimumHoldMs()),
-            ReadSmartPreAimSwitchDistanceMargin(),
+            switchDistanceMargin,
             exclusions);
+        selection = KeepAlignedNextTargetPreAimSelectionStable(
+            state,
+            currentSelection,
+            selection,
+            hasAlignedCandidate,
+            result.Value,
+            distanceOrigin,
+            switchDistanceMargin);
 
         StoreNextTargetPreAimSelection(
             context,
@@ -9611,6 +9623,146 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             result.Value.Count,
             distanceOrigin,
             now);
+    }
+
+    private static NextTargetPreAimSelection? KeepAlignedNextTargetPreAimSelectionStable(
+        StationaryCombatState state,
+        NextTargetPreAimSelection? currentSelection,
+        NextTargetPreAimSelection? proposedSelection,
+        bool hasAlignedCandidate,
+        IReadOnlyList<WorldObjectSnapshot> objects,
+        Vector3Snapshot distanceOrigin,
+        double switchDistanceMargin)
+    {
+        var preAim = state.NextTargetPreAim;
+        lock (preAim.SyncRoot)
+        {
+            if (!hasAlignedCandidate ||
+                currentSelection is null ||
+                !preAim.HasAlignedCandidate ||
+                !StationaryCombatState.IsSameTarget(
+                    preAim.TargetEntityId,
+                    preAim.TargetServerObjectId,
+                    currentSelection.Target.EntityId,
+                    currentSelection.Target.ServerObjectId))
+            {
+                preAim.ConsecutiveMissingSnapshots = 0;
+                return proposedSelection;
+            }
+
+            var currentVisibleTarget = objects.FirstOrDefault(target =>
+                StationaryCombatState.IsSameTarget(
+                    target.EntityId,
+                    target.ServerObjectId,
+                    currentSelection.Target.EntityId,
+                    currentSelection.Target.ServerObjectId) &&
+                StationaryCombatTargetSelector.IsSelectableMonster(target));
+            if (proposedSelection is not null &&
+                StationaryCombatState.IsSameTarget(
+                    currentSelection.Target.EntityId,
+                    currentSelection.Target.ServerObjectId,
+                    proposedSelection.Target.EntityId,
+                    proposedSelection.Target.ServerObjectId))
+            {
+                if (currentSelection.PriorityTier >= 3 &&
+                    currentSelection.IsTargetingLocalSide &&
+                    !proposedSelection.IsTargetingLocalSide &&
+                    currentVisibleTarget is not null)
+                {
+                    return KeepAlignedNextTargetPreAimSelectionForUnavailableSnapshot(
+                        preAim,
+                        currentSelection,
+                        proposedSelection,
+                        currentVisibleTarget,
+                        distanceOrigin,
+                        "threat_unconfirmed");
+                }
+
+                preAim.ConsecutiveMissingSnapshots = 0;
+                return proposedSelection;
+            }
+
+            if (proposedSelection is not null &&
+                proposedSelection.IsTargetingLocalSide)
+            {
+                preAim.ConsecutiveMissingSnapshots = 0;
+                return proposedSelection;
+            }
+
+            if (currentVisibleTarget is not null)
+            {
+                if (currentSelection.PriorityTier >= 3 &&
+                    currentSelection.IsTargetingLocalSide &&
+                    (proposedSelection is null || !proposedSelection.IsTargetingLocalSide))
+                {
+                    return KeepAlignedNextTargetPreAimSelectionForUnavailableSnapshot(
+                        preAim,
+                        currentSelection,
+                        proposedSelection,
+                        currentVisibleTarget,
+                        distanceOrigin,
+                        "threat_unconfirmed");
+                }
+
+                preAim.ConsecutiveMissingSnapshots = 0;
+                if (proposedSelection is not null &&
+                    proposedSelection.IsAggressivePriority &&
+                    proposedSelection.PriorityTier > currentSelection.PriorityTier &&
+                    string.Equals(proposedSelection.DecisionReason, "higher_priority", StringComparison.Ordinal) &&
+                    currentVisibleTarget.Position is { } currentPosition)
+                {
+                    var currentDistance = StationaryCombatTargetSelector.HorizontalDistance(
+                        currentPosition,
+                        distanceOrigin);
+                    if (currentDistance - proposedSelection.DistanceToOrigin <
+                        Math.Max(0.0D, switchDistanceMargin))
+                    {
+                        return currentSelection with
+                        {
+                            Target = currentVisibleTarget,
+                            DistanceToOrigin = currentDistance,
+                            DecisionReason = "kept_farther_aggressive"
+                        };
+                    }
+                }
+
+                return proposedSelection;
+            }
+
+            return KeepAlignedNextTargetPreAimSelectionForUnavailableSnapshot(
+                preAim,
+                currentSelection,
+                proposedSelection,
+                currentVisibleTarget: null,
+                distanceOrigin,
+                "missing");
+        }
+    }
+
+    private static NextTargetPreAimSelection? KeepAlignedNextTargetPreAimSelectionForUnavailableSnapshot(
+        NextTargetPreAimState preAim,
+        NextTargetPreAimSelection currentSelection,
+        NextTargetPreAimSelection? proposedSelection,
+        WorldObjectSnapshot? currentVisibleTarget,
+        Vector3Snapshot distanceOrigin,
+        string reason)
+    {
+        var unavailableSnapshots = ++preAim.ConsecutiveMissingSnapshots;
+        if (unavailableSnapshots >= SmartPreAimMissingSnapshotSwitchThreshold)
+        {
+            preAim.ConsecutiveMissingSnapshots = 0;
+            return proposedSelection;
+        }
+
+        var currentDistance = currentVisibleTarget?.Position is { } currentPosition
+            ? StationaryCombatTargetSelector.HorizontalDistance(currentPosition, distanceOrigin)
+            : currentSelection.DistanceToOrigin;
+        return currentSelection with
+        {
+            Target = currentVisibleTarget ?? currentSelection.Target,
+            DistanceToOrigin = currentDistance,
+            DecisionReason = $"kept_aligned_{reason}_{unavailableSnapshots}"
+        };
     }
 
     private static Vector3Snapshot ResolveSmartPreAimDistanceOrigin(
