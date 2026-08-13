@@ -1342,6 +1342,8 @@ public sealed class NextTargetPreAimState
 
     public bool TargetingLocalSide { get; set; }
 
+    public bool TargetingTeamSide { get; set; }
+
     public bool AggressivePriority { get; set; }
 
     public DateTimeOffset TargetSelectedAt { get; set; } = DateTimeOffset.MinValue;
@@ -1354,6 +1356,18 @@ public sealed class NextTargetPreAimState
 
     public int ConsecutiveMissingSnapshots { get; set; }
 
+    public ushort PendingSwitchTargetEntityId { get; set; }
+
+    public uint PendingSwitchTargetServerObjectId { get; set; }
+
+    public int ConsecutiveBetterTargetSnapshots { get; set; }
+
+    public HashSet<uint> TeamSideServerObjectIds { get; } = new();
+
+    public DateTimeOffset TeamSideSnapshotCapturedAt { get; set; } = DateTimeOffset.MinValue;
+
+    public DateTimeOffset LastTeamSideSnapshotAttemptAt { get; set; } = DateTimeOffset.MinValue;
+
     public DateTimeOffset LastStoppedAt { get; set; } = DateTimeOffset.MinValue;
 
     public string LastStopReason { get; set; } = string.Empty;
@@ -1363,6 +1377,10 @@ public sealed class NextTargetPreAimState
 
     public bool HasAlignedCandidate =>
         HasCandidate && LastAlignedAt != DateTimeOffset.MinValue;
+
+    public bool HasCameraCommittedCandidate =>
+        HasCandidate &&
+        (LastAdjustedAt != DateTimeOffset.MinValue || LastAlignedAt != DateTimeOffset.MinValue);
 
     public bool IsWorkerRunning =>
         Worker is { IsCompleted: false };
@@ -1376,12 +1394,21 @@ public sealed class NextTargetPreAimState
         TargetPriorityTier = 0;
         TargetDistanceToOrigin = 0.0D;
         TargetingLocalSide = false;
+        TargetingTeamSide = false;
         AggressivePriority = false;
         TargetSelectedAt = DateTimeOffset.MinValue;
         LastSnapshotAt = DateTimeOffset.MinValue;
         LastAdjustedAt = DateTimeOffset.MinValue;
         LastAlignedAt = DateTimeOffset.MinValue;
         ConsecutiveMissingSnapshots = 0;
+        ResetPendingSwitchConfirmation();
+    }
+
+    public void ResetPendingSwitchConfirmation()
+    {
+        PendingSwitchTargetEntityId = 0;
+        PendingSwitchTargetServerObjectId = 0;
+        ConsecutiveBetterTargetSnapshots = 0;
     }
 
     public NextTargetPreAimSelection? CreateCurrentSelection()
@@ -1407,6 +1434,7 @@ public sealed class NextTargetPreAimState
             TargetPriorityTier,
             TargetDistanceToOrigin,
             TargetingLocalSide,
+            TargetingTeamSide,
             AggressivePriority,
             TargetSelectedAt,
             "current");

@@ -8016,6 +8016,9 @@ static async Task TestTeamLeaderProtectionOnlyIncludesSpiritmasterPetsAsync()
 
     AssertEqual((ushort)101, threat?.Target.EntityId ?? 0, "only spiritmaster party member pets should be protected");
     AssertFalse(threat?.ProtectedObjectIsPet != true, "spiritmaster pet threat should be marked as pet protection");
+    var protectedIds = TeamLeaderProtectionSelector.CreateProtectedServerObjectIds(snapshot, 20.0D);
+    AssertFalse(protectedIds.Contains(8100), "non-spiritmaster party pets must not enter the shared protected-side set");
+    AssertFalse(!protectedIds.Contains(8200), "spiritmaster party pets should enter the shared protected-side set");
 }
 
 static async Task TestTeamLeaderProtectionIgnoresMembersOutsideGroupDistanceAsync()
@@ -12407,7 +12410,49 @@ static Task TestSmartPreAimSelectorScoresThreatsAndAggressiveSettingAsync()
         preferAggressiveMonsters: true);
 
     AssertEqual((ushort)13, threatSelected?.Target.EntityId ?? 0, "local-side threat should outrank aggressive and distance");
-    AssertEqual(3, threatSelected?.PriorityTier ?? 0, "local-side threat priority tier");
+    AssertEqual(4, threatSelected?.PriorityTier ?? 0, "local-side threat priority tier");
+
+    var teamThreat = new WorldObjectSnapshot(
+        14,
+        1014,
+        "team-threat",
+        "monster",
+        new Vector3Snapshot(10, 0, 0),
+        10,
+        100,
+        100,
+        TargetServerObjectId: 8000);
+    var teamThreatSelected = NextTargetPreAimSelector.Select(
+        new[] { objects[0], objects[1], objects[2], teamThreat },
+        player,
+        home,
+        30,
+        currentTargetEntityId: 10,
+        currentTargetServerObjectId: 1010,
+        localSideServerObjectId: localServerObjectId,
+        localSidePetServerObjectId: 0,
+        allowClaimedByOther: false,
+        preferAggressiveMonsters: true,
+        teamSideServerObjectIds: new HashSet<uint> { 8000 });
+
+    AssertEqual(teamThreat.EntityId, teamThreatSelected?.Target.EntityId ?? 0, "team-side threat should remain eligible when contesting is disabled");
+    AssertEqual(3, teamThreatSelected?.PriorityTier ?? 0, "team-side threat priority tier");
+    AssertFalse(teamThreatSelected?.IsTargetingTeamSide != true, "team-side threat should be identified explicitly");
+
+    var localBeforeTeam = NextTargetPreAimSelector.Select(
+        objects.Append(teamThreat),
+        player,
+        home,
+        30,
+        currentTargetEntityId: 10,
+        currentTargetServerObjectId: 1010,
+        localSideServerObjectId: localServerObjectId,
+        localSidePetServerObjectId: 0,
+        allowClaimedByOther: false,
+        preferAggressiveMonsters: true,
+        teamSideServerObjectIds: new HashSet<uint> { 8000 });
+
+    AssertEqual((ushort)13, localBeforeTeam?.Target.EntityId ?? 0, "local-side threat should outrank a simultaneous team-side threat");
 
     var withoutThreat = objects.Where(target => target.EntityId != 13).ToArray();
     var normalSelected = NextTargetPreAimSelector.Select(
@@ -12584,6 +12629,7 @@ static Task TestSmartPreAimSelectorKeepsStableTargetAsync()
         1,
         7,
         IsTargetingLocalSide: false,
+        IsTargetingTeamSide: false,
         IsAggressivePriority: false,
         now,
         "current");
@@ -12675,6 +12721,7 @@ static async Task TestSmartPreAimStabilizesAlignedTargetSwitchingAsync()
         HasStationaryCombatPosition = true,
         StationaryCombatRadius = 30
     };
+    settings.Team.GroupDistanceMeters = 30;
 
     var alignedTarget = new WorldObjectSnapshot(
         20,
@@ -12747,9 +12794,39 @@ static async Task TestSmartPreAimStabilizesAlignedTargetSwitchingAsync()
         100,
         AggressiveKnown: true,
         IsAggressiveToPlayer: true);
+    var differentCloserAggressive = clearlyCloserAggressive with
+    {
+        EntityId = clearlyCloserAggressive.EntityId,
+        ServerObjectId = 2030,
+        Name = "different-closer-aggressive",
+        Position = new Vector3Snapshot(5, 0, 0),
+        DistanceToLocalPlayer = 5
+    };
+    var teamThreat = new WorldObjectSnapshot(
+        27,
+        2027,
+        "team-threat",
+        "monster",
+        new Vector3Snapshot(14, 0, 0),
+        14,
+        100,
+        100,
+        TargetServerObjectId: 8000);
+    var secondTeamThreat = teamThreat with
+    {
+        EntityId = 31,
+        ServerObjectId = 2031,
+        Name = "second-team-threat",
+        Position = new Vector3Snapshot(5, 0, 0),
+        DistanceToLocalPlayer = 5
+    };
+    var selfMember = CreatePartyMemberSnapshot(7000, "self", isSelf: true, isLeader: true, distanceToLocal: 0);
+    var protectedMember = CreatePartyMemberSnapshot(8000, "protected", isSelf: false, isLeader: false, distanceToLocal: 5);
     var gameApi = new FakeGameApi
     {
-        WorldObjects = new[] { ordinaryReplacement }
+        WorldObjects = new[] { ordinaryReplacement },
+        Party = CreateTeamSupportParty(selfMember, protectedMember),
+        SummonedPetRoster = SummonedPetRosterSnapshot.Empty(7000, DateTimeOffset.Now)
     };
     var controller = new StationaryCombatController(
         new RecordingKeyboardInput(),
@@ -12757,7 +12834,10 @@ static async Task TestSmartPreAimStabilizesAlignedTargetSwitchingAsync()
     var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
     var state = new StationaryCombatState
     {
-        LocalCombatSideServerObjectId = 7000
+        LocalCombatSideServerObjectId = 7000,
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CurrentTargetServerObjectId = 5000
     };
     var preAim = state.NextTargetPreAim;
     preAim.TargetEntityId = alignedTarget.EntityId;
@@ -12816,7 +12896,8 @@ static async Task TestSmartPreAimStabilizesAlignedTargetSwitchingAsync()
         WorldObjectSnapshot target,
         int priorityTier,
         bool targetingLocalSide,
-        bool aggressivePriority)
+        bool aggressivePriority,
+        bool targetingTeamSide = false)
     {
         preAim.TargetEntityId = target.EntityId;
         preAim.TargetServerObjectId = target.ServerObjectId;
@@ -12825,10 +12906,12 @@ static async Task TestSmartPreAimStabilizesAlignedTargetSwitchingAsync()
         preAim.TargetPriorityTier = priorityTier;
         preAim.TargetDistanceToOrigin = target.DistanceToLocalPlayer ?? 0;
         preAim.TargetingLocalSide = targetingLocalSide;
+        preAim.TargetingTeamSide = targetingTeamSide;
         preAim.AggressivePriority = aggressivePriority;
         preAim.TargetSelectedAt = DateTimeOffset.Now - TimeSpan.FromSeconds(2);
         preAim.LastAlignedAt = DateTimeOffset.Now;
         preAim.ConsecutiveMissingSnapshots = 0;
+        preAim.ResetPendingSwitchConfirmation();
     }
 
     ResetAlignedSelection(alignedTarget, 1, targetingLocalSide: false, aggressivePriority: false);
@@ -12842,7 +12925,23 @@ static async Task TestSmartPreAimStabilizesAlignedTargetSwitchingAsync()
 
     gameApi.WorldObjects = new[] { alignedTarget, clearlyCloserAggressive };
     await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(clearlyCloserAggressive.EntityId, preAim.TargetEntityId, "an aggressive target at least two meters closer should replace the aligned target");
+    AssertEqual(alignedTarget.EntityId, preAim.TargetEntityId, "first closer snapshot should keep the aligned target");
+    AssertEqual(1, preAim.ConsecutiveBetterTargetSnapshots, "first closer candidate confirmation count");
+    await RefreshAsync().ConfigureAwait(false);
+    AssertEqual(alignedTarget.EntityId, preAim.TargetEntityId, "second closer snapshot should keep the aligned target");
+    AssertEqual(2, preAim.ConsecutiveBetterTargetSnapshots, "second closer candidate confirmation count");
+    await RefreshAsync().ConfigureAwait(false);
+    AssertEqual(clearlyCloserAggressive.EntityId, preAim.TargetEntityId, "third closer snapshot should replace the aligned target");
+    AssertEqual(0, preAim.ConsecutiveBetterTargetSnapshots, "confirmed closer switch should reset its counter");
+
+    ResetAlignedSelection(alignedTarget, 1, targetingLocalSide: false, aggressivePriority: false);
+    gameApi.WorldObjects = new[] { alignedTarget, clearlyCloserAggressive };
+    await RefreshAsync().ConfigureAwait(false);
+    gameApi.WorldObjects = new[] { alignedTarget, differentCloserAggressive };
+    await RefreshAsync().ConfigureAwait(false);
+    AssertEqual(alignedTarget.EntityId, preAim.TargetEntityId, "a different closer candidate should restart confirmation instead of switching");
+    AssertEqual(1, preAim.ConsecutiveBetterTargetSnapshots, "different closer candidate should restart at one confirmation");
+    AssertEqual(differentCloserAggressive.ServerObjectId, preAim.PendingSwitchTargetServerObjectId, "pending switch identity should follow server-object identity");
 
     ResetAlignedSelection(alignedTarget, 1, targetingLocalSide: false, aggressivePriority: false);
     gameApi.WorldObjects = new[] { alignedTarget, urgentThreat };
@@ -12851,49 +12950,109 @@ static async Task TestSmartPreAimStabilizesAlignedTargetSwitchingAsync()
     AssertEqual(0, preAim.ConsecutiveMissingSnapshots, "higher-priority replacement should not start a missing count");
 
     var teamTargetedThreat = urgentThreat with { TargetServerObjectId = 9000 };
-    ResetAlignedSelection(urgentThreat, 3, targetingLocalSide: true, aggressivePriority: false);
+    ResetAlignedSelection(urgentThreat, 4, targetingLocalSide: true, aggressivePriority: false);
     gameApi.WorldObjects = new[] { teamTargetedThreat, ordinaryReplacement };
     await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(urgentThreat.EntityId, preAim.TargetEntityId, "first unconfirmed Tier 3 snapshot should keep the aligned threat");
-    AssertEqual(1, preAim.ConsecutiveMissingSnapshots, "first unconfirmed Tier 3 snapshot count");
+    AssertEqual(urgentThreat.EntityId, preAim.TargetEntityId, "first unconfirmed local-threat snapshot should keep the aligned threat");
+    AssertEqual(1, preAim.ConsecutiveMissingSnapshots, "first unconfirmed local-threat snapshot count");
     await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(urgentThreat.EntityId, preAim.TargetEntityId, "second unconfirmed Tier 3 snapshot should keep the aligned threat");
-    AssertEqual(2, preAim.ConsecutiveMissingSnapshots, "second unconfirmed Tier 3 snapshot count");
+    AssertEqual(urgentThreat.EntityId, preAim.TargetEntityId, "second unconfirmed local-threat snapshot should keep the aligned threat");
+    AssertEqual(2, preAim.ConsecutiveMissingSnapshots, "second unconfirmed local-threat snapshot count");
 
     gameApi.WorldObjects = new[] { urgentThreat, ordinaryReplacement };
     await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(urgentThreat.EntityId, preAim.TargetEntityId, "reconfirmed Tier 3 threat should stay selected");
-    AssertEqual(0, preAim.ConsecutiveMissingSnapshots, "reconfirmed Tier 3 threat should reset the unavailable count");
+    AssertEqual(urgentThreat.EntityId, preAim.TargetEntityId, "reconfirmed local threat should stay selected");
+    AssertEqual(0, preAim.ConsecutiveMissingSnapshots, "reconfirmed local threat should reset the unavailable count");
 
     gameApi.WorldObjects = new[] { teamTargetedThreat, ordinaryReplacement };
     await RefreshAsync().ConfigureAwait(false);
     await RefreshAsync().ConfigureAwait(false);
     await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(ordinaryReplacement.EntityId, preAim.TargetEntityId, "third unconfirmed Tier 3 snapshot should allow the ordinary replacement");
-    AssertEqual(0, preAim.ConsecutiveMissingSnapshots, "Tier 3 downgrade after the third snapshot should reset the unavailable count");
+    AssertEqual(ordinaryReplacement.EntityId, preAim.TargetEntityId, "third unconfirmed local-threat snapshot should allow the ordinary replacement");
+    AssertEqual(0, preAim.ConsecutiveMissingSnapshots, "local-threat downgrade after the third snapshot should reset the unavailable count");
 
     var targetFieldClearedThreat = urgentThreat with { TargetServerObjectId = 0 };
-    ResetAlignedSelection(urgentThreat, 3, targetingLocalSide: true, aggressivePriority: false);
+    ResetAlignedSelection(urgentThreat, 4, targetingLocalSide: true, aggressivePriority: false);
     gameApi.WorldObjects = new[] { targetFieldClearedThreat };
     await RefreshAsync().ConfigureAwait(false);
     await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(3, preAim.TargetPriorityTier, "two cleared target-field snapshots should preserve the aligned Tier 3 classification");
+    AssertEqual(4, preAim.TargetPriorityTier, "two cleared target-field snapshots should preserve the aligned local-threat classification");
     await RefreshAsync().ConfigureAwait(false);
     AssertEqual(urgentThreat.EntityId, preAim.TargetEntityId, "the third cleared target-field snapshot may downgrade without changing the same target");
     AssertEqual(1, preAim.TargetPriorityTier, "the third cleared target-field snapshot should accept the selector downgrade");
 
-    ResetAlignedSelection(urgentThreat, 3, targetingLocalSide: true, aggressivePriority: false);
+    ResetAlignedSelection(urgentThreat, 4, targetingLocalSide: true, aggressivePriority: false);
     gameApi.WorldObjects = new[] { teamTargetedThreat, secondUrgentThreat };
     await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(secondUrgentThreat.EntityId, preAim.TargetEntityId, "a newly confirmed Tier 3 threat should replace an unconfirmed aligned threat immediately");
-    AssertEqual(0, preAim.ConsecutiveMissingSnapshots, "confirmed Tier 3 replacement should reset the unavailable count");
+    AssertEqual(secondUrgentThreat.EntityId, preAim.TargetEntityId, "a newly confirmed local threat should replace an unconfirmed aligned threat immediately");
+    AssertEqual(0, preAim.ConsecutiveMissingSnapshots, "confirmed local-threat replacement should reset the unavailable count");
 
     var claimedAlignedTarget = alignedTarget with { TargetServerObjectId = 9000 };
     ResetAlignedSelection(alignedTarget, 1, targetingLocalSide: false, aggressivePriority: false);
+    preAim.LastAlignedAt = DateTimeOffset.MinValue;
+    preAim.LastAdjustedAt = DateTimeOffset.Now;
     gameApi.WorldObjects = new[] { claimedAlignedTarget, ordinaryReplacement };
     await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(ordinaryReplacement.EntityId, preAim.TargetEntityId, "ordinary invalid aligned target should still switch immediately");
-    AssertEqual(0, preAim.ConsecutiveMissingSnapshots, "ordinary invalid aligned target should not use the Tier 3 unavailable count");
+    AssertEqual(alignedTarget.EntityId, preAim.TargetEntityId, "first ordinary current-invalid snapshot should keep a camera-committed target before perfect alignment");
+    AssertEqual(1, preAim.ConsecutiveMissingSnapshots, "ordinary current-invalid should use the shared unavailable count");
+    await RefreshAsync().ConfigureAwait(false);
+    AssertEqual(alignedTarget.EntityId, preAim.TargetEntityId, "second ordinary current-invalid snapshot should keep the aligned target");
+    await RefreshAsync().ConfigureAwait(false);
+    AssertEqual(ordinaryReplacement.EntityId, preAim.TargetEntityId, "third ordinary current-invalid snapshot should allow the replacement");
+    AssertEqual(0, preAim.ConsecutiveMissingSnapshots, "confirmed ordinary invalid switch should reset the unavailable count");
+
+    var playerNearTarget = alignedTarget with
+    {
+        EntityId = 28,
+        ServerObjectId = 2028,
+        Name = "player-near",
+        Position = new Vector3Snapshot(2, 0, 0),
+        DistanceToLocalPlayer = 2
+    };
+    var fightNearButPlayerFarTarget = ordinaryReplacement with
+    {
+        EntityId = 29,
+        ServerObjectId = 2029,
+        Name = "fight-near-player-far",
+        Position = new Vector3Snapshot(9, 0, 0),
+        DistanceToLocalPlayer = 9
+    };
+    settings.Combat.SmartPreAimUseFightTargetPosition = true;
+    ResetAlignedSelection(playerNearTarget, 1, targetingLocalSide: false, aggressivePriority: false);
+    preAim.FightTargetPosition = new Vector3Snapshot(10, 0, 0);
+    gameApi.WorldObjects = new[] { playerNearTarget, fightNearButPlayerFarTarget };
+    await RefreshAsync().ConfigureAwait(false);
+    AssertEqual(playerNearTarget.EntityId, preAim.TargetEntityId, "a target farther from the player must not replace the aligned target when the moving fight origin prefers it");
+    AssertEqual(0, preAim.ConsecutiveBetterTargetSnapshots, "farther player-distance candidate should not start switch confirmation");
+    settings.Combat.SmartPreAimUseFightTargetPosition = false;
+
+    ResetAlignedSelection(alignedTarget, 1, targetingLocalSide: false, aggressivePriority: false);
+    gameApi.WorldObjects = new[] { alignedTarget, teamThreat };
+    await RefreshAsync().ConfigureAwait(false);
+    AssertEqual(teamThreat.EntityId, preAim.TargetEntityId, "a confirmed team-side threat should replace an aligned ordinary target immediately");
+    AssertEqual(3, preAim.TargetPriorityTier, "team-side threat should use the protected-team tier");
+    AssertFalse(!preAim.TargetingTeamSide, "stored smart pre-aim state should preserve team-side threat classification");
+
+    ResetAlignedSelection(
+        teamThreat,
+        3,
+        targetingLocalSide: false,
+        aggressivePriority: false,
+        targetingTeamSide: true);
+    gameApi.WorldObjects = new[] { teamThreat, secondTeamThreat };
+    await RefreshAsync().ConfigureAwait(false);
+    AssertEqual(teamThreat.EntityId, preAim.TargetEntityId, "an equal-priority team threat should not cause an immediate camera reversal");
+    AssertEqual(1, preAim.ConsecutiveBetterTargetSnapshots, "equal-priority team threat should start normal closer-target confirmation");
+    await RefreshAsync().ConfigureAwait(false);
+    await RefreshAsync().ConfigureAwait(false);
+    AssertEqual(secondTeamThreat.EntityId, preAim.TargetEntityId, "an equal-priority team threat should switch after three stable closer snapshots");
+
+    preAim.PendingSwitchTargetEntityId = 99;
+    preAim.PendingSwitchTargetServerObjectId = 9099;
+    preAim.ConsecutiveBetterTargetSnapshots = 2;
+    preAim.ClearCandidate();
+    AssertEqual(0, preAim.ConsecutiveBetterTargetSnapshots, "clearing pre-aim state should reset pending switch confirmations");
+    AssertEqual(0u, preAim.PendingSwitchTargetServerObjectId, "clearing pre-aim state should reset pending switch identity");
 }
 
 static Task TestSmartPreAimSelectorAppliesNormalFiltersAsync()
@@ -12916,6 +13075,7 @@ static Task TestSmartPreAimSelectorAppliesNormalFiltersAsync()
         1,
         2,
         IsTargetingLocalSide: false,
+        IsTargetingTeamSide: false,
         IsAggressivePriority: false,
         now,
         "current");
@@ -12969,7 +13129,7 @@ static Task TestSmartPreAimSelectorAppliesNormalFiltersAsync()
             Array.Empty<uint>()));
 
     AssertEqual((ushort)35, localSelected?.Target.EntityId ?? 0, "ignored local-side threat should still follow normal defense target behavior");
-    AssertEqual(3, localSelected?.PriorityTier ?? 0, "local-side defense threat should keep highest smart pre-aim tier");
+    AssertEqual(4, localSelected?.PriorityTier ?? 0, "local-side defense threat should keep highest smart pre-aim tier");
 
     var localTemporary = localIgnored with
     {

@@ -20,7 +20,8 @@ public static class NextTargetPreAimSelector
         DateTimeOffset? now = null,
         TimeSpan? minimumHold = null,
         double switchDistanceMargin = 2.0D,
-        NextTargetPreAimExclusionSnapshot? exclusions = null)
+        NextTargetPreAimExclusionSnapshot? exclusions = null,
+        IReadOnlySet<uint>? teamSideServerObjectIds = null)
     {
         var effectiveNow = now ?? DateTimeOffset.Now;
         var effectiveExclusions = exclusions ?? NextTargetPreAimExclusionSnapshot.Empty;
@@ -36,13 +37,15 @@ public static class NextTargetPreAimSelector
                 target,
                 localSideServerObjectId,
                 localSidePetServerObjectId) ||
+                IsTargetingTeamSide(target, teamSideServerObjectIds) ||
                 IsOrdinaryTargetEligible(
                     target,
                     effectiveExclusions,
                     activeMonsterNameFilters,
                     allowClaimedByOther,
                     localSideServerObjectId,
-                    localSidePetServerObjectId))
+                    localSidePetServerObjectId,
+                    teamSideServerObjectIds))
             .Select(target => BuildSelection(
                 target,
                 distanceOrigin,
@@ -50,6 +53,7 @@ public static class NextTargetPreAimSelector
                 radius,
                 localSideServerObjectId,
                 localSidePetServerObjectId,
+                teamSideServerObjectIds,
                 preferAggressiveMonsters,
                 effectiveNow))
             .Where(selection => selection is not null)
@@ -139,6 +143,7 @@ public static class NextTargetPreAimSelector
         double radius,
         uint localSideServerObjectId,
         uint localSidePetServerObjectId,
+        IReadOnlySet<uint>? teamSideServerObjectIds,
         bool preferAggressiveMonsters,
         DateTimeOffset selectedAt)
     {
@@ -151,23 +156,30 @@ public static class NextTargetPreAimSelector
             target,
             localSideServerObjectId,
             localSidePetServerObjectId);
+        var targetingTeamSide = !targetingLocalSide &&
+                                IsTargetingTeamSide(target, teamSideServerObjectIds);
         var homeDistance = StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, home);
-        if (!targetingLocalSide && homeDistance > Math.Max(0.0D, radius))
+        if (!targetingLocalSide &&
+            !targetingTeamSide &&
+            homeDistance > Math.Max(0.0D, radius))
         {
             return null;
         }
 
         var aggressivePriority = preferAggressiveMonsters && target.IsAggressiveToPlayer;
         var priorityTier = targetingLocalSide
-            ? 3
-            : aggressivePriority
-                ? 2
-                : 1;
+            ? 4
+            : targetingTeamSide
+                ? 3
+                : aggressivePriority
+                    ? 2
+                    : 1;
         return new NextTargetPreAimSelection(
             target,
             priorityTier,
             StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, distanceOrigin),
             targetingLocalSide,
+            targetingTeamSide,
             aggressivePriority,
             selectedAt,
             "selected");
@@ -196,24 +208,28 @@ public static class NextTargetPreAimSelector
         IReadOnlyCollection<string>? activeMonsterNameFilters,
         bool allowClaimedByOther,
         uint localSideServerObjectId,
-        uint localSidePetServerObjectId)
+        uint localSidePetServerObjectId,
+        IReadOnlySet<uint>? teamSideServerObjectIds)
     {
         return !exclusions.IsIgnored(target) &&
                !IsActiveMonsterFiltered(target, activeMonsterNameFilters) &&
                (allowClaimedByOther || !IsClaimedByOther(
                    target,
                    localSideServerObjectId,
-                   localSidePetServerObjectId));
+                   localSidePetServerObjectId,
+                   teamSideServerObjectIds));
     }
 
     private static bool IsClaimedByOther(
         WorldObjectSnapshot target,
         uint localSideServerObjectId,
-        uint localSidePetServerObjectId)
+        uint localSidePetServerObjectId,
+        IReadOnlySet<uint>? teamSideServerObjectIds)
     {
         return target.TargetServerObjectId != 0 &&
                target.TargetServerObjectId != target.ServerObjectId &&
-               !IsTargetingLocalSide(target, localSideServerObjectId, localSidePetServerObjectId);
+               !IsTargetingLocalSide(target, localSideServerObjectId, localSidePetServerObjectId) &&
+               !IsTargetingTeamSide(target, teamSideServerObjectIds);
     }
 
     private static bool IsTargetingLocalSide(
@@ -230,6 +246,14 @@ public static class NextTargetPreAimSelector
                ((localSideServerObjectId != 0 && target.TargetServerObjectId == localSideServerObjectId) ||
                 (localSidePetServerObjectId != 0 && target.TargetServerObjectId == localSidePetServerObjectId));
     }
+
+    private static bool IsTargetingTeamSide(
+        WorldObjectSnapshot target,
+        IReadOnlySet<uint>? teamSideServerObjectIds)
+    {
+        return target.TargetServerObjectId != 0 &&
+               teamSideServerObjectIds?.Contains(target.TargetServerObjectId) == true;
+    }
 }
 
 public sealed record NextTargetPreAimSelection(
@@ -237,6 +261,11 @@ public sealed record NextTargetPreAimSelection(
     int PriorityTier,
     double DistanceToOrigin,
     bool IsTargetingLocalSide,
+    bool IsTargetingTeamSide,
     bool IsAggressivePriority,
     DateTimeOffset SelectedAt,
-    string DecisionReason);
+    string DecisionReason)
+{
+    public bool IsTargetingProtectedSide =>
+        IsTargetingLocalSide || IsTargetingTeamSide;
+}

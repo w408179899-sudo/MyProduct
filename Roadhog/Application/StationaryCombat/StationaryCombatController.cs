@@ -40,6 +40,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     private static readonly TimeSpan FightSoftRestartApproachTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan TemporaryTargetSwitchGuardGrace = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan DefaultSmartPreAimResultTtl = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan SmartPreAimTeamSnapshotRefreshInterval = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan SmartPreAimTeamSnapshotRetention = TimeSpan.FromSeconds(5);
     private const int GatherSnapshotUnavailableReadThreshold = 2;
     private const double ReturnStopDistance = 2.0D;
     private const double AcquireDistance = 25.0D;
@@ -48,7 +50,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     private const double TargetLeashExtraDistance = 5.0D;
     private const double PreLockFaceYawToleranceDegrees = 30.0D;
     private const double SmartPreAimFaceYawToleranceDegrees = 10.0D;
-    private const int SmartPreAimMissingSnapshotSwitchThreshold = 3;
+    private const int SmartPreAimSwitchConfirmationThreshold = 3;
     private const double DefaultPathFollowReachDistance = 5.0D;
     private const double DefaultStartupTownReturnDistance = 500.0D;
     private const double DefaultStartupTownReturnMinDistance = 5.0D;
@@ -9629,16 +9631,31 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return;
         }
 
+        var now = DateTimeOffset.Now;
+        var exclusions = state.CreateNextTargetPreAimExclusionSnapshot(result.Value, now);
+        IReadOnlySet<uint> teamSideServerObjectIds = new HashSet<uint>();
+        if (ShouldResolveSmartPreAimTeamSideServerObjectIds(result.Value, state))
+        {
+            teamSideServerObjectIds = await ResolveSmartPreAimTeamSideServerObjectIdsAsync(
+                    context,
+                    state,
+                    now)
+                .ConfigureAwait(false);
+        }
+
+        if (!IsSmartPreAimLoopStillValid(context, state, fightTargetEntityId, fightTargetServerObjectId))
+        {
+            return;
+        }
+
         NextTargetPreAimSelection? currentSelection;
-        bool hasAlignedCandidate;
+        bool hasCommittedCandidate;
         lock (state.NextTargetPreAim.SyncRoot)
         {
             currentSelection = state.NextTargetPreAim.CreateCurrentSelection();
-            hasAlignedCandidate = state.NextTargetPreAim.HasAlignedCandidate;
+            hasCommittedCandidate = state.NextTargetPreAim.HasCameraCommittedCandidate;
         }
 
-        var now = DateTimeOffset.Now;
-        var exclusions = state.CreateNextTargetPreAimExclusionSnapshot(result.Value, now);
         var distanceOrigin = ResolveSmartPreAimDistanceOrigin(
             context,
             state,
@@ -9663,13 +9680,15 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             now,
             TimeSpan.FromMilliseconds(ReadSmartPreAimMinimumHoldMs()),
             switchDistanceMargin,
-            exclusions);
-        selection = KeepAlignedNextTargetPreAimSelectionStable(
+            exclusions,
+            teamSideServerObjectIds);
+        selection = KeepCommittedNextTargetPreAimSelectionStable(
             state,
             currentSelection,
             selection,
-            hasAlignedCandidate,
+            hasCommittedCandidate,
             result.Value,
+            playerPosition,
             distanceOrigin,
             switchDistanceMargin);
 
@@ -9682,21 +9701,22 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             now);
     }
 
-    private static NextTargetPreAimSelection? KeepAlignedNextTargetPreAimSelectionStable(
+    private static NextTargetPreAimSelection? KeepCommittedNextTargetPreAimSelectionStable(
         StationaryCombatState state,
         NextTargetPreAimSelection? currentSelection,
         NextTargetPreAimSelection? proposedSelection,
-        bool hasAlignedCandidate,
+        bool hasCommittedCandidate,
         IReadOnlyList<WorldObjectSnapshot> objects,
+        Vector3Snapshot playerPosition,
         Vector3Snapshot distanceOrigin,
         double switchDistanceMargin)
     {
         var preAim = state.NextTargetPreAim;
         lock (preAim.SyncRoot)
         {
-            if (!hasAlignedCandidate ||
+            if (!hasCommittedCandidate ||
                 currentSelection is null ||
-                !preAim.HasAlignedCandidate ||
+                !preAim.HasCameraCommittedCandidate ||
                 !StationaryCombatState.IsSameTarget(
                     preAim.TargetEntityId,
                     preAim.TargetServerObjectId,
@@ -9704,6 +9724,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     currentSelection.Target.ServerObjectId))
             {
                 preAim.ConsecutiveMissingSnapshots = 0;
+                preAim.ResetPendingSwitchConfirmation();
                 return proposedSelection;
             }
 
@@ -9721,12 +9742,11 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     proposedSelection.Target.EntityId,
                     proposedSelection.Target.ServerObjectId))
             {
-                if (currentSelection.PriorityTier >= 3 &&
-                    currentSelection.IsTargetingLocalSide &&
-                    !proposedSelection.IsTargetingLocalSide &&
+                if (currentSelection.IsTargetingProtectedSide &&
+                    !proposedSelection.IsTargetingProtectedSide &&
                     currentVisibleTarget is not null)
                 {
-                    return KeepAlignedNextTargetPreAimSelectionForUnavailableSnapshot(
+                    return KeepCommittedNextTargetPreAimSelectionForUnavailableSnapshot(
                         preAim,
                         currentSelection,
                         proposedSelection,
@@ -9736,23 +9756,26 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 }
 
                 preAim.ConsecutiveMissingSnapshots = 0;
+                preAim.ResetPendingSwitchConfirmation();
                 return proposedSelection;
             }
 
             if (proposedSelection is not null &&
-                proposedSelection.IsTargetingLocalSide)
+                proposedSelection.IsTargetingProtectedSide &&
+                (string.Equals(proposedSelection.DecisionReason, "higher_priority", StringComparison.Ordinal) ||
+                 string.Equals(proposedSelection.DecisionReason, "current_invalid", StringComparison.Ordinal)))
             {
                 preAim.ConsecutiveMissingSnapshots = 0;
+                preAim.ResetPendingSwitchConfirmation();
                 return proposedSelection;
             }
 
             if (currentVisibleTarget is not null)
             {
-                if (currentSelection.PriorityTier >= 3 &&
-                    currentSelection.IsTargetingLocalSide &&
-                    (proposedSelection is null || !proposedSelection.IsTargetingLocalSide))
+                if (currentSelection.IsTargetingProtectedSide &&
+                    (proposedSelection is null || !proposedSelection.IsTargetingProtectedSide))
                 {
-                    return KeepAlignedNextTargetPreAimSelectionForUnavailableSnapshot(
+                    return KeepCommittedNextTargetPreAimSelectionForUnavailableSnapshot(
                         preAim,
                         currentSelection,
                         proposedSelection,
@@ -9761,32 +9784,30 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                         "threat_unconfirmed");
                 }
 
-                preAim.ConsecutiveMissingSnapshots = 0;
-                if (proposedSelection is not null &&
-                    proposedSelection.IsAggressivePriority &&
-                    proposedSelection.PriorityTier > currentSelection.PriorityTier &&
-                    string.Equals(proposedSelection.DecisionReason, "higher_priority", StringComparison.Ordinal) &&
-                    currentVisibleTarget.Position is { } currentPosition)
+                if (proposedSelection is null ||
+                    string.Equals(proposedSelection.DecisionReason, "current_invalid", StringComparison.Ordinal))
                 {
-                    var currentDistance = StationaryCombatTargetSelector.HorizontalDistance(
-                        currentPosition,
-                        distanceOrigin);
-                    if (currentDistance - proposedSelection.DistanceToOrigin <
-                        Math.Max(0.0D, switchDistanceMargin))
-                    {
-                        return currentSelection with
-                        {
-                            Target = currentVisibleTarget,
-                            DistanceToOrigin = currentDistance,
-                            DecisionReason = "kept_farther_aggressive"
-                        };
-                    }
+                    return KeepCommittedNextTargetPreAimSelectionForUnavailableSnapshot(
+                        preAim,
+                        currentSelection,
+                        proposedSelection,
+                        currentVisibleTarget,
+                        distanceOrigin,
+                        "current_invalid");
                 }
 
-                return proposedSelection;
+                preAim.ConsecutiveMissingSnapshots = 0;
+                return KeepCommittedNextTargetPreAimSelectionForBetterCandidate(
+                    preAim,
+                    currentSelection,
+                    proposedSelection,
+                    currentVisibleTarget,
+                    playerPosition,
+                    distanceOrigin,
+                    switchDistanceMargin);
             }
 
-            return KeepAlignedNextTargetPreAimSelectionForUnavailableSnapshot(
+            return KeepCommittedNextTargetPreAimSelectionForUnavailableSnapshot(
                 preAim,
                 currentSelection,
                 proposedSelection,
@@ -9796,7 +9817,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
     }
 
-    private static NextTargetPreAimSelection? KeepAlignedNextTargetPreAimSelectionForUnavailableSnapshot(
+    private static NextTargetPreAimSelection? KeepCommittedNextTargetPreAimSelectionForUnavailableSnapshot(
         NextTargetPreAimState preAim,
         NextTargetPreAimSelection currentSelection,
         NextTargetPreAimSelection? proposedSelection,
@@ -9804,11 +9825,17 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         Vector3Snapshot distanceOrigin,
         string reason)
     {
+        preAim.ResetPendingSwitchConfirmation();
         var unavailableSnapshots = ++preAim.ConsecutiveMissingSnapshots;
-        if (unavailableSnapshots >= SmartPreAimMissingSnapshotSwitchThreshold)
+        if (unavailableSnapshots >= SmartPreAimSwitchConfirmationThreshold)
         {
             preAim.ConsecutiveMissingSnapshots = 0;
-            return proposedSelection;
+            return proposedSelection is null
+                ? null
+                : proposedSelection with
+                {
+                    DecisionReason = $"{proposedSelection.DecisionReason}_after_{unavailableSnapshots}_{reason}"
+                };
         }
 
         var currentDistance = currentVisibleTarget?.Position is { } currentPosition
@@ -9818,8 +9845,142 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         {
             Target = currentVisibleTarget ?? currentSelection.Target,
             DistanceToOrigin = currentDistance,
-            DecisionReason = $"kept_aligned_{reason}_{unavailableSnapshots}"
+            DecisionReason = $"kept_committed_{reason}_{unavailableSnapshots}"
         };
+    }
+
+    private static NextTargetPreAimSelection KeepCommittedNextTargetPreAimSelectionForBetterCandidate(
+        NextTargetPreAimState preAim,
+        NextTargetPreAimSelection currentSelection,
+        NextTargetPreAimSelection proposedSelection,
+        WorldObjectSnapshot currentVisibleTarget,
+        Vector3Snapshot playerPosition,
+        Vector3Snapshot distanceOrigin,
+        double switchDistanceMargin)
+    {
+        var currentPosition = currentVisibleTarget.Position;
+        var proposedPosition = proposedSelection.Target.Position;
+        if (currentPosition is null || proposedPosition is null)
+        {
+            preAim.ResetPendingSwitchConfirmation();
+            return currentSelection with
+            {
+                Target = currentVisibleTarget,
+                DecisionReason = "kept_missing_switch_distance"
+            };
+        }
+
+        var currentDistanceToPlayer = StationaryCombatTargetSelector.HorizontalDistance(
+            currentPosition.Value,
+            playerPosition);
+        var proposedDistanceToPlayer = StationaryCombatTargetSelector.HorizontalDistance(
+            proposedPosition.Value,
+            playerPosition);
+        var currentDistanceToOrigin = StationaryCombatTargetSelector.HorizontalDistance(
+            currentPosition.Value,
+            distanceOrigin);
+        if (currentDistanceToPlayer - proposedDistanceToPlayer < Math.Max(0.0D, switchDistanceMargin))
+        {
+            preAim.ResetPendingSwitchConfirmation();
+            return currentSelection with
+            {
+                Target = currentVisibleTarget,
+                DistanceToOrigin = currentDistanceToOrigin,
+                DecisionReason = "kept_player_distance_stability"
+            };
+        }
+
+        if (!StationaryCombatState.IsSameTarget(
+                preAim.PendingSwitchTargetEntityId,
+                preAim.PendingSwitchTargetServerObjectId,
+                proposedSelection.Target.EntityId,
+                proposedSelection.Target.ServerObjectId))
+        {
+            preAim.PendingSwitchTargetEntityId = proposedSelection.Target.EntityId;
+            preAim.PendingSwitchTargetServerObjectId = proposedSelection.Target.ServerObjectId;
+            preAim.ConsecutiveBetterTargetSnapshots = 1;
+        }
+        else
+        {
+            preAim.ConsecutiveBetterTargetSnapshots++;
+        }
+
+        if (preAim.ConsecutiveBetterTargetSnapshots >= SmartPreAimSwitchConfirmationThreshold)
+        {
+            var confirmedSnapshots = preAim.ConsecutiveBetterTargetSnapshots;
+            preAim.ResetPendingSwitchConfirmation();
+            return proposedSelection with
+            {
+                DecisionReason = $"{proposedSelection.DecisionReason}_confirmed_{confirmedSnapshots}"
+            };
+        }
+
+        return currentSelection with
+        {
+            Target = currentVisibleTarget,
+            DistanceToOrigin = currentDistanceToOrigin,
+            DecisionReason = $"kept_better_candidate_{preAim.ConsecutiveBetterTargetSnapshots}"
+        };
+    }
+
+    private static async Task<IReadOnlySet<uint>> ResolveSmartPreAimTeamSideServerObjectIdsAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        DateTimeOffset now)
+    {
+        var preAim = state.NextTargetPreAim;
+        lock (preAim.SyncRoot)
+        {
+            if (preAim.LastTeamSideSnapshotAttemptAt != DateTimeOffset.MinValue &&
+                now - preAim.LastTeamSideSnapshotAttemptAt < SmartPreAimTeamSnapshotRefreshInterval)
+            {
+                return preAim.TeamSideServerObjectIds.ToHashSet();
+            }
+
+            preAim.LastTeamSideSnapshotAttemptAt = now;
+        }
+
+        var monitor = new TeamMonitor(context.GameApi);
+        var snapshotResult = await monitor
+            .ReadSnapshotAsync(CreateReadContext(context), context.StopToken)
+            .ConfigureAwait(false);
+        lock (preAim.SyncRoot)
+        {
+            if (snapshotResult.Success && snapshotResult.Value is not null)
+            {
+                var team = context.Config.ScriptSettings?.Team ?? new TeamScriptSettings();
+                var protectedIds = TeamLeaderProtectionSelector.CreateProtectedServerObjectIds(
+                    snapshotResult.Value,
+                    team.GroupDistanceMeters);
+                preAim.TeamSideServerObjectIds.Clear();
+                foreach (var protectedId in protectedIds)
+                {
+                    preAim.TeamSideServerObjectIds.Add(protectedId);
+                }
+
+                preAim.TeamSideSnapshotCapturedAt = now;
+            }
+            else if (preAim.TeamSideSnapshotCapturedAt == DateTimeOffset.MinValue ||
+                     now - preAim.TeamSideSnapshotCapturedAt >= SmartPreAimTeamSnapshotRetention)
+            {
+                preAim.TeamSideServerObjectIds.Clear();
+                preAim.LastTeamSideSnapshotAttemptAt = DateTimeOffset.MinValue;
+            }
+
+            return preAim.TeamSideServerObjectIds.ToHashSet();
+        }
+    }
+
+    private static bool ShouldResolveSmartPreAimTeamSideServerObjectIds(
+        IReadOnlyList<WorldObjectSnapshot> objects,
+        StationaryCombatState state)
+    {
+        return objects.Any(target =>
+            StationaryCombatTargetSelector.IsSelectableMonster(target) &&
+            target.TargetServerObjectId != 0 &&
+            target.TargetServerObjectId != target.ServerObjectId &&
+            target.TargetServerObjectId != state.LocalCombatSideServerObjectId &&
+            target.TargetServerObjectId != state.LocalCombatSidePetServerObjectId);
     }
 
     private static Vector3Snapshot ResolveSmartPreAimDistanceOrigin(
@@ -9908,6 +10069,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 preAim.TargetPriorityTier = selection.PriorityTier;
                 preAim.TargetDistanceToOrigin = selection.DistanceToOrigin;
                 preAim.TargetingLocalSide = selection.IsTargetingLocalSide;
+                preAim.TargetingTeamSide = selection.IsTargetingTeamSide;
                 preAim.AggressivePriority = selection.IsAggressivePriority;
                 preAim.TargetSelectedAt = changed || preAim.TargetSelectedAt == DateTimeOffset.MinValue
                     ? now
@@ -9917,6 +10079,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 {
                     preAim.LastAlignedAt = DateTimeOffset.MinValue;
                     preAim.LastAdjustedAt = DateTimeOffset.MinValue;
+                    preAim.ConsecutiveMissingSnapshots = 0;
+                    preAim.ResetPendingSwitchConfirmation();
                 }
             }
         }
@@ -9959,6 +10123,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 ["previousTargetName"] = previousName,
                 ["priorityTier"] = selection.PriorityTier,
                 ["targetingLocalSide"] = selection.IsTargetingLocalSide,
+                ["targetingTeamSide"] = selection.IsTargetingTeamSide,
                 ["aggressivePriority"] = selection.IsAggressivePriority,
                 ["distanceToOrigin"] = Math.Round(selection.DistanceToOrigin, 2),
                 ["distanceOriginX"] = Math.Round(distanceOrigin.X, 2),

@@ -44,6 +44,15 @@ public static class TeamLeaderProtectionSelector
             .FirstOrDefault();
     }
 
+    public static IReadOnlySet<uint> CreateProtectedServerObjectIds(
+        TeamSnapshot snapshot,
+        double groupDistanceMeters)
+    {
+        return BuildProtectedObjects(snapshot, groupDistanceMeters)
+            .Keys
+            .ToHashSet();
+    }
+
     private static Dictionary<uint, ProtectedObject> BuildProtectedObjects(
         TeamSnapshot snapshot,
         double groupDistanceMeters)
