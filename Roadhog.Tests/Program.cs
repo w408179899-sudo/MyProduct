@@ -318,6 +318,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat smart pre-aim supports fight-target distance origin", TestSmartPreAimSupportsFightTargetDistanceOriginAsync),
     ("stationary combat smart pre-aim selector keeps stable target", TestSmartPreAimSelectorKeepsStableTargetAsync),
     ("stationary combat smart pre-aim stabilizes aligned target switching", TestSmartPreAimStabilizesAlignedTargetSwitchingAsync),
+    ("stationary combat smart pre-aim prevents consumed target bounce", TestSmartPreAimPreventsConsumedTargetBounceAsync),
     ("stationary combat smart pre-aim selector applies normal filters", TestSmartPreAimSelectorAppliesNormalFiltersAsync),
     ("stationary combat smart pre-aim lifecycle spans loot until finish", TestSmartPreAimLifecycleSpansLootUntilFinishAsync),
     ("stationary combat smart pre-aim pauses during cleanup mouse work", TestSmartPreAimPausesDuringCleanupMouseWorkAsync),
@@ -12919,6 +12920,7 @@ static async Task TestSmartPreAimStabilizesAlignedTargetSwitchingAsync()
         preAim.LastAlignedAt = DateTimeOffset.Now;
         preAim.ConsecutiveMissingSnapshots = 0;
         preAim.ResetPendingSwitchConfirmation();
+        preAim.ClearDisplacedTargetGuard();
     }
 
     ResetAlignedSelection(alignedTarget, 1, targetingLocalSide: false, aggressivePriority: false);
@@ -12940,6 +12942,9 @@ static async Task TestSmartPreAimStabilizesAlignedTargetSwitchingAsync()
     await RefreshAsync().ConfigureAwait(false);
     AssertEqual(clearlyCloserAggressive.EntityId, preAim.TargetEntityId, "third closer snapshot should replace the aligned target");
     AssertEqual(0, preAim.ConsecutiveBetterTargetSnapshots, "confirmed closer switch should reset its counter");
+    AssertEqual(alignedTarget.ServerObjectId, preAim.DisplacedTargetServerObjectId, "camera-committed switch should remember the displaced target");
+    AssertEqual(clearlyCloserAggressive.ServerObjectId, preAim.DisplacedTargetReplacementServerObjectId, "camera-committed switch should bind the displacement to its replacement");
+    AssertFalse(preAim.DisplacedTargetGuardActive, "displaced target guard should remain inactive until the replacement is consumed");
 
     ResetAlignedSelection(alignedTarget, 1, targetingLocalSide: false, aggressivePriority: false);
     gameApi.WorldObjects = new[] { alignedTarget, clearlyCloserAggressive };
@@ -13062,6 +13067,127 @@ static async Task TestSmartPreAimStabilizesAlignedTargetSwitchingAsync()
     AssertEqual(0u, preAim.PendingSwitchTargetServerObjectId, "clearing pre-aim state should reset pending switch identity");
 }
 
+static async Task TestSmartPreAimPreventsConsumedTargetBounceAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        SmartPreAimEnabled = true,
+        HasStationaryCombatPosition = true,
+        StationaryCombatRadius = 30
+    };
+
+    var displaced = new WorldObjectSnapshot(
+        40,
+        4040,
+        "displaced-a",
+        "monster",
+        new Vector3Snapshot(4, 0, 0),
+        4,
+        100,
+        100);
+    var consumedReplacement = new WorldObjectSnapshot(
+        41,
+        4041,
+        "consumed-b",
+        "monster",
+        new Vector3Snapshot(6, 0, 0),
+        6,
+        100,
+        100);
+    var fallback = new WorldObjectSnapshot(
+        42,
+        4042,
+        "fallback-c",
+        "monster",
+        new Vector3Snapshot(10, 0, 0),
+        10,
+        100,
+        100);
+    var gameApi = new FakeGameApi
+    {
+        WorldObjects = new[] { displaced, consumedReplacement, fallback }
+    };
+    var controller = new StationaryCombatController(
+        new RecordingKeyboardInput(),
+        new SemiAutoCombatController(new RecordingKeyboardInput()));
+    var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
+    var state = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = consumedReplacement.EntityId,
+        CurrentTargetServerObjectId = consumedReplacement.ServerObjectId,
+        LocalCombatSideServerObjectId = 7000
+    };
+    var preAim = state.NextTargetPreAim;
+    preAim.RecordDisplacedTargetGuard(
+        displaced.EntityId,
+        displaced.ServerObjectId,
+        consumedReplacement.EntityId,
+        consumedReplacement.ServerObjectId);
+    AssertFalse(!preAim.ActivateDisplacedTargetGuard(
+        consumedReplacement.EntityId,
+        consumedReplacement.ServerObjectId), "consuming the replacement should activate its displaced-target guard");
+    preAim.ClearCandidate();
+    AssertFalse(!preAim.DisplacedTargetGuardActive, "candidate clearing after consume must preserve the active cross-fight guard");
+
+    var refreshMethod = typeof(StationaryCombatController).GetMethod(
+        "RefreshNextTargetPreAimSelectionAsync",
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+    AssertFalse(refreshMethod is null, "smart pre-aim refresh helper should exist");
+
+    async Task RefreshAsync(ushort fightTargetEntityId, uint fightTargetServerObjectId)
+    {
+        var task = (Task)refreshMethod!.Invoke(
+            controller,
+            new object[]
+            {
+                context,
+                state,
+                new Vector3Snapshot(0, 0, 0),
+                new Vector3Snapshot(0, 0, 0),
+                30D,
+                fightTargetEntityId,
+                fightTargetServerObjectId
+            })!;
+        await task.ConfigureAwait(false);
+    }
+
+    await RefreshAsync(consumedReplacement.EntityId, consumedReplacement.ServerObjectId).ConfigureAwait(false);
+    AssertEqual(fallback.EntityId, preAim.TargetEntityId, "the fight that consumed B must not immediately pre-aim displaced A again");
+
+    preAim.ClearCandidate();
+    var reusedEntity = displaced with
+    {
+        ServerObjectId = 9090,
+        Name = "reused-entity-id"
+    };
+    gameApi.WorldObjects = new[] { reusedEntity, consumedReplacement, fallback };
+    await RefreshAsync(consumedReplacement.EntityId, consumedReplacement.ServerObjectId).ConfigureAwait(false);
+    AssertEqual(reusedEntity.ServerObjectId, preAim.TargetServerObjectId, "server-object identity should prevent the guard from excluding a new monster that reused A's entity id");
+
+    preAim.ClearCandidate();
+    var localThreat = displaced with
+    {
+        IsTargetingLocalPlayer = true,
+        TargetServerObjectId = 7000
+    };
+    gameApi.WorldObjects = new[] { localThreat, consumedReplacement, fallback };
+    await RefreshAsync(consumedReplacement.EntityId, consumedReplacement.ServerObjectId).ConfigureAwait(false);
+    AssertEqual(displaced.EntityId, preAim.TargetEntityId, "a displaced target attacking the local side must bypass the cross-fight guard");
+    AssertEqual(4, preAim.TargetPriorityTier, "local-side threat should retain the hard smart pre-aim priority");
+
+    preAim.ClearCandidate();
+    state.CurrentTargetEntityId = fallback.EntityId;
+    state.CurrentTargetServerObjectId = fallback.ServerObjectId;
+    gameApi.WorldObjects = new[] { displaced, consumedReplacement };
+    await RefreshAsync(fallback.EntityId, fallback.ServerObjectId).ConfigureAwait(false);
+    AssertEqual(displaced.EntityId, preAim.TargetEntityId, "changing the foreground fight target should release the displaced-target guard");
+    AssertFalse(preAim.DisplacedTargetGuardActive, "cross-fight guard should clear after its replacement fight ends");
+}
+
 static Task TestSmartPreAimSelectorAppliesNormalFiltersAsync()
 {
     var player = new Vector3Snapshot(0, 0, 0);
@@ -13137,6 +13263,34 @@ static Task TestSmartPreAimSelectorAppliesNormalFiltersAsync()
 
     AssertEqual((ushort)35, localSelected?.Target.EntityId ?? 0, "ignored local-side threat should still follow normal defense target behavior");
     AssertEqual(4, localSelected?.PriorityTier ?? 0, "local-side defense threat should keep highest smart pre-aim tier");
+
+    var teamIgnored = localIgnored with
+    {
+        EntityId = 37,
+        ServerObjectId = 3037,
+        Name = "ignored-team",
+        IsTargetingLocalPlayer = false,
+        TargetServerObjectId = 8000
+    };
+    var teamSelected = NextTargetPreAimSelector.Select(
+        new[] { teamIgnored, ordinary },
+        player,
+        home,
+        30,
+        currentTargetEntityId: 99,
+        currentTargetServerObjectId: 9999,
+        localSideServerObjectId: 1000,
+        localSidePetServerObjectId: 0,
+        allowClaimedByOther: false,
+        preferAggressiveMonsters: false,
+        activeMonsterNameFilters: Array.Empty<string>(),
+        exclusions: NextTargetPreAimExclusionSnapshot.Empty.WithIgnoredTarget(
+            teamIgnored.EntityId,
+            teamIgnored.ServerObjectId),
+        teamSideServerObjectIds: new HashSet<uint> { 8000 });
+
+    AssertEqual((ushort)37, teamSelected?.Target.EntityId ?? 0, "ignored team-side threat should bypass the displaced-target guard");
+    AssertEqual(3, teamSelected?.PriorityTier ?? 0, "team-side threat should retain its protected smart pre-aim tier");
 
     var localTemporary = localIgnored with
     {
@@ -17557,7 +17711,9 @@ static Task TestSmartPreAimUsesTenDegreeYawToleranceAsync()
             100);
         var targetPosition = target.Position ?? throw new InvalidOperationException("test target should have a position");
 
-        bool Consume(double yaw)
+        (bool Consumed, StationaryCombatState State, InMemoryRoadhogLogger Logger) Consume(
+            double yaw,
+            bool recordDisplacedTarget = false)
         {
             var state = new StationaryCombatState();
             state.NextTargetPreAim.TargetEntityId = target.EntityId;
@@ -17565,8 +17721,17 @@ static Task TestSmartPreAimUsesTenDegreeYawToleranceAsync()
             state.NextTargetPreAim.TargetName = target.Name;
             state.NextTargetPreAim.TargetPosition = targetPosition;
             state.NextTargetPreAim.LastAlignedAt = DateTimeOffset.Now;
+            if (recordDisplacedTarget)
+            {
+                state.NextTargetPreAim.RecordDisplacedTargetGuard(
+                    199,
+                    5999,
+                    target.EntityId,
+                    target.ServerObjectId);
+            }
 
-            var context = CreateContext(settings, new FakeGameApi(), new InMemoryRoadhogLogger());
+            var logger = new InMemoryRoadhogLogger();
+            var context = CreateContext(settings, new FakeGameApi(), logger);
             var player = new PlayerSnapshot(
                 1,
                 0,
@@ -17582,13 +17747,30 @@ static Task TestSmartPreAimUsesTenDegreeYawToleranceAsync()
                 10,
                 yaw);
 
-            return (bool)method!.Invoke(
+            var consumed = (bool)method!.Invoke(
                 controller,
                 new object[] { context, state, player, targetPosition, target })!;
+            return (consumed, state, logger);
         }
 
-        AssertFalse(!Consume(82), "8 degree smart pre-aim yaw error should be accepted");
-        AssertFalse(Consume(79), "11 degree smart pre-aim yaw error should be rejected");
+        AssertFalse(!Consume(82).Consumed, "8 degree smart pre-aim yaw error should be accepted");
+        AssertFalse(Consume(79).Consumed, "11 degree smart pre-aim yaw error should be rejected");
+
+        var guardedConsume = Consume(82, recordDisplacedTarget: true);
+        AssertFalse(!guardedConsume.Consumed, "aligned replacement should still be consumed with a displaced target recorded");
+        AssertFalse(!guardedConsume.State.NextTargetPreAim.DisplacedTargetGuardActive, "consuming the recorded replacement should activate the cross-fight guard");
+        AssertFalse(guardedConsume.State.NextTargetPreAim.HasCandidate, "consuming the replacement should still clear the ordinary pre-aim candidate");
+        AssertFalse(!guardedConsume.State.NextTargetPreAim.TryGetActiveDisplacedTargetForFightTarget(
+            target.EntityId,
+            target.ServerObjectId,
+            out var displacedEntityId,
+            out var displacedServerObjectId), "active guard should remain bound to the consumed replacement fight");
+        AssertEqual((ushort)199, displacedEntityId, "consume should preserve the displaced entity identity");
+        AssertEqual(5999u, displacedServerObjectId, "consume should preserve the displaced server-object identity");
+        var consumedEntry = guardedConsume.Logger.Entries.LastOrDefault(entry =>
+            entry.EventName == "stationary_combat.smart_preaim.consumed");
+        AssertFalse(consumedEntry is null, "guarded consume should emit the normal consumed diagnostic");
+        AssertFalse(!Convert.ToBoolean(consumedEntry!.Fields["displacedTargetGuardActivated"]), "consumed diagnostic should report guard activation");
         return Task.CompletedTask;
     }
     finally

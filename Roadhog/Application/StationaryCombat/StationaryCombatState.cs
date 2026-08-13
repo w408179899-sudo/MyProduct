@@ -1310,6 +1310,24 @@ public sealed class NextTargetPreAimExclusionSnapshot
         return (target.ServerObjectId != 0 && _temporaryServerObjectIds.Contains(target.ServerObjectId)) ||
                (target.EntityId != 0 && _temporaryEntityIds.Contains(target.EntityId));
     }
+
+    public NextTargetPreAimExclusionSnapshot WithIgnoredTarget(
+        ushort entityId,
+        uint serverObjectId)
+    {
+        if (entityId == 0 && serverObjectId == 0)
+        {
+            return this;
+        }
+
+        return new NextTargetPreAimExclusionSnapshot(
+            serverObjectId != 0 || entityId == 0
+                ? _ignoredEntityIds
+                : _ignoredEntityIds.Append(entityId),
+            serverObjectId == 0 ? _ignoredServerObjectIds : _ignoredServerObjectIds.Append(serverObjectId),
+            _temporaryEntityIds,
+            _temporaryServerObjectIds);
+    }
 }
 
 public sealed class NextTargetPreAimState
@@ -1362,6 +1380,16 @@ public sealed class NextTargetPreAimState
 
     public int ConsecutiveBetterTargetSnapshots { get; set; }
 
+    public ushort DisplacedTargetEntityId { get; private set; }
+
+    public uint DisplacedTargetServerObjectId { get; private set; }
+
+    public ushort DisplacedTargetReplacementEntityId { get; private set; }
+
+    public uint DisplacedTargetReplacementServerObjectId { get; private set; }
+
+    public bool DisplacedTargetGuardActive { get; private set; }
+
     public HashSet<uint> TeamSideServerObjectIds { get; } = new();
 
     public DateTimeOffset TeamSideSnapshotCapturedAt { get; set; } = DateTimeOffset.MinValue;
@@ -1402,6 +1430,10 @@ public sealed class NextTargetPreAimState
         LastAlignedAt = DateTimeOffset.MinValue;
         ConsecutiveMissingSnapshots = 0;
         ResetPendingSwitchConfirmation();
+        if (!DisplacedTargetGuardActive)
+        {
+            ClearDisplacedTargetGuard();
+        }
     }
 
     public void ResetPendingSwitchConfirmation()
@@ -1409,6 +1441,88 @@ public sealed class NextTargetPreAimState
         PendingSwitchTargetEntityId = 0;
         PendingSwitchTargetServerObjectId = 0;
         ConsecutiveBetterTargetSnapshots = 0;
+    }
+
+    public void RecordDisplacedTargetGuard(
+        ushort displacedEntityId,
+        uint displacedServerObjectId,
+        ushort replacementEntityId,
+        uint replacementServerObjectId)
+    {
+        if ((displacedEntityId == 0 && displacedServerObjectId == 0) ||
+            (replacementEntityId == 0 && replacementServerObjectId == 0) ||
+            StationaryCombatState.IsSameTarget(
+                displacedEntityId,
+                displacedServerObjectId,
+                replacementEntityId,
+                replacementServerObjectId))
+        {
+            ClearDisplacedTargetGuard();
+            return;
+        }
+
+        DisplacedTargetEntityId = displacedEntityId;
+        DisplacedTargetServerObjectId = displacedServerObjectId;
+        DisplacedTargetReplacementEntityId = replacementEntityId;
+        DisplacedTargetReplacementServerObjectId = replacementServerObjectId;
+        DisplacedTargetGuardActive = false;
+    }
+
+    public bool ActivateDisplacedTargetGuard(
+        ushort consumedEntityId,
+        uint consumedServerObjectId)
+    {
+        if (!StationaryCombatState.IsSameTarget(
+                DisplacedTargetReplacementEntityId,
+                DisplacedTargetReplacementServerObjectId,
+                consumedEntityId,
+                consumedServerObjectId))
+        {
+            ClearDisplacedTargetGuard();
+            return false;
+        }
+
+        DisplacedTargetGuardActive = true;
+        return true;
+    }
+
+    public bool TryGetActiveDisplacedTargetForFightTarget(
+        ushort fightTargetEntityId,
+        uint fightTargetServerObjectId,
+        out ushort displacedEntityId,
+        out uint displacedServerObjectId)
+    {
+        if (!DisplacedTargetGuardActive)
+        {
+            displacedEntityId = 0;
+            displacedServerObjectId = 0;
+            return false;
+        }
+
+        if (!StationaryCombatState.IsSameTarget(
+                DisplacedTargetReplacementEntityId,
+                DisplacedTargetReplacementServerObjectId,
+                fightTargetEntityId,
+                fightTargetServerObjectId))
+        {
+            ClearDisplacedTargetGuard();
+            displacedEntityId = 0;
+            displacedServerObjectId = 0;
+            return false;
+        }
+
+        displacedEntityId = DisplacedTargetEntityId;
+        displacedServerObjectId = DisplacedTargetServerObjectId;
+        return displacedEntityId != 0 || displacedServerObjectId != 0;
+    }
+
+    public void ClearDisplacedTargetGuard()
+    {
+        DisplacedTargetEntityId = 0;
+        DisplacedTargetServerObjectId = 0;
+        DisplacedTargetReplacementEntityId = 0;
+        DisplacedTargetReplacementServerObjectId = 0;
+        DisplacedTargetGuardActive = false;
     }
 
     public NextTargetPreAimSelection? CreateCurrentSelection()

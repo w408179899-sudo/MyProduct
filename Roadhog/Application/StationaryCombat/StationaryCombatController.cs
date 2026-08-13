@@ -9850,6 +9850,20 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 
         var now = DateTimeOffset.Now;
         var exclusions = state.CreateNextTargetPreAimExclusionSnapshot(result.Value, now);
+        lock (state.NextTargetPreAim.SyncRoot)
+        {
+            if (state.NextTargetPreAim.TryGetActiveDisplacedTargetForFightTarget(
+                    fightTargetEntityId,
+                    fightTargetServerObjectId,
+                    out var displacedEntityId,
+                    out var displacedServerObjectId))
+            {
+                exclusions = exclusions.WithIgnoredTarget(
+                    displacedEntityId,
+                    displacedServerObjectId);
+            }
+        }
+
         IReadOnlySet<uint> teamSideServerObjectIds = new HashSet<uint>();
         if (ShouldResolveSmartPreAimTeamSideServerObjectIds(result.Value, state))
         {
@@ -10279,6 +10293,17 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     preAim.TargetServerObjectId,
                     selection.Target.EntityId,
                     selection.Target.ServerObjectId);
+                if (changed &&
+                    preAim.HasCameraCommittedCandidate &&
+                    (previousEntityId != 0 || previousServerObjectId != 0))
+                {
+                    preAim.RecordDisplacedTargetGuard(
+                        previousEntityId,
+                        previousServerObjectId,
+                        selection.Target.EntityId,
+                        selection.Target.ServerObjectId);
+                }
+
                 preAim.TargetEntityId = selection.Target.EntityId;
                 preAim.TargetServerObjectId = selection.Target.ServerObjectId;
                 preAim.TargetName = selection.Target.Name;
@@ -10615,6 +10640,18 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return false;
         }
 
+        bool displacedTargetGuardActivated;
+        ushort displacedTargetEntityId;
+        uint displacedTargetServerObjectId;
+        lock (state.NextTargetPreAim.SyncRoot)
+        {
+            displacedTargetGuardActivated = state.NextTargetPreAim.ActivateDisplacedTargetGuard(
+                target.EntityId,
+                target.ServerObjectId);
+            displacedTargetEntityId = state.NextTargetPreAim.DisplacedTargetEntityId;
+            displacedTargetServerObjectId = state.NextTargetPreAim.DisplacedTargetServerObjectId;
+        }
+
         context.Logger.Info("stationary_combat.smart_preaim.consumed", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
@@ -10624,7 +10661,10 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             ["preAimName"] = preAimName,
             ["ageMs"] = (long)Math.Max(0.0D, (now - alignedAt).TotalMilliseconds),
             ["yawError"] = Math.Round(snapshot.YawError, 2),
-            ["pitchError"] = Math.Round(snapshot.PitchError, 2)
+            ["pitchError"] = Math.Round(snapshot.PitchError, 2),
+            ["displacedTargetGuardActivated"] = displacedTargetGuardActivated,
+            ["displacedTargetEntityId"] = displacedTargetEntityId,
+            ["displacedTargetServerObjectId"] = displacedTargetServerObjectId
         });
         StopNextTargetPreAim(context, state, "consumed", clearCandidate: true);
         return true;
