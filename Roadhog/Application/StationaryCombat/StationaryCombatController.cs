@@ -794,6 +794,22 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 .ConfigureAwait(false);
         }
 
+        var lockedResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
+        var lockedDefenseDelay = await TryAcquireLockedLocalSideDefenseTargetAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                target,
+                lockedResult,
+                home,
+                radius)
+            .ConfigureAwait(false);
+        if (lockedDefenseDelay is not null)
+        {
+            return lockedDefenseDelay.Value;
+        }
+
         var radarNavigation = await ResolveObstacleNavigationAsync(
                 context,
                 state,
@@ -841,7 +857,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return MoveTickDelay;
         }
 
-        var lockedResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
         if (state.IsPendingTabCandidate(target))
         {
             return await TickPendingTabVerificationAsync(
@@ -6442,6 +6457,48 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             ["pendingUntil"] = state.PendingTabVerifyUntil,
             ["error"] = lockedResult.Error
         });
+    }
+
+    private async Task<TimeSpan?> TryAcquireLockedLocalSideDefenseTargetAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        WorldObjectSnapshot candidate,
+        OperationResult<LockedTargetSnapshot> lockedResult,
+        Vector3Snapshot home,
+        double radius)
+    {
+        if (state.Fighting ||
+            state.CurrentTargetIsMaintenanceDefense ||
+            state.CurrentTargetIsRevivePathClear ||
+            state.CurrentTargetIsGatherSafetyClear ||
+            state.CurrentTargetBypassesHomeLeash ||
+            state.CurrentTargetIsTacticalMark ||
+            !lockedResult.Success ||
+            lockedResult.Value is not { IsMonsterAlive: true } lockedTarget ||
+            StationaryCombatState.IsSameTarget(
+                candidate.EntityId,
+                candidate.ServerObjectId,
+                lockedTarget.TargetEntityId,
+                lockedTarget.ServerObjectId) ||
+            !IsTargetingLocalSide(lockedTarget, state))
+        {
+            return null;
+        }
+
+        return await TryAcquireLockedTargetAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                candidate,
+                lockedResult,
+                home,
+                radius,
+                allowLockedFallback: true,
+                phase: "pre_move_defense")
+            .ConfigureAwait(false);
     }
 
     private async Task<TimeSpan?> TryAcquireLockedTargetAsync(

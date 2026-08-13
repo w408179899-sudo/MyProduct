@@ -380,6 +380,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat accepts thirty degree pre-lock face tolerance", TestStationaryCombatAcceptsThirtyDegreePreLockFaceToleranceAsync),
     ("stationary combat tabs until selected target is verified", TestStationaryCombatTabsUntilTargetVerifiedAsync),
     ("stationary combat verifies target after each tab press", TestStationaryCombatVerifiesAfterEachTabAsync),
+    ("stationary combat preempts radar approach for locked local attacker", TestStationaryCombatPreemptsRadarApproachForLockedLocalAttackerAsync),
+    ("stationary combat keeps radar approach for unrelated wrong lock", TestStationaryCombatKeepsRadarApproachForUnrelatedWrongLockAsync),
     ("stationary combat accepts closer aggressive wrong lock after tab", TestStationaryCombatAcceptsCloserAggressiveWrongLockAfterTabAsync),
     ("stationary combat rejects closer passive wrong lock after tab", TestStationaryCombatRejectsCloserPassiveWrongLockAfterTabAsync),
     ("stationary combat nudges then accepts unchanged locked target after tab", TestStationaryCombatNudgesThenAcceptsUnchangedLockedTargetAfterTabAsync),
@@ -17518,6 +17520,8 @@ static async Task TestStationaryCombatNudgesThenAcceptsUnchangedLockedTargetAfte
             TargetCurrentHp = 1000,
             TargetMaxHp = 1000,
             TargetPosition = new Vector3Snapshot(8, 0, 0),
+            TargetServerObjectId = 0,
+            TargetIsTargetingLocalPlayer = false,
             WorldObjects = new[]
             {
                 new WorldObjectSnapshot(100, 100, "candidate", "monster", new Vector3Snapshot(5, 0, 0), 5, 1000, 1000),
@@ -17592,6 +17596,162 @@ static async Task TestStationaryCombatNudgesThenAcceptsUnchangedLockedTargetAfte
         Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
         Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_WRONG_LOCK_NUDGE_HOLD_MS", previousWrongLockNudgeHold);
     }
+}
+
+static async Task TestStationaryCombatPreemptsRadarApproachForLockedLocalAttackerAsync()
+{
+    var result = await RunStationaryCombatRadarWrongLockScenarioAsync(lockedTargetsLocalSide: true)
+        .ConfigureAwait(false);
+
+    AssertFalse(!result.State.Fighting, "locked local attacker should enter fight state before radar movement");
+    AssertEqual((ushort)200, result.State.CurrentTargetEntityId, "locked local attacker current target");
+    AssertEqual(2000u, result.State.CurrentTargetServerObjectId, "locked local attacker current target server id");
+    AssertEqual((ushort)200, result.State.CandidateEntityId, "locked local attacker candidate");
+    AssertFalse(!result.State.CurrentTargetIsMaintenanceDefense, "locked local attacker should use maintenance defense semantics");
+    AssertFalse(result.Keyboard.Keys.Contains("Tab"), "locked local attacker must not be tabbed away");
+    AssertFalse(!result.Keyboard.Keys.Contains("D2"), "locked local attacker should enter skill release on takeover");
+    AssertFalse(!result.Logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.target.switched_to_locked" &&
+        string.Equals(Convert.ToString(entry.Fields["phase"]), "pre_move_defense", StringComparison.Ordinal) &&
+        Equals(Convert.ToUInt16(entry.Fields["candidateEntityId"]), (ushort)100) &&
+        Equals(Convert.ToUInt16(entry.Fields["lockedEntityId"]), (ushort)200)),
+        "locked local attacker takeover should be logged at the pre-move defense seam");
+    AssertFalse(result.Logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.radar.navigation" &&
+        string.Equals(Convert.ToString(entry.Fields["phase"]), "target_approach", StringComparison.Ordinal)),
+        "ordinary candidate radar approach must not run after local attacker takeover");
+}
+
+static async Task TestStationaryCombatKeepsRadarApproachForUnrelatedWrongLockAsync()
+{
+    var result = await RunStationaryCombatRadarWrongLockScenarioAsync(lockedTargetsLocalSide: false)
+        .ConfigureAwait(false);
+
+    AssertFalse(result.State.Fighting, "unrelated wrong lock must not enter fight state");
+    AssertEqual((ushort)0, result.State.CurrentTargetEntityId, "unrelated wrong lock current target");
+    AssertEqual((ushort)100, result.State.CandidateEntityId, "unrelated wrong lock should keep the ordinary candidate");
+    AssertFalse(result.Logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.target.switched_to_locked"),
+        "unrelated wrong lock must not use locked fallback");
+    AssertFalse(!result.Logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.radar.navigation" &&
+        string.Equals(Convert.ToString(entry.Fields["phase"]), "target_approach", StringComparison.Ordinal)),
+        "unrelated wrong lock should preserve ordinary radar approach");
+}
+
+static async Task<(RecordingKeyboardInput Keyboard, InMemoryRoadhogLogger Logger, StationaryCombatState State)>
+    RunStationaryCombatRadarWrongLockScenarioAsync(bool lockedTargetsLocalSide)
+{
+    const uint mapId = 778;
+    const uint localServerObjectId = 1;
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 60,
+        RadarObstacleAvoidance = new RadarObstacleScriptSettings
+        {
+            Enabled = true,
+            WaypointReachMeters = 1.5D,
+            MaximumDetourExtraMeters = 30.0D
+        }
+    };
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(
+            1,
+            200,
+            "Fake",
+            100,
+            100,
+            100,
+            100,
+            0,
+            new Vector3Snapshot(0, 0, 0),
+            DateTimeOffset.Now,
+            90,
+            10,
+            90),
+        TargetEntityId = 200,
+        TargetOwnServerObjectId = 2000,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        TargetName = "locked",
+        TargetPosition = new Vector3Snapshot(5, 0, 0),
+        TargetServerObjectId = lockedTargetsLocalSide ? localServerObjectId : 999,
+        TargetIsTargetingLocalPlayer = lockedTargetsLocalSide,
+        LocalServerObjectId = localServerObjectId,
+        Channel = new ChannelSnapshot(0, 1, mapId, DateTimeOffset.Now),
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(
+                100,
+                1000,
+                "candidate",
+                "monster",
+                new Vector3Snapshot(45, 0, 0),
+                45,
+                1000,
+                1000,
+                AggressiveKnown: true,
+                IsAggressiveToPlayer: true),
+            new WorldObjectSnapshot(
+                200,
+                2000,
+                "locked",
+                "monster",
+                new Vector3Snapshot(5, 0, 0),
+                5,
+                1000,
+                1000,
+                TargetServerObjectId: 999,
+                IsTargetingLocalPlayer: false,
+                AggressiveKnown: true,
+                IsAggressiveToPlayer: true)
+        },
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0,
+            [7] = 0,
+            [8] = 0,
+            [9] = 0,
+            [10] = 0
+        })
+    };
+    var mapStore = new StaticRadarMapStore(new RadarMapDocument
+    {
+        MapId = mapId,
+        Segments = new List<RadarObstacleSegment>()
+    });
+    var navigator = new StationaryObstacleNavigator(
+        mapStore,
+        new RadarRoutePlanner(),
+        new RadarMapRevisionRegistry());
+    var controller = new StationaryCombatController(
+        keyboard,
+        new SemiAutoCombatController(keyboard),
+        obstacleNavigator: navigator);
+    var state = new StationaryCombatState();
+
+    await controller
+        .TickAsync(
+            CreateContext(settings, gameApi, logger),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            state)
+        .ConfigureAwait(false);
+
+    return (keyboard, logger, state);
 }
 
 static async Task TestStationaryCombatAcceptsCloserAggressiveWrongLockAfterTabAsync()
