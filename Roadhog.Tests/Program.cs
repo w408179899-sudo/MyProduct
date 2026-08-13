@@ -160,6 +160,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team support uses group cleanse when multiple members need cleanse", TestTeamSupportUsesGroupCleanseWhenMultipleMembersNeedCleanseAsync),
     ("team support uses group heal without target select", TestTeamSupportUsesGroupHealWithoutTargetSelectAsync),
     ("team support heals while fighting when always", TestTeamSupportHealsWhileFightingWhenAlwaysAsync),
+    ("team support cooling heal yields to active combat", TestTeamSupportCoolingHealYieldsToActiveCombatAsync),
+    ("team support cooling heal falls back to ready heal", TestTeamSupportCoolingHealFallsBackToReadyHealAsync),
+    ("team support missing heal skill preserves emergency heal", TestTeamSupportMissingHealSkillPreservesEmergencyHealAsync),
     ("team support heals while fighting when in combat", TestTeamSupportHealsWhileFightingWhenInCombatAsync),
     ("team support restores tactical target after in-combat targeted heal", TestTeamSupportRestoresTacticalTargetAfterInCombatTargetedHealAsync),
     ("team support defers after-combat heal while fighting", TestTeamSupportDefersAfterCombatHealWhileFightingAsync),
@@ -4470,6 +4473,7 @@ static async Task TestTeamSupportUsesGroupHealWithoutTargetSelectAsync()
 
 static async Task TestTeamSupportHealsWhileFightingWhenAlwaysAsync()
 {
+    const uint healSkillId = 1196;
     var keyboard = new RecordingKeyboardInput();
     var logger = new InMemoryRoadhogLogger();
     var self = CreatePartyMemberSnapshot(1000, "Healer", true, false, 0.0) with
@@ -4484,6 +4488,10 @@ static async Task TestTeamSupportHealsWhileFightingWhenAlwaysAsync()
         MaxHp = 100
     };
     var gameApi = CreateTeamSupportGameApi(self, leader);
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(healSkillId, "Heal", 1, 1, "Heal", 1, false, 10_000, 0)
+    };
     keyboard.AfterPress = key =>
     {
         if (string.Equals(key, "F2", StringComparison.Ordinal))
@@ -4491,6 +4499,8 @@ static async Task TestTeamSupportHealsWhileFightingWhenAlwaysAsync()
             gameApi.TargetOwnServerObjectId = leader.ServerObjectId;
         }
     };
+    var settings = CreateTeamSupportSettings();
+    settings.Team.Support!.HealSkillRules[0].SkillId = healSkillId;
     var combatState = new StationaryCombatState
     {
         Fighting = true,
@@ -4500,7 +4510,7 @@ static async Task TestTeamSupportHealsWhileFightingWhenAlwaysAsync()
     var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
 
     var result = await controller
-        .TickAsync(CreateContext(CreateTeamSupportSettings(), gameApi, logger), new TeamSupportState(), combatState)
+        .TickAsync(CreateContext(settings, gameApi, logger), new TeamSupportState(), combatState, new SemiAutoCombatState())
         .ConfigureAwait(false);
 
     AssertFalse(!result.ShouldSkipNormalWork, "always heal should consume the active-combat team support tick");
@@ -4512,6 +4522,147 @@ static async Task TestTeamSupportHealsWhileFightingWhenAlwaysAsync()
             entry.EventName == "team_support.action_pressed" &&
             string.Equals(entry.Fields["action"]?.ToString(), "Heal", StringComparison.Ordinal)),
         "active-combat team heal should log its action press");
+    AssertSequence(new[] { healSkillId }, gameApi.LastRequestedSkillIds ?? Array.Empty<uint>(), "ready heal should use scoped skill read");
+}
+
+static async Task TestTeamSupportCoolingHealYieldsToActiveCombatAsync()
+{
+    const uint healSkillId = 1196;
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = CreatePartyMemberSnapshot(1000, "Healer", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
+    {
+        CurrentHp = 50,
+        MaxHp = 100
+    };
+    var settings = CreateTeamSupportSettings();
+    settings.Team.Support!.HealSkillRules[0].SkillId = healSkillId;
+    settings.Team.Support.HealSkillRules[0].TargetType = TeamHealSkillTargetType.Group;
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(healSkillId, "Heal", 1, 1, "Heal", 1, false, 10_000, ActiveCooldownEnd())
+    };
+    var combatState = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CurrentTargetServerObjectId = 5000
+    };
+    var semiAutoState = new SemiAutoCombatState();
+    CalibrateCooldownClock(semiAutoState);
+
+    var result = await new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog())
+        .TickAsync(CreateContext(settings, gameApi, logger), new TeamSupportState(), combatState, semiAutoState)
+        .ConfigureAwait(false);
+
+    AssertFalse(result.ShouldSkipNormalWork, "cooling heal should let the active combat controller run");
+    AssertEqual(0, keyboard.Keys.Count, "cooling heal should not select a member or press its key");
+    AssertSequence(new[] { healSkillId }, gameApi.LastRequestedSkillIds ?? Array.Empty<uint>(), "cooling heal scoped skill read");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "team_support.heal.skill_cooling" &&
+            Convert.ToUInt32(entry.Fields["skillId"]) == healSkillId),
+        "cooling heal should emit a diagnostic event");
+}
+
+static async Task TestTeamSupportCoolingHealFallsBackToReadyHealAsync()
+{
+    const uint coolingSkillId = 1196;
+    const uint readySkillId = 1197;
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = CreatePartyMemberSnapshot(1000, "Healer", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
+    {
+        CurrentHp = 50,
+        MaxHp = 100
+    };
+    var settings = CreateTeamSupportSettings();
+    settings.Team.Support!.HealSkillRules = new List<TeamHealSkillRuleConfig>
+    {
+        new()
+        {
+            BelowPercent = 60,
+            Key = "NumPad1",
+            SkillId = coolingSkillId,
+            RunTiming = MaintenanceRuleRunTiming.Always,
+            TargetType = TeamHealSkillTargetType.Group
+        },
+        new()
+        {
+            BelowPercent = 90,
+            Key = "NumPad2",
+            SkillId = readySkillId,
+            RunTiming = MaintenanceRuleRunTiming.Always,
+            TargetType = TeamHealSkillTargetType.Group
+        }
+    };
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(coolingSkillId, "Cooling Heal", 1, 1, "Cooling Heal", 1, false, 10_000, ActiveCooldownEnd()),
+        new SkillSnapshot(readySkillId, "Ready Heal", 1, 1, "Ready Heal", 1, false, 10_000, 0)
+    };
+    var combatState = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CurrentTargetServerObjectId = 5000
+    };
+    var semiAutoState = new SemiAutoCombatState();
+    CalibrateCooldownClock(semiAutoState);
+
+    var result = await new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog())
+        .TickAsync(CreateContext(settings, gameApi, logger), new TeamSupportState(), combatState, semiAutoState)
+        .ConfigureAwait(false);
+
+    AssertFalse(!result.ShouldSkipNormalWork, "ready fallback heal should retain healing priority");
+    AssertSequence(new[] { "NumPad2" }, keyboard.Keys.ToArray(), "cooling primary heal should fall back to ready heal");
+    AssertSequence(new[] { coolingSkillId, readySkillId }, gameApi.LastRequestedSkillIds ?? Array.Empty<uint>(), "fallback heal scoped skill ids");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "team_support.action_pressed" &&
+            Convert.ToUInt32(entry.Fields["skillId"]) == readySkillId),
+        "ready fallback heal should be logged as the pressed action");
+}
+
+static async Task TestTeamSupportMissingHealSkillPreservesEmergencyHealAsync()
+{
+    const uint healSkillId = 1196;
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = CreatePartyMemberSnapshot(1000, "Healer", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
+    {
+        CurrentHp = 50,
+        MaxHp = 100
+    };
+    var settings = CreateTeamSupportSettings();
+    settings.Team.Support!.HealSkillRules[0].SkillId = healSkillId;
+    settings.Team.Support.HealSkillRules[0].TargetType = TeamHealSkillTargetType.Group;
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    var combatState = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CurrentTargetServerObjectId = 5000
+    };
+
+    var result = await new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog())
+        .TickAsync(
+            CreateContext(settings, gameApi, logger),
+            new TeamSupportState(),
+            combatState,
+            new SemiAutoCombatState())
+        .ConfigureAwait(false);
+
+    AssertFalse(!result.ShouldSkipNormalWork, "missing skill snapshot should preserve emergency healing");
+    AssertSequence(new[] { "NumPad1" }, keyboard.Keys.ToArray(), "missing skill snapshot should fail open to the configured heal");
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName == "team_support.heal.skill_cooling"),
+        "missing skill snapshot must not be reported as cooling");
 }
 
 static async Task TestTeamSupportHealsWhileFightingWhenInCombatAsync()

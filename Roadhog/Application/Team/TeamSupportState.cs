@@ -20,6 +20,8 @@ public sealed class TeamSupportState
 
     public DateTimeOffset LastTacticalMarkLogAt { get; set; } = DateTimeOffset.MinValue;
 
+    public DateTimeOffset LastHealCooldownLogAt { get; set; } = DateTimeOffset.MinValue;
+
     public bool TacticalTargetRestorePending { get; set; }
 
     public TacticalMarkRangeRetryState TacticalMarkRangeRetry { get; } = new();

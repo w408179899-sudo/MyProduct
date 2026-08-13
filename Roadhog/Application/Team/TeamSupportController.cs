@@ -1,4 +1,5 @@
 using Roadhog.Application.AbnormalStatuses;
+using Roadhog.Application.SemiAuto;
 using Roadhog.Application.Workers;
 using Roadhog.Application.StationaryCombat;
 using Roadhog.Core.Accounts;
@@ -45,7 +46,8 @@ public sealed class TeamSupportController
     public async Task<TeamSupportTickResult> TickAsync(
         AccountWorkerContext context,
         TeamSupportState state,
-        StationaryCombatState? combatState = null)
+        StationaryCombatState? combatState = null,
+        SemiAutoCombatState? semiAutoState = null)
     {
         var team = context.Config.ScriptSettings?.Team ?? new TeamScriptSettings();
         var support = team.Support ?? new TeamSupportScriptSettings();
@@ -259,10 +261,13 @@ public sealed class TeamSupportController
 
         if (localCombatTargetActive)
         {
-            var combatHealAction = SelectHealAction(
-                GetMaintenanceMembers(snapshot, activeGroupDistanceMeters),
-                GetHealRules(support),
-                MaintenanceRuleRunTiming.InCombat);
+            var combatHealAction = await SelectCombatReadyHealActionAsync(
+                    context,
+                    state,
+                    GetMaintenanceMembers(snapshot, activeGroupDistanceMeters),
+                    GetHealRules(support),
+                    semiAutoState)
+                .ConfigureAwait(false);
             if (combatHealAction is not null)
             {
                 var performed = await ExecuteActionAsync(context, state, combatHealAction, combatState).ConfigureAwait(false);
@@ -314,7 +319,8 @@ public sealed class TeamSupportController
                 support,
                 snapshot,
                 activeGroupDistanceMeters,
-                combatState)
+                combatState,
+                semiAutoState)
             .ConfigureAwait(false);
         if (action is not null)
         {
@@ -437,7 +443,8 @@ public sealed class TeamSupportController
         TeamSupportScriptSettings support,
         TeamSnapshot snapshot,
         double groupDistanceMeters,
-        StationaryCombatState? combatState)
+        StationaryCombatState? combatState,
+        SemiAutoCombatState? semiAutoState)
     {
         var members = GetMaintenanceMembers(snapshot, groupDistanceMeters);
         var statusMembers = members
@@ -487,7 +494,15 @@ public sealed class TeamSupportController
         }
 
         var timing = await ResolveCurrentRunTimingAsync(context, snapshot, combatState).ConfigureAwait(false);
-        var healAction = SelectHealAction(members, healRules, timing);
+        var healAction = timing == MaintenanceRuleRunTiming.InCombat
+            ? await SelectCombatReadyHealActionAsync(
+                    context,
+                    state,
+                    members,
+                    healRules,
+                    semiAutoState)
+                .ConfigureAwait(false)
+            : SelectHealAction(members, healRules, timing);
         if (healAction is not null)
         {
             return healAction;
@@ -534,6 +549,55 @@ public sealed class TeamSupportController
         return healCandidate.Rule.TargetType == TeamHealSkillTargetType.Group
             ? TeamSupportAction.GroupHeal(healCandidate.Rule, healCandidate.Member)
             : TeamSupportAction.TargetedHeal(healCandidate.Member, healCandidate.Rule);
+    }
+
+    private static async Task<TeamSupportAction?> SelectCombatReadyHealActionAsync(
+        AccountWorkerContext context,
+        TeamSupportState state,
+        IReadOnlyList<TeamMemberSnapshot> members,
+        IReadOnlyList<TeamHealSkillRuleConfig> healRules,
+        SemiAutoCombatState? semiAutoState)
+    {
+        var currentAction = SelectHealAction(members, healRules, MaintenanceRuleRunTiming.InCombat);
+        if (currentAction?.HealRule is not { SkillId: > 0 } || semiAutoState is null)
+        {
+            return currentAction;
+        }
+
+        var skillIds = healRules
+            .Where(rule => IsRuleAllowed(rule, MaintenanceRuleRunTiming.InCombat) && rule.SkillId != 0)
+            .Select(rule => rule.SkillId)
+            .Distinct()
+            .ToArray();
+        var skillsResult = await ReadSkillsAsync(context, skillIds).ConfigureAwait(false);
+        if (!skillsResult.Success || skillsResult.Value is null)
+        {
+            return currentAction;
+        }
+
+        var coolingSkillIds = new HashSet<uint>();
+        foreach (var skill in skillsResult.Value)
+        {
+            if (!skillIds.Contains(skill.SkillId) ||
+                SemiAutoSkillReleasePriority.GetActionCooldownReadiness(skill, semiAutoState) !=
+                SemiAutoSkillCooldownReadiness.CoolingDown)
+            {
+                continue;
+            }
+
+            coolingSkillIds.Add(skill.SkillId);
+            LogHealRuleSkippedCooling(context, state, semiAutoState, skill);
+        }
+
+        if (coolingSkillIds.Count == 0)
+        {
+            return currentAction;
+        }
+
+        var readyOrUnknownRules = healRules
+            .Where(rule => rule.SkillId == 0 || !coolingSkillIds.Contains(rule.SkillId))
+            .ToArray();
+        return SelectHealAction(members, readyOrUnknownRules, MaintenanceRuleRunTiming.InCombat);
     }
 
     private static IReadOnlyList<TeamHealSkillRuleConfig> GetHealRules(TeamSupportScriptSettings support)
@@ -1455,6 +1519,29 @@ public sealed class TeamSupportController
         context.Logger.Warn("team_support.action_press.failed", fields);
     }
 
+    private static void LogHealRuleSkippedCooling(
+        AccountWorkerContext context,
+        TeamSupportState state,
+        SemiAutoCombatState semiAutoState,
+        SkillSnapshot skill)
+    {
+        if (!ShouldLog(state.LastHealCooldownLogAt))
+        {
+            return;
+        }
+
+        state.LastHealCooldownLogAt = DateTimeOffset.Now;
+        context.Logger.Info("team_support.heal.skill_cooling", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["skillId"] = skill.SkillId,
+            ["skillName"] = skill.Name,
+            ["cooldownDuration"] = skill.CooldownDuration,
+            ["cooldownEndTime"] = skill.CooldownEndTime,
+            ["cooldownOffsetMs"] = semiAutoState.CooldownTickOffsetMs
+        });
+    }
+
     private void LogCatalogWarningIfNeeded(
         IRoadhogLogger logger,
         TeamSupportState state,
@@ -1517,6 +1604,15 @@ public sealed class TeamSupportController
         return context.GameApi is IRoadhogScopedGameApi scopedApi
             ? scopedApi.ReadWorldObjectsAsync(CreateReadContext(context), context.StopToken)
             : context.GameApi.ReadWorldObjectsAsync(context.StopToken);
+    }
+
+    private static Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(
+        AccountWorkerContext context,
+        IReadOnlyCollection<uint> skillIds)
+    {
+        return context.GameApi is IRoadhogScopedGameApi scopedApi
+            ? scopedApi.ReadSkillsAsync(CreateReadContext(context), skillIds, context.StopToken)
+            : context.GameApi.ReadSkillsAsync(context.StopToken);
     }
 
     private static GameApiReadContext CreateReadContext(

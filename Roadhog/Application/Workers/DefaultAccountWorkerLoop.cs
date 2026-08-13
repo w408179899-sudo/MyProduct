@@ -149,7 +149,8 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                                 scriptSettings,
                                 teamSupportState,
                                 teamOutputState,
-                                stationaryCombatState)
+                                stationaryCombatState,
+                                semiAutoState)
                                 .ConfigureAwait(false);
                             if (teamResult.HasValue)
                             {
@@ -204,7 +205,8 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                             scriptSettings,
                             teamSupportState,
                             teamOutputState,
-                            stationaryCombatState)
+                            stationaryCombatState,
+                            semiAutoState)
                             .ConfigureAwait(false);
                         if (teamResult.HasValue)
                         {
@@ -259,7 +261,8 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         ScriptSettings scriptSettings,
         TeamSupportState teamSupportState,
         TeamOutputState teamOutputState,
-        StationaryCombatState stationaryCombatState)
+        StationaryCombatState stationaryCombatState,
+        SemiAutoCombatState semiAutoState)
     {
         if (stationaryCombatState.LootAfterKill.Active)
         {
@@ -270,7 +273,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
             IsTeamSupportEnabled(scriptSettings))
         {
             var supportResult = await _teamSupport
-                .TickAsync(context, teamSupportState, stationaryCombatState)
+                .TickAsync(context, teamSupportState, stationaryCombatState, semiAutoState)
                 .ConfigureAwait(false);
             return new TeamWorkerTickResult(
                 supportResult.ShouldSkipNormalWork,
