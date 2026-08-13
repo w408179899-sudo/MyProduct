@@ -5302,7 +5302,14 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         if (!state.CurrentTargetIsMaintenanceDefense &&
             !state.CurrentTargetIsRevivePathClear &&
             !AllowsClaimedTargets(context) &&
-            IsClaimedByOther(target, state))
+            IsClaimedByOther(target, state) &&
+            !TryKeepClaimedTargetForVerifiedLeaderTacticalMark(
+                context,
+                state,
+                target.EntityId,
+                target.ServerObjectId,
+                target.Name,
+                target.TargetServerObjectId))
         {
             return await IgnoreCurrentTargetAsync(
                     context,
@@ -6798,6 +6805,17 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             state.CurrentTargetIsRevivePathClear ||
             AllowsClaimedTargets(context) ||
             !IsClaimedByOther(target, state))
+        {
+            return null;
+        }
+
+        if (TryKeepClaimedTargetForVerifiedLeaderTacticalMark(
+                context,
+                state,
+                target.TargetEntityId,
+                target.ServerObjectId,
+                target.Name,
+                target.TargetServerObjectId))
         {
             return null;
         }
@@ -9075,6 +9093,46 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     private static bool AllowsClaimedTargets(AccountWorkerContext context)
     {
         return context.Config.ScriptSettings?.Combat?.ContestMonster == true;
+    }
+
+    private static bool TryKeepClaimedTargetForVerifiedLeaderTacticalMark(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        ushort targetEntityId,
+        uint targetServerObjectId,
+        string targetName,
+        uint targetingServerObjectId)
+    {
+        var team = context.Config.ScriptSettings?.Team;
+        if (team?.Role != TeamRole.Leader ||
+            team.Leader is not { Enabled: true, TacticalMarkEnabled: true } ||
+            !state.LeaderTacticalMark.Verified ||
+            targetServerObjectId == 0 ||
+            state.LeaderTacticalMark.TargetServerObjectId != targetServerObjectId ||
+            !StationaryCombatState.IsSameTarget(
+                state.CurrentTargetEntityId,
+                state.CurrentTargetServerObjectId,
+                targetEntityId,
+                targetServerObjectId))
+        {
+            return false;
+        }
+
+        LogActionThrottled(
+            context,
+            state,
+            "stationary_combat.target.claimed_kept_for_verified_tactical_mark",
+            "target:" + TargetActionKey(targetEntityId, targetServerObjectId),
+            new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["targetEntityId"] = targetEntityId,
+                ["targetServerObjectId"] = targetServerObjectId,
+                ["targetingServerObjectId"] = targetingServerObjectId,
+                ["targetName"] = targetName
+            },
+            TimeSpan.FromMilliseconds(500));
+        return true;
     }
 
     private static bool PrefersAggressiveMonsters(AccountWorkerContext context)

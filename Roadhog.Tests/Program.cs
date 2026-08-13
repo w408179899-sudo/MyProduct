@@ -413,6 +413,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat presses C until locked target targets player", TestStationaryCombatPressesCUntilLockedTargetTargetsPlayerAsync),
     ("stationary combat accepts self targeting locked target after opening attack", TestStationaryCombatAcceptsSelfTargetingLockedTargetAfterOpeningAttackAsync),
     ("stationary combat switches away from target claimed by other", TestStationaryCombatSwitchesAwayFromTargetClaimedByOtherAsync),
+    ("stationary combat keeps verified leader marked target claimed by other", TestStationaryCombatKeepsVerifiedLeaderMarkedTargetClaimedByOtherAsync),
+    ("stationary combat marking checkbox gates claimed target priority", TestStationaryCombatMarkingCheckboxGatesClaimedTargetPriorityAsync),
+    ("stationary combat verified mark must match current target", TestStationaryCombatVerifiedMarkMustMatchCurrentTargetAsync),
     ("stationary combat treats self targeting monster as unclaimed", TestStationaryCombatTreatsSelfTargetingMonsterAsUnclaimedAsync),
     ("stationary combat keeps previously engaged target while it self targets", TestStationaryCombatKeepsPreviouslyEngagedTargetWhileSelfTargetingAsync),
     ("stationary combat keeps current target that previously targeted player", TestStationaryCombatKeepsCurrentTargetThatPreviouslyTargetedPlayerAsync),
@@ -20323,6 +20326,167 @@ static async Task TestStationaryCombatSwitchesAwayFromTargetClaimedByOtherAsync(
     await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
 
     AssertEqual((ushort)101, state.CandidateEntityId, "next tick should switch to the next unclaimed target");
+}
+
+static async Task TestStationaryCombatKeepsVerifiedLeaderMarkedTargetClaimedByOtherAsync()
+{
+    var (state, keyboard, logger) = await RunClaimedLeaderMarkedTargetScenarioAsync(
+            tacticalMarkEnabled: true,
+            verifiedMarkedTargetServerObjectId: 100)
+        .ConfigureAwait(false);
+
+    AssertFalse(!state.Fighting, "verified leader marked target should remain in combat when claimed by another player");
+    AssertEqual((ushort)100, state.CurrentTargetEntityId, "verified leader marked target entity should remain current");
+    AssertEqual(100u, state.CurrentTargetServerObjectId, "verified leader marked target server id should remain current");
+    AssertFalse(state.IsTargetIgnored(100, 100), "verified leader marked target should not be ignored as claimed");
+    AssertFalse(!keyboard.Keys.Contains("D2"), "verified leader marked target should continue skill release");
+    AssertFalse(logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.target.ignored" &&
+        string.Equals(Convert.ToString(entry.Fields["reason"]), "target_owned_by_other", StringComparison.Ordinal)),
+        "verified leader marked target should not log claimed-target ignore");
+    AssertFalse(!logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.target.claimed_kept_for_verified_tactical_mark"),
+        "verified leader marked target priority should be logged");
+}
+
+static async Task TestStationaryCombatMarkingCheckboxGatesClaimedTargetPriorityAsync()
+{
+    var (state, keyboard, logger) = await RunClaimedLeaderMarkedTargetScenarioAsync(
+            tacticalMarkEnabled: false,
+            verifiedMarkedTargetServerObjectId: 100)
+        .ConfigureAwait(false);
+
+    AssertFalse(state.Fighting, "disabled leader marking should keep the existing claimed-target rejection");
+    AssertFalse(!state.IsTargetIgnored(100, 100), "disabled leader marking should ignore a target claimed by another player");
+    AssertFalse(keyboard.Keys.Contains("D2"), "disabled leader marking must not release skills on a claimed target");
+    AssertFalse(!logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.target.ignored" &&
+        string.Equals(Convert.ToString(entry.Fields["reason"]), "target_owned_by_other", StringComparison.Ordinal)),
+        "disabled leader marking should retain the target-owned-by-other diagnostic");
+    AssertFalse(logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.target.claimed_kept_for_verified_tactical_mark"),
+        "disabled leader marking must not log marked-target priority");
+}
+
+static async Task TestStationaryCombatVerifiedMarkMustMatchCurrentTargetAsync()
+{
+    var (state, keyboard, logger) = await RunClaimedLeaderMarkedTargetScenarioAsync(
+            tacticalMarkEnabled: true,
+            verifiedMarkedTargetServerObjectId: 777)
+        .ConfigureAwait(false);
+
+    AssertFalse(state.Fighting, "a verified mark for another target should not protect the current claimed target");
+    AssertFalse(!state.IsTargetIgnored(100, 100), "a mismatched verified mark should keep claimed-target rejection");
+    AssertFalse(keyboard.Keys.Contains("D2"), "a mismatched verified mark must not release skills on the current claimed target");
+    AssertFalse(!logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.target.ignored" &&
+        string.Equals(Convert.ToString(entry.Fields["reason"]), "target_owned_by_other", StringComparison.Ordinal)),
+        "a mismatched verified mark should retain the target-owned-by-other diagnostic");
+}
+
+static async Task<(StationaryCombatState State, RecordingKeyboardInput Keyboard, InMemoryRoadhogLogger Logger)>
+    RunClaimedLeaderMarkedTargetScenarioAsync(
+        bool tacticalMarkEnabled,
+        uint verifiedMarkedTargetServerObjectId)
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 60,
+        ContestMonster = false
+    };
+    settings.Team = new TeamScriptSettings
+    {
+        Role = TeamRole.Leader,
+        Leader = new TeamLeaderScriptSettings
+        {
+            Enabled = true,
+            TacticalMarkEnabled = tacticalMarkEnabled,
+            TacticalMarkKey = "NumPad6"
+        }
+    };
+
+    const uint currentTargetServerObjectId = 100;
+    const uint otherPlayerServerObjectId = 999;
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 1, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+        TargetEntityId = 100,
+        TargetOwnServerObjectId = currentTargetServerObjectId,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        TargetPosition = new Vector3Snapshot(8, 0, 0),
+        TargetServerObjectId = otherPlayerServerObjectId,
+        TargetIsTargetingLocalPlayer = false,
+        TacticsSigns = new TacticsSignSnapshot(
+            new uint[] { currentTargetServerObjectId, 0, 0, 0 },
+            DateTimeOffset.Now),
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(
+                100,
+                currentTargetServerObjectId,
+                "marked-claimed",
+                "monster",
+                new Vector3Snapshot(8, 0, 0),
+                8,
+                1000,
+                1000,
+                otherPlayerServerObjectId,
+                false),
+            new WorldObjectSnapshot(
+                101,
+                101,
+                "local-threat",
+                "monster",
+                new Vector3Snapshot(6, 0, 0),
+                6,
+                1000,
+                1000,
+                1,
+                true)
+        },
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0,
+            [7] = 0,
+            [8] = 0,
+            [9] = 0,
+            [10] = 0
+        })
+    };
+    var controller = new StationaryCombatController(
+        keyboard,
+        new SemiAutoCombatController(keyboard));
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CurrentTargetServerObjectId = currentTargetServerObjectId,
+        CandidateEntityId = 100,
+        CandidateServerObjectId = currentTargetServerObjectId
+    };
+    state.MarkCandidate(100, currentTargetServerObjectId, DateTimeOffset.Now);
+    state.LeaderTacticalMark.Start(verifiedMarkedTargetServerObjectId);
+    state.LeaderTacticalMark.MarkVerified();
+    var context = CreateContext(settings, gameApi, logger);
+
+    await controller
+        .TickAsync(context, plan, new SemiAutoCombatState(), state)
+        .ConfigureAwait(false);
+
+    return (state, keyboard, logger);
 }
 
 static async Task TestStationaryCombatTreatsSelfTargetingMonsterAsUnclaimedAsync()
