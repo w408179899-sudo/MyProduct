@@ -357,6 +357,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
 
         WorldObjectSnapshot? noTargetRestWakeTarget = null;
+        WorldObjectSnapshot? preMaintenanceDefenseTarget = null;
+        var leaderRestGuardAllowsSit = true;
         var skipMaintenanceThisTick = false;
         if (temporaryTargetSwitchGuard)
         {
@@ -440,6 +442,31 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 }
             }
 
+            var mayEnterMaintenanceRest = ShouldAttemptSitMaintenance(context, player);
+            var mayEnterNoTargetRest = !temporaryTargetSwitchGuard &&
+                                       !stationaryGatherWorkAvailable &&
+                                       CanUseNoTargetRestAtHome(combat) &&
+                                       playerDistanceFromHome <= ReturnStopDistance &&
+                                       !ShouldDelayNoTargetActionAfterLoot(state, DateTimeOffset.Now);
+            if (!state.Fighting &&
+                !skipMaintenanceThisTick &&
+                (mayEnterMaintenanceRest || mayEnterNoTargetRest) &&
+                IsEnabledTeamLeader(context))
+            {
+                var restDecision = await EvaluateLeaderRestGuardAsync(
+                        context,
+                        state,
+                        playerPosition)
+                    .ConfigureAwait(false);
+                leaderRestGuardAllowsSit = restDecision.CanSit;
+                preMaintenanceDefenseTarget = restDecision.DefenseTarget;
+                noTargetRestWakeTarget ??= preMaintenanceDefenseTarget;
+                if (preMaintenanceDefenseTarget is not null)
+                {
+                    skipMaintenanceThisTick = true;
+                }
+            }
+
             if (!state.Fighting &&
                 !IsGatherMaintenanceBlocked(state) &&
                 !skipMaintenanceThisTick &&
@@ -449,7 +476,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     semiAutoState,
                     state,
                     player,
-                    allowSitMaintenance: !temporaryTargetSwitchGuard,
+                    allowSitMaintenance: !temporaryTargetSwitchGuard && leaderRestGuardAllowsSit,
                     clearSitWhenDisallowed: temporaryTargetSwitchGuard)
                 .ConfigureAwait(false))
             {
@@ -460,6 +487,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             if (!state.Fighting &&
                 !temporaryTargetSwitchGuard &&
                 !stationaryGatherWorkAvailable &&
+                leaderRestGuardAllowsSit &&
                 CanUseNoTargetRestAtHome(combat) &&
                 playerDistanceFromHome <= ReturnStopDistance &&
                 !ShouldDelayNoTargetActionAfterLoot(state, DateTimeOffset.Now))
@@ -620,7 +648,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             gatherThreatTarget = gatherTick.ThreatTarget;
         }
 
-        var target = noTargetRestWakeTarget;
+        var target = noTargetRestWakeTarget ?? preMaintenanceDefenseTarget;
         if (target is null)
         {
             target = await SelectMaintenanceDefenseTargetAsync(
@@ -703,6 +731,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             }
 
             var canEnterNoTargetRestAtHome = !temporaryTargetSwitchGuard &&
+                                             leaderRestGuardAllowsSit &&
                                              CanUseNoTargetRestAtHome(combat) &&
                                              playerDistanceFromHome <= ReturnStopDistance;
             if (!canEnterNoTargetRestAtHome &&
@@ -713,7 +742,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                         semiAutoState,
                         state,
                         player,
-                        allowSitMaintenance: !temporaryTargetSwitchGuard,
+                        allowSitMaintenance: !temporaryTargetSwitchGuard && leaderRestGuardAllowsSit,
                         clearSitWhenDisallowed: temporaryTargetSwitchGuard)
                     .ConfigureAwait(false))
             {
@@ -8005,6 +8034,136 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
 
         return localSideThreat;
+    }
+
+    private async Task<(bool CanSit, WorldObjectSnapshot? DefenseTarget)> EvaluateLeaderRestGuardAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        Vector3Snapshot playerPosition)
+    {
+        var worldObjectsResult = await ReadWorldObjectsAsync(context).ConfigureAwait(false);
+        if (!worldObjectsResult.Success || worldObjectsResult.Value is null)
+        {
+            LogLeaderRestBlocked(
+                context,
+                state,
+                "world_objects_failed",
+                error: worldObjectsResult.Error);
+            return (false, null);
+        }
+
+        var monitor = new TeamMonitor(context.GameApi, context.Logger);
+        var snapshotResult = await monitor
+            .ReadSnapshotAsync(CreateReadContext(context), context.StopToken)
+            .ConfigureAwait(false);
+        if (!snapshotResult.Success || snapshotResult.Value is null)
+        {
+            LogLeaderRestBlocked(
+                context,
+                state,
+                "team_snapshot_failed",
+                error: snapshotResult.Error);
+            return (false, null);
+        }
+
+        var team = context.Config.ScriptSettings?.Team ?? new TeamScriptSettings();
+        var objects = worldObjectsResult.Value;
+        var snapshot = snapshotResult.Value;
+        var teamThreat = TeamLeaderProtectionSelector.SelectThreat(
+            snapshot,
+            objects,
+            playerPosition,
+            team.GroupDistanceMeters);
+        var localThreat = objects
+            .Where(target => IsTargetingLocalSide(target, state))
+            .Where(StationaryCombatTargetSelector.IsSelectableMonster)
+            .Where(target => target.Position is not null)
+            .OrderBy(target => StationaryCombatTargetSelector.HorizontalDistance(target.Position!.Value, playerPosition))
+            .ThenBy(target => target.ServerObjectId)
+            .ThenBy(target => target.EntityId)
+            .FirstOrDefault();
+        var defenseTarget = teamThreat?.Target ?? localThreat;
+        if (defenseTarget is null)
+        {
+            return (true, null);
+        }
+
+        var protectedServerObjectIds = TeamLeaderProtectionSelector.CreateProtectedServerObjectIds(
+            snapshot,
+            team.GroupDistanceMeters);
+        var threatCount = objects.Count(target =>
+            StationaryCombatTargetSelector.IsSelectableMonster(target) &&
+            (IsTargetingLocalSide(target, state) ||
+             protectedServerObjectIds.Contains(target.TargetServerObjectId)));
+        if (teamThreat is not null)
+        {
+            state.MarkTeamLeaderProtectionTarget(teamThreat.Target);
+        }
+        else
+        {
+            state.ClearTeamLeaderProtectionTarget();
+        }
+
+        LogLeaderRestBlocked(
+            context,
+            state,
+            "team_combat_active",
+            defenseTarget,
+            threatCount,
+            teamThreat);
+        return (false, defenseTarget);
+    }
+
+    private static bool IsEnabledTeamLeader(AccountWorkerContext context)
+    {
+        var team = context.Config.ScriptSettings?.Team;
+        return team?.Role == TeamRole.Leader && team.Leader?.Enabled == true;
+    }
+
+    private static bool ShouldAttemptSitMaintenance(
+        AccountWorkerContext context,
+        PlayerSnapshot player)
+    {
+        var maintenance = context.Config.ScriptSettings?.Maintenance;
+        return maintenance?.SitMaintenanceEnabled == true &&
+               (IsPercentAtOrBelow(player.CurrentHp, player.MaxHp, maintenance.SitHpBelowPercent) ||
+                IsPercentAtOrBelow(player.CurrentMp, player.MaxMp, maintenance.SitMpBelowPercent));
+    }
+
+    private static bool IsPercentAtOrBelow(uint current, uint max, int threshold)
+    {
+        return max > 0 && current * 100.0D / max <= Math.Clamp(threshold, 0, 100);
+    }
+
+    private static void LogLeaderRestBlocked(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        string reason,
+        WorldObjectSnapshot? defenseTarget = null,
+        int threatCount = 0,
+        TeamLeaderProtectionThreat? teamThreat = null,
+        string? error = null)
+    {
+        LogActionThrottled(
+            context,
+            state,
+            "stationary_combat.team_leader.maintenance_rest_blocked",
+            "leader_rest:" + reason,
+            new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["reason"] = reason,
+                ["threatCount"] = threatCount,
+                ["targetEntityId"] = defenseTarget?.EntityId ?? 0,
+                ["targetServerObjectId"] = defenseTarget?.ServerObjectId ?? 0,
+                ["targetName"] = defenseTarget?.Name ?? string.Empty,
+                ["targetingServerObjectId"] = defenseTarget?.TargetServerObjectId ?? 0,
+                ["protectedMember"] = teamThreat?.ProtectedMember.Name ?? string.Empty,
+                ["protectedMemberServerObjectId"] = teamThreat?.ProtectedMember.ServerObjectId ?? 0,
+                ["protectedObjectIsPet"] = teamThreat?.ProtectedObjectIsPet ?? false,
+                ["error"] = error
+            },
+            TimeSpan.FromMilliseconds(500));
     }
 
     private async Task<TeamLeaderProtectionThreat?> SelectTeamLeaderProtectionTargetAsync(

@@ -443,6 +443,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat blocks hp retry when own pet tab verification misses", TestStationaryCombatBlocksHpRetryWhenOwnPetTabVerificationMissesAsync),
     ("stationary combat stops movement before hp maintenance", TestStationaryCombatStopsMovementBeforeHpMaintenanceAsync),
     ("stationary combat mp sit maintenance runs without defense target", TestStationaryCombatMpSitMaintenanceRunsWithoutDefenseTargetAsync),
+    ("stationary combat leader does not sit while multiple monsters attack teammates", TestStationaryCombatLeaderDoesNotSitWhileMultipleMonstersAttackTeammatesAsync),
+    ("stationary combat leader sits when the team is out of combat", TestStationaryCombatLeaderSitsWhenTeamIsOutOfCombatAsync),
+    ("stationary combat leader rest guard fails closed on team snapshot failure", TestStationaryCombatLeaderRestGuardFailsClosedOnTeamSnapshotFailureAsync),
+    ("stationary combat leader rest guard fails closed on world snapshot failure", TestStationaryCombatLeaderRestGuardFailsClosedOnWorldSnapshotFailureAsync),
     ("stationary combat mp sit maintenance preempts target and potion", TestStationaryCombatMpSitMaintenancePreemptsTargetAndPotionAsync),
     ("stationary combat skips sit maintenance while fighting", TestStationaryCombatSkipsSitMaintenanceWhileFightingAsync),
     ("skill tree assigns keys by root order and chain children inherit root key", TestSkillTreeKeyMappingAsync),
@@ -22924,6 +22928,204 @@ static async Task TestStationaryCombatMpSitMaintenanceRunsWithoutDefenseTargetAs
     AssertEqual((ushort)0, stationaryState.CandidateEntityId, "target workflow should stay idle while mp sit maintenance starts");
 }
 
+static async Task TestStationaryCombatLeaderDoesNotSitWhileMultipleMonstersAttackTeammatesAsync()
+{
+    var settings = CreateLeaderSitGuardSettings();
+    var leader = CreatePartyMemberSnapshot(1000, "Leader", true, true, 0.0) with
+    {
+        Class = AionClassId.Gladiator,
+        ClassId = (byte)AionClassId.Gladiator,
+        ClassName = "Gladiator"
+    };
+    var cleric = CreatePartyMemberSnapshot(2000, "Cleric", false, false, 8.0) with
+    {
+        Class = AionClassId.Cleric,
+        ClassId = (byte)AionClassId.Cleric,
+        ClassName = "Cleric"
+    };
+    var chanter = CreatePartyMemberSnapshot(3000, "Chanter", false, false, 6.0) with
+    {
+        Class = AionClassId.Chanter,
+        ClassId = (byte)AionClassId.Chanter,
+        ClassName = "Chanter"
+    };
+    var gameApi = CreateTeamSupportGameApi(leader, cleric, chanter);
+    gameApi.Player = CreateLowHealthLeaderPlayer();
+    gameApi.WorldObjects = new[]
+    {
+        CreateMonsterWorldObject(201, 9001, cleric.ServerObjectId, new Vector3Snapshot(10, 0, 0)),
+        CreateMonsterWorldObject(202, 9002, chanter.ServerObjectId, new Vector3Snapshot(5, 0, 0))
+    };
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    var state = new StationaryCombatState();
+    var semiAutoState = new SemiAutoCombatState();
+    CalibrateCooldownClock(semiAutoState);
+
+    await controller
+        .TickAsync(
+            CreateContext(settings, gameApi, logger),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            semiAutoState,
+            state)
+        .ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Contains("OemComma"), "leader must not sit while any effective teammate is under attack");
+    AssertFalse(semiAutoState.IsMaintenanceResting, "team combat must keep maintenance rest inactive");
+    AssertEqual((ushort)201, state.CandidateEntityId, "leader should continue with the highest-priority teammate attacker");
+    AssertEqual(9001u, state.CandidateServerObjectId, "selected teammate attacker should retain stable server identity");
+    AssertFalse(!state.CurrentTargetIsMaintenanceDefense, "teammate attacker should be marked as a maintenance defense target");
+    var blocked = logger.Entries.LastOrDefault(entry =>
+        entry.EventName == "stationary_combat.team_leader.maintenance_rest_blocked");
+    AssertFalse(blocked is null, "team combat should log the leader rest guard decision");
+    AssertEqual("team_combat_active", Convert.ToString(blocked!.Fields["reason"]) ?? string.Empty, "leader rest block reason");
+    AssertEqual(2, Convert.ToInt32(blocked.Fields["threatCount"]), "all simultaneous teammate attackers should be counted");
+    AssertEqual(cleric.ServerObjectId, Convert.ToUInt32(blocked.Fields["protectedMemberServerObjectId"]), "highest-priority protected teammate should be diagnosed");
+}
+
+static async Task TestStationaryCombatLeaderSitsWhenTeamIsOutOfCombatAsync()
+{
+    var settings = CreateLeaderSitGuardSettings();
+    var leader = CreatePartyMemberSnapshot(1000, "Leader", true, true, 0.0);
+    var teammate = CreatePartyMemberSnapshot(2000, "Teammate", false, false, 8.0);
+    var gameApi = CreateTeamSupportGameApi(leader, teammate);
+    gameApi.Player = CreateLowHealthLeaderPlayer();
+    gameApi.WorldObjects = Array.Empty<WorldObjectSnapshot>();
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    var semiAutoState = new SemiAutoCombatState();
+    CalibrateCooldownClock(semiAutoState);
+
+    await controller
+        .TickAsync(
+            CreateContext(settings, gameApi, logger),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            semiAutoState,
+            new StationaryCombatState())
+        .ConfigureAwait(false);
+
+    AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "leader may sit only after the team snapshot confirms no combat threat");
+    AssertFalse(!semiAutoState.IsMaintenanceResting, "clear team state should allow maintenance rest");
+    AssertFalse(logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.team_leader.maintenance_rest_blocked"),
+        "clear team state should not log a blocked rest");
+}
+
+static async Task TestStationaryCombatLeaderRestGuardFailsClosedOnTeamSnapshotFailureAsync()
+{
+    var settings = CreateLeaderSitGuardSettings();
+    var leader = CreatePartyMemberSnapshot(1000, "Leader", true, true, 0.0);
+    var teammate = CreatePartyMemberSnapshot(2000, "Teammate", false, false, 8.0);
+    var gameApi = CreateTeamSupportGameApi(leader, teammate);
+    gameApi.Player = CreateLowHealthLeaderPlayer();
+    gameApi.WorldObjects = Array.Empty<WorldObjectSnapshot>();
+    gameApi.PartyReadFallback = OperationResult<PartySnapshot>.Fail("party snapshot unavailable");
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    var semiAutoState = new SemiAutoCombatState();
+    CalibrateCooldownClock(semiAutoState);
+
+    await controller
+        .TickAsync(
+            CreateContext(settings, gameApi, logger),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            semiAutoState,
+            new StationaryCombatState())
+        .ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Contains("OemComma"), "unknown team combat state must fail closed and block sitting");
+    AssertFalse(semiAutoState.IsMaintenanceResting, "team snapshot failure must keep maintenance rest inactive");
+    AssertFalse(!logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.team_leader.maintenance_rest_blocked" &&
+        string.Equals(Convert.ToString(entry.Fields["reason"]), "team_snapshot_failed", StringComparison.Ordinal)),
+        "team snapshot failure should log the fail-closed reason");
+}
+
+static async Task TestStationaryCombatLeaderRestGuardFailsClosedOnWorldSnapshotFailureAsync()
+{
+    var settings = CreateLeaderSitGuardSettings();
+    var leader = CreatePartyMemberSnapshot(1000, "Leader", true, true, 0.0);
+    var teammate = CreatePartyMemberSnapshot(2000, "Teammate", false, false, 8.0);
+    var gameApi = CreateTeamSupportGameApi(leader, teammate);
+    gameApi.Player = CreateLowHealthLeaderPlayer();
+    gameApi.WorldObjectReadFallback = OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail("world snapshot unavailable");
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    var semiAutoState = new SemiAutoCombatState();
+    CalibrateCooldownClock(semiAutoState);
+
+    await controller
+        .TickAsync(
+            CreateContext(settings, gameApi, logger),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            semiAutoState,
+            new StationaryCombatState())
+        .ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Contains("OemComma"), "unknown world combat state must fail closed and block sitting");
+    AssertFalse(semiAutoState.IsMaintenanceResting, "world snapshot failure must keep maintenance rest inactive");
+    AssertFalse(!logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.team_leader.maintenance_rest_blocked" &&
+        string.Equals(Convert.ToString(entry.Fields["reason"]), "world_objects_failed", StringComparison.Ordinal)),
+        "world snapshot failure should log the fail-closed reason");
+}
+
+static ScriptSettings CreateLeaderSitGuardSettings()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 50,
+        SitWhenNoTargetAtHome = false
+    };
+    settings.Team = new TeamScriptSettings
+    {
+        Role = TeamRole.Leader,
+        GroupDistanceMeters = 50,
+        Leader = new TeamLeaderScriptSettings
+        {
+            Enabled = true
+        }
+    };
+    settings.Maintenance.SitMaintenanceEnabled = true;
+    settings.Maintenance.SitHpBelowPercent = 65;
+    settings.Maintenance.SitHpRecoverToPercent = 80;
+    settings.Maintenance.SitMpBelowPercent = 10;
+    return settings;
+}
+
+static PlayerSnapshot CreateLowHealthLeaderPlayer()
+{
+    return new PlayerSnapshot(
+        1,
+        0,
+        "Leader",
+        50,
+        100,
+        100,
+        100,
+        0,
+        new Vector3Snapshot(0, 0, 0),
+        DateTimeOffset.Now,
+        90,
+        10,
+        90);
+}
+
 static async Task TestStationaryCombatMpSitMaintenancePreemptsTargetAndPotionAsync()
 {
     var settings = CreateScriptSettings();
@@ -29562,6 +29764,10 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
     public PartySnapshot Party { get; set; } =
         PartySnapshot.Empty(DateTimeOffset.Now);
 
+    public Queue<OperationResult<PartySnapshot>> PartyReadResults { get; } = new();
+
+    public OperationResult<PartySnapshot>? PartyReadFallback { get; set; }
+
     public TacticsSignSnapshot TacticsSigns { get; set; } =
         TacticsSignSnapshot.Empty(DateTimeOffset.Now);
 
@@ -29655,6 +29861,10 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
 
     public IReadOnlyList<WorldObjectSnapshot> WorldObjects { get; set; } = Array.Empty<WorldObjectSnapshot>();
 
+    public Queue<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> WorldObjectReadResults { get; } = new();
+
+    public OperationResult<IReadOnlyList<WorldObjectSnapshot>>? WorldObjectReadFallback { get; set; }
+
     public GatherSnapshot Gather { get; set; } = GatherSnapshot.Empty(DateTimeOffset.Now);
 
     public Queue<OperationResult<GatherSnapshot>> GatherReadResults { get; } = new();
@@ -29735,7 +29945,9 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
 
     public Task<OperationResult<PartySnapshot>> ReadPartyAsync(CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(OperationResult<PartySnapshot>.Ok(Party));
+        return Task.FromResult(PartyReadResults.Count > 0
+            ? PartyReadResults.Dequeue()
+            : PartyReadFallback ?? OperationResult<PartySnapshot>.Ok(Party));
     }
 
     public Task<OperationResult<PartySnapshot>> ReadPartyAsync(
@@ -29938,7 +30150,9 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
     public Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(CancellationToken cancellationToken = default)
     {
         WorldObjectReadCount++;
-        return Task.FromResult(OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(WorldObjects));
+        return Task.FromResult(WorldObjectReadResults.Count > 0
+            ? WorldObjectReadResults.Dequeue()
+            : WorldObjectReadFallback ?? OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(WorldObjects));
     }
 
     public Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(
