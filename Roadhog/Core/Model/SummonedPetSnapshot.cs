@@ -21,11 +21,22 @@ public sealed record SummonedPetSnapshot(
     DateTimeOffset CapturedAt,
     uint LocalLinkedPetServerObjectId = 0,
     bool OwnerConfirmed = false,
-    string EvidenceSource = "")
+    string EvidenceSource = "",
+    SummonedPetHealthFieldValidity HealthFields = default)
 {
     public const uint ActorObjectType = 2;
 
     public bool HasKnownHealth => CurrentHp > 0 || MaxHp > 0;
+
+    public bool HasReliableHealth =>
+        HealthFields.CurrentHp &&
+        HealthFields.MaxHp &&
+        MaxHp > 0 &&
+        CurrentHp <= MaxHp;
+
+    public double ReliableHpPercent => HasReliableHealth
+        ? Math.Clamp(CurrentHp * 100.0D / MaxHp, 0.0D, 100.0D)
+        : 0.0D;
 
     public bool IsAlive => IsSummoned && (!HasKnownHealth || CurrentHp > 0);
 
@@ -52,3 +63,8 @@ public sealed record SummonedPetSnapshot(
             capturedAt);
     }
 }
+
+public readonly record struct SummonedPetHealthFieldValidity(
+    bool CurrentHp,
+    bool MaxHp,
+    bool HpPercent);

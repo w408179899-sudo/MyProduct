@@ -15,7 +15,7 @@ using Vmmsharp;
 
 namespace Roadhog.Infrastructure.Vmm;
 
-public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi
+public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IRoadhogScopedWorldObjectReadQualityGameApi, IRoadhogScopedSummonedPetRosterReadQualityGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi
 #if DEBUG
     , IRoadhogApiAddressProbe
 #endif
@@ -247,9 +247,15 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
     private readonly Dictionary<string, InventoryWindowCandidate> _inventoryWindowCandidateCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _connectionSync = new();
     private readonly object _xmlSync = new();
+    private readonly object _worldObjectQualityLogSync = new();
+    private readonly Dictionary<string, DateTimeOffset> _worldObjectQualityLogAtByKey = new(StringComparer.Ordinal);
+    private readonly object _summonedPetRosterQualityLogSync = new();
+    private readonly Dictionary<string, DateTimeOffset> _summonedPetRosterQualityLogAtByKey = new(StringComparer.Ordinal);
     private SkillXmlCatalog? _xmlCatalog;
     private NpcXmlCatalog? _npcXmlCatalog;
     private bool _nativeLibrariesLoaded;
+    private long _worldObjectCaptureSequence;
+    private long _summonedPetRosterCaptureSequence;
 
     public AionVmmGameApi(AionVmmGameApiOptions options, IRoadhogLogger logger)
     {
@@ -309,6 +315,13 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         CancellationToken cancellationToken = default)
     {
         return Task.Run(() => ReadSummonedPetRosterCore(context), cancellationToken);
+    }
+
+    public Task<SummonedPetRosterReadResult> ReadSummonedPetRosterWithQualityAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => ReadSummonedPetRosterWithQualityCore(context), cancellationToken);
     }
 
     public Task<OperationResult<PartySnapshot>> ReadPartyAsync(CancellationToken cancellationToken = default)
@@ -438,6 +451,13 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         CancellationToken cancellationToken = default)
     {
         return Task.Run(() => ReadWorldObjectsCore(context), cancellationToken);
+    }
+
+    public Task<WorldObjectReadResult> ReadWorldObjectsWithQualityAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => ReadWorldObjectsWithQualityCore(context), cancellationToken);
     }
 
     public Task<OperationResult<GatherSnapshot>> ReadGatherSnapshotAsync(CancellationToken cancellationToken = default)
@@ -1509,7 +1529,13 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 }
 
                 var npcCatalog = GetNpcXmlCatalog();
-                if (!TryReadSummonedPet(process, gameBase, npcCatalog.Details, out var snapshot, out var readError))
+                if (!TryReadSummonedPet(
+                        process,
+                        gameBase,
+                        npcCatalog.Details,
+                        context.BypassMemoryCache,
+                        out var snapshot,
+                        out var readError))
                 {
                     return OperationResult<SummonedPetSnapshot>.Fail(readError);
                 }
@@ -1538,48 +1564,191 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
 
     private OperationResult<SummonedPetRosterSnapshot> ReadSummonedPetRosterCore(GameApiReadContext context)
     {
+        var qualityResult = ReadSummonedPetRosterWithQualityCore(context);
+        return qualityResult.Completeness == SummonedPetRosterReadCompleteness.Failed ||
+               qualityResult.Snapshot is null
+            ? OperationResult<SummonedPetRosterSnapshot>.Fail(
+                qualityResult.Error ?? "Summoned-pet roster read failed.")
+            : OperationResult<SummonedPetRosterSnapshot>.Ok(qualityResult.Snapshot);
+    }
+
+    private SummonedPetRosterReadResult ReadSummonedPetRosterWithQualityCore(GameApiReadContext context)
+    {
+        var captureSequence = Interlocked.Increment(ref _summonedPetRosterCaptureSequence);
+        var startedAt = DateTimeOffset.UtcNow;
         try
         {
             var connection = GetOrCreateConnection(context.VmmDeviceName);
+            SummonedPetRosterReadAttempt attempt;
+            int processId;
             lock (connection.SyncRoot)
             {
                 if (!TryResolveProcess(connection.Vmm, context, out var process, out var processError))
                 {
-                    return OperationResult<SummonedPetRosterSnapshot>.Fail(processError);
+                    attempt = SummonedPetRosterReadAttempt.Failed(processError);
+                    processId = context.ProcessId;
                 }
-
-                var moduleName = ResolveModuleName();
-                var gameBase = process.GetModuleBase(moduleName);
-                if (gameBase == 0)
+                else
                 {
-                    return OperationResult<SummonedPetRosterSnapshot>.Fail("Module not found: " + moduleName);
+                    processId = SafeGetProcessPid(process);
+                    var moduleName = ResolveModuleName();
+                    var gameBase = process.GetModuleBase(moduleName);
+                    if (gameBase == 0)
+                    {
+                        attempt = SummonedPetRosterReadAttempt.Failed("Module not found: " + moduleName);
+                    }
+                    else
+                    {
+                        var npcCatalog = GetNpcXmlCatalog();
+                        attempt = ReadSummonedPetRosterWithQuality(
+                            process,
+                            gameBase,
+                            npcCatalog.Details,
+                            context.BypassMemoryCache);
+                    }
                 }
-
-                var npcCatalog = GetNpcXmlCatalog();
-                if (!TryReadSummonedPetRoster(process, gameBase, npcCatalog.Details, out var snapshot, out var readError))
-                {
-                    return OperationResult<SummonedPetRosterSnapshot>.Fail(readError);
-                }
-
-                _logger.Info("vmm.summoned_pet_roster.read", new Dictionary<string, object?>
-                {
-                    ["account"] = context.AccountName,
-                    ["pid"] = SafeGetProcessPid(process),
-                    ["localServerObjectId"] = snapshot.LocalServerObjectId,
-                    ["localPetSummoned"] = snapshot.LocalPlayerPet.IsSummoned,
-                    ["localPetServerObjectId"] = snapshot.LocalPlayerPet.Pet.ServerObjectId,
-                    ["partyMemberCount"] = snapshot.PartyMemberServerObjectIds.Count,
-                    ["partyPetCount"] = snapshot.PartyMemberPetCount,
-                    ["visibleSummonedPetCount"] = snapshot.VisibleSummonedPetCount
-                });
-
-                return OperationResult<SummonedPetRosterSnapshot>.Ok(snapshot);
             }
+
+            return FinishSummonedPetRosterRead(
+                context,
+                processId,
+                captureSequence,
+                startedAt,
+                attempt);
         }
         catch (Exception ex)
         {
             _logger.Error("vmm.summoned_pet_roster.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
-            return OperationResult<SummonedPetRosterSnapshot>.Fail(ex.Message);
+            return FinishSummonedPetRosterRead(
+                context,
+                context.ProcessId,
+                captureSequence,
+                startedAt,
+                SummonedPetRosterReadAttempt.Failed(ex.Message));
+        }
+    }
+
+    private SummonedPetRosterReadResult FinishSummonedPetRosterRead(
+        GameApiReadContext context,
+        int processId,
+        long captureSequence,
+        DateTimeOffset startedAt,
+        SummonedPetRosterReadAttempt attempt)
+    {
+        var completedAt = DateTimeOffset.UtcNow;
+        var counters = attempt.Counters;
+        var diagnostics = new SummonedPetRosterReadDiagnostics(
+            captureSequence,
+            startedAt,
+            completedAt,
+            context.BypassMemoryCache,
+            attempt.TraversalTermination,
+            counters.ScannedServerObjects,
+            counters.EmittedActors,
+            counters.NodeIdentityReadFailures,
+            counters.EntityLookupFailures,
+            counters.EntityTypeReadFailures,
+            counters.ActorResolutionFailures,
+            counters.ActorIdentityMismatches,
+            counters.OwnerFieldReadFailures,
+            counters.StaticMetadataMisses,
+            counters.LocalPetCandidateCount,
+            attempt.FirstIssue);
+        var result = new SummonedPetRosterReadResult(
+            attempt.Completeness,
+            attempt.Snapshot,
+            new SummonedPetRosterFieldValidity(
+                attempt.LocalServerObjectIdAvailable,
+                attempt.LocalLinkedPetServerObjectIdAvailable,
+                attempt.VisibleActorTraversalComplete),
+            diagnostics,
+            attempt.Error);
+        var presence = result.ResolveLocalPetPresence();
+        var snapshot = result.Snapshot;
+
+        if (snapshot is not null)
+        {
+            _logger.Info("vmm.summoned_pet_roster.read", new Dictionary<string, object?>
+            {
+                ["account"] = context.AccountName,
+                ["pid"] = processId,
+                ["captureSequence"] = captureSequence,
+                ["completeness"] = result.Completeness.ToString(),
+                ["localPetPresence"] = presence.Presence.ToString(),
+                ["localPetPresenceReason"] = presence.Reason,
+                ["localServerObjectId"] = snapshot.LocalServerObjectId,
+                ["localServerObjectIdAvailable"] = result.Fields.LocalServerObjectId,
+                ["localLinkedPetServerObjectId"] = snapshot.LocalLinkedPetServerObjectId,
+                ["localLinkedPetServerObjectIdAvailable"] = result.Fields.LocalLinkedPetServerObjectId,
+                ["localPetSummoned"] = snapshot.LocalPlayerPet.IsSummoned,
+                ["localPetServerObjectId"] = snapshot.LocalPlayerPet.Pet.ServerObjectId,
+                ["partyMemberCount"] = snapshot.PartyMemberServerObjectIds.Count,
+                ["partyPetCount"] = snapshot.PartyMemberPetCount,
+                ["visibleSummonedPetCount"] = snapshot.VisibleSummonedPetCount
+            });
+        }
+
+        if ((result.Completeness != SummonedPetRosterReadCompleteness.Complete ||
+             presence.Presence == LocalSummonedPetPresence.Unknown) &&
+            ShouldLogSummonedPetRosterQualityIssue(context, result, presence, completedAt))
+        {
+            _logger.Warn("vmm.summoned_pet_roster.read_quality", new Dictionary<string, object?>
+            {
+                ["account"] = context.AccountName,
+                ["processId"] = processId,
+                ["captureSequence"] = captureSequence,
+                ["completeness"] = result.Completeness.ToString(),
+                ["presence"] = presence.Presence.ToString(),
+                ["presenceReason"] = presence.Reason,
+                ["traversalTermination"] = diagnostics.TraversalTermination.ToString(),
+                ["bypassMemoryCache"] = diagnostics.BypassMemoryCache,
+                ["durationMs"] = diagnostics.DurationMilliseconds,
+                ["localServerObjectIdAvailable"] = result.Fields.LocalServerObjectId,
+                ["localLinkedPetServerObjectIdAvailable"] = result.Fields.LocalLinkedPetServerObjectId,
+                ["visibleActorTraversalComplete"] = result.Fields.VisibleActorTraversal,
+                ["localLinkedPetServerObjectId"] = snapshot?.LocalLinkedPetServerObjectId,
+                ["scannedServerObjects"] = diagnostics.ScannedServerObjects,
+                ["emittedActors"] = diagnostics.EmittedActors,
+                ["nodeIdentityReadFailures"] = diagnostics.NodeIdentityReadFailures,
+                ["entityLookupFailures"] = diagnostics.EntityLookupFailures,
+                ["entityTypeReadFailures"] = diagnostics.EntityTypeReadFailures,
+                ["actorResolutionFailures"] = diagnostics.ActorResolutionFailures,
+                ["actorIdentityMismatches"] = diagnostics.ActorIdentityMismatches,
+                ["ownerFieldReadFailures"] = diagnostics.OwnerFieldReadFailures,
+                ["staticMetadataMisses"] = diagnostics.StaticMetadataMisses,
+                ["localPetCandidateCount"] = diagnostics.LocalPetCandidateCount,
+                ["firstIssue"] = diagnostics.FirstIssue,
+                ["error"] = result.Error
+            });
+        }
+
+        return result;
+    }
+
+    private bool ShouldLogSummonedPetRosterQualityIssue(
+        GameApiReadContext context,
+        SummonedPetRosterReadResult result,
+        LocalSummonedPetPresenceDecision presence,
+        DateTimeOffset now)
+    {
+        var key = string.Join(
+            "|",
+            context.AccountName,
+            context.ProcessId,
+            result.Completeness,
+            presence.Presence,
+            presence.Reason,
+            result.Diagnostics.TraversalTermination);
+        lock (_summonedPetRosterQualityLogSync)
+        {
+            if (_summonedPetRosterQualityLogAtByKey.TryGetValue(key, out var lastLoggedAt) &&
+                now - lastLoggedAt < TimeSpan.FromSeconds(2))
+            {
+                return false;
+            }
+
+            _summonedPetRosterQualityLogAtByKey[key] = now;
+            return true;
         }
     }
 
@@ -1754,36 +1923,156 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
 
     private OperationResult<IReadOnlyList<WorldObjectSnapshot>> ReadWorldObjectsCore(GameApiReadContext context)
     {
+        var qualityResult = ReadWorldObjectsWithQualityCore(context);
+        return qualityResult.Completeness == WorldObjectReadCompleteness.Failed
+            ? OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail(
+                qualityResult.Error ?? "World-object read failed.")
+            : OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(qualityResult.Objects);
+    }
+
+    private WorldObjectReadResult ReadWorldObjectsWithQualityCore(GameApiReadContext context)
+    {
+        var captureSequence = Interlocked.Increment(ref _worldObjectCaptureSequence);
+        var startedAt = DateTimeOffset.UtcNow;
         try
         {
             var connection = GetOrCreateConnection(context.VmmDeviceName);
+            WorldObjectReadAttempt attempt;
             lock (connection.SyncRoot)
             {
                 if (!TryResolveProcess(connection.Vmm, context, out var process, out var processError))
                 {
-                    return OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail(processError);
+                    attempt = WorldObjectReadAttempt.Failed(processError);
                 }
-
-                var moduleName = ResolveModuleName();
-                var gameBase = process.GetModuleBase(moduleName);
-                if (gameBase == 0)
+                else
                 {
-                    return OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail("Module not found: " + moduleName);
+                    var moduleName = ResolveModuleName();
+                    var gameBase = process.GetModuleBase(moduleName);
+                    if (gameBase == 0)
+                    {
+                        attempt = WorldObjectReadAttempt.Failed("Module not found: " + moduleName);
+                    }
+                    else
+                    {
+                        var npcCatalog = GetNpcXmlCatalog();
+                        attempt = ReadWorldObjectsWithQuality(
+                            process,
+                            gameBase,
+                            npcCatalog,
+                            context.BypassMemoryCache);
+                    }
                 }
-
-                var npcCatalog = GetNpcXmlCatalog();
-                if (!TryReadWorldObjects(process, gameBase, npcCatalog.Details, out var objects, out var counters, out var readError))
-                {
-                    return OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail(readError);
-                }
-
-                return OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(objects);
             }
+
+            return FinishWorldObjectRead(context, captureSequence, startedAt, attempt);
         }
         catch (Exception ex)
         {
             _logger.Error("vmm.world_objects.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
-            return OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail(ex.Message);
+            return FinishWorldObjectRead(
+                context,
+                captureSequence,
+                startedAt,
+                WorldObjectReadAttempt.Failed(ex.Message));
+        }
+    }
+
+    private WorldObjectReadResult FinishWorldObjectRead(
+        GameApiReadContext context,
+        long captureSequence,
+        DateTimeOffset startedAt,
+        WorldObjectReadAttempt attempt)
+    {
+        var completedAt = DateTimeOffset.UtcNow;
+        var counters = attempt.Counters;
+        var diagnostics = new WorldObjectReadDiagnostics(
+            captureSequence,
+            startedAt,
+            completedAt,
+            context.BypassMemoryCache,
+            attempt.TraversalTermination,
+            attempt.LocalServerObjectIdAvailable,
+            counters.ScannedServerObjects,
+            counters.ResolvedEntities,
+            counters.NpcLikeEntities,
+            attempt.Observations.Count,
+            counters.NodeIdentityReadFailures,
+            counters.EntityLookupFailures,
+            counters.EntityTypeReadFailures,
+            counters.PositionReadFailures,
+            counters.ActorResolutionFailures,
+            counters.ActorIdentityMismatches,
+            counters.StaticMetadataMisses,
+            counters.StaticCatalogErrors,
+            counters.TargetFieldReadFailures,
+            counters.HealthFieldReadFailures,
+            counters.LootFieldReadFailures,
+            counters.InteractionStateReadFailures,
+            attempt.FirstIssue);
+        var result = new WorldObjectReadResult(
+            attempt.Completeness,
+            attempt.Observations,
+            diagnostics,
+            attempt.Error);
+
+        if (result.Completeness != WorldObjectReadCompleteness.Complete &&
+            ShouldLogWorldObjectQualityIssue(context, result, completedAt))
+        {
+            _logger.Warn("vmm.world_objects.read_quality", new Dictionary<string, object?>
+            {
+                ["account"] = context.AccountName,
+                ["processId"] = context.ProcessId,
+                ["captureSequence"] = result.Diagnostics.CaptureSequence,
+                ["completeness"] = result.Completeness.ToString(),
+                ["traversalTermination"] = result.Diagnostics.TraversalTermination.ToString(),
+                ["bypassMemoryCache"] = result.Diagnostics.BypassMemoryCache,
+                ["durationMs"] = result.Diagnostics.DurationMilliseconds,
+                ["scannedServerObjects"] = result.Diagnostics.ScannedServerObjects,
+                ["resolvedEntities"] = result.Diagnostics.ResolvedEntities,
+                ["npcLikeEntities"] = result.Diagnostics.NpcLikeEntities,
+                ["emittedObjects"] = result.Diagnostics.EmittedObjects,
+                ["nodeIdentityReadFailures"] = result.Diagnostics.NodeIdentityReadFailures,
+                ["entityLookupFailures"] = result.Diagnostics.EntityLookupFailures,
+                ["entityTypeReadFailures"] = result.Diagnostics.EntityTypeReadFailures,
+                ["positionReadFailures"] = result.Diagnostics.PositionReadFailures,
+                ["actorResolutionFailures"] = result.Diagnostics.ActorResolutionFailures,
+                ["actorIdentityMismatches"] = result.Diagnostics.ActorIdentityMismatches,
+                ["staticMetadataMisses"] = result.Diagnostics.StaticMetadataMisses,
+                ["staticCatalogErrors"] = result.Diagnostics.StaticCatalogErrors,
+                ["targetFieldReadFailures"] = result.Diagnostics.TargetFieldReadFailures,
+                ["healthFieldReadFailures"] = result.Diagnostics.HealthFieldReadFailures,
+                ["lootFieldReadFailures"] = result.Diagnostics.LootFieldReadFailures,
+                ["interactionStateReadFailures"] = result.Diagnostics.InteractionStateReadFailures,
+                ["localServerObjectIdAvailable"] = result.Diagnostics.LocalServerObjectIdAvailable,
+                ["firstIssue"] = result.Diagnostics.FirstIssue,
+                ["error"] = result.Error
+            });
+        }
+
+        return result;
+    }
+
+    private bool ShouldLogWorldObjectQualityIssue(
+        GameApiReadContext context,
+        WorldObjectReadResult result,
+        DateTimeOffset now)
+    {
+        var key = string.Join(
+            "|",
+            context.AccountName,
+            context.ProcessId,
+            result.Completeness,
+            result.Diagnostics.TraversalTermination);
+        lock (_worldObjectQualityLogSync)
+        {
+            if (_worldObjectQualityLogAtByKey.TryGetValue(key, out var lastLoggedAt) &&
+                now - lastLoggedAt < TimeSpan.FromSeconds(2))
+            {
+                return false;
+            }
+
+            _worldObjectQualityLogAtByKey[key] = now;
+            return true;
         }
     }
 
@@ -4488,7 +4777,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             return false;
         }
 
-        if (!TryReadPointer(process, entitySystem + EntityTreeOffset, out var entityTreeHeader, bypassMemoryCache))
+        if (!TryReadPointer(process, entitySystem + EntityTreeOffset, out var entityTreeHeader))
         {
             error = "failed to read EntitySystem tree header at EntitySystem+0x" + EntityTreeOffset.ToString("X");
             return false;
@@ -4549,21 +4838,21 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             return false;
         }
 
-        TryReadUInt16(process, gameBase + LocalEntityIdRva + 2, out var targetEntityId);
+        TryReadUInt16(process, gameBase + LocalEntityIdRva + 2, out var targetEntityId, bypassMemoryCache);
 
-        if (!TryReadPointer(process, gameBase + EntitySystemPointerRva, out var entitySystem))
+        if (!TryReadPointer(process, gameBase + EntitySystemPointerRva, out var entitySystem, bypassMemoryCache))
         {
             error = "failed to read EntitySystem pointer at Game.dll+0x" + EntitySystemPointerRva.ToString("X");
             return false;
         }
 
-        if (!TryReadPointer(process, entitySystem + EntityTreeOffset, out var entityTreeHeader))
+        if (!TryReadPointer(process, entitySystem + EntityTreeOffset, out var entityTreeHeader, bypassMemoryCache))
         {
             error = "failed to read EntitySystem tree header at EntitySystem+0x" + EntityTreeOffset.ToString("X");
             return false;
         }
 
-        if (!TryFindEntityById(process, entityTreeHeader, localEntityId, out var localEntity))
+        if (!TryFindEntityById(process, entityTreeHeader, localEntityId, out var localEntity, bypassMemoryCache))
         {
             error = "local entity id " + localEntityId + " was not found in EntitySystem tree";
             return false;
@@ -4575,11 +4864,11 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             return false;
         }
 
-        TryReadUInt32(process, gameBase + LocalCurrentHpRva, out var currentHp);
-        TryReadUInt32(process, gameBase + LocalMaxHpRva, out var maxHp);
-        TryReadUInt32(process, gameBase + LocalCurrentMpRva, out var currentMp);
-        TryReadUInt32(process, gameBase + LocalMaxMpRva, out var maxMp);
-        TryReadUInt16(process, gameBase + LocalCurrentDpRva, out var currentDp);
+        var currentHpAvailable = TryReadUInt32(process, gameBase + LocalCurrentHpRva, out var currentHp, bypassMemoryCache);
+        var maxHpAvailable = TryReadUInt32(process, gameBase + LocalMaxHpRva, out var maxHp, bypassMemoryCache);
+        TryReadUInt32(process, gameBase + LocalCurrentMpRva, out var currentMp, bypassMemoryCache);
+        TryReadUInt32(process, gameBase + LocalMaxMpRva, out var maxMp, bypassMemoryCache);
+        TryReadUInt16(process, gameBase + LocalCurrentDpRva, out var currentDp, bypassMemoryCache);
         var characterName = string.Empty;
         ushort characterLevel = 0;
         AionClassId? characterClassId = null;
@@ -4587,12 +4876,14 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         uint stanceFlags = 0;
         uint motionMode = 0;
         double? actorYaw = null;
-        if (TryResolveActorFromEntity(process, localEntity, 0, out var actor))
+        if (TryResolveActorFromEntity(process, localEntity, 0, out var actor, bypassMemoryCache))
         {
-            if (maxHp == 0 && actor.MaxHp > 0)
+            if ((!maxHpAvailable || maxHp == 0) && actor.MaxHpAvailable && actor.MaxHp > 0)
             {
                 currentHp = actor.CurrentHp;
                 maxHp = actor.MaxHp;
+                currentHpAvailable = actor.CurrentHpAvailable;
+                maxHpAvailable = true;
             }
 
             characterName = actor.Name;
@@ -4603,11 +4894,11 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 characterClass = AionClassCatalog.GetChineseName(resolvedClassId);
             }
 
-            TryReadUInt32(process, actor.Actor + ActorStanceFlagsOffset, out stanceFlags);
-            TryReadUInt32(process, actor.Actor + ActorMotionModeOffset, out motionMode);
+            TryReadUInt32(process, actor.Actor + ActorStanceFlagsOffset, out stanceFlags, bypassMemoryCache);
+            TryReadUInt32(process, actor.Actor + ActorMotionModeOffset, out motionMode, bypassMemoryCache);
         }
 
-        if (TryReadSingle(process, localEntity + EntityWorldAnglesOffset + 8, out var rawActorYaw))
+        if (TryReadSingle(process, localEntity + EntityWorldAnglesOffset + 8, out var rawActorYaw, bypassMemoryCache))
         {
             actorYaw = NormalizeSignedDegrees(rawActorYaw);
         }
@@ -4638,18 +4929,25 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             CharacterClass: characterClass,
             StanceFlags: stanceFlags,
             MotionMode: motionMode,
-            CharacterClassId: characterClassId);
+            CharacterClassId: characterClassId,
+            CurrentHpAvailable: currentHpAvailable,
+            MaxHpAvailable: maxHpAvailable);
         return true;
     }
 
     private static bool TryReadActorClassId(
         VmmProcess process,
         ulong actorAddress,
-        out AionClassId classId)
+        out AionClassId classId,
+        bool bypassMemoryCache = false)
     {
         classId = default;
         return actorAddress != 0 &&
-               TryReadUInt32(process, actorAddress + ActorClassIdOffset, out var rawClassId) &&
+               TryReadUInt32(
+                   process,
+                   actorAddress + ActorClassIdOffset,
+                   out var rawClassId,
+                   bypassMemoryCache) &&
                AionClassCatalog.TryFromRaw(rawClassId, out classId);
     }
 
@@ -4710,13 +5008,22 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         VmmProcess process,
         ulong actorAddress,
         out IReadOnlyList<AbnormalStatusEntrySnapshot> entries,
-        out string error)
+        out string error,
+        bool bypassMemoryCache = false)
     {
         entries = Array.Empty<AbnormalStatusEntrySnapshot>();
         error = string.Empty;
 
-        if (!TryReadPointer(process, actorAddress + ActorAbnormalStatusBeginOffset, out var begin) ||
-            !TryReadPointer(process, actorAddress + ActorAbnormalStatusEndOffset, out var end) ||
+        if (!TryReadPointer(
+                process,
+                actorAddress + ActorAbnormalStatusBeginOffset,
+                out var begin,
+                bypassMemoryCache) ||
+            !TryReadPointer(
+                process,
+                actorAddress + ActorAbnormalStatusEndOffset,
+                out var end,
+                bypassMemoryCache) ||
             begin == 0 ||
             end <= begin)
         {
@@ -4738,19 +5045,19 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         var result = new List<AbnormalStatusEntrySnapshot>();
         for (var entry = begin; entry <= end - AbnormalStatusEntrySize; entry += AbnormalStatusEntrySize)
         {
-            TryReadUInt32(process, entry + 0x00, out var field00);
-            if (!TryReadUInt32(process, entry + 0x04, out var abnormalId))
+            TryReadUInt32(process, entry + 0x00, out var field00, bypassMemoryCache);
+            if (!TryReadUInt32(process, entry + 0x04, out var abnormalId, bypassMemoryCache))
             {
                 continue;
             }
 
-            if (!TryReadUInt32(process, entry + 0x08, out var category))
+            if (!TryReadUInt32(process, entry + 0x08, out var category, bypassMemoryCache))
             {
                 continue;
             }
 
-            TryReadUInt32(process, entry + 0x0C, out var rawTimeOrSource);
-            TryReadUInt16(process, entry + 0x10, out var levelOrStack);
+            TryReadUInt32(process, entry + 0x0C, out var rawTimeOrSource, bypassMemoryCache);
+            TryReadUInt16(process, entry + 0x10, out var levelOrStack, bypassMemoryCache);
             result.Add(new AbnormalStatusEntrySnapshot(
                 field00,
                 abnormalId,
@@ -5440,6 +5747,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         VmmProcess process,
         ulong gameBase,
         IReadOnlyDictionary<uint, NpcStaticDetail> npcStaticDetails,
+        bool bypassMemoryCache,
         out SummonedPetSnapshot snapshot,
         out string error)
     {
@@ -5447,31 +5755,31 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         snapshot = SummonedPetSnapshot.NotSummoned(0, capturedAt);
         error = string.Empty;
 
-        if (!TryReadPointer(process, gameBase + EntitySystemPointerRva, out var entitySystem))
+        if (!TryReadPointer(process, gameBase + EntitySystemPointerRva, out var entitySystem, bypassMemoryCache))
         {
             error = "failed to read EntitySystem pointer at Game.dll+0x" + EntitySystemPointerRva.ToString("X");
             return false;
         }
 
-        if (!TryReadPointer(process, entitySystem + EntityTreeOffset, out var entityTreeHeader))
+        if (!TryReadPointer(process, entitySystem + EntityTreeOffset, out var entityTreeHeader, bypassMemoryCache))
         {
             error = "failed to read EntitySystem tree header at EntitySystem+0x" + EntityTreeOffset.ToString("X");
             return false;
         }
 
-        if (!TryReadUInt16(process, gameBase + LocalEntityIdRva, out var localEntityId) || localEntityId == 0)
+        if (!TryReadUInt16(process, gameBase + LocalEntityIdRva, out var localEntityId, bypassMemoryCache) || localEntityId == 0)
         {
             error = "failed to read local entity id at Game.dll+0x" + LocalEntityIdRva.ToString("X");
             return false;
         }
 
-        if (!TryFindEntityById(process, entityTreeHeader, localEntityId, out var localEntity))
+        if (!TryFindEntityById(process, entityTreeHeader, localEntityId, out var localEntity, bypassMemoryCache))
         {
             error = "local entity id " + localEntityId + " was not found in EntitySystem tree";
             return false;
         }
 
-        if (!TryResolveActorFromEntity(process, localEntity, 0, out var localActor) ||
+        if (!TryResolveActorFromEntity(process, localEntity, 0, out var localActor, bypassMemoryCache) ||
             localActor.ServerObjectId == 0)
         {
             error = "failed to resolve local actor/server object id";
@@ -5481,41 +5789,42 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         TryReadUInt32(
             process,
             localActor.Actor + ActorCurrentSummonedPetServerObjectIdOffset,
-            out var linkedPetServerObjectId);
+            out var linkedPetServerObjectId,
+            bypassMemoryCache);
 
-        if (!TryReadPointer(process, gameBase + ServerObjectTreeRva, out var serverTreeHeader) || serverTreeHeader == 0)
+        if (!TryReadPointer(process, gameBase + ServerObjectTreeRva, out var serverTreeHeader, bypassMemoryCache) || serverTreeHeader == 0)
         {
             error = "failed to read ServerObject tree header at Game.dll+0x" + ServerObjectTreeRva.ToString("X");
             return false;
         }
 
-        if (!TryReadPointer(process, serverTreeHeader + NodeLeftOffset, out var node))
+        if (!TryReadPointer(process, serverTreeHeader + NodeLeftOffset, out var node, bypassMemoryCache))
         {
             error = "failed to read ServerObject tree begin node";
             return false;
         }
 
-        var localPositionKnown = TryReadEntityPosition(process, localEntity, out var localX, out var localY, out var localZ);
+        var localPositionKnown = TryReadEntityPosition(process, localEntity, out var localX, out var localY, out var localZ, bypassMemoryCache);
         for (var guard = 0; node != 0 && node != serverTreeHeader && guard < 100000; guard++)
         {
-            if (IsNilNode(process, node, serverTreeHeader))
+            if (IsNilNode(process, node, serverTreeHeader, bypassMemoryCache))
             {
                 break;
             }
 
-            if (TryReadUInt32(process, node + ServerNodeServerObjectIdOffset, out var serverObjectId) &&
-                TryReadUInt16(process, node + ServerNodeEntityIdOffset, out var entityId) &&
+            if (TryReadUInt32(process, node + ServerNodeServerObjectIdOffset, out var serverObjectId, bypassMemoryCache) &&
+                TryReadUInt16(process, node + ServerNodeEntityIdOffset, out var entityId, bypassMemoryCache) &&
                 entityId != 0 &&
                 entityId != localEntityId &&
-                TryFindEntityById(process, entityTreeHeader, entityId, out var entity) &&
+                TryFindEntityById(process, entityTreeHeader, entityId, out var entity, bypassMemoryCache) &&
                 entity != 0 &&
-                TryResolveActorFromEntity(process, entity, serverObjectId, out var actor) &&
+                TryResolveActorFromEntity(process, entity, serverObjectId, out var actor, bypassMemoryCache) &&
                 actor.ObjectType == SummonedPetSnapshot.ActorObjectType)
             {
                 var actorServerObjectId = actor.ServerObjectId != 0 ? actor.ServerObjectId : serverObjectId;
                 var localLinkMatches = linkedPetServerObjectId != 0 && actorServerObjectId == linkedPetServerObjectId;
                 var ownerConfirmed =
-                    TryReadUInt32(process, actor.Actor + ActorSummonOwnerServerObjectIdOffset, out var ownerServerObjectId) &&
+                    TryReadUInt32(process, actor.Actor + ActorSummonOwnerServerObjectIdOffset, out var ownerServerObjectId, bypassMemoryCache) &&
                     ownerServerObjectId == localActor.ServerObjectId;
                 var hasStaticDetail = npcStaticDetails.TryGetValue(actor.NpcTemplateId, out var npcStaticDetail);
                 var isSummonPetStatic = hasStaticDetail && IsSummonPetNpcStaticDetail(npcStaticDetail);
@@ -5524,7 +5833,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 {
                     Vector3Snapshot? position = null;
                     double? distance = null;
-                    if (TryReadEntityPosition(process, entity, out var x, out var y, out var z) &&
+                    if (TryReadEntityPosition(process, entity, out var x, out var y, out var z, bypassMemoryCache) &&
                         IsReasonablePosition(x, y, z))
                     {
                         position = new Vector3Snapshot(x, y, z);
@@ -5541,7 +5850,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                         true,
                         entityId,
                         actorServerObjectId,
-                        TryReadUInt16(process, entity + EntityTypeOffset, out var entityType) ? entityType : (ushort)0,
+                        TryReadUInt16(process, entity + EntityTypeOffset, out var entityType, bypassMemoryCache) ? entityType : (ushort)0,
                         actor.ObjectType,
                         actor.NpcTemplateId,
                         actor.Name,
@@ -5558,7 +5867,11 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                         capturedAt,
                         linkedPetServerObjectId,
                         ownerConfirmed,
-                        BuildSummonedPetEvidenceSource(localLinkMatches, ownerConfirmed, isSummonPetStatic));
+                        BuildSummonedPetEvidenceSource(localLinkMatches, ownerConfirmed, isSummonPetStatic),
+                        new SummonedPetHealthFieldValidity(
+                            actor.CurrentHpAvailable,
+                            actor.MaxHpAvailable,
+                            actor.HpPercentAvailable));
                     return true;
                 }
             }
@@ -5575,68 +5888,104 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         return true;
     }
 
-    private static bool TryReadSummonedPetRoster(
+    private static SummonedPetRosterReadAttempt ReadSummonedPetRosterWithQuality(
         VmmProcess process,
         ulong gameBase,
         IReadOnlyDictionary<uint, NpcStaticDetail> npcStaticDetails,
-        out SummonedPetRosterSnapshot snapshot,
-        out string error)
+        bool bypassMemoryCache)
     {
         var capturedAt = DateTimeOffset.Now;
-        snapshot = SummonedPetRosterSnapshot.Empty(0, capturedAt);
-        error = string.Empty;
+        var counters = new SummonedPetRosterReadCounters();
+        var firstIssue = string.Empty;
 
-        if (!TryReadPointer(process, gameBase + EntitySystemPointerRva, out var entitySystem))
+        if (!TryReadPointer(process, gameBase + EntitySystemPointerRva, out var entitySystem, bypassMemoryCache))
         {
-            error = "failed to read EntitySystem pointer at Game.dll+0x" + EntitySystemPointerRva.ToString("X");
-            return false;
+            return SummonedPetRosterReadAttempt.Failed(
+                "failed to read EntitySystem pointer at Game.dll+0x" + EntitySystemPointerRva.ToString("X"),
+                counters);
         }
 
-        if (!TryReadPointer(process, entitySystem + EntityTreeOffset, out var entityTreeHeader))
+        if (!TryReadPointer(process, entitySystem + EntityTreeOffset, out var entityTreeHeader, bypassMemoryCache))
         {
-            error = "failed to read EntitySystem tree header at EntitySystem+0x" + EntityTreeOffset.ToString("X");
-            return false;
+            return SummonedPetRosterReadAttempt.Failed(
+                "failed to read EntitySystem tree header at EntitySystem+0x" + EntityTreeOffset.ToString("X"),
+                counters);
         }
 
-        if (!TryReadUInt16(process, gameBase + LocalEntityIdRva, out var localEntityId) || localEntityId == 0)
+        if (!TryReadUInt16(process, gameBase + LocalEntityIdRva, out var localEntityId, bypassMemoryCache) || localEntityId == 0)
         {
-            error = "failed to read local entity id at Game.dll+0x" + LocalEntityIdRva.ToString("X");
-            return false;
+            return SummonedPetRosterReadAttempt.Failed(
+                "failed to read local entity id at Game.dll+0x" + LocalEntityIdRva.ToString("X"),
+                counters);
         }
 
-        if (!TryFindEntityById(process, entityTreeHeader, localEntityId, out var localEntity))
+        if (!TryFindEntityById(process, entityTreeHeader, localEntityId, out var localEntity, bypassMemoryCache))
         {
-            error = "local entity id " + localEntityId + " was not found in EntitySystem tree";
-            return false;
+            return SummonedPetRosterReadAttempt.Failed(
+                "local entity id " + localEntityId + " was not found in EntitySystem tree",
+                counters);
         }
 
-        if (!TryResolveActorFromEntity(process, localEntity, 0, out var localActor) ||
+        if (!TryResolveActorFromEntity(process, localEntity, 0, out var localActor, bypassMemoryCache) ||
             localActor.ServerObjectId == 0)
         {
-            error = "failed to resolve local actor/server object id";
-            return false;
+            return SummonedPetRosterReadAttempt.Failed(
+                "failed to resolve local actor/server object id",
+                counters);
         }
 
-        TryReadUInt32(
+        var linkedPetServerObjectIdAvailable = TryReadUInt32(
             process,
             localActor.Actor + ActorCurrentSummonedPetServerObjectIdOffset,
-            out var linkedPetServerObjectId);
+            out var linkedPetServerObjectId,
+            bypassMemoryCache);
+        if (!linkedPetServerObjectIdAvailable)
+        {
+            SetFirstSummonedPetRosterReadIssue(ref firstIssue, "local_pet_link_read_failed");
+        }
 
         var partyMemberReadError = string.Empty;
-        if (!TryReadPartyMemberServerObjectIds(process, gameBase, out var partyMembers, out partyMemberReadError))
+        if (!TryReadPartyMemberServerObjectIds(
+                process,
+                gameBase,
+                out var partyMembers,
+                out partyMemberReadError,
+                bypassMemoryCache))
         {
             partyMembers = Array.Empty<PartyMemberInfo>();
         }
 
-        if (!TryReadVisibleActorInfos(process, gameBase, entityTreeHeader, localEntityId, out var visibleActors, out error))
+        var visibleActorRead = ReadVisibleActorInfosWithQuality(
+            process,
+            gameBase,
+            entityTreeHeader,
+            localEntityId,
+            bypassMemoryCache);
+        counters = visibleActorRead.Counters;
+        if (!string.IsNullOrWhiteSpace(visibleActorRead.FirstIssue))
         {
-            return false;
+            SetFirstSummonedPetRosterReadIssue(ref firstIssue, visibleActorRead.FirstIssue);
         }
+        else if (visibleActorRead.Completeness == SummonedPetRosterReadCompleteness.Failed)
+        {
+            SetFirstSummonedPetRosterReadIssue(
+                ref firstIssue,
+                visibleActorRead.Error ?? "visible_actor_read_failed");
+        }
+
+        var structuralPartial =
+            !linkedPetServerObjectIdAvailable ||
+            visibleActorRead.Completeness != SummonedPetRosterReadCompleteness.Complete;
+        var visibleActors = visibleActorRead.Actors;
 
         var owners = new Dictionary<uint, SummonedPetOwnerInfo>();
         AionClassId? localOwnerClassId = null;
         var localOwnerClassName = string.Empty;
-        if (TryReadActorClassId(process, localActor.Actor, out var resolvedLocalOwnerClassId))
+        if (TryReadActorClassId(
+                process,
+                localActor.Actor,
+                out var resolvedLocalOwnerClassId,
+                bypassMemoryCache))
         {
             localOwnerClassId = resolvedLocalOwnerClassId;
             localOwnerClassName = AionClassCatalog.GetChineseName(resolvedLocalOwnerClassId);
@@ -5683,7 +6032,11 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             }
 
             if (!ownerInfo.OwnerClassId.HasValue &&
-                TryReadActorClassId(process, visibleActor.Actor.Actor, out var ownerClassId))
+                TryReadActorClassId(
+                    process,
+                    visibleActor.Actor.Actor,
+                    out var ownerClassId,
+                    bypassMemoryCache))
             {
                 ownerInfo.OwnerClassId = ownerClassId;
                 ownerInfo.OwnerClassName = AionClassCatalog.GetChineseName(ownerClassId);
@@ -5701,22 +6054,67 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 continue;
             }
 
-            if (!TryReadUInt32(
-                    process,
-                    visibleActor.Actor.Actor + ActorSummonOwnerServerObjectIdOffset,
-                    out var ownerServerObjectId) ||
-                !owners.TryGetValue(ownerServerObjectId, out var ownerInfo))
+            var actorServerObjectId = visibleActor.Actor.ServerObjectId;
+            var linkedActorCandidate =
+                linkedPetServerObjectIdAvailable &&
+                linkedPetServerObjectId != 0 &&
+                actorServerObjectId == linkedPetServerObjectId;
+            var npcStaticDetail = default(NpcStaticDetail);
+            var hasStaticDetail =
+                visibleActor.Actor.NpcTemplateIdAvailable &&
+                npcStaticDetails.TryGetValue(visibleActor.Actor.NpcTemplateId, out npcStaticDetail);
+            var isSummonPetStatic = hasStaticDetail && IsSummonPetNpcStaticDetail(npcStaticDetail);
+            if (!isSummonPetStatic && !linkedActorCandidate)
             {
                 continue;
             }
 
-            var actorServerObjectId = visibleActor.Actor.ServerObjectId;
+            if (!hasStaticDetail)
+            {
+                counters.StaticMetadataMisses++;
+                structuralPartial = true;
+                SetFirstSummonedPetRosterReadIssue(ref firstIssue, "summoned_pet_static_metadata_missing");
+            }
+
+            if (!TryReadUInt32(
+                    process,
+                    visibleActor.Actor.Actor + ActorSummonOwnerServerObjectIdOffset,
+                    out var ownerServerObjectId,
+                    bypassMemoryCache))
+            {
+                counters.OwnerFieldReadFailures++;
+                if (linkedActorCandidate)
+                {
+                    counters.LocalPetCandidateCount++;
+                }
+
+                structuralPartial = true;
+                SetFirstSummonedPetRosterReadIssue(ref firstIssue, "summoned_pet_owner_read_failed");
+                continue;
+            }
+
+            var ownerIsLocal = ownerServerObjectId == localActor.ServerObjectId;
+            if (linkedActorCandidate || ownerIsLocal && isSummonPetStatic)
+            {
+                counters.LocalPetCandidateCount++;
+            }
+
+            if (!owners.TryGetValue(ownerServerObjectId, out var ownerInfo))
+            {
+                if (linkedActorCandidate)
+                {
+                    structuralPartial = true;
+                    SetFirstSummonedPetRosterReadIssue(ref firstIssue, "linked_pet_owner_not_local_or_party");
+                }
+
+                continue;
+            }
+
             var localLinkMatches =
                 ownerInfo.OwnerKind == SummonedPetOwnerKind.LocalPlayer &&
+                linkedPetServerObjectIdAvailable &&
                 linkedPetServerObjectId != 0 &&
                 actorServerObjectId == linkedPetServerObjectId;
-            var hasStaticDetail = npcStaticDetails.TryGetValue(visibleActor.Actor.NpcTemplateId, out var npcStaticDetail);
-            var isSummonPetStatic = hasStaticDetail && IsSummonPetNpcStaticDetail(npcStaticDetail);
 
             if (!isSummonPetStatic)
             {
@@ -5725,6 +6123,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
 
             if (ownerInfo.OwnerKind == SummonedPetOwnerKind.LocalPlayer && !localLinkMatches)
             {
+                structuralPartial = true;
+                SetFirstSummonedPetRosterReadIssue(ref firstIssue, "local_pet_candidate_link_mismatch");
                 continue;
             }
 
@@ -5740,7 +6140,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 npcStaticDetail,
                 localLinkMatches,
                 true,
-                isSummonPetStatic);
+                isSummonPetStatic,
+                bypassMemoryCache);
 
             if (ownerInfo.OwnerKind == SummonedPetOwnerKind.LocalPlayer)
             {
@@ -5757,6 +6158,14 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             }
         }
 
+        if (linkedPetServerObjectIdAvailable &&
+            linkedPetServerObjectId != 0 &&
+            localPlayerPet is null)
+        {
+            structuralPartial = true;
+            SetFirstSummonedPetRosterReadIssue(ref firstIssue, "linked_pet_actor_or_detail_missing");
+        }
+
         localPlayerPet ??= new OwnedSummonedPetSnapshot(
             SummonedPetOwnerKind.LocalPlayer,
             localActor.ServerObjectId,
@@ -5768,7 +6177,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             OwnerClassId: localOwnerClassId,
             OwnerClassName: localOwnerClassName);
 
-        snapshot = new SummonedPetRosterSnapshot(
+        var snapshot = new SummonedPetRosterSnapshot(
             localActor.ServerObjectId,
             linkedPetServerObjectId,
             capturedAt,
@@ -5777,10 +6186,22 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             partyMembers
                 .Select(member => member.ServerObjectId)
                 .Where(serverObjectId => serverObjectId != 0 && serverObjectId != localActor.ServerObjectId)
-                .Distinct()
-                .ToArray(),
+            .Distinct()
+            .ToArray(),
             partyMemberReadError);
-        return true;
+        return new SummonedPetRosterReadAttempt(
+            structuralPartial
+                ? SummonedPetRosterReadCompleteness.Partial
+                : SummonedPetRosterReadCompleteness.Complete,
+            snapshot,
+            counters,
+            visibleActorRead.TraversalTermination,
+            LocalServerObjectIdAvailable: true,
+            LocalLinkedPetServerObjectIdAvailable: linkedPetServerObjectIdAvailable,
+            VisibleActorTraversalComplete:
+                visibleActorRead.Completeness == SummonedPetRosterReadCompleteness.Complete,
+            firstIssue,
+            structuralPartial ? firstIssue : null);
     }
 
     private static OwnedSummonedPetSnapshot BuildOwnedSummonedPetSnapshot(
@@ -5795,15 +6216,28 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         NpcStaticDetail npcStaticDetail,
         bool localLinkMatches,
         bool ownerConfirmed,
-        bool isSummonPetStatic)
+        bool isSummonPetStatic,
+        bool bypassMemoryCache)
     {
         Vector3Snapshot? position = null;
         double? distance = null;
-        if (TryReadEntityPosition(process, visibleActor.Entity, out var x, out var y, out var z) &&
+        if (TryReadEntityPosition(
+                process,
+                visibleActor.Entity,
+                out var x,
+                out var y,
+                out var z,
+                bypassMemoryCache) &&
             IsReasonablePosition(x, y, z))
         {
             position = new Vector3Snapshot(x, y, z);
-            if (TryReadEntityPosition(process, localEntity, out var localX, out var localY, out var localZ))
+            if (TryReadEntityPosition(
+                    process,
+                    localEntity,
+                    out var localX,
+                    out var localY,
+                    out var localZ,
+                    bypassMemoryCache))
             {
                 var dx = x - localX;
                 var dy = y - localY;
@@ -5815,14 +6249,16 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         TryReadUInt32(
             process,
             visibleActor.Actor.Actor + ActorAbnormalCategory2CountOffset,
-            out var abnormalCategory2Count);
+            out var abnormalCategory2Count,
+            bypassMemoryCache);
 
         var abnormalStatusReadError = string.Empty;
         if (!TryReadActorAbnormalStatusEntries(
                 process,
                 visibleActor.Actor.Actor,
                 out var abnormalStatuses,
-                out abnormalStatusReadError))
+                out abnormalStatusReadError,
+                bypassMemoryCache))
         {
             abnormalStatuses = Array.Empty<AbnormalStatusEntrySnapshot>();
         }
@@ -5848,7 +6284,11 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             capturedAt,
             localLinkedPetServerObjectId,
             ownerConfirmed,
-            BuildSummonedPetEvidenceSource(localLinkMatches, ownerConfirmed, isSummonPetStatic));
+            BuildSummonedPetEvidenceSource(localLinkMatches, ownerConfirmed, isSummonPetStatic),
+            new SummonedPetHealthFieldValidity(
+                visibleActor.Actor.CurrentHpAvailable,
+                visibleActor.Actor.MaxHpAvailable,
+                visibleActor.Actor.HpPercentAvailable));
 
         return new OwnedSummonedPetSnapshot(
             ownerInfo.OwnerKind,
@@ -5869,73 +6309,252 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         ulong entityTreeHeader,
         ushort localEntityId,
         out List<VisibleActorInfo> actors,
-        out string error)
+        out string error,
+        bool bypassMemoryCache = false)
     {
-        actors = new List<VisibleActorInfo>();
-        error = string.Empty;
+        var result = ReadVisibleActorInfosWithQuality(
+            process,
+            gameBase,
+            entityTreeHeader,
+            localEntityId,
+            bypassMemoryCache);
+        actors = result.Actors.ToList();
+        error = result.Error ?? string.Empty;
+        return result.Completeness != SummonedPetRosterReadCompleteness.Failed;
+    }
 
-        if (!TryReadPointer(process, gameBase + ServerObjectTreeRva, out var serverTreeHeader) || serverTreeHeader == 0)
+    private static VisibleActorReadAttempt ReadVisibleActorInfosWithQuality(
+        VmmProcess process,
+        ulong gameBase,
+        ulong entityTreeHeader,
+        ushort localEntityId,
+        bool bypassMemoryCache)
+    {
+        var actors = new List<VisibleActorInfo>();
+        var counters = new SummonedPetRosterReadCounters();
+        var firstIssue = string.Empty;
+
+        if (!TryReadPointer(
+                process,
+                gameBase + ServerObjectTreeRva,
+                out var serverTreeHeader,
+                bypassMemoryCache) ||
+            serverTreeHeader == 0)
         {
-            error = "failed to read ServerObject tree header at Game.dll+0x" + ServerObjectTreeRva.ToString("X");
-            return false;
+            return VisibleActorReadAttempt.Failed(
+                "failed to read ServerObject tree header at Game.dll+0x" + ServerObjectTreeRva.ToString("X"),
+                counters);
         }
 
-        if (!TryReadPointer(process, serverTreeHeader + NodeLeftOffset, out var node))
+        if (!TryReadPointer(process, serverTreeHeader + NodeLeftOffset, out var node, bypassMemoryCache))
         {
-            error = "failed to read ServerObject tree begin node";
-            return false;
+            return VisibleActorReadAttempt.Failed(
+                "failed to read ServerObject tree begin node",
+                counters);
         }
 
-        for (var guard = 0; node != 0 && node != serverTreeHeader && guard < 100000; guard++)
+        var termination = node == serverTreeHeader
+            ? SummonedPetRosterTraversalTermination.EmptyTree
+            : SummonedPetRosterTraversalTermination.NotStarted;
+        var structuralPartial = false;
+        var visited = new HashSet<ulong>();
+        var guard = 0;
+        while (node != serverTreeHeader)
         {
-            if (IsNilNode(process, node, serverTreeHeader))
+            if (node == 0)
             {
+                structuralPartial = true;
+                termination = SummonedPetRosterTraversalTermination.TraversalReadFailed;
+                SetFirstSummonedPetRosterReadIssue(ref firstIssue, "summoned_pet_tree_node_became_null");
                 break;
             }
 
-            if (TryReadUInt32(process, node + ServerNodeServerObjectIdOffset, out var serverObjectId) &&
-                TryReadUInt16(process, node + ServerNodeEntityIdOffset, out var entityId) &&
-                entityId != 0 &&
-                TryFindEntityById(process, entityTreeHeader, entityId, out var entity) &&
-                entity != 0 &&
-                TryResolveActorFromEntity(process, entity, serverObjectId, out var actor) &&
-                (actor.ObjectType == ActorPlayerObjectType ||
-                 actor.ObjectType == SummonedPetSnapshot.ActorObjectType))
+            if (guard++ >= 100000)
             {
-                actors.Add(new VisibleActorInfo(
-                    entityId,
-                    TryReadUInt16(process, entity + EntityTypeOffset, out var entityType) ? entityType : (ushort)0,
-                    entity,
-                    actor));
+                structuralPartial = true;
+                termination = SummonedPetRosterTraversalTermination.GuardLimitReached;
+                SetFirstSummonedPetRosterReadIssue(ref firstIssue, "summoned_pet_tree_guard_limit_reached");
+                break;
             }
 
-            if (!TryGetNextTreeNode(process, serverTreeHeader, node, out var next) || next == node)
+            if (!visited.Add(node))
             {
+                structuralPartial = true;
+                termination = SummonedPetRosterTraversalTermination.CycleDetected;
+                SetFirstSummonedPetRosterReadIssue(ref firstIssue, "summoned_pet_tree_cycle_detected");
+                break;
+            }
+
+            if (!TryIsWorldTreeNilNode(
+                    process,
+                    node,
+                    serverTreeHeader,
+                    out var isNil,
+                    bypassMemoryCache))
+            {
+                structuralPartial = true;
+                termination = SummonedPetRosterTraversalTermination.TraversalReadFailed;
+                SetFirstSummonedPetRosterReadIssue(ref firstIssue, "summoned_pet_tree_nil_flag_read_failed");
+                break;
+            }
+
+            if (isNil)
+            {
+                termination = counters.ScannedServerObjects == 0
+                    ? SummonedPetRosterTraversalTermination.EmptyTree
+                    : SummonedPetRosterTraversalTermination.ReachedTreeEnd;
+                break;
+            }
+
+            counters.ScannedServerObjects++;
+            if (!TryReadUInt32(
+                    process,
+                    node + ServerNodeServerObjectIdOffset,
+                    out var serverObjectId,
+                    bypassMemoryCache) ||
+                !TryReadUInt16(
+                    process,
+                    node + ServerNodeEntityIdOffset,
+                    out var entityId,
+                    bypassMemoryCache))
+            {
+                counters.NodeIdentityReadFailures++;
+                structuralPartial = true;
+                SetFirstSummonedPetRosterReadIssue(ref firstIssue, "summoned_pet_node_identity_read_failed");
+            }
+            else if (entityId != 0)
+            {
+                var lookup = FindWorldEntityById(
+                    process,
+                    entityTreeHeader,
+                    entityId,
+                    out var entity,
+                    bypassMemoryCache);
+                if (lookup != WorldEntityLookupStatus.Found || entity == 0)
+                {
+                    counters.EntityLookupFailures++;
+                    structuralPartial = true;
+                    SetFirstSummonedPetRosterReadIssue(
+                        ref firstIssue,
+                        "summoned_pet_entity_lookup_" + lookup.ToString().ToLowerInvariant());
+                }
+                else if (!TryReadUInt16(
+                             process,
+                             entity + EntityTypeOffset,
+                             out var entityType,
+                             bypassMemoryCache))
+                {
+                    counters.EntityTypeReadFailures++;
+                    structuralPartial = true;
+                    SetFirstSummonedPetRosterReadIssue(ref firstIssue, "summoned_pet_entity_type_read_failed");
+                }
+                else if (!TryResolveActorFromEntity(
+                             process,
+                             entity,
+                             serverObjectId,
+                             out var actor,
+                             bypassMemoryCache))
+                {
+                    counters.ActorResolutionFailures++;
+                    structuralPartial = true;
+                    SetFirstSummonedPetRosterReadIssue(ref firstIssue, "summoned_pet_actor_resolution_failed");
+                }
+                else if (serverObjectId == 0 ||
+                         actor.ServerObjectId == 0 ||
+                         actor.ServerObjectId != serverObjectId)
+                {
+                    counters.ActorIdentityMismatches++;
+                    structuralPartial = true;
+                    SetFirstSummonedPetRosterReadIssue(ref firstIssue, "summoned_pet_actor_identity_mismatch");
+                }
+                else if (actor.ObjectType == ActorPlayerObjectType ||
+                         actor.ObjectType == SummonedPetSnapshot.ActorObjectType)
+                {
+                    actors.Add(new VisibleActorInfo(entityId, entityType, entity, actor));
+                    counters.EmittedActors++;
+                }
+            }
+
+            var advance = TryGetNextWorldTreeNode(
+                process,
+                serverTreeHeader,
+                node,
+                out var next,
+                bypassMemoryCache);
+            if (advance != WorldTreeAdvanceStatus.Succeeded)
+            {
+                structuralPartial = true;
+                termination = advance == WorldTreeAdvanceStatus.GuardLimitReached
+                    ? SummonedPetRosterTraversalTermination.GuardLimitReached
+                    : SummonedPetRosterTraversalTermination.TraversalReadFailed;
+                SetFirstSummonedPetRosterReadIssue(
+                    ref firstIssue,
+                    advance == WorldTreeAdvanceStatus.GuardLimitReached
+                        ? "summoned_pet_tree_advance_guard_limit_reached"
+                        : "summoned_pet_tree_advance_read_failed");
+                break;
+            }
+
+            if (next == node)
+            {
+                structuralPartial = true;
+                termination = SummonedPetRosterTraversalTermination.SelfLoopDetected;
+                SetFirstSummonedPetRosterReadIssue(ref firstIssue, "summoned_pet_tree_self_loop_detected");
                 break;
             }
 
             node = next;
         }
 
-        return true;
+        if (!structuralPartial && termination == SummonedPetRosterTraversalTermination.NotStarted)
+        {
+            termination = actors.Count == 0
+                ? SummonedPetRosterTraversalTermination.EmptyTree
+                : SummonedPetRosterTraversalTermination.ReachedTreeEnd;
+        }
+
+        return new VisibleActorReadAttempt(
+            structuralPartial
+                ? SummonedPetRosterReadCompleteness.Partial
+                : SummonedPetRosterReadCompleteness.Complete,
+            actors,
+            counters,
+            termination,
+            firstIssue,
+            structuralPartial ? firstIssue : null);
     }
 
     private static bool TryReadPartyMemberServerObjectIds(
         VmmProcess process,
         ulong gameBase,
         out IReadOnlyList<PartyMemberInfo> members,
-        out string error)
+        out string error,
+        bool bypassMemoryCache = false)
     {
         var result = new List<PartyMemberInfo>();
         var seen = new HashSet<uint>();
         var errors = new List<string>();
 
-        if (!ReadPartyMemberServerObjectIdList(process, gameBase + PrimaryPartyListRva, "primary", result, seen, out var primaryError))
+        if (!ReadPartyMemberServerObjectIdList(
+                process,
+                gameBase + PrimaryPartyListRva,
+                "primary",
+                result,
+                seen,
+                out var primaryError,
+                bypassMemoryCache))
         {
             errors.Add(primaryError);
         }
 
-        if (!ReadPartyMemberServerObjectIdList(process, gameBase + SecondaryPartyListRva, "secondary", result, seen, out var secondaryError))
+        if (!ReadPartyMemberServerObjectIdList(
+                process,
+                gameBase + SecondaryPartyListRva,
+                "secondary",
+                result,
+                seen,
+                out var secondaryError,
+                bypassMemoryCache))
         {
             errors.Add(secondaryError);
         }
@@ -5951,17 +6570,18 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         string listName,
         List<PartyMemberInfo> members,
         HashSet<uint> seenServerObjectIds,
-        out string error)
+        out string error,
+        bool bypassMemoryCache)
     {
         error = string.Empty;
 
-        if (!TryReadPointer(process, listGlobalAddress, out var head) || head == 0)
+        if (!TryReadPointer(process, listGlobalAddress, out var head, bypassMemoryCache) || head == 0)
         {
             error = "failed to read " + listName + " party list head at 0x" + listGlobalAddress.ToString("X");
             return false;
         }
 
-        if (!TryReadPointer(process, head + ListNodeNextOffset, out var node))
+        if (!TryReadPointer(process, head + ListNodeNextOffset, out var node, bypassMemoryCache))
         {
             error = "failed to read " + listName + " party list first node";
             return false;
@@ -5975,16 +6595,25 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 break;
             }
 
-            if (TryReadPointer(process, node + ListNodeValueOffset, out var member) &&
+            if (TryReadPointer(process, node + ListNodeValueOffset, out var member, bypassMemoryCache) &&
                 member != 0 &&
-                TryReadUInt32(process, member + PartyMemberServerObjectIdOffset, out var serverObjectId) &&
+                TryReadUInt32(
+                    process,
+                    member + PartyMemberServerObjectIdOffset,
+                    out var serverObjectId,
+                    bypassMemoryCache) &&
                 serverObjectId != 0 &&
                 seenServerObjectIds.Add(serverObjectId))
             {
                 members.Add(new PartyMemberInfo(listName, member, serverObjectId));
             }
 
-            if (!TryReadPointer(process, node + ListNodeNextOffset, out var next) || next == node)
+            if (!TryReadPointer(
+                    process,
+                    node + ListNodeNextOffset,
+                    out var next,
+                    bypassMemoryCache) ||
+                next == node)
             {
                 break;
             }
@@ -6039,139 +6668,704 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         return string.Join("+", evidence);
     }
 
-    private static bool TryReadWorldObjects(
+    private static WorldObjectReadAttempt ReadWorldObjectsWithQuality(
         VmmProcess process,
         ulong gameBase,
-        IReadOnlyDictionary<uint, NpcStaticDetail> npcStaticDetails,
-        out IReadOnlyList<WorldObjectSnapshot> objects,
-        out WorldObjectReadCounters counters,
-        out string error)
+        NpcXmlCatalog npcCatalog,
+        bool bypassMemoryCache)
     {
-        var result = new List<WorldObjectSnapshot>();
-        objects = result;
-        counters = new WorldObjectReadCounters();
-        error = string.Empty;
+        var observations = new List<WorldObjectObservation>();
+        var counters = new WorldObjectReadCounters();
+        var firstIssue = string.Empty;
+        var structuralPartial = false;
 
-        if (!TryReadPointer(process, gameBase + EntitySystemPointerRva, out var entitySystem))
+        if (!string.IsNullOrWhiteSpace(npcCatalog.Error))
         {
-            error = "failed to read EntitySystem pointer at Game.dll+0x" + EntitySystemPointerRva.ToString("X");
-            return false;
+            counters.StaticCatalogErrors++;
+            structuralPartial = true;
+            SetFirstWorldObjectReadIssue(ref firstIssue, "npc_catalog_error: " + npcCatalog.Error);
         }
 
-        if (!TryReadPointer(process, entitySystem + EntityTreeOffset, out var entityTreeHeader))
+        if (npcCatalog.Details.Count == 0)
         {
-            error = "failed to read EntitySystem tree header at EntitySystem+0x" + EntityTreeOffset.ToString("X");
-            return false;
+            structuralPartial = true;
+            if (counters.StaticCatalogErrors == 0)
+            {
+                counters.StaticCatalogErrors++;
+            }
+
+            SetFirstWorldObjectReadIssue(ref firstIssue, "npc_catalog_empty");
         }
 
-        if (!TryReadUInt16(process, gameBase + LocalEntityIdRva, out var localEntityId) || localEntityId == 0)
+        if (!TryReadPointer(
+                process,
+                gameBase + EntitySystemPointerRva,
+                out var entitySystem,
+                bypassMemoryCache))
         {
-            error = "failed to read local entity id at Game.dll+0x" + LocalEntityIdRva.ToString("X");
-            return false;
+            return WorldObjectReadAttempt.Failed(
+                "failed to read EntitySystem pointer at Game.dll+0x" + EntitySystemPointerRva.ToString("X"),
+                counters);
         }
 
-        TryReadUInt16(process, gameBase + LocalEntityIdRva + 2, out var targetEntityId);
-
-        if (!TryFindEntityById(process, entityTreeHeader, localEntityId, out var localEntity) ||
-            !TryReadEntityPosition(process, localEntity, out var localX, out var localY, out var localZ))
+        if (!TryReadPointer(
+                process,
+                entitySystem + EntityTreeOffset,
+                out var entityTreeHeader,
+                bypassMemoryCache))
         {
-            error = "failed to read local entity position";
-            return false;
+            return WorldObjectReadAttempt.Failed(
+                "failed to read EntitySystem tree header at EntitySystem+0x" + EntityTreeOffset.ToString("X"),
+                counters);
+        }
+
+        if (!TryReadUInt16(
+                process,
+                gameBase + LocalEntityIdRva,
+                out var localEntityId,
+                bypassMemoryCache) ||
+            localEntityId == 0)
+        {
+            return WorldObjectReadAttempt.Failed(
+                "failed to read local entity id at Game.dll+0x" + LocalEntityIdRva.ToString("X"),
+                counters);
+        }
+
+        var localLookup = FindWorldEntityById(
+            process,
+            entityTreeHeader,
+            localEntityId,
+            out var localEntity,
+            bypassMemoryCache);
+        if (localLookup != WorldEntityLookupStatus.Found ||
+            !TryReadEntityPosition(
+                process,
+                localEntity,
+                out var localX,
+                out var localY,
+                out var localZ,
+                bypassMemoryCache))
+        {
+            return WorldObjectReadAttempt.Failed("failed to read local entity position", counters);
         }
 
         uint localServerObjectId = 0;
-        if (TryResolveActorFromEntity(process, localEntity, 0, out var localActor))
+        var localServerObjectIdAvailable =
+            TryResolveActorFromEntity(
+                process,
+                localEntity,
+                0,
+                out var localActor,
+                bypassMemoryCache) &&
+            localActor.ServerObjectId != 0;
+        if (localServerObjectIdAvailable)
         {
             localServerObjectId = localActor.ServerObjectId;
         }
-
-        if (!TryReadPointer(process, gameBase + ServerObjectTreeRva, out var serverTreeHeader) || serverTreeHeader == 0)
+        else
         {
-            error = "failed to read ServerObject tree header at Game.dll+0x" + ServerObjectTreeRva.ToString("X");
-            return false;
+            SetFirstWorldObjectReadIssue(ref firstIssue, "local_server_object_id_unavailable");
         }
 
-        if (!TryReadPointer(process, serverTreeHeader + NodeLeftOffset, out var node))
+        if (!TryReadPointer(
+                process,
+                gameBase + ServerObjectTreeRva,
+                out var serverTreeHeader,
+                bypassMemoryCache) ||
+            serverTreeHeader == 0)
         {
-            error = "failed to read ServerObject tree begin node";
-            return false;
+            return WorldObjectReadAttempt.Failed(
+                "failed to read ServerObject tree header at Game.dll+0x" + ServerObjectTreeRva.ToString("X"),
+                counters);
         }
 
-        for (var guard = 0; node != 0 && node != serverTreeHeader && guard < 100000; guard++)
+        if (!TryReadPointer(
+                process,
+                serverTreeHeader + NodeLeftOffset,
+                out var node,
+                bypassMemoryCache))
         {
-            if (IsNilNode(process, node, serverTreeHeader))
+            return WorldObjectReadAttempt.Failed("failed to read ServerObject tree begin node", counters);
+        }
+
+        var termination = node == serverTreeHeader
+            ? WorldObjectTraversalTermination.EmptyTree
+            : WorldObjectTraversalTermination.NotStarted;
+        if (node != serverTreeHeader)
+        {
+            var visited = new HashSet<ulong>();
+            var guard = 0;
+            while (true)
             {
-                break;
-            }
-
-            counters.ScannedServerObjects++;
-
-            if (TryReadUInt32(process, node + ServerNodeServerObjectIdOffset, out var serverObjectId) &&
-                TryReadUInt16(process, node + ServerNodeEntityIdOffset, out var entityId) &&
-                entityId != 0 &&
-                entityId != localEntityId &&
-                TryFindEntityById(process, entityTreeHeader, entityId, out var entity) &&
-                entity != 0)
-            {
-                counters.ResolvedEntities++;
-
-                if (TryReadUInt16(process, entity + EntityTypeOffset, out var entityType) &&
-                    entityType == EntityTypeNpc)
+                if (node == serverTreeHeader)
                 {
-                    counters.NpcLikeEntities++;
-
-                    if (TryReadEntityPosition(process, entity, out var x, out var y, out var z) &&
-                        IsReasonablePosition(x, y, z) &&
-                        TryResolveActorFromEntity(process, entity, serverObjectId, out var actor) &&
-                        npcStaticDetails.TryGetValue(actor.NpcTemplateId, out var npcStaticDetail))
-                    {
-                        var dx = x - localX;
-                        var dy = y - localY;
-                        var dz = z - localZ;
-                        var distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
-                        var isMonster = npcStaticDetail.IsMonsterKnown && npcStaticDetail.IsMonster;
-                        var name = string.IsNullOrWhiteSpace(actor.Name) ? npcStaticDetail.Name : actor.Name;
-                        if (string.IsNullOrWhiteSpace(name))
-                        {
-                            continue;
-                        }
-
-                        result.Add(new WorldObjectSnapshot(
-                            entityId,
-                            serverObjectId,
-                            name,
-                            isMonster ? "monster" : "npc",
-                            new Vector3Snapshot(x, y, z),
-                            distance,
-                            actor.CurrentHp,
-                            actor.MaxHp,
-                            actor.TargetServerObjectId,
-                            localServerObjectId != 0 && actor.TargetServerObjectId == localServerObjectId,
-                            npcStaticDetail.AggressiveKnown,
-                            npcStaticDetail.AggressiveToPlayer,
-                            npcStaticDetail.AggressiveSource,
-                            actor.LootableRaw,
-                            actor.InteractionState));
-                    }
+                    termination = WorldObjectTraversalTermination.ReachedTreeEnd;
+                    break;
                 }
-            }
 
-            if (!TryGetNextTreeNode(process, serverTreeHeader, node, out var next) || next == node)
-            {
-                break;
-            }
+                if (node == 0)
+                {
+                    structuralPartial = true;
+                    termination = WorldObjectTraversalTermination.TraversalReadFailed;
+                    SetFirstWorldObjectReadIssue(ref firstIssue, "world_tree_node_became_null");
+                    break;
+                }
 
-            node = next;
+                if (guard++ >= 100000)
+                {
+                    structuralPartial = true;
+                    termination = WorldObjectTraversalTermination.GuardLimitReached;
+                    SetFirstWorldObjectReadIssue(ref firstIssue, "world_tree_guard_limit_reached");
+                    break;
+                }
+
+                if (!visited.Add(node))
+                {
+                    structuralPartial = true;
+                    termination = WorldObjectTraversalTermination.CycleDetected;
+                    SetFirstWorldObjectReadIssue(ref firstIssue, "world_tree_cycle_detected");
+                    break;
+                }
+
+                if (!TryIsWorldTreeNilNode(
+                        process,
+                        node,
+                        serverTreeHeader,
+                        out var isNil,
+                        bypassMemoryCache))
+                {
+                    structuralPartial = true;
+                    termination = WorldObjectTraversalTermination.TraversalReadFailed;
+                    SetFirstWorldObjectReadIssue(ref firstIssue, "world_tree_nil_flag_read_failed");
+                    break;
+                }
+
+                if (isNil)
+                {
+                    termination = observations.Count == 0 && counters.ScannedServerObjects == 0
+                        ? WorldObjectTraversalTermination.EmptyTree
+                        : WorldObjectTraversalTermination.ReachedTreeEnd;
+                    break;
+                }
+
+                counters.ScannedServerObjects++;
+                if (!TryReadWorldObjectObservation(
+                        process,
+                        entityTreeHeader,
+                        node,
+                        localEntityId,
+                        localX,
+                        localY,
+                        localZ,
+                        localServerObjectId,
+                        localServerObjectIdAvailable,
+                        npcCatalog.Details,
+                        bypassMemoryCache,
+                        out var observation,
+                        ref counters,
+                        ref firstIssue))
+                {
+                    structuralPartial = true;
+                }
+
+                if (observation is not null)
+                {
+                    observations.Add(observation);
+                }
+
+                var advance = TryGetNextWorldTreeNode(
+                    process,
+                    serverTreeHeader,
+                    node,
+                    out var next,
+                    bypassMemoryCache);
+                if (advance != WorldTreeAdvanceStatus.Succeeded)
+                {
+                    structuralPartial = true;
+                    termination = advance == WorldTreeAdvanceStatus.GuardLimitReached
+                        ? WorldObjectTraversalTermination.GuardLimitReached
+                        : WorldObjectTraversalTermination.TraversalReadFailed;
+                    SetFirstWorldObjectReadIssue(
+                        ref firstIssue,
+                        advance == WorldTreeAdvanceStatus.GuardLimitReached
+                            ? "world_tree_advance_guard_limit_reached"
+                            : "world_tree_advance_read_failed");
+                    break;
+                }
+
+                if (next == node)
+                {
+                    structuralPartial = true;
+                    termination = WorldObjectTraversalTermination.SelfLoopDetected;
+                    SetFirstWorldObjectReadIssue(ref firstIssue, "world_tree_self_loop_detected");
+                    break;
+                }
+
+                node = next;
+            }
         }
 
-        result.Sort(static (left, right) =>
+        observations.Sort(static (left, right) =>
         {
-            var leftDistance = left.DistanceToLocalPlayer ?? double.MaxValue;
-            var rightDistance = right.DistanceToLocalPlayer ?? double.MaxValue;
+            var leftDistance = left.Snapshot.DistanceToLocalPlayer ?? double.MaxValue;
+            var rightDistance = right.Snapshot.DistanceToLocalPlayer ?? double.MaxValue;
             return leftDistance.CompareTo(rightDistance);
         });
 
+        return new WorldObjectReadAttempt(
+            structuralPartial
+                ? WorldObjectReadCompleteness.Partial
+                : WorldObjectReadCompleteness.Complete,
+            observations,
+            counters,
+            termination,
+            localServerObjectIdAvailable,
+            firstIssue,
+            structuralPartial ? firstIssue : null);
+    }
+
+    private static bool TryReadWorldObjectObservation(
+        VmmProcess process,
+        ulong entityTreeHeader,
+        ulong node,
+        ushort localEntityId,
+        float localX,
+        float localY,
+        float localZ,
+        uint localServerObjectId,
+        bool localServerObjectIdAvailable,
+        IReadOnlyDictionary<uint, NpcStaticDetail> npcStaticDetails,
+        bool bypassMemoryCache,
+        out WorldObjectObservation? observation,
+        ref WorldObjectReadCounters counters,
+        ref string firstIssue)
+    {
+        observation = null;
+        if (!TryReadUInt32(
+                process,
+                node + ServerNodeServerObjectIdOffset,
+                out var serverObjectId,
+                bypassMemoryCache) ||
+            !TryReadUInt16(
+                process,
+                node + ServerNodeEntityIdOffset,
+                out var entityId,
+                bypassMemoryCache))
+        {
+            counters.NodeIdentityReadFailures++;
+            SetFirstWorldObjectReadIssue(ref firstIssue, "world_node_identity_read_failed");
+            return false;
+        }
+
+        if (entityId == 0 || entityId == localEntityId)
+        {
+            return true;
+        }
+
+        var lookup = FindWorldEntityById(
+            process,
+            entityTreeHeader,
+            entityId,
+            out var entity,
+            bypassMemoryCache);
+        if (lookup != WorldEntityLookupStatus.Found || entity == 0)
+        {
+            counters.EntityLookupFailures++;
+            SetFirstWorldObjectReadIssue(
+                ref firstIssue,
+                "world_entity_lookup_" + lookup.ToString().ToLowerInvariant());
+            return false;
+        }
+
+        counters.ResolvedEntities++;
+        if (!TryReadUInt16(
+                process,
+                entity + EntityTypeOffset,
+                out var entityType,
+                bypassMemoryCache))
+        {
+            counters.EntityTypeReadFailures++;
+            SetFirstWorldObjectReadIssue(ref firstIssue, "world_entity_type_read_failed");
+            return false;
+        }
+
+        if (entityType != EntityTypeNpc)
+        {
+            return true;
+        }
+
+        counters.NpcLikeEntities++;
+        if (!TryReadEntityPosition(
+                process,
+                entity,
+                out var x,
+                out var y,
+                out var z,
+                bypassMemoryCache) ||
+            !IsReasonablePosition(x, y, z))
+        {
+            counters.PositionReadFailures++;
+            SetFirstWorldObjectReadIssue(ref firstIssue, "world_entity_position_read_failed");
+            return false;
+        }
+
+        if (!TryResolveActorFromEntity(
+                process,
+                entity,
+                serverObjectId,
+                out var actor,
+                bypassMemoryCache))
+        {
+            counters.ActorResolutionFailures++;
+            SetFirstWorldObjectReadIssue(ref firstIssue, "world_actor_resolution_failed");
+            return false;
+        }
+
+        if (serverObjectId == 0 ||
+            actor.ServerObjectId == 0 ||
+            actor.ServerObjectId != serverObjectId)
+        {
+            counters.ActorIdentityMismatches++;
+            SetFirstWorldObjectReadIssue(ref firstIssue, "world_actor_identity_mismatch");
+            return false;
+        }
+
+        if (!actor.NpcTemplateIdAvailable || actor.NpcTemplateId == 0)
+        {
+            counters.StaticMetadataMisses++;
+            SetFirstWorldObjectReadIssue(ref firstIssue, "world_npc_template_id_read_failed");
+            return false;
+        }
+
+        if (!npcStaticDetails.TryGetValue(actor.NpcTemplateId, out var npcStaticDetail))
+        {
+            counters.StaticMetadataMisses++;
+            SetFirstWorldObjectReadIssue(ref firstIssue, "world_static_metadata_missing");
+            return false;
+        }
+
+        var name = string.IsNullOrWhiteSpace(actor.Name) ? npcStaticDetail.Name : actor.Name;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            counters.StaticMetadataMisses++;
+            SetFirstWorldObjectReadIssue(ref firstIssue, "world_object_name_missing");
+            return false;
+        }
+
+        if (!actor.TargetServerObjectIdAvailable)
+        {
+            counters.TargetFieldReadFailures++;
+            SetFirstWorldObjectReadIssue(ref firstIssue, "world_target_server_object_id_read_failed");
+        }
+
+        var targetServerObjectIdReliable =
+            actor.TargetServerObjectIdAvailable &&
+            (actor.TargetServerObjectId == 0 || actor.TargetServerObjectId != serverObjectId);
+        if (actor.TargetServerObjectIdAvailable &&
+            actor.TargetServerObjectId != 0 &&
+            actor.TargetServerObjectId == serverObjectId)
+        {
+            // A monster briefly reading itself as its target was observed in
+            // the same incident where a locked read later showed the pet as the
+            // target. Preserve the raw value for diagnostics, but never use it
+            // as affirmative evidence that a local-side threat disappeared.
+            counters.TargetFieldReadFailures++;
+            SetFirstWorldObjectReadIssue(ref firstIssue, "world_target_self_reference");
+        }
+
+        if (!actor.CurrentHpAvailable || !actor.MaxHpAvailable)
+        {
+            counters.HealthFieldReadFailures++;
+            SetFirstWorldObjectReadIssue(ref firstIssue, "world_health_field_read_failed");
+        }
+
+        if (!actor.LootableRawAvailable)
+        {
+            counters.LootFieldReadFailures++;
+            SetFirstWorldObjectReadIssue(ref firstIssue, "world_lootable_field_read_failed");
+        }
+
+        if (!actor.InteractionStateAvailable)
+        {
+            counters.InteractionStateReadFailures++;
+            SetFirstWorldObjectReadIssue(ref firstIssue, "world_interaction_state_read_failed");
+        }
+
+        // Field availability is independent from structural traversal completeness.
+        // Preserve the observation, but require quality-aware callers to treat an
+        // unavailable field as unknown instead of interpreting its default zero.
+        var localTargetRelationAvailable =
+            targetServerObjectIdReliable &&
+            localServerObjectIdAvailable;
+        var isTargetingLocalPlayer =
+            localTargetRelationAvailable &&
+            actor.TargetServerObjectId == localServerObjectId;
+        var dx = x - localX;
+        var dy = y - localY;
+        var dz = z - localZ;
+        var distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+        var isMonster = npcStaticDetail.IsMonsterKnown && npcStaticDetail.IsMonster;
+        var snapshot = new WorldObjectSnapshot(
+            entityId,
+            serverObjectId,
+            name,
+            isMonster ? "monster" : "npc",
+            new Vector3Snapshot(x, y, z),
+            distance,
+            actor.CurrentHp,
+            actor.MaxHp,
+            actor.TargetServerObjectId,
+            isTargetingLocalPlayer,
+            npcStaticDetail.AggressiveKnown,
+            npcStaticDetail.AggressiveToPlayer,
+            npcStaticDetail.AggressiveSource,
+            actor.LootableRaw,
+            actor.InteractionState);
+        observation = new WorldObjectObservation(
+            snapshot,
+            new WorldObjectFieldValidity(
+                actor.CurrentHpAvailable,
+                actor.MaxHpAvailable,
+                targetServerObjectIdReliable,
+                localTargetRelationAvailable,
+                actor.LootableRawAvailable,
+                actor.InteractionStateAvailable));
         return true;
+    }
+
+    private static WorldEntityLookupStatus FindWorldEntityById(
+        VmmProcess process,
+        ulong header,
+        ushort entityId,
+        out ulong entity,
+        bool bypassMemoryCache)
+    {
+        entity = 0;
+        if (header == 0 || entityId == 0 ||
+            !TryReadPointer(
+                process,
+                header + NodeParentOffset,
+                out var node,
+                bypassMemoryCache))
+        {
+            return WorldEntityLookupStatus.ReadFailed;
+        }
+
+        var visited = new HashSet<ulong>();
+        for (var guard = 0; guard < 65536; guard++)
+        {
+            if (!visited.Add(node))
+            {
+                return WorldEntityLookupStatus.CycleDetected;
+            }
+
+            if (!TryIsWorldTreeNilNode(
+                    process,
+                    node,
+                    header,
+                    out var isNil,
+                    bypassMemoryCache))
+            {
+                return WorldEntityLookupStatus.ReadFailed;
+            }
+
+            if (isNil)
+            {
+                return WorldEntityLookupStatus.NotFound;
+            }
+
+            if (!TryReadUInt16(
+                    process,
+                    node + NodeIdOffset,
+                    out var nodeId,
+                    bypassMemoryCache))
+            {
+                return WorldEntityLookupStatus.ReadFailed;
+            }
+
+            if (entityId == nodeId)
+            {
+                return TryReadPointer(
+                    process,
+                    node + NodeEntityOffset,
+                    out entity,
+                    bypassMemoryCache)
+                        ? WorldEntityLookupStatus.Found
+                        : WorldEntityLookupStatus.ReadFailed;
+            }
+
+            var childOffset = entityId < nodeId ? NodeLeftOffset : NodeRightOffset;
+            var previousNode = node;
+            if (!TryReadPointer(
+                    process,
+                    node + childOffset,
+                    out node,
+                    bypassMemoryCache))
+            {
+                return WorldEntityLookupStatus.ReadFailed;
+            }
+
+            if (node == previousNode)
+            {
+                return WorldEntityLookupStatus.SelfLoopDetected;
+            }
+        }
+
+        return WorldEntityLookupStatus.GuardLimitReached;
+    }
+
+    private static WorldTreeAdvanceStatus TryGetNextWorldTreeNode(
+        VmmProcess process,
+        ulong header,
+        ulong node,
+        out ulong next,
+        bool bypassMemoryCache)
+    {
+        next = 0;
+        if (!TryReadPointer(
+                process,
+                node + NodeRightOffset,
+                out var right,
+                bypassMemoryCache) ||
+            !TryIsWorldTreeNilNode(
+                process,
+                right,
+                header,
+                out var rightIsNil,
+                bypassMemoryCache))
+        {
+            return WorldTreeAdvanceStatus.ReadFailed;
+        }
+
+        if (!rightIsNil)
+        {
+            var current = right;
+            for (var guard = 0; guard < 1024; guard++)
+            {
+                if (!TryReadPointer(
+                        process,
+                        current + NodeLeftOffset,
+                        out var left,
+                        bypassMemoryCache) ||
+                    !TryIsWorldTreeNilNode(
+                        process,
+                        left,
+                        header,
+                        out var leftIsNil,
+                        bypassMemoryCache))
+                {
+                    return WorldTreeAdvanceStatus.ReadFailed;
+                }
+
+                if (leftIsNil)
+                {
+                    next = current;
+                    return WorldTreeAdvanceStatus.Succeeded;
+                }
+
+                current = left;
+            }
+
+            return WorldTreeAdvanceStatus.GuardLimitReached;
+        }
+
+        if (!TryReadPointer(
+                process,
+                node + NodeParentOffset,
+                out var parent,
+                bypassMemoryCache))
+        {
+            return WorldTreeAdvanceStatus.ReadFailed;
+        }
+
+        for (var guard = 0; guard < 1024; guard++)
+        {
+            if (!TryIsWorldTreeNilNode(
+                    process,
+                    parent,
+                    header,
+                    out var parentIsNil,
+                    bypassMemoryCache))
+            {
+                return WorldTreeAdvanceStatus.ReadFailed;
+            }
+
+            if (parentIsNil)
+            {
+                next = parent;
+                return WorldTreeAdvanceStatus.Succeeded;
+            }
+
+            if (!TryReadPointer(
+                    process,
+                    parent + NodeRightOffset,
+                    out var parentRight,
+                    bypassMemoryCache))
+            {
+                return WorldTreeAdvanceStatus.ReadFailed;
+            }
+
+            if (node != parentRight)
+            {
+                next = parent;
+                return WorldTreeAdvanceStatus.Succeeded;
+            }
+
+            node = parent;
+            if (!TryReadPointer(
+                    process,
+                    parent + NodeParentOffset,
+                    out parent,
+                    bypassMemoryCache))
+            {
+                return WorldTreeAdvanceStatus.ReadFailed;
+            }
+        }
+
+        return WorldTreeAdvanceStatus.GuardLimitReached;
+    }
+
+    private static bool TryIsWorldTreeNilNode(
+        VmmProcess process,
+        ulong node,
+        ulong header,
+        out bool isNil,
+        bool bypassMemoryCache)
+    {
+        if (node == 0 || node == header)
+        {
+            isNil = true;
+            return true;
+        }
+
+        if (!TryReadByte(
+                process,
+                node + NodeIsNilOffset,
+                out var rawIsNil,
+                bypassMemoryCache))
+        {
+            isNil = false;
+            return false;
+        }
+
+        isNil = rawIsNil != 0;
+        return true;
+    }
+
+    private static void SetFirstWorldObjectReadIssue(ref string firstIssue, string issue)
+    {
+        if (string.IsNullOrWhiteSpace(firstIssue))
+        {
+            firstIssue = issue;
+        }
+    }
+
+    private static void SetFirstSummonedPetRosterReadIssue(ref string firstIssue, string issue)
+    {
+        if (string.IsNullOrWhiteSpace(firstIssue))
+        {
+            firstIssue = issue;
+        }
     }
 
     private static bool TryReadLootCorpses(
@@ -6613,17 +7807,45 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         actor.ServerObjectId = serverObjectId;
         actor.ResolveSource = source;
 
-        TryReadUInt32(process, actorAddress + ActorNpcTemplateIdOffset, out actor.NpcTemplateId, bypassMemoryCache);
+        actor.NpcTemplateIdAvailable = TryReadUInt32(
+            process,
+            actorAddress + ActorNpcTemplateIdOffset,
+            out actor.NpcTemplateId,
+            bypassMemoryCache);
         TryReadUInt16(process, actorAddress + ActorLevelOffset, out actor.Level, bypassMemoryCache);
-        TryReadByte(process, actorAddress + ActorHpPercentOffset, out actor.HpPercent);
-        TryReadUInt32(process, actorAddress + ActorTargetServerObjectIdOffset, out actor.TargetServerObjectId, bypassMemoryCache);
-        TryReadUInt32(process, actorAddress + ActorInteractionStateOffset, out actor.InteractionState, bypassMemoryCache);
+        actor.HpPercentAvailable = TryReadByte(
+            process,
+            actorAddress + ActorHpPercentOffset,
+            out actor.HpPercent,
+            bypassMemoryCache);
+        actor.TargetServerObjectIdAvailable = TryReadUInt32(
+            process,
+            actorAddress + ActorTargetServerObjectIdOffset,
+            out actor.TargetServerObjectId,
+            bypassMemoryCache);
+        actor.InteractionStateAvailable = TryReadUInt32(
+            process,
+            actorAddress + ActorInteractionStateOffset,
+            out actor.InteractionState,
+            bypassMemoryCache);
         var hasStanceFlags = TryReadUInt32(process, actorAddress + ActorStanceFlagsOffset, out actor.StanceFlags, bypassMemoryCache);
         var hasMotionMode = TryReadUInt32(process, actorAddress + ActorMotionModeOffset, out actor.MotionMode, bypassMemoryCache);
         actor.HasRestState = hasStanceFlags && hasMotionMode;
-        TryReadUInt32(process, actorAddress + ActorMaxHpOffset, out actor.MaxHp, bypassMemoryCache);
-        TryReadUInt32(process, actorAddress + ActorCurrentHpOffset, out actor.CurrentHp, bypassMemoryCache);
-        TryReadUInt32(process, actorAddress + ActorLootableFlagOffset, out actor.LootableRaw, bypassMemoryCache);
+        actor.MaxHpAvailable = TryReadUInt32(
+            process,
+            actorAddress + ActorMaxHpOffset,
+            out actor.MaxHp,
+            bypassMemoryCache);
+        actor.CurrentHpAvailable = TryReadUInt32(
+            process,
+            actorAddress + ActorCurrentHpOffset,
+            out actor.CurrentHp,
+            bypassMemoryCache);
+        actor.LootableRawAvailable = TryReadUInt32(
+            process,
+            actorAddress + ActorLootableFlagOffset,
+            out actor.LootableRaw,
+            bypassMemoryCache);
 
         if (TryReadUtf16String(process, actorAddress + ActorNameOffset, 64, out var name, bypassMemoryCache))
         {
@@ -6677,7 +7899,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 return TryReadUInt32(process, node + ServerNodeServerObjectIdOffset, out serverObjectId, bypassMemoryCache);
             }
 
-            if (!TryGetNextTreeNode(process, serverTreeHeader, node, out var next, bypassMemoryCache) || next == node)
+            if (!TryGetNextTreeNode(process, serverTreeHeader, node, out var next) || next == node)
             {
                 return false;
             }
@@ -7059,7 +8281,11 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             localServerObjectId = localActor.ServerObjectId;
         }
 
-        if (!TryReadPointer(process, gameBase + ServerObjectTreeRva, out var serverTreeHeader) || serverTreeHeader == 0)
+        if (!TryReadPointer(
+                process,
+                gameBase + ServerObjectTreeRva,
+                out var serverTreeHeader) ||
+            serverTreeHeader == 0)
         {
             error = "failed to read ServerObject tree header at Game.dll+0x" + ServerObjectTreeRva.ToString("X");
             return false;
@@ -8302,6 +9528,13 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         public bool HasRestState;
         public uint StanceFlags;
         public uint MotionMode;
+        public bool NpcTemplateIdAvailable;
+        public bool HpPercentAvailable;
+        public bool TargetServerObjectIdAvailable;
+        public bool InteractionStateAvailable;
+        public bool MaxHpAvailable;
+        public bool CurrentHpAvailable;
+        public bool LootableRawAvailable;
     }
 
     private sealed record VisibleActorInfo(
@@ -8439,6 +9672,134 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         public int ScannedServerObjects;
         public int ResolvedEntities;
         public int NpcLikeEntities;
+        public int NodeIdentityReadFailures;
+        public int EntityLookupFailures;
+        public int EntityTypeReadFailures;
+        public int PositionReadFailures;
+        public int ActorResolutionFailures;
+        public int ActorIdentityMismatches;
+        public int StaticMetadataMisses;
+        public int StaticCatalogErrors;
+        public int TargetFieldReadFailures;
+        public int HealthFieldReadFailures;
+        public int LootFieldReadFailures;
+        public int InteractionStateReadFailures;
+    }
+
+    private struct SummonedPetRosterReadCounters
+    {
+        public int ScannedServerObjects;
+        public int EmittedActors;
+        public int NodeIdentityReadFailures;
+        public int EntityLookupFailures;
+        public int EntityTypeReadFailures;
+        public int ActorResolutionFailures;
+        public int ActorIdentityMismatches;
+        public int OwnerFieldReadFailures;
+        public int StaticMetadataMisses;
+        public int LocalPetCandidateCount;
+    }
+
+    private sealed record VisibleActorReadAttempt(
+        SummonedPetRosterReadCompleteness Completeness,
+        IReadOnlyList<VisibleActorInfo> Actors,
+        SummonedPetRosterReadCounters Counters,
+        SummonedPetRosterTraversalTermination TraversalTermination,
+        string FirstIssue,
+        string? Error)
+    {
+        public static VisibleActorReadAttempt Failed(
+            string error,
+            SummonedPetRosterReadCounters counters = default)
+        {
+            var normalizedError = string.IsNullOrWhiteSpace(error)
+                ? "Visible-actor read failed."
+                : error;
+            return new VisibleActorReadAttempt(
+                SummonedPetRosterReadCompleteness.Failed,
+                Array.Empty<VisibleActorInfo>(),
+                counters,
+                SummonedPetRosterTraversalTermination.AnchorReadFailed,
+                normalizedError,
+                normalizedError);
+        }
+    }
+
+    private sealed record SummonedPetRosterReadAttempt(
+        SummonedPetRosterReadCompleteness Completeness,
+        SummonedPetRosterSnapshot? Snapshot,
+        SummonedPetRosterReadCounters Counters,
+        SummonedPetRosterTraversalTermination TraversalTermination,
+        bool LocalServerObjectIdAvailable,
+        bool LocalLinkedPetServerObjectIdAvailable,
+        bool VisibleActorTraversalComplete,
+        string FirstIssue,
+        string? Error)
+    {
+        public static SummonedPetRosterReadAttempt Failed(
+            string error,
+            SummonedPetRosterReadCounters counters = default,
+            bool localServerObjectIdAvailable = false,
+            bool linkedPetServerObjectIdAvailable = false)
+        {
+            var normalizedError = string.IsNullOrWhiteSpace(error)
+                ? "Summoned-pet roster read failed."
+                : error;
+            return new SummonedPetRosterReadAttempt(
+                SummonedPetRosterReadCompleteness.Failed,
+                null,
+                counters,
+                SummonedPetRosterTraversalTermination.AnchorReadFailed,
+                localServerObjectIdAvailable,
+                linkedPetServerObjectIdAvailable,
+                false,
+                normalizedError,
+                normalizedError);
+        }
+    }
+
+    private enum WorldEntityLookupStatus
+    {
+        Found,
+        NotFound,
+        ReadFailed,
+        SelfLoopDetected,
+        CycleDetected,
+        GuardLimitReached
+    }
+
+    private enum WorldTreeAdvanceStatus
+    {
+        Succeeded,
+        ReadFailed,
+        GuardLimitReached
+    }
+
+    private sealed record WorldObjectReadAttempt(
+        WorldObjectReadCompleteness Completeness,
+        IReadOnlyList<WorldObjectObservation> Observations,
+        WorldObjectReadCounters Counters,
+        WorldObjectTraversalTermination TraversalTermination,
+        bool LocalServerObjectIdAvailable,
+        string FirstIssue,
+        string? Error)
+    {
+        public static WorldObjectReadAttempt Failed(
+            string error,
+            WorldObjectReadCounters counters = default)
+        {
+            var normalizedError = string.IsNullOrWhiteSpace(error)
+                ? "World-object read failed."
+                : error;
+            return new WorldObjectReadAttempt(
+                WorldObjectReadCompleteness.Failed,
+                Array.Empty<WorldObjectObservation>(),
+                counters,
+                WorldObjectTraversalTermination.AnchorReadFailed,
+                false,
+                normalizedError,
+                normalizedError);
+        }
     }
 
     private struct GatherReadCounters

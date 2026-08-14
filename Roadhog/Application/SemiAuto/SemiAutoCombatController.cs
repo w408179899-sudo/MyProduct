@@ -18,6 +18,10 @@ public sealed class SemiAutoCombatController
         AllowMaintenanceRules
     }
 
+    private sealed record SpiritmasterElementalReplenishmentSafetySnapshot(
+        PlayerSnapshot Player,
+        SummonedPetSnapshot Pet);
+
     private static readonly TimeSpan WarningLogInterval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan MaintenanceConfirmWindow = TimeSpan.FromSeconds(6);
     private static readonly TimeSpan NormalStatusMaintenanceConfirmWindow = TimeSpan.FromMilliseconds(1300);
@@ -31,6 +35,12 @@ public sealed class SemiAutoCombatController
     private static readonly TimeSpan SpiritmasterSummonAttemptInterval = TimeSpan.FromSeconds(6);
     private static readonly TimeSpan SpiritmasterSummonVerifyWindow = TimeSpan.FromSeconds(5);
     private const int SpiritmasterMissingPetReadThreshold = 3;
+    private const uint SpiritmasterElementalReplenishmentSkillId = 1678;
+    private const double SpiritmasterElementalReplenishmentMinPlayerHpPercent = 65.0D;
+    private static readonly TimeSpan SpiritmasterElementalReplenishmentMinimumRetryInterval =
+        TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan SpiritmasterElementalReplenishmentMinimumConfirmationLifetime =
+        TimeSpan.FromSeconds(30);
     private static readonly TimeSpan SpiritmasterOpeningAttackKeyInterval = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan OpeningSkillConfirmationTimeout = TimeSpan.FromMilliseconds(2300);
     private static readonly string AttackKey = "C";
@@ -86,6 +96,7 @@ public sealed class SemiAutoCombatController
 
         if (!plan.HasCombatActions)
         {
+            state.ClearSpiritmasterPetHpIncreaseConfirmation();
             state.ResetOpeningAttackKey();
             state.ResetSpiritmasterOpeningAttackKey();
             state.ResetOpeningSkill();
@@ -150,6 +161,7 @@ public sealed class SemiAutoCombatController
 
         if (!targetResult.Value.IsMonsterAlive)
         {
+            state.ClearSpiritmasterPetHpIncreaseConfirmation();
             ClearPendingChainForTargetTransition(context, state, "target_not_attackable");
             state.ResetOpeningAttackKey();
             state.ResetSpiritmasterOpeningAttackKey();
@@ -449,7 +461,9 @@ public sealed class SemiAutoCombatController
         AccountWorkerContext context,
         SemiAutoSkillPlan plan,
         SemiAutoCombatState state,
-        Func<Task>? beforeSummonKeyPress = null)
+        Func<Task>? beforeSummonKeyPress = null,
+        SummonedPetRosterReadResult? petRosterReadResult = null,
+        bool holdWhenPresenceUnknown = false)
     {
         if (!plan.UsesSpiritmasterAutoLogic)
         {
@@ -471,7 +485,25 @@ public sealed class SemiAutoCombatController
         {
             state.ResetSpiritmasterPetMissingReads();
             state.ClearSpiritmasterSummonVerification();
-            return false;
+            if (holdWhenPresenceUnknown &&
+                ShouldLog(state.LastSpiritmasterPetPresenceUnknownLogAt, now))
+            {
+                state.LastSpiritmasterPetPresenceUnknownLogAt = now;
+                context.Logger.Warn("semi_auto.spiritmaster.pet_gate.player_unknown_held", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["readSuccess"] = playerResult.Success,
+                    ["error"] = playerResult.Error,
+                    ["playerAvailable"] = playerResult.Value is not null,
+                    ["playerDead"] = playerResult.Value?.IsDead,
+                    ["currentHp"] = playerResult.Value?.CurrentHp,
+                    ["maxHp"] = playerResult.Value?.MaxHp,
+                    ["currentHpAvailable"] = playerResult.Value?.CurrentHpAvailable,
+                    ["maxHpAvailable"] = playerResult.Value?.MaxHpAvailable
+                });
+            }
+
+            return holdWhenPresenceUnknown;
         }
 
         var player = playerResult.Value;
@@ -482,31 +514,11 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
-        var rosterResult = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
-        if (!rosterResult.Success || rosterResult.Value is null)
-        {
-            state.ResetSpiritmasterPetMissingReads();
-            if (state.HasPendingSpiritmasterSummonVerification)
-            {
-                if (ShouldLog(state.LastSpiritmasterSummonVerifyLogAt, now))
-                {
-                    state.LastSpiritmasterSummonVerifyLogAt = now;
-                    context.Logger.Warn("semi_auto.spiritmaster.summon_verify_roster_failed", new Dictionary<string, object?>
-                    {
-                        ["account"] = context.Config.AccountName,
-                        ["error"] = rosterResult.Error
-                    });
-                }
-
-                return true;
-            }
-
-            return false;
-        }
-
-        var localPet = rosterResult.Value.LocalPlayerPet;
-        var pet = localPet.Pet;
-        if (SpiritmasterCombatContext.IsConfirmedLocalSummonedPet(localPet))
+        petRosterReadResult ??= await ReadSummonedPetRosterWithQualityAsync(context).ConfigureAwait(false);
+        var presence = petRosterReadResult.ResolveLocalPetPresence();
+        var roster = petRosterReadResult.Snapshot;
+        var localPet = roster?.LocalPlayerPet;
+        if (presence.IsPresent)
         {
             state.ResetSpiritmasterPetMissingReads();
             if (state.HasPendingSpiritmasterSummonVerification)
@@ -514,15 +526,54 @@ public sealed class SemiAutoCombatController
                 context.Logger.Info("semi_auto.spiritmaster.summon_verified", new Dictionary<string, object?>
                 {
                     ["account"] = context.Config.AccountName,
-                    ["petServerObjectId"] = pet.ServerObjectId,
-                    ["petEntityId"] = pet.EntityId,
-                    ["petName"] = pet.Name,
-                    ["petHpPercent"] = pet.HpPercent
+                    ["petServerObjectId"] = presence.ServerObjectId,
+                    ["petEntityId"] = localPet?.Pet.EntityId,
+                    ["petName"] = localPet?.Pet.Name,
+                    ["petHpPercent"] = localPet?.Pet.HpPercent,
+                    ["captureSequence"] = presence.CaptureSequence,
+                    ["presenceReason"] = presence.Reason,
+                    ["detailConfirmed"] = SpiritmasterCombatContext.IsConfirmedLocalSummonedPet(localPet)
                 });
             }
 
             state.ClearSpiritmasterSummonVerification();
             return false;
+        }
+
+        if (!presence.IsExplicitlyAbsent)
+        {
+            state.ResetSpiritmasterPetMissingReads();
+            if (state.IsSpiritmasterSummonVerificationExpired(now))
+            {
+                context.Logger.Warn("semi_auto.spiritmaster.summon_verify_timeout", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["captureSequence"] = presence.CaptureSequence,
+                    ["presenceReason"] = presence.Reason
+                });
+                state.ClearSpiritmasterSummonVerification();
+            }
+
+            if (ShouldLog(state.LastSpiritmasterPetPresenceUnknownLogAt, now))
+            {
+                state.LastSpiritmasterPetPresenceUnknownLogAt = now;
+                context.Logger.Warn("semi_auto.spiritmaster.pet_presence.unknown_held", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["captureSequence"] = presence.CaptureSequence,
+                    ["completeness"] = petRosterReadResult.Completeness.ToString(),
+                    ["reason"] = presence.Reason,
+                    ["firstIssue"] = petRosterReadResult.Diagnostics.FirstIssue,
+                    ["error"] = petRosterReadResult.Error,
+                    ["pendingSummonVerification"] = state.HasPendingSpiritmasterSummonVerification
+                });
+            }
+
+            // Unknown is not absence. Do not summon and do not monopolize the
+            // normal combat tick. A caller at a lifecycle gate (for example,
+            // immediately after revive) may hold that gate while still running
+            // its defense check before every retry.
+            return holdWhenPresenceUnknown;
         }
 
         if (state.IsAwaitingSpiritmasterSummonVerification(now))
@@ -548,7 +599,7 @@ public sealed class SemiAutoCombatController
             state.ClearSpiritmasterSummonVerification();
         }
 
-        if (!HasConfirmedSpiritmasterPetMissingReads(context, state))
+        if (!HasConfirmedSpiritmasterPetMissingReads(context, state, presence))
         {
             return true;
         }
@@ -2471,6 +2522,7 @@ public sealed class SemiAutoCombatController
     {
         PlayerSnapshot? player = null;
         SummonedPetRosterSnapshot? petRoster = null;
+        SummonedPetRosterReadResult? petRosterReadResult = null;
         LockedTargetAbnormalStatusSnapshot? lockedTargetAbnormalStatuses = null;
 
         var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
@@ -2484,11 +2536,8 @@ public sealed class SemiAutoCombatController
             return new SpiritmasterCombatContext(player, null, null);
         }
 
-        var rosterResult = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
-        if (rosterResult.Success)
-        {
-            petRoster = rosterResult.Value;
-        }
+        petRosterReadResult = await ReadSummonedPetRosterWithQualityAsync(context).ConfigureAwait(false);
+        petRoster = petRosterReadResult.Snapshot;
 
         var abnormalResult = await ReadLockedTargetAbnormalStatusesAsync(context).ConfigureAwait(false);
         if (abnormalResult.Success)
@@ -2502,7 +2551,11 @@ public sealed class SemiAutoCombatController
             Array.Empty<AbnormalStatusEntrySnapshot>(),
             DateTimeOffset.Now);
 
-        return new SpiritmasterCombatContext(player, petRoster, lockedTargetAbnormalStatuses);
+        return new SpiritmasterCombatContext(
+            player,
+            petRoster,
+            lockedTargetAbnormalStatuses,
+            petRosterReadResult);
     }
 
     private async Task<bool> TryHandleSpiritmasterSpecialAsync(
@@ -2515,19 +2568,21 @@ public sealed class SemiAutoCombatController
     {
         if (!spiritContext.CanUseSpiritmasterLogic)
         {
+            state.ClearSpiritmasterPetHpIncreaseConfirmation();
             state.ResetSpiritmasterPetMissingReads();
             return false;
         }
 
-        if (spiritContext.PetRoster is null)
+        var presence = spiritContext.LocalPetPresence;
+        if (!presence.IsPresent && !presence.IsExplicitlyAbsent)
         {
             state.ResetSpiritmasterPetMissingReads();
             return false;
         }
 
-        if (!spiritContext.HasSummonedPet)
+        if (presence.IsExplicitlyAbsent)
         {
-            if (!HasConfirmedSpiritmasterPetMissingReads(context, state))
+            if (!HasConfirmedSpiritmasterPetMissingReads(context, state, presence))
             {
                 return true;
             }
@@ -2536,15 +2591,35 @@ public sealed class SemiAutoCombatController
         }
 
         state.ResetSpiritmasterPetMissingReads();
+        if (!spiritContext.HasSummonedPet)
+        {
+            // The stable local link proves that a pet exists, but optional
+            // health/static/status detail is incomplete. Pet-only skills must
+            // fail closed while normal combat remains available.
+            return false;
+        }
+
         var confirmedLocalPet = spiritContext.LocalPet!;
         var pet = confirmedLocalPet.Pet;
+        if (await TryContinueSpiritmasterElementalReplenishmentConfirmationAsync(
+                context,
+                state,
+                settings,
+                skills,
+                pet)
+            .ConfigureAwait(false))
+        {
+            return true;
+        }
+
         if (await TryPressSpiritmasterPetHpRuleAsync(
                 context,
                 state,
                 settings,
                 spiritSettings,
                 skills,
-                pet)
+                pet,
+                spiritContext.Player)
             .ConfigureAwait(false))
         {
             return true;
@@ -2563,9 +2638,22 @@ public sealed class SemiAutoCombatController
 
     private static bool HasConfirmedSpiritmasterPetMissingReads(
         AccountWorkerContext context,
-        SemiAutoCombatState state)
+        SemiAutoCombatState state,
+        LocalSummonedPetPresenceDecision presence)
     {
-        var missingReadCount = state.RecordSpiritmasterPetMissingRead();
+        if (!presence.IsExplicitlyAbsent)
+        {
+            state.ResetSpiritmasterPetMissingReads();
+            return false;
+        }
+
+        var previousCaptureSequence = state.LastSpiritmasterPetMissingCaptureSequence;
+        var missingReadCount = state.RecordSpiritmasterPetMissingRead(presence.CaptureSequence);
+        if (presence.CaptureSequence == previousCaptureSequence)
+        {
+            return false;
+        }
+
         if (missingReadCount >= SpiritmasterMissingPetReadThreshold)
         {
             return true;
@@ -2575,7 +2663,9 @@ public sealed class SemiAutoCombatController
         {
             ["account"] = context.Config.AccountName,
             ["missingReadCount"] = missingReadCount,
-            ["requiredMissingReadCount"] = SpiritmasterMissingPetReadThreshold
+            ["requiredMissingReadCount"] = SpiritmasterMissingPetReadThreshold,
+            ["captureSequence"] = presence.CaptureSequence,
+            ["presenceReason"] = presence.Reason
         });
         return false;
     }
@@ -2603,6 +2693,7 @@ public sealed class SemiAutoCombatController
         }
 
         state.MarkSpiritmasterSummonAttempted(now);
+        state.ResetSpiritmasterPetMissingReads();
         if (!await PressSpiritmasterRawKeyAsync(context, settings, keys[0], "summon_speed").ConfigureAwait(false))
         {
             state.BeginSpiritmasterSummonVerification(DateTimeOffset.Now, SpiritmasterSummonVerifyWindow);
@@ -2661,7 +2752,8 @@ public sealed class SemiAutoCombatController
         SemiAutoScriptSettings settings,
         SpiritmasterSkillSettings spiritSettings,
         IReadOnlyList<SkillSnapshot> skills,
-        SummonedPetSnapshot pet)
+        SummonedPetSnapshot pet,
+        PlayerSnapshot? player)
     {
         if (!pet.HasKnownHealth)
         {
@@ -2672,20 +2764,93 @@ public sealed class SemiAutoCombatController
                      .Where(rule => !string.IsNullOrWhiteSpace(rule.Key))
                      .OrderBy(rule => Math.Clamp(rule.BelowPercent, 0, 100)))
         {
-            if (pet.HpPercent > Math.Clamp(rule.BelowPercent, 0, 100))
-            {
-                continue;
-            }
-
             var skill = ResolveSpiritmasterConfiguredSkill(rule.SkillId, rule.SkillName, skills);
             if (skill is null)
             {
                 continue;
             }
 
+            var isElementalReplenishment = IsSpiritmasterElementalReplenishment(skill);
+            if (isElementalReplenishment &&
+                state.PendingSpiritmasterPetHpIncreaseConfirmation is not null)
+            {
+                continue;
+            }
+
+            var petHpPercent = isElementalReplenishment
+                ? pet.ReliableHpPercent
+                : pet.HpPercent;
+            if (isElementalReplenishment && !pet.HasReliableHealth)
+            {
+                LogSpiritmasterElementalReplenishmentUnknown(
+                    context,
+                    state,
+                    "initial_pet_health_unknown",
+                    pet);
+                continue;
+            }
+
+            if (petHpPercent > Math.Clamp(rule.BelowPercent, 0, 100))
+            {
+                continue;
+            }
+
             var now = DateTimeOffset.Now;
-            if (!state.ShouldPressSpiritmasterPetHpSkill(skill.SkillId, now) ||
-                ShouldSkipSpiritmasterSpecialSkillForCooldown(skill, state, now))
+            if (!state.ShouldPressSpiritmasterPetHpSkill(skill.SkillId, now))
+            {
+                continue;
+            }
+
+            if (isElementalReplenishment)
+            {
+                if (GetMaintenanceCooldownReadiness(skill, state) != SemiAutoSkillCooldownReadiness.Ready)
+                {
+                    continue;
+                }
+
+                if (player is { HasReliableHealth: true } &&
+                    player.HpPercent < SpiritmasterElementalReplenishmentMinPlayerHpPercent)
+                {
+                    LogSpiritmasterElementalReplenishmentPlayerHpBlocked(context, state, player, "initial");
+                    continue;
+                }
+
+                var safety = await ReadSpiritmasterElementalReplenishmentSafetyAsync(context, state)
+                    .ConfigureAwait(false);
+                if (safety is null)
+                {
+                    continue;
+                }
+
+                if (safety.Pet.ServerObjectId != pet.ServerObjectId)
+                {
+                    LogSpiritmasterElementalReplenishmentUnknown(
+                        context,
+                        state,
+                        "initial_pet_identity_changed",
+                        safety.Pet);
+                    continue;
+                }
+
+                if (safety.Player.HpPercent < SpiritmasterElementalReplenishmentMinPlayerHpPercent)
+                {
+                    LogSpiritmasterElementalReplenishmentPlayerHpBlocked(
+                        context,
+                        state,
+                        safety.Player,
+                        "initial_fresh");
+                    continue;
+                }
+
+                player = safety.Player;
+                pet = safety.Pet;
+                petHpPercent = pet.ReliableHpPercent;
+                if (petHpPercent > Math.Clamp(rule.BelowPercent, 0, 100))
+                {
+                    continue;
+                }
+            }
+            else if (ShouldSkipSpiritmasterSpecialSkillForCooldown(skill, state, now))
             {
                 continue;
             }
@@ -2695,16 +2860,51 @@ public sealed class SemiAutoCombatController
                 return true;
             }
 
-            MarkSpiritmasterSkillPressed(state, settings, skill);
             var cooldown = ResolveSpiritmasterPetHpCooldown(rule);
-            state.MarkSpiritmasterPetHpSkillPressed(skill.SkillId, DateTimeOffset.Now, cooldown);
+            var pressedAt = DateTimeOffset.Now;
+            state.MarkSpiritmasterPetHpSkillPressed(skill.SkillId, pressedAt, cooldown);
+            if (isElementalReplenishment)
+            {
+                var retryInterval = ResolveSpiritmasterElementalReplenishmentRetryInterval(settings);
+                state.BeginSpiritmasterPetHpIncreaseConfirmation(
+                    skill.SkillId,
+                    rule.Key,
+                    pet.ServerObjectId,
+                    pet.CurrentHp,
+                    pet.CapturedAt,
+                    pressedAt,
+                    retryInterval,
+                    ResolveSpiritmasterElementalReplenishmentConfirmationLifetime(cooldown),
+                    cooldown);
+                context.Logger.Info(
+                    "semi_auto.spiritmaster.elemental_replenishment.confirmation_started",
+                    new Dictionary<string, object?>
+                    {
+                        ["account"] = context.Config.AccountName,
+                        ["skillId"] = skill.SkillId,
+                        ["skillName"] = skill.Name,
+                        ["key"] = rule.Key,
+                        ["petServerObjectId"] = pet.ServerObjectId,
+                        ["baselinePetHp"] = pet.CurrentHp,
+                        ["baselinePetMaxHp"] = pet.MaxHp,
+                        ["playerHpPercent"] = player?.HasReliableHealth == true
+                            ? player.HpPercent
+                            : null,
+                        ["retryIntervalMs"] = (int)retryInterval.TotalMilliseconds
+                    });
+            }
+            else
+            {
+                MarkSpiritmasterSkillPressed(state, settings, skill);
+            }
+
             context.Logger.Info("semi_auto.spiritmaster.pet_hp_key_pressed", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
                 ["key"] = rule.Key,
                 ["skillId"] = skill.SkillId,
                 ["skillName"] = skill.Name,
-                ["petHpPercent"] = pet.HpPercent,
+                ["petHpPercent"] = petHpPercent,
                 ["belowPercent"] = rule.BelowPercent,
                 ["cooldownMs"] = (int)cooldown.TotalMilliseconds
             });
@@ -2797,13 +2997,15 @@ public sealed class SemiAutoCombatController
         SkillSnapshot skill,
         HashSet<uint> beforeIds)
     {
-        var rosterResult = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
-        if (!rosterResult.Success || rosterResult.Value is null)
+        var rosterResult = await ReadSummonedPetRosterWithQualityAsync(context).ConfigureAwait(false);
+        if (!rosterResult.ResolveLocalPetPresence().IsPresent ||
+            rosterResult.Snapshot is null ||
+            !SpiritmasterCombatContext.IsConfirmedLocalSummonedPet(rosterResult.Snapshot.LocalPlayerPet))
         {
             return;
         }
 
-        var afterEntries = rosterResult.Value.LocalPlayerPet.AbnormalStatuses;
+        var afterEntries = rosterResult.Snapshot.LocalPlayerPet.AbnormalStatuses;
         var learned = afterEntries
             .Where(entry => entry.AbnormalId != 0 && !beforeIds.Contains(entry.AbnormalId))
             .OrderByDescending(entry => entry.IsBuffCategory)
@@ -4100,6 +4302,323 @@ public sealed class SemiAutoCombatController
         return false;
     }
 
+    private async Task<bool> TryContinueSpiritmasterElementalReplenishmentConfirmationAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        SemiAutoScriptSettings settings,
+        IReadOnlyList<SkillSnapshot> skills,
+        SummonedPetSnapshot currentPet)
+    {
+        var pending = state.PendingSpiritmasterPetHpIncreaseConfirmation;
+        if (pending is null)
+        {
+            return false;
+        }
+
+        if (pending.SkillId != SpiritmasterElementalReplenishmentSkillId)
+        {
+            state.ClearSpiritmasterPetHpIncreaseConfirmation();
+            return false;
+        }
+
+        if (currentPet.ServerObjectId != pending.PetServerObjectId)
+        {
+            state.ClearSpiritmasterPetHpIncreaseConfirmation();
+            context.Logger.Info(
+                "semi_auto.spiritmaster.elemental_replenishment.confirmation_cancelled",
+                new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["reason"] = "pet_identity_changed",
+                    ["expectedPetServerObjectId"] = pending.PetServerObjectId,
+                    ["currentPetServerObjectId"] = currentPet.ServerObjectId,
+                    ["attemptCount"] = pending.AttemptCount
+                });
+            return false;
+        }
+
+        var now = DateTimeOffset.Now;
+        if (now >= pending.ExpiresAt)
+        {
+            state.ClearSpiritmasterPetHpIncreaseConfirmation();
+            context.Logger.Warn(
+                "semi_auto.spiritmaster.elemental_replenishment.confirmation_expired",
+                new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["petServerObjectId"] = pending.PetServerObjectId,
+                    ["baselinePetHp"] = pending.BaselineCurrentHp,
+                    ["attemptCount"] = pending.AttemptCount
+                });
+            return false;
+        }
+
+        if (now < pending.NextCheckAt)
+        {
+            return false;
+        }
+
+        var retryInterval = ResolveSpiritmasterElementalReplenishmentRetryInterval(settings);
+        var safety = await ReadSpiritmasterElementalReplenishmentSafetyAsync(context, state)
+            .ConfigureAwait(false);
+        if (safety is null)
+        {
+            state.DeferSpiritmasterPetHpIncreaseConfirmation(DateTimeOffset.Now, retryInterval);
+            return false;
+        }
+
+        if (safety.Pet.ServerObjectId != pending.PetServerObjectId)
+        {
+            state.ClearSpiritmasterPetHpIncreaseConfirmation();
+            context.Logger.Info(
+                "semi_auto.spiritmaster.elemental_replenishment.confirmation_cancelled",
+                new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["reason"] = "fresh_pet_identity_changed",
+                    ["expectedPetServerObjectId"] = pending.PetServerObjectId,
+                    ["currentPetServerObjectId"] = safety.Pet.ServerObjectId,
+                    ["attemptCount"] = pending.AttemptCount
+                });
+            return false;
+        }
+
+        if (safety.Pet.CapturedAt <= pending.BaselineCapturedAt)
+        {
+            LogSpiritmasterElementalReplenishmentUnknown(
+                context,
+                state,
+                "confirmation_capture_not_new",
+                safety.Pet);
+            state.DeferSpiritmasterPetHpIncreaseConfirmation(DateTimeOffset.Now, retryInterval);
+            return false;
+        }
+
+        if (safety.Pet.CurrentHp > pending.BaselineCurrentHp)
+        {
+            state.ClearSpiritmasterPetHpIncreaseConfirmation();
+            context.Logger.Info(
+                "semi_auto.spiritmaster.elemental_replenishment.pet_hp_confirmed",
+                new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["skillId"] = pending.SkillId,
+                    ["petServerObjectId"] = pending.PetServerObjectId,
+                    ["baselinePetHp"] = pending.BaselineCurrentHp,
+                    ["currentPetHp"] = safety.Pet.CurrentHp,
+                    ["petMaxHp"] = safety.Pet.MaxHp,
+                    ["attemptCount"] = pending.AttemptCount
+                });
+            return false;
+        }
+
+        if (safety.Player.HpPercent < SpiritmasterElementalReplenishmentMinPlayerHpPercent)
+        {
+            state.ClearSpiritmasterPetHpIncreaseConfirmation();
+            LogSpiritmasterElementalReplenishmentPlayerHpBlocked(
+                context,
+                state,
+                safety.Player,
+                "retry");
+            return false;
+        }
+
+        var skill = skills.FirstOrDefault(item => item.SkillId == pending.SkillId);
+        if (skill is null)
+        {
+            state.ClearSpiritmasterPetHpIncreaseConfirmation();
+            LogSpiritmasterElementalReplenishmentUnknown(
+                context,
+                state,
+                "retry_skill_missing",
+                safety.Pet);
+            return false;
+        }
+
+        var readiness = GetMaintenanceCooldownReadiness(skill, state);
+        if (readiness != SemiAutoSkillCooldownReadiness.Ready)
+        {
+            state.DeferSpiritmasterPetHpIncreaseConfirmation(DateTimeOffset.Now, retryInterval);
+            return false;
+        }
+
+        if (!await PressSpiritmasterRawKeyAsync(context, settings, pending.Key, "pet_hp_retry")
+                .ConfigureAwait(false))
+        {
+            state.DeferSpiritmasterPetHpIncreaseConfirmation(DateTimeOffset.Now, retryInterval);
+            return true;
+        }
+
+        var pressedAt = DateTimeOffset.Now;
+        var cooldown = TimeSpan.FromMilliseconds(Math.Max(1, pending.CooldownMs));
+        state.MarkSpiritmasterPetHpSkillPressed(pending.SkillId, pressedAt, cooldown);
+        state.RecordSpiritmasterPetHpIncreaseRetry(
+            safety.Pet.CurrentHp,
+            safety.Pet.CapturedAt,
+            pressedAt,
+            retryInterval);
+        context.Logger.Warn(
+            "semi_auto.spiritmaster.elemental_replenishment.pet_hp_retry",
+            new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["skillId"] = pending.SkillId,
+                ["key"] = pending.Key,
+                ["petServerObjectId"] = pending.PetServerObjectId,
+                ["previousBaselinePetHp"] = pending.BaselineCurrentHp,
+                ["retryBaselinePetHp"] = safety.Pet.CurrentHp,
+                ["petMaxHp"] = safety.Pet.MaxHp,
+                ["playerHpPercent"] = safety.Player.HpPercent,
+                ["attemptCount"] = pending.AttemptCount + 1
+            });
+        return true;
+    }
+
+    private async Task<SpiritmasterElementalReplenishmentSafetySnapshot?>
+        ReadSpiritmasterElementalReplenishmentSafetyAsync(
+            AccountWorkerContext context,
+            SemiAutoCombatState state)
+    {
+        var rosterResult = await ReadSummonedPetRosterWithQualityAsync(context, bypassMemoryCache: true)
+            .ConfigureAwait(false);
+        var presence = rosterResult.ResolveLocalPetPresence();
+        if (!presence.IsPresent || rosterResult.Snapshot is null)
+        {
+            LogSpiritmasterElementalReplenishmentUnknown(
+                context,
+                state,
+                presence.Reason,
+                null,
+                rosterResult.Error);
+            return null;
+        }
+
+        var localPet = rosterResult.Snapshot.LocalPlayerPet;
+        if (!SpiritmasterCombatContext.IsConfirmedLocalSummonedPet(localPet))
+        {
+            LogSpiritmasterElementalReplenishmentUnknown(
+                context,
+                state,
+                "local_pet_unconfirmed",
+                localPet.Pet);
+            return null;
+        }
+
+        if (!localPet.Pet.HasReliableHealth)
+        {
+            LogSpiritmasterElementalReplenishmentUnknown(
+                context,
+                state,
+                "pet_health_unknown",
+                localPet.Pet);
+            return null;
+        }
+
+        var playerResult = await ReadPlayerAsync(context, bypassMemoryCache: true).ConfigureAwait(false);
+        if (!playerResult.Success || playerResult.Value is null)
+        {
+            LogSpiritmasterElementalReplenishmentUnknown(
+                context,
+                state,
+                "player_read_failed",
+                localPet.Pet,
+                playerResult.Error);
+            return null;
+        }
+
+        if (!playerResult.Value.HasReliableHealth)
+        {
+            LogSpiritmasterElementalReplenishmentUnknown(
+                context,
+                state,
+                "player_health_unknown",
+                localPet.Pet);
+            return null;
+        }
+
+        return new SpiritmasterElementalReplenishmentSafetySnapshot(playerResult.Value, localPet.Pet);
+    }
+
+    private static bool IsSpiritmasterElementalReplenishment(SkillSnapshot skill)
+    {
+        return skill.SkillId == SpiritmasterElementalReplenishmentSkillId;
+    }
+
+    private static TimeSpan ResolveSpiritmasterElementalReplenishmentRetryInterval(
+        SemiAutoScriptSettings settings)
+    {
+        return Max(
+            Ms(settings.PostPressSuppressMs, 650),
+            SpiritmasterElementalReplenishmentMinimumRetryInterval);
+    }
+
+    private static TimeSpan ResolveSpiritmasterElementalReplenishmentConfirmationLifetime(
+        TimeSpan localCooldown)
+    {
+        var scaledMs = Math.Clamp(
+            (long)Math.Ceiling(localCooldown.TotalMilliseconds) * 3L,
+            (long)SpiritmasterElementalReplenishmentMinimumConfirmationLifetime.TotalMilliseconds,
+            600_000L);
+        return TimeSpan.FromMilliseconds(scaledMs);
+    }
+
+    private static void LogSpiritmasterElementalReplenishmentPlayerHpBlocked(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        PlayerSnapshot player,
+        string phase)
+    {
+        var now = DateTimeOffset.Now;
+        if (!ShouldLog(state.LastSpiritmasterPetHpConfirmationLogAt, now))
+        {
+            return;
+        }
+
+        state.LastSpiritmasterPetHpConfirmationLogAt = now;
+        context.Logger.Info(
+            "semi_auto.spiritmaster.elemental_replenishment.player_hp_blocked",
+            new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["phase"] = phase,
+                ["skillId"] = SpiritmasterElementalReplenishmentSkillId,
+                ["playerCurrentHp"] = player.CurrentHp,
+                ["playerMaxHp"] = player.MaxHp,
+                ["playerHpPercent"] = player.HpPercent,
+                ["minimumPlayerHpPercent"] = SpiritmasterElementalReplenishmentMinPlayerHpPercent
+            });
+    }
+
+    private static void LogSpiritmasterElementalReplenishmentUnknown(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        string reason,
+        SummonedPetSnapshot? pet,
+        string? error = null)
+    {
+        var now = DateTimeOffset.Now;
+        if (!ShouldLog(state.LastSpiritmasterPetHpConfirmationLogAt, now))
+        {
+            return;
+        }
+
+        state.LastSpiritmasterPetHpConfirmationLogAt = now;
+        context.Logger.Warn(
+            "semi_auto.spiritmaster.elemental_replenishment.confirmation_unknown",
+            new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["skillId"] = SpiritmasterElementalReplenishmentSkillId,
+                ["reason"] = reason,
+                ["petServerObjectId"] = pet?.ServerObjectId,
+                ["petCurrentHp"] = pet?.CurrentHp,
+                ["petMaxHp"] = pet?.MaxHp,
+                ["petCurrentHpAvailable"] = pet?.HealthFields.CurrentHp,
+                ["petMaxHpAvailable"] = pet?.HealthFields.MaxHp,
+                ["error"] = error
+            });
+    }
+
     private static string CreateStatusMaintenanceRuleStateKey(
         StatusMaintenanceRuleConfig rule,
         uint skillId)
@@ -4677,11 +5196,13 @@ public sealed class SemiAutoCombatController
         });
     }
 
-    private static Task<OperationResult<PlayerSnapshot>> ReadPlayerAsync(AccountWorkerContext context)
+    private static Task<OperationResult<PlayerSnapshot>> ReadPlayerAsync(
+        AccountWorkerContext context,
+        bool bypassMemoryCache = false)
     {
         if (context.GameApi is IRoadhogScopedGameApi scopedApi)
         {
-            return scopedApi.ReadPlayerAsync(CreateReadContext(context), context.StopToken);
+            return scopedApi.ReadPlayerAsync(CreateReadContext(context, bypassMemoryCache), context.StopToken);
         }
 
         return context.GameApi.ReadPlayerAsync(context.StopToken);
@@ -4771,14 +5292,39 @@ public sealed class SemiAutoCombatController
     }
 
     private static Task<OperationResult<SummonedPetRosterSnapshot>> ReadSummonedPetRosterAsync(
-        AccountWorkerContext context)
+        AccountWorkerContext context,
+        bool bypassMemoryCache = false)
     {
         if (context.GameApi is IRoadhogScopedGameApi scopedApi)
         {
-            return scopedApi.ReadSummonedPetRosterAsync(CreateReadContext(context), context.StopToken);
+            return scopedApi.ReadSummonedPetRosterAsync(
+                CreateReadContext(context, bypassMemoryCache),
+                context.StopToken);
         }
 
         return context.GameApi.ReadSummonedPetRosterAsync(context.StopToken);
+    }
+
+    private static async Task<SummonedPetRosterReadResult> ReadSummonedPetRosterWithQualityAsync(
+        AccountWorkerContext context,
+        bool bypassMemoryCache = false)
+    {
+        if (context.GameApi is IRoadhogScopedSummonedPetRosterReadQualityGameApi qualityApi)
+        {
+            return await qualityApi.ReadSummonedPetRosterWithQualityAsync(
+                    CreateReadContext(context, bypassMemoryCache),
+                    context.StopToken)
+                .ConfigureAwait(false);
+        }
+
+        var startedAt = DateTimeOffset.UtcNow;
+        var legacyResult = await ReadSummonedPetRosterAsync(context, bypassMemoryCache).ConfigureAwait(false);
+        return SummonedPetRosterReadResult.FromLegacy(
+            legacyResult.Success ? legacyResult.Value : null,
+            startedAt,
+            DateTimeOffset.UtcNow,
+            bypassMemoryCache,
+            legacyResult.Error);
     }
 
     private static Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadOpeningSkillAsync(

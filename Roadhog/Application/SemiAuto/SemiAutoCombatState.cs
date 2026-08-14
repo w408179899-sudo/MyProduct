@@ -27,6 +27,7 @@ public sealed class SemiAutoCombatState
     private DateTimeOffset lastSpiritmasterSummonAttemptAt = DateTimeOffset.MinValue;
     private DateTimeOffset spiritmasterSummonVerifyUntil = DateTimeOffset.MinValue;
     private int consecutiveSpiritmasterPetMissingReads;
+    private long lastSpiritmasterPetMissingCaptureSequence;
     private uint? lastPressedSkillId;
     private uint lastPressedCooldownEndTime;
     private DateTimeOffset lastPressedCooldownExpiresAt = DateTimeOffset.MinValue;
@@ -45,6 +46,7 @@ public sealed class SemiAutoCombatState
     private uint observedTargetIdentity;
     private bool observedTargetWasAliveMonster;
     private SpiritmasterAbnormalObservation? pendingSpiritmasterDotObservation;
+    private SpiritmasterPetHpIncreaseConfirmation? pendingSpiritmasterPetHpIncreaseConfirmation;
 
     public SemiAutoSkillNode? PendingChainSourceNode { get; private set; }
 
@@ -86,10 +88,19 @@ public sealed class SemiAutoCombatState
 
     public DateTimeOffset LastSpiritmasterSummonVerifyLogAt { get; set; } = DateTimeOffset.MinValue;
 
+    public DateTimeOffset LastSpiritmasterPetPresenceUnknownLogAt { get; set; } = DateTimeOffset.MinValue;
+
+    public DateTimeOffset LastSpiritmasterPetHpConfirmationLogAt { get; set; } = DateTimeOffset.MinValue;
+
     public bool HasPendingSpiritmasterSummonVerification =>
         spiritmasterSummonVerifyUntil != DateTimeOffset.MinValue;
 
     public int ConsecutiveSpiritmasterPetMissingReads => consecutiveSpiritmasterPetMissingReads;
+
+    public long LastSpiritmasterPetMissingCaptureSequence => lastSpiritmasterPetMissingCaptureSequence;
+
+    public SpiritmasterPetHpIncreaseConfirmation? PendingSpiritmasterPetHpIncreaseConfirmation =>
+        pendingSpiritmasterPetHpIncreaseConfirmation;
 
     public bool IsMaintenanceResting { get; private set; }
 
@@ -301,8 +312,14 @@ public sealed class SemiAutoCombatState
         lastSpiritmasterSummonAttemptAt = now;
     }
 
-    public int RecordSpiritmasterPetMissingRead()
+    public int RecordSpiritmasterPetMissingRead(long captureSequence)
     {
+        if (captureSequence <= 0 || captureSequence == lastSpiritmasterPetMissingCaptureSequence)
+        {
+            return consecutiveSpiritmasterPetMissingReads;
+        }
+
+        lastSpiritmasterPetMissingCaptureSequence = captureSequence;
         if (consecutiveSpiritmasterPetMissingReads < int.MaxValue)
         {
             consecutiveSpiritmasterPetMissingReads++;
@@ -314,6 +331,16 @@ public sealed class SemiAutoCombatState
     public void ResetSpiritmasterPetMissingReads()
     {
         consecutiveSpiritmasterPetMissingReads = 0;
+    }
+
+    public void ResetSpiritmasterPetLifecycle()
+    {
+        consecutiveSpiritmasterPetMissingReads = 0;
+        lastSpiritmasterPetMissingCaptureSequence = 0;
+        lastSpiritmasterSummonAttemptAt = DateTimeOffset.MinValue;
+        LastSpiritmasterPetPresenceUnknownLogAt = DateTimeOffset.MinValue;
+        ClearSpiritmasterSummonVerification();
+        ClearSpiritmasterPetHpIncreaseConfirmation();
     }
 
     public bool IsAwaitingSpiritmasterSummonVerification(DateTimeOffset now)
@@ -528,6 +555,71 @@ public sealed class SemiAutoCombatState
         }
 
         spiritmasterPetHpCooldownUntil[skillId] = now + cooldown;
+    }
+
+    public void BeginSpiritmasterPetHpIncreaseConfirmation(
+        uint skillId,
+        string key,
+        uint petServerObjectId,
+        uint baselineCurrentHp,
+        DateTimeOffset baselineCapturedAt,
+        DateTimeOffset pressedAt,
+        TimeSpan retryInterval,
+        TimeSpan confirmationLifetime,
+        TimeSpan localCooldown)
+    {
+        pendingSpiritmasterPetHpIncreaseConfirmation = new SpiritmasterPetHpIncreaseConfirmation(
+            skillId,
+            key,
+            petServerObjectId,
+            baselineCurrentHp,
+            baselineCapturedAt,
+            pressedAt,
+            pressedAt + retryInterval,
+            pressedAt + confirmationLifetime,
+            1,
+            (int)Math.Clamp(localCooldown.TotalMilliseconds, 1, int.MaxValue));
+    }
+
+    public void DeferSpiritmasterPetHpIncreaseConfirmation(
+        DateTimeOffset now,
+        TimeSpan retryInterval)
+    {
+        if (pendingSpiritmasterPetHpIncreaseConfirmation is not { } pending)
+        {
+            return;
+        }
+
+        pendingSpiritmasterPetHpIncreaseConfirmation = pending with
+        {
+            NextCheckAt = now + retryInterval
+        };
+    }
+
+    public void RecordSpiritmasterPetHpIncreaseRetry(
+        uint baselineCurrentHp,
+        DateTimeOffset baselineCapturedAt,
+        DateTimeOffset pressedAt,
+        TimeSpan retryInterval)
+    {
+        if (pendingSpiritmasterPetHpIncreaseConfirmation is not { } pending)
+        {
+            return;
+        }
+
+        pendingSpiritmasterPetHpIncreaseConfirmation = pending with
+        {
+            BaselineCurrentHp = baselineCurrentHp,
+            BaselineCapturedAt = baselineCapturedAt,
+            LastPressedAt = pressedAt,
+            NextCheckAt = pressedAt + retryInterval,
+            AttemptCount = pending.AttemptCount + 1
+        };
+    }
+
+    public void ClearSpiritmasterPetHpIncreaseConfirmation()
+    {
+        pendingSpiritmasterPetHpIncreaseConfirmation = null;
     }
 
     public void StartMaintenanceRest(bool forHp, bool forMp)
@@ -1149,3 +1241,15 @@ public readonly record struct SemiAutoPendingSkillCooldownRetry(
     string SkillName,
     string SkillType,
     string Phase);
+
+public sealed record SpiritmasterPetHpIncreaseConfirmation(
+    uint SkillId,
+    string Key,
+    uint PetServerObjectId,
+    uint BaselineCurrentHp,
+    DateTimeOffset BaselineCapturedAt,
+    DateTimeOffset LastPressedAt,
+    DateTimeOffset NextCheckAt,
+    DateTimeOffset ExpiresAt,
+    int AttemptCount,
+    int CooldownMs);

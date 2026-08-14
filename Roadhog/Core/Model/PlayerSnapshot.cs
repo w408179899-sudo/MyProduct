@@ -18,9 +18,17 @@ public sealed record PlayerSnapshot(
     string CharacterClass = "",
     uint StanceFlags = 0,
     uint MotionMode = 0,
-    AionClassId? CharacterClassId = null)
+    AionClassId? CharacterClassId = null,
+    bool CurrentHpAvailable = false,
+    bool MaxHpAvailable = false)
 {
     public bool HasKnownHealth => MaxHp > 0;
+
+    public bool HasReliableHealth =>
+        CurrentHpAvailable &&
+        MaxHpAvailable &&
+        MaxHp > 0 &&
+        CurrentHp <= MaxHp;
 
     public bool IsDead => HasKnownHealth && CurrentHp == 0;
 
