@@ -42,7 +42,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     private static readonly TimeSpan DefaultSmartPreAimResultTtl = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan SmartPreAimTeamSnapshotRefreshInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan SmartPreAimTeamSnapshotRetention = TimeSpan.FromSeconds(5);
-    private const int GatherSnapshotUnavailableReadThreshold = 2;
     private const double ReturnStopDistance = 2.0D;
     private const double AcquireDistance = 25.0D;
     private const double FightSoftRestartApproachDistance = 5.0D;
@@ -67,15 +66,11 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     private const int DefaultPostReviveScrollDelta = -1;
     private const int DefaultPostCombatMaintenanceRoundLimit = 8;
     private const int CameraTurnRecoveryFailureThreshold = 2;
-    private const int LocalDefenseNegativeConfirmationThreshold = 2;
-    private const int LocalCombatSidePetMissingConfirmationThreshold = 3;
     private const int CameraTurnRecoveryReleaseMs = 80;
     private const int CameraTurnRecoveryWarmupMs = 80;
     private const string NoTargetRestEnterKey = "OemComma";
     private const string NoTargetRestExitKey = "X";
     private const ushort NpcEntityType = 3;
-    private static readonly TimeSpan LocalDefenseBypassRetryInterval = TimeSpan.FromMilliseconds(150);
-    private static readonly TimeSpan DefaultLocalDefenseUnknownRetention = TimeSpan.FromSeconds(5);
 
     private readonly IKeyboardInput _input;
     private readonly SemiAutoCombatController _semiAuto;
@@ -85,8 +80,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     private readonly BagCleanupController? _bagCleanup;
     private readonly TacticalMarkCoordinator _tacticalMark;
     private readonly SemaphoreSlim _cameraTurnInputSync = new(1, 1);
-    private long _syntheticWorldObjectCaptureSequence;
-    private long _worldObjectObservationOrder;
 
     public StationaryCombatController(
         IKeyboardInput input,
@@ -367,35 +360,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         WorldObjectSnapshot? preMaintenanceDefenseTarget = null;
         var leaderRestGuardAllowsSit = true;
         var skipMaintenanceThisTick = false;
-        if (!state.Fighting &&
-            !gatherSettings.StationaryPriorityEnabled &&
-            state.LocalDefenseThreat.HasRetainedThreat)
-        {
-            preMaintenanceDefenseTarget = await SelectMaintenanceDefenseTargetAsync(
-                    context,
-                    state,
-                    playerPosition,
-                    forceRefresh: true)
-                .ConfigureAwait(false);
-            if (preMaintenanceDefenseTarget?.Position is null &&
-                await TryHoldUnknownLocalDefenseAsync(
-                        context,
-                        semiAutoState,
-                        state,
-                        "normal_before_maintenance")
-                    .ConfigureAwait(false))
-            {
-                return IdleDelay;
-            }
-
-            if (preMaintenanceDefenseTarget?.Position is not null)
-            {
-                noTargetRestWakeTarget = preMaintenanceDefenseTarget;
-                skipMaintenanceThisTick = true;
-            }
-
-        }
-
         if (temporaryTargetSwitchGuard)
         {
             noTargetRestWakeTarget = await SelectMaintenanceDefenseTargetAsync(
@@ -582,35 +546,24 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 playerDistanceFromHome).ConfigureAwait(false);
         }
 
-        TimeSpan? startupRecoveryDelay = null;
-        if (preMaintenanceDefenseTarget?.Position is null || state.StartupRecoveryActive)
-        {
-            startupRecoveryDelay = await TickStartupRecoveryAsync(
-                    context,
-                    plan,
-                    semiAutoState,
-                    state,
-                    player,
-                    playerPosition,
-                    home,
-                    radius,
-                    playerDistanceFromHome)
-                .ConfigureAwait(false);
-        }
-
+        var startupRecoveryDelay = await TickStartupRecoveryAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                player,
+                playerPosition,
+                home,
+                radius,
+                playerDistanceFromHome)
+            .ConfigureAwait(false);
         if (startupRecoveryDelay is not null)
         {
             StopNextTargetPreAim(context, state, "startup_recovery", clearCandidate: true);
             return startupRecoveryDelay.Value;
         }
 
-        if (noTargetRestWakeTarget?.Position is not null ||
-            preMaintenanceDefenseTarget?.Position is not null)
-        {
-            state.ReturningHome = false;
-            state.ResetReturnHomeStuckTracking();
-        }
-        else if (stationaryGatherWorkAvailable)
+        if (stationaryGatherWorkAvailable)
         {
             state.ReturningHome = false;
             state.ResetReturnHomeStuckTracking();
@@ -672,9 +625,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
 
         WorldObjectSnapshot? gatherThreatTarget = null;
-        if (noTargetRestWakeTarget?.Position is null &&
-            preMaintenanceDefenseTarget?.Position is null &&
-            !temporaryTargetSwitchGuard &&
+        if (!temporaryTargetSwitchGuard &&
             gatherSettings.StationaryPriorityEnabled)
         {
             await StopSoloJumpAsync(state, "stationary_gather").ConfigureAwait(false);
@@ -1136,7 +1087,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 
         if (state.StartupTownReturnPending)
         {
-            state.ClearLocalDefenseTransitionUnknown("startup_recovery");
             return await TickStartupTownReturnAsync(
                     context,
                     plan,
@@ -1158,41 +1108,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     state,
                     player)
                 .ConfigureAwait(false);
-        }
-
-        if (!state.Fighting && state.LocalDefenseThreat.HasRetainedThreat)
-        {
-            var preTransitionDefenseTarget = await SelectMaintenanceDefenseTargetAsync(
-                    context,
-                    state,
-                    playerPosition,
-                    forceRefresh: true)
-                .ConfigureAwait(false);
-            if (preTransitionDefenseTarget?.Position is null &&
-                await TryHoldUnknownLocalDefenseAsync(
-                        context,
-                        semiAutoState,
-                        state,
-                        "path_before_transition")
-                    .ConfigureAwait(false))
-            {
-                return IdleDelay;
-            }
-
-            if (preTransitionDefenseTarget?.Position is not null)
-            {
-                return await TryHandlePathCombatTargetAsync(
-                        context,
-                        plan,
-                        semiAutoState,
-                        state,
-                        player,
-                        playerPosition,
-                        radius,
-                        combat.ContestMonster,
-                        preTransitionDefenseTarget)
-                    .ConfigureAwait(false) ?? IdleDelay;
-            }
         }
 
         var noKillRecoveryDelay = await TickNoKillRecoveryAsync(
@@ -1593,18 +1508,14 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                         plan,
                         semiAutoState,
                         state,
-                        player,
-                        home,
-                        playerDistanceFromHome)
+                        player)
                     .ConfigureAwait(false),
                 StationaryCombatDeathRecoveryStep.PostReviveMaintenance => await TickDeathPostReviveMaintenanceNodeAsync(
                         context,
                         plan,
                         semiAutoState,
                         state,
-                        player,
-                        home,
-                        playerDistanceFromHome)
+                        player)
                     .ConfigureAwait(false),
                 StationaryCombatDeathRecoveryStep.FollowRevivePath => followRevivePath
                     ? await TickDeathFollowRevivePathNodeAsync(
@@ -1645,7 +1556,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         state.ClearTarget();
         semiAutoState.ClearMaintenanceRest();
         semiAutoState.ResetAttackKeyPressThrottle();
-        semiAutoState.ResetSpiritmasterPetLifecycle();
         await StopMovementAsync(context, state).ConfigureAwait(false);
         StopPathFollowPoller(state);
         context.Logger.Info("stationary_combat.death_recovery.stop_input", new Dictionary<string, object?>
@@ -1856,9 +1766,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         SemiAutoSkillPlan plan,
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state,
-        PlayerSnapshot player,
-        Vector3Snapshot home,
-        double playerDistanceFromHome)
+        PlayerSnapshot player)
     {
         if (player.IsDead)
         {
@@ -1871,39 +1779,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return StationaryCombatBehaviorStatus.Running;
         }
 
-        if (player.Position is not { } playerPosition)
-        {
-            return StationaryCombatBehaviorStatus.Running;
-        }
-
-        var radius = Math.Max(1.0D, context.Config.ScriptSettings?.Combat?.StationaryCombatRadius ?? 1.0D);
-        var defenseDelay = await TryHandleRecoveryDefenseTargetAsync(
-                context,
-                plan,
-                semiAutoState,
-                state,
-                player,
-                playerPosition,
-                home,
-                radius,
-                playerDistanceFromHome,
-                "post_revive_pet")
-            .ConfigureAwait(false);
-        if (defenseDelay is not null)
-        {
-            return StationaryCombatBehaviorStatus.Running;
-        }
-
-        // This is a post-revive lifetime boundary. Always capture the pet
-        // roster again and bypass the DMA cache instead of accepting the last
-        // pre-death combat-side snapshot.
-        var postRevivePetRoster = await ReadSummonedPetRosterWithQualityAsync(
-                context,
-                bypassMemoryCache: true)
-            .ConfigureAwait(false);
-        state.ApplyLocalCombatSideRoster(
-            postRevivePetRoster,
-            LocalCombatSidePetMissingConfirmationThreshold);
         var handled = await _semiAuto
             .EnsureSpiritmasterPetAsync(
                 context,
@@ -1914,9 +1789,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     semiAutoState.ResetAttackKeyPressThrottle();
                     await StopMovementAsync(context, state).ConfigureAwait(false);
                     StopPathFollowPoller(state);
-                },
-                petRosterReadResult: postRevivePetRoster,
-                holdWhenPresenceUnknown: true)
+                })
             .ConfigureAwait(false);
 
         return handled
@@ -1929,9 +1802,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         SemiAutoSkillPlan plan,
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state,
-        PlayerSnapshot player,
-        Vector3Snapshot home,
-        double playerDistanceFromHome)
+        PlayerSnapshot player)
     {
         if (player.IsDead)
         {
@@ -1940,29 +1811,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
 
         if (!player.IsAlive)
-        {
-            return StationaryCombatBehaviorStatus.Running;
-        }
-
-        if (player.Position is not { } playerPosition)
-        {
-            return StationaryCombatBehaviorStatus.Running;
-        }
-
-        var radius = Math.Max(1.0D, context.Config.ScriptSettings?.Combat?.StationaryCombatRadius ?? 1.0D);
-        var defenseDelay = await TryHandleRecoveryDefenseTargetAsync(
-                context,
-                plan,
-                semiAutoState,
-                state,
-                player,
-                playerPosition,
-                home,
-                radius,
-                playerDistanceFromHome,
-                "post_revive_maintenance")
-            .ConfigureAwait(false);
-        if (defenseDelay is not null)
         {
             return StationaryCombatBehaviorStatus.Running;
         }
@@ -2085,6 +1933,22 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             semiAutoState.ResetAttackKeyPressThrottle();
         }
 
+        if (await _semiAuto
+                .EnsureSpiritmasterPetAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    beforeSummonKeyPress: async () =>
+                    {
+                        semiAutoState.ResetAttackKeyPressThrottle();
+                        await StopMovementAsync(context, state).ConfigureAwait(false);
+                        StopPathFollowPoller(state);
+                    })
+                .ConfigureAwait(false))
+        {
+            return StationaryCombatBehaviorStatus.Running;
+        }
+
         if (state.LootAfterKill.Active)
         {
             await TickLootAfterKillAsync(context, plan, semiAutoState, state, player).ConfigureAwait(false);
@@ -2105,23 +1969,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 "death_recovery")
             .ConfigureAwait(false);
         if (defenseDelay is not null)
-        {
-            return StationaryCombatBehaviorStatus.Running;
-        }
-
-        if (await _semiAuto
-                .EnsureSpiritmasterPetAsync(
-                    context,
-                    plan,
-                    semiAutoState,
-                    beforeSummonKeyPress: async () =>
-                    {
-                        semiAutoState.ResetAttackKeyPressThrottle();
-                        await StopMovementAsync(context, state).ConfigureAwait(false);
-                        StopPathFollowPoller(state);
-                    },
-                    petRosterReadResult: state.LastSummonedPetRosterReadResult)
-                .ConfigureAwait(false))
         {
             return StationaryCombatBehaviorStatus.Running;
         }
@@ -2602,7 +2449,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 
         if (state.StartupRecoveryActive)
         {
-            state.ClearLocalDefenseTransitionUnknown("startup_recovery");
             return await ContinueStartupRecoveryAsync(
                     context,
                     plan,
@@ -2618,33 +2464,19 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 
         if (state.StartupRecoveryChecked)
         {
-            state.ClearLocalDefenseTransitionUnknown("startup_recovery");
             return null;
         }
 
-        long startupGeneration;
-        lock (state.WorldObjectCommitSyncRoot)
-        {
-            startupGeneration = state.WorldObjectReadGeneration;
-            state.MarkStartupRecoveryChecked();
-        }
-
+        state.MarkStartupRecoveryChecked();
         var revivePathName = GetRevivePathName(context);
         if (_pathStore is null || string.IsNullOrWhiteSpace(revivePathName))
         {
-            state.ClearLocalDefenseTransitionUnknown("startup_recovery");
             return null;
         }
 
         var pathResult = await _pathStore.LoadAsync(revivePathName, context.StopToken).ConfigureAwait(false);
-        if (startupGeneration != state.WorldObjectReadGeneration)
-        {
-            return IdleDelay;
-        }
-
         if (!pathResult.Success || pathResult.Value?.Points is not { Count: >= 2 } points)
         {
-            state.ClearLocalDefenseTransitionUnknown("startup_recovery");
             context.Logger.Warn("stationary_combat.startup_recovery.path_unavailable", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
@@ -2663,7 +2495,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         var nearestPathPointIndex = FindNearestPathPointIndex(playerPosition, revivePoints, double.MaxValue);
         if (nearestPathPointIndex < 0)
         {
-            state.ClearLocalDefenseTransitionUnknown("startup_recovery");
             context.Logger.Warn("stationary_combat.startup_recovery.path_unavailable", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
@@ -2682,86 +2513,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             !state.CleanupReturnToCombatActive &&
             nearestPathPointDistance > startupTownReturnDistance)
         {
-            var qualityTransitionGuardEnabled =
-                context.GameApi is IRoadhogScopedWorldObjectReadQualityGameApi &&
-                IsLocalDefenseUnknownGuardEnabled();
-            long? verifiedTransitionGeneration = startupGeneration;
-            if (qualityTransitionGuardEnabled || state.LocalDefenseThreat.HasRetainedThreat)
-            {
-                var defenseDecision = await ReadLocalDefenseTransitionDecisionAsync(
-                        context,
-                        state,
-                        playerPosition,
-                        "startup_recovery",
-                        startupGeneration)
-                    .ConfigureAwait(false);
-                if (!defenseDecision.IsCurrent)
-                {
-                    return IdleDelay;
-                }
-
-                if (defenseDecision.DefenseTarget?.Position is not null)
-                {
-                    if (!await AdoptLocalDefenseTransitionTargetAsync(
-                            context,
-                            semiAutoState,
-                            state,
-                            defenseDecision.DefenseTarget,
-                            "startup_recovery",
-                            defenseDecision.StateGeneration,
-                            deferStartupRecoveryCheck: true)
-                        .ConfigureAwait(false))
-                    {
-                        return IdleDelay;
-                    }
-                    return IdleDelay;
-                }
-
-                if (await TryHoldUnknownLocalDefenseAsync(
-                        context,
-                        semiAutoState,
-                        state,
-                        "startup_recovery")
-                    .ConfigureAwait(false))
-                {
-                    lock (state.WorldObjectCommitSyncRoot)
-                    {
-                        if (defenseDecision.StateGeneration != state.WorldObjectReadGeneration)
-                        {
-                            return IdleDelay;
-                        }
-
-                        state.DeferStartupRecoveryCheck();
-                    }
-
-                    return IdleDelay;
-                }
-
-                if (!defenseDecision.CanProceed)
-                {
-                    await HoldUnconfirmedLocalDefenseTransitionAsync(
-                            context,
-                            semiAutoState,
-                            state,
-                            "startup_recovery",
-                            defenseDecision.ReadResult)
-                        .ConfigureAwait(false);
-                    lock (state.WorldObjectCommitSyncRoot)
-                    {
-                        if (defenseDecision.StateGeneration != state.WorldObjectReadGeneration)
-                        {
-                            return IdleDelay;
-                        }
-
-                        state.DeferStartupRecoveryCheck();
-                    }
-
-                    return IdleDelay;
-                }
-
-                verifiedTransitionGeneration = defenseDecision.StateGeneration;
-            }
-
             var key = context.Config.ScriptSettings?.Paths?.TownReturnKey?.Trim() ?? string.Empty;
             if (string.IsNullOrWhiteSpace(key))
             {
@@ -2778,70 +2529,20 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             {
                 semiAutoState.ResetAttackKeyPressThrottle();
                 await StopMovementAsync(context, state).ConfigureAwait(false);
-                Task<OperationResult> pressTask;
-                if (verifiedTransitionGeneration is { } generationAfterStop)
-                {
-                    lock (state.WorldObjectCommitSyncRoot)
-                    {
-                        if (generationAfterStop != state.WorldObjectReadGeneration)
-                        {
-                            return IdleDelay;
-                        }
+                StopPathFollowPoller(state);
+                state.ReturningHome = false;
+                state.ClearTarget();
 
-                        StopPathFollowPoller(state);
-                        pressTask = _input.PressKeyAsync(
-                            key,
-                            StartupTownReturnHoldDuration,
-                            context.StopToken);
-                    }
-                }
-                else
-                {
-                    StopPathFollowPoller(state);
-                    pressTask = _input.PressKeyAsync(
-                        key,
-                        StartupTownReturnHoldDuration,
-                        context.StopToken);
-                }
-
-                var press = await pressTask.ConfigureAwait(false);
-                if (verifiedTransitionGeneration is { } generationAfterPress &&
-                    generationAfterPress != state.WorldObjectReadGeneration)
-                {
-                    return IdleDelay;
-                }
-
+                var press = await _input
+                    .PressKeyAsync(key, StartupTownReturnHoldDuration, context.StopToken)
+                    .ConfigureAwait(false);
                 if (press.Success)
                 {
-                    if (verifiedTransitionGeneration is { } verifiedGeneration)
-                    {
-                        lock (state.WorldObjectCommitSyncRoot)
-                        {
-                            if (verifiedGeneration != state.WorldObjectReadGeneration)
-                            {
-                                return IdleDelay;
-                            }
-
-                            state.ReturningHome = false;
-                            state.ClearTarget();
-                            state.StartStartupTownReturn(
-                                revivePathName,
-                                revivePoints,
-                                playerPosition,
-                                DateTimeOffset.Now);
-                        }
-                    }
-                    else
-                    {
-                        state.ReturningHome = false;
-                        state.ClearTarget();
-                        state.StartStartupTownReturn(
-                            revivePathName,
-                            revivePoints,
-                            playerPosition,
-                            DateTimeOffset.Now);
-                    }
-
+                    state.StartStartupTownReturn(
+                        revivePathName,
+                        revivePoints,
+                        playerPosition,
+                        DateTimeOffset.Now);
                     context.Logger.Warn("stationary_combat.startup_recovery.return.press", new Dictionary<string, object?>
                     {
                         ["account"] = context.Config.AccountName,
@@ -2871,29 +2572,13 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             }
         }
 
-        bool startupRecoveryStarted;
-        lock (state.WorldObjectCommitSyncRoot)
-        {
-            if (startupGeneration != state.WorldObjectReadGeneration)
-            {
-                return IdleDelay;
-            }
-
-            if (!state.TryClearLocalDefenseTransitionUnknown("startup_recovery", startupGeneration))
-            {
-                return IdleDelay;
-            }
-
-            startupRecoveryStarted = TryStartStartupRecoveryFromNearestPoint(
+        if (!TryStartStartupRecoveryFromNearestPoint(
                 context,
                 state,
                 playerPosition,
                 revivePathName,
                 revivePoints,
-                playerDistanceFromHome);
-        }
-
-        if (!startupRecoveryStarted)
+                playerDistanceFromHome))
         {
             return null;
         }
@@ -3141,27 +2826,14 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         PlayerSnapshot player,
         Vector3Snapshot playerPosition,
         double radius,
-        bool allowClaimedByOther,
-        WorldObjectSnapshot? preferredDefenseTarget = null)
+        bool allowClaimedByOther)
     {
-        var target = preferredDefenseTarget ??
-                     await SelectMaintenanceDefenseTargetAsync(
-                             context,
-                             state,
-                             playerPosition,
-                             forceRefresh: semiAutoState.IsMaintenanceResting)
-                         .ConfigureAwait(false);
-        if (target?.Position is null &&
-            await TryHoldUnknownLocalDefenseAsync(
-                    context,
-                    semiAutoState,
-                    state,
-                    "path_combat")
-                .ConfigureAwait(false))
-        {
-            return IdleDelay;
-        }
-
+        var target = await SelectMaintenanceDefenseTargetAsync(
+                context,
+                state,
+                playerPosition,
+                forceRefresh: semiAutoState.IsMaintenanceResting)
+            .ConfigureAwait(false);
         if (target is not null && semiAutoState.IsMaintenanceResting)
         {
             if (!await TryInterruptMaintenanceRestForDefenseAsync(
@@ -3789,36 +3461,21 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 .ConfigureAwait(false);
         }
 
-        var decisionRead = await RefreshWorldObjectReadResultAsync(
-                context,
-                state,
-                forceRefresh: true)
-            .ConfigureAwait(false);
-        var target = await SelectMaintenanceDefenseTargetFromReadResultAsync(
+        var target = await SelectMaintenanceDefenseTargetAsync(
                 context,
                 state,
                 playerPosition,
-                decisionRead)
+                forceRefresh: true)
             .ConfigureAwait(false);
-        if (target?.Position is null &&
-            await TryHoldUnknownLocalDefenseAsync(
-                    context,
-                    semiAutoState,
-                    state,
-                    "recovery_" + recoveryPhase)
-                .ConfigureAwait(false))
-        {
-            return IdleDelay;
-        }
-
         var isRevivePathClearTarget = false;
         if (target?.Position is null && IsRevivePathRecoveryPhase(recoveryPhase))
         {
-            target = SelectRevivePathAggressiveClearTargetFromReadResult(
-                context,
-                state,
-                playerPosition,
-                decisionRead);
+            target = await SelectRevivePathAggressiveClearTargetAsync(
+                    context,
+                    state,
+                    playerPosition,
+                    forceRefresh: true)
+                .ConfigureAwait(false);
             isRevivePathClearTarget = target?.Position is not null;
         }
 
@@ -4070,50 +3727,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                         state,
                         player)
                     .ConfigureAwait(false);
-            }
-
-            if (player.Position is { } playerPosition)
-            {
-                var defenseTarget = await SelectMaintenanceDefenseTargetAsync(
-                        context,
-                        state,
-                        playerPosition,
-                        forceRefresh: true)
-                    .ConfigureAwait(false);
-                if (defenseTarget?.Position is null &&
-                    await TryHoldUnknownLocalDefenseAsync(
-                            context,
-                            semiAutoState,
-                            state,
-                            "no_loot_after_kill")
-                        .ConfigureAwait(false))
-                {
-                    return IdleDelay;
-                }
-
-                if (defenseTarget?.Position is not null)
-                {
-                    StopNextTargetPreAim(context, state, "no_loot_defense_target", clearCandidate: false);
-                    await StopMovementAsync(context, state).ConfigureAwait(false);
-                    StopPathFollowPoller(state);
-                    state.ClearTarget();
-                    state.Fighting = true;
-                    state.SetCurrentTarget(defenseTarget);
-                    state.CurrentTargetIsMaintenanceDefense = true;
-                    state.CurrentTargetBypassesHomeLeash = true;
-                    state.MarkCandidate(defenseTarget, DateTimeOffset.Now);
-                    state.FacedCandidateEntityId = 0;
-                    state.ClearPendingTabVerification();
-                    context.Logger.Info("stationary_combat.no_loot.defense_target_adopted", new Dictionary<string, object?>
-                    {
-                        ["account"] = context.Config.AccountName,
-                        ["targetEntityId"] = defenseTarget.EntityId,
-                        ["targetServerObjectId"] = defenseTarget.ServerObjectId,
-                        ["targetName"] = defenseTarget.Name,
-                        ["targetingServerObjectId"] = defenseTarget.TargetServerObjectId
-                    });
-                    return IdleDelay;
-                }
             }
 
             StopNextTargetPreAim(context, state, "current_target_dead", clearCandidate: false);
@@ -5135,12 +4748,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         StationaryCombatState state,
         PlayerSnapshot player)
     {
-        long noKillGeneration;
-        lock (state.WorldObjectCommitSyncRoot)
-        {
-            noKillGeneration = state.WorldObjectReadGeneration;
-        }
-
         var now = DateTimeOffset.Now;
         var runtime = context.RuntimeStates
             .Snapshot()
@@ -5154,83 +4761,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         {
             if (!state.NoKillRecovery.IsDue(now, ReadNoKillTimeout()))
             {
-                state.ClearLocalDefenseTransitionUnknown("no_kill_recovery");
                 return null;
-            }
-
-            var retainedThreat = state.LocalDefenseThreat.LastConfirmedThreat;
-            if (state.Fighting &&
-                (state.CurrentTargetIsMaintenanceDefense ||
-                 retainedThreat is not null &&
-                 StationaryCombatState.IsSameTarget(
-                     state.CurrentTargetEntityId,
-                     state.CurrentTargetServerObjectId,
-                     retainedThreat.EntityId,
-                     retainedThreat.ServerObjectId)))
-            {
-                state.ClearLocalDefenseTransitionUnknown("no_kill_recovery");
-                return null;
-            }
-
-            var qualityTransitionGuardEnabled =
-                context.GameApi is IRoadhogScopedWorldObjectReadQualityGameApi &&
-                IsLocalDefenseUnknownGuardEnabled();
-            long? verifiedTransitionGeneration = noKillGeneration;
-            if ((qualityTransitionGuardEnabled || state.LocalDefenseThreat.HasRetainedThreat) &&
-                player.Position is { } defenseCheckPosition)
-            {
-                var defenseDecision = await ReadLocalDefenseTransitionDecisionAsync(
-                        context,
-                        state,
-                        defenseCheckPosition,
-                        "no_kill_recovery",
-                        noKillGeneration)
-                    .ConfigureAwait(false);
-                if (!defenseDecision.IsCurrent)
-                {
-                    return IdleDelay;
-                }
-
-                if (defenseDecision.DefenseTarget?.Position is not null)
-                {
-                    if (!await AdoptLocalDefenseTransitionTargetAsync(
-                            context,
-                            semiAutoState,
-                            state,
-                            defenseDecision.DefenseTarget,
-                            "no_kill_recovery",
-                            defenseDecision.StateGeneration)
-                        .ConfigureAwait(false))
-                    {
-                        return IdleDelay;
-                    }
-
-                    return IdleDelay;
-                }
-
-                if (await TryHoldUnknownLocalDefenseAsync(
-                        context,
-                        semiAutoState,
-                        state,
-                        "no_kill_recovery")
-                    .ConfigureAwait(false))
-                {
-                    return IdleDelay;
-                }
-
-                if (!defenseDecision.CanProceed)
-                {
-                    await HoldUnconfirmedLocalDefenseTransitionAsync(
-                            context,
-                            semiAutoState,
-                            state,
-                            "no_kill_recovery",
-                            defenseDecision.ReadResult)
-                        .ConfigureAwait(false);
-                    return IdleDelay;
-                }
-
-                verifiedTransitionGeneration = defenseDecision.StateGeneration;
             }
 
             var paths = context.Config.ScriptSettings?.Paths ?? new PathScriptSettings();
@@ -5257,12 +4788,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             }
 
             var pathResult = await _pathStore.LoadAsync(revivePathName, context.StopToken).ConfigureAwait(false);
-            if (verifiedTransitionGeneration is { } generationAfterPathLoad &&
-                generationAfterPathLoad != state.WorldObjectReadGeneration)
-            {
-                return IdleDelay;
-            }
-
             if (!pathResult.Success || pathResult.Value?.Points is not { Count: >= 2 } pathPoints)
             {
                 return PostponeNoKillRecovery(
@@ -5285,43 +4810,14 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 
             semiAutoState.ResetAttackKeyPressThrottle();
             await StopMovementAsync(context, state).ConfigureAwait(false);
-            Task<OperationResult> pressTask;
-            if (verifiedTransitionGeneration is { } generationAfterStop)
-            {
-                lock (state.WorldObjectCommitSyncRoot)
-                {
-                    if (generationAfterStop != state.WorldObjectReadGeneration)
-                    {
-                        return IdleDelay;
-                    }
+            StopPathFollowPoller(state);
+            state.PathCombat.Reset();
+            state.ClearStartupRecovery();
+            state.ClearTarget();
 
-                    StopPathFollowPoller(state);
-                    pressTask = _input.PressKeyAsync(
-                        key,
-                        NoKillTownReturnHoldDuration,
-                        context.StopToken);
-                }
-            }
-            else
-            {
-                StopPathFollowPoller(state);
-                pressTask = _input.PressKeyAsync(
-                    key,
-                    NoKillTownReturnHoldDuration,
-                    context.StopToken);
-            }
-
-            var revivePoints = pathPoints
-                .Select(point => point.ToVector3())
-                .ToArray();
-
-            var press = await pressTask.ConfigureAwait(false);
-            if (verifiedTransitionGeneration is { } generationAfterPress &&
-                generationAfterPress != state.WorldObjectReadGeneration)
-            {
-                return IdleDelay;
-            }
-
+            var press = await _input
+                .PressKeyAsync(key, NoKillTownReturnHoldDuration, context.StopToken)
+                .ConfigureAwait(false);
             if (!press.Success)
             {
                 return PostponeNoKillRecovery(
@@ -5332,29 +4828,10 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     press.Error ?? "Town return key press failed.");
             }
 
-            if (verifiedTransitionGeneration is { } verifiedGeneration)
-            {
-                lock (state.WorldObjectCommitSyncRoot)
-                {
-                    if (verifiedGeneration != state.WorldObjectReadGeneration)
-                    {
-                        return IdleDelay;
-                    }
-
-                    state.PathCombat.Reset();
-                    state.ClearStartupRecovery();
-                    state.ClearTarget();
-                    state.NoKillRecovery.StartTownReturn(startPosition, revivePathName, revivePoints, now);
-                }
-            }
-            else
-            {
-                state.PathCombat.Reset();
-                state.ClearStartupRecovery();
-                state.ClearTarget();
-                state.NoKillRecovery.StartTownReturn(startPosition, revivePathName, revivePoints, now);
-            }
-
+            var revivePoints = pathPoints
+                .Select(point => point.ToVector3())
+                .ToArray();
+            state.NoKillRecovery.StartTownReturn(startPosition, revivePathName, revivePoints, now);
             context.Logger.Warn("stationary_combat.no_kill.return.press", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
@@ -5370,7 +4847,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return IdleDelay;
         }
 
-        state.ClearLocalDefenseTransitionUnknown("no_kill_recovery");
         if (state.NoKillRecovery.Step == StationaryCombatNoKillRecoveryStep.WaitTownReturnSettle)
         {
             if (now - state.NoKillRecovery.StepStartedAt < ReadNoKillTownReturnSettleDelay())
@@ -5505,44 +4981,21 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return false;
         }
 
-        var decisionRead = await RefreshWorldObjectReadResultAsync(
-                context,
-                state,
-                forceRefresh: true)
-            .ConfigureAwait(false);
-        var target = await SelectMaintenanceDefenseTargetFromReadResultAsync(
+        var target = await SelectMaintenanceDefenseTargetAsync(
                 context,
                 state,
                 playerPosition,
-                decisionRead)
+                forceRefresh: true)
             .ConfigureAwait(false);
-        if (target?.Position is null &&
-            state.LocalDefenseThreat.Status == LocalDefenseThreatGuardStatus.UnknownHeld)
-        {
-            if (await TryHoldUnknownLocalDefenseAsync(
-                    context,
-                    semiAutoState,
-                    state,
-                    "post_combat_maintenance")
-                .ConfigureAwait(false))
-            {
-                await AbortDiscardForExternalInterruptionIfActiveAsync(
-                        context,
-                        state,
-                        "local_defense_unknown")
-                    .ConfigureAwait(false);
-                return true;
-            }
-        }
-
         var isRevivePathClearTarget = false;
         if (target?.Position is null && IsDeathRecoveryRevivePathActive(state))
         {
-            target = SelectRevivePathAggressiveClearTargetFromReadResult(
-                context,
-                state,
-                playerPosition,
-                decisionRead);
+            target = await SelectRevivePathAggressiveClearTargetAsync(
+                    context,
+                    state,
+                    playerPosition,
+                    forceRefresh: true)
+                .ConfigureAwait(false);
             isRevivePathClearTarget = target?.Position is not null;
         }
 
@@ -6389,48 +5842,18 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return null;
         }
 
-        if (lockedTarget.ServerObjectId == 0)
-        {
-            return MoveTickDelay;
-        }
-
-        var worldReadResult = await RefreshWorldObjectReadResultAsync(
-                context,
-                state,
-                forceRefresh: true)
-            .ConfigureAwait(false);
-        if (worldReadResult.Completeness == WorldObjectReadCompleteness.Failed)
-        {
-            return MoveTickDelay;
-        }
-
-        var lockedObservation = worldReadResult.Observations.FirstOrDefault(observation =>
+        var forceRefresh = delayMs <= ReadTabVerifyPollMs();
+        var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh).ConfigureAwait(false);
+        var lockedWorldTarget = objects.FirstOrDefault(candidate =>
             StationaryCombatState.IsSameTarget(
-                observation.Snapshot.EntityId,
-                observation.Snapshot.ServerObjectId,
+                candidate.EntityId,
+                candidate.ServerObjectId,
                 lockedTarget.TargetEntityId,
                 lockedTarget.ServerObjectId));
-        var candidateObservation = worldReadResult.Observations.FirstOrDefault(observation =>
-            StationaryCombatState.IsSameTarget(
-                observation.Snapshot.EntityId,
-                observation.Snapshot.ServerObjectId,
-                target.EntityId,
-                target.ServerObjectId));
-        if (lockedObservation is null || candidateObservation is null)
+        if (lockedWorldTarget is null)
         {
-            return worldReadResult.Completeness == WorldObjectReadCompleteness.Complete
-                ? null
-                : MoveTickDelay;
+            return null;
         }
-
-        if (!HasReliableNearbyAggressiveEvidence(lockedObservation) ||
-            !HasReliableNearbyAggressiveEvidence(candidateObservation))
-        {
-            return MoveTickDelay;
-        }
-
-        var lockedWorldTarget = lockedObservation.Snapshot;
-        var refreshedCandidate = candidateObservation.Snapshot;
 
         if (state.IsSmartPreAimHandoffTarget(target.EntityId, target.ServerObjectId) &&
             !IsTargetingLocalSide(lockedWorldTarget, state) &&
@@ -6454,71 +5877,27 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return null;
         }
 
+        var refreshedCandidate = objects.FirstOrDefault(candidate =>
+            StationaryCombatState.IsSameTarget(
+                candidate.EntityId,
+                candidate.ServerObjectId,
+                target.EntityId,
+                target.ServerObjectId)) ?? target;
         var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
-        var allowClaimedByOther = AllowsClaimedTargets(context);
-        if (!IsEligibleNearbyAggressiveLockedTarget(
-                state,
-                refreshedCandidate,
+        if (state.IsTargetIgnored(lockedWorldTarget) ||
+            state.IsTargetTemporarilyExcluded(lockedWorldTarget, DateTimeOffset.Now) ||
+            IsActiveMonsterFiltered(lockedWorldTarget, activeMonsterNameFilters) ||
+            !StationaryCombatTargetSelector.IsSelectableMonster(lockedWorldTarget) ||
+            !IsCandidateStillSelectable(
                 lockedWorldTarget,
                 home,
                 radius,
-                allowClaimedByOther,
-                activeMonsterNameFilters,
-                DateTimeOffset.Now,
-                out var candidateDistance,
-                out var lockedDistance))
-        {
-            return null;
-        }
-
-        var confirmationDelayMs = ReadTabVerifyPollMs();
-        await DelayAsync(TimeSpan.FromMilliseconds(confirmationDelayMs), context).ConfigureAwait(false);
-        var confirmedLockedResult = await ReadFreshLockedTargetAsync(context).ConfigureAwait(false);
-        if (!confirmedLockedResult.Success ||
-            confirmedLockedResult.Value is not { IsMonsterAlive: true } confirmedLockedTarget ||
-            confirmedLockedTarget.ServerObjectId == 0 ||
-            !StationaryCombatState.IsSameTarget(
-                lockedTarget.TargetEntityId,
-                lockedTarget.ServerObjectId,
-                confirmedLockedTarget.TargetEntityId,
-                confirmedLockedTarget.ServerObjectId))
-        {
-            LogActionThrottled(
-                context,
-                state,
-                "stationary_combat.target.nearby_aggressive_lock_unstable",
-                "locked:" + TargetActionKey(lockedTarget.TargetEntityId, lockedTarget.ServerObjectId),
-                new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["candidateEntityId"] = target.EntityId,
-                    ["candidateServerObjectId"] = target.ServerObjectId,
-                    ["initialLockedEntityId"] = lockedTarget.TargetEntityId,
-                    ["initialLockedServerObjectId"] = lockedTarget.ServerObjectId,
-                    ["confirmedReadSuccess"] = confirmedLockedResult.Success,
-                    ["confirmedLockedEntityId"] = confirmedLockedResult.Value?.TargetEntityId ?? 0,
-                    ["confirmedLockedServerObjectId"] = confirmedLockedResult.Value?.ServerObjectId ?? 0,
-                    ["confirmationDelayMs"] = confirmationDelayMs,
-                    ["error"] = confirmedLockedResult.Error
-                },
-                TimeSpan.FromMilliseconds(500));
-            return MoveTickDelay;
-        }
-
-        var acquiredDelay = await TryAcquireLockedTargetAsync(
-                context,
-                plan,
-                semiAutoState,
-                state,
-                target,
-                confirmedLockedResult,
-                home,
-                radius,
-                allowLockedFallback: true,
-                phase: "after_tab_aggressive",
-                validatedLockedFallback: lockedWorldTarget)
-            .ConfigureAwait(false);
-        if (acquiredDelay is null)
+                allowClaimedByOther: AllowsClaimedTargets(context),
+                state) ||
+            (!lockedWorldTarget.IsAggressiveToPlayer && !IsTargetingLocalSide(lockedWorldTarget, state)) ||
+            !TryGetDistanceToLocalPlayer(refreshedCandidate, out var candidateDistance) ||
+            !TryGetDistanceToLocalPlayer(lockedWorldTarget, out var lockedDistance) ||
+            lockedDistance >= candidateDistance)
         {
             return null;
         }
@@ -6540,57 +5919,21 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             ["lockedAggressiveKnown"] = lockedWorldTarget.AggressiveKnown,
             ["lockedAggressiveToPlayer"] = lockedWorldTarget.IsAggressiveToPlayer,
             ["lockedTargetingMe"] = IsTargetingLocalSide(lockedWorldTarget, state),
-            ["captureSequence"] = worldReadResult.Diagnostics.CaptureSequence,
-            ["completeness"] = worldReadResult.Completeness.ToString(),
-            ["delayMs"] = delayMs,
-            ["confirmationDelayMs"] = confirmationDelayMs
+            ["delayMs"] = delayMs
         });
 
-        return acquiredDelay.Value;
-    }
-
-    private static bool HasReliableNearbyAggressiveEvidence(WorldObjectObservation observation)
-    {
-        var snapshot = observation.Snapshot;
-        return snapshot.ServerObjectId != 0 &&
-               snapshot.Position is not null &&
-               snapshot.MaxHp > 0 &&
-               snapshot.CurrentHp > 0 &&
-               observation.Fields.CurrentHp &&
-               observation.Fields.MaxHp &&
-               observation.Fields.TargetServerObjectId &&
-               observation.Fields.IsTargetingLocalPlayer &&
-               TryGetDistanceToLocalPlayer(snapshot, out _);
-    }
-
-    private static bool IsEligibleNearbyAggressiveLockedTarget(
-        StationaryCombatState state,
-        WorldObjectSnapshot candidate,
-        WorldObjectSnapshot lockedWorldTarget,
-        Vector3Snapshot home,
-        double radius,
-        bool allowClaimedByOther,
-        IReadOnlyList<string> activeMonsterNameFilters,
-        DateTimeOffset now,
-        out double candidateDistance,
-        out double lockedDistance)
-    {
-        candidateDistance = 0.0D;
-        lockedDistance = 0.0D;
-        return !state.IsTargetIgnored(lockedWorldTarget) &&
-               !state.IsTargetTemporarilyExcluded(lockedWorldTarget, now) &&
-               !IsActiveMonsterFiltered(lockedWorldTarget, activeMonsterNameFilters) &&
-               StationaryCombatTargetSelector.IsSelectableMonster(lockedWorldTarget) &&
-               IsCandidateStillSelectable(
-                   lockedWorldTarget,
-                   home,
-                   radius,
-                   allowClaimedByOther,
-                   state) &&
-               (lockedWorldTarget.IsAggressiveToPlayer || IsTargetingLocalSide(lockedWorldTarget, state)) &&
-               TryGetDistanceToLocalPlayer(candidate, out candidateDistance) &&
-               TryGetDistanceToLocalPlayer(lockedWorldTarget, out lockedDistance) &&
-               lockedDistance < candidateDistance;
+        return await TryAcquireLockedTargetAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                target,
+                lockedResult,
+                home,
+                radius,
+                allowLockedFallback: true,
+                phase: "after_tab_aggressive")
+            .ConfigureAwait(false);
     }
 
     private async Task<TimeSpan> TickStartupTownReturnAsync(
@@ -7095,8 +6438,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         Vector3Snapshot home,
         double radius,
         bool allowLockedFallback,
-        string phase,
-        WorldObjectSnapshot? validatedLockedFallback = null)
+        string phase)
     {
         if (!lockedResult.Success ||
             lockedResult.Value is not { IsMonsterAlive: true } lockedTarget)
@@ -7111,47 +6453,31 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 lockedTarget.TargetEntityId,
                 lockedTarget.ServerObjectId))
         {
+            if (state.Fighting)
+            {
+                return null;
+            }
+
             if (!allowLockedFallback)
             {
                 return null;
             }
 
-            if (validatedLockedFallback is not null)
+            var switchedTarget = await TrySwitchCandidateToLockedTargetAsync(
+                    context,
+                    state,
+                    target,
+                    lockedTarget,
+                    home,
+                    radius,
+                    phase)
+                .ConfigureAwait(false);
+            if (switchedTarget is null)
             {
-                if (!StationaryCombatState.IsSameTarget(
-                        validatedLockedFallback.EntityId,
-                        validatedLockedFallback.ServerObjectId,
-                        lockedTarget.TargetEntityId,
-                        lockedTarget.ServerObjectId))
-                {
-                    return null;
-                }
-
-                acquiredTarget = validatedLockedFallback;
+                return null;
             }
-            else
-            {
-                if (state.Fighting)
-                {
-                    return null;
-                }
 
-                var switchedTarget = await TrySwitchCandidateToLockedTargetAsync(
-                        context,
-                        state,
-                        target,
-                        lockedTarget,
-                        home,
-                        radius,
-                        phase)
-                    .ConfigureAwait(false);
-                if (switchedTarget is null)
-                {
-                    return null;
-                }
-
-                acquiredTarget = switchedTarget;
-            }
+            acquiredTarget = switchedTarget;
         }
 
         var acquiredServerObjectId = acquiredTarget.ServerObjectId != 0
@@ -8314,7 +7640,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     private bool TryResolveSmartPreAimHandoffTarget(
         AccountWorkerContext context,
         StationaryCombatState state,
-        WorldObjectReadResult worldReadResult,
         IReadOnlyList<WorldObjectSnapshot> objects,
         DateTimeOffset now,
         Vector3Snapshot home,
@@ -8376,32 +7701,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             state.IsSmartPreAimHandoffTarget(candidate.EntityId, candidate.ServerObjectId));
         if (handoffTarget is null)
         {
-            if (worldReadResult.Completeness != WorldObjectReadCompleteness.Complete)
-            {
-                LogActionThrottled(
-                    context,
-                    state,
-                    "stationary_combat.smart_preaim.handoff_waiting",
-                    "quality:" + TargetActionKey(
-                        state.SmartPreAimHandoffEntityId,
-                        state.SmartPreAimHandoffServerObjectId),
-                    new Dictionary<string, object?>
-                    {
-                        ["account"] = context.Config.AccountName,
-                        ["targetEntityId"] = state.SmartPreAimHandoffEntityId,
-                        ["targetServerObjectId"] = state.SmartPreAimHandoffServerObjectId,
-                        ["reason"] = "world_snapshot_unconfirmed",
-                        ["captureSequence"] = worldReadResult.Diagnostics.CaptureSequence,
-                        ["completeness"] = worldReadResult.Completeness.ToString(),
-                        ["consecutiveMissingSnapshots"] = state.SmartPreAimHandoffConsecutiveMissingSnapshots,
-                        ["requiredMissingSnapshots"] = SmartPreAimSwitchConfirmationThreshold
-                    },
-                    TimeSpan.FromMilliseconds(200));
-                return true;
-            }
-
-            var missingSnapshots = state.MarkSmartPreAimHandoffMissing(
-                worldReadResult.Diagnostics.CaptureSequence);
+            var missingSnapshots = state.MarkSmartPreAimHandoffMissing();
             LogActionThrottled(
                 context,
                 state,
@@ -8429,36 +7729,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 "missing_confirmed",
                 clearPreAimCandidate: true);
             return false;
-        }
-
-        var handoffObservation = worldReadResult.Observations.FirstOrDefault(observation =>
-            state.IsSmartPreAimHandoffTarget(
-                observation.Snapshot.EntityId,
-                observation.Snapshot.ServerObjectId));
-        if (handoffObservation is null ||
-            !handoffObservation.Fields.CurrentHp ||
-            !handoffObservation.Fields.MaxHp ||
-            !handoffObservation.Fields.TargetServerObjectId ||
-            !handoffObservation.Fields.IsTargetingLocalPlayer)
-        {
-            LogActionThrottled(
-                context,
-                state,
-                "stationary_combat.smart_preaim.handoff_waiting",
-                "fields:" + TargetActionKey(
-                    state.SmartPreAimHandoffEntityId,
-                    state.SmartPreAimHandoffServerObjectId),
-                new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["targetEntityId"] = state.SmartPreAimHandoffEntityId,
-                    ["targetServerObjectId"] = state.SmartPreAimHandoffServerObjectId,
-                    ["reason"] = "world_fields_unconfirmed",
-                    ["captureSequence"] = worldReadResult.Diagnostics.CaptureSequence,
-                    ["completeness"] = worldReadResult.Completeness.ToString()
-                },
-                TimeSpan.FromMilliseconds(200));
-            return true;
         }
 
         state.ResetSmartPreAimHandoffMissing();
@@ -8543,19 +7813,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         bool allowClaimedByOther,
         bool forceRefresh = false)
     {
-        var worldReadResult = await RefreshWorldObjectReadResultAsync(
-                context,
-                state,
-                forceRefresh)
-            .ConfigureAwait(false);
-        var objects = worldReadResult.Observations
-            .Where(observation => observation.Fields.CurrentHp &&
-                                  observation.Fields.MaxHp &&
-                                  observation.Fields.TargetServerObjectId &&
-                                  observation.Snapshot.MaxHp > 0 &&
-                                  observation.Snapshot.CurrentHp > 0)
-            .Select(observation => observation.Snapshot)
-            .ToArray();
+        var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh).ConfigureAwait(false);
         var now = DateTimeOffset.Now;
         var preferAggressiveMonsters = PrefersAggressiveMonsters(context);
         var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
@@ -8564,7 +7822,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         if (TryResolveSmartPreAimHandoffTarget(
                 context,
                 state,
-                worldReadResult,
                 objects,
                 now,
                 home,
@@ -8839,374 +8096,16 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         Vector3Snapshot playerPosition,
         bool forceRefresh)
     {
-        var readResult = await RefreshWorldObjectReadResultAsync(context, state, forceRefresh).ConfigureAwait(false);
-        return await SelectMaintenanceDefenseTargetFromReadResultAsync(
-                context,
-                state,
-                playerPosition,
-                readResult)
-            .ConfigureAwait(false);
-    }
-
-    private async Task<(
-        WorldObjectReadResult ReadResult,
-        WorldObjectSnapshot? DefenseTarget,
-        bool CanProceed,
-        bool IsCurrent,
-        long StateGeneration)> ReadLocalDefenseTransitionDecisionAsync(
-        AccountWorkerContext context,
-        StationaryCombatState state,
-        Vector3Snapshot playerPosition,
-        string source,
-        long? expectedGeneration = null)
-    {
-        var transitionGeneration = expectedGeneration ?? state.WorldObjectReadGeneration;
-        if (transitionGeneration != state.WorldObjectReadGeneration)
-        {
-            return (
-                CreateStaleWorldObjectReadResult("local_defense_transition_generation_changed"),
-                null,
-                false,
-                false,
-                transitionGeneration);
-        }
-
-        var hadRetainedThreatAtStart = state.LocalDefenseThreat.HasRetainedThreat;
-        var readResult = await RefreshWorldObjectReadResultAsync(
-                context,
-                state,
-                forceRefresh: true)
-            .ConfigureAwait(false);
-        if (transitionGeneration != state.WorldObjectReadGeneration)
-        {
-            return (
-                CreateStaleWorldObjectReadResult("local_defense_transition_generation_changed"),
-                null,
-                false,
-                false,
-                transitionGeneration);
-        }
-
-        var retainedExpiredDuringInitialRead =
-            hadRetainedThreatAtStart &&
-            state.IsLocalDefenseExpiredReadResult(readResult, transitionGeneration);
-        var defenseTarget = await SelectMaintenanceDefenseTargetFromReadResultAsync(
-                context,
-                state,
-                playerPosition,
-                readResult,
-                includeTemporarilyExcluded: true)
-            .ConfigureAwait(false);
-        if (transitionGeneration != state.WorldObjectReadGeneration)
-        {
-            return (
-                CreateStaleWorldObjectReadResult("local_defense_transition_generation_changed"),
-                null,
-                false,
-                false,
-                transitionGeneration);
-        }
-
-        var absenceConfirmed = IsLocalDefenseAbsenceConfirmed(context, state, readResult);
-        if (defenseTarget?.Position is not null ||
-            state.LocalDefenseThreat.Status == LocalDefenseThreatGuardStatus.UnknownHeld ||
-            absenceConfirmed)
-        {
-            if (!state.TryClearLocalDefenseTransitionUnknown(source, transitionGeneration))
-            {
-                return (
-                    CreateStaleWorldObjectReadResult("local_defense_transition_generation_changed"),
-                    null,
-                    false,
-                    false,
-                    transitionGeneration);
-            }
-
-            return (readResult, defenseTarget, absenceConfirmed, true, transitionGeneration);
-        }
-
-        if (retainedExpiredDuringInitialRead)
-        {
-            if (!state.TryClearLocalDefenseTransitionUnknown(source, transitionGeneration))
-            {
-                return (
-                    CreateStaleWorldObjectReadResult("local_defense_transition_generation_changed"),
-                    null,
-                    false,
-                    false,
-                    transitionGeneration);
-            }
-
-            return (readResult, null, true, true, transitionGeneration);
-        }
-
-        if (context.GameApi is IRoadhogScopedWorldObjectReadQualityGameApi &&
-            IsLocalDefenseUnknownGuardEnabled() &&
-            !readResult.Diagnostics.BypassMemoryCache)
-        {
-            var orderedBypass = await ReadWorldObjectsWithQualityAsync(
-                    context,
-                    state,
-                    bypassMemoryCache: true)
-                .ConfigureAwait(false);
-            if (orderedBypass.StateGeneration != transitionGeneration ||
-                !TryCommitWorldObjectReadResult(
-                    context,
-                    state,
-                    orderedBypass.Result,
-                    source + "_bypass",
-                    orderedBypass.ObservationOrder,
-                    transitionGeneration,
-                    applyWorldCache: true,
-                    observedAt: DateTimeOffset.Now))
-            {
-                return (
-                    CreateStaleWorldObjectReadResult("local_defense_transition_bypass_generation_changed"),
-                    null,
-                    false,
-                    false,
-                    transitionGeneration);
-            }
-            else
-            {
-                readResult = orderedBypass.Result;
-                defenseTarget = await SelectMaintenanceDefenseTargetFromReadResultAsync(
-                        context,
-                        state,
-                        playerPosition,
-                        readResult,
-                        includeTemporarilyExcluded: true)
-                    .ConfigureAwait(false);
-            }
-        }
-
-        if (transitionGeneration != state.WorldObjectReadGeneration)
-        {
-            return (
-                CreateStaleWorldObjectReadResult("local_defense_transition_generation_changed"),
-                null,
-                false,
-                false,
-                transitionGeneration);
-        }
-
-        absenceConfirmed = IsLocalDefenseAbsenceConfirmed(context, state, readResult);
-        if (defenseTarget?.Position is not null ||
-            state.LocalDefenseThreat.Status == LocalDefenseThreatGuardStatus.UnknownHeld ||
-            absenceConfirmed)
-        {
-            if (!state.TryClearLocalDefenseTransitionUnknown(source, transitionGeneration))
-            {
-                return (
-                    CreateStaleWorldObjectReadResult("local_defense_transition_generation_changed"),
-                    null,
-                    false,
-                    false,
-                    transitionGeneration);
-            }
-
-            return (readResult, defenseTarget, absenceConfirmed, true, transitionGeneration);
-        }
-
-        var now = DateTimeOffset.Now;
-        if (!state.TryMarkLocalDefenseTransitionUnknown(
-                source,
-                now,
-                transitionGeneration,
-                out var unknownSince))
-        {
-            return (
-                CreateStaleWorldObjectReadResult("local_defense_transition_generation_changed"),
-                null,
-                false,
-                false,
-                transitionGeneration);
-        }
-
-        var unknownAge = now - unknownSince;
-        if (unknownAge < ReadLocalDefenseUnknownRetention())
-        {
-            return (readResult, defenseTarget, false, true, transitionGeneration);
-        }
-
-        if (!state.TryClearLocalDefenseTransitionUnknown(source, transitionGeneration))
-        {
-            return (
-                CreateStaleWorldObjectReadResult("local_defense_transition_generation_changed"),
-                null,
-                false,
-                false,
-                transitionGeneration);
-        }
-        context.Logger.Warn("stationary_combat.local_defense.transition_expired", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["phase"] = source,
-            ["ageMs"] = (long)Math.Max(0D, unknownAge.TotalMilliseconds),
-            ["captureSequence"] = readResult.Diagnostics.CaptureSequence,
-            ["completeness"] = readResult.Completeness.ToString(),
-            ["bypassMemoryCache"] = readResult.Diagnostics.BypassMemoryCache,
-            ["firstIssue"] = readResult.Diagnostics.FirstIssue,
-            ["error"] = readResult.Error
-        });
-        return (readResult, defenseTarget, true, true, transitionGeneration);
-    }
-
-    private static bool IsLocalDefenseAbsenceConfirmed(
-        AccountWorkerContext context,
-        StationaryCombatState state,
-        WorldObjectReadResult readResult)
-    {
-        if (context.GameApi is not IRoadhogScopedWorldObjectReadQualityGameApi ||
-            !IsLocalDefenseUnknownGuardEnabled())
-        {
-            return true;
-        }
-
-        return readResult.Completeness == WorldObjectReadCompleteness.Complete &&
-               state.LocalDefenseThreat.Status == LocalDefenseThreatGuardStatus.Clear &&
-               readResult.Diagnostics.LocalServerObjectIdAvailable &&
-               readResult.Diagnostics.TargetFieldReadFailures == 0 &&
-               readResult.Diagnostics.HealthFieldReadFailures == 0 &&
-               state.LocalCombatSideIdentityFresh &&
-               readResult.Observations.All(static observation =>
-                   observation.Fields.CurrentHp &&
-                   observation.Fields.MaxHp &&
-                   observation.Fields.TargetServerObjectId &&
-                   observation.Fields.IsTargetingLocalPlayer);
-    }
-
-    private async Task HoldUnconfirmedLocalDefenseTransitionAsync(
-        AccountWorkerContext context,
-        SemiAutoCombatState semiAutoState,
-        StationaryCombatState state,
-        string phase,
-        WorldObjectReadResult readResult)
-    {
-        semiAutoState.ResetAttackKeyPressThrottle();
-        await StopSoloJumpAsync(state, "local_defense_unconfirmed_" + phase).ConfigureAwait(false);
-        StopNextTargetPreAim(
-            context,
-            state,
-            "local_defense_unconfirmed_" + phase,
-            clearCandidate: false);
-        await StopMovementAsync(context, state).ConfigureAwait(false);
-        StopPathFollowPoller(state);
-        LogActionThrottled(
-            context,
-            state,
-            "stationary_combat.local_defense.transition_unconfirmed",
-            phase,
-            new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["phase"] = phase,
-                ["captureSequence"] = readResult.Diagnostics.CaptureSequence,
-                ["completeness"] = readResult.Completeness.ToString(),
-                ["bypassMemoryCache"] = readResult.Diagnostics.BypassMemoryCache,
-                ["localServerObjectIdAvailable"] = readResult.Diagnostics.LocalServerObjectIdAvailable,
-                ["localCombatSideIdentityFresh"] = state.LocalCombatSideIdentityFresh,
-                ["targetFieldReadFailures"] = readResult.Diagnostics.TargetFieldReadFailures,
-                ["healthFieldReadFailures"] = readResult.Diagnostics.HealthFieldReadFailures,
-                ["firstIssue"] = readResult.Diagnostics.FirstIssue,
-                ["error"] = readResult.Error
-            },
-            TimeSpan.FromMilliseconds(500));
-    }
-
-    private async Task<bool> AdoptLocalDefenseTransitionTargetAsync(
-        AccountWorkerContext context,
-        SemiAutoCombatState semiAutoState,
-        StationaryCombatState state,
-        WorldObjectSnapshot target,
-        string phase,
-        long expectedGeneration,
-        bool deferStartupRecoveryCheck = false)
-    {
-        semiAutoState.ResetAttackKeyPressThrottle();
-        lock (state.WorldObjectCommitSyncRoot)
-        {
-            if (expectedGeneration != state.WorldObjectReadGeneration)
-            {
-                return false;
-            }
-        }
-
-        await StopMovementAsync(context, state).ConfigureAwait(false);
-        lock (state.WorldObjectCommitSyncRoot)
-        {
-            if (expectedGeneration != state.WorldObjectReadGeneration)
-            {
-                return false;
-            }
-
-            StopNextTargetPreAim(
-                context,
-                state,
-                "local_defense_transition_" + phase,
-                clearCandidate: false);
-            StopPathFollowPoller(state);
-            var teamProtection = state.IsTeamLeaderProtectionTarget(target);
-            state.ClearTarget();
-            if (teamProtection)
-            {
-                state.MarkTeamLeaderProtectionTarget(target);
-            }
-
-            state.ReturningHome = false;
-            state.ResetReturnHomeStuckTracking();
-            state.Fighting = true;
-            state.SetCurrentTarget(target);
-            state.CurrentTargetIsMaintenanceDefense = true;
-            state.CurrentTargetBypassesHomeLeash = true;
-            state.MarkCandidate(target, DateTimeOffset.Now);
-            state.FacedCandidateEntityId = 0;
-            state.ClearPendingTabVerification();
-            if (deferStartupRecoveryCheck)
-            {
-                state.DeferStartupRecoveryCheck();
-            }
-        }
-
-        context.Logger.Info("stationary_combat.local_defense.transition_adopted", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["phase"] = phase,
-            ["targetEntityId"] = target.EntityId,
-            ["targetServerObjectId"] = target.ServerObjectId,
-            ["targetName"] = target.Name,
-            ["targetingServerObjectId"] = target.TargetServerObjectId,
-            ["teamProtection"] = state.IsTeamLeaderProtectionTarget(target)
-        });
-        return true;
-    }
-
-    private async Task<WorldObjectSnapshot?> SelectMaintenanceDefenseTargetFromReadResultAsync(
-        AccountWorkerContext context,
-        StationaryCombatState state,
-        Vector3Snapshot playerPosition,
-        WorldObjectReadResult readResult,
-        bool includeTemporarilyExcluded = false)
-    {
+        var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh).ConfigureAwait(false);
         var now = DateTimeOffset.Now;
         var selectionOrigin = ResolvePendingNextTargetSelectionOrigin(context, state, playerPosition);
-        var availableObservations = readResult.Observations
-            .Where(observation => includeTemporarilyExcluded ||
-                                  !state.IsTargetTemporarilyExcluded(observation.Snapshot, now))
-            .Where(observation => observation.Fields.CurrentHp &&
-                                  observation.Fields.MaxHp &&
-                                  observation.Snapshot.MaxHp > 0 &&
-                                  observation.Snapshot.CurrentHp > 0)
-            .Where(observation => observation.Snapshot.Position is not null)
-            .ToArray();
-        var teamProtectionObjects = availableObservations
-            .Where(observation => observation.Fields.TargetServerObjectId)
-            .Select(observation => observation.Snapshot)
+        var availableObjects = objects
+            .Where(target => !state.IsTargetTemporarilyExcluded(target, now))
             .ToArray();
         var teamThreat = await SelectTeamLeaderProtectionTargetAsync(
                 context,
                 state,
-                teamProtectionObjects,
+                availableObjects,
                 playerPosition)
             .ConfigureAwait(false);
         if (teamThreat is not null)
@@ -9229,10 +8128,10 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return teamThreat.Target;
         }
 
-        var localSideThreat = availableObservations
-            .Where(observation => IsConfirmedLocalDefenseThreatObservation(observation, state))
-            .Select(observation => observation.Snapshot)
+        var localSideThreat = availableObjects
+            .Where(target => IsTargetingLocalSide(target, state))
             .Where(StationaryCombatTargetSelector.IsSelectableMonster)
+            .Where(target => target.Position is not null)
             .OrderBy(target => StationaryCombatTargetSelector.HorizontalDistance(target.Position!.Value, selectionOrigin))
             .ThenBy(target => target.ServerObjectId)
             .ThenBy(target => target.EntityId)
@@ -9245,67 +8144,19 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         return localSideThreat;
     }
 
-    private async Task<bool> TryHoldUnknownLocalDefenseAsync(
-        AccountWorkerContext context,
-        SemiAutoCombatState? semiAutoState,
-        StationaryCombatState state,
-        string phase)
-    {
-        if (!IsLocalDefenseUnknownGuardEnabled() ||
-            state.LocalDefenseThreat.Status != LocalDefenseThreatGuardStatus.UnknownHeld)
-        {
-            return false;
-        }
-
-        semiAutoState?.ResetAttackKeyPressThrottle();
-        await StopSoloJumpAsync(state, "local_defense_unknown_" + phase).ConfigureAwait(false);
-        StopNextTargetPreAim(
-            context,
-            state,
-            "local_defense_unknown_" + phase,
-            clearCandidate: false);
-        await StopMovementAsync(context, state).ConfigureAwait(false);
-        StopPathFollowPoller(state);
-
-        var retained = state.LocalDefenseThreat.LastConfirmedThreat;
-        var age = DateTimeOffset.Now - state.LocalDefenseThreat.LastConfirmedAt;
-        LogActionThrottled(
-            context,
-            state,
-            "stationary_combat.local_defense.unknown_held",
-            phase + ":" + TargetActionKey(retained?.EntityId ?? 0, retained?.ServerObjectId ?? 0),
-            new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["phase"] = phase,
-                ["targetEntityId"] = retained?.EntityId,
-                ["targetServerObjectId"] = retained?.ServerObjectId,
-                ["ageMs"] = (long)Math.Max(0D, age.TotalMilliseconds),
-                ["negativeConfirmations"] = state.LocalDefenseThreat.ConsecutiveConfirmedNegativeObservations,
-                ["lastCaptureSequence"] = state.LastWorldObjectReadResult?.Diagnostics.CaptureSequence,
-                ["lastCompleteness"] = state.LastWorldObjectReadResult?.Completeness.ToString()
-            },
-            TimeSpan.FromMilliseconds(500));
-        return true;
-    }
-
     private async Task<(bool CanSit, WorldObjectSnapshot? DefenseTarget)> EvaluateLeaderRestGuardAsync(
         AccountWorkerContext context,
         StationaryCombatState state,
         Vector3Snapshot playerPosition)
     {
-        var worldReadResult = await RefreshWorldObjectReadResultAsync(
-                context,
-                state,
-                forceRefresh: true)
-            .ConfigureAwait(false);
-        if (worldReadResult.Completeness == WorldObjectReadCompleteness.Failed)
+        var worldObjectsResult = await ReadWorldObjectsAsync(context).ConfigureAwait(false);
+        if (!worldObjectsResult.Success || worldObjectsResult.Value is null)
         {
             LogLeaderRestBlocked(
                 context,
                 state,
                 "world_objects_failed",
-                error: worldReadResult.Error);
+                error: worldObjectsResult.Error);
             return (false, null);
         }
 
@@ -9324,27 +8175,17 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
 
         var team = context.Config.ScriptSettings?.Team ?? new TeamScriptSettings();
-        var validObservations = worldReadResult.Observations
-            .Where(observation => observation.Fields.CurrentHp &&
-                                  observation.Fields.MaxHp &&
-                                  observation.Snapshot.MaxHp > 0 &&
-                                  observation.Snapshot.CurrentHp > 0 &&
-                                  observation.Snapshot.Position is not null)
-            .ToArray();
-        var teamObjects = validObservations
-            .Where(observation => observation.Fields.TargetServerObjectId)
-            .Select(observation => observation.Snapshot)
-            .ToArray();
+        var objects = worldObjectsResult.Value;
         var snapshot = snapshotResult.Value;
         var teamThreat = TeamLeaderProtectionSelector.SelectThreat(
             snapshot,
-            teamObjects,
+            objects,
             playerPosition,
             team.GroupDistanceMeters);
-        var localThreat = validObservations
-            .Where(observation => IsConfirmedLocalDefenseThreatObservation(observation, state))
-            .Select(observation => observation.Snapshot)
+        var localThreat = objects
+            .Where(target => IsTargetingLocalSide(target, state))
             .Where(StationaryCombatTargetSelector.IsSelectableMonster)
+            .Where(target => target.Position is not null)
             .OrderBy(target => StationaryCombatTargetSelector.HorizontalDistance(target.Position!.Value, playerPosition))
             .ThenBy(target => target.ServerObjectId)
             .ThenBy(target => target.EntityId)
@@ -9352,28 +8193,13 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         var defenseTarget = teamThreat?.Target ?? localThreat;
         if (defenseTarget is null)
         {
-            var negativeConclusionConfirmed =
-                worldReadResult.Completeness == WorldObjectReadCompleteness.Complete &&
-                worldReadResult.Diagnostics.LocalServerObjectIdAvailable &&
-                worldReadResult.Diagnostics.TargetFieldReadFailures == 0 &&
-                worldReadResult.Diagnostics.HealthFieldReadFailures == 0;
-            if (!negativeConclusionConfirmed)
-            {
-                LogLeaderRestBlocked(
-                    context,
-                    state,
-                    "world_objects_unconfirmed",
-                    error: worldReadResult.Diagnostics.FirstIssue ?? worldReadResult.Error);
-                return (false, null);
-            }
-
             return (true, null);
         }
 
         var protectedServerObjectIds = TeamLeaderProtectionSelector.CreateProtectedServerObjectIds(
             snapshot,
             team.GroupDistanceMeters);
-        var threatCount = teamObjects.Count(target =>
+        var threatCount = objects.Count(target =>
             StationaryCombatTargetSelector.IsSelectableMonster(target) &&
             (IsTargetingLocalSide(target, state) ||
              protectedServerObjectIds.Contains(target.TargetServerObjectId)));
@@ -9482,21 +8308,16 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             team.GroupDistanceMeters);
     }
 
-    private static WorldObjectSnapshot? SelectRevivePathAggressiveClearTargetFromReadResult(
+    private async Task<WorldObjectSnapshot?> SelectRevivePathAggressiveClearTargetAsync(
         AccountWorkerContext context,
         StationaryCombatState state,
         Vector3Snapshot playerPosition,
-        WorldObjectReadResult readResult)
+        bool forceRefresh)
     {
+        var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh).ConfigureAwait(false);
         var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
         var clearRadius = ResolveRevivePathAggressiveClearRadius(context.Config.ScriptSettings?.Paths);
-        return readResult.Observations
-            .Where(observation => observation.Fields.CurrentHp &&
-                                  observation.Fields.MaxHp &&
-                                  observation.Fields.TargetServerObjectId &&
-                                  observation.Snapshot.MaxHp > 0 &&
-                                  observation.Snapshot.CurrentHp > 0)
-            .Select(observation => observation.Snapshot)
+        return objects
             .Where(target => !state.IsTargetIgnored(target))
             .Where(target => !state.IsTargetTemporarilyExcluded(target, DateTimeOffset.Now))
             .Where(StationaryCombatTargetSelector.IsSelectableMonster)
@@ -9575,15 +8396,9 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                         ["monsterDataAvailable"] = snapshot?.MonsterDataAvailable ?? false,
                         ["competitionDataAvailable"] = snapshot?.CompetitionDataAvailable ?? false,
                         ["localGatheringDataAvailable"] = snapshot?.LocalGathering.DataAvailable ?? false,
-                        ["consecutiveUnavailableReads"] = state.Gather.ConsecutiveUnavailableSnapshotReads,
-                        ["requiredUnavailableReads"] = GatherSnapshotUnavailableReadThreshold
+                        ["reason"] = "fresh_snapshot_unavailable"
                     },
                     TimeSpan.FromSeconds(1));
-                if (state.Gather.ConsecutiveUnavailableSnapshotReads < GatherSnapshotUnavailableReadThreshold)
-                {
-                    return StationaryGatherTickResult.HandledWith(GatherPollDelay);
-                }
-
                 await StopAndSuppressGatherAsync(
                         context,
                         state,
@@ -10105,11 +8920,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             state.LastGatherScanAt = now;
             if (!result.Success || result.Value is null)
             {
-                if (state.Gather.Active)
-                {
-                    state.Gather.MarkSnapshotUnavailable();
-                }
-
                 state.CachedGatherSnapshot = null;
                 LogThrottled(context, state, "stationary_gather.snapshot.failed", new Dictionary<string, object?>
                 {
@@ -10120,24 +8930,13 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             }
 
             state.CachedGatherSnapshot = result.Value;
-            if (state.Gather.Active)
-            {
-                if (IsGatherSnapshotUsable(result.Value))
-                {
-                    state.Gather.MarkSnapshotAvailable();
-                }
-                else
-                {
-                    state.Gather.MarkSnapshotUnavailable();
-                }
-            }
-
             if (result.Value.MonsterDataAvailable)
             {
+                state.CachedWorldObjects = result.Value.NearbyMonsters;
                 state.LastWorldScanAt = now;
                 _radarSnapshots?.PublishWorldObjects(
                     context.Config.AccountName,
-                    result.Value.NearbyMonsters,
+                    state.CachedWorldObjects,
                     now);
             }
         }
@@ -10158,605 +8957,46 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         StationaryCombatState state,
         bool forceRefresh = false)
     {
-        var result = await RefreshWorldObjectReadResultAsync(context, state, forceRefresh).ConfigureAwait(false);
-        return result.Objects;
-    }
-
-    private async Task<WorldObjectReadResult> RefreshWorldObjectReadResultAsync(
-        AccountWorkerContext context,
-        StationaryCombatState state,
-        bool forceRefresh = false)
-    {
         var gather = context.Config.ScriptSettings?.Gather;
         if (gather?.StationaryPriorityEnabled == true)
         {
-            var gatherObservationOrder = Interlocked.Increment(ref _worldObjectObservationOrder);
-            var gatherStateGeneration = state.WorldObjectReadGeneration;
             var gatherSnapshot = await RefreshGatherSnapshotAsync(context, state, forceRefresh).ConfigureAwait(false);
             if (gatherSnapshot?.MonsterDataAvailable == true)
             {
-                var gatherResult = CreateUnverifiedWorldObjectReadResult(
-                    gatherSnapshot.NearbyMonsters,
-                    "gather_world_object_quality_unavailable");
-                if (!TryCommitWorldObjectReadResult(
-                        context,
-                        state,
-                        gatherResult,
-                        "gather",
-                        gatherObservationOrder,
-                        gatherStateGeneration,
-                        applyWorldCache: false,
-                        DateTimeOffset.Now))
-                {
-                    return CreateStaleWorldObjectReadResult("gather_read_generation_changed");
-                }
-
-                return await ProcessLocalDefenseReadResultAsync(
-                        context,
-                        state,
-                        gatherResult,
-                        "gather",
-                        gatherObservationOrder,
-                        gatherStateGeneration)
-                    .ConfigureAwait(false);
+                state.PruneIgnoredTargets(state.CachedWorldObjects);
+                state.PruneTemporaryTargetExclusions(state.CachedWorldObjects, DateTimeOffset.Now);
+                return state.CachedWorldObjects;
             }
         }
 
         var now = DateTimeOffset.Now;
         if (forceRefresh || state.CachedWorldObjects.Count == 0 || now - state.LastWorldScanAt >= ScanInterval)
         {
-            var orderedRead = await ReadWorldObjectsWithQualityAsync(
-                    context,
-                    state,
-                    bypassMemoryCache: false)
-                .ConfigureAwait(false);
-            var readResult = orderedRead.Result;
-            if (!TryCommitWorldObjectReadResult(
-                    context,
-                    state,
-                    readResult,
-                    "world_scan",
-                    orderedRead.ObservationOrder,
-                    orderedRead.StateGeneration,
-                    applyWorldCache: true,
-                    now))
+            var objectsResult = await ReadWorldObjectsAsync(context).ConfigureAwait(false);
+            if (!objectsResult.Success || objectsResult.Value is null)
             {
-                return CreateStaleWorldObjectReadResult("world_read_stale_or_generation_changed");
-            }
-
-            return await ProcessLocalDefenseReadResultAsync(
-                    context,
-                    state,
-                    readResult,
-                    "world_scan",
-                    orderedRead.ObservationOrder,
-                    orderedRead.StateGeneration)
-                .ConfigureAwait(false);
-        }
-
-        lock (state.WorldObjectCommitSyncRoot)
-        {
-            return state.LastWorldObjectReadResult ??
-                   CreateUnverifiedWorldObjectReadResult(
-                       state.CachedWorldObjects,
-                       "cached_world_object_quality_unavailable");
-        }
-    }
-
-    private bool TryCommitWorldObjectReadResult(
-        AccountWorkerContext context,
-        StationaryCombatState state,
-        WorldObjectReadResult readResult,
-        string source,
-        long observationOrder,
-        long stateGeneration,
-        bool applyWorldCache,
-        DateTimeOffset observedAt)
-    {
-        lock (state.WorldObjectCommitSyncRoot)
-        {
-            if (stateGeneration != state.WorldObjectReadGeneration ||
-                !state.TryAcceptWorldObjectRead(observationOrder, stateGeneration))
-            {
-                return false;
-            }
-
-            state.TryClearLocalDefenseExpiryEvidence(stateGeneration);
-
-            if (applyWorldCache)
-            {
-                state.LastWorldScanAt = observedAt;
-                ApplyWorldObjectReadResult(context, state, readResult, observedAt);
+                LogThrottled(context, state, "stationary_combat.world_objects.failed", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["error"] = objectsResult.Error
+                });
+                state.CachedWorldObjects = Array.Empty<WorldObjectSnapshot>();
             }
             else
             {
-                state.LastWorldObjectReadResult = readResult;
+                state.CachedWorldObjects = objectsResult.Value;
+                _radarSnapshots?.PublishWorldObjects(
+                    context.Config.AccountName,
+                    state.CachedWorldObjects,
+                    now);
             }
 
-            if (context.GameApi is IRoadhogScopedWorldObjectReadQualityGameApi &&
-                IsLocalDefenseUnknownGuardEnabled())
-            {
-                ObserveLocalDefenseThreat(
-                    context,
-                    state,
-                    readResult,
-                    source,
-                    observedAt,
-                    observationOrder,
-                    stateGeneration);
-            }
-            else
-            {
-                state.LocalDefenseThreat.Clear();
-            }
-
-            return true;
-        }
-    }
-
-    private void ApplyWorldObjectReadResult(
-        AccountWorkerContext context,
-        StationaryCombatState state,
-        WorldObjectReadResult readResult,
-        DateTimeOffset now)
-    {
-        state.LastWorldObjectReadResult = readResult;
-        var behaviorFieldsDegraded =
-            !readResult.Diagnostics.LocalServerObjectIdAvailable ||
-            readResult.Diagnostics.TargetFieldReadFailures != 0 ||
-            readResult.Diagnostics.HealthFieldReadFailures != 0 ||
-            readResult.Diagnostics.LootFieldReadFailures != 0 ||
-            readResult.Diagnostics.InteractionStateReadFailures != 0;
-        var legacyMode = context.GameApi is not IRoadhogScopedWorldObjectReadQualityGameApi ||
-                         !IsLocalDefenseUnknownGuardEnabled();
-        if (legacyMode && readResult.Completeness == WorldObjectReadCompleteness.Failed)
-        {
-            state.CachedWorldObjects = Array.Empty<WorldObjectSnapshot>();
+            state.LastWorldScanAt = now;
         }
 
-        if (readResult.Completeness == WorldObjectReadCompleteness.Complete ||
-            legacyMode && readResult.Completeness == WorldObjectReadCompleteness.Partial)
-        {
-            state.CachedWorldObjects = readResult.Objects;
-            state.PruneIgnoredTargets(state.CachedWorldObjects);
-            state.PruneTemporaryTargetExclusions(state.CachedWorldObjects, now);
-            _radarSnapshots?.PublishWorldObjects(
-                context.Config.AccountName,
-                state.CachedWorldObjects,
-                now);
-            if (!behaviorFieldsDegraded)
-            {
-                return;
-            }
-        }
-
-        LogThrottled(context, state, "stationary_combat.world_objects.quality_degraded", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["captureSequence"] = readResult.Diagnostics.CaptureSequence,
-            ["completeness"] = readResult.Completeness.ToString(),
-            ["traversalTermination"] = readResult.Diagnostics.TraversalTermination.ToString(),
-            ["bypassMemoryCache"] = readResult.Diagnostics.BypassMemoryCache,
-            ["objectCount"] = readResult.Objects.Count,
-            ["localServerObjectIdAvailable"] = readResult.Diagnostics.LocalServerObjectIdAvailable,
-            ["targetFieldReadFailures"] = readResult.Diagnostics.TargetFieldReadFailures,
-            ["healthFieldReadFailures"] = readResult.Diagnostics.HealthFieldReadFailures,
-            ["lootFieldReadFailures"] = readResult.Diagnostics.LootFieldReadFailures,
-            ["interactionStateReadFailures"] = readResult.Diagnostics.InteractionStateReadFailures,
-            ["firstIssue"] = readResult.Diagnostics.FirstIssue,
-            ["error"] = readResult.Error
-        });
-    }
-
-    private async Task<WorldObjectReadResult> ProcessLocalDefenseReadResultAsync(
-        AccountWorkerContext context,
-        StationaryCombatState state,
-        WorldObjectReadResult readResult,
-        string source,
-        long observationOrder,
-        long stateGeneration)
-    {
-        if (stateGeneration != state.WorldObjectReadGeneration)
-        {
-            return CreateStaleWorldObjectReadResult("local_defense_read_generation_changed");
-        }
-
-        if (context.GameApi is not IRoadhogScopedWorldObjectReadQualityGameApi ||
-            !IsLocalDefenseUnknownGuardEnabled())
-        {
-            state.LocalDefenseThreat.Clear();
-            return readResult;
-        }
-
-        if (state.LocalDefenseThreat.Status == LocalDefenseThreatGuardStatus.UnknownHeld &&
-            state.LocalDefenseThreat.ShouldAttemptBypass(
-                DateTimeOffset.Now,
-                LocalDefenseBypassRetryInterval))
-        {
-            var bypassStartedAt = DateTimeOffset.Now;
-            state.LocalDefenseThreat.MarkBypassAttempt(bypassStartedAt);
-            var orderedBypass = await ReadWorldObjectsWithQualityAsync(
-                    context,
-                    state,
-                    bypassMemoryCache: true)
-                .ConfigureAwait(false);
-            if (orderedBypass.StateGeneration != stateGeneration)
-            {
-                return CreateStaleWorldObjectReadResult("local_defense_bypass_generation_changed");
-            }
-
-            var bypassResult = orderedBypass.Result;
-            if (!TryCommitWorldObjectReadResult(
-                    context,
-                    state,
-                    bypassResult,
-                    source + "_bypass",
-                    orderedBypass.ObservationOrder,
-                    orderedBypass.StateGeneration,
-                    applyWorldCache: true,
-                    bypassStartedAt))
-            {
-                return CreateStaleWorldObjectReadResult("local_defense_bypass_stale_or_generation_changed");
-            }
-
-            if (bypassResult.Completeness != WorldObjectReadCompleteness.Failed)
-            {
-                readResult = bypassResult;
-            }
-        }
-
-        var expiryCheckedAt = DateTimeOffset.Now;
-        WorldObjectSnapshot? retained;
-        TimeSpan age;
-        bool expired;
-        lock (state.WorldObjectCommitSyncRoot)
-        {
-            if (stateGeneration != state.WorldObjectReadGeneration)
-            {
-                return CreateStaleWorldObjectReadResult("local_defense_read_generation_changed_before_return");
-            }
-
-            expired = state.LocalDefenseThreat.TryExpire(
-                expiryCheckedAt,
-                ReadLocalDefenseUnknownRetention(),
-                out retained,
-                out age);
-            if (expired)
-            {
-                state.TryMarkLocalDefenseExpired(readResult, stateGeneration);
-            }
-        }
-
-        if (expired)
-        {
-            context.Logger.Warn("stationary_combat.local_defense.expired", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["source"] = source,
-                ["targetEntityId"] = retained?.EntityId,
-                ["targetServerObjectId"] = retained?.ServerObjectId,
-                ["ageMs"] = (long)Math.Max(0D, age.TotalMilliseconds),
-                ["captureSequence"] = readResult.Diagnostics.CaptureSequence,
-                ["completeness"] = readResult.Completeness.ToString(),
-                ["bypassMemoryCache"] = readResult.Diagnostics.BypassMemoryCache
-            });
-        }
-
-        return readResult;
-    }
-
-    private static void ObserveLocalDefenseThreat(
-        AccountWorkerContext context,
-        StationaryCombatState state,
-        WorldObjectReadResult readResult,
-        string source,
-        DateTimeOffset observedAt,
-        long observationOrder,
-        long stateGeneration)
-    {
-        if (stateGeneration != state.WorldObjectReadGeneration)
-        {
-            return;
-        }
-
-        lock (state.LocalDefenseThreat.SyncRoot)
-        {
-            if (stateGeneration != state.WorldObjectReadGeneration ||
-                !state.LocalDefenseThreat.TryBeginObservation(observationOrder))
-            {
-                return;
-            }
-
-            var retained = state.LocalDefenseThreat.LastConfirmedThreat;
-            var retainedObservation = retained is null
-                ? null
-                : readResult.Observations.FirstOrDefault(observation =>
-                    state.LocalDefenseThreat.Matches(observation.Snapshot));
-            if (retainedObservation is not null)
-            {
-                var retainedHealthValid = retainedObservation.Fields.CurrentHp &&
-                                          retainedObservation.Fields.MaxHp &&
-                                          retainedObservation.Snapshot.MaxHp > 0;
-                if (retainedHealthValid && retainedObservation.Snapshot.CurrentHp == 0)
-                {
-                    LogLocalDefenseReleased(
-                        context,
-                        state,
-                        retainedObservation.Snapshot,
-                        readResult,
-                        source,
-                        "explicitly_dead");
-                    state.LocalDefenseThreat.Release();
-                    retained = null;
-                }
-                else if (IsConfirmedLocalDefenseThreatObservation(retainedObservation, state))
-                {
-                    if (!retainedHealthValid ||
-                        retainedObservation.Snapshot.CurrentHp <= 0 ||
-                        retainedObservation.Snapshot.Position is null ||
-                        !StationaryCombatTargetSelector.IsSelectableMonster(retainedObservation.Snapshot))
-                    {
-                        state.LocalDefenseThreat.HoldUnknown(observationOrder);
-                        return;
-                    }
-
-                    ConfirmLocalDefenseThreat(
-                        context,
-                        state,
-                        retainedObservation,
-                        readResult,
-                        source,
-                        observedAt,
-                        observationOrder,
-                        wasSameThreat: true);
-                    return;
-                }
-            }
-
-            if (retained is not null)
-            {
-                if (readResult.Completeness != WorldObjectReadCompleteness.Complete)
-                {
-                    state.LocalDefenseThreat.HoldUnknown(observationOrder);
-                    return;
-                }
-
-                if (retainedObservation is not null)
-                {
-                    if (retainedObservation.Fields.TargetServerObjectId &&
-                        retainedObservation.Snapshot.ServerObjectId != 0 &&
-                        retainedObservation.Snapshot.TargetServerObjectId ==
-                        retainedObservation.Snapshot.ServerObjectId)
-                    {
-                        // A self-referential monster target is not trustworthy
-                        // negative evidence for releasing a known local/pet
-                        // attacker, even if a provider marked the raw field read.
-                        state.LocalDefenseThreat.HoldUnknown(observationOrder);
-                        return;
-                    }
-
-                    var targetFieldsValid = retainedObservation.Fields.TargetServerObjectId &&
-                                             retainedObservation.Fields.IsTargetingLocalPlayer;
-                    if (!targetFieldsValid ||
-                        !readResult.Diagnostics.LocalServerObjectIdAvailable ||
-                        !state.LocalCombatSideIdentityFresh)
-                    {
-                        state.LocalDefenseThreat.HoldUnknown(observationOrder);
-                        return;
-                    }
-                }
-
-                var releaseReason = retainedObservation is null
-                    ? "complete_missing"
-                    : "complete_not_targeting_local_side";
-                var released = state.LocalDefenseThreat.RecordConfirmedNegative(
-                    readResult.Diagnostics.CaptureSequence,
-                    LocalDefenseNegativeConfirmationThreshold,
-                    observationOrder);
-                if (!released)
-                {
-                    return;
-                }
-
-                LogLocalDefenseReleased(
-                    context,
-                    state,
-                    retained,
-                    readResult,
-                    source,
-                    releaseReason);
-            }
-
-            var positive = readResult.Observations
-                .Where(observation => observation.Snapshot.ServerObjectId != 0)
-                .Where(observation => observation.Snapshot.Position is not null)
-                .Where(observation => observation.Fields.CurrentHp &&
-                                      observation.Fields.MaxHp &&
-                                      observation.Snapshot.MaxHp > 0 &&
-                                      observation.Snapshot.CurrentHp > 0)
-                .Where(observation => StationaryCombatTargetSelector.IsSelectableMonster(observation.Snapshot))
-                .Where(observation => IsConfirmedLocalDefenseThreatObservation(observation, state))
-                .OrderBy(observation => observation.Snapshot.ServerObjectId)
-                .ThenBy(observation => observation.Snapshot.EntityId)
-                .FirstOrDefault();
-            if (positive is null)
-            {
-                return;
-            }
-
-            ConfirmLocalDefenseThreat(
-                context,
-                state,
-                positive,
-                readResult,
-                source,
-                observedAt,
-                observationOrder,
-                wasSameThreat: false);
-        }
-    }
-
-    private static void ConfirmLocalDefenseThreat(
-        AccountWorkerContext context,
-        StationaryCombatState state,
-        WorldObjectObservation observation,
-        WorldObjectReadResult readResult,
-        string source,
-        DateTimeOffset observedAt,
-        long observationOrder,
-        bool wasSameThreat)
-    {
-        if (!state.LocalDefenseThreat.Confirm(
-                observation.Snapshot,
-                readResult.Diagnostics.CaptureSequence,
-                observedAt,
-                observationOrder))
-        {
-            return;
-        }
-
-        LogActionThrottled(
-            context,
-            state,
-            "stationary_combat.local_defense.confirmed",
-            TargetActionKey(observation.Snapshot.EntityId, observation.Snapshot.ServerObjectId),
-            new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["source"] = source,
-                ["targetEntityId"] = observation.Snapshot.EntityId,
-                ["targetServerObjectId"] = observation.Snapshot.ServerObjectId,
-                ["targetingServerObjectId"] = observation.Snapshot.TargetServerObjectId,
-                ["captureSequence"] = readResult.Diagnostics.CaptureSequence,
-                ["completeness"] = readResult.Completeness.ToString(),
-                ["sameThreat"] = wasSameThreat
-            },
-            TimeSpan.FromMilliseconds(500));
-    }
-
-    private static bool IsConfirmedLocalDefenseThreatObservation(
-        WorldObjectObservation observation,
-        StationaryCombatState state)
-    {
-        var snapshot = observation.Snapshot;
-        if (observation.Fields.IsTargetingLocalPlayer && snapshot.IsTargetingLocalPlayer)
-        {
-            return true;
-        }
-
-        if (!observation.Fields.TargetServerObjectId || snapshot.TargetServerObjectId == 0)
-        {
-            return false;
-        }
-
-        return (state.LocalCombatSideServerObjectId != 0 &&
-                snapshot.TargetServerObjectId == state.LocalCombatSideServerObjectId) ||
-               (state.LocalCombatSidePetServerObjectId != 0 &&
-                snapshot.TargetServerObjectId == state.LocalCombatSidePetServerObjectId);
-    }
-
-    private static void LogLocalDefenseReleased(
-        AccountWorkerContext context,
-        StationaryCombatState state,
-        WorldObjectSnapshot? retained,
-        WorldObjectReadResult readResult,
-        string source,
-        string reason)
-    {
-        context.Logger.Info("stationary_combat.local_defense.released", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["source"] = source,
-            ["reason"] = reason,
-            ["targetEntityId"] = retained?.EntityId,
-            ["targetServerObjectId"] = retained?.ServerObjectId,
-            ["captureSequence"] = readResult.Diagnostics.CaptureSequence,
-            ["completeness"] = readResult.Completeness.ToString(),
-            ["negativeConfirmations"] = reason.StartsWith("complete_", StringComparison.Ordinal)
-                ? LocalDefenseNegativeConfirmationThreshold
-                : state.LocalDefenseThreat.ConsecutiveConfirmedNegativeObservations
-        });
-    }
-
-    private WorldObjectReadResult CreateUnverifiedWorldObjectReadResult(
-        IReadOnlyList<WorldObjectSnapshot> objects,
-        string issue)
-    {
-        var now = DateTimeOffset.UtcNow;
-        var observations = objects
-            .Select(static snapshot => new WorldObjectObservation(
-                snapshot,
-                new WorldObjectFieldValidity(
-                    CurrentHp: true,
-                    MaxHp: true,
-                    TargetServerObjectId: true,
-                    IsTargetingLocalPlayer: true,
-                    LootableRaw: true,
-                    InteractionState: true)))
-            .ToArray();
-        var diagnostics = new WorldObjectReadDiagnostics(
-            Interlocked.Increment(ref _syntheticWorldObjectCaptureSequence),
-            now,
-            now,
-            BypassMemoryCache: false,
-            WorldObjectTraversalTermination.NotStarted,
-            LocalServerObjectIdAvailable: false,
-            ScannedServerObjects: objects.Count,
-            ResolvedEntities: objects.Count,
-            NpcLikeEntities: objects.Count,
-            EmittedObjects: objects.Count,
-            NodeIdentityReadFailures: 0,
-            EntityLookupFailures: 0,
-            EntityTypeReadFailures: 0,
-            PositionReadFailures: 0,
-            ActorResolutionFailures: 0,
-            ActorIdentityMismatches: 0,
-            StaticMetadataMisses: 0,
-            StaticCatalogErrors: 0,
-            TargetFieldReadFailures: 0,
-            HealthFieldReadFailures: 0,
-            LootFieldReadFailures: 0,
-            InteractionStateReadFailures: 0,
-            FirstIssue: issue);
-        return new WorldObjectReadResult(
-            WorldObjectReadCompleteness.Partial,
-            observations,
-            diagnostics,
-            issue);
-    }
-
-    private WorldObjectReadResult CreateStaleWorldObjectReadResult(string issue)
-    {
-        var now = DateTimeOffset.UtcNow;
-        var diagnostics = new WorldObjectReadDiagnostics(
-            Interlocked.Increment(ref _syntheticWorldObjectCaptureSequence),
-            now,
-            now,
-            BypassMemoryCache: false,
-            WorldObjectTraversalTermination.NotStarted,
-            LocalServerObjectIdAvailable: false,
-            ScannedServerObjects: 0,
-            ResolvedEntities: 0,
-            NpcLikeEntities: 0,
-            EmittedObjects: 0,
-            NodeIdentityReadFailures: 0,
-            EntityLookupFailures: 0,
-            EntityTypeReadFailures: 0,
-            PositionReadFailures: 0,
-            ActorResolutionFailures: 0,
-            ActorIdentityMismatches: 0,
-            StaticMetadataMisses: 0,
-            StaticCatalogErrors: 0,
-            TargetFieldReadFailures: 0,
-            HealthFieldReadFailures: 0,
-            LootFieldReadFailures: 0,
-            InteractionStateReadFailures: 0,
-            FirstIssue: issue);
-        return new WorldObjectReadResult(
-            WorldObjectReadCompleteness.Failed,
-            Array.Empty<WorldObjectObservation>(),
-            diagnostics,
-            issue);
+        state.PruneIgnoredTargets(state.CachedWorldObjects);
+        state.PruneTemporaryTargetExclusions(state.CachedWorldObjects, now);
+        return state.CachedWorldObjects;
     }
 
     private async Task<RadarNavigationDecision?> ResolveObstacleNavigationAsync(
@@ -11683,13 +9923,18 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         uint fightTargetServerObjectId,
         long sessionId)
     {
-        var orderedRead = await ReadWorldObjectsWithQualityAsync(
-                context,
-                state,
-                bypassMemoryCache: false)
-            .ConfigureAwait(false);
-        if (orderedRead.StateGeneration != state.WorldObjectReadGeneration ||
-            !IsSmartPreAimLoopStillValid(
+        var result = await ReadWorldObjectsAsync(context).ConfigureAwait(false);
+        if (!result.Success || result.Value is null)
+        {
+            context.Logger.Warn("stationary_combat.smart_preaim.snapshot_failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["error"] = result.Error
+            });
+            return;
+        }
+
+        if (!IsSmartPreAimLoopStillValid(
                 context,
                 state,
                 fightTargetEntityId,
@@ -11699,36 +9944,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return;
         }
 
-        var result = orderedRead.Result;
-        var behaviorFieldsUnconfirmed =
-            result.Diagnostics.TargetFieldReadFailures != 0 ||
-            result.Diagnostics.HealthFieldReadFailures != 0 ||
-            !result.Diagnostics.LocalServerObjectIdAvailable;
-        if (result.Completeness == WorldObjectReadCompleteness.Failed ||
-            IsLocalDefenseUnknownGuardEnabled() &&
-            (result.Completeness == WorldObjectReadCompleteness.Partial || behaviorFieldsUnconfirmed))
-        {
-            context.Logger.Warn("stationary_combat.smart_preaim.snapshot_failed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["captureSequence"] = result.Diagnostics.CaptureSequence,
-                ["completeness"] = result.Completeness.ToString(),
-                ["firstIssue"] = result.Diagnostics.FirstIssue,
-                ["error"] = result.Error
-            });
-            return;
-        }
-
-        var objects = result.Observations
-            .Where(observation => observation.Fields.CurrentHp &&
-                                  observation.Fields.MaxHp &&
-                                  observation.Fields.TargetServerObjectId &&
-                                  observation.Snapshot.MaxHp > 0 &&
-                                  observation.Snapshot.CurrentHp > 0)
-            .Select(observation => observation.Snapshot)
-            .ToArray();
         var now = DateTimeOffset.Now;
-        var exclusions = state.CreateNextTargetPreAimExclusionSnapshot(objects, now);
+        var exclusions = state.CreateNextTargetPreAimExclusionSnapshot(result.Value, now);
         lock (state.NextTargetPreAim.SyncRoot)
         {
             if (state.NextTargetPreAim.TryGetActiveDisplacedTargetForFightTarget(
@@ -11744,7 +9961,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
 
         IReadOnlySet<uint> teamSideServerObjectIds = new HashSet<uint>();
-        if (ShouldResolveSmartPreAimTeamSideServerObjectIds(objects, state))
+        if (ShouldResolveSmartPreAimTeamSideServerObjectIds(result.Value, state))
         {
             teamSideServerObjectIds = await ResolveSmartPreAimTeamSideServerObjectIdsAsync(
                     context,
@@ -11774,13 +9991,13 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         var distanceOrigin = ResolveSmartPreAimDistanceOrigin(
             context,
             state,
-            objects,
+            result.Value,
             playerPosition,
             fightTargetEntityId,
             fightTargetServerObjectId);
         var switchDistanceMargin = ReadSmartPreAimSwitchDistanceMargin();
         var selection = NextTargetPreAimSelector.Select(
-            objects,
+            result.Value,
             distanceOrigin,
             home,
             radius,
@@ -11802,7 +10019,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             currentSelection,
             selection,
             hasCommittedCandidate,
-            objects,
+            result.Value,
             playerPosition,
             distanceOrigin,
             switchDistanceMargin);
@@ -11811,13 +10028,12 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             context,
             state,
             selection,
-            objects.Length,
+            result.Value.Count,
             distanceOrigin,
             now,
             fightTargetEntityId,
             fightTargetServerObjectId,
-            sessionId,
-            orderedRead.StateGeneration);
+            sessionId);
     }
 
     private static NextTargetPreAimSelection? KeepCommittedNextTargetPreAimSelectionStable(
@@ -12159,8 +10375,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         DateTimeOffset now,
         ushort fightTargetEntityId,
         uint fightTargetServerObjectId,
-        long sessionId,
-        long stateGeneration)
+        long sessionId)
     {
         var preAim = state.NextTargetPreAim;
         ushort previousEntityId;
@@ -12169,8 +10384,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         bool changed;
         lock (preAim.SyncRoot)
         {
-            if (state.WorldObjectReadGeneration != stateGeneration ||
-                preAim.StopRequested ||
+            if (preAim.StopRequested ||
                 preAim.SessionId != sessionId ||
                 !StationaryCombatState.IsSameTarget(
                     preAim.FightTargetEntityId,
@@ -13420,14 +11634,25 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         if (!plan.UsesSpiritmasterAutoLogic ||
             player.CharacterClassId is { } classId && classId != AionClassId.Spiritmaster)
         {
-            state.MarkLocalCombatSideWithoutPet();
+            state.LocalCombatSidePetServerObjectId = 0;
             return;
         }
 
-        var rosterResult = await ReadSummonedPetRosterWithQualityAsync(context).ConfigureAwait(false);
-        state.ApplyLocalCombatSideRoster(
-            rosterResult,
-            LocalCombatSidePetMissingConfirmationThreshold);
+        state.LocalCombatSideServerObjectId = 0;
+        state.LocalCombatSidePetServerObjectId = 0;
+
+        var rosterResult = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
+        if (!rosterResult.Success || rosterResult.Value is null)
+        {
+            return;
+        }
+
+        var roster = rosterResult.Value;
+        state.LocalCombatSideServerObjectId = roster.LocalServerObjectId;
+        var localPet = roster.LocalPlayerPet;
+        state.LocalCombatSidePetServerObjectId = SpiritmasterCombatContext.IsConfirmedLocalSummonedPet(localPet)
+            ? localPet.Pet.ServerObjectId
+            : 0;
     }
 
     private static Task<OperationResult<SummonedPetRosterSnapshot>> ReadSummonedPetRosterAsync(AccountWorkerContext context)
@@ -13435,33 +11660,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         return context.GameApi is IRoadhogScopedGameApi scopedApi
             ? scopedApi.ReadSummonedPetRosterAsync(CreateReadContext(context), context.StopToken)
             : context.GameApi.ReadSummonedPetRosterAsync(context.StopToken);
-    }
-
-    private static async Task<SummonedPetRosterReadResult> ReadSummonedPetRosterWithQualityAsync(
-        AccountWorkerContext context,
-        bool bypassMemoryCache = false)
-    {
-        if (context.GameApi is IRoadhogScopedSummonedPetRosterReadQualityGameApi qualityApi)
-        {
-            return await qualityApi.ReadSummonedPetRosterWithQualityAsync(
-                    CreateReadContext(context, bypassMemoryCache),
-                    context.StopToken)
-                .ConfigureAwait(false);
-        }
-
-        var startedAt = DateTimeOffset.UtcNow;
-        var legacyResult = context.GameApi is IRoadhogScopedGameApi scopedApi
-            ? await scopedApi.ReadSummonedPetRosterAsync(
-                    CreateReadContext(context, bypassMemoryCache),
-                    context.StopToken)
-                .ConfigureAwait(false)
-            : await context.GameApi.ReadSummonedPetRosterAsync(context.StopToken).ConfigureAwait(false);
-        return SummonedPetRosterReadResult.FromLegacy(
-            legacyResult.Success ? legacyResult.Value : null,
-            startedAt,
-            DateTimeOffset.UtcNow,
-            bypassMemoryCache,
-            legacyResult.Error);
     }
 
     private static Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(AccountWorkerContext context)
@@ -13478,100 +11676,11 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             : context.GameApi.ReadLockedTargetAsync(context.StopToken);
     }
 
-    private static Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(
-        AccountWorkerContext context,
-        bool bypassMemoryCache = false)
+    private static Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(AccountWorkerContext context)
     {
         return context.GameApi is IRoadhogScopedGameApi scopedApi
-            ? scopedApi.ReadWorldObjectsAsync(
-                CreateReadContext(context, bypassMemoryCache),
-                context.StopToken)
+            ? scopedApi.ReadWorldObjectsAsync(CreateReadContext(context), context.StopToken)
             : context.GameApi.ReadWorldObjectsAsync(context.StopToken);
-    }
-
-    private async Task<OrderedWorldObjectReadResult> ReadWorldObjectsWithQualityAsync(
-        AccountWorkerContext context,
-        StationaryCombatState state,
-        bool bypassMemoryCache)
-    {
-        var observationOrder = Interlocked.Increment(ref _worldObjectObservationOrder);
-        var stateGeneration = state.WorldObjectReadGeneration;
-        if (context.GameApi is IRoadhogScopedWorldObjectReadQualityGameApi qualityApi)
-        {
-            var qualityResult = await qualityApi
-                .ReadWorldObjectsWithQualityAsync(
-                    CreateReadContext(context, bypassMemoryCache),
-                    context.StopToken)
-                .ConfigureAwait(false);
-            return new OrderedWorldObjectReadResult(
-                observationOrder,
-                stateGeneration,
-                qualityResult);
-        }
-
-        var startedAt = DateTimeOffset.UtcNow;
-        var legacyResult = await ReadWorldObjectsAsync(context, bypassMemoryCache).ConfigureAwait(false);
-        var completedAt = DateTimeOffset.UtcNow;
-        var captureSequence = Interlocked.Increment(ref _syntheticWorldObjectCaptureSequence);
-        var diagnostics = new WorldObjectReadDiagnostics(
-            captureSequence,
-            startedAt,
-            completedAt,
-            bypassMemoryCache,
-            legacyResult.Success
-                ? WorldObjectTraversalTermination.ReachedTreeEnd
-                : WorldObjectTraversalTermination.NotStarted,
-            // This projection exists only to preserve legacy selection behavior.
-            // The Unknown guard below is never enforced for providers that do
-            // not implement the quality capability.
-            LocalServerObjectIdAvailable: legacyResult.Success,
-            ScannedServerObjects: legacyResult.Value?.Count ?? 0,
-            ResolvedEntities: legacyResult.Value?.Count ?? 0,
-            NpcLikeEntities: legacyResult.Value?.Count ?? 0,
-            EmittedObjects: legacyResult.Value?.Count ?? 0,
-            NodeIdentityReadFailures: 0,
-            EntityLookupFailures: 0,
-            EntityTypeReadFailures: 0,
-            PositionReadFailures: 0,
-            ActorResolutionFailures: 0,
-            ActorIdentityMismatches: 0,
-            StaticMetadataMisses: 0,
-            StaticCatalogErrors: 0,
-            TargetFieldReadFailures: 0,
-            HealthFieldReadFailures: 0,
-            LootFieldReadFailures: 0,
-            InteractionStateReadFailures: 0,
-            FirstIssue: legacyResult.Error);
-        if (!legacyResult.Success || legacyResult.Value is null)
-        {
-            return new OrderedWorldObjectReadResult(
-                observationOrder,
-                stateGeneration,
-                new WorldObjectReadResult(
-                    WorldObjectReadCompleteness.Failed,
-                    Array.Empty<WorldObjectObservation>(),
-                    diagnostics,
-                    legacyResult.Error ?? "World-object read failed."));
-        }
-
-        var observations = legacyResult.Value
-            .Select(static snapshot => new WorldObjectObservation(
-                snapshot,
-                new WorldObjectFieldValidity(
-                    CurrentHp: true,
-                    MaxHp: true,
-                    TargetServerObjectId: true,
-                    IsTargetingLocalPlayer: true,
-                    LootableRaw: true,
-                    InteractionState: true)))
-            .ToArray();
-        return new OrderedWorldObjectReadResult(
-            observationOrder,
-            stateGeneration,
-            new WorldObjectReadResult(
-                WorldObjectReadCompleteness.Complete,
-                observations,
-                diagnostics));
     }
 
     private static Task<OperationResult<GatherSnapshot>> ReadGatherSnapshotAsync(AccountWorkerContext context)
@@ -13597,7 +11706,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             context.Config.ProcessId,
             context.Config.TargetProcessName,
             context.Config.VmmDeviceName,
-            bypassMemoryCache);
+            bypassMemoryCache,
+            RequireFresh: bypassMemoryCache);
     }
 
     private async Task<CameraTurnSnapshot?> ReadTurnSnapshotAsync(
@@ -14531,25 +12641,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         return mode == CameraDragChunkMode.Gradient ? "gradient" : "ten_step_middle";
     }
 
-    private static bool IsLocalDefenseUnknownGuardEnabled()
-    {
-        var value = (Environment.GetEnvironmentVariable("ROADHOG_LOCAL_DEFENSE_UNKNOWN_GUARD") ?? "1")
-            .Trim()
-            .ToLowerInvariant();
-        return value is not ("0" or "false" or "off" or "legacy");
-    }
-
-    private static TimeSpan ReadLocalDefenseUnknownRetention()
-    {
-        var milliseconds = ClampInt(
-            ReadRawIntFromEnv(
-                "ROADHOG_LOCAL_DEFENSE_UNKNOWN_TTL_MS",
-                (int)DefaultLocalDefenseUnknownRetention.TotalMilliseconds),
-            500,
-            30_000);
-        return TimeSpan.FromMilliseconds(milliseconds);
-    }
-
     private static int ReadTabVerifyDelayMs()
     {
         return ClampInt(ReadRawIntFromEnv("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", 500), 0, 1000);
@@ -14887,11 +12978,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     {
         return ClampInt(ReadRawIntFromEnv("ROADHOG_LOOT_APPROACH_TIMEOUT_MS", 5_000), 0, 5_000);
     }
-
-    private readonly record struct OrderedWorldObjectReadResult(
-        long ObservationOrder,
-        long StateGeneration,
-        WorldObjectReadResult Result);
 
     private readonly record struct PostLootNoTargetDelayResult(bool Delayed, WorldObjectSnapshot? Target);
 

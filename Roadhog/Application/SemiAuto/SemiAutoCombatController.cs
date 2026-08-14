@@ -461,9 +461,7 @@ public sealed class SemiAutoCombatController
         AccountWorkerContext context,
         SemiAutoSkillPlan plan,
         SemiAutoCombatState state,
-        Func<Task>? beforeSummonKeyPress = null,
-        SummonedPetRosterReadResult? petRosterReadResult = null,
-        bool holdWhenPresenceUnknown = false)
+        Func<Task>? beforeSummonKeyPress = null)
     {
         if (!plan.UsesSpiritmasterAutoLogic)
         {
@@ -485,25 +483,7 @@ public sealed class SemiAutoCombatController
         {
             state.ResetSpiritmasterPetMissingReads();
             state.ClearSpiritmasterSummonVerification();
-            if (holdWhenPresenceUnknown &&
-                ShouldLog(state.LastSpiritmasterPetPresenceUnknownLogAt, now))
-            {
-                state.LastSpiritmasterPetPresenceUnknownLogAt = now;
-                context.Logger.Warn("semi_auto.spiritmaster.pet_gate.player_unknown_held", new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["readSuccess"] = playerResult.Success,
-                    ["error"] = playerResult.Error,
-                    ["playerAvailable"] = playerResult.Value is not null,
-                    ["playerDead"] = playerResult.Value?.IsDead,
-                    ["currentHp"] = playerResult.Value?.CurrentHp,
-                    ["maxHp"] = playerResult.Value?.MaxHp,
-                    ["currentHpAvailable"] = playerResult.Value?.CurrentHpAvailable,
-                    ["maxHpAvailable"] = playerResult.Value?.MaxHpAvailable
-                });
-            }
-
-            return holdWhenPresenceUnknown;
+            return false;
         }
 
         var player = playerResult.Value;
@@ -514,11 +494,31 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
-        petRosterReadResult ??= await ReadSummonedPetRosterWithQualityAsync(context).ConfigureAwait(false);
-        var presence = petRosterReadResult.ResolveLocalPetPresence();
-        var roster = petRosterReadResult.Snapshot;
-        var localPet = roster?.LocalPlayerPet;
-        if (presence.IsPresent)
+        var rosterResult = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
+        if (!rosterResult.Success || rosterResult.Value is null)
+        {
+            state.ResetSpiritmasterPetMissingReads();
+            if (state.HasPendingSpiritmasterSummonVerification)
+            {
+                if (ShouldLog(state.LastSpiritmasterSummonVerifyLogAt, now))
+                {
+                    state.LastSpiritmasterSummonVerifyLogAt = now;
+                    context.Logger.Warn("semi_auto.spiritmaster.summon_verify_roster_failed", new Dictionary<string, object?>
+                    {
+                        ["account"] = context.Config.AccountName,
+                        ["error"] = rosterResult.Error
+                    });
+                }
+
+                return true;
+            }
+
+            return false;
+        }
+
+        var localPet = rosterResult.Value.LocalPlayerPet;
+        var pet = localPet.Pet;
+        if (SpiritmasterCombatContext.IsConfirmedLocalSummonedPet(localPet))
         {
             state.ResetSpiritmasterPetMissingReads();
             if (state.HasPendingSpiritmasterSummonVerification)
@@ -526,54 +526,15 @@ public sealed class SemiAutoCombatController
                 context.Logger.Info("semi_auto.spiritmaster.summon_verified", new Dictionary<string, object?>
                 {
                     ["account"] = context.Config.AccountName,
-                    ["petServerObjectId"] = presence.ServerObjectId,
-                    ["petEntityId"] = localPet?.Pet.EntityId,
-                    ["petName"] = localPet?.Pet.Name,
-                    ["petHpPercent"] = localPet?.Pet.HpPercent,
-                    ["captureSequence"] = presence.CaptureSequence,
-                    ["presenceReason"] = presence.Reason,
-                    ["detailConfirmed"] = SpiritmasterCombatContext.IsConfirmedLocalSummonedPet(localPet)
+                    ["petServerObjectId"] = pet.ServerObjectId,
+                    ["petEntityId"] = pet.EntityId,
+                    ["petName"] = pet.Name,
+                    ["petHpPercent"] = pet.HpPercent
                 });
             }
 
             state.ClearSpiritmasterSummonVerification();
             return false;
-        }
-
-        if (!presence.IsExplicitlyAbsent)
-        {
-            state.ResetSpiritmasterPetMissingReads();
-            if (state.IsSpiritmasterSummonVerificationExpired(now))
-            {
-                context.Logger.Warn("semi_auto.spiritmaster.summon_verify_timeout", new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["captureSequence"] = presence.CaptureSequence,
-                    ["presenceReason"] = presence.Reason
-                });
-                state.ClearSpiritmasterSummonVerification();
-            }
-
-            if (ShouldLog(state.LastSpiritmasterPetPresenceUnknownLogAt, now))
-            {
-                state.LastSpiritmasterPetPresenceUnknownLogAt = now;
-                context.Logger.Warn("semi_auto.spiritmaster.pet_presence.unknown_held", new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["captureSequence"] = presence.CaptureSequence,
-                    ["completeness"] = petRosterReadResult.Completeness.ToString(),
-                    ["reason"] = presence.Reason,
-                    ["firstIssue"] = petRosterReadResult.Diagnostics.FirstIssue,
-                    ["error"] = petRosterReadResult.Error,
-                    ["pendingSummonVerification"] = state.HasPendingSpiritmasterSummonVerification
-                });
-            }
-
-            // Unknown is not absence. Do not summon and do not monopolize the
-            // normal combat tick. A caller at a lifecycle gate (for example,
-            // immediately after revive) may hold that gate while still running
-            // its defense check before every retry.
-            return holdWhenPresenceUnknown;
         }
 
         if (state.IsAwaitingSpiritmasterSummonVerification(now))
@@ -599,7 +560,7 @@ public sealed class SemiAutoCombatController
             state.ClearSpiritmasterSummonVerification();
         }
 
-        if (!HasConfirmedSpiritmasterPetMissingReads(context, state, presence))
+        if (!HasConfirmedSpiritmasterPetMissingReads(context, state))
         {
             return true;
         }
@@ -2522,7 +2483,6 @@ public sealed class SemiAutoCombatController
     {
         PlayerSnapshot? player = null;
         SummonedPetRosterSnapshot? petRoster = null;
-        SummonedPetRosterReadResult? petRosterReadResult = null;
         LockedTargetAbnormalStatusSnapshot? lockedTargetAbnormalStatuses = null;
 
         var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
@@ -2536,8 +2496,11 @@ public sealed class SemiAutoCombatController
             return new SpiritmasterCombatContext(player, null, null);
         }
 
-        petRosterReadResult = await ReadSummonedPetRosterWithQualityAsync(context).ConfigureAwait(false);
-        petRoster = petRosterReadResult.Snapshot;
+        var rosterResult = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
+        if (rosterResult.Success)
+        {
+            petRoster = rosterResult.Value;
+        }
 
         var abnormalResult = await ReadLockedTargetAbnormalStatusesAsync(context).ConfigureAwait(false);
         if (abnormalResult.Success)
@@ -2551,11 +2514,7 @@ public sealed class SemiAutoCombatController
             Array.Empty<AbnormalStatusEntrySnapshot>(),
             DateTimeOffset.Now);
 
-        return new SpiritmasterCombatContext(
-            player,
-            petRoster,
-            lockedTargetAbnormalStatuses,
-            petRosterReadResult);
+        return new SpiritmasterCombatContext(player, petRoster, lockedTargetAbnormalStatuses);
     }
 
     private async Task<bool> TryHandleSpiritmasterSpecialAsync(
@@ -2573,16 +2532,16 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
-        var presence = spiritContext.LocalPetPresence;
-        if (!presence.IsPresent && !presence.IsExplicitlyAbsent)
+        if (spiritContext.PetRoster is null)
         {
             state.ResetSpiritmasterPetMissingReads();
             return false;
         }
 
-        if (presence.IsExplicitlyAbsent)
+        if (!spiritContext.HasSummonedPet)
         {
-            if (!HasConfirmedSpiritmasterPetMissingReads(context, state, presence))
+            state.ClearSpiritmasterPetHpIncreaseConfirmation();
+            if (!HasConfirmedSpiritmasterPetMissingReads(context, state))
             {
                 return true;
             }
@@ -2591,14 +2550,6 @@ public sealed class SemiAutoCombatController
         }
 
         state.ResetSpiritmasterPetMissingReads();
-        if (!spiritContext.HasSummonedPet)
-        {
-            // The stable local link proves that a pet exists, but optional
-            // health/static/status detail is incomplete. Pet-only skills must
-            // fail closed while normal combat remains available.
-            return false;
-        }
-
         var confirmedLocalPet = spiritContext.LocalPet!;
         var pet = confirmedLocalPet.Pet;
         if (await TryContinueSpiritmasterElementalReplenishmentConfirmationAsync(
@@ -2638,22 +2589,9 @@ public sealed class SemiAutoCombatController
 
     private static bool HasConfirmedSpiritmasterPetMissingReads(
         AccountWorkerContext context,
-        SemiAutoCombatState state,
-        LocalSummonedPetPresenceDecision presence)
+        SemiAutoCombatState state)
     {
-        if (!presence.IsExplicitlyAbsent)
-        {
-            state.ResetSpiritmasterPetMissingReads();
-            return false;
-        }
-
-        var previousCaptureSequence = state.LastSpiritmasterPetMissingCaptureSequence;
-        var missingReadCount = state.RecordSpiritmasterPetMissingRead(presence.CaptureSequence);
-        if (presence.CaptureSequence == previousCaptureSequence)
-        {
-            return false;
-        }
-
+        var missingReadCount = state.RecordSpiritmasterPetMissingRead();
         if (missingReadCount >= SpiritmasterMissingPetReadThreshold)
         {
             return true;
@@ -2663,9 +2601,7 @@ public sealed class SemiAutoCombatController
         {
             ["account"] = context.Config.AccountName,
             ["missingReadCount"] = missingReadCount,
-            ["requiredMissingReadCount"] = SpiritmasterMissingPetReadThreshold,
-            ["captureSequence"] = presence.CaptureSequence,
-            ["presenceReason"] = presence.Reason
+            ["requiredMissingReadCount"] = SpiritmasterMissingPetReadThreshold
         });
         return false;
     }
@@ -2693,7 +2629,6 @@ public sealed class SemiAutoCombatController
         }
 
         state.MarkSpiritmasterSummonAttempted(now);
-        state.ResetSpiritmasterPetMissingReads();
         if (!await PressSpiritmasterRawKeyAsync(context, settings, keys[0], "summon_speed").ConfigureAwait(false))
         {
             state.BeginSpiritmasterSummonVerification(DateTimeOffset.Now, SpiritmasterSummonVerifyWindow);
@@ -2887,9 +2822,7 @@ public sealed class SemiAutoCombatController
                         ["petServerObjectId"] = pet.ServerObjectId,
                         ["baselinePetHp"] = pet.CurrentHp,
                         ["baselinePetMaxHp"] = pet.MaxHp,
-                        ["playerHpPercent"] = player?.HasReliableHealth == true
-                            ? player.HpPercent
-                            : null,
+                        ["playerHpPercent"] = player?.HasReliableHealth == true ? player.HpPercent : null,
                         ["retryIntervalMs"] = (int)retryInterval.TotalMilliseconds
                     });
             }
@@ -2997,15 +2930,13 @@ public sealed class SemiAutoCombatController
         SkillSnapshot skill,
         HashSet<uint> beforeIds)
     {
-        var rosterResult = await ReadSummonedPetRosterWithQualityAsync(context).ConfigureAwait(false);
-        if (!rosterResult.ResolveLocalPetPresence().IsPresent ||
-            rosterResult.Snapshot is null ||
-            !SpiritmasterCombatContext.IsConfirmedLocalSummonedPet(rosterResult.Snapshot.LocalPlayerPet))
+        var rosterResult = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
+        if (!rosterResult.Success || rosterResult.Value is null)
         {
             return;
         }
 
-        var afterEntries = rosterResult.Snapshot.LocalPlayerPet.AbnormalStatuses;
+        var afterEntries = rosterResult.Value.LocalPlayerPet.AbnormalStatuses;
         var learned = afterEntries
             .Where(entry => entry.AbnormalId != 0 && !beforeIds.Contains(entry.AbnormalId))
             .OrderByDescending(entry => entry.IsBuffCategory)
@@ -4415,11 +4346,7 @@ public sealed class SemiAutoCombatController
         if (safety.Player.HpPercent < SpiritmasterElementalReplenishmentMinPlayerHpPercent)
         {
             state.ClearSpiritmasterPetHpIncreaseConfirmation();
-            LogSpiritmasterElementalReplenishmentPlayerHpBlocked(
-                context,
-                state,
-                safety.Player,
-                "retry");
+            LogSpiritmasterElementalReplenishmentPlayerHpBlocked(context, state, safety.Player, "retry");
             return false;
         }
 
@@ -4427,16 +4354,11 @@ public sealed class SemiAutoCombatController
         if (skill is null)
         {
             state.ClearSpiritmasterPetHpIncreaseConfirmation();
-            LogSpiritmasterElementalReplenishmentUnknown(
-                context,
-                state,
-                "retry_skill_missing",
-                safety.Pet);
+            LogSpiritmasterElementalReplenishmentUnknown(context, state, "retry_skill_missing", safety.Pet);
             return false;
         }
 
-        var readiness = GetMaintenanceCooldownReadiness(skill, state);
-        if (readiness != SemiAutoSkillCooldownReadiness.Ready)
+        if (GetMaintenanceCooldownReadiness(skill, state) != SemiAutoSkillCooldownReadiness.Ready)
         {
             state.DeferSpiritmasterPetHpIncreaseConfirmation(DateTimeOffset.Now, retryInterval);
             return false;
@@ -4479,21 +4401,23 @@ public sealed class SemiAutoCombatController
             AccountWorkerContext context,
             SemiAutoCombatState state)
     {
-        var rosterResult = await ReadSummonedPetRosterWithQualityAsync(context, bypassMemoryCache: true)
+        var rosterResult = await ReadSummonedPetRosterAsync(
+                context,
+                bypassMemoryCache: true,
+                requireFresh: true)
             .ConfigureAwait(false);
-        var presence = rosterResult.ResolveLocalPetPresence();
-        if (!presence.IsPresent || rosterResult.Snapshot is null)
+        if (!rosterResult.Success || rosterResult.Value is null)
         {
             LogSpiritmasterElementalReplenishmentUnknown(
                 context,
                 state,
-                presence.Reason,
+                "pet_roster_read_failed",
                 null,
                 rosterResult.Error);
             return null;
         }
 
-        var localPet = rosterResult.Snapshot.LocalPlayerPet;
+        var localPet = rosterResult.Value.LocalPlayerPet;
         if (!SpiritmasterCombatContext.IsConfirmedLocalSummonedPet(localPet))
         {
             LogSpiritmasterElementalReplenishmentUnknown(
@@ -4514,7 +4438,11 @@ public sealed class SemiAutoCombatController
             return null;
         }
 
-        var playerResult = await ReadPlayerAsync(context, bypassMemoryCache: true).ConfigureAwait(false);
+        var playerResult = await ReadPlayerAsync(
+                context,
+                bypassMemoryCache: true,
+                requireFresh: true)
+            .ConfigureAwait(false);
         if (!playerResult.Success || playerResult.Value is null)
         {
             LogSpiritmasterElementalReplenishmentUnknown(
@@ -4552,8 +4480,7 @@ public sealed class SemiAutoCombatController
             SpiritmasterElementalReplenishmentMinimumRetryInterval);
     }
 
-    private static TimeSpan ResolveSpiritmasterElementalReplenishmentConfirmationLifetime(
-        TimeSpan localCooldown)
+    private static TimeSpan ResolveSpiritmasterElementalReplenishmentConfirmationLifetime(TimeSpan localCooldown)
     {
         var scaledMs = Math.Clamp(
             (long)Math.Ceiling(localCooldown.TotalMilliseconds) * 3L,
@@ -5198,11 +5125,14 @@ public sealed class SemiAutoCombatController
 
     private static Task<OperationResult<PlayerSnapshot>> ReadPlayerAsync(
         AccountWorkerContext context,
-        bool bypassMemoryCache = false)
+        bool bypassMemoryCache = false,
+        bool requireFresh = false)
     {
         if (context.GameApi is IRoadhogScopedGameApi scopedApi)
         {
-            return scopedApi.ReadPlayerAsync(CreateReadContext(context, bypassMemoryCache), context.StopToken);
+            return scopedApi.ReadPlayerAsync(
+                CreateReadContext(context, bypassMemoryCache, requireFresh),
+                context.StopToken);
         }
 
         return context.GameApi.ReadPlayerAsync(context.StopToken);
@@ -5293,38 +5223,17 @@ public sealed class SemiAutoCombatController
 
     private static Task<OperationResult<SummonedPetRosterSnapshot>> ReadSummonedPetRosterAsync(
         AccountWorkerContext context,
-        bool bypassMemoryCache = false)
+        bool bypassMemoryCache = false,
+        bool requireFresh = false)
     {
         if (context.GameApi is IRoadhogScopedGameApi scopedApi)
         {
             return scopedApi.ReadSummonedPetRosterAsync(
-                CreateReadContext(context, bypassMemoryCache),
+                CreateReadContext(context, bypassMemoryCache, requireFresh),
                 context.StopToken);
         }
 
         return context.GameApi.ReadSummonedPetRosterAsync(context.StopToken);
-    }
-
-    private static async Task<SummonedPetRosterReadResult> ReadSummonedPetRosterWithQualityAsync(
-        AccountWorkerContext context,
-        bool bypassMemoryCache = false)
-    {
-        if (context.GameApi is IRoadhogScopedSummonedPetRosterReadQualityGameApi qualityApi)
-        {
-            return await qualityApi.ReadSummonedPetRosterWithQualityAsync(
-                    CreateReadContext(context, bypassMemoryCache),
-                    context.StopToken)
-                .ConfigureAwait(false);
-        }
-
-        var startedAt = DateTimeOffset.UtcNow;
-        var legacyResult = await ReadSummonedPetRosterAsync(context, bypassMemoryCache).ConfigureAwait(false);
-        return SummonedPetRosterReadResult.FromLegacy(
-            legacyResult.Success ? legacyResult.Value : null,
-            startedAt,
-            DateTimeOffset.UtcNow,
-            bypassMemoryCache,
-            legacyResult.Error);
     }
 
     private static Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadOpeningSkillAsync(
@@ -5373,14 +5282,16 @@ public sealed class SemiAutoCombatController
 
     private static GameApiReadContext CreateReadContext(
         AccountWorkerContext context,
-        bool bypassMemoryCache = false)
+        bool bypassMemoryCache = false,
+        bool requireFresh = false)
     {
         return new GameApiReadContext(
             context.Config.AccountName,
             context.Config.ProcessId,
             context.Config.TargetProcessName,
             context.Config.VmmDeviceName,
-            bypassMemoryCache);
+            bypassMemoryCache,
+            requireFresh || bypassMemoryCache);
     }
 
     private static TimeSpan Ms(int configuredMs, int fallbackMs)

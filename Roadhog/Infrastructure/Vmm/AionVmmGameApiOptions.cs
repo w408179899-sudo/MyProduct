@@ -25,4 +25,6 @@ public sealed class AionVmmGameApiOptions
     public bool GroupByDisplayName { get; set; } = true;
 
     public bool FilterUtilitySkills { get; set; } = true;
+
+    public TimeSpan StableSnapshotTimeToLive { get; set; } = TimeSpan.FromSeconds(2);
 }

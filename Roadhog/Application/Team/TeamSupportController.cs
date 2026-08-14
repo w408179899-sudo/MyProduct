@@ -1624,7 +1624,8 @@ public sealed class TeamSupportController
             context.Config.ProcessId,
             context.Config.TargetProcessName,
             context.Config.VmmDeviceName,
-            bypassMemoryCache);
+            bypassMemoryCache,
+            RequireFresh: bypassMemoryCache);
     }
 
     private sealed record TeamSupportStatusCandidate(

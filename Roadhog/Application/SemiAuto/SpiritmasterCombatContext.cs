@@ -5,24 +5,9 @@ namespace Roadhog.Application.SemiAuto;
 public sealed record SpiritmasterCombatContext(
     PlayerSnapshot? Player,
     SummonedPetRosterSnapshot? PetRoster,
-    LockedTargetAbnormalStatusSnapshot? LockedTargetAbnormalStatuses,
-    SummonedPetRosterReadResult? PetRosterReadResult = null)
+    LockedTargetAbnormalStatusSnapshot? LockedTargetAbnormalStatuses)
 {
     public OwnedSummonedPetSnapshot? LocalPet => PetRoster?.LocalPlayerPet;
-
-    public LocalSummonedPetPresenceDecision LocalPetPresence =>
-        PetRosterReadResult?.ResolveLocalPetPresence() ??
-        (IsConfirmedLocalSummonedPet(LocalPet)
-            ? new LocalSummonedPetPresenceDecision(
-                LocalSummonedPetPresence.Present,
-                LocalPet!.Pet.ServerObjectId,
-                0,
-                "legacy_confirmed_local_pet")
-            : new LocalSummonedPetPresenceDecision(
-                LocalSummonedPetPresence.Unknown,
-                0,
-                0,
-                "pet_roster_quality_unavailable"));
 
     public bool HasKnownNonSpiritmasterPlayer =>
         Player?.CharacterClassId is { } classId && classId != AionClassId.Spiritmaster;
@@ -34,9 +19,6 @@ public sealed record SpiritmasterCombatContext(
     public uint LocalServerObjectId => PetRoster?.LocalServerObjectId ?? 0;
 
     public uint LocalPetServerObjectId => HasSummonedPet ? LocalPet?.Pet.ServerObjectId ?? 0 : 0;
-
-    public uint LocalPetIdentityServerObjectId =>
-        LocalPetPresence.IsPresent ? LocalPetPresence.ServerObjectId : 0;
 
     public static bool IsConfirmedLocalSummonedPet(OwnedSummonedPetSnapshot? localPet)
     {
@@ -90,8 +72,7 @@ public sealed record SpiritmasterCombatContext(
             }
 
             return (target.LocalServerObjectId != 0 && target.TargetServerObjectId == target.LocalServerObjectId) ||
-                   (LocalPetIdentityServerObjectId != 0 &&
-                    target.TargetServerObjectId == LocalPetIdentityServerObjectId);
+                   (LocalPetServerObjectId != 0 && target.TargetServerObjectId == LocalPetServerObjectId);
         }
     }
 }

@@ -925,7 +925,8 @@ public sealed class TeamOutputController
             context.Config.ProcessId,
             context.Config.TargetProcessName,
             context.Config.VmmDeviceName,
-            bypassMemoryCache);
+            bypassMemoryCache,
+            RequireFresh: bypassMemoryCache);
     }
 
     private readonly record struct MemberSelectionResult(

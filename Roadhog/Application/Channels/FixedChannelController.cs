@@ -710,7 +710,8 @@ public sealed class FixedChannelController
             context.Config.ProcessId,
             context.Config.TargetProcessName,
             context.Config.VmmDeviceName,
-            bypassMemoryCache);
+            bypassMemoryCache,
+            RequireFresh: bypassMemoryCache);
     }
 
     private static double HorizontalDistance(Vector3Snapshot left, Vector3Snapshot right)

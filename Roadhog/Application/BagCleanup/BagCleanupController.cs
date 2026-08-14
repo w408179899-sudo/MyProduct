@@ -24,7 +24,6 @@ public sealed class BagCleanupController
     private static readonly TimeSpan DefaultSafeWaitTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan DefaultCleanupCooldown = TimeSpan.FromMinutes(25);
     private const int MaxDiscardConfirmClicksPerItem = 2;
-    private const int MaxConsecutiveDiscardSafetyReadFailures = 3;
 
     private readonly IKeyboardInput _input;
     private readonly ISharedPathStore _pathStore;
@@ -803,28 +802,12 @@ public sealed class BagCleanupController
         var attacker = await _safetyChecker.FindAttackingTargetNameAsync(context).ConfigureAwait(false);
         if (!attacker.Success)
         {
-            var failureCount = state.RecordDiscardSafetyReadFailure();
-            if (failureCount < MaxConsecutiveDiscardSafetyReadFailures)
-            {
-                context.Logger.Warn("bag_cleanup.discard.safety_read.retry", new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["failureCount"] = failureCount,
-                    ["failureLimit"] = MaxConsecutiveDiscardSafetyReadFailures,
-                    ["error"] = attacker.Error,
-                    ["step"] = state.Step.ToString()
-                });
-                return BagCleanupTickResult.Running("discard_safety_read_retry");
-            }
-
             return await FailDiscardLocallyAsync(
                 context,
                 state,
                 "discard_safety_read_failed",
                 attacker.Error ?? "Discard safety read failed.").ConfigureAwait(false);
         }
-
-        state.ClearDiscardSafetyReadFailures();
 
         return string.IsNullOrWhiteSpace(attacker.Value)
             ? null

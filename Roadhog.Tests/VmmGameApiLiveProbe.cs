@@ -35,6 +35,7 @@ internal static class VmmGameApiLiveProbe
         };
         var context = new GameApiReadContext("live-probe", processId, processName, device, true);
         var api = new AionVmmGameApi(options, NoOpRoadhogLogger.Instance);
+        var requiredReadsPassed = true;
 
         var player = await api.ReadPlayerAsync(context).ConfigureAwait(false);
         PrintResult(
@@ -47,6 +48,116 @@ internal static class VmmGameApiLiveProbe
                   ", name=" + player.Value.CharacterName +
                   ", position=" + FormatPosition(player.Value.Position) +
                   ", actorYaw=" + (player.Value.ActorYawDegrees?.ToString("0.###", CultureInfo.InvariantCulture) ?? "none"));
+        requiredReadsPassed &= player.Success;
+
+        var playerAbnormal = await api.ReadPlayerAbnormalStatusesAsync(context).ConfigureAwait(false);
+        PrintResult(
+            "PlayerAbnormalStatuses",
+            playerAbnormal.Success,
+            playerAbnormal.Error,
+            "count=" + (playerAbnormal.Value?.Entries.Count ?? 0).ToString(CultureInfo.InvariantCulture));
+        requiredReadsPassed &= playerAbnormal.Success;
+
+        var summonedPet = await api.ReadSummonedPetAsync(context).ConfigureAwait(false);
+        PrintResult(
+            "SummonedPet",
+            summonedPet.Success,
+            summonedPet.Error,
+            summonedPet.Value is null
+                ? string.Empty
+                : "summoned=" + (summonedPet.Value.IsSummoned ? "yes" : "no") +
+                  ", serverId=" + summonedPet.Value.ServerObjectId.ToString(CultureInfo.InvariantCulture));
+        requiredReadsPassed &= summonedPet.Success;
+
+        var petRoster = await api.ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
+        PrintResult(
+            "SummonedPetRoster",
+            petRoster.Success,
+            petRoster.Error,
+            petRoster.Value is null
+                ? string.Empty
+                : "localPet=" + (petRoster.Value.LocalPlayerPet.Pet.IsSummoned ? "yes" : "no") +
+                  ", teamPets=" + petRoster.Value.PartyMemberPets.Count.ToString(CultureInfo.InvariantCulture));
+        requiredReadsPassed &= petRoster.Success;
+
+        var party = await api.ReadPartyAsync(context).ConfigureAwait(false);
+        PrintResult(
+            "Party",
+            party.Success,
+            party.Error,
+            "members=" + (party.Value?.Members.Count ?? 0).ToString(CultureInfo.InvariantCulture));
+        requiredReadsPassed &= party.Success;
+
+        var tacticsSigns = await api.ReadTacticsSignsAsync(context).ConfigureAwait(false);
+        PrintResult(
+            "TacticsSigns",
+            tacticsSigns.Success,
+            tacticsSigns.Error,
+            "active=" + (tacticsSigns.Value?.ServerObjectIds.Count(id => id != 0) ?? 0).ToString(CultureInfo.InvariantCulture));
+        requiredReadsPassed &= tacticsSigns.Success;
+
+        var channel = await api.ReadChannelAsync(context).ConfigureAwait(false);
+        PrintResult(
+            "Channel",
+            channel.Success,
+            channel.Error,
+            channel.Value is null
+                ? string.Empty
+                : "number=" + channel.Value.Number.ToString(CultureInfo.InvariantCulture) +
+                  ", count=" + channel.Value.Count.ToString(CultureInfo.InvariantCulture) +
+                  ", mapId=" + channel.Value.MapId.ToString(CultureInfo.InvariantCulture));
+        requiredReadsPassed &= channel.Success;
+
+        var lockedTarget = await api.ReadLockedTargetAsync(context).ConfigureAwait(false);
+        PrintResult(
+            "LockedTarget",
+            lockedTarget.Success,
+            lockedTarget.Error,
+            lockedTarget.Value is null
+                ? string.Empty
+                : "hasTarget=" + (lockedTarget.Value.HasTarget ? "yes" : "no") +
+                  ", entity=" + lockedTarget.Value.TargetEntityId.ToString(CultureInfo.InvariantCulture));
+        requiredReadsPassed &= lockedTarget.Success;
+
+        var targetAbnormal = await api.ReadLockedTargetAbnormalStatusesAsync(context).ConfigureAwait(false);
+        PrintResult(
+            "LockedTargetAbnormalStatuses",
+            targetAbnormal.Success,
+            targetAbnormal.Error,
+            "count=" + (targetAbnormal.Value?.Entries.Count ?? 0).ToString(CultureInfo.InvariantCulture));
+        requiredReadsPassed &= targetAbnormal.Success;
+
+        var skills = await api.ReadSkillsAsync(context).ConfigureAwait(false);
+        PrintResult(
+            "Skills",
+            skills.Success,
+            skills.Error,
+            "count=" + (skills.Value?.Count ?? 0).ToString(CultureInfo.InvariantCulture));
+        requiredReadsPassed &= skills.Success;
+
+        var inventory = await api.ReadInventoryAsync(context).ConfigureAwait(false);
+        PrintResult(
+            "Inventory",
+            inventory.Success,
+            inventory.Error,
+            "count=" + (inventory.Value?.Count ?? 0).ToString(CultureInfo.InvariantCulture));
+        requiredReadsPassed &= inventory.Success;
+
+        var money = await api.ReadInventoryMoneyAsync(context).ConfigureAwait(false);
+        PrintResult(
+            "InventoryMoney",
+            money.Success,
+            money.Error,
+            "value=" + money.Value.ToString(CultureInfo.InvariantCulture));
+        requiredReadsPassed &= money.Success;
+
+        var capacity = await api.ReadInventoryCapacityAsync(context).ConfigureAwait(false);
+        PrintResult(
+            "InventoryCapacity",
+            capacity.Success,
+            capacity.Error,
+            "slots=" + capacity.Value.ToString(CultureInfo.InvariantCulture));
+        requiredReadsPassed &= capacity.Success;
 
         var worldObjects = await api.ReadWorldObjectsAsync(context).ConfigureAwait(false);
         PrintResult(
@@ -54,6 +165,7 @@ internal static class VmmGameApiLiveProbe
             worldObjects.Success,
             worldObjects.Error,
             "count=" + (worldObjects.Value?.Count ?? 0).ToString(CultureInfo.InvariantCulture));
+        requiredReadsPassed &= worldObjects.Success;
 
         var gather = await api.ReadGatherSnapshotAsync(context).ConfigureAwait(false);
         PrintResult(
@@ -110,6 +222,7 @@ internal static class VmmGameApiLiveProbe
                     " Aggressive=" + (monster.IsAggressiveToPlayer ? "yes" : "no"));
             }
         }
+        requiredReadsPassed &= gather.Success;
 
         var corpses = await api.ReadLootCorpsesAsync(context).ConfigureAwait(false);
         PrintResult(
@@ -117,6 +230,28 @@ internal static class VmmGameApiLiveProbe
             corpses.Success,
             corpses.Error,
             "count=" + (corpses.Value?.Count ?? 0).ToString(CultureInfo.InvariantCulture));
+        requiredReadsPassed &= corpses.Success;
+
+        var inventoryWindow = await api.ReadInventoryWindowAsync(context).ConfigureAwait(false);
+        PrintResult(
+            "InventoryWindow",
+            inventoryWindow.Success,
+            inventoryWindow.Error,
+            inventoryWindow.Value is null
+                ? string.Empty
+                : "open=" + (inventoryWindow.Value.IsOpen ? "yes" : "no"));
+        requiredReadsPassed &= inventoryWindow.Success;
+
+        var discardConfirm = await api.ReadInventoryDiscardConfirmAsync(context).ConfigureAwait(false);
+        PrintResult(
+            "InventoryDiscardConfirm",
+            discardConfirm.Success,
+            discardConfirm.Error,
+            discardConfirm.Value is null
+                ? string.Empty
+                : "open=" + (discardConfirm.Value.IsOpen ? "yes" : "no") +
+                  ", kind=" + discardConfirm.Value.Kind);
+        requiredReadsPassed &= discardConfirm.Success;
 
         var addressesPassed = true;
 #if DEBUG
@@ -139,7 +274,7 @@ internal static class VmmGameApiLiveProbe
         }
 #endif
 
-        return player.Success && worldObjects.Success && gather.Success && corpses.Success && addressesPassed ? 0 : 1;
+        return requiredReadsPassed && addressesPassed ? 0 : 1;
     }
 
     private static void PrintResult(string name, bool success, string? error, string detail)

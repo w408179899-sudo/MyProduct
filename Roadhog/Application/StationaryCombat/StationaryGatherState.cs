@@ -38,8 +38,6 @@ public sealed class StationaryGatherState
 
     public int ConsecutiveMissingReads { get; private set; }
 
-    public int ConsecutiveUnavailableSnapshotReads { get; private set; }
-
     public DateTimeOffset LastMissingSnapshotAt { get; private set; } = DateTimeOffset.MinValue;
 
     public int AttemptStartFailureCount { get; private set; }
@@ -85,7 +83,6 @@ public sealed class StationaryGatherState
         Phase = StationaryGatherPhase.Ready;
         PhaseStartedAt = now;
         ConsecutiveMissingReads = 0;
-        ConsecutiveUnavailableSnapshotReads = 0;
         LastMissingSnapshotAt = DateTimeOffset.MinValue;
         AttemptStartFailureCount = 0;
         ResetApproachProgress();
@@ -112,21 +109,6 @@ public sealed class StationaryGatherState
         LastMissingSnapshotAt = capturedAt;
         ConsecutiveMissingReads++;
         return ConsecutiveMissingReads;
-    }
-
-    public int MarkSnapshotUnavailable()
-    {
-        if (ConsecutiveUnavailableSnapshotReads < int.MaxValue)
-        {
-            ConsecutiveUnavailableSnapshotReads++;
-        }
-
-        return ConsecutiveUnavailableSnapshotReads;
-    }
-
-    public void MarkSnapshotAvailable()
-    {
-        ConsecutiveUnavailableSnapshotReads = 0;
     }
 
     public void MarkReady(DateTimeOffset now)
@@ -259,7 +241,6 @@ public sealed class StationaryGatherState
         LastAttemptFinishedAt = DateTimeOffset.MinValue;
         StartWaitStartedAt = DateTimeOffset.MinValue;
         ConsecutiveMissingReads = 0;
-        ConsecutiveUnavailableSnapshotReads = 0;
         LastMissingSnapshotAt = DateTimeOffset.MinValue;
         AttemptStartFailureCount = 0;
         ResetApproachProgress();

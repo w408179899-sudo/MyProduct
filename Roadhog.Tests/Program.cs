@@ -30,6 +30,7 @@ using Roadhog.Infrastructure.Input;
 using Roadhog.Infrastructure.Gathering;
 using Roadhog.Infrastructure.Paths;
 using Roadhog.Infrastructure.Profiles;
+using Roadhog.Infrastructure.Vmm;
 
 if (LicenseLiveProbe.ShouldRun(args))
 {
@@ -69,6 +70,12 @@ if (KmboxKeyPressProbe.ShouldRun(args))
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("dma stable snapshot falls back to last good", TestDmaStableSnapshotFallsBackToLastGoodAsync),
+    ("dma stable snapshot fallback does not renew ttl", TestDmaStableSnapshotFallbackDoesNotRenewTtlAsync),
+    ("dma stable snapshot fresh read fails closed", TestDmaStableSnapshotFreshReadFailsClosedAsync),
+    ("dma stable snapshot isolates and clears sessions", TestDmaStableSnapshotIsolatesAndClearsSessionsAsync),
+    ("dma world snapshot updates good fields and holds failed fields", TestDmaWorldSnapshotMergesFieldFailuresAsync),
+    ("dma pet snapshot updates good health fields and holds failed fields", TestDmaPetSnapshotMergesHealthFailuresAsync),
     ("radar canvas projection is north up", RadarTests.CanvasProjectionIsNorthUpAsync),
     ("radar canvas marker colors match disposition", RadarTests.CanvasMarkerColorsMatchDispositionAsync),
     ("radar canvas draws continuous obstacles until cancelled", RadarTests.CanvasDrawsContinuousObstaclesUntilCancelledAsync),
@@ -112,7 +119,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary gather clears nearby aggressive threat first", TestStationaryGatherClearsNearbyAggressiveThreatFirstAsync),
     ("stationary gather presses within twenty meters", TestStationaryGatherPressesWithinTwentyMetersAsync),
     ("stationary gather unavailable data fails closed", TestStationaryGatherUnavailableDataFailsClosedAsync),
-    ("stationary gather requires two consecutive snapshot failures", TestStationaryGatherRequiresTwoConsecutiveSnapshotFailuresAsync),
+    ("stationary gather snapshot failure stops active node immediately", TestStationaryGatherSnapshotFailureStopsActiveNodeImmediatelyAsync),
     ("stationary gather ignores transient missing node while waiting", TestStationaryGatherIgnoresTransientMissingNodeWhileWaitingAsync),
     ("stationary gather enforces absolute start wait", TestStationaryGatherEnforcesAbsoluteStartWaitAsync),
     ("stationary gather blocks maintenance until completion", TestStationaryGatherBlocksMaintenanceUntilCompletionAsync),
@@ -284,8 +291,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("bag cleanup discard limits each item to two confirm clicks", TestBagCleanupDiscardLimitsConfirmClicksPerItemAsync),
     ("bag cleanup discard retries inventory close", TestBagCleanupDiscardRetriesInventoryCloseAsync),
     ("bag cleanup discard waits until all attackers are cleared", TestBagCleanupDiscardWaitsUntilAllAttackersAreClearedAsync),
-    ("bag cleanup discard waits for three consecutive safety read failures", TestBagCleanupDiscardWaitsForThreeConsecutiveSafetyReadFailuresAsync),
-    ("bag cleanup discard safety read success resets failure count", TestBagCleanupDiscardSafetyReadSuccessResetsFailureCountAsync),
+    ("bag cleanup discard safety read failure stops immediately", TestBagCleanupDiscardSafetyFailureStopsImmediatelyAsync),
     ("bag cleanup matcher groups weapon armor and accessory as equipment", TestBagCleanupMatcherGroupsEquipmentTypesAsync),
     ("bag cleanup matcher maps stigma item type", TestBagCleanupMatcherMapsStigmaItemTypeAsync),
     ("bag cleanup matcher excludes name keywords", TestBagCleanupMatcherExcludesNameKeywordsAsync),
@@ -357,12 +363,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat death recovery clicks revive and recovers before path", TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBeforePathAsync),
     ("stationary combat death recovery sits before mp maintenance rule", TestStationaryCombatDeathRecoverySitsBeforeMpMaintenanceRuleAsync),
     ("stationary combat death recovery summons spiritmaster pet before maintenance and revive path", TestStationaryCombatDeathRecoverySummonsSpiritmasterPetBeforeMaintenanceAndRevivePathAsync),
-    ("stationary combat post revive pet gate rejects pre-death roster", TestStationaryCombatPostRevivePetGateRejectsPreDeathRosterAsync),
-    ("stationary combat post revive pet gate holds unknown roster", TestStationaryCombatPostRevivePetGateHoldsUnknownRosterAsync),
-    ("stationary combat post revive pet gate holds player read failure", TestStationaryCombatPostRevivePetGateHoldsPlayerReadFailureAsync),
-    ("stationary combat post revive fresh pet identity defends before sitting", TestStationaryCombatPostReviveFreshPetIdentityDefendsBeforeSittingAsync),
     ("stationary combat death recovery path defends when targeted", TestStationaryCombatDeathRecoveryPathDefendsWhenTargetedAsync),
-    ("stationary combat post revive maintenance defends pet before sitting", TestStationaryCombatPostReviveMaintenanceDefendsPetBeforeSittingAsync),
     ("stationary combat death recovery path clears nearby aggressive monsters", TestStationaryCombatDeathRecoveryPathClearsNearbyAggressiveMonstersAsync),
     ("stationary combat death recovery path postpones rest for nearby aggressive after loot", TestStationaryCombatDeathRecoveryPathPostponesRestForNearbyAggressiveAfterLootAsync),
     ("stationary combat death recovery path interrupts rest for nearby aggressive", TestStationaryCombatDeathRecoveryPathInterruptsRestForNearbyAggressiveAsync),
@@ -399,12 +400,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat preempts radar approach for locked local attacker", TestStationaryCombatPreemptsRadarApproachForLockedLocalAttackerAsync),
     ("stationary combat keeps radar approach for unrelated wrong lock", TestStationaryCombatKeepsRadarApproachForUnrelatedWrongLockAsync),
     ("stationary combat accepts closer aggressive wrong lock after tab", TestStationaryCombatAcceptsCloserAggressiveWrongLockAfterTabAsync),
-    ("stationary combat accepts closer aggressive wrong lock during reacquire", TestStationaryCombatAcceptsCloserAggressiveWrongLockDuringReacquireAsync),
-    ("stationary combat waits for stable closer aggressive wrong lock after tab", TestStationaryCombatWaitsForStableNearbyAggressiveWrongLockAfterTabAsync),
-    ("stationary combat holds on partial wrong-lock world read", TestStationaryCombatHoldsOnPartialWrongLockWorldReadAsync),
     ("stationary combat rejects ordinary aggressive wrong lock during smart pre-aim handoff", TestStationaryCombatRejectsOrdinaryAggressiveWrongLockDuringSmartPreAimHandoffAsync),
     ("stationary combat rejects closer passive wrong lock after tab", TestStationaryCombatRejectsCloserPassiveWrongLockAfterTabAsync),
-    ("stationary combat keeps tabbing without W until candidate is verified", TestStationaryCombatKeepsTabbingWithoutForwardNudgeUntilCandidateVerifiedAsync),
+    ("stationary combat leaves unrelated unchanged wrong lock alone", TestStationaryCombatLeavesUnrelatedUnchangedWrongLockAloneAsync),
     ("stationary combat nudges forward when tab locks corpse", TestStationaryCombatNudgesForwardWhenTabLocksCorpseAsync),
     ("stationary combat nudges forward when tab stays on attempted corpse", TestStationaryCombatNudgesForwardWhenTabStaysOnAttemptedCorpseAsync),
     ("stationary combat nudges forward when tab lock is empty", TestStationaryCombatNudgesForwardWhenTabLockIsEmptyAsync),
@@ -451,29 +449,6 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat returns from bag cleanup through revive path before finishing loot", TestStationaryCombatReturnsFromBagCleanupThroughRevivePathBeforeFinishingLootAsync),
     ("stationary combat refreshes position after bag cleanup return", TestStationaryCombatRefreshesPositionAfterBagCleanupReturnAsync),
     ("stationary combat postpones after-combat maintenance while pet is targeted", TestStationaryCombatPostponesAfterCombatMaintenanceWhilePetIsTargetedAsync),
-    ("local defense guard requires distinct negative captures", TestLocalDefenseThreatGuardRequiresDistinctNegativeCapturesAsync),
-    ("local defense guard rejects out of order observations", TestLocalDefenseThreatGuardRejectsOutOfOrderObservationsAsync),
-    ("local defense guard holds when retained threat health is unknown", TestLocalDefenseThreatGuardHoldsUnknownHealthAsync),
-    ("local defense guard treats self target relation as unknown", TestLocalDefenseThreatGuardHoldsSelfTargetRelationAsync),
-    ("local defense guard keeps original threat across partial replacement", TestLocalDefenseThreatGuardKeepsOriginalThreatAcrossPartialReplacementAsync),
-    ("stationary combat preserves pet identity on roster failure", TestStationaryCombatPreservesPetIdentityOnRosterFailureAsync),
-    ("stationary combat holds post-combat maintenance on partial world read", TestStationaryCombatHoldsPostCombatMaintenanceOnPartialWorldReadAsync),
-    ("stationary combat holds no-loot transition on partial world read", TestStationaryCombatHoldsNoLootTransitionOnPartialWorldReadAsync),
-    ("stationary combat holds on unknown target field", TestStationaryCombatHoldsOnUnknownTargetFieldAsync),
-    ("path combat holds movement on partial world read", TestPathCombatHoldsMovementOnPartialWorldReadAsync),
-    ("path combat blocks no kill return on unknown local defense", TestPathCombatBlocksNoKillReturnOnUnknownLocalDefenseAsync),
-    ("path combat blocks first no kill return on unconfirmed world read", TestPathCombatBlocksFirstNoKillReturnOnUnconfirmedWorldReadAsync),
-    ("path combat blocks transition after retained threat dies in partial read", TestPathCombatBlocksTransitionAfterRetainedThreatDiesInPartialReadAsync),
-    ("path combat expires first no kill transition uncertainty", TestPathCombatExpiresFirstNoKillTransitionUncertaintyAsync),
-    ("path combat clears prior transition uncertainty after activity", TestPathCombatClearsPriorTransitionUncertaintyAfterActivityAsync),
-    ("stationary combat confirmed defense preempts startup town return", TestStationaryCombatDefensePreemptsStartupTownReturnAsync),
-    ("stationary combat fresh defense preempts startup town return", TestStationaryCombatFreshDefensePreemptsStartupTownReturnAsync),
-    ("stationary combat expires unknown defense guard after bypass", TestStationaryCombatExpiresUnknownDefenseGuardAfterBypassAsync),
-    ("stationary combat rejects late bypass after defense reset", TestStationaryCombatRejectsLateBypassAfterDefenseResetAsync),
-    ("path combat rejects reset during first transition read", TestPathCombatRejectsResetDuringFirstTransitionReadAsync),
-    ("stationary combat rejects reset during startup path load", TestStationaryCombatRejectsResetDuringStartupPathLoadAsync),
-    ("stationary combat rejects reset during defense adoption", TestStationaryCombatRejectsResetDuringDefenseAdoptionAsync),
-    ("stationary combat closes discard before holding unknown defense", TestStationaryCombatClosesDiscardBeforeHoldingUnknownDefenseAsync),
     ("stationary combat abandons discard before adopting defense target", TestStationaryCombatAbandonsDiscardBeforeAdoptingDefenseTargetAsync),
     ("stationary combat closes discard before death recovery", TestStationaryCombatClosesDiscardBeforeDeathRecoveryAsync),
     ("stationary combat closes discard before fixed channel correction", TestStationaryCombatClosesDiscardBeforeFixedChannelCorrectionAsync),
@@ -567,20 +542,14 @@ var tests = new (string Name, Func<Task> Run)[]
     ("spiritmaster selector skips active dot", TestSpiritmasterSelectorSkipsActiveDotAsync),
     ("spiritmaster selector trusts target abnormal snapshot over dot window", TestSpiritmasterSelectorTrustsTargetSnapshotOverDotWindowAsync),
     ("spiritmaster selector skips command without pet", TestSpiritmasterSelectorSkipsCommandWithoutPetAsync),
-    ("summoned pet quality distinguishes present absent and unknown", TestSummonedPetRosterQualityClassifiesPresenceAsync),
     ("spiritmaster tick summons missing pet", TestSpiritmasterTickSummonsMissingPetAsync),
-    ("spiritmaster tick holds summon when pet detail is unconfirmed", TestSpiritmasterTickHoldsSummonWhenPetRosterIsUnconfirmedAsync),
-    ("spiritmaster unknown pet read does not summon or block", TestSpiritmasterUnknownPetReadDoesNotSummonOrBlockAsync),
-    ("spiritmaster duplicate absent capture does not confirm summon", TestSpiritmasterDuplicateAbsentCaptureDoesNotConfirmSummonAsync),
+    ("spiritmaster tick summons when pet roster is unconfirmed", TestSpiritmasterTickSummonsWhenPetRosterIsUnconfirmedAsync),
     ("spiritmaster missing pet confirmation resets when pet returns", TestSpiritmasterMissingPetConfirmationResetsWhenPetReturnsAsync),
     ("spiritmaster tick prioritizes lowest pet hp rule", TestSpiritmasterTickPrioritizesLowestPetHpRuleAsync),
     ("spiritmaster pet hp local cooldown yields to normal skills", TestSpiritmasterPetHpLocalCooldownYieldsToNormalSkillsAsync),
     ("spiritmaster elemental replenishment enforces player hp floor", TestSpiritmasterElementalReplenishmentEnforcesPlayerHpFloorAsync),
     ("spiritmaster elemental replenishment confirms pet hp increase", TestSpiritmasterElementalReplenishmentConfirmsPetHpIncreaseAsync),
     ("spiritmaster elemental replenishment retries unchanged pet hp", TestSpiritmasterElementalReplenishmentRetriesUnchangedPetHpAsync),
-    ("spiritmaster elemental replenishment holds unreliable pet hp", TestSpiritmasterElementalReplenishmentHoldsUnreliablePetHpAsync),
-    ("spiritmaster elemental replenishment stops retry below player hp floor", TestSpiritmasterElementalReplenishmentStopsRetryBelowPlayerHpFloorAsync),
-    ("spiritmaster non consuming pet hp skill ignores player hp floor", TestSpiritmasterNonConsumingPetHpSkillIgnoresPlayerHpFloorAsync),
     ("spiritmaster tick gates pet buff by dp", TestSpiritmasterTickGatesPetBuffByDpAsync),
     ("spiritmaster pet buff suppresses repeated unknown cooldown", TestSpiritmasterPetBuffSuppressesRepeatedUnknownCooldownAsync),
     ("spiritmaster dot learning prefers skill id", TestSpiritmasterDotLearningPrefersSkillIdAsync),
@@ -2201,7 +2170,7 @@ static async Task TestStationaryGatherUnavailableDataFailsClosedAsync()
     AssertFalse(gameApi.WorldObjectReadCount == 0, "unavailable gather monster data should use world fallback");
 }
 
-static async Task TestStationaryGatherRequiresTwoConsecutiveSnapshotFailuresAsync()
+static async Task TestStationaryGatherSnapshotFailureStopsActiveNodeImmediatelyAsync()
 {
     var settings = CreateStationaryGatherSettings();
     var capturedAt = DateTimeOffset.Now;
@@ -2237,61 +2206,23 @@ static async Task TestStationaryGatherRequiresTwoConsecutiveSnapshotFailuresAsyn
     AssertFalse(!state.Gather.Active, "initial usable snapshot should select the gather node");
     AssertFalse(!keyboard.Keys.Contains("NumPad1"), "initial usable snapshot should press the gather key");
 
-    gameApi.GatherReadFallback = OperationResult<GatherSnapshot>.Fail("first transient gather read failure");
+    gameApi.GatherReadFallback = OperationResult<GatherSnapshot>.Fail("fresh gather read failure");
     state.LastGatherScanAt = DateTimeOffset.MinValue;
     await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
 
-    AssertFalse(!state.Gather.Active, "first snapshot failure should preserve the active gather node");
-    AssertEqual(
-        1,
-        state.Gather.ConsecutiveUnavailableSnapshotReads,
-        "first snapshot failure count");
-    AssertEqual(
-        0U,
-        state.CandidateServerObjectId,
-        "first snapshot failure must not fall through to ordinary combat");
-    AssertEqual(
-        0,
-        gameApi.WorldObjectReadCount,
-        "first snapshot failure must not start the ordinary world scan");
-
-    gameApi.GatherReadFallback = OperationResult<GatherSnapshot>.Ok(
-        available with { CapturedAt = capturedAt.AddMilliseconds(250) });
-    state.LastGatherScanAt = DateTimeOffset.MinValue;
-    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
-
-    AssertFalse(!state.Gather.Active, "successful snapshot should keep the active gather node");
-    AssertEqual(
-        0,
-        state.Gather.ConsecutiveUnavailableSnapshotReads,
-        "successful snapshot should reset the failure count");
-
-    gameApi.GatherReadFallback = OperationResult<GatherSnapshot>.Fail("first consecutive gather read failure");
-    state.LastGatherScanAt = DateTimeOffset.MinValue;
-    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
-    AssertFalse(!state.Gather.Active, "first consecutive failure should still preserve the gather node");
-    AssertEqual(
-        1,
-        state.Gather.ConsecutiveUnavailableSnapshotReads,
-        "consecutive failure count should restart after success");
-
-    gameApi.GatherReadFallback = OperationResult<GatherSnapshot>.Fail("second consecutive gather read failure");
-    state.LastGatherScanAt = DateTimeOffset.MinValue;
-    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
-
-    AssertFalse(state.Gather.Active, "second consecutive failure should release the gather node");
+    AssertFalse(state.Gather.Active, "fresh snapshot failure should release the gather node immediately");
     AssertFalse(
         !state.Gather.IsSuppressed(target.ServerObjectId, DateTimeOffset.Now),
-        "second consecutive failure should suppress the concrete gather node");
+        "fresh snapshot failure should suppress the concrete gather node");
     AssertEqual(
         ordinaryMonster.ServerObjectId,
         state.CandidateServerObjectId,
-        "second consecutive failure may return to ordinary combat");
+        "fresh snapshot failure may return to ordinary combat");
     AssertFalse(
         !logger.Entries.Any(entry =>
             entry.EventName == "stationary_gather.node.suppressed" &&
             string.Equals(Convert.ToString(entry.Fields["reason"]), "snapshot_unavailable", StringComparison.Ordinal)),
-        "second consecutive failure suppression reason should be logged");
+        "snapshot failure suppression reason should be logged");
 }
 
 static async Task TestStationaryGatherIgnoresTransientMissingNodeWhileWaitingAsync()
@@ -11312,7 +11243,7 @@ static async Task TestBagCleanupDiscardWaitsUntilAllAttackersAreClearedAsync()
     AssertEqual(0, keyboard.MouseCommands.Count, "blocked discard checks should not manipulate the mouse");
 }
 
-static async Task TestBagCleanupDiscardWaitsForThreeConsecutiveSafetyReadFailuresAsync()
+static async Task TestBagCleanupDiscardSafetyFailureStopsImmediatelyAsync()
 {
     var logger = new InMemoryRoadhogLogger();
     var keyboard = new RecordingKeyboardInput();
@@ -11321,11 +11252,8 @@ static async Task TestBagCleanupDiscardWaitsForThreeConsecutiveSafetyReadFailure
         capacity: 3,
         new InventoryItemSnapshot(167000450, 52, "green-manastone", 1, 0, false, 24, 2));
     gameApi.InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0);
-    for (var i = 0; i < 3; i++)
-    {
-        gameApi.WorldObjectReadResults.Enqueue(
-            OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail("transient local entity position read failure"));
-    }
+    gameApi.WorldObjectReadResults.Enqueue(
+        OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail("fresh local entity position read failure"));
 
     keyboard.AfterPress = key =>
     {
@@ -11344,88 +11272,14 @@ static async Task TestBagCleanupDiscardWaitsForThreeConsecutiveSafetyReadFailure
         (_, _, _) => Task.FromResult(OperationResult.Ok()));
     var context = CreateContext(settings, gameApi, logger);
 
-    var first = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
-    AssertEqual(BagCleanupTickStatus.Running, first.Status, "first safety read failure should keep discard active");
-    AssertEqual("discard_safety_read_retry", first.Reason, "first safety read failure should request a retry");
-    AssertEqual(1, state.ConsecutiveDiscardSafetyReadFailureCount, "first safety read failure count");
-    AssertEqual(BagCleanupStep.ReadDiscardCandidates, state.Step, "first safety read failure should preserve the current step");
-    AssertFalse(!gameApi.InventoryWindow.IsOpen, "first safety read failure should keep inventory open");
-
-    var second = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
-    AssertEqual(BagCleanupTickStatus.Running, second.Status, "second safety read failure should keep discard active");
-    AssertEqual("discard_safety_read_retry", second.Reason, "second safety read failure should request a retry");
-    AssertEqual(2, state.ConsecutiveDiscardSafetyReadFailureCount, "second safety read failure count");
-    AssertEqual(BagCleanupStep.ReadDiscardCandidates, state.Step, "second safety read failure should preserve the current step");
-    AssertFalse(!gameApi.InventoryWindow.IsOpen, "second safety read failure should keep inventory open");
-
-    var third = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
-    AssertEqual(BagCleanupTickStatus.Skipped, third.Status, "third consecutive safety read failure should stop discard");
-    AssertEqual("discard_safety_read_failed", third.Reason, "third consecutive failure should use the existing failure reason");
-    AssertFalse(state.Active, "third consecutive safety read failure should reset discard state");
-    AssertFalse(gameApi.InventoryWindow.IsOpen, "third consecutive safety read failure should close inventory");
-    AssertEqual(
-        2,
-        logger.Entries.Count(entry => entry.EventName == "bag_cleanup.discard.safety_read.retry"),
-        "only the first two safety read failures should be logged as retries");
+    var result = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
+    AssertEqual(BagCleanupTickStatus.Skipped, result.Status, "fresh safety read failure should stop discard immediately");
+    AssertEqual("discard_safety_read_failed", result.Reason, "fresh safety read failure reason");
+    AssertFalse(state.Active, "fresh safety read failure should reset discard state");
+    AssertFalse(gameApi.InventoryWindow.IsOpen, "fresh safety read failure should close inventory");
     AssertFalse(
         !logger.Entries.Any(entry => entry.EventName == "bag_cleanup.discard.failed"),
-        "third consecutive safety read failure should use the existing failure cleanup log");
-}
-
-static async Task TestBagCleanupDiscardSafetyReadSuccessResetsFailureCountAsync()
-{
-    var logger = new InMemoryRoadhogLogger();
-    var keyboard = new RecordingKeyboardInput();
-    var settings = CreateDiscardScriptSettings(BagCleanupRuleCatalog.GreenManastone, threshold: 2);
-    var target = new InventoryItemSnapshot(167000450, 53, "green-manastone", 1, 0, false, 24, 2);
-    var gameApi = CreateSafeDiscardGameApi(capacity: 3, target);
-    gameApi.InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0);
-    gameApi.WorldObjectReadResults.Enqueue(
-        OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail("first transient failure"));
-    gameApi.WorldObjectReadResults.Enqueue(
-        OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(Array.Empty<WorldObjectSnapshot>()));
-    for (var i = 0; i < 3; i++)
-    {
-        gameApi.WorldObjectReadResults.Enqueue(
-            OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail("failure after successful reset"));
-    }
-
-    keyboard.AfterPress = key =>
-    {
-        if (key == "I")
-        {
-            gameApi.InventoryWindow = CreateInventoryWindow(false, 0.0, 0.0);
-        }
-    };
-    var state = new BagCleanupState();
-    state.StartDiscard(1, 2, 1);
-    state.SetDiscardWindow(gameApi.InventoryWindow);
-    state.Advance(BagCleanupStep.ReadDiscardCandidates);
-    var controller = new BagCleanupController(
-        keyboard,
-        new InMemorySharedPathStore(),
-        (_, _, _) => Task.FromResult(OperationResult.Ok()));
-    var context = CreateContext(settings, gameApi, logger);
-
-    var firstFailure = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
-    AssertEqual("discard_safety_read_retry", firstFailure.Reason, "first failure should request retry");
-    AssertEqual(1, state.ConsecutiveDiscardSafetyReadFailureCount, "first failure should be counted");
-
-    var success = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
-    AssertEqual("discard_target_selected", success.Reason, "successful safety read should continue the current discard step");
-    AssertEqual(0, state.ConsecutiveDiscardSafetyReadFailureCount, "successful safety read should clear the consecutive count");
-    AssertEqual(BagCleanupStep.DragDiscardItem, state.Step, "successful safety read should advance normally");
-
-    var retryOne = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
-    var retryTwo = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
-    AssertEqual("discard_safety_read_retry", retryOne.Reason, "first post-reset failure should retry");
-    AssertEqual("discard_safety_read_retry", retryTwo.Reason, "second post-reset failure should retry");
-    AssertEqual(2, state.ConsecutiveDiscardSafetyReadFailureCount, "post-reset failures should count from zero");
-    AssertFalse(!state.Active, "two post-reset failures should not stop discard");
-
-    var finalFailure = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
-    AssertEqual("discard_safety_read_failed", finalFailure.Reason, "third post-reset failure should stop discard");
-    AssertFalse(state.Active, "third post-reset failure should reset discard state");
+        "fresh safety read failure should use the existing failure cleanup log");
 }
 
 static ScriptSettings CreateDiscardScriptSettings(string discardRuleKey, int threshold)
@@ -13043,7 +12897,7 @@ static async Task TestSmartPreAimStabilizesAlignedTargetSwitchingAsync()
                 30D,
                 (ushort)100,
                 5000u,
-                preAim.SessionId
+                state.NextTargetPreAim.SessionId
             })!;
         await task.ConfigureAwait(false);
     }
@@ -13737,7 +13591,7 @@ static async Task TestSmartPreAimPreventsConsumedTargetBounceAsync()
                 30D,
                 fightTargetEntityId,
                 fightTargetServerObjectId,
-                preAim.SessionId
+                state.NextTargetPreAim.SessionId
             })!;
         await task.ConfigureAwait(false);
     }
@@ -15759,262 +15613,6 @@ static async Task TestStationaryCombatDeathRecoverySummonsSpiritmasterPetBeforeM
         "revive path should log spiritmaster pet summon verification");
 }
 
-static async Task TestStationaryCombatPostRevivePetGateRejectsPreDeathRosterAsync()
-{
-    var settings = CreateSpiritmasterScriptSettings();
-    settings.MainMode = AccountMainMode.CustomCombat;
-    settings.CombatMode = AccountCombatMode.Stationary;
-    settings.Maintenance.SitMaintenanceEnabled = true;
-    settings.Maintenance.SitHpRecoverToPercent = 75;
-    settings.Maintenance.SitMpRecoverToPercent = 75;
-    settings.Skills.Spiritmaster.SummonSkills = new List<SpiritmasterSkillKeyRuleConfig>
-    {
-        new() { Key = "NumPad6" }
-    };
-
-    var gameApi = new FakeGameApi
-    {
-        Player = CreateSpiritmasterPlayer(currentHp: 25, maxHp: 100) with { CurrentMp = 25, MaxMp = 100 },
-        SummonedPetRoster = SummonedPetRosterSnapshot.Empty(1000, DateTimeOffset.Now),
-        WorldObjects = Array.Empty<WorldObjectSnapshot>(),
-        Skills = CreateSpiritmasterSkillSnapshots()
-    };
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
-    var stationaryState = new StationaryCombatState();
-    var semiAutoState = new SemiAutoCombatState();
-    var preDeathRoster = CreateSummonedPetRosterReadResult(
-        900,
-        SummonedPetRosterReadCompleteness.Complete,
-        CreateLocalPetRoster(isSummoned: true));
-
-    stationaryState.ApplyLocalCombatSideRoster(preDeathRoster, 3);
-    AssertEqual((uint)2000, stationaryState.LocalCombatSidePetServerObjectId, "pre-death pet identity setup");
-    stationaryState.EnterDeathRecovery(DateTimeOffset.Now);
-    AssertFalse(stationaryState.LastSummonedPetRosterReadResult is not null, "death must discard the pre-death pet roster");
-    AssertEqual((uint)0, stationaryState.LocalCombatSidePetServerObjectId, "death must discard the pre-death pet identity");
-
-    for (var step = 0; step < 5; step++)
-    {
-        stationaryState.DeathRecovery.Advance(DateTimeOffset.Now);
-    }
-
-    // Model a pre-death read that completed late and raced across the death
-    // boundary. The post-revive gate must still perform its own fresh capture.
-    stationaryState.ApplyLocalCombatSideRoster(preDeathRoster, 3);
-    var context = CreateContext(settings, gameApi, logger);
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-
-    for (var read = 0; read < 2; read++)
-    {
-        await controller.TickPlayerLifeGuardAsync(
-                context,
-                plan,
-                semiAutoState,
-                stationaryState,
-                followRevivePath: false)
-            .ConfigureAwait(false);
-        AssertEqual(0, keyboard.Keys.Count, "fresh absence confirmation must precede post-revive summon");
-        AssertEqual(
-            StationaryCombatDeathRecoveryStep.PostReviveSpiritmasterPet,
-            stationaryState.DeathRecovery.Step,
-            "post-revive pet gate must not accept a pre-death present roster");
-    }
-
-    await controller.TickPlayerLifeGuardAsync(
-            context,
-            plan,
-            semiAutoState,
-            stationaryState,
-            followRevivePath: false)
-        .ConfigureAwait(false);
-
-    AssertSequence(new[] { "NumPad6" }, keyboard.Keys.ToArray(), "three fresh post-revive absences should summon");
-    AssertFalse(keyboard.Keys.Contains("OemComma"), "post-revive maintenance must not sit before summon verification");
-    AssertFalse(
-        gameApi.SummonedPetRosterQualityReadContexts.Count < 3 ||
-        gameApi.SummonedPetRosterQualityReadContexts.Any(read => !read.BypassMemoryCache),
-        "every post-revive pet decision must use a fresh bypass-cache capture");
-}
-
-static async Task TestStationaryCombatPostRevivePetGateHoldsUnknownRosterAsync()
-{
-    var settings = CreateSpiritmasterScriptSettings();
-    settings.MainMode = AccountMainMode.CustomCombat;
-    settings.CombatMode = AccountCombatMode.Stationary;
-    settings.Maintenance.SitMaintenanceEnabled = true;
-    settings.Maintenance.SitHpRecoverToPercent = 75;
-    settings.Skills.Spiritmaster.SummonSkills = new List<SpiritmasterSkillKeyRuleConfig>
-    {
-        new() { Key = "NumPad6" }
-    };
-    var gameApi = new FakeGameApi
-    {
-        Player = CreateSpiritmasterPlayer(currentHp: 25, maxHp: 100),
-        WorldObjects = Array.Empty<WorldObjectSnapshot>(),
-        SummonedPetRosterQualityReadFallback = CreateSummonedPetRosterReadResult(
-            901,
-            SummonedPetRosterReadCompleteness.Partial,
-            SummonedPetRosterSnapshot.Empty(1000, DateTimeOffset.Now),
-            localLinkedPetServerObjectIdAvailable: false,
-            visibleActorTraversalAvailable: false,
-            issue: "injected_post_revive_pet_unknown")
-    };
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
-    var stationaryState = new StationaryCombatState();
-    stationaryState.EnterDeathRecovery(DateTimeOffset.Now);
-    for (var step = 0; step < 5; step++)
-    {
-        stationaryState.DeathRecovery.Advance(DateTimeOffset.Now);
-    }
-
-    await controller.TickPlayerLifeGuardAsync(
-            CreateContext(settings, gameApi, logger),
-            SemiAutoSkillPlan.FromSettings(settings.Skills),
-            new SemiAutoCombatState(),
-            stationaryState,
-            followRevivePath: false)
-        .ConfigureAwait(false);
-
-    AssertEqual(
-        StationaryCombatDeathRecoveryStep.PostReviveSpiritmasterPet,
-        stationaryState.DeathRecovery.Step,
-        "unknown post-revive pet presence must hold the pet gate");
-    AssertEqual(0, keyboard.Keys.Count, "unknown post-revive pet presence must neither summon nor sit");
-    AssertFalse(
-        !logger.Entries.Any(entry => entry.EventName == "semi_auto.spiritmaster.pet_presence.unknown_held"),
-        "unknown post-revive pet presence should remain observable");
-    AssertFalse(
-        gameApi.LastSummonedPetRosterContext?.BypassMemoryCache != true,
-        "unknown post-revive retry must bypass the memory cache");
-}
-
-static async Task TestStationaryCombatPostRevivePetGateHoldsPlayerReadFailureAsync()
-{
-    var settings = CreateSpiritmasterScriptSettings();
-    settings.MainMode = AccountMainMode.CustomCombat;
-    settings.CombatMode = AccountCombatMode.Stationary;
-    settings.Maintenance.SitMaintenanceEnabled = true;
-    settings.Maintenance.SitHpRecoverToPercent = 75;
-    settings.Skills.Spiritmaster.SummonSkills = new List<SpiritmasterSkillKeyRuleConfig>
-    {
-        new() { Key = "NumPad6" }
-    };
-    var player = CreateSpiritmasterPlayer(currentHp: 25, maxHp: 100);
-    var gameApi = new FakeGameApi
-    {
-        Player = player,
-        SummonedPetRoster = SummonedPetRosterSnapshot.Empty(1000, DateTimeOffset.Now),
-        WorldObjects = Array.Empty<WorldObjectSnapshot>()
-    };
-    gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Ok(player));
-    gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Fail("injected post-revive player read failure"));
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
-    var stationaryState = new StationaryCombatState();
-    stationaryState.EnterDeathRecovery(DateTimeOffset.Now);
-    for (var step = 0; step < 5; step++)
-    {
-        stationaryState.DeathRecovery.Advance(DateTimeOffset.Now);
-    }
-
-    await controller.TickPlayerLifeGuardAsync(
-            CreateContext(settings, gameApi, logger),
-            SemiAutoSkillPlan.FromSettings(settings.Skills),
-            new SemiAutoCombatState(),
-            stationaryState,
-            followRevivePath: false)
-        .ConfigureAwait(false);
-
-    AssertEqual(
-        StationaryCombatDeathRecoveryStep.PostReviveSpiritmasterPet,
-        stationaryState.DeathRecovery.Step,
-        "a second player read failure must hold the post-revive pet gate");
-    AssertEqual(0, keyboard.Keys.Count, "a player read failure must neither summon nor sit");
-    AssertFalse(
-        !logger.Entries.Any(entry => entry.EventName == "semi_auto.spiritmaster.pet_gate.player_unknown_held"),
-        "the held player read failure should be observable");
-}
-
-static async Task TestStationaryCombatPostReviveFreshPetIdentityDefendsBeforeSittingAsync()
-{
-    var settings = CreateSpiritmasterScriptSettings();
-    settings.MainMode = AccountMainMode.CustomCombat;
-    settings.CombatMode = AccountCombatMode.Stationary;
-    settings.Maintenance.SitMaintenanceEnabled = true;
-    settings.Maintenance.SitHpRecoverToPercent = 75;
-    settings.Combat = new CombatScriptSettings
-    {
-        HasStationaryCombatPosition = true,
-        StationaryCombatX = 0,
-        StationaryCombatY = 0,
-        StationaryCombatZ = 0,
-        StationaryCombatRadius = 10
-    };
-    var attacker = new WorldObjectSnapshot(
-        220,
-        2200,
-        "fresh-pet-attacker",
-        "monster",
-        new Vector3Snapshot(3, 0, 0),
-        3,
-        1000,
-        1000,
-        TargetServerObjectId: 2000,
-        IsTargetingLocalPlayer: false,
-        AggressiveKnown: true,
-        IsAggressiveToPlayer: true);
-    var gameApi = new FakeGameApi
-    {
-        Player = CreateSpiritmasterPlayer(currentHp: 25, maxHp: 100),
-        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true),
-        LocalServerObjectId = 1000,
-        TargetEntityId = attacker.EntityId,
-        TargetOwnServerObjectId = attacker.ServerObjectId,
-        TargetCurrentHp = attacker.CurrentHp,
-        TargetMaxHp = attacker.MaxHp,
-        TargetPosition = attacker.Position,
-        TargetServerObjectId = attacker.TargetServerObjectId,
-        TargetIsTargetingLocalPlayer = false,
-        WorldObjects = new[] { attacker },
-        Skills = CreateSpiritmasterSkillSnapshots()
-    };
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
-    var stationaryState = new StationaryCombatState();
-    stationaryState.EnterDeathRecovery(DateTimeOffset.Now);
-    for (var step = 0; step < 5; step++)
-    {
-        stationaryState.DeathRecovery.Advance(DateTimeOffset.Now);
-    }
-
-    await controller.TickPlayerLifeGuardAsync(
-            CreateContext(settings, gameApi, logger),
-            SemiAutoSkillPlan.FromSettings(settings.Skills),
-            new SemiAutoCombatState(),
-            stationaryState,
-            followRevivePath: false)
-        .ConfigureAwait(false);
-
-    AssertEqual((uint)2000, stationaryState.LocalCombatSidePetServerObjectId, "fresh post-revive roster should publish the pet identity");
-    AssertFalse(keyboard.Keys.Contains("OemComma"), "fresh pet attacker must preempt post-revive sitting");
-    AssertFalse(!stationaryState.Fighting, "fresh post-revive pet attacker should enter defense combat");
-    AssertEqual(attacker.ServerObjectId, stationaryState.CandidateServerObjectId, "fresh post-revive pet attacker identity");
-    AssertFalse(
-        !logger.Entries.Any(entry =>
-            entry.EventName == "stationary_combat.recovery_defense.target_selected" &&
-            string.Equals(
-                Convert.ToString(entry.Fields["phase"]),
-                "post_revive_maintenance",
-                StringComparison.Ordinal)),
-        "fresh post-revive pet identity should feed the maintenance defense decision");
-}
-
 static async Task TestStationaryCombatDeathRecoveryPathDefendsWhenTargetedAsync()
 {
     var previousClickDelay = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS");
@@ -16129,113 +15727,6 @@ static async Task TestStationaryCombatDeathRecoveryPathDefendsWhenTargetedAsync(
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_POST_REVIVE_SCROLL_INTERVAL_MS", previousScrollInterval);
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
     }
-}
-
-static async Task TestStationaryCombatPostReviveMaintenanceDefendsPetBeforeSittingAsync()
-{
-    var settings = CreateSpiritmasterScriptSettings();
-    settings.MainMode = AccountMainMode.CustomCombat;
-    settings.CombatMode = AccountCombatMode.Stationary;
-    settings.Combat = new CombatScriptSettings
-    {
-        HasStationaryCombatPosition = true,
-        StationaryCombatX = 0,
-        StationaryCombatY = 0,
-        StationaryCombatZ = 0,
-        StationaryCombatRadius = 10
-    };
-    settings.Maintenance.SitMaintenanceEnabled = true;
-    settings.Maintenance.SitHpRecoverToPercent = 75;
-    settings.Skills.Spiritmaster.SummonSkills = new List<SpiritmasterSkillKeyRuleConfig>
-    {
-        new() { Key = "NumPad6" }
-    };
-
-    var attacker = new WorldObjectSnapshot(
-        220,
-        2200,
-        "pet-attacker",
-        "monster",
-        new Vector3Snapshot(3, 0, 0),
-        3,
-        1000,
-        1000,
-        TargetServerObjectId: 2000,
-        IsTargetingLocalPlayer: false,
-        AggressiveKnown: true,
-        IsAggressiveToPlayer: true);
-    var gameApi = new FakeGameApi
-    {
-        Player = CreateSpiritmasterPlayer() with
-        {
-            CurrentHp = 10,
-            MaxHp = 100,
-            Position = new Vector3Snapshot(0, 0, 0)
-        },
-        SummonedPetRosterQualityReadFallback = CreateSummonedPetRosterReadResult(
-            10,
-            SummonedPetRosterReadCompleteness.Partial,
-            SummonedPetRosterSnapshot.Empty(1000, DateTimeOffset.Now),
-            localLinkedPetServerObjectIdAvailable: false,
-            visibleActorTraversalAvailable: false,
-            issue: "injected_pet_roster_partial"),
-        LocalServerObjectId = 1000,
-        TargetEntityId = attacker.EntityId,
-        TargetOwnServerObjectId = attacker.ServerObjectId,
-        TargetCurrentHp = attacker.CurrentHp,
-        TargetMaxHp = attacker.MaxHp,
-        TargetPosition = attacker.Position,
-        TargetServerObjectId = attacker.TargetServerObjectId,
-        TargetIsTargetingLocalPlayer = false,
-        WorldObjects = new[] { attacker },
-        Skills = CreateSpiritmasterSkillSnapshots()
-    };
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var semiAuto = new SemiAutoCombatController(keyboard);
-    var controller = new StationaryCombatController(keyboard, semiAuto);
-    var stationaryState = new StationaryCombatState();
-    stationaryState.EnterDeathRecovery(DateTimeOffset.Now);
-    for (var step = 0; step < 6; step++)
-    {
-        stationaryState.DeathRecovery.Advance(DateTimeOffset.Now);
-    }
-    // A death invalidates the previous pet lifetime. Model a confirmed
-    // post-revive pet identity, which a later partial roster must retain while
-    // the pet is being attacked.
-    stationaryState.ApplyLocalCombatSideRoster(
-        CreateSummonedPetRosterReadResult(
-            1,
-            SummonedPetRosterReadCompleteness.Complete,
-            CreateLocalPetRoster(isSummoned: true)),
-        3);
-
-    AssertEqual(
-        StationaryCombatDeathRecoveryStep.PostReviveMaintenance,
-        stationaryState.DeathRecovery.Step,
-        "test should start at post-revive maintenance");
-    var context = CreateContext(settings, gameApi, logger);
-    await controller.TickAsync(
-            context,
-            SemiAutoSkillPlan.FromSettings(settings.Skills),
-            new SemiAutoCombatState(),
-            stationaryState)
-        .ConfigureAwait(false);
-
-    AssertFalse(keyboard.Keys.Contains("OemComma"), "pet attacker must preempt sitting after revive");
-    AssertFalse(keyboard.Keys.Contains("NumPad6"), "pet attacker must preempt summon work after revive");
-    AssertFalse(
-        !logger.Entries.Any(entry =>
-            entry.EventName == "stationary_combat.recovery_defense.target_selected" &&
-            string.Equals(
-                Convert.ToString(entry.Fields["phase"]),
-                "post_revive_maintenance",
-                StringComparison.Ordinal)),
-        "post-revive pet defense should be selected before maintenance");
-    AssertFalse(
-        !stationaryState.Fighting && stationaryState.CandidateServerObjectId != attacker.ServerObjectId,
-        "post-revive maintenance should hand off to the pet attacker");
-    AssertEqual((uint)2000, stationaryState.LocalCombatSidePetServerObjectId, "partial roster must retain pet identity during defense");
 }
 
 static async Task TestStationaryCombatDeathRecoveryPathClearsNearbyAggressiveMonstersAsync()
@@ -18951,14 +18442,12 @@ static async Task TestStationaryCombatVerifiesAfterEachTabAsync()
     }
 }
 
-static async Task TestStationaryCombatKeepsTabbingWithoutForwardNudgeUntilCandidateVerifiedAsync()
+static async Task TestStationaryCombatLeavesUnrelatedUnchangedWrongLockAloneAsync()
 {
     var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
     var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
-    var previousTabWindow = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_WINDOW_MS");
     Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
     Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", "0");
-    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_WINDOW_MS", "1");
     try
     {
         var settings = CreateScriptSettings();
@@ -18981,7 +18470,6 @@ static async Task TestStationaryCombatKeepsTabbingWithoutForwardNudgeUntilCandid
             TargetCurrentHp = 1000,
             TargetMaxHp = 1000,
             TargetPosition = new Vector3Snapshot(8, 0, 0),
-            TargetOwnServerObjectId = 200,
             TargetServerObjectId = 0,
             TargetIsTargetingLocalPlayer = false,
             WorldObjects = new[]
@@ -19000,26 +18488,14 @@ static async Task TestStationaryCombatKeepsTabbingWithoutForwardNudgeUntilCandid
                 [10] = 0
             })
         };
-        var tabCount = 0;
         var keyboard = new RecordingKeyboardInput
         {
             AfterPress = key =>
             {
                 if (string.Equals(key, "Tab", StringComparison.OrdinalIgnoreCase))
                 {
-                    tabCount++;
-                    if (tabCount == 1)
-                    {
-                        gameApi.TargetEntityId = 200;
-                        gameApi.TargetOwnServerObjectId = 200;
-                        gameApi.TargetPosition = new Vector3Snapshot(8, 0, 0);
-                    }
-                    else
-                    {
-                        gameApi.TargetEntityId = 100;
-                        gameApi.TargetOwnServerObjectId = 100;
-                        gameApi.TargetPosition = new Vector3Snapshot(5, 0, 0);
-                    }
+                    gameApi.TargetEntityId = 200;
+                    gameApi.TargetPosition = new Vector3Snapshot(8, 0, 0);
                 }
             }
         };
@@ -19032,41 +18508,29 @@ static async Task TestStationaryCombatKeepsTabbingWithoutForwardNudgeUntilCandid
             .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
             .ConfigureAwait(false);
 
-        AssertSequence(new[] { "Tab" }, keyboard.Keys, "first wrong live lock should only press Tab");
-        AssertFalse(keyboard.Keys.Contains("W"), "wrong live lock must not move the player forward");
-        AssertFalse(keyboard.Keys.Contains("D2"), "wrong live lock must not enter skill release");
-        AssertFalse(state.Fighting, "wrong live lock must not enter fight state");
-        AssertEqual((ushort)100, state.CandidateEntityId, "wrong live lock should keep the original candidate");
-        AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.tab.wrong_lock_nudge_pressed"),
-            "removed wrong-lock W branch must never be logged");
-        AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.switched_to_locked"),
-            "wrong live lock must not be accepted through generic fallback");
-
-        state.LastTabAt = DateTimeOffset.MinValue;
-        await Task.Delay(5).ConfigureAwait(false);
+        AssertSequence(new[] { "Tab" }, keyboard.Keys, "unchanged unrelated wrong lock should only retry Tab");
+        AssertFalse(keyboard.Keys.Contains("D2"), "first unchanged wrong lock must not enter skill release");
+        AssertFalse(state.Fighting, "first unchanged wrong lock must not enter fight state");
+        AssertEqual((ushort)100, state.CandidateEntityId, "first unchanged wrong lock should keep original candidate");
+        AssertFalse(keyboard.Keys.Contains("W"), "ordinary wrong lock must not nudge forward");
+        AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.switched_to_locked"), "first unchanged wrong lock must not accept locked target");
 
         await controller
             .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
             .ConfigureAwait(false);
 
-        AssertEqual(2, keyboard.Keys.Count(key => string.Equals(key, "Tab", StringComparison.OrdinalIgnoreCase)),
-            "expired wrong-lock verification should press Tab again");
-        AssertFalse(keyboard.Keys.Contains("W"), "repeated Tab verification must still avoid W");
-        AssertFalse(!keyboard.Keys.Contains("D2"), "verified requested candidate should enter skill release");
-        AssertFalse(!state.Fighting, "verified requested candidate should enter fight state");
-        AssertEqual((ushort)100, state.CurrentTargetEntityId, "current target should remain the requested candidate");
-        AssertEqual((ushort)100, state.CandidateEntityId, "candidate should remain the requested candidate");
-        AssertFalse(!logger.Entries.Any(entry =>
-            entry.EventName == "stationary_combat.target.acquired" &&
-            Equals(Convert.ToUInt16(entry.Fields["targetEntityId"]), (ushort)100) &&
-            string.Equals(Convert.ToString(entry.Fields["phase"]), "after_tab", StringComparison.Ordinal)),
-            "only the requested candidate should be acquired");
+        AssertEqual(1, keyboard.Keys.Count(key => string.Equals(key, "Tab", StringComparison.OrdinalIgnoreCase)), "second tick should remain in the pending Tab verification window");
+        AssertFalse(keyboard.Keys.Contains("D2"), "unchanged unrelated wrong lock must not enter skill release");
+        AssertFalse(state.Fighting, "unchanged unrelated wrong lock must not enter fight state");
+        AssertEqual((ushort)0, state.CurrentTargetEntityId, "current target must remain unset");
+        AssertEqual((ushort)100, state.CandidateEntityId, "candidate should remain the intended target");
+        AssertFalse(keyboard.Keys.Contains("W"), "repeated ordinary wrong lock must not nudge forward");
+        AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.switched_to_locked"), "unrelated wrong lock must never be accepted");
     }
     finally
     {
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
         Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
-        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_WINDOW_MS", previousTabWindow);
     }
 }
 
@@ -19286,7 +18750,6 @@ static async Task TestStationaryCombatAcceptsCloserAggressiveWrongLockAfterTabAs
                 gameApi.TargetMaxHp = 1000;
                 gameApi.TargetName = "near-aggressive";
                 gameApi.TargetPosition = new Vector3Snapshot(5, 0, 0);
-                gameApi.TargetOwnServerObjectId = 200;
                 gameApi.TargetServerObjectId = 0;
                 gameApi.TargetIsTargetingLocalPlayer = false;
                 gameApi.WorldObjects = new[]
@@ -19326,393 +18789,6 @@ static async Task TestStationaryCombatAcceptsCloserAggressiveWrongLockAfterTabAs
     {
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
         Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
-    }
-}
-
-static async Task TestStationaryCombatAcceptsCloserAggressiveWrongLockDuringReacquireAsync()
-{
-    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
-    var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
-    var previousTabPoll = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_POLL_MS");
-    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
-    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", "0");
-    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_POLL_MS", "1");
-    try
-    {
-        var settings = CreateScriptSettings();
-        settings.MainMode = AccountMainMode.CustomCombat;
-        settings.CombatMode = AccountCombatMode.Stationary;
-        settings.Combat = new CombatScriptSettings
-        {
-            HasStationaryCombatPosition = true,
-            StationaryCombatX = 0,
-            StationaryCombatY = 0,
-            StationaryCombatZ = 0,
-            StationaryCombatRadius = 30
-        };
-        var candidate = new WorldObjectSnapshot(
-            100,
-            100,
-            "current-fight-target",
-            "monster",
-            new Vector3Snapshot(20, 0, 0),
-            20,
-            1000,
-            1000,
-            AggressiveKnown: true,
-            IsAggressiveToPlayer: true);
-        var closerAggressive = new WorldObjectSnapshot(
-            200,
-            200,
-            "closer-aggressive",
-            "monster",
-            new Vector3Snapshot(5, 0, 0),
-            5,
-            1000,
-            1000,
-            AggressiveKnown: true,
-            IsAggressiveToPlayer: true);
-        var logger = new InMemoryRoadhogLogger();
-        var gameApi = new FakeGameApi
-        {
-            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
-            TargetEntityId = closerAggressive.EntityId,
-            TargetOwnServerObjectId = closerAggressive.ServerObjectId,
-            TargetCurrentHp = closerAggressive.CurrentHp,
-            TargetMaxHp = closerAggressive.MaxHp,
-            TargetName = closerAggressive.Name,
-            TargetPosition = closerAggressive.Position,
-            TargetServerObjectId = 0,
-            TargetIsTargetingLocalPlayer = false,
-            WorldObjects = new[] { candidate, closerAggressive },
-            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-            {
-                [1] = 0,
-                [5] = 0,
-                [6] = 0,
-                [7] = 0,
-                [8] = 0,
-                [9] = 0,
-                [10] = 0
-            })
-        };
-        var keyboard = new RecordingKeyboardInput();
-        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
-        var state = new StationaryCombatState
-        {
-            Fighting = true,
-            FacedCandidateEntityId = candidate.EntityId
-        };
-        state.SetCurrentTarget(candidate);
-        state.MarkCandidate(candidate, DateTimeOffset.Now);
-
-        await controller
-            .TickAsync(
-                CreateContext(settings, gameApi, logger),
-                SemiAutoSkillPlan.FromSettings(settings.Skills),
-                new SemiAutoCombatState(),
-                state)
-            .ConfigureAwait(false);
-
-        AssertFalse(!keyboard.Keys.Contains("Tab"), "fight reacquire should keep tabbing for the current target");
-        AssertFalse(keyboard.Keys.Contains("W"), "fight reacquire wrong lock must not move forward");
-        AssertFalse(!keyboard.Keys.Contains("D2"), "stable closer aggressive lock should enter skill release");
-        AssertFalse(!state.Fighting, "closer aggressive lock should remain in fight state");
-        AssertEqual(closerAggressive.EntityId, state.CurrentTargetEntityId, "fight target should switch to the closer aggressive lock");
-        AssertEqual(closerAggressive.ServerObjectId, state.CurrentTargetServerObjectId, "fight target server id should switch with the target");
-        AssertEqual(closerAggressive.EntityId, state.CandidateEntityId, "candidate should switch to the closer aggressive lock");
-        AssertFalse(!logger.Entries.Any(entry =>
-            entry.EventName == "stationary_combat.target.acquired" &&
-            Equals(Convert.ToUInt16(entry.Fields["targetEntityId"]), closerAggressive.EntityId) &&
-            string.Equals(Convert.ToString(entry.Fields["phase"]), "after_tab_aggressive", StringComparison.Ordinal)),
-            "fight reacquire should acquire the validated closer aggressive lock");
-        AssertFalse(!logger.Entries.Any(entry =>
-            entry.EventName == "stationary_combat.target.accept_nearby_aggressive_lock" &&
-            Equals(Convert.ToUInt16(entry.Fields["lockedEntityId"]), closerAggressive.EntityId)),
-            "fight reacquire acceptance should only be logged after acquisition succeeds");
-    }
-    finally
-    {
-        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
-        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
-        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_POLL_MS", previousTabPoll);
-    }
-}
-
-static async Task TestStationaryCombatHoldsOnPartialWrongLockWorldReadAsync()
-{
-    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
-    var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
-    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
-    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", "0");
-    try
-    {
-        var settings = CreateScriptSettings();
-        settings.MainMode = AccountMainMode.CustomCombat;
-        settings.CombatMode = AccountCombatMode.Stationary;
-        settings.Combat = new CombatScriptSettings
-        {
-            HasStationaryCombatPosition = true,
-            StationaryCombatX = 0,
-            StationaryCombatY = 0,
-            StationaryCombatZ = 0,
-            StationaryCombatRadius = 30
-        };
-        var candidate = new WorldObjectSnapshot(
-            100,
-            100,
-            "candidate",
-            "monster",
-            new Vector3Snapshot(20, 0, 0),
-            20,
-            1000,
-            1000,
-            AggressiveKnown: true,
-            IsAggressiveToPlayer: true);
-        var wrongLock = new WorldObjectSnapshot(
-            200,
-            200,
-            "closer-aggressive",
-            "monster",
-            new Vector3Snapshot(5, 0, 0),
-            5,
-            1000,
-            1000,
-            AggressiveKnown: true,
-            IsAggressiveToPlayer: true);
-        var tabPressed = false;
-        var postTabWorldReads = 0;
-        long captureSequence = 0;
-        var logger = new InMemoryRoadhogLogger();
-        var gameApi = new FakeGameApi
-        {
-            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
-            TargetEntityId = 0,
-            TargetCurrentHp = 0,
-            TargetMaxHp = 0,
-            TargetName = string.Empty,
-            TargetPosition = null,
-            TargetServerObjectId = 0,
-            TargetIsTargetingLocalPlayer = false,
-            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-            {
-                [1] = 0,
-                [5] = 0,
-                [6] = 0,
-                [7] = 0,
-                [8] = 0,
-                [9] = 0,
-                [10] = 0
-            })
-        };
-        gameApi.WorldObjectQualityReadHandler = (_, _) =>
-        {
-            var sequence = Interlocked.Increment(ref captureSequence);
-            if (!tabPressed)
-            {
-                return Task.FromResult(CreateWorldObjectReadResult(
-                    sequence,
-                    WorldObjectReadCompleteness.Complete,
-                    new[] { CreateWorldObjectObservation(candidate) }));
-            }
-
-            Interlocked.Increment(ref postTabWorldReads);
-            return Task.FromResult(CreateWorldObjectReadResult(
-                sequence,
-                WorldObjectReadCompleteness.Partial,
-                new[] { CreateWorldObjectObservation(candidate) },
-                issue: "locked_object_omitted_by_partial_traversal"));
-        };
-        var keyboard = new RecordingKeyboardInput
-        {
-            AfterPress = key =>
-            {
-                if (!string.Equals(key, "Tab", StringComparison.OrdinalIgnoreCase))
-                {
-                    return;
-                }
-
-                tabPressed = true;
-                gameApi.TargetEntityId = wrongLock.EntityId;
-                gameApi.TargetOwnServerObjectId = wrongLock.ServerObjectId;
-                gameApi.TargetCurrentHp = wrongLock.CurrentHp;
-                gameApi.TargetMaxHp = wrongLock.MaxHp;
-                gameApi.TargetName = wrongLock.Name;
-                gameApi.TargetPosition = wrongLock.Position;
-            }
-        };
-        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
-        var state = new StationaryCombatState();
-
-        await controller
-            .TickAsync(
-                CreateContext(settings, gameApi, logger),
-                SemiAutoSkillPlan.FromSettings(settings.Skills),
-                new SemiAutoCombatState(),
-                state)
-            .ConfigureAwait(false);
-
-        AssertFalse(!keyboard.Keys.Contains("Tab"), "acquire tick should press Tab before the partial read");
-        AssertFalse(keyboard.Keys.Contains("W"), "partial wrong-lock evidence must not move forward");
-        AssertFalse(keyboard.Keys.Contains("D2"), "partial wrong-lock evidence must not enter skill release");
-        AssertFalse(state.Fighting, "partial wrong-lock evidence must not change fight state");
-        AssertEqual(candidate.EntityId, state.CandidateEntityId, "partial wrong-lock evidence should keep the requested candidate");
-        AssertEqual(1, postTabWorldReads, "partial acceptance check must use one world capture without a fallback rescan");
-        AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.accept_nearby_aggressive_lock"),
-            "partial missing-object evidence must not log an acceptance");
-    }
-    finally
-    {
-        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
-        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
-    }
-}
-
-static async Task TestStationaryCombatWaitsForStableNearbyAggressiveWrongLockAfterTabAsync()
-{
-    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
-    var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
-    var previousTabPoll = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_POLL_MS");
-    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
-    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", "0");
-    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_POLL_MS", "1");
-    try
-    {
-        var settings = CreateScriptSettings();
-        settings.MainMode = AccountMainMode.CustomCombat;
-        settings.CombatMode = AccountCombatMode.Stationary;
-        settings.Combat = new CombatScriptSettings
-        {
-            HasStationaryCombatPosition = true,
-            StationaryCombatX = 0,
-            StationaryCombatY = 0,
-            StationaryCombatZ = 0,
-            StationaryCombatRadius = 30
-        };
-
-        var candidate = new WorldObjectSnapshot(
-            100,
-            100,
-            "candidate",
-            "monster",
-            new Vector3Snapshot(20, 0, 0),
-            20,
-            1000,
-            1000,
-            AggressiveKnown: true,
-            IsAggressiveToPlayer: true);
-        var previousWrongLock = new WorldObjectSnapshot(
-            200,
-            200,
-            "previous-near-aggressive",
-            "monster",
-            new Vector3Snapshot(5, 0, 0),
-            5,
-            1000,
-            1000,
-            AggressiveKnown: true,
-            IsAggressiveToPlayer: true);
-        var previousWrongLockSnapshot = new LockedTargetSnapshot(
-            previousWrongLock.EntityId,
-            previousWrongLock.ServerObjectId,
-            0,
-            LockedTargetSnapshot.MonsterObjectType,
-            previousWrongLock.Name,
-            previousWrongLock.CurrentHp,
-            previousWrongLock.MaxHp,
-            previousWrongLock.Position,
-            previousWrongLock.DistanceToLocalPlayer,
-            DateTimeOffset.Now);
-        var candidateSnapshot = new LockedTargetSnapshot(
-            candidate.EntityId,
-            candidate.ServerObjectId,
-            0,
-            LockedTargetSnapshot.MonsterObjectType,
-            candidate.Name,
-            candidate.CurrentHp,
-            candidate.MaxHp,
-            candidate.Position,
-            candidate.DistanceToLocalPlayer,
-            DateTimeOffset.Now);
-
-        var logger = new InMemoryRoadhogLogger();
-        var gameApi = new FakeGameApi
-        {
-            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
-            TargetEntityId = previousWrongLock.EntityId,
-            TargetCurrentHp = previousWrongLock.CurrentHp,
-            TargetMaxHp = previousWrongLock.MaxHp,
-            TargetName = previousWrongLock.Name,
-            TargetPosition = previousWrongLock.Position,
-            TargetOwnServerObjectId = previousWrongLock.ServerObjectId,
-            TargetServerObjectId = 0,
-            TargetIsTargetingLocalPlayer = false,
-            WorldObjects = new[] { candidate },
-            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-            {
-                [1] = 0,
-                [5] = 0,
-                [6] = 0,
-                [7] = 0,
-                [8] = 0,
-                [9] = 0,
-                [10] = 0
-            })
-        };
-        var keyboard = new RecordingKeyboardInput
-        {
-            AfterPress = key =>
-            {
-                if (!string.Equals(key, "Tab", StringComparison.OrdinalIgnoreCase))
-                {
-                    return;
-                }
-
-                gameApi.WorldObjects = new[] { candidate, previousWrongLock };
-                gameApi.LockedTargetReadResults.Enqueue(OperationResult<LockedTargetSnapshot>.Ok(previousWrongLockSnapshot));
-                gameApi.LockedTargetReadResults.Enqueue(OperationResult<LockedTargetSnapshot>.Ok(candidateSnapshot));
-                gameApi.TargetEntityId = candidate.EntityId;
-                gameApi.TargetCurrentHp = candidate.CurrentHp;
-                gameApi.TargetMaxHp = candidate.MaxHp;
-                gameApi.TargetName = candidate.Name;
-                gameApi.TargetPosition = candidate.Position;
-                gameApi.TargetOwnServerObjectId = candidate.ServerObjectId;
-                gameApi.TargetServerObjectId = 0;
-                gameApi.TargetIsTargetingLocalPlayer = false;
-            }
-        };
-        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
-        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-        var state = new StationaryCombatState();
-        var semiAutoState = new SemiAutoCombatState();
-        var context = CreateContext(settings, gameApi, logger);
-
-        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
-
-        AssertFalse(!keyboard.Keys.Contains("Tab"), "acquire tick should press Tab");
-        AssertFalse(keyboard.Keys.Contains("W"), "changed confirmation must not start wrong-lock nudge");
-        AssertFalse(keyboard.Keys.Contains("D2"), "unstable previous lock must not enter skill release");
-        AssertFalse(state.Fighting, "unstable previous lock must not enter fight state");
-        AssertEqual(candidate.EntityId, state.CandidateEntityId, "unstable previous lock should keep original candidate");
-        AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.accept_nearby_aggressive_lock"),
-            "unstable previous lock must not be accepted");
-        AssertFalse(!logger.Entries.Any(entry =>
-                entry.EventName == "stationary_combat.target.nearby_aggressive_lock_unstable" &&
-                Equals(Convert.ToUInt16(entry.Fields["initialLockedEntityId"]), previousWrongLock.EntityId) &&
-                Equals(Convert.ToUInt16(entry.Fields["confirmedLockedEntityId"]), candidate.EntityId)),
-            "changed fresh confirmation should be logged");
-
-        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
-
-        AssertFalse(!state.Fighting, "confirmed original candidate should enter fight state on the next tick");
-        AssertEqual(candidate.EntityId, state.CurrentTargetEntityId, "confirmed original candidate should remain the fight target");
-        AssertFalse(!keyboard.Keys.Contains("D2"), "confirmed original candidate should enter skill release");
-    }
-    finally
-    {
-        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
-        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
-        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_POLL_MS", previousTabPoll);
     }
 }
 
@@ -19795,8 +18871,7 @@ static async Task TestStationaryCombatRejectsOrdinaryAggressiveWrongLockDuringSm
                 gameApi.TargetMaxHp = ordinaryWrongLock.MaxHp;
                 gameApi.TargetName = ordinaryWrongLock.Name;
                 gameApi.TargetPosition = ordinaryWrongLock.Position;
-                gameApi.TargetOwnServerObjectId = ordinaryWrongLock.ServerObjectId;
-                gameApi.TargetServerObjectId = 0;
+                gameApi.TargetServerObjectId = ordinaryWrongLock.ServerObjectId;
                 gameApi.TargetIsTargetingLocalPlayer = false;
                 gameApi.WorldObjects = new[] { committed, ordinaryWrongLock };
             }
@@ -23650,1677 +22725,6 @@ static async Task TestStationaryCombatPostponesAfterCombatMaintenanceWhilePetIsT
     }
 }
 
-static Task TestLocalDefenseThreatGuardRequiresDistinctNegativeCapturesAsync()
-{
-    var threat = new WorldObjectSnapshot(
-        200,
-        2200,
-        "pet-targeting",
-        "monster",
-        new Vector3Snapshot(8, 0, 0),
-        8,
-        1000,
-        1000,
-        TargetServerObjectId: 2000);
-    var guard = new LocalDefenseThreatGuard();
-    guard.Confirm(threat, 10, DateTimeOffset.Now);
-    guard.HoldUnknown();
-
-    AssertFalse(
-        guard.RecordConfirmedNegative(11, 2),
-        "the first complete negative capture should keep the guard");
-    AssertEqual(1, guard.ConsecutiveConfirmedNegativeObservations, "first negative count");
-    AssertFalse(
-        guard.RecordConfirmedNegative(11, 2),
-        "replaying the same capture must not release the guard");
-    AssertEqual(1, guard.ConsecutiveConfirmedNegativeObservations, "duplicate capture must not increment");
-    AssertFalse(!guard.HasRetainedThreat, "one independent negative should retain the threat identity");
-    AssertFalse(
-        !guard.RecordConfirmedNegative(12, 2),
-        "the second distinct complete negative capture should release the guard");
-    AssertEqual(LocalDefenseThreatGuardStatus.Clear, guard.Status, "guard should clear after two distinct negatives");
-
-    return Task.CompletedTask;
-}
-
-static Task TestLocalDefenseThreatGuardRejectsOutOfOrderObservationsAsync()
-{
-    var original = new WorldObjectSnapshot(
-        200,
-        2200,
-        "original-threat",
-        "monster",
-        new Vector3Snapshot(8, 0, 0),
-        8,
-        1000,
-        1000,
-        TargetServerObjectId: 2000);
-    var staleReplacement = original with
-    {
-        EntityId = 201,
-        ServerObjectId = 2201,
-        Name = "stale-replacement"
-    };
-    var guard = new LocalDefenseThreatGuard();
-    AssertFalse(
-        !guard.Confirm(original, 10, DateTimeOffset.Now, observationOrder: 10),
-        "initial ordered confirmation should be accepted");
-    AssertFalse(!guard.TryBeginObservation(12), "newer observation should reserve the guard transaction");
-    AssertFalse(!guard.HoldUnknown(12), "newer uncertain observation should hold the original threat");
-    AssertFalse(guard.TryBeginObservation(11), "an older observation that completes late must be rejected");
-    AssertFalse(
-        guard.Confirm(staleReplacement, 11, DateTimeOffset.Now, observationOrder: 11),
-        "a late older positive must not overwrite the newer guard state");
-    AssertFalse(!guard.Matches(original), "out-of-order completion must retain the original threat identity");
-    AssertEqual(LocalDefenseThreatGuardStatus.UnknownHeld, guard.Status, "newest unknown state must remain authoritative");
-
-    return Task.CompletedTask;
-}
-
-static Task TestLocalDefenseThreatGuardHoldsUnknownHealthAsync()
-{
-    var threat = new WorldObjectSnapshot(
-        200,
-        2200,
-        "pet-targeting",
-        "monster",
-        new Vector3Snapshot(8, 0, 0),
-        8,
-        0,
-        0,
-        TargetServerObjectId: 2000);
-    var state = new StationaryCombatState();
-    state.ApplyLocalCombatSideRoster(
-        CreateSummonedPetRosterReadResult(
-            1,
-            SummonedPetRosterReadCompleteness.Complete,
-            CreateLocalPetRoster(isSummoned: true)),
-        3);
-    state.LocalDefenseThreat.Confirm(
-        threat with { CurrentHp = 1000, MaxHp = 1000 },
-        1,
-        DateTimeOffset.Now,
-        observationOrder: 1);
-    var settings = CreateSpiritmasterScriptSettings();
-    var context = CreateContext(settings, new FakeGameApi(), new InMemoryRoadhogLogger());
-
-    for (var capture = 2; capture <= 3; capture++)
-    {
-        InvokeLocalDefenseObservationForTest(
-            context,
-            state,
-            CreateWorldObjectReadResult(
-                capture,
-                WorldObjectReadCompleteness.Complete,
-                new[] { CreateWorldObjectObservation(threat, healthValid: false) },
-                issue: "injected_health_failure"),
-            "health_unknown",
-            observationOrder: capture,
-            stateGeneration: state.WorldObjectReadGeneration);
-    }
-
-    AssertEqual(LocalDefenseThreatGuardStatus.UnknownHeld, state.LocalDefenseThreat.Status, "valid pet targeting with unknown HP must remain unknown");
-    AssertEqual(0, state.LocalDefenseThreat.ConsecutiveConfirmedNegativeObservations, "unknown HP must never count as no-threat evidence");
-    AssertFalse(!state.LocalDefenseThreat.Matches(threat), "unknown HP must retain the same attacking monster");
-
-    return Task.CompletedTask;
-}
-
-static Task TestLocalDefenseThreatGuardHoldsSelfTargetRelationAsync()
-{
-    var threat = new WorldObjectSnapshot(
-        200,
-        2200,
-        "pet-targeting",
-        "monster",
-        new Vector3Snapshot(8, 0, 0),
-        8,
-        1000,
-        1000,
-        TargetServerObjectId: 2000);
-    var selfTargetRead = threat with { TargetServerObjectId = threat.ServerObjectId };
-    var state = new StationaryCombatState();
-    state.ApplyLocalCombatSideRoster(
-        CreateSummonedPetRosterReadResult(
-            1,
-            SummonedPetRosterReadCompleteness.Complete,
-            CreateLocalPetRoster(isSummoned: true)),
-        3);
-    state.LocalDefenseThreat.Confirm(threat, 1, DateTimeOffset.Now, observationOrder: 1);
-    var context = CreateContext(
-        CreateSpiritmasterScriptSettings(),
-        new FakeGameApi(),
-        new InMemoryRoadhogLogger());
-
-    for (var capture = 2; capture <= 3; capture++)
-    {
-        InvokeLocalDefenseObservationForTest(
-            context,
-            state,
-            CreateWorldObjectReadResult(
-                capture,
-                WorldObjectReadCompleteness.Complete,
-                new[] { CreateWorldObjectObservation(selfTargetRead) }),
-            "self_target_relation",
-            observationOrder: capture,
-            stateGeneration: state.WorldObjectReadGeneration);
-    }
-
-    AssertEqual(
-        LocalDefenseThreatGuardStatus.UnknownHeld,
-        state.LocalDefenseThreat.Status,
-        "self-target reads must hold the previously confirmed pet attacker");
-    AssertEqual(
-        0,
-        state.LocalDefenseThreat.ConsecutiveConfirmedNegativeObservations,
-        "self-target reads must not count as no-threat evidence");
-    AssertFalse(
-        !state.LocalDefenseThreat.Matches(threat),
-        "self-target reads must retain the attacking monster identity");
-
-    return Task.CompletedTask;
-}
-
-static Task TestLocalDefenseThreatGuardKeepsOriginalThreatAcrossPartialReplacementAsync()
-{
-    var original = new WorldObjectSnapshot(
-        200,
-        2200,
-        "original-threat",
-        "monster",
-        new Vector3Snapshot(8, 0, 0),
-        8,
-        1000,
-        1000,
-        TargetServerObjectId: 2000);
-    var replacement = original with
-    {
-        EntityId = 201,
-        ServerObjectId = 2201,
-        Name = "visible-replacement"
-    };
-    var state = new StationaryCombatState();
-    state.ApplyLocalCombatSideRoster(
-        CreateSummonedPetRosterReadResult(
-            1,
-            SummonedPetRosterReadCompleteness.Complete,
-            CreateLocalPetRoster(isSummoned: true)),
-        3);
-    state.LocalDefenseThreat.Confirm(original, 1, DateTimeOffset.Now, observationOrder: 1);
-    var context = CreateContext(
-        CreateSpiritmasterScriptSettings(),
-        new FakeGameApi(),
-        new InMemoryRoadhogLogger());
-
-    InvokeLocalDefenseObservationForTest(
-        context,
-        state,
-        CreateWorldObjectReadResult(
-            2,
-            WorldObjectReadCompleteness.Partial,
-            new[] { CreateWorldObjectObservation(replacement) },
-            issue: "original_missing_from_partial"),
-        "partial_replacement",
-        observationOrder: 2,
-        stateGeneration: state.WorldObjectReadGeneration);
-    InvokeLocalDefenseObservationForTest(
-        context,
-        state,
-        CreateWorldObjectReadResult(
-            3,
-            WorldObjectReadCompleteness.Partial,
-            issue: "both_missing_from_partial"),
-        "partial_after_replacement",
-        observationOrder: 3,
-        stateGeneration: state.WorldObjectReadGeneration);
-
-    AssertFalse(!state.LocalDefenseThreat.Matches(original), "a different positive in a partial batch must not overwrite the unresolved original threat");
-    AssertFalse(state.LocalDefenseThreat.Matches(replacement), "partial replacement must not become the retained identity");
-    AssertEqual(LocalDefenseThreatGuardStatus.UnknownHeld, state.LocalDefenseThreat.Status, "missing original threat must keep the guard held");
-
-    return Task.CompletedTask;
-}
-
-static async Task TestStationaryCombatPreservesPetIdentityOnRosterFailureAsync()
-{
-    var settings = CreateSpiritmasterScriptSettings();
-    var player = CreateSpiritmasterPlayer();
-    var gameApi = new FakeGameApi();
-    gameApi.SummonedPetRosterReadResults.Enqueue(
-        OperationResult<SummonedPetRosterSnapshot>.Ok(CreateLocalPetRoster(isSummoned: true)));
-    gameApi.SummonedPetRosterReadResults.Enqueue(
-        OperationResult<SummonedPetRosterSnapshot>.Fail("injected roster failure"));
-    var state = new StationaryCombatState();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
-    var method = typeof(StationaryCombatController).GetMethod(
-        "RefreshLocalCombatSideAsync",
-        System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
-    AssertFalse(method is null, "local combat-side refresh helper should exist");
-
-    await ((Task)method!.Invoke(null, new object[] { context, plan, state, player })!).ConfigureAwait(false);
-    AssertEqual((uint)1000, state.LocalCombatSideServerObjectId, "confirmed local server object id");
-    AssertEqual((uint)2000, state.LocalCombatSidePetServerObjectId, "confirmed pet server object id");
-    AssertFalse(!state.LocalCombatSideIdentityFresh, "successful roster should mark identity fresh");
-
-    await ((Task)method.Invoke(null, new object[] { context, plan, state, player })!).ConfigureAwait(false);
-    AssertEqual((uint)1000, state.LocalCombatSideServerObjectId, "roster failure must retain local identity");
-    AssertEqual((uint)2000, state.LocalCombatSidePetServerObjectId, "roster failure must retain pet identity");
-    AssertFalse(state.LocalCombatSideIdentityFresh, "roster failure should mark this frame unknown");
-
-    var emptyRoster = SummonedPetRosterSnapshot.Empty(1000, DateTimeOffset.Now);
-    for (var partial = 0; partial < 3; partial++)
-    {
-        state.ApplyLocalCombatSideRoster(
-            CreateSummonedPetRosterReadResult(
-                2,
-                SummonedPetRosterReadCompleteness.Partial,
-                emptyRoster,
-                localLinkedPetServerObjectIdAvailable: false,
-                visibleActorTraversalAvailable: false,
-                issue: "injected_partial_roster"),
-            3);
-    }
-
-    AssertEqual((uint)2000, state.LocalCombatSidePetServerObjectId, "partial rosters must never clear pet identity");
-    AssertEqual(0, state.LocalCombatSidePetMissingConfirmations, "partial rosters must never count as pet absence");
-
-    for (var confirmation = 1; confirmation <= 2; confirmation++)
-    {
-        state.ApplyLocalCombatSideRoster(
-            CreateSummonedPetRosterReadResult(
-                confirmation + 2,
-                SummonedPetRosterReadCompleteness.Complete,
-                emptyRoster),
-            3);
-        AssertEqual((uint)2000, state.LocalCombatSidePetServerObjectId, "one or two missing rosters must retain pet identity");
-        AssertFalse(state.LocalCombatSideIdentityFresh, "unconfirmed pet absence should remain unknown");
-    }
-
-    state.ApplyLocalCombatSideRoster(
-        CreateSummonedPetRosterReadResult(
-            4,
-            SummonedPetRosterReadCompleteness.Complete,
-            emptyRoster),
-        3);
-    AssertEqual(2, state.LocalCombatSidePetMissingConfirmations, "replaying the same absent capture must not increment");
-    AssertEqual((uint)2000, state.LocalCombatSidePetServerObjectId, "duplicate absent capture must retain pet identity");
-
-    state.ApplyLocalCombatSideRoster(
-        CreateSummonedPetRosterReadResult(
-            5,
-            SummonedPetRosterReadCompleteness.Complete,
-            emptyRoster),
-        3);
-    AssertEqual((uint)0, state.LocalCombatSidePetServerObjectId, "three confirmed missing rosters should clear the pet");
-    AssertFalse(!state.LocalCombatSideIdentityFresh, "confirmed pet absence should restore fresh identity");
-}
-
-static async Task TestStationaryCombatHoldsPostCombatMaintenanceOnPartialWorldReadAsync()
-{
-    using var guardOverride = new EnvironmentVariableScope("ROADHOG_LOCAL_DEFENSE_UNKNOWN_GUARD", "1");
-    var settings = CreateSpiritmasterScriptSettings();
-    settings.MainMode = AccountMainMode.CustomCombat;
-    settings.CombatMode = AccountCombatMode.Stationary;
-    settings.Combat = new CombatScriptSettings
-    {
-        EnableLoot = true,
-        HasStationaryCombatPosition = true,
-        StationaryCombatRadius = 60
-    };
-    settings.Maintenance.SitMaintenanceEnabled = false;
-    settings.Maintenance.HpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
-    {
-        BelowPercent = 50,
-        Key = "D8",
-        RunTiming = MaintenanceRuleRunTiming.AfterCombat
-    });
-
-    var threat = new WorldObjectSnapshot(
-        200,
-        2200,
-        "pet-targeting",
-        "monster",
-        new Vector3Snapshot(8, 0, 0),
-        8,
-        1000,
-        1000,
-        TargetServerObjectId: 2000);
-    var gameApi = new FakeGameApi
-    {
-        Player = new PlayerSnapshot(
-            1,
-            100,
-            "Spirit",
-            40,
-            100,
-            100,
-            100,
-            0,
-            new Vector3Snapshot(0, 0, 0),
-            DateTimeOffset.Now,
-            CharacterClass: AionClassCatalog.GetChineseName(AionClassId.Spiritmaster),
-            CharacterClassId: AionClassId.Spiritmaster),
-        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true),
-        Skills = CreateSpiritmasterSkillSnapshots()
-    };
-    gameApi.WorldObjectQualityReadResults.Enqueue(
-        CreateWorldObjectReadResult(2, WorldObjectReadCompleteness.Partial, issue: "injected partial"));
-    gameApi.WorldObjectQualityReadResults.Enqueue(
-        CreateWorldObjectReadResult(
-            3,
-            WorldObjectReadCompleteness.Partial,
-            bypassMemoryCache: true,
-            issue: "injected bypass partial"));
-
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
-    var state = new StationaryCombatState();
-    state.StartLootAfterKill(
-        new LockedTargetSnapshot(
-            100,
-            1100,
-            0,
-            LockedTargetSnapshot.MonsterObjectType,
-            "dead-target",
-            0,
-            1000,
-            new Vector3Snapshot(2, 0, 0),
-            2,
-            DateTimeOffset.Now),
-        DateTimeOffset.Now);
-    state.LootAfterKill.MoveToPostCombatMaintenance(DateTimeOffset.Now);
-    state.LocalDefenseThreat.Confirm(threat, 1, DateTimeOffset.Now);
-    var context = CreateContext(settings, gameApi, logger);
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var semiAutoState = new SemiAutoCombatState();
-
-    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
-
-    AssertEqual(LocalDefenseThreatGuardStatus.UnknownHeld, state.LocalDefenseThreat.Status, "partial read should hold prior threat");
-    AssertFalse(!state.LootAfterKill.Active, "unknown threat should keep post-combat node active");
-    AssertFalse(keyboard.Keys.Contains("D8"), "unknown threat must block after-combat maintenance");
-    AssertFalse(keyboard.KeyDowns.Contains("W"), "unknown threat must not resume path movement");
-    AssertFalse(
-        !gameApi.WorldObjectQualityReadContexts.Any(read => read.BypassMemoryCache),
-        "unknown threat should trigger a real cache-bypass read");
-    AssertFalse(
-        !logger.Entries.Any(entry => entry.EventName == "stationary_combat.local_defense.unknown_held"),
-        "unknown hold should be logged");
-
-    gameApi.WorldObjectQualityReadResults.Enqueue(
-        CreateWorldObjectReadResult(
-            4,
-            WorldObjectReadCompleteness.Complete,
-            new[] { CreateWorldObjectObservation(threat) }));
-    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
-
-    AssertFalse(state.LootAfterKill.Active, "confirmed threat should finish loot transition before adoption");
-    AssertFalse(!state.Fighting, "confirmed current observation should become the next fight");
-    AssertEqual(threat.ServerObjectId, state.CurrentTargetServerObjectId, "adopted threat identity");
-    AssertFalse(keyboard.Keys.Contains("D8"), "defense adoption should continue to preempt maintenance");
-}
-
-static async Task TestStationaryCombatHoldsNoLootTransitionOnPartialWorldReadAsync()
-{
-    using var guardOverride = new EnvironmentVariableScope("ROADHOG_LOCAL_DEFENSE_UNKNOWN_GUARD", "1");
-    var settings = CreateSpiritmasterScriptSettings();
-    settings.MainMode = AccountMainMode.CustomCombat;
-    settings.CombatMode = AccountCombatMode.Stationary;
-    settings.Combat = new CombatScriptSettings
-    {
-        EnableLoot = false,
-        HasStationaryCombatPosition = true,
-        StationaryCombatRadius = 60
-    };
-    settings.Maintenance.SitMaintenanceEnabled = false;
-    settings.Maintenance.HpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
-    {
-        BelowPercent = 50,
-        Key = "D8",
-        RunTiming = MaintenanceRuleRunTiming.AfterCombat
-    });
-
-    var threat = new WorldObjectSnapshot(
-        200,
-        2200,
-        "pet-targeting",
-        "monster",
-        new Vector3Snapshot(8, 0, 0),
-        8,
-        1000,
-        1000,
-        TargetServerObjectId: 2000);
-    var gameApi = new FakeGameApi
-    {
-        Player = new PlayerSnapshot(
-            1,
-            100,
-            "Spirit",
-            40,
-            100,
-            100,
-            100,
-            0,
-            new Vector3Snapshot(0, 0, 0),
-            DateTimeOffset.Now,
-            CharacterClass: AionClassCatalog.GetChineseName(AionClassId.Spiritmaster),
-            CharacterClassId: AionClassId.Spiritmaster),
-        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true),
-        TargetEntityId = 100,
-        TargetOwnServerObjectId = 1100,
-        TargetCurrentHp = 0,
-        TargetMaxHp = 1000,
-        TargetLootableRaw = 0,
-        TargetPosition = new Vector3Snapshot(2, 0, 0),
-        Skills = CreateSpiritmasterSkillSnapshots()
-    };
-    gameApi.WorldObjectQualityReadResults.Enqueue(
-        CreateWorldObjectReadResult(2, WorldObjectReadCompleteness.Partial, issue: "injected partial"));
-    gameApi.WorldObjectQualityReadResults.Enqueue(
-        CreateWorldObjectReadResult(3, WorldObjectReadCompleteness.Partial, issue: "injected bypass partial"));
-
-    var keyboard = new RecordingKeyboardInput();
-    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
-    var state = new StationaryCombatState
-    {
-        Fighting = true,
-        CurrentTargetEntityId = 100,
-        CurrentTargetServerObjectId = 1100,
-        CandidateEntityId = 100,
-        CandidateServerObjectId = 1100
-    };
-    state.LocalDefenseThreat.Confirm(threat, 1, DateTimeOffset.Now);
-    var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var semiAutoState = new SemiAutoCombatState();
-
-    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
-
-    AssertEqual(LocalDefenseThreatGuardStatus.UnknownHeld, state.LocalDefenseThreat.Status, "no-loot partial should hold prior threat");
-    AssertFalse(!state.Fighting, "dead current target state should remain until threat is resolved");
-    AssertEqual((uint)1100, state.CurrentTargetServerObjectId, "unknown hold must not synthesize a replacement target");
-    AssertFalse(keyboard.Keys.Contains("D8"), "unknown no-loot transition must block maintenance");
-    AssertFalse(keyboard.KeyDowns.Contains("W"), "unknown no-loot transition must block path movement");
-
-    gameApi.WorldObjectQualityReadResults.Enqueue(
-        CreateWorldObjectReadResult(
-            4,
-            WorldObjectReadCompleteness.Complete,
-            new[] { CreateWorldObjectObservation(threat) }));
-    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
-
-    AssertFalse(!state.Fighting, "confirmed threat should remain in fight state");
-    AssertEqual(threat.ServerObjectId, state.CurrentTargetServerObjectId, "no-loot transition should adopt confirmed threat");
-    AssertFalse(keyboard.Keys.Contains("D8"), "confirmed defense adoption should still preempt maintenance");
-}
-
-static async Task TestStationaryCombatHoldsOnUnknownTargetFieldAsync()
-{
-    using var guardOverride = new EnvironmentVariableScope("ROADHOG_LOCAL_DEFENSE_UNKNOWN_GUARD", "1");
-    var settings = CreateSpiritmasterScriptSettings();
-    settings.MainMode = AccountMainMode.CustomCombat;
-    settings.CombatMode = AccountCombatMode.Stationary;
-    settings.Combat = new CombatScriptSettings
-    {
-        ReturnHomeWhenNoTarget = false,
-        HasStationaryCombatPosition = true,
-        StationaryCombatRadius = 60
-    };
-    settings.Maintenance.SitMaintenanceEnabled = false;
-    var priorThreat = new WorldObjectSnapshot(
-        200,
-        2200,
-        "pet-targeting",
-        "monster",
-        new Vector3Snapshot(8, 0, 0),
-        8,
-        1000,
-        1000,
-        TargetServerObjectId: 2000);
-    var unknownTargetObservation = CreateWorldObjectObservation(
-        priorThreat with { TargetServerObjectId = 0 },
-        targetValid: false);
-    var gameApi = new FakeGameApi
-    {
-        Player = CreateSpiritmasterPlayer(),
-        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true),
-        Skills = CreateSpiritmasterSkillSnapshots()
-    };
-    gameApi.WorldObjectQualityReadResults.Enqueue(
-        CreateWorldObjectReadResult(
-            2,
-            WorldObjectReadCompleteness.Complete,
-            new[] { unknownTargetObservation },
-            issue: "target_field_failed"));
-    gameApi.WorldObjectQualityReadResults.Enqueue(
-        CreateWorldObjectReadResult(
-            3,
-            WorldObjectReadCompleteness.Complete,
-            new[] { unknownTargetObservation },
-            bypassMemoryCache: true,
-            issue: "target_field_failed"));
-
-    var keyboard = new RecordingKeyboardInput();
-    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
-    var state = new StationaryCombatState();
-    state.LocalDefenseThreat.Confirm(priorThreat, 1, DateTimeOffset.Now);
-
-    await controller
-        .TickAsync(
-            CreateContext(settings, gameApi, new InMemoryRoadhogLogger()),
-            SemiAutoSkillPlan.FromSettings(settings.Skills),
-            new SemiAutoCombatState(),
-            state)
-        .ConfigureAwait(false);
-
-    AssertEqual(LocalDefenseThreatGuardStatus.UnknownHeld, state.LocalDefenseThreat.Status, "invalid target field must remain unknown even in a complete traversal");
-    AssertEqual(0, state.LocalDefenseThreat.ConsecutiveConfirmedNegativeObservations, "invalid field must not count as negative evidence");
-    AssertFalse(keyboard.KeyDowns.Contains("W"), "field-unknown hold must not move");
-    AssertFalse(
-        !gameApi.WorldObjectQualityReadContexts.Any(read => read.BypassMemoryCache),
-        "field-unknown hold should retry outside the memory cache");
-}
-
-static async Task TestPathCombatHoldsMovementOnPartialWorldReadAsync()
-{
-    using var guardOverride = new EnvironmentVariableScope("ROADHOG_LOCAL_DEFENSE_UNKNOWN_GUARD", "1");
-    var settings = CreateSpiritmasterScriptSettings();
-    settings.MainMode = AccountMainMode.CustomCombat;
-    settings.CombatMode = AccountCombatMode.Path;
-    settings.Combat = new CombatScriptSettings { PathCombatRadius = 60 };
-    settings.Maintenance.SitMaintenanceEnabled = false;
-    var threat = new WorldObjectSnapshot(
-        200,
-        2200,
-        "pet-targeting",
-        "monster",
-        new Vector3Snapshot(8, 0, 0),
-        8,
-        1000,
-        1000,
-        TargetServerObjectId: 2000);
-    var gameApi = new FakeGameApi
-    {
-        Player = CreateSpiritmasterPlayer(),
-        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true),
-        Skills = CreateSpiritmasterSkillSnapshots()
-    };
-    gameApi.WorldObjectQualityReadResults.Enqueue(
-        CreateWorldObjectReadResult(2, WorldObjectReadCompleteness.Partial, issue: "injected partial"));
-    gameApi.WorldObjectQualityReadResults.Enqueue(
-        CreateWorldObjectReadResult(3, WorldObjectReadCompleteness.Partial, issue: "injected bypass partial"));
-    var keyboard = new RecordingKeyboardInput();
-    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
-    var state = new StationaryCombatState
-    {
-        IsMovingForward = true
-    };
-    state.LocalDefenseThreat.Confirm(threat, 1, DateTimeOffset.Now);
-
-    await controller
-        .TickPathAsync(
-            CreateContext(settings, gameApi, new InMemoryRoadhogLogger()),
-            SemiAutoSkillPlan.FromSettings(settings.Skills),
-            new SemiAutoCombatState(),
-            state)
-        .ConfigureAwait(false);
-
-    AssertEqual(LocalDefenseThreatGuardStatus.UnknownHeld, state.LocalDefenseThreat.Status, "path tick should retain unknown threat");
-    AssertFalse(keyboard.KeyDowns.Contains("W"), "path tick must not resume W while threat is unknown");
-    AssertFalse(!keyboard.KeyUps.Contains("W"), "path tick must release an already-held W while threat is unknown");
-    AssertFalse(state.IsMovingForward, "path tick must clear the moving-forward state while threat is unknown");
-    AssertFalse(keyboard.Keys.Contains("OemComma"), "path tick must not sit while threat is unknown");
-}
-
-static async Task TestPathCombatBlocksNoKillReturnOnUnknownLocalDefenseAsync()
-{
-    using var guardOverride = new EnvironmentVariableScope("ROADHOG_LOCAL_DEFENSE_UNKNOWN_GUARD", "1");
-    var previousTimeout = Environment.GetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_TIMEOUT_MS");
-    Environment.SetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_TIMEOUT_MS", "1200000");
-    try
-    {
-        var settings = CreateSpiritmasterScriptSettings();
-        settings.MainMode = AccountMainMode.CustomCombat;
-        settings.CombatMode = AccountCombatMode.Path;
-        settings.Paths.TownReturnKey = "NumPad7";
-        settings.Paths.RevivePathName = "revive-a";
-        settings.Paths.CombatPathName = "combat-a";
-        var pathStore = new InMemorySharedPathStore(
-            CreatePath("revive-a",
-                new Vector3Snapshot(100, 0, 0),
-                new Vector3Snapshot(200, 0, 0)),
-            CreatePath("combat-a",
-                new Vector3Snapshot(0, 0, 0),
-                new Vector3Snapshot(20, 0, 0)));
-        var threat = new WorldObjectSnapshot(
-            200,
-            2200,
-            "pet-targeting",
-            "monster",
-            new Vector3Snapshot(8, 0, 0),
-            8,
-            1000,
-            1000,
-            TargetServerObjectId: 2000);
-        var gameApi = new FakeGameApi
-        {
-            Player = CreateSpiritmasterPlayer(),
-            SummonedPetRoster = CreateLocalPetRoster(isSummoned: true),
-            TargetEntityId = 100,
-            TargetOwnServerObjectId = 1100,
-            TargetCurrentHp = 1000,
-            TargetMaxHp = 1000,
-            TargetPosition = new Vector3Snapshot(3, 0, 0),
-            Skills = CreateSpiritmasterSkillSnapshots()
-        };
-        gameApi.WorldObjectQualityReadResults.Enqueue(
-            CreateWorldObjectReadResult(2, WorldObjectReadCompleteness.Partial, issue: "injected_partial"));
-        gameApi.WorldObjectQualityReadResults.Enqueue(
-            CreateWorldObjectReadResult(
-                3,
-                WorldObjectReadCompleteness.Partial,
-                bypassMemoryCache: true,
-                issue: "injected_bypass_partial"));
-        var keyboard = new RecordingKeyboardInput();
-        var logger = new InMemoryRoadhogLogger();
-        var runtimeStates = new AccountRuntimeManager(logger);
-        runtimeStates.GetOrCreate("account1");
-        var controller = new StationaryCombatController(
-            keyboard,
-            new SemiAutoCombatController(keyboard),
-            pathStore);
-        var state = new StationaryCombatState
-        {
-            Fighting = true,
-            CurrentTargetEntityId = 100,
-            CurrentTargetServerObjectId = 1100,
-            CandidateEntityId = 100,
-            CandidateServerObjectId = 1100,
-            IsMovingForward = true
-        };
-        state.LocalDefenseThreat.Confirm(threat, 1, DateTimeOffset.Now);
-        state.NoKillRecovery.ObserveCombatActivity(null, DateTimeOffset.Now.AddMinutes(-21));
-
-        await controller
-            .TickPathAsync(
-                CreateContext(settings, gameApi, logger, runtimeStates),
-                SemiAutoSkillPlan.FromSettings(settings.Skills),
-                new SemiAutoCombatState(),
-                state)
-            .ConfigureAwait(false);
-
-        AssertFalse(keyboard.Keys.Contains("NumPad7"), "unknown local defense must block an uncommitted no-kill town return");
-        AssertFalse(state.NoKillRecovery.Active, "blocked no-kill return must remain uncommitted");
-        AssertEqual(LocalDefenseThreatGuardStatus.UnknownHeld, state.LocalDefenseThreat.Status, "no-kill guard should remain unknown");
-        AssertFalse(!keyboard.KeyUps.Contains("W"), "unknown no-kill guard must stop existing path movement");
-        AssertFalse(
-            logger.Entries.Any(entry => entry.EventName == "stationary_combat.no_kill.return.press"),
-            "blocked no-kill return must not be logged as pressed");
-        AssertFalse(
-            !logger.Entries.Any(entry =>
-                entry.EventName == "stationary_combat.local_defense.unknown_held" &&
-                string.Equals(Convert.ToString(entry.Fields["phase"]), "no_kill_recovery", StringComparison.Ordinal)),
-            "test must reach the no-kill local-defense gate");
-        AssertFalse(
-            !gameApi.WorldObjectQualityReadContexts.Any(read => read.BypassMemoryCache),
-            "no-kill unknown gate must perform the cache-bypass confirmation read");
-    }
-    finally
-    {
-        Environment.SetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_TIMEOUT_MS", previousTimeout);
-    }
-}
-
-static async Task TestPathCombatBlocksFirstNoKillReturnOnUnconfirmedWorldReadAsync()
-{
-    using var guardOverride = new EnvironmentVariableScope("ROADHOG_LOCAL_DEFENSE_UNKNOWN_GUARD", "1");
-    using var timeoutOverride = new EnvironmentVariableScope("ROADHOG_NO_KILL_RETURN_TIMEOUT_MS", "1200000");
-    var settings = CreateSpiritmasterScriptSettings();
-    settings.MainMode = AccountMainMode.CustomCombat;
-    settings.CombatMode = AccountCombatMode.Path;
-    settings.Paths.TownReturnKey = "NumPad7";
-    settings.Paths.RevivePathName = "revive-a";
-    settings.Paths.CombatPathName = "combat-a";
-    var pathStore = new InMemorySharedPathStore(
-        CreatePath("revive-a",
-            new Vector3Snapshot(100, 0, 0),
-            new Vector3Snapshot(200, 0, 0)),
-        CreatePath("combat-a",
-            new Vector3Snapshot(0, 0, 0),
-            new Vector3Snapshot(20, 0, 0)));
-    var gameApi = new FakeGameApi
-    {
-        Player = CreateSpiritmasterPlayer(),
-        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true),
-        Skills = CreateSpiritmasterSkillSnapshots()
-    };
-    gameApi.WorldObjectQualityReadResults.Enqueue(
-        CreateWorldObjectReadResult(1, WorldObjectReadCompleteness.Partial, issue: "first_frame_partial"));
-    gameApi.WorldObjectQualityReadResults.Enqueue(
-        CreateWorldObjectReadResult(
-            2,
-            WorldObjectReadCompleteness.Partial,
-            bypassMemoryCache: true,
-            issue: "first_frame_bypass_partial"));
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var runtimeStates = new AccountRuntimeManager(logger);
-    runtimeStates.GetOrCreate("account1");
-    var controller = new StationaryCombatController(
-        keyboard,
-        new SemiAutoCombatController(keyboard),
-        pathStore);
-    var state = new StationaryCombatState
-    {
-        IsMovingForward = true
-    };
-    state.NoKillRecovery.ObserveCombatActivity(null, DateTimeOffset.Now.AddMinutes(-21));
-
-    await controller
-        .TickPathAsync(
-            CreateContext(settings, gameApi, logger, runtimeStates),
-            SemiAutoSkillPlan.FromSettings(settings.Skills),
-            new SemiAutoCombatState(),
-            state)
-        .ConfigureAwait(false);
-
-    AssertFalse(keyboard.Keys.Contains("NumPad7"), "an unconfirmed first frame must not start town return");
-    AssertFalse(state.NoKillRecovery.Active, "an unconfirmed first frame must remain uncommitted");
-    AssertEqual(LocalDefenseThreatGuardStatus.Clear, state.LocalDefenseThreat.Status, "no threat identity should be invented from an incomplete frame");
-    AssertFalse(!keyboard.KeyUps.Contains("W"), "the first-frame transition guard must release an already-held W");
-    AssertFalse(
-        !gameApi.WorldObjectQualityReadContexts.Any(read => read.BypassMemoryCache),
-        "the first-frame transition guard must perform one cache-bypass check");
-    AssertFalse(
-        !logger.Entries.Any(entry =>
-            entry.EventName == "stationary_combat.local_defense.transition_unconfirmed" &&
-            string.Equals(Convert.ToString(entry.Fields["phase"]), "no_kill_recovery", StringComparison.Ordinal)),
-        "the first-frame no-kill hold should identify its transition phase");
-}
-
-static async Task TestPathCombatBlocksTransitionAfterRetainedThreatDiesInPartialReadAsync()
-{
-    using var guardOverride = new EnvironmentVariableScope("ROADHOG_LOCAL_DEFENSE_UNKNOWN_GUARD", "1");
-    using var timeoutOverride = new EnvironmentVariableScope("ROADHOG_NO_KILL_RETURN_TIMEOUT_MS", "1200000");
-    var settings = CreateScriptSettings();
-    settings.MainMode = AccountMainMode.CustomCombat;
-    settings.CombatMode = AccountCombatMode.Path;
-    settings.Paths.TownReturnKey = "NumPad7";
-    settings.Paths.RevivePathName = "revive-a";
-    settings.Paths.CombatPathName = "combat-a";
-    var pathStore = new InMemorySharedPathStore(
-        CreatePath("revive-a",
-            new Vector3Snapshot(100, 0, 0),
-            new Vector3Snapshot(200, 0, 0)),
-        CreatePath("combat-a",
-            new Vector3Snapshot(0, 0, 0),
-            new Vector3Snapshot(20, 0, 0)));
-    var retained = new WorldObjectSnapshot(
-        200,
-        2200,
-        "retained-dead",
-        "monster",
-        new Vector3Snapshot(5, 0, 0),
-        5,
-        0,
-        1000,
-        TargetServerObjectId: 100,
-        IsTargetingLocalPlayer: true);
-    var gameApi = new FakeGameApi
-    {
-        Player = new PlayerSnapshot(
-            1,
-            100,
-            "Fake",
-            100,
-            100,
-            100,
-            100,
-            0,
-            new Vector3Snapshot(0, 0, 0),
-            DateTimeOffset.Now),
-        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
-    };
-    gameApi.WorldObjectQualityReadResults.Enqueue(
-        CreateWorldObjectReadResult(
-            1,
-            WorldObjectReadCompleteness.Partial,
-            new[] { CreateWorldObjectObservation(retained) },
-            issue: "retained_dead_but_other_nodes_missing"));
-    gameApi.WorldObjectQualityReadResults.Enqueue(
-        CreateWorldObjectReadResult(
-            2,
-            WorldObjectReadCompleteness.Partial,
-            bypassMemoryCache: true,
-            issue: "other_nodes_still_missing"));
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var runtimeStates = new AccountRuntimeManager(logger);
-    runtimeStates.GetOrCreate("account1");
-    var controller = new StationaryCombatController(
-        keyboard,
-        new SemiAutoCombatController(keyboard),
-        pathStore);
-    var state = new StationaryCombatState();
-    state.LocalDefenseThreat.Confirm(retained with { CurrentHp = 1000 }, 0, DateTimeOffset.Now);
-    state.NoKillRecovery.ObserveCombatActivity(null, DateTimeOffset.Now.AddMinutes(-21));
-
-    await controller
-        .TickPathAsync(
-            CreateContext(settings, gameApi, logger, runtimeStates),
-            SemiAutoSkillPlan.FromSettings(settings.Skills),
-            new SemiAutoCombatState(),
-            state)
-        .ConfigureAwait(false);
-
-    AssertEqual(LocalDefenseThreatGuardStatus.Clear, state.LocalDefenseThreat.Status, "the explicitly dead retained identity may be released");
-    AssertFalse(keyboard.Keys.Contains("NumPad7"), "a partial frame that proves only A died must not prove that every local threat is gone");
-    AssertFalse(
-        !logger.Entries.Any(entry =>
-            entry.EventName == "stationary_combat.local_defense.transition_unconfirmed" &&
-            string.Equals(Convert.ToString(entry.Fields["phase"]), "no_kill_recovery", StringComparison.Ordinal)),
-        "the remaining partial coverage must hold the irreversible transition");
-}
-
-static async Task TestPathCombatExpiresFirstNoKillTransitionUncertaintyAsync()
-{
-    using var guardOverride = new EnvironmentVariableScope("ROADHOG_LOCAL_DEFENSE_UNKNOWN_GUARD", "1");
-    using var timeoutOverride = new EnvironmentVariableScope("ROADHOG_NO_KILL_RETURN_TIMEOUT_MS", "1200000");
-    using var retentionOverride = new EnvironmentVariableScope("ROADHOG_LOCAL_DEFENSE_UNKNOWN_TTL_MS", "500");
-    var settings = CreateScriptSettings();
-    settings.MainMode = AccountMainMode.CustomCombat;
-    settings.CombatMode = AccountCombatMode.Path;
-    settings.Paths.TownReturnKey = "NumPad7";
-    settings.Paths.RevivePathName = "revive-a";
-    settings.Paths.CombatPathName = "combat-a";
-    var pathStore = new InMemorySharedPathStore(
-        CreatePath("revive-a",
-            new Vector3Snapshot(100, 0, 0),
-            new Vector3Snapshot(200, 0, 0)),
-        CreatePath("combat-a",
-            new Vector3Snapshot(0, 0, 0),
-            new Vector3Snapshot(20, 0, 0)));
-    var gameApi = new FakeGameApi
-    {
-        Player = new PlayerSnapshot(
-            1,
-            100,
-            "Fake",
-            100,
-            100,
-            100,
-            100,
-            0,
-            new Vector3Snapshot(0, 0, 0),
-            DateTimeOffset.Now),
-        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
-    };
-    gameApi.WorldObjectQualityReadResults.Enqueue(
-        CreateWorldObjectReadResult(1, WorldObjectReadCompleteness.Partial, issue: "persistent_partial"));
-    gameApi.WorldObjectQualityReadResults.Enqueue(
-        CreateWorldObjectReadResult(
-            2,
-            WorldObjectReadCompleteness.Partial,
-            bypassMemoryCache: true,
-            issue: "persistent_bypass_partial"));
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var runtimeStates = new AccountRuntimeManager(logger);
-    runtimeStates.GetOrCreate("account1");
-    var controller = new StationaryCombatController(
-        keyboard,
-        new SemiAutoCombatController(keyboard),
-        pathStore);
-    var state = new StationaryCombatState();
-    state.NoKillRecovery.ObserveCombatActivity(null, DateTimeOffset.Now.AddMinutes(-21));
-    state.MarkLocalDefenseTransitionUnknown("no_kill_recovery", DateTimeOffset.Now - TimeSpan.FromSeconds(1));
-
-    await controller
-        .TickPathAsync(
-            CreateContext(settings, gameApi, logger, runtimeStates),
-            SemiAutoSkillPlan.FromSettings(settings.Skills),
-            new SemiAutoCombatState(),
-            state)
-        .ConfigureAwait(false);
-
-    AssertFalse(!keyboard.Keys.Contains("NumPad7"), "persistent first-frame uncertainty should eventually fail open instead of stalling forever");
-    AssertFalse(!state.NoKillRecovery.Active, "expired transition uncertainty should allow the town-return state to commit");
-    AssertEqual(
-        1,
-        logger.Entries.Count(entry => entry.EventName == "stationary_combat.local_defense.transition_expired"),
-        "anonymous transition uncertainty should expire exactly once");
-}
-
-static async Task TestPathCombatClearsPriorTransitionUncertaintyAfterActivityAsync()
-{
-    using var guardOverride = new EnvironmentVariableScope("ROADHOG_LOCAL_DEFENSE_UNKNOWN_GUARD", "1");
-    using var timeoutOverride = new EnvironmentVariableScope("ROADHOG_NO_KILL_RETURN_TIMEOUT_MS", "1200000");
-    using var retentionOverride = new EnvironmentVariableScope("ROADHOG_LOCAL_DEFENSE_UNKNOWN_TTL_MS", "500");
-    var settings = CreateScriptSettings();
-    settings.MainMode = AccountMainMode.CustomCombat;
-    settings.CombatMode = AccountCombatMode.Path;
-    settings.Paths.TownReturnKey = "NumPad7";
-    settings.Paths.RevivePathName = "revive-a";
-    settings.Paths.CombatPathName = "combat-a";
-    var pathStore = new InMemorySharedPathStore(
-        CreatePath("revive-a",
-            new Vector3Snapshot(100, 0, 0),
-            new Vector3Snapshot(200, 0, 0)),
-        CreatePath("combat-a",
-            new Vector3Snapshot(0, 0, 0),
-            new Vector3Snapshot(20, 0, 0)));
-    var gameApi = new FakeGameApi
-    {
-        Player = new PlayerSnapshot(
-            1,
-            100,
-            "Fake",
-            100,
-            100,
-            100,
-            100,
-            0,
-            new Vector3Snapshot(0, 0, 0),
-            DateTimeOffset.Now),
-        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
-    };
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var runtimeStates = new AccountRuntimeManager(logger);
-    runtimeStates.GetOrCreate("account1");
-    var controller = new StationaryCombatController(
-        keyboard,
-        new SemiAutoCombatController(keyboard),
-        pathStore);
-    var state = new StationaryCombatState();
-    state.MarkLocalDefenseTransitionUnknown("no_kill_recovery", DateTimeOffset.Now - TimeSpan.FromSeconds(1));
-    state.NoKillRecovery.ResetWatch(DateTimeOffset.Now);
-    var context = CreateContext(settings, gameApi, logger, runtimeStates);
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-
-    await controller.TickPathAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
-
-    keyboard.Keys.Clear();
-    keyboard.KeyDowns.Clear();
-    keyboard.KeyUps.Clear();
-    state.NoKillRecovery.ResetWatch(DateTimeOffset.Now.AddMinutes(-21));
-    gameApi.WorldObjectQualityReadResults.Enqueue(
-        CreateWorldObjectReadResult(100, WorldObjectReadCompleteness.Partial, issue: "new_window_partial"));
-    gameApi.WorldObjectQualityReadResults.Enqueue(
-        CreateWorldObjectReadResult(
-            101,
-            WorldObjectReadCompleteness.Partial,
-            bypassMemoryCache: true,
-            issue: "new_window_bypass_partial"));
-
-    await controller.TickPathAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
-
-    AssertFalse(keyboard.Keys.Contains("NumPad7"), "new combat activity must clear the old uncertainty age instead of immediately failing open later");
-    AssertFalse(
-        !logger.Entries.Any(entry =>
-            entry.EventName == "stationary_combat.local_defense.transition_unconfirmed" &&
-            string.Equals(Convert.ToString(entry.Fields["phase"]), "no_kill_recovery", StringComparison.Ordinal)),
-        "a later no-kill window should start a fresh uncertainty hold");
-}
-
-static async Task TestStationaryCombatDefensePreemptsStartupTownReturnAsync()
-{
-    using var guardOverride = new EnvironmentVariableScope("ROADHOG_LOCAL_DEFENSE_UNKNOWN_GUARD", "1");
-    var previousDistance = Environment.GetEnvironmentVariable("ROADHOG_STARTUP_RETURN_DISTANCE");
-    Environment.SetEnvironmentVariable("ROADHOG_STARTUP_RETURN_DISTANCE", "500");
-    try
-    {
-        var settings = CreateSpiritmasterScriptSettings();
-        settings.MainMode = AccountMainMode.CustomCombat;
-        settings.CombatMode = AccountCombatMode.Stationary;
-        settings.Paths.TownReturnKey = "NumPad7";
-        settings.Paths.RevivePathName = "revive-a";
-        settings.Combat = new CombatScriptSettings
-        {
-            HasStationaryCombatPosition = true,
-            StationaryCombatX = 200,
-            StationaryCombatY = 0,
-            StationaryCombatZ = 0,
-            StationaryCombatRadius = 60
-        };
-        settings.Maintenance.SitMaintenanceEnabled = false;
-        var pathStore = new InMemorySharedPathStore(
-            CreatePath("revive-a",
-                new Vector3Snapshot(0, 0, 0),
-                new Vector3Snapshot(100, 0, 0),
-                new Vector3Snapshot(200, 0, 0)));
-        var threat = new WorldObjectSnapshot(
-            200,
-            2200,
-            "pet-targeting",
-            "monster",
-            new Vector3Snapshot(995, 0, 0),
-            5,
-            1000,
-            1000,
-            TargetServerObjectId: 2000);
-        var gameApi = new FakeGameApi
-        {
-            Player = CreateSpiritmasterPlayer() with { Position = new Vector3Snapshot(1000, 0, 0) },
-            SummonedPetRoster = CreateLocalPetRoster(isSummoned: true),
-            Skills = CreateSpiritmasterSkillSnapshots()
-        };
-        gameApi.WorldObjectQualityReadResults.Enqueue(
-            CreateWorldObjectReadResult(
-                2,
-                WorldObjectReadCompleteness.Complete,
-                new[] { CreateWorldObjectObservation(threat) }));
-        var keyboard = new RecordingKeyboardInput();
-        var logger = new InMemoryRoadhogLogger();
-        var controller = new StationaryCombatController(
-            keyboard,
-            new SemiAutoCombatController(keyboard),
-            pathStore);
-        var state = new StationaryCombatState();
-        state.LocalDefenseThreat.Confirm(threat, 1, DateTimeOffset.Now);
-
-        await controller
-            .TickAsync(
-                CreateContext(settings, gameApi, logger),
-                SemiAutoSkillPlan.FromSettings(settings.Skills),
-                new SemiAutoCombatState(),
-                state)
-            .ConfigureAwait(false);
-
-        AssertFalse(keyboard.Keys.Contains("NumPad7"), "confirmed local defense must preempt the first startup town return");
-        AssertFalse(state.StartupTownReturnPending, "defense preemption must not commit startup town return state");
-        AssertEqual(threat.EntityId, state.CandidateEntityId, "confirmed defense should continue into the normal target workflow");
-        AssertEqual(threat.ServerObjectId, state.CandidateServerObjectId, "confirmed defense server identity");
-    }
-    finally
-    {
-        Environment.SetEnvironmentVariable("ROADHOG_STARTUP_RETURN_DISTANCE", previousDistance);
-    }
-}
-
-static async Task TestStationaryCombatFreshDefensePreemptsStartupTownReturnAsync()
-{
-    using var guardOverride = new EnvironmentVariableScope("ROADHOG_LOCAL_DEFENSE_UNKNOWN_GUARD", "1");
-    using var distanceOverride = new EnvironmentVariableScope("ROADHOG_STARTUP_RETURN_DISTANCE", "500");
-    var settings = CreateSpiritmasterScriptSettings();
-    settings.MainMode = AccountMainMode.CustomCombat;
-    settings.CombatMode = AccountCombatMode.Stationary;
-    settings.Paths.TownReturnKey = "NumPad7";
-    settings.Paths.RevivePathName = "revive-a";
-    settings.Combat = new CombatScriptSettings
-    {
-        HasStationaryCombatPosition = true,
-        StationaryCombatX = 200,
-        StationaryCombatY = 0,
-        StationaryCombatZ = 0,
-        StationaryCombatRadius = 60
-    };
-    settings.Maintenance.SitMaintenanceEnabled = false;
-    var pathStore = new InMemorySharedPathStore(
-        CreatePath("revive-a",
-            new Vector3Snapshot(0, 0, 0),
-            new Vector3Snapshot(100, 0, 0),
-            new Vector3Snapshot(200, 0, 0)));
-    var threat = new WorldObjectSnapshot(
-        200,
-        2200,
-        "fresh-pet-targeting",
-        "monster",
-        new Vector3Snapshot(995, 0, 0),
-        5,
-        1000,
-        1000,
-        TargetServerObjectId: 2000);
-    var positiveRead = CreateWorldObjectReadResult(
-        1,
-        WorldObjectReadCompleteness.Complete,
-        new[] { CreateWorldObjectObservation(threat) });
-    var gameApi = new FakeGameApi
-    {
-        Player = CreateSpiritmasterPlayer() with { Position = new Vector3Snapshot(1000, 0, 0) },
-        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true),
-        Skills = CreateSpiritmasterSkillSnapshots(),
-        WorldObjectQualityReadFallback = positiveRead
-    };
-    gameApi.WorldObjectQualityReadResults.Enqueue(positiveRead);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var controller = new StationaryCombatController(
-        keyboard,
-        new SemiAutoCombatController(keyboard),
-        pathStore);
-    var state = new StationaryCombatState
-    {
-        IsMovingForward = true
-    };
-    state.TemporarilyExcludeTarget(
-        threat.EntityId,
-        threat.ServerObjectId,
-        DateTimeOffset.Now + TimeSpan.FromMinutes(1),
-        DateTimeOffset.Now + TimeSpan.FromSeconds(1));
-    var context = CreateContext(settings, gameApi, logger);
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-
-    await controller.TickAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
-
-    AssertFalse(keyboard.Keys.Contains("NumPad7"), "a fresh local-defense target must preempt the first startup town return");
-    AssertFalse(keyboard.KeyDowns.Contains("W"), "the discovery tick must not start walking home before adopting the fresh threat");
-    AssertFalse(!keyboard.KeyUps.Contains("W"), "the discovery tick must stop an already-held W");
-    AssertFalse(state.StartupTownReturnPending, "fresh defense must not commit startup town return state");
-    AssertFalse(!state.LocalDefenseThreat.Matches(threat), "the fresh transition frame should establish the retained threat identity");
-    AssertFalse(!state.Fighting, "the transition must adopt even a temporarily excluded attacker instead of treating it as clear");
-    AssertEqual(threat.ServerObjectId, state.CurrentTargetServerObjectId, "temporary exclusion must not erase a current local-defense transition target");
-    AssertEqual(threat.EntityId, state.CandidateEntityId, "fresh defense adoption should preserve the candidate entity");
-    AssertEqual(threat.ServerObjectId, state.CandidateServerObjectId, "fresh defense adoption should preserve server identity");
-}
-
-static async Task TestStationaryCombatExpiresUnknownDefenseGuardAfterBypassAsync()
-{
-    using var guardOverride = new EnvironmentVariableScope("ROADHOG_LOCAL_DEFENSE_UNKNOWN_GUARD", "1");
-    using var retentionOverride = new EnvironmentVariableScope("ROADHOG_LOCAL_DEFENSE_UNKNOWN_TTL_MS", "5000");
-    var settings = CreateSpiritmasterScriptSettings();
-    settings.MainMode = AccountMainMode.CustomCombat;
-    settings.CombatMode = AccountCombatMode.Stationary;
-    settings.Combat = new CombatScriptSettings
-    {
-        ReturnHomeWhenNoTarget = false,
-        HasStationaryCombatPosition = true,
-        StationaryCombatRadius = 60
-    };
-    settings.Maintenance.SitMaintenanceEnabled = false;
-    var threat = new WorldObjectSnapshot(
-        200,
-        2200,
-        "pet-targeting",
-        "monster",
-        new Vector3Snapshot(8, 0, 0),
-        8,
-        1000,
-        1000,
-        TargetServerObjectId: 2000);
-    var gameApi = new FakeGameApi
-    {
-        Player = CreateSpiritmasterPlayer(),
-        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true),
-        Skills = CreateSpiritmasterSkillSnapshots()
-    };
-    gameApi.WorldObjectQualityReadResults.Enqueue(
-        CreateWorldObjectReadResult(2, WorldObjectReadCompleteness.Partial, issue: "injected partial"));
-    gameApi.WorldObjectQualityReadResults.Enqueue(
-        CreateWorldObjectReadResult(3, WorldObjectReadCompleteness.Partial, issue: "injected bypass partial"));
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
-    var state = new StationaryCombatState();
-    state.LocalDefenseThreat.Confirm(threat, 1, DateTimeOffset.Now - TimeSpan.FromSeconds(10));
-    var context = CreateContext(settings, gameApi, logger);
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-
-    await controller.TickAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
-    await controller.TickAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
-
-    AssertEqual(LocalDefenseThreatGuardStatus.Clear, state.LocalDefenseThreat.Status, "expired unknown threat must fail open instead of stalling forever");
-    AssertFalse(
-        !gameApi.WorldObjectQualityReadContexts.Any(read => read.BypassMemoryCache),
-        "expiry must happen only after a cache-bypass retry");
-    AssertEqual(
-        1,
-        logger.Entries.Count(entry => entry.EventName == "stationary_combat.local_defense.expired"),
-        "unknown expiry should log exactly once");
-}
-
-static async Task TestStationaryCombatRejectsLateBypassAfterDefenseResetAsync()
-{
-    using var guardOverride = new EnvironmentVariableScope("ROADHOG_LOCAL_DEFENSE_UNKNOWN_GUARD", "1");
-    var settings = CreateSpiritmasterScriptSettings();
-    var threat = new WorldObjectSnapshot(
-        200,
-        2200,
-        "pet-targeting",
-        "monster",
-        new Vector3Snapshot(8, 0, 0),
-        8,
-        1000,
-        1000,
-        TargetServerObjectId: 2000);
-    var bypassStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-    var releaseBypass = new TaskCompletionSource<WorldObjectReadResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-    var readCall = 0;
-    var gameApi = new FakeGameApi();
-    gameApi.WorldObjectQualityReadHandler = (readContext, _) =>
-    {
-        var call = Interlocked.Increment(ref readCall);
-        if (call == 1)
-        {
-            return Task.FromResult(CreateWorldObjectReadResult(
-                1,
-                WorldObjectReadCompleteness.Partial,
-                issue: "initial_partial"));
-        }
-
-        AssertFalse(!readContext.BypassMemoryCache, "the delayed second read should be the bypass confirmation");
-        bypassStarted.TrySetResult(true);
-        return releaseBypass.Task;
-    };
-    var controller = new StationaryCombatController(
-        new RecordingKeyboardInput(),
-        new SemiAutoCombatController(new RecordingKeyboardInput()));
-    var state = new StationaryCombatState();
-    state.LocalDefenseThreat.Confirm(threat, 1, DateTimeOffset.Now);
-    var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
-    var method = typeof(StationaryCombatController).GetMethod(
-        "RefreshWorldObjectReadResultAsync",
-        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-    AssertFalse(method is null, "world-object quality refresh helper should exist");
-
-    var refreshTask = (Task<WorldObjectReadResult>)method!.Invoke(
-        controller,
-        new object[] { context, state, true })!;
-    var bypassSignal = await Task.WhenAny(bypassStarted.Task, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
-    AssertFalse(!ReferenceEquals(bypassSignal, bypassStarted.Task), "the retained threat should reach the delayed bypass read");
-
-    state.EnterDeathRecovery(DateTimeOffset.Now);
-    releaseBypass.TrySetResult(CreateWorldObjectReadResult(
-        2,
-        WorldObjectReadCompleteness.Complete,
-        new[] { CreateWorldObjectObservation(threat) },
-        bypassMemoryCache: true));
-    var result = await refreshTask.ConfigureAwait(false);
-
-    AssertEqual(WorldObjectReadCompleteness.Failed, result.Completeness, "a bypass completed after reset must be rejected as stale");
-    AssertEqual(LocalDefenseThreatGuardStatus.Clear, state.LocalDefenseThreat.Status, "late bypass must not restore the cleared defense guard");
-    AssertFalse(state.LastWorldObjectReadResult is not null, "late bypass must not repopulate the reset world result");
-    AssertEqual(0, state.CachedWorldObjects.Count, "late bypass must not repopulate the reset world cache");
-}
-
-static async Task TestPathCombatRejectsResetDuringFirstTransitionReadAsync()
-{
-    using var guardOverride = new EnvironmentVariableScope("ROADHOG_LOCAL_DEFENSE_UNKNOWN_GUARD", "1");
-    using var timeoutOverride = new EnvironmentVariableScope("ROADHOG_NO_KILL_RETURN_TIMEOUT_MS", "1200000");
-    var settings = CreateScriptSettings();
-    settings.MainMode = AccountMainMode.CustomCombat;
-    settings.CombatMode = AccountCombatMode.Path;
-    settings.Paths.TownReturnKey = "NumPad7";
-    settings.Paths.RevivePathName = "revive-a";
-    settings.Paths.CombatPathName = "combat-a";
-    var pathStore = new InMemorySharedPathStore(
-        CreatePath("revive-a",
-            new Vector3Snapshot(100, 0, 0),
-            new Vector3Snapshot(200, 0, 0)),
-        CreatePath("combat-a",
-            new Vector3Snapshot(0, 0, 0),
-            new Vector3Snapshot(20, 0, 0)));
-    var firstReadStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-    var releaseFirstRead = new TaskCompletionSource<WorldObjectReadResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-    var readCall = 0;
-    var gameApi = new FakeGameApi
-    {
-        Player = new PlayerSnapshot(
-            1,
-            100,
-            "Fake",
-            100,
-            100,
-            100,
-            100,
-            0,
-            new Vector3Snapshot(0, 0, 0),
-            DateTimeOffset.Now),
-        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
-    };
-    gameApi.WorldObjectQualityReadHandler = (_, _) =>
-    {
-        Interlocked.Increment(ref readCall);
-        firstReadStarted.TrySetResult(true);
-        return releaseFirstRead.Task;
-    };
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var runtimeStates = new AccountRuntimeManager(logger);
-    runtimeStates.GetOrCreate("account1");
-    var controller = new StationaryCombatController(
-        keyboard,
-        new SemiAutoCombatController(keyboard),
-        pathStore);
-    var state = new StationaryCombatState();
-    state.NoKillRecovery.ObserveCombatActivity(null, DateTimeOffset.Now.AddMinutes(-21));
-
-    var tickTask = controller.TickPathAsync(
-        CreateContext(settings, gameApi, logger, runtimeStates),
-        SemiAutoSkillPlan.FromSettings(settings.Skills),
-        new SemiAutoCombatState(),
-        state);
-    var firstSignal = await Task.WhenAny(firstReadStarted.Task, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
-    AssertFalse(!ReferenceEquals(firstSignal, firstReadStarted.Task), "the first transition read should reach the delayed provider");
-
-    state.EnterDeathRecovery(DateTimeOffset.Now);
-    releaseFirstRead.TrySetResult(CreateWorldObjectReadResult(
-        1,
-        WorldObjectReadCompleteness.Partial,
-        issue: "late_initial_partial"));
-    await tickTask.ConfigureAwait(false);
-
-    AssertEqual(1, readCall, "an old transition must not start a new-generation bypass after reset");
-    AssertEqual(StationaryCombatTopLevelState.DeathRecovery, state.TopLevelState, "death recovery should remain authoritative");
-    AssertEqual(LocalDefenseThreatGuardStatus.Clear, state.LocalDefenseThreat.Status, "late first read must not restore local defense state");
-    AssertFalse(state.LastWorldObjectReadResult is not null, "late first read must not restore the reset world result");
-    AssertEqual(0, state.CachedWorldObjects.Count, "late first read must not restore the reset cache");
-    AssertFalse(keyboard.Keys.Contains("NumPad7"), "late first read must not resume the abandoned town-return decision");
-}
-
-static async Task TestStationaryCombatRejectsResetDuringDefenseAdoptionAsync()
-{
-    using var guardOverride = new EnvironmentVariableScope("ROADHOG_LOCAL_DEFENSE_UNKNOWN_GUARD", "1");
-    using var timeoutOverride = new EnvironmentVariableScope("ROADHOG_NO_KILL_RETURN_TIMEOUT_MS", "1200000");
-    var settings = CreateScriptSettings();
-    settings.MainMode = AccountMainMode.CustomCombat;
-    settings.CombatMode = AccountCombatMode.Path;
-    settings.Paths.TownReturnKey = "NumPad7";
-    settings.Paths.RevivePathName = "revive-a";
-    settings.Paths.CombatPathName = "combat-a";
-    var pathStore = new InMemorySharedPathStore(
-        CreatePath("revive-a",
-            new Vector3Snapshot(100, 0, 0),
-            new Vector3Snapshot(200, 0, 0)),
-        CreatePath("combat-a",
-            new Vector3Snapshot(0, 0, 0),
-            new Vector3Snapshot(20, 0, 0)));
-    var threat = new WorldObjectSnapshot(
-        200,
-        2200,
-        "fresh-attacker",
-        "monster",
-        new Vector3Snapshot(5, 0, 0),
-        5,
-        1000,
-        1000,
-        TargetServerObjectId: 100,
-        IsTargetingLocalPlayer: true);
-    var gameApi = new FakeGameApi
-    {
-        Player = new PlayerSnapshot(
-            1,
-            100,
-            "Fake",
-            100,
-            100,
-            100,
-            100,
-            0,
-            new Vector3Snapshot(0, 0, 0),
-            DateTimeOffset.Now),
-        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
-    };
-    gameApi.WorldObjectQualityReadResults.Enqueue(
-        CreateWorldObjectReadResult(
-            1,
-            WorldObjectReadCompleteness.Complete,
-            new[] { CreateWorldObjectObservation(threat) }));
-    var keyUpStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-    var releaseKeyUp = new TaskCompletionSource<OperationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-    var keyboard = new RecordingKeyboardInput
-    {
-        KeyUpHandler = (key, _) =>
-        {
-            if (string.Equals(key, "W", StringComparison.Ordinal))
-            {
-                keyUpStarted.TrySetResult(true);
-                return releaseKeyUp.Task;
-            }
-
-            return Task.FromResult(OperationResult.Ok());
-        }
-    };
-    var logger = new InMemoryRoadhogLogger();
-    var runtimeStates = new AccountRuntimeManager(logger);
-    runtimeStates.GetOrCreate("account1");
-    var controller = new StationaryCombatController(
-        keyboard,
-        new SemiAutoCombatController(keyboard),
-        pathStore);
-    var state = new StationaryCombatState
-    {
-        IsMovingForward = true
-    };
-    state.NoKillRecovery.ObserveCombatActivity(null, DateTimeOffset.Now.AddMinutes(-21));
-
-    var tickTask = controller.TickPathAsync(
-        CreateContext(settings, gameApi, logger, runtimeStates),
-        SemiAutoSkillPlan.FromSettings(settings.Skills),
-        new SemiAutoCombatState(),
-        state);
-    var keyUpSignal = await Task.WhenAny(keyUpStarted.Task, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
-    AssertFalse(!ReferenceEquals(keyUpSignal, keyUpStarted.Task), "defense adoption should reach the delayed movement stop");
-
-    state.EnterDeathRecovery(DateTimeOffset.Now);
-    releaseKeyUp.TrySetResult(OperationResult.Ok());
-    await tickTask.ConfigureAwait(false);
-
-    AssertEqual(StationaryCombatTopLevelState.DeathRecovery, state.TopLevelState, "death recovery should win over an in-flight defense adoption");
-    AssertFalse(state.Fighting, "late adoption must not restore fighting after reset");
-    AssertEqual((ushort)0, state.CurrentTargetEntityId, "late adoption must not restore current target entity");
-    AssertEqual((uint)0, state.CurrentTargetServerObjectId, "late adoption must not restore current target server identity");
-    AssertEqual((ushort)0, state.CandidateEntityId, "late adoption must not restore candidate state");
-    AssertFalse(keyboard.Keys.Contains("NumPad7"), "late adoption must not fall through to town return");
-}
-
-static async Task TestStationaryCombatRejectsResetDuringStartupPathLoadAsync()
-{
-    using var guardOverride = new EnvironmentVariableScope("ROADHOG_LOCAL_DEFENSE_UNKNOWN_GUARD", "1");
-    using var distanceOverride = new EnvironmentVariableScope("ROADHOG_STARTUP_RETURN_DISTANCE", "500");
-    var settings = CreateScriptSettings();
-    settings.MainMode = AccountMainMode.CustomCombat;
-    settings.CombatMode = AccountCombatMode.Stationary;
-    settings.Paths.TownReturnKey = "NumPad7";
-    settings.Paths.RevivePathName = "revive-a";
-    settings.Combat = new CombatScriptSettings
-    {
-        HasStationaryCombatPosition = true,
-        StationaryCombatX = 200,
-        StationaryCombatY = 0,
-        StationaryCombatZ = 0,
-        StationaryCombatRadius = 60
-    };
-    settings.Maintenance.SitMaintenanceEnabled = false;
-    var revivePath = CreatePath(
-        "revive-a",
-        new Vector3Snapshot(0, 0, 0),
-        new Vector3Snapshot(100, 0, 0),
-        new Vector3Snapshot(200, 0, 0));
-    var loadStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-    var releaseLoad = new TaskCompletionSource<OperationResult<SharedPathDocument>>(
-        TaskCreationOptions.RunContinuationsAsynchronously);
-    var pathStore = new InMemorySharedPathStore(revivePath)
-    {
-        LoadHandler = (_, _) =>
-        {
-            loadStarted.TrySetResult(true);
-            return releaseLoad.Task;
-        }
-    };
-    var gameApi = new FakeGameApi
-    {
-        Player = new PlayerSnapshot(
-            1,
-            100,
-            "Fake",
-            100,
-            100,
-            100,
-            100,
-            0,
-            new Vector3Snapshot(1000, 0, 0),
-            DateTimeOffset.Now),
-        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
-    };
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var controller = new StationaryCombatController(
-        keyboard,
-        new SemiAutoCombatController(keyboard),
-        pathStore);
-    var state = new StationaryCombatState();
-    state.SetStationaryHomeFromRevivePath("revive-a", new Vector3Snapshot(200, 0, 0), 3);
-
-    var tickTask = controller.TickAsync(
-        CreateContext(settings, gameApi, logger),
-        SemiAutoSkillPlan.FromSettings(settings.Skills),
-        new SemiAutoCombatState(),
-        state);
-    var loadSignal = await Task.WhenAny(loadStarted.Task, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
-    AssertFalse(!ReferenceEquals(loadSignal, loadStarted.Task), "startup recovery should reach the delayed path load");
-
-    state.EnterDeathRecovery(DateTimeOffset.Now);
-    releaseLoad.TrySetResult(OperationResult<SharedPathDocument>.Ok(revivePath.Clone()));
-    await tickTask.ConfigureAwait(false);
-
-    AssertEqual(StationaryCombatTopLevelState.DeathRecovery, state.TopLevelState, "death recovery must remain authoritative after a late startup path load");
-    AssertFalse(keyboard.Keys.Contains("NumPad7"), "a late startup path load must not press the town-return key");
-    AssertFalse(state.StartupRecoveryActive, "a late startup path load must not restart revive-path recovery");
-    AssertFalse(state.StartupTownReturnPending, "a late startup path load must not restore town-return state");
-    AssertFalse(state.Fighting, "a late startup path load must not restore fighting state");
-    AssertEqual((ushort)0, state.CurrentTargetEntityId, "a late startup path load must not restore a target");
-    AssertEqual((uint)0, state.CurrentTargetServerObjectId, "a late startup path load must not restore a target identity");
-}
-
-static async Task TestStationaryCombatClosesDiscardBeforeHoldingUnknownDefenseAsync()
-{
-    using var guardOverride = new EnvironmentVariableScope("ROADHOG_LOCAL_DEFENSE_UNKNOWN_GUARD", "1");
-    var settings = CreateScriptSettings();
-    settings.MainMode = AccountMainMode.CustomCombat;
-    settings.CombatMode = AccountCombatMode.Stationary;
-    settings.Combat = new CombatScriptSettings
-    {
-        EnableLoot = true,
-        HasStationaryCombatPosition = true,
-        StationaryCombatRadius = 30
-    };
-    settings.Maintenance.SitMaintenanceEnabled = false;
-    settings.Maintenance.HpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
-    {
-        BelowPercent = 50,
-        Key = "D8",
-        RunTiming = MaintenanceRuleRunTiming.AfterCombat
-    });
-
-    const uint discardInstanceId = 46;
-    var discardTarget = new InventoryItemSnapshot(167000450, discardInstanceId, "discard-target", 1, 0, false, 24, 2);
-    var threat = new WorldObjectSnapshot(
-        200,
-        2200,
-        "retained-attacker",
-        "monster",
-        new Vector3Snapshot(5, 0, 0),
-        5,
-        1000,
-        1000,
-        TargetServerObjectId: 100,
-        IsTargetingLocalPlayer: true);
-    var gameApi = new FakeGameApi
-    {
-        Player = new PlayerSnapshot(
-            1,
-            100,
-            "Fake",
-            40,
-            100,
-            100,
-            100,
-            0,
-            new Vector3Snapshot(0, 0, 0),
-            DateTimeOffset.Now),
-        InventoryCapacity = 3,
-        InventoryItems = new[] { discardTarget },
-        InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0),
-        InventoryDiscardConfirm = new InventoryDiscardConfirmSnapshot(
-            false,
-            discardInstanceId,
-            InventoryDiscardConfirmKind.PendingWithoutVisibleDialog,
-            0,
-            0,
-            DateTimeOffset.Now),
-        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
-    };
-    gameApi.WorldObjectQualityReadResults.Enqueue(
-        CreateWorldObjectReadResult(1, WorldObjectReadCompleteness.Partial, issue: "discard_partial"));
-    gameApi.WorldObjectQualityReadResults.Enqueue(
-        CreateWorldObjectReadResult(
-            2,
-            WorldObjectReadCompleteness.Partial,
-            bypassMemoryCache: true,
-            issue: "discard_bypass_partial"));
-    var keyboard = new RecordingKeyboardInput();
-    var movementStoppedBeforeDiscardCancel = false;
-    keyboard.AfterPress = key =>
-    {
-        if (string.Equals(key, "Escape", StringComparison.Ordinal))
-        {
-            movementStoppedBeforeDiscardCancel = keyboard.KeyUps.Contains("W");
-            gameApi.InventoryDiscardConfirm = InventoryDiscardConfirmSnapshot.Closed(DateTimeOffset.Now);
-        }
-        else if (string.Equals(key, "I", StringComparison.Ordinal))
-        {
-            gameApi.InventoryWindow = CreateInventoryWindow(false, 0.0, 0.0);
-        }
-    };
-    var logger = new InMemoryRoadhogLogger();
-    var controller = new StationaryCombatController(
-        keyboard,
-        new SemiAutoCombatController(keyboard),
-        new InMemorySharedPathStore());
-    var state = new StationaryCombatState
-    {
-        IsMovingForward = true
-    };
-    state.StartLootAfterKill(
-        new LockedTargetSnapshot(
-            100,
-            5000,
-            0,
-            LockedTargetSnapshot.MonsterObjectType,
-            "dead-target",
-            0,
-            100,
-            new Vector3Snapshot(0, 0, 0),
-            0,
-            DateTimeOffset.Now),
-        DateTimeOffset.Now);
-    state.LootAfterKill.MoveToPostCombatMaintenance(DateTimeOffset.Now);
-    state.BagCleanup.StartDiscard(1, 2, 1);
-    state.BagCleanup.SetDiscardWindow(gameApi.InventoryWindow);
-    state.BagCleanup.SetDiscardTarget(discardTarget);
-    state.BagCleanup.Advance(BagCleanupStep.WaitDiscardConfirm);
-    state.LocalDefenseThreat.Confirm(threat, 1, DateTimeOffset.Now);
-
-    await controller
-        .TickAsync(
-            CreateContext(settings, gameApi, logger),
-            SemiAutoSkillPlan.FromSettings(settings.Skills),
-            new SemiAutoCombatState(),
-            state)
-        .ConfigureAwait(false);
-
-    AssertFalse(gameApi.InventoryWindow.IsOpen, "unknown defense hold should close inventory safely");
-    AssertFalse(state.BagCleanup.Active, "unknown defense hold should finish the discard interruption state");
-    AssertFalse(!gameApi.InventoryItems.Any(item => item.InstanceId == discardInstanceId), "pre-confirm unknown interruption must keep the item");
-    AssertFalse(!state.LootAfterKill.Active, "unknown defense hold must keep the post-combat node active");
-    AssertEqual(LocalDefenseThreatGuardStatus.UnknownHeld, state.LocalDefenseThreat.Status, "partial reads should retain the prior defense identity");
-    AssertFalse(keyboard.Keys.Contains("D8"), "unknown defense must block after-combat maintenance while discard closes");
-    AssertFalse(keyboard.KeyDowns.Contains("W"), "unknown defense must not resume movement after discard closes");
-    AssertFalse(!movementStoppedBeforeDiscardCancel, "W must be released before discard cancellation or inventory settling begins");
-    AssertFalse(state.IsMovingForward, "unknown defense must clear the moving-forward state before discard cleanup");
-    AssertFalse(
-        !logger.Entries.Any(entry =>
-            entry.EventName == "bag_cleanup.discard.interrupted" &&
-            string.Equals(Convert.ToString(entry.Fields["interruptionReason"]), "local_defense_unknown", StringComparison.Ordinal)),
-        "unknown defense should use the safe external discard interruption path");
-    AssertFalse(
-        !logger.Entries.Any(entry => entry.EventName == "stationary_combat.local_defense.unknown_held"),
-        "unknown defense should remain held after discard cleanup");
-}
-
 static async Task TestStationaryCombatAbandonsDiscardBeforeAdoptingDefenseTargetAsync()
 {
     var settings = CreateScriptSettings();
@@ -26934,6 +24338,16 @@ static Task TestManualSkillCategoryMapsTargetValidStatusAsConditionAsync()
         XmlTargetValidStatuses: "Stumble");
 
     AssertEqual("条件技能", GetManualSkillCategoryForTest(conditionSkill), "condition skill category");
+
+    var ankleStrike = conditionSkill with
+    {
+        SkillId = 536,
+        Name = "脚踝重击 III",
+        DisplayBaseName = "脚踝重击",
+        XmlTags = "counter",
+        XmlCounterSkill = "legacy-trigger-metadata"
+    };
+    AssertEqual("条件技能", GetManualSkillCategoryForTest(ankleStrike), "ankle strike condition category");
     return Task.CompletedTask;
 }
 
@@ -27710,63 +25124,14 @@ static async Task TestSpiritmasterTickSummonsMissingPetAsync()
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
     var elapsed = DateTimeOffset.Now - startedAt;
 
-    AssertEqual(0, state.ConsecutiveSpiritmasterPetMissingReads, "summon attempt should start a new absence confirmation window");
+    AssertEqual(3, state.ConsecutiveSpiritmasterPetMissingReads, "third missing pet read count");
     AssertSequence(new[] { "NumPad6", "NumPad8" }, keyboard.Keys.ToArray(), "summon key sequence");
     AssertFalse(elapsed < TimeSpan.FromMilliseconds(1900), "summon speed and summon pet keys should be separated by about two seconds");
 }
 
-static Task TestSummonedPetRosterQualityClassifiesPresenceAsync()
+static async Task TestSpiritmasterTickSummonsWhenPetRosterIsUnconfirmedAsync()
 {
-    var linkedRoster = CreateLocalUnconfirmedPetRoster(
-        ownerConfirmed: false,
-        staticSummonPet: false,
-        linkedPetMatches: true);
-    var present = CreateSummonedPetRosterReadResult(
-        1,
-        SummonedPetRosterReadCompleteness.Partial,
-        linkedRoster,
-        visibleActorTraversalAvailable: false,
-        issue: "pet_detail_partial").ResolveLocalPetPresence();
-    AssertEqual(LocalSummonedPetPresence.Present, present.Presence, "valid nonzero local link should prove pet presence");
-    AssertEqual((uint)2000, present.ServerObjectId, "local link should provide the stable pet identity");
-
-    var emptyRoster = SummonedPetRosterSnapshot.Empty(1000, DateTimeOffset.Now);
-    var absent = CreateSummonedPetRosterReadResult(
-        2,
-        SummonedPetRosterReadCompleteness.Complete,
-        emptyRoster).ResolveLocalPetPresence();
-    AssertEqual(LocalSummonedPetPresence.Absent, absent.Presence, "complete zero-link traversal should prove absence");
-
-    var partial = CreateSummonedPetRosterReadResult(
-        3,
-        SummonedPetRosterReadCompleteness.Partial,
-        emptyRoster,
-        visibleActorTraversalAvailable: false,
-        issue: "traversal_partial").ResolveLocalPetPresence();
-    AssertEqual(LocalSummonedPetPresence.Unknown, partial.Presence, "partial zero-link traversal must remain unknown");
-
-    var linkFailed = CreateSummonedPetRosterReadResult(
-        4,
-        SummonedPetRosterReadCompleteness.Complete,
-        emptyRoster,
-        localLinkedPetServerObjectIdAvailable: false,
-        issue: "local_link_failed").ResolveLocalPetPresence();
-    AssertEqual(LocalSummonedPetPresence.Unknown, linkFailed.Presence, "failed local link read must remain unknown");
-
-    var contradictory = CreateSummonedPetRosterReadResult(
-        5,
-        SummonedPetRosterReadCompleteness.Complete,
-        emptyRoster,
-        localPetCandidateCount: 1,
-        issue: "owner_ambiguous").ResolveLocalPetPresence();
-    AssertEqual(LocalSummonedPetPresence.Unknown, contradictory.Presence, "visible local candidate must prevent an absence decision");
-
-    return Task.CompletedTask;
-}
-
-static async Task TestSpiritmasterTickHoldsSummonWhenPetRosterIsUnconfirmedAsync()
-{
-    await AssertSpiritmasterHoldsSummonForUnconfirmedRosterAsync(
+    await AssertSpiritmasterSummonsForUnconfirmedRosterAsync(
             CreateLocalUnconfirmedPetRoster(
                 ownerConfirmed: false,
                 staticSummonPet: false,
@@ -27774,7 +25139,7 @@ static async Task TestSpiritmasterTickHoldsSummonWhenPetRosterIsUnconfirmedAsync
             "linked-only roster")
         .ConfigureAwait(false);
 
-    await AssertSpiritmasterHoldsSummonForUnconfirmedRosterAsync(
+    await AssertSpiritmasterSummonsForUnconfirmedRosterAsync(
             CreateLocalUnconfirmedPetRoster(
                 ownerConfirmed: true,
                 staticSummonPet: true,
@@ -27783,7 +25148,7 @@ static async Task TestSpiritmasterTickHoldsSummonWhenPetRosterIsUnconfirmedAsync
         .ConfigureAwait(false);
 }
 
-static async Task AssertSpiritmasterHoldsSummonForUnconfirmedRosterAsync(
+static async Task AssertSpiritmasterSummonsForUnconfirmedRosterAsync(
     SummonedPetRosterSnapshot roster,
     string scenario)
 {
@@ -27809,76 +25174,12 @@ static async Task AssertSpiritmasterHoldsSummonForUnconfirmedRosterAsync(
     var state = new SemiAutoCombatState();
     var context = CreateContext(settings, gameApi, logger);
 
-    for (var tick = 0; tick < 4; tick++)
-    {
-        await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    }
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+    AssertEqual(0, keyboard.Keys.Count, scenario + " should wait for three missing reads");
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
 
-    AssertEqual(0, state.ConsecutiveSpiritmasterPetMissingReads, scenario + " must not count as pet absence");
-    AssertEqual(0, keyboard.Keys.Count(key => key == "NumPad6"), scenario + " must not trigger summon");
-}
-
-static async Task TestSpiritmasterUnknownPetReadDoesNotSummonOrBlockAsync()
-{
-    var settings = CreateSpiritmasterScriptSettings();
-    settings.Skills.Spiritmaster.SummonSkills = new List<SpiritmasterSkillKeyRuleConfig>
-    {
-        new() { Key = "NumPad6" }
-    };
-    var gameApi = new FakeGameApi { Player = CreateSpiritmasterPlayer() };
-    gameApi.SummonedPetRosterQualityReadFallback = CreateSummonedPetRosterReadResult(
-        100,
-        SummonedPetRosterReadCompleteness.Partial,
-        SummonedPetRosterSnapshot.Empty(1000, DateTimeOffset.Now),
-        localLinkedPetServerObjectIdAvailable: false,
-        visibleActorTraversalAvailable: false,
-        issue: "injected_local_pet_link_failure");
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    var context = CreateContext(settings, gameApi, logger);
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-
-    for (var read = 0; read < 4; read++)
-    {
-        var handled = await controller.EnsureSpiritmasterPetAsync(context, plan, state).ConfigureAwait(false);
-        AssertFalse(handled, "unknown pet presence must yield to defense and normal combat");
-    }
-
-    AssertEqual(0, state.ConsecutiveSpiritmasterPetMissingReads, "unknown reads must not count as absence");
-    AssertEqual(0, keyboard.Keys.Count, "unknown reads must never press summon");
-    AssertFalse(
-        !logger.Entries.Any(entry => entry.EventName == "semi_auto.spiritmaster.pet_presence.unknown_held"),
-        "unknown pet presence should emit a quality diagnostic");
-}
-
-static async Task TestSpiritmasterDuplicateAbsentCaptureDoesNotConfirmSummonAsync()
-{
-    var settings = CreateSpiritmasterScriptSettings();
-    settings.Skills.Spiritmaster.SummonSkills = new List<SpiritmasterSkillKeyRuleConfig>
-    {
-        new() { Key = "NumPad6" }
-    };
-    var gameApi = new FakeGameApi { Player = CreateSpiritmasterPlayer() };
-    gameApi.SummonedPetRosterQualityReadFallback = CreateSummonedPetRosterReadResult(
-        200,
-        SummonedPetRosterReadCompleteness.Complete,
-        SummonedPetRosterSnapshot.Empty(1000, DateTimeOffset.Now));
-    var keyboard = new RecordingKeyboardInput();
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-
-    for (var read = 0; read < 4; read++)
-    {
-        var handled = await controller.EnsureSpiritmasterPetAsync(context, plan, state).ConfigureAwait(false);
-        AssertFalse(!handled, "a confirmed absent pet should keep the existing summon gate");
-    }
-
-    AssertEqual(1, state.ConsecutiveSpiritmasterPetMissingReads, "one capture can contribute at most one absence confirmation");
-    AssertEqual(0, keyboard.Keys.Count, "one replayed absence capture must never summon");
+    AssertSequence(new[] { "NumPad6" }, keyboard.Keys.ToArray(), scenario + " summon key");
 }
 
 static async Task TestSpiritmasterMissingPetConfirmationResetsWhenPetReturnsAsync()
@@ -28012,8 +25313,8 @@ static async Task TestSpiritmasterElementalReplenishmentEnforcesPlayerHpFloorAsy
     await controller.TickAsync(context, plan, new SemiAutoCombatState()).ConfigureAwait(false);
 
     AssertSequence(new[] { "NumPad3" }, keyboard.Keys.ToArray(), "exactly 65 percent player hp should allow elemental replenishment");
-    AssertFalse(gameApi.LastPlayerContext?.BypassMemoryCache != true, "player safety read should bypass the memory cache");
-    AssertFalse(gameApi.LastSummonedPetRosterContext?.BypassMemoryCache != true, "pet safety read should bypass the memory cache");
+    AssertFalse(gameApi.LastPlayerContext?.RequireFresh != true, "player safety read should require fresh data");
+    AssertFalse(gameApi.LastSummonedPetRosterContext?.RequireFresh != true, "pet safety read should require fresh data");
 }
 
 static async Task TestSpiritmasterElementalReplenishmentConfirmsPetHpIncreaseAsync()
@@ -28077,99 +25378,6 @@ static async Task TestSpiritmasterElementalReplenishmentRetriesUnchangedPetHpAsy
         !logger.Entries.Any(entry =>
             entry.EventName == "semi_auto.spiritmaster.elemental_replenishment.pet_hp_retry"),
         "unchanged pet hp retry should be logged");
-}
-
-static async Task TestSpiritmasterElementalReplenishmentHoldsUnreliablePetHpAsync()
-{
-    var settings = CreateElementalReplenishmentTestSettings();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi
-    {
-        Player = CreateSpiritmasterPlayer(),
-        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true, currentHp: 10),
-        Skills = CreateSpiritmasterSkillSnapshots(
-            new SkillSnapshot(1678, "Elemental Replenishment", 1, 1, "Elemental Replenishment", 1, false, 10_300, 0))
-    };
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    var context = CreateContext(settings, gameApi, logger);
-
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    await Task.Delay(120).ConfigureAwait(false);
-    gameApi.Skills = new[]
-    {
-        new SkillSnapshot(1678, "Elemental Replenishment", 1, 1, "Elemental Replenishment", 1, false, 10_300, 0)
-    };
-    gameApi.SummonedPetRoster = CreateLocalPetRoster(
-        isSummoned: true,
-        currentHp: 10,
-        currentHpAvailable: false);
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-
-    AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad3"), "unreliable pet hp must not trigger a blind retry");
-    AssertFalse(state.PendingSpiritmasterPetHpIncreaseConfirmation is null, "unreliable pet hp should keep confirmation pending");
-
-    await Task.Delay(120).ConfigureAwait(false);
-    gameApi.SummonedPetRoster = CreateLocalPetRoster(isSummoned: true, currentHp: 10);
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-
-    AssertEqual(2, keyboard.Keys.Count(key => key == "NumPad3"), "a later reliable unchanged pet hp snapshot should retry");
-}
-
-static async Task TestSpiritmasterElementalReplenishmentStopsRetryBelowPlayerHpFloorAsync()
-{
-    var settings = CreateElementalReplenishmentTestSettings();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi
-    {
-        Player = CreateSpiritmasterPlayer(),
-        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true, currentHp: 10),
-        Skills = CreateSpiritmasterSkillSnapshots(
-            new SkillSnapshot(1678, "Elemental Replenishment", 1, 1, "Elemental Replenishment", 1, false, 10_300, 0))
-    };
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    var context = CreateContext(settings, gameApi, logger);
-
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    await Task.Delay(120).ConfigureAwait(false);
-    gameApi.Player = CreateSpiritmasterPlayer(currentHp: 64, maxHp: 100);
-    gameApi.SummonedPetRoster = CreateLocalPetRoster(isSummoned: true, currentHp: 10);
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-
-    AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad3"), "player hp below 65 percent must stop elemental replenishment retries");
-    AssertFalse(state.PendingSpiritmasterPetHpIncreaseConfirmation is not null, "low player hp should clear the pending retry session");
-}
-
-static async Task TestSpiritmasterNonConsumingPetHpSkillIgnoresPlayerHpFloorAsync()
-{
-    var settings = CreateSpiritmasterScriptSettings();
-    settings.Skills.Spiritmaster.PetHpMaintenanceRules = new List<SpiritmasterPetHpRuleConfig>
-    {
-        new() { BelowPercent = 25, SkillId = 1785, SkillName = "Pet Heal", Key = "NumPad5" }
-    };
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var gameApi = new FakeGameApi
-    {
-        Player = CreateSpiritmasterPlayer(currentHp: 10, maxHp: 100),
-        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true, currentHp: 10),
-        Skills = CreateSpiritmasterSkillSnapshots(
-            new SkillSnapshot(1785, "Pet Heal", 1, 1, "Pet Heal", 1, false, 10_300, 0))
-    };
-
-    await new SemiAutoCombatController(keyboard)
-        .TickAsync(
-            CreateContext(settings, gameApi, new InMemoryRoadhogLogger()),
-            plan,
-            new SemiAutoCombatState())
-        .ConfigureAwait(false);
-
-    AssertSequence(new[] { "NumPad5" }, keyboard.Keys.ToArray(), "player hp floor must only apply to skill 1678");
 }
 
 static async Task TestSpiritmasterTickGatesPetBuffByDpAsync()
@@ -32063,154 +29271,6 @@ static PartyMemberSnapshot WithLiveRestState(PartyMemberSnapshot member, bool re
     };
 }
 
-static WorldObjectObservation CreateWorldObjectObservation(
-    WorldObjectSnapshot snapshot,
-    bool healthValid = true,
-    bool targetValid = true)
-{
-    return new WorldObjectObservation(
-        snapshot,
-        new WorldObjectFieldValidity(
-            CurrentHp: healthValid,
-            MaxHp: healthValid,
-            TargetServerObjectId: targetValid,
-            IsTargetingLocalPlayer: targetValid,
-            LootableRaw: true,
-            InteractionState: true));
-}
-
-static void InvokeLocalDefenseObservationForTest(
-    AccountWorkerContext context,
-    StationaryCombatState state,
-    WorldObjectReadResult readResult,
-    string source,
-    long observationOrder,
-    long stateGeneration)
-{
-    var method = typeof(StationaryCombatController).GetMethod(
-        "ObserveLocalDefenseThreat",
-        System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
-    AssertFalse(method is null, "local defense observation helper should exist");
-    method!.Invoke(
-        null,
-        new object[]
-        {
-            context,
-            state,
-            readResult,
-            source,
-            DateTimeOffset.Now,
-            observationOrder,
-            stateGeneration
-        });
-}
-
-static WorldObjectReadResult CreateWorldObjectReadResult(
-    long captureSequence,
-    WorldObjectReadCompleteness completeness,
-    IReadOnlyList<WorldObjectObservation>? observations = null,
-    bool localServerObjectIdAvailable = true,
-    bool bypassMemoryCache = false,
-    string? issue = null)
-{
-    var now = DateTimeOffset.UtcNow;
-    var values = observations ?? Array.Empty<WorldObjectObservation>();
-    var diagnostics = new WorldObjectReadDiagnostics(
-        captureSequence,
-        now,
-        now,
-        bypassMemoryCache,
-        completeness switch
-        {
-            WorldObjectReadCompleteness.Complete => WorldObjectTraversalTermination.ReachedTreeEnd,
-            WorldObjectReadCompleteness.Partial => WorldObjectTraversalTermination.TraversalReadFailed,
-            _ => WorldObjectTraversalTermination.NotStarted
-        },
-        localServerObjectIdAvailable,
-        ScannedServerObjects: values.Count,
-        ResolvedEntities: values.Count,
-        NpcLikeEntities: values.Count,
-        EmittedObjects: values.Count,
-        NodeIdentityReadFailures: 0,
-        EntityLookupFailures: 0,
-        EntityTypeReadFailures: 0,
-        PositionReadFailures: 0,
-        ActorResolutionFailures: 0,
-        ActorIdentityMismatches: 0,
-        StaticMetadataMisses: 0,
-        StaticCatalogErrors: 0,
-        TargetFieldReadFailures: targetFieldFailureCount(values),
-        HealthFieldReadFailures: healthFieldFailureCount(values),
-        LootFieldReadFailures: 0,
-        InteractionStateReadFailures: 0,
-        FirstIssue: issue);
-    return new WorldObjectReadResult(
-        completeness,
-        values,
-        diagnostics,
-        completeness == WorldObjectReadCompleteness.Failed
-            ? issue ?? "injected_world_read_failure"
-            : null);
-
-    static int targetFieldFailureCount(IReadOnlyList<WorldObjectObservation> items)
-    {
-        return items.Count(item =>
-            !item.Fields.TargetServerObjectId || !item.Fields.IsTargetingLocalPlayer);
-    }
-
-    static int healthFieldFailureCount(IReadOnlyList<WorldObjectObservation> items)
-    {
-        return items.Count(item => !item.Fields.CurrentHp || !item.Fields.MaxHp);
-    }
-}
-
-static SummonedPetRosterReadResult CreateSummonedPetRosterReadResult(
-    long captureSequence,
-    SummonedPetRosterReadCompleteness completeness,
-    SummonedPetRosterSnapshot? roster,
-    bool localServerObjectIdAvailable = true,
-    bool localLinkedPetServerObjectIdAvailable = true,
-    bool visibleActorTraversalAvailable = true,
-    int localPetCandidateCount = 0,
-    string? issue = null)
-{
-    var now = DateTimeOffset.UtcNow;
-    return new SummonedPetRosterReadResult(
-        completeness,
-        roster,
-        new SummonedPetRosterFieldValidity(
-            localServerObjectIdAvailable,
-            localLinkedPetServerObjectIdAvailable,
-            visibleActorTraversalAvailable),
-        new SummonedPetRosterReadDiagnostics(
-            captureSequence,
-            now,
-            now,
-            BypassMemoryCache: false,
-            completeness switch
-            {
-                SummonedPetRosterReadCompleteness.Complete =>
-                    SummonedPetRosterTraversalTermination.ReachedTreeEnd,
-                SummonedPetRosterReadCompleteness.Partial =>
-                    SummonedPetRosterTraversalTermination.TraversalReadFailed,
-                _ => SummonedPetRosterTraversalTermination.AnchorReadFailed
-            },
-            ScannedServerObjects: roster?.LocalPlayerPet.Pet.IsSummoned == true ? 1 : 0,
-            EmittedActors: roster?.LocalPlayerPet.Pet.IsSummoned == true ? 1 : 0,
-            NodeIdentityReadFailures: 0,
-            EntityLookupFailures: 0,
-            EntityTypeReadFailures: 0,
-            ActorResolutionFailures: 0,
-            ActorIdentityMismatches: 0,
-            OwnerFieldReadFailures: 0,
-            StaticMetadataMisses: 0,
-            LocalPetCandidateCount: localPetCandidateCount,
-            FirstIssue: issue),
-        completeness == SummonedPetRosterReadCompleteness.Failed
-            ? issue ?? "injected_pet_roster_failure"
-            : null);
-}
-
 static SummonedPetRosterSnapshot CreateLocalPetRoster(
     bool isSummoned,
     byte hpPercent = 100,
@@ -32308,8 +29368,7 @@ static SummonedPetRosterSnapshot CreateLocalUnconfirmedPetRoster(
         ownerConfirmed,
         ownerConfirmed
             ? "owner+static-summon-pet"
-            : "local-link-only",
-        new SummonedPetHealthFieldValidity(true, true, true));
+            : "local-link-only");
 
     return new SummonedPetRosterSnapshot(
         localServerObjectId,
@@ -33188,6 +30247,277 @@ static OperationResult<LockedTargetSnapshot> CreateFakeLockedTargetResult(
         0));
 }
 
+static Task TestDmaStableSnapshotFallsBackToLastGoodAsync()
+{
+    var store = new DmaStableSnapshotStore(TimeSpan.FromSeconds(2));
+    var context = CreateDmaSnapshotContext();
+    var capturedAt = new DateTimeOffset(2026, 8, 15, 1, 0, 0, TimeSpan.Zero);
+
+    var fresh = store.Resolve(
+        "fpga://devindex=2\u001eaccount1\u001e7964",
+        "player",
+        context,
+        OperationResult<uint>.Ok(123),
+        capturedAt);
+    var fallback = store.Resolve(
+        "fpga://devindex=2\u001eaccount1\u001e7964",
+        "player",
+        context,
+        OperationResult<uint>.Fail("transient dma read failure"),
+        capturedAt.AddMilliseconds(250));
+
+    AssertFalse(!fresh.Result.Success || fresh.UsedFallback, "successful observation should remain fresh");
+    AssertFalse(!fallback.Result.Success || !fallback.UsedFallback, "transient failure should use last good");
+    AssertEqual(123u, fallback.Result.Value!, "fallback value");
+    AssertEqual(TimeSpan.FromMilliseconds(250), fallback.FallbackAge, "fallback age");
+    AssertEqual("transient dma read failure", fallback.ObservedError, "observed failure diagnostic");
+    return Task.CompletedTask;
+}
+
+static Task TestDmaStableSnapshotFallbackDoesNotRenewTtlAsync()
+{
+    var store = new DmaStableSnapshotStore(TimeSpan.FromSeconds(2));
+    var context = CreateDmaSnapshotContext();
+    var capturedAt = new DateTimeOffset(2026, 8, 15, 1, 0, 0, TimeSpan.Zero);
+    const string session = "fpga://devindex=2\u001eaccount1\u001e7964";
+
+    store.Resolve(session, "world", context, OperationResult<string>.Ok("complete"), capturedAt);
+    var firstFallback = store.Resolve(
+        session,
+        "world",
+        context,
+        OperationResult<string>.Fail("first failure"),
+        capturedAt.AddSeconds(1));
+    var expired = store.Resolve(
+        session,
+        "world",
+        context,
+        OperationResult<string>.Fail("second failure"),
+        capturedAt.AddMilliseconds(2001));
+
+    AssertFalse(!firstFallback.UsedFallback, "first failure should fall back");
+    AssertFalse(expired.Result.Success, "fallback must expire from original capture time");
+    AssertEqual(StableSnapshotFailureReason.Expired, expired.FailureReason, "expiry reason");
+    return Task.CompletedTask;
+}
+
+static Task TestDmaStableSnapshotFreshReadFailsClosedAsync()
+{
+    var store = new DmaStableSnapshotStore(TimeSpan.FromSeconds(2));
+    var capturedAt = new DateTimeOffset(2026, 8, 15, 1, 0, 0, TimeSpan.Zero);
+    const string session = "fpga://devindex=2\u001eaccount1\u001e7964";
+
+    store.Resolve(
+        session,
+        "discard_safety",
+        CreateDmaSnapshotContext(),
+        OperationResult<bool>.Ok(true),
+        capturedAt);
+    var result = store.Resolve(
+        session,
+        "discard_safety",
+        CreateDmaSnapshotContext(requireFresh: true),
+        OperationResult<bool>.Fail("fresh safety read failed"),
+        capturedAt.AddMilliseconds(50));
+
+    AssertFalse(result.Result.Success, "fresh-required failure must not return stale safety data");
+    AssertFalse(result.UsedFallback, "fresh-required failure must not use fallback");
+    AssertEqual(StableSnapshotFailureReason.FreshRequired, result.FailureReason, "fresh-required reason");
+    return Task.CompletedTask;
+}
+
+static Task TestDmaStableSnapshotIsolatesAndClearsSessionsAsync()
+{
+    var store = new DmaStableSnapshotStore(TimeSpan.FromSeconds(2));
+    var context = CreateDmaSnapshotContext();
+    var capturedAt = new DateTimeOffset(2026, 8, 15, 1, 0, 0, TimeSpan.Zero);
+    const string connection = "fpga://devindex=2";
+    const string firstSession = connection + "\u001eaccount1\u001e7964";
+    const string secondSession = connection + "\u001eaccount1\u001e9000";
+
+    store.Resolve(firstSession, "player", context, OperationResult<int>.Ok(7), capturedAt);
+    var otherSession = store.Resolve(
+        secondSession,
+        "player",
+        context,
+        OperationResult<int>.Fail("no initial snapshot"),
+        capturedAt.AddMilliseconds(1));
+    var otherData = store.Resolve(
+        firstSession,
+        "party",
+        context,
+        OperationResult<int>.Fail("no party snapshot"),
+        capturedAt.AddMilliseconds(1));
+
+    AssertFalse(otherSession.Result.Success, "pid session must be isolated");
+    AssertFalse(otherData.Result.Success, "data keys must be isolated");
+
+    store.ClearConnection(connection);
+    var cleared = store.Resolve(
+        firstSession,
+        "player",
+        context,
+        OperationResult<int>.Fail("connection reset"),
+        capturedAt.AddMilliseconds(2));
+    AssertFalse(cleared.Result.Success, "connection reset must clear last-good snapshots");
+    return Task.CompletedTask;
+}
+
+static Task TestDmaWorldSnapshotMergesFieldFailuresAsync()
+{
+    var previousTarget = new WorldObjectSnapshot(
+        10,
+        1000,
+        "target",
+        "monster",
+        new Vector3Snapshot(5, 0, 0),
+        5,
+        CurrentHp: 90,
+        MaxHp: 100,
+        TargetServerObjectId: 7000,
+        IsTargetingLocalPlayer: true,
+        LootableRaw: 0,
+        InteractionState: 41);
+    var previousMissing = new WorldObjectSnapshot(
+        11,
+        1001,
+        "temporarily missing",
+        "monster",
+        new Vector3Snapshot(8, 0, 0),
+        8,
+        CurrentHp: 50,
+        MaxHp: 50);
+    var observed = previousTarget with
+    {
+        Position = new Vector3Snapshot(4, 0, 0),
+        DistanceToLocalPlayer = 4,
+        CurrentHp = 0,
+        MaxHp = 120,
+        TargetServerObjectId = 8000,
+        IsTargetingLocalPlayer = false,
+        LootableRaw = 1,
+        InteractionState = 37
+    };
+    var now = new DateTimeOffset(2026, 8, 15, 1, 0, 0, TimeSpan.Zero);
+    var read = new WorldObjectReadResult(
+        WorldObjectReadCompleteness.Partial,
+        new[]
+        {
+            new WorldObjectObservation(
+                observed,
+                new WorldObjectFieldValidity(
+                    CurrentHp: false,
+                    MaxHp: true,
+                    TargetServerObjectId: true,
+                    IsTargetingLocalPlayer: false,
+                    LootableRaw: true,
+                    InteractionState: true))
+        },
+        CreateDmaWorldReadDiagnostics(now));
+
+    var merged = AionVmmGameApi.MergeWorldObjectRead(read, new[] { previousTarget, previousMissing });
+    var target = merged.Single(item => item.ServerObjectId == previousTarget.ServerObjectId);
+
+    AssertEqual(2, merged.Count, "partial traversal should retain temporarily missing objects");
+    AssertEqual(90u, target.CurrentHp, "failed current hp should use last good");
+    AssertEqual(120u, target.MaxHp, "successful max hp should update");
+    AssertEqual(8000u, target.TargetServerObjectId, "successful target id should update");
+    AssertFalse(!target.IsTargetingLocalPlayer, "failed targeting flag should use last good");
+    AssertEqual(1u, target.LootableRaw, "successful loot field should update");
+    AssertEqual(37u, target.InteractionState, "successful interaction field should update");
+    AssertEqual(4D, target.DistanceToLocalPlayer ?? double.NaN, "non-failed position data should update");
+    return Task.CompletedTask;
+}
+
+static Task TestDmaPetSnapshotMergesHealthFailuresAsync()
+{
+    var previous = CreateLocalPetRoster(isSummoned: true, currentHp: 10, maxHp: 100);
+    var current = CreateLocalPetRoster(
+        isSummoned: true,
+        currentHp: 0,
+        maxHp: 120,
+        currentHpAvailable: false,
+        maxHpAvailable: true,
+        hpPercentAvailable: false);
+    var now = new DateTimeOffset(2026, 8, 15, 1, 0, 0, TimeSpan.Zero);
+    var read = new SummonedPetRosterReadResult(
+        SummonedPetRosterReadCompleteness.Partial,
+        current,
+        new SummonedPetRosterFieldValidity(true, true, true),
+        CreateDmaPetReadDiagnostics(now));
+
+    var merged = AionVmmGameApi.MergeSummonedPetRosterRead(read, previous);
+    var pet = merged.LocalPlayerPet.Pet;
+
+    AssertEqual(10u, pet.CurrentHp, "failed pet current hp should use last good");
+    AssertEqual(120u, pet.MaxHp, "successful pet max hp should update");
+    AssertEqual((byte)10, pet.HpPercent, "failed pet hp percent should use last good");
+    AssertFalse(!pet.HealthFields.CurrentHp, "merged current hp should remain reliable from last good");
+    AssertFalse(!pet.HealthFields.MaxHp, "merged max hp should be reliable from current read");
+    AssertFalse(!pet.HealthFields.HpPercent, "merged hp percent should remain reliable from last good");
+    return Task.CompletedTask;
+}
+
+static WorldObjectReadDiagnostics CreateDmaWorldReadDiagnostics(DateTimeOffset now)
+{
+    return new WorldObjectReadDiagnostics(
+        CaptureSequence: 1,
+        StartedAt: now,
+        CompletedAt: now,
+        BypassMemoryCache: false,
+        TraversalTermination: WorldObjectTraversalTermination.TraversalReadFailed,
+        LocalServerObjectIdAvailable: true,
+        ScannedServerObjects: 1,
+        ResolvedEntities: 1,
+        NpcLikeEntities: 1,
+        EmittedObjects: 1,
+        NodeIdentityReadFailures: 0,
+        EntityLookupFailures: 0,
+        EntityTypeReadFailures: 0,
+        PositionReadFailures: 0,
+        ActorResolutionFailures: 0,
+        ActorIdentityMismatches: 0,
+        StaticMetadataMisses: 0,
+        StaticCatalogErrors: 0,
+        TargetFieldReadFailures: 1,
+        HealthFieldReadFailures: 1,
+        LootFieldReadFailures: 0,
+        InteractionStateReadFailures: 0,
+        FirstIssue: "injected partial read");
+}
+
+static SummonedPetRosterReadDiagnostics CreateDmaPetReadDiagnostics(DateTimeOffset now)
+{
+    return new SummonedPetRosterReadDiagnostics(
+        CaptureSequence: 1,
+        StartedAt: now,
+        CompletedAt: now,
+        BypassMemoryCache: false,
+        TraversalTermination: SummonedPetRosterTraversalTermination.TraversalReadFailed,
+        ScannedServerObjects: 1,
+        EmittedActors: 1,
+        NodeIdentityReadFailures: 0,
+        EntityLookupFailures: 0,
+        EntityTypeReadFailures: 0,
+        ActorResolutionFailures: 0,
+        ActorIdentityMismatches: 0,
+        OwnerFieldReadFailures: 0,
+        StaticMetadataMisses: 0,
+        LocalPetCandidateCount: 1,
+        FirstIssue: "injected partial read");
+}
+
+static GameApiReadContext CreateDmaSnapshotContext(bool requireFresh = false)
+{
+    return new GameApiReadContext(
+        "account1",
+        7964,
+        "Aion.bin",
+        "fpga://devindex=2",
+        BypassMemoryCache: requireFresh,
+        RequireFresh: requireFresh);
+}
+
 static void AssertLeaderTargetAdopted(
     StationaryCombatState combatState,
     uint targetServerObjectId,
@@ -33339,8 +30669,6 @@ sealed class RecordingKeyboardInput : IKeyboardInput
 
     public Func<string, OperationResult>? PressResult { get; set; }
 
-    public Func<string, CancellationToken, Task<OperationResult>>? KeyUpHandler { get; set; }
-
     public Action<RoadhogMouseButton>? AfterMouseDown { get; set; }
 
     public Action<RoadhogMouseButton>? AfterMouseUp { get; set; }
@@ -33377,11 +30705,6 @@ sealed class RecordingKeyboardInput : IKeyboardInput
         CancellationToken cancellationToken = default)
     {
         KeyUps.Add(key);
-        if (KeyUpHandler is not null)
-        {
-            return KeyUpHandler(key, cancellationToken);
-        }
-
         return Task.FromResult(OperationResult.Ok());
     }
 
@@ -33657,8 +30980,6 @@ sealed class InMemorySharedPathStore : ISharedPathStore
 {
     private readonly Dictionary<string, SharedPathDocument> _paths;
 
-    public Func<string, CancellationToken, Task<OperationResult<SharedPathDocument>>>? LoadHandler { get; set; }
-
     public InMemorySharedPathStore(params SharedPathDocument[] paths)
     {
         _paths = paths.ToDictionary(path => path.Name, path => path.Clone(), StringComparer.OrdinalIgnoreCase);
@@ -33677,11 +30998,6 @@ sealed class InMemorySharedPathStore : ISharedPathStore
         string name,
         CancellationToken cancellationToken = default)
     {
-        if (LoadHandler is not null)
-        {
-            return LoadHandler(name, cancellationToken);
-        }
-
         return Task.FromResult(_paths.TryGetValue(name, out var path)
             ? OperationResult<SharedPathDocument>.Ok(path.Clone())
             : OperationResult<SharedPathDocument>.Fail("Path file was not found: " + name));
@@ -33759,34 +31075,12 @@ sealed class InMemoryScriptProfileStore : IScriptProfileStore
     }
 }
 
-sealed class EnvironmentVariableScope : IDisposable
-{
-    private readonly string _name;
-    private readonly string? _previousValue;
-
-    public EnvironmentVariableScope(string name, string? value)
-    {
-        _name = name;
-        _previousValue = Environment.GetEnvironmentVariable(name);
-        Environment.SetEnvironmentVariable(name, value);
-    }
-
-    public void Dispose()
-    {
-        Environment.SetEnvironmentVariable(_name, _previousValue);
-    }
-}
-
-sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IRoadhogScopedWorldObjectReadQualityGameApi, IRoadhogScopedSummonedPetRosterReadQualityGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi
+sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi
 #if DEBUG
     , IRoadhogApiAddressProbe
 #endif
 {
     private readonly object _playerReadSync = new();
-    private readonly object _summonedPetRosterReadSync = new();
-    private readonly object _worldObjectReadSync = new();
-    private long _summonedPetRosterQualityCaptureSequence;
-    private long _worldObjectQualityCaptureSequence;
 
     public PlayerSnapshot Player { get; set; } = new(
         1,
@@ -33827,16 +31121,6 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
 
     public SummonedPetRosterSnapshot SummonedPetRoster { get; set; } =
         SummonedPetRosterSnapshot.Empty(0, DateTimeOffset.Now);
-
-    public Queue<OperationResult<SummonedPetRosterSnapshot>> SummonedPetRosterReadResults { get; } = new();
-
-    public OperationResult<SummonedPetRosterSnapshot>? SummonedPetRosterReadFallback { get; set; }
-
-    public Queue<SummonedPetRosterReadResult> SummonedPetRosterQualityReadResults { get; } = new();
-
-    public SummonedPetRosterReadResult? SummonedPetRosterQualityReadFallback { get; set; }
-
-    public List<GameApiReadContext> SummonedPetRosterQualityReadContexts { get; } = new();
 
     public PartySnapshot Party { get; set; } =
         PartySnapshot.Empty(DateTimeOffset.Now);
@@ -33942,15 +31226,6 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
 
     public OperationResult<IReadOnlyList<WorldObjectSnapshot>>? WorldObjectReadFallback { get; set; }
 
-    public Queue<WorldObjectReadResult> WorldObjectQualityReadResults { get; } = new();
-
-    public WorldObjectReadResult? WorldObjectQualityReadFallback { get; set; }
-
-    public Func<GameApiReadContext, CancellationToken, Task<WorldObjectReadResult>>?
-        WorldObjectQualityReadHandler { get; set; }
-
-    public List<GameApiReadContext> WorldObjectQualityReadContexts { get; } = new();
-
     public GatherSnapshot Gather { get; set; } = GatherSnapshot.Empty(DateTimeOffset.Now);
 
     public Queue<OperationResult<GatherSnapshot>> GatherReadResults { get; } = new();
@@ -34018,13 +31293,7 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
     public Task<OperationResult<SummonedPetRosterSnapshot>> ReadSummonedPetRosterAsync(
         CancellationToken cancellationToken = default)
     {
-        lock (_summonedPetRosterReadSync)
-        {
-            return Task.FromResult(SummonedPetRosterReadResults.Count > 0
-                ? SummonedPetRosterReadResults.Dequeue()
-                : SummonedPetRosterReadFallback ??
-                  OperationResult<SummonedPetRosterSnapshot>.Ok(SummonedPetRoster));
-        }
+        return Task.FromResult(OperationResult<SummonedPetRosterSnapshot>.Ok(SummonedPetRoster));
     }
 
     public Task<OperationResult<SummonedPetRosterSnapshot>> ReadSummonedPetRosterAsync(
@@ -34033,99 +31302,6 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
     {
         LastSummonedPetRosterContext = context;
         return ReadSummonedPetRosterAsync(cancellationToken);
-    }
-
-    public Task<SummonedPetRosterReadResult> ReadSummonedPetRosterWithQualityAsync(
-        GameApiReadContext context,
-        CancellationToken cancellationToken = default)
-    {
-        lock (_summonedPetRosterReadSync)
-        {
-            LastSummonedPetRosterContext = context;
-            SummonedPetRosterQualityReadContexts.Add(context);
-            if (SummonedPetRosterQualityReadResults.Count > 0)
-            {
-                var queued = SummonedPetRosterQualityReadResults.Dequeue();
-                AdvanceSummonedPetRosterQualityCaptureSequence(queued.Diagnostics.CaptureSequence);
-                return Task.FromResult(queued);
-            }
-
-            if (SummonedPetRosterQualityReadFallback is not null)
-            {
-                AdvanceSummonedPetRosterQualityCaptureSequence(
-                    SummonedPetRosterQualityReadFallback.Diagnostics.CaptureSequence);
-                return Task.FromResult(SummonedPetRosterQualityReadFallback);
-            }
-
-            var legacyResult = SummonedPetRosterReadResults.Count > 0
-                ? SummonedPetRosterReadResults.Dequeue()
-                : SummonedPetRosterReadFallback ??
-                  OperationResult<SummonedPetRosterSnapshot>.Ok(SummonedPetRoster);
-            return Task.FromResult(CreateSummonedPetRosterQualityResult(legacyResult, context.BypassMemoryCache));
-        }
-    }
-
-    private void AdvanceSummonedPetRosterQualityCaptureSequence(long captureSequence)
-    {
-        while (true)
-        {
-            var current = Interlocked.Read(ref _summonedPetRosterQualityCaptureSequence);
-            if (captureSequence <= current)
-            {
-                return;
-            }
-
-            if (Interlocked.CompareExchange(
-                    ref _summonedPetRosterQualityCaptureSequence,
-                    captureSequence,
-                    current) == current)
-            {
-                return;
-            }
-        }
-    }
-
-    private SummonedPetRosterReadResult CreateSummonedPetRosterQualityResult(
-        OperationResult<SummonedPetRosterSnapshot> result,
-        bool bypassMemoryCache)
-    {
-        var now = DateTimeOffset.UtcNow;
-        var captureSequence = Interlocked.Increment(ref _summonedPetRosterQualityCaptureSequence);
-        if (!result.Success || result.Value is null)
-        {
-            return SummonedPetRosterReadResult.Failed(
-                captureSequence,
-                now,
-                now,
-                bypassMemoryCache,
-                result.Error ?? "injected_pet_roster_failure");
-        }
-
-        var roster = result.Value;
-        return new SummonedPetRosterReadResult(
-            SummonedPetRosterReadCompleteness.Complete,
-            roster,
-            new SummonedPetRosterFieldValidity(
-                LocalServerObjectId: roster.LocalServerObjectId != 0,
-                LocalLinkedPetServerObjectId: true,
-                VisibleActorTraversal: true),
-            new SummonedPetRosterReadDiagnostics(
-                captureSequence,
-                now,
-                now,
-                bypassMemoryCache,
-                SummonedPetRosterTraversalTermination.ReachedTreeEnd,
-                ScannedServerObjects: roster.LocalPlayerPet.Pet.IsSummoned ? 1 : 0,
-                EmittedActors: roster.LocalPlayerPet.Pet.IsSummoned ? 1 : 0,
-                NodeIdentityReadFailures: 0,
-                EntityLookupFailures: 0,
-                EntityTypeReadFailures: 0,
-                ActorResolutionFailures: 0,
-                ActorIdentityMismatches: 0,
-                OwnerFieldReadFailures: 0,
-                StaticMetadataMisses: 0,
-                LocalPetCandidateCount: 0,
-                FirstIssue: null));
     }
 
     public Task<OperationResult<PartySnapshot>> ReadPartyAsync(CancellationToken cancellationToken = default)
@@ -34334,13 +31510,10 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
 
     public Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(CancellationToken cancellationToken = default)
     {
-        lock (_worldObjectReadSync)
-        {
-            WorldObjectReadCount++;
-            return Task.FromResult(WorldObjectReadResults.Count > 0
-                ? WorldObjectReadResults.Dequeue()
-                : WorldObjectReadFallback ?? OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(WorldObjects));
-        }
+        WorldObjectReadCount++;
+        return Task.FromResult(WorldObjectReadResults.Count > 0
+            ? WorldObjectReadResults.Dequeue()
+            : WorldObjectReadFallback ?? OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(WorldObjects));
     }
 
     public Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(
@@ -34349,110 +31522,6 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
     {
         LastWorldObjectsContext = context;
         return ReadWorldObjectsAsync(cancellationToken);
-    }
-
-    public async Task<WorldObjectReadResult> ReadWorldObjectsWithQualityAsync(
-        GameApiReadContext context,
-        CancellationToken cancellationToken = default)
-    {
-        Func<GameApiReadContext, CancellationToken, Task<WorldObjectReadResult>>? handler;
-        WorldObjectReadResult? immediateResult = null;
-        lock (_worldObjectReadSync)
-        {
-            LastWorldObjectsContext = context;
-            WorldObjectQualityReadContexts.Add(context);
-            WorldObjectReadCount++;
-            handler = WorldObjectQualityReadHandler;
-            if (handler is null && WorldObjectQualityReadResults.Count > 0)
-            {
-                immediateResult = WorldObjectQualityReadResults.Dequeue();
-            }
-            else if (handler is null && WorldObjectQualityReadFallback is not null)
-            {
-                immediateResult = WorldObjectQualityReadFallback;
-            }
-            else if (handler is null)
-            {
-                var legacyResult = WorldObjectReadResults.Count > 0
-                    ? WorldObjectReadResults.Dequeue()
-                    : WorldObjectReadFallback ?? OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(WorldObjects);
-                immediateResult = CreateWorldObjectQualityResult(legacyResult, context.BypassMemoryCache);
-            }
-        }
-
-        var result = handler is null
-            ? immediateResult!
-            : await handler(context, cancellationToken).ConfigureAwait(false);
-        AdvanceWorldObjectQualityCaptureSequence(result.Diagnostics.CaptureSequence);
-        return result;
-    }
-
-    private void AdvanceWorldObjectQualityCaptureSequence(long captureSequence)
-    {
-        while (true)
-        {
-            var current = Interlocked.Read(ref _worldObjectQualityCaptureSequence);
-            if (captureSequence <= current)
-            {
-                return;
-            }
-
-            if (Interlocked.CompareExchange(
-                    ref _worldObjectQualityCaptureSequence,
-                    captureSequence,
-                    current) == current)
-            {
-                return;
-            }
-        }
-    }
-
-    private WorldObjectReadResult CreateWorldObjectQualityResult(
-        OperationResult<IReadOnlyList<WorldObjectSnapshot>> result,
-        bool bypassMemoryCache)
-    {
-        var now = DateTimeOffset.UtcNow;
-        var objects = result.Success && result.Value is not null
-            ? result.Value
-            : Array.Empty<WorldObjectSnapshot>();
-        var observations = objects
-            .Select(static snapshot => new WorldObjectObservation(
-                snapshot,
-                new WorldObjectFieldValidity(true, true, true, true, true, true)))
-            .ToArray();
-        var diagnostics = new WorldObjectReadDiagnostics(
-            Interlocked.Increment(ref _worldObjectQualityCaptureSequence),
-            now,
-            now,
-            bypassMemoryCache,
-            result.Success
-                ? WorldObjectTraversalTermination.ReachedTreeEnd
-                : WorldObjectTraversalTermination.NotStarted,
-            LocalServerObjectIdAvailable: result.Success,
-            ScannedServerObjects: objects.Count,
-            ResolvedEntities: objects.Count,
-            NpcLikeEntities: objects.Count,
-            EmittedObjects: objects.Count,
-            NodeIdentityReadFailures: 0,
-            EntityLookupFailures: 0,
-            EntityTypeReadFailures: 0,
-            PositionReadFailures: 0,
-            ActorResolutionFailures: 0,
-            ActorIdentityMismatches: 0,
-            StaticMetadataMisses: 0,
-            StaticCatalogErrors: 0,
-            TargetFieldReadFailures: 0,
-            HealthFieldReadFailures: 0,
-            LootFieldReadFailures: 0,
-            InteractionStateReadFailures: 0,
-            FirstIssue: result.Error);
-        return new WorldObjectReadResult(
-            result.Success
-                ? WorldObjectReadCompleteness.Complete
-                : WorldObjectReadCompleteness.Failed,
-            observations,
-            diagnostics,
-            result.Error);
     }
 
     public Task<OperationResult<GatherSnapshot>> ReadGatherSnapshotAsync(CancellationToken cancellationToken = default)

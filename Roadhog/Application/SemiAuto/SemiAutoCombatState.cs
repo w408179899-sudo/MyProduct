@@ -27,7 +27,6 @@ public sealed class SemiAutoCombatState
     private DateTimeOffset lastSpiritmasterSummonAttemptAt = DateTimeOffset.MinValue;
     private DateTimeOffset spiritmasterSummonVerifyUntil = DateTimeOffset.MinValue;
     private int consecutiveSpiritmasterPetMissingReads;
-    private long lastSpiritmasterPetMissingCaptureSequence;
     private uint? lastPressedSkillId;
     private uint lastPressedCooldownEndTime;
     private DateTimeOffset lastPressedCooldownExpiresAt = DateTimeOffset.MinValue;
@@ -88,16 +87,12 @@ public sealed class SemiAutoCombatState
 
     public DateTimeOffset LastSpiritmasterSummonVerifyLogAt { get; set; } = DateTimeOffset.MinValue;
 
-    public DateTimeOffset LastSpiritmasterPetPresenceUnknownLogAt { get; set; } = DateTimeOffset.MinValue;
-
     public DateTimeOffset LastSpiritmasterPetHpConfirmationLogAt { get; set; } = DateTimeOffset.MinValue;
 
     public bool HasPendingSpiritmasterSummonVerification =>
         spiritmasterSummonVerifyUntil != DateTimeOffset.MinValue;
 
     public int ConsecutiveSpiritmasterPetMissingReads => consecutiveSpiritmasterPetMissingReads;
-
-    public long LastSpiritmasterPetMissingCaptureSequence => lastSpiritmasterPetMissingCaptureSequence;
 
     public SpiritmasterPetHpIncreaseConfirmation? PendingSpiritmasterPetHpIncreaseConfirmation =>
         pendingSpiritmasterPetHpIncreaseConfirmation;
@@ -312,14 +307,8 @@ public sealed class SemiAutoCombatState
         lastSpiritmasterSummonAttemptAt = now;
     }
 
-    public int RecordSpiritmasterPetMissingRead(long captureSequence)
+    public int RecordSpiritmasterPetMissingRead()
     {
-        if (captureSequence <= 0 || captureSequence == lastSpiritmasterPetMissingCaptureSequence)
-        {
-            return consecutiveSpiritmasterPetMissingReads;
-        }
-
-        lastSpiritmasterPetMissingCaptureSequence = captureSequence;
         if (consecutiveSpiritmasterPetMissingReads < int.MaxValue)
         {
             consecutiveSpiritmasterPetMissingReads++;
@@ -331,16 +320,6 @@ public sealed class SemiAutoCombatState
     public void ResetSpiritmasterPetMissingReads()
     {
         consecutiveSpiritmasterPetMissingReads = 0;
-    }
-
-    public void ResetSpiritmasterPetLifecycle()
-    {
-        consecutiveSpiritmasterPetMissingReads = 0;
-        lastSpiritmasterPetMissingCaptureSequence = 0;
-        lastSpiritmasterSummonAttemptAt = DateTimeOffset.MinValue;
-        LastSpiritmasterPetPresenceUnknownLogAt = DateTimeOffset.MinValue;
-        ClearSpiritmasterSummonVerification();
-        ClearSpiritmasterPetHpIncreaseConfirmation();
     }
 
     public bool IsAwaitingSpiritmasterSummonVerification(DateTimeOffset now)
@@ -581,9 +560,7 @@ public sealed class SemiAutoCombatState
             (int)Math.Clamp(localCooldown.TotalMilliseconds, 1, int.MaxValue));
     }
 
-    public void DeferSpiritmasterPetHpIncreaseConfirmation(
-        DateTimeOffset now,
-        TimeSpan retryInterval)
+    public void DeferSpiritmasterPetHpIncreaseConfirmation(DateTimeOffset now, TimeSpan retryInterval)
     {
         if (pendingSpiritmasterPetHpIncreaseConfirmation is not { } pending)
         {

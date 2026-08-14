@@ -257,7 +257,8 @@ public sealed class TacticalMarkCoordinator
             context.Config.ProcessId,
             context.Config.TargetProcessName,
             context.Config.VmmDeviceName,
-            bypassMemoryCache);
+            bypassMemoryCache,
+            RequireFresh: bypassMemoryCache);
     }
 }
 

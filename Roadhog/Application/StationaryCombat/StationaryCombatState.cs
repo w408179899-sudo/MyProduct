@@ -30,8 +30,6 @@ public sealed class StationaryCombatState
 
     public LeaderTacticalMarkState LeaderTacticalMark { get; } = new();
 
-    public LocalDefenseThreatGuard LocalDefenseThreat { get; } = new();
-
     public bool CleanupReturnToCombatActive { get; private set; }
 
     public bool ReturningHome { get; set; }
@@ -66,14 +64,6 @@ public sealed class StationaryCombatState
 
     public uint LocalCombatSidePetServerObjectId { get; set; }
 
-    public bool LocalCombatSideIdentityFresh { get; private set; }
-
-    public int LocalCombatSidePetMissingConfirmations { get; private set; }
-
-    public long LocalCombatSidePetLastMissingCaptureSequence { get; private set; }
-
-    public SummonedPetRosterReadResult? LastSummonedPetRosterReadResult { get; private set; }
-
     public ushort CandidateEntityId { get; set; }
 
     public uint CandidateServerObjectId { get; set; }
@@ -83,8 +73,6 @@ public sealed class StationaryCombatState
     public uint SmartPreAimHandoffServerObjectId { get; private set; }
 
     public int SmartPreAimHandoffConsecutiveMissingSnapshots { get; private set; }
-
-    public long SmartPreAimHandoffLastMissingCaptureSequence { get; private set; }
 
     public bool HasSmartPreAimHandoff =>
         SmartPreAimHandoffEntityId != 0 || SmartPreAimHandoffServerObjectId != 0;
@@ -178,146 +166,6 @@ public sealed class StationaryCombatState
     public Dictionary<string, DateTimeOffset> LastActionLogAtByKey { get; } = new();
 
     public IReadOnlyList<WorldObjectSnapshot> CachedWorldObjects { get; set; } = Array.Empty<WorldObjectSnapshot>();
-
-    public WorldObjectReadResult? LastWorldObjectReadResult { get; set; }
-
-    internal object WorldObjectCommitSyncRoot { get; } = new();
-
-    private long _worldObjectReadGeneration;
-    private long _lastAcceptedWorldObjectReadOrder;
-    private DateTimeOffset _localDefenseTransitionUnknownSince = DateTimeOffset.MinValue;
-    private string _localDefenseTransitionUnknownPhase = string.Empty;
-    private WorldObjectReadResult? _localDefenseExpiredReadResult;
-
-    public long WorldObjectReadGeneration => Interlocked.Read(ref _worldObjectReadGeneration);
-
-    public bool TryAcceptWorldObjectRead(long observationOrder, long stateGeneration)
-    {
-        if (observationOrder <= 0 || stateGeneration != WorldObjectReadGeneration)
-        {
-            return false;
-        }
-
-        while (true)
-        {
-            var accepted = Interlocked.Read(ref _lastAcceptedWorldObjectReadOrder);
-            if (observationOrder <= accepted)
-            {
-                return false;
-            }
-
-            if (Interlocked.CompareExchange(
-                    ref _lastAcceptedWorldObjectReadOrder,
-                    observationOrder,
-                    accepted) == accepted)
-            {
-                return stateGeneration == WorldObjectReadGeneration;
-            }
-        }
-    }
-
-    public DateTimeOffset MarkLocalDefenseTransitionUnknown(string phase, DateTimeOffset now)
-    {
-        TryMarkLocalDefenseTransitionUnknown(
-            phase,
-            now,
-            WorldObjectReadGeneration,
-            out var unknownSince);
-        return unknownSince;
-    }
-
-    public bool TryMarkLocalDefenseTransitionUnknown(
-        string phase,
-        DateTimeOffset now,
-        long expectedGeneration,
-        out DateTimeOffset unknownSince)
-    {
-        lock (WorldObjectCommitSyncRoot)
-        {
-            if (expectedGeneration != WorldObjectReadGeneration)
-            {
-                unknownSince = DateTimeOffset.MinValue;
-                return false;
-            }
-
-            if (_localDefenseTransitionUnknownSince == DateTimeOffset.MinValue ||
-                !string.Equals(_localDefenseTransitionUnknownPhase, phase, StringComparison.Ordinal))
-            {
-                _localDefenseTransitionUnknownSince = now;
-                _localDefenseTransitionUnknownPhase = phase;
-            }
-
-            unknownSince = _localDefenseTransitionUnknownSince;
-            return true;
-        }
-    }
-
-    public void ClearLocalDefenseTransitionUnknown(string? phase = null)
-    {
-        TryClearLocalDefenseTransitionUnknown(phase, WorldObjectReadGeneration);
-    }
-
-    public bool TryClearLocalDefenseTransitionUnknown(string? phase, long expectedGeneration)
-    {
-        lock (WorldObjectCommitSyncRoot)
-        {
-            if (expectedGeneration != WorldObjectReadGeneration)
-            {
-                return false;
-            }
-
-            if (!string.IsNullOrWhiteSpace(phase) &&
-                !string.Equals(_localDefenseTransitionUnknownPhase, phase, StringComparison.Ordinal))
-            {
-                return true;
-            }
-
-            _localDefenseTransitionUnknownSince = DateTimeOffset.MinValue;
-            _localDefenseTransitionUnknownPhase = string.Empty;
-            return true;
-        }
-    }
-
-    public bool TryClearLocalDefenseExpiryEvidence(long expectedGeneration)
-    {
-        lock (WorldObjectCommitSyncRoot)
-        {
-            if (expectedGeneration != WorldObjectReadGeneration)
-            {
-                return false;
-            }
-
-            _localDefenseExpiredReadResult = null;
-            return true;
-        }
-    }
-
-    public bool TryMarkLocalDefenseExpired(
-        WorldObjectReadResult readResult,
-        long expectedGeneration)
-    {
-        lock (WorldObjectCommitSyncRoot)
-        {
-            if (expectedGeneration != WorldObjectReadGeneration)
-            {
-                return false;
-            }
-
-            _localDefenseExpiredReadResult = readResult;
-            return true;
-        }
-    }
-
-    public bool IsLocalDefenseExpiredReadResult(
-        WorldObjectReadResult readResult,
-        long expectedGeneration)
-    {
-        lock (WorldObjectCommitSyncRoot)
-        {
-            return expectedGeneration == WorldObjectReadGeneration &&
-                   ReferenceEquals(_localDefenseExpiredReadResult, readResult);
-        }
-    }
 
     public GatherSnapshot? CachedGatherSnapshot { get; set; }
 
@@ -428,14 +276,11 @@ public sealed class StationaryCombatState
         Gather.Reset();
         CachedGatherSnapshot = null;
         CachedWorldObjects = Array.Empty<WorldObjectSnapshot>();
-        LastWorldObjectReadResult = null;
         LastGatherScanAt = DateTimeOffset.MinValue;
         LastWorldScanAt = DateTimeOffset.MinValue;
         ClearNoTargetRest();
         ClearStartupRecovery();
-        InvalidateLocalDefenseReads();
         ClearTarget();
-        MarkLocalCombatSideIdentityUnavailable();
         ResetReturnHomeStuckTracking();
         IgnoredTargetEntityIds.Clear();
         IgnoredTargetServerObjectIds.Clear();
@@ -460,117 +305,8 @@ public sealed class StationaryCombatState
         LastGatherScanAt = DateTimeOffset.MinValue;
         ClearNoTargetRest();
         ClearStartupRecovery();
-        InvalidateLocalDefenseReads();
-        // A player death is a hard lifetime boundary for both the local actor
-        // and its summoned pet. Never let a roster captured before death prove
-        // that the post-revive player still has the same pet.
-        ClearLocalCombatSideIdentity(identityFresh: false);
         ClearTarget();
         DeathRecovery.Start(now);
-    }
-
-    public void InvalidateLocalDefenseReads()
-    {
-        lock (WorldObjectCommitSyncRoot)
-        {
-            Interlocked.Increment(ref _worldObjectReadGeneration);
-            LocalDefenseThreat.Clear();
-            LastWorldObjectReadResult = null;
-            CachedWorldObjects = Array.Empty<WorldObjectSnapshot>();
-            LastWorldScanAt = DateTimeOffset.MinValue;
-            _localDefenseTransitionUnknownSince = DateTimeOffset.MinValue;
-            _localDefenseTransitionUnknownPhase = string.Empty;
-            _localDefenseExpiredReadResult = null;
-        }
-    }
-
-    public void MarkLocalCombatSideIdentityUnavailable()
-    {
-        LocalCombatSidePetMissingConfirmations = 0;
-        LocalCombatSideIdentityFresh = false;
-    }
-
-    public void ClearLocalCombatSideIdentity(bool identityFresh)
-    {
-        LocalCombatSideServerObjectId = 0;
-        LocalCombatSidePetServerObjectId = 0;
-        LocalCombatSidePetMissingConfirmations = 0;
-        LocalCombatSidePetLastMissingCaptureSequence = 0;
-        LastSummonedPetRosterReadResult = null;
-        LocalCombatSideIdentityFresh = identityFresh;
-    }
-
-    public void MarkLocalCombatSideWithoutPet()
-    {
-        LocalCombatSidePetServerObjectId = 0;
-        LocalCombatSidePetMissingConfirmations = 0;
-        LocalCombatSidePetLastMissingCaptureSequence = 0;
-        LastSummonedPetRosterReadResult = null;
-        LocalCombatSideIdentityFresh = true;
-    }
-
-    public void ApplyLocalCombatSideRoster(
-        SummonedPetRosterReadResult readResult,
-        int requiredPetMissingConfirmations)
-    {
-        LastSummonedPetRosterReadResult = readResult;
-        var presence = readResult.ResolveLocalPetPresence();
-        var localServerObjectId = readResult.Fields.LocalServerObjectId
-            ? readResult.Snapshot?.LocalServerObjectId ?? 0
-            : 0;
-        if (localServerObjectId == 0)
-        {
-            MarkLocalCombatSideIdentityUnavailable();
-            return;
-        }
-
-        LocalCombatSideServerObjectId = localServerObjectId;
-        if (presence.IsPresent)
-        {
-            LocalCombatSidePetServerObjectId = presence.ServerObjectId;
-            LocalCombatSidePetMissingConfirmations = 0;
-            LocalCombatSideIdentityFresh = true;
-            return;
-        }
-
-        if (!presence.IsExplicitlyAbsent)
-        {
-            // Unknown interrupts a run of explicit negative captures. Retain
-            // the last positive pet ID for threat matching, but do not let this
-            // frame prove that the local-side threat disappeared.
-            LocalCombatSidePetMissingConfirmations = 0;
-            LocalCombatSideIdentityFresh = false;
-            return;
-        }
-
-        if (LocalCombatSidePetServerObjectId == 0)
-        {
-            LocalCombatSidePetMissingConfirmations = 0;
-            LocalCombatSideIdentityFresh = true;
-            return;
-        }
-
-        if (presence.CaptureSequence <= 0 ||
-            presence.CaptureSequence == LocalCombatSidePetLastMissingCaptureSequence)
-        {
-            LocalCombatSideIdentityFresh = false;
-            return;
-        }
-
-        LocalCombatSidePetLastMissingCaptureSequence = presence.CaptureSequence;
-        LocalCombatSidePetMissingConfirmations++;
-        if (LocalCombatSidePetMissingConfirmations >= Math.Max(1, requiredPetMissingConfirmations))
-        {
-            LocalCombatSidePetServerObjectId = 0;
-            LocalCombatSidePetMissingConfirmations = 0;
-            LocalCombatSideIdentityFresh = true;
-            return;
-        }
-
-        // A single successful roster without the previously confirmed pet can
-        // still be a torn snapshot. Keep the ID for positive matches, but do not
-        // allow this observation to prove that a threat disappeared.
-        LocalCombatSideIdentityFresh = false;
     }
 
     public void ExitDeathRecovery()
@@ -626,7 +362,6 @@ public sealed class StationaryCombatState
         if (changed)
         {
             SmartPreAimHandoffConsecutiveMissingSnapshots = 0;
-            SmartPreAimHandoffLastMissingCaptureSequence = 0;
         }
 
         return changed;
@@ -642,21 +377,14 @@ public sealed class StationaryCombatState
                    serverObjectId);
     }
 
-    public int MarkSmartPreAimHandoffMissing(long captureSequence)
+    public int MarkSmartPreAimHandoffMissing()
     {
-        if (captureSequence == 0 || captureSequence == SmartPreAimHandoffLastMissingCaptureSequence)
-        {
-            return SmartPreAimHandoffConsecutiveMissingSnapshots;
-        }
-
-        SmartPreAimHandoffLastMissingCaptureSequence = captureSequence;
         return ++SmartPreAimHandoffConsecutiveMissingSnapshots;
     }
 
     public void ResetSmartPreAimHandoffMissing()
     {
         SmartPreAimHandoffConsecutiveMissingSnapshots = 0;
-        SmartPreAimHandoffLastMissingCaptureSequence = 0;
     }
 
     public void ClearSmartPreAimHandoff(bool clearDisplacedTargetGuard)
@@ -672,7 +400,6 @@ public sealed class StationaryCombatState
         SmartPreAimHandoffEntityId = 0;
         SmartPreAimHandoffServerObjectId = 0;
         SmartPreAimHandoffConsecutiveMissingSnapshots = 0;
-        SmartPreAimHandoffLastMissingCaptureSequence = 0;
     }
 
     public void RefreshCurrentTargetTimeout(DateTimeOffset now)
@@ -1241,11 +968,6 @@ public sealed class StationaryCombatState
     public void MarkStartupRecoveryChecked()
     {
         StartupRecoveryChecked = true;
-    }
-
-    public void DeferStartupRecoveryCheck()
-    {
-        StartupRecoveryChecked = false;
     }
 
     public void StartCleanupReturnToCombat()

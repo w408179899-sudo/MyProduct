@@ -108,6 +108,8 @@ internal static class BagCleanupGameApi
             context.Config.AccountName,
             context.Config.ProcessId,
             context.Config.TargetProcessName,
-            context.Config.VmmDeviceName);
+            context.Config.VmmDeviceName,
+            BypassMemoryCache: true,
+            RequireFresh: true);
     }
 }
