@@ -501,7 +501,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("selected skill refresh removes unavailable current skills", TestSelectedSkillRefreshRemovesUnavailableCurrentSkillsAsync),
     ("skill tree maps at most configured roots across the 24 supported keys", TestConfiguredRootKeyBoundaryAsync),
     ("combat tick presses trigger prefix then first ready root", TestCombatTickPressesPrefixThenReadyRootAsync),
-    ("knockdown trigger saved as status is treated as trigger", TestKnockdownTriggerSavedAsStatusIsTreatedAsTriggerAsync),
+    ("ankle strike legacy trigger is treated as condition", TestAnkleStrikeLegacyTriggerIsTreatedAsConditionAsync),
     ("combat tick requests only configured skill ids", TestCombatTickRequestsOnlyConfiguredSkillIdsAsync),
     ("observed configured cooldown advance calibrates clock", TestObservedConfiguredCooldownAdvanceCalibratesClockAsync),
     ("large cooldown offset jump is rejected", TestLargeCooldownOffsetJumpIsRejectedAsync),
@@ -597,6 +597,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("condition skill preempts pending chain and clears it", TestConditionSkillPreemptsPendingChainAsync),
     ("condition skill preempt switch keeps pending chain priority", TestConditionSkillPreemptSwitchKeepsPendingChainPriorityAsync),
     ("condition skill waits for target status", TestConditionSkillWaitsForTargetStatusAsync),
+    ("condition node without status metadata stays blocked", TestConditionNodeWithoutStatusMetadataStaysBlockedAsync),
     ("condition skill respects cooldown", TestConditionSkillRespectsCooldownAsync),
     ("chain window uses configured chain depth", TestChainWindowUsesConfiguredDepthAsync),
     ("chain window starts when root cooldown advances", TestChainWindowStartsFromRootCooldownAsync),
@@ -27186,19 +27187,17 @@ static async Task TestCombatTickPressesPrefixThenReadyRootAsync()
     AssertFalse(keyboard.Keys.Contains("D0"), "dp skill should not be pressed");
 }
 
-static async Task TestKnockdownTriggerSavedAsStatusIsTreatedAsTriggerAsync()
+static async Task TestAnkleStrikeLegacyTriggerIsTreatedAsConditionAsync()
 {
     var settings = CreateScriptSettings();
-    settings.Skills.ExecutionTree.Insert(1, Node(410, "脚踝重击 I", "状态技能"));
+    settings.Skills.ExecutionTree.Insert(1, Node(410, "脚踝重击 I", "触发技能"));
     var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
     var keyboard = new RecordingKeyboardInput();
     var logger = new InMemoryRoadhogLogger();
     var skills = Flatten(plan.Roots)
         .Select(node =>
         {
-            var cooldownEnd = node.SkillId == 1
-                ? ActiveCooldownEnd()
-                : 0u;
+            var cooldownEnd = node.SkillId == 410 ? 0u : ActiveCooldownEnd();
             return new SkillSnapshot(
                 node.SkillId,
                 node.Name,
@@ -27207,26 +27206,43 @@ static async Task TestKnockdownTriggerSavedAsStatusIsTreatedAsTriggerAsync()
                 node.BaseName,
                 1,
                 false,
-                node.SkillId == 1 ? 1000u : 0u,
-                cooldownEnd);
+                1000u,
+                cooldownEnd,
+                XmlTargetValidStatuses: node.SkillId == 410 ? "Stumble" : null);
         })
         .ToArray();
     var gameApi = new FakeGameApi
     {
-        Skills = skills
+        Skills = skills,
+        LockedTargetAbnormalStatuses = CreateLockedTargetAbnormalSnapshot(
+            Abnormal(8218, PlayerAbnormalStatusSnapshot.PhysicalDebuffCategory))
     };
     var controller = new SemiAutoCombatController(keyboard);
     var state = new SemiAutoCombatState();
     CalibrateCooldownClock(state);
+    var chainRoot = plan.Roots.Single(node => node.SkillId == 6);
+    state.StartPendingChainAdvance(
+        chainRoot,
+        chainRoot.Children[0],
+        DateTimeOffset.Now.AddSeconds(5),
+        ActiveCooldownEnd(),
+        1200);
 
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
 
-    AssertFalse(!plan.Roots[1].IsTrigger, "knockdown trigger should be normalized as trigger");
-    AssertSequence(
-        new[] { "D2", "D3", "D4", "D5", "D6" },
-        keyboard.Keys.ToArray(),
-        "knockdown trigger should be prefix before first active root");
-    AssertFalse(gameApi.LastRequestedSkillIds?.Contains(410u) == true, "knockdown trigger should not be read as a normal root");
+    var ankleStrike = plan.Roots.Single(node => node.SkillId == 410);
+    AssertEqual("条件技能", ankleStrike.Type, "legacy ankle strike type should normalize to condition");
+    AssertFalse(ankleStrike.IsTrigger, "ankle strike must not remain in the trigger prefix");
+    AssertFalse(plan.TriggerPrefixRoots.Contains(ankleStrike), "ankle strike must be absent from trigger prefix roots");
+    AssertFalse(!plan.SkillReadIds.Contains(410u), "ankle strike should be included in configured skill reads");
+    AssertSequence(new[] { "D2" }, keyboard.Keys.ToArray(), "matched ankle strike should preempt the pending chain without trigger prefix");
+    AssertFalse(state.HasChainWork, "matched ankle strike should clear the preempted chain");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "semi_auto.condition_skill.pressed" &&
+            string.Equals(Convert.ToString(entry.Fields["skill"]), "脚踝重击 I", StringComparison.Ordinal) &&
+            Convert.ToBoolean(entry.Fields["preemptedChain"])),
+        "ankle strike should log condition preemption");
 }
 
 static async Task TestCombatTickRequestsOnlyConfiguredSkillIdsAsync()
@@ -31654,6 +31670,38 @@ static async Task TestConditionSkillWaitsForTargetStatusAsync()
     AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D5"), keyboard.Keys.ToArray(), "condition skill should wait for matching target abnormal");
     AssertFalse(keyboard.Keys.Contains("D1"), "condition skill must not fall through as ordinary root");
     AssertFalse(logger.Entries.Any(entry => entry.EventName == "semi_auto.condition_skill.pressed"), "unmatched condition should not press");
+}
+
+static async Task TestConditionNodeWithoutStatusMetadataStaysBlockedAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Skills.ExecutionTree[0] = Node(410, "脚踝重击 I", "条件技能");
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        LockedTargetAbnormalStatuses = CreateLockedTargetAbnormalSnapshot(
+            Abnormal(8218, PlayerAbnormalStatusSnapshot.PhysicalDebuffCategory)),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [410] = 0,
+            [5] = ActiveCooldownEnd(),
+            [6] = ActiveCooldownEnd(),
+            [7] = ActiveCooldownEnd(),
+            [8] = ActiveCooldownEnd(),
+            [9] = ActiveCooldownEnd()
+        })
+    };
+
+    await new SemiAutoCombatController(keyboard)
+        .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState())
+        .ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Contains("D1"), "condition node without target status metadata must not press as an ordinary root");
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName == "semi_auto.condition_skill.pressed"),
+        "condition node without target status metadata must not report a matched condition");
 }
 
 static async Task TestConditionSkillRespectsCooldownAsync()

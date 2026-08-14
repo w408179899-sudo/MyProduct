@@ -6922,7 +6922,8 @@ namespace Roadhog
 
         private static string GetSystemEffectCategory(SkillSnapshot skill)
         {
-            if (HasSkillTag(skill, "condition") ||
+            if (IsNamedSkill(GetSkillBaseName(skill), ConditionSkillBaseNames) ||
+                HasSkillTag(skill, "condition") ||
                 HasUsefulSkillValue(skill.XmlTargetValidStatuses))
             {
                 return "条件技能";
@@ -6972,6 +6973,11 @@ namespace Roadhog
                 HasUsefulSkillValue(skill.XmlCostDp))
             {
                 return "DP技能";
+            }
+
+            if (IsNamedSkill(GetSkillBaseName(skill), ConditionSkillBaseNames))
+            {
+                return "条件技能";
             }
 
             if (IsNamedSkill(GetSkillBaseName(skill), TriggerSkillBaseNames) ||
@@ -7350,12 +7356,16 @@ namespace Roadhog
             var text = string.IsNullOrWhiteSpace(config.Name)
                 ? "Skill " + config.SkillId
                 : config.Name;
+            var type = IsNamedSkill(config.BaseName, ConditionSkillBaseNames) ||
+                       IsNamedSkill(config.Name, ConditionSkillBaseNames)
+                ? "条件技能"
+                : config.Type;
             var node = targetNodes.Add(text, text);
             node.Tag = new SkillTreeNodeData(
                 config.SkillId,
                 text,
                 config.BaseName,
-                config.Type,
+                type,
                 config.ChainTimeMs);
 
             foreach (var child in config.Children)
@@ -8003,8 +8013,8 @@ namespace Roadhog
             return skillType switch
             {
                 "状态技能" => new[] { "保护之盾", "主神之盔甲", "捕获" },
-                "触发技能" => new[] { "盾牌反击", "惩戒一击", "盾牌猛击", "脚踝重击" },
-                "条件技能" => new[] { "共鸣烟雾" },
+                "触发技能" => new[] { "盾牌反击", "惩戒一击", "盾牌猛击" },
+                "条件技能" => new[] { "共鸣烟雾", "脚踝重击" },
                 "连续技" => new[] { "会心一击", "气合", "必灭一击", "连续乱打" },
                 "DP技能" => new[] { "暗黑之惩戒" },
                 "激活技能" => new[] { "铜墙铁壁", "盾牌防御" },
@@ -8045,6 +8055,11 @@ namespace Roadhog
                 string.Equals(skill.XmlActivation, "Toggle", StringComparison.OrdinalIgnoreCase))
             {
                 return "激活技能";
+            }
+
+            if (IsNamedSkill(baseName, ConditionSkillBaseNames))
+            {
+                return "条件技能";
             }
 
             if (IsNamedSkill(baseName, TriggerSkillBaseNames) ||
@@ -8194,7 +8209,11 @@ namespace Roadhog
         {
             "盾牌反击",
             "惩戒一击",
-            "盾牌猛击",
+            "盾牌猛击"
+        };
+
+        private static readonly string[] ConditionSkillBaseNames =
+        {
             "脚踝重击"
         };
 

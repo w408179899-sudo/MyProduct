@@ -17,8 +17,8 @@ public sealed class SemiAutoSkillNode
         SkillId = skillId;
         Name = name ?? string.Empty;
         BaseName = baseName ?? string.Empty;
-        Type = IsKnockdownTriggerSkill(baseName) || IsKnockdownTriggerSkill(name)
-            ? "触发技能"
+        Type = IsAnkleStrikeConditionSkill(baseName) || IsAnkleStrikeConditionSkill(name)
+            ? "条件技能"
             : type ?? string.Empty;
         ChainTimeMs = chainTimeMs;
         Key = key ?? string.Empty;
@@ -44,9 +44,9 @@ public sealed class SemiAutoSkillNode
 
     public List<SemiAutoSkillNode> Children { get; } = new();
 
-    public bool IsTrigger => string.Equals(Type, "触发技能", StringComparison.Ordinal) ||
-                             IsKnockdownTriggerSkill(BaseName) ||
-                             IsKnockdownTriggerSkill(Name);
+    public bool IsTrigger => string.Equals(Type, "触发技能", StringComparison.Ordinal);
+
+    public bool IsCondition => string.Equals(Type, "条件技能", StringComparison.Ordinal);
 
     public bool IsDp => Type.Contains("DP", StringComparison.OrdinalIgnoreCase);
 
@@ -100,7 +100,7 @@ public sealed class SemiAutoSkillNode
                string.Equals(left.Trim(), right.Trim(), StringComparison.Ordinal);
     }
 
-    private static bool IsKnockdownTriggerSkill(string? name)
+    private static bool IsAnkleStrikeConditionSkill(string? name)
     {
         var value = name?.Trim() ?? string.Empty;
         return string.Equals(value, "脚踝重击", StringComparison.Ordinal) ||

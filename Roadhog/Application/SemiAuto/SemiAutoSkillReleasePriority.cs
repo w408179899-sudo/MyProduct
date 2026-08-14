@@ -101,7 +101,7 @@ public static class SemiAutoSkillReleasePriority
                 continue;
             }
 
-            if (IsTargetConditionSkill(skill))
+            if (IsTargetConditionSkill(root, skill))
             {
                 continue;
             }
@@ -167,7 +167,7 @@ public static class SemiAutoSkillReleasePriority
                 {
                     reason = FormatCooldownReason(skill, state);
                 }
-                else if (IsTargetConditionSkill(skill))
+                else if (IsTargetConditionSkill(root, skill))
                 {
                     reason = "condition-waiting_status=" + skill.XmlTargetValidStatuses;
                 }
@@ -199,7 +199,7 @@ public static class SemiAutoSkillReleasePriority
 
             var skill = root.ResolveSkill(skills);
             if (skill is null ||
-                !IsTargetConditionSkill(skill) ||
+                !IsTargetConditionSkill(root, skill) ||
                 state.IsUncalibratedUnknownSuppressed(skill, now))
             {
                 continue;
@@ -217,6 +217,11 @@ public static class SemiAutoSkillReleasePriority
     public static bool IsTargetConditionSkill(SkillSnapshot skill)
     {
         return !string.IsNullOrWhiteSpace(skill.XmlTargetValidStatuses);
+    }
+
+    public static bool IsTargetConditionSkill(SemiAutoSkillNode node, SkillSnapshot skill)
+    {
+        return node.IsCondition || IsTargetConditionSkill(skill);
     }
 
     private static SemiAutoSkillReleaseDecision SelectTargetConditionSkill(
@@ -251,7 +256,7 @@ public static class SemiAutoSkillReleasePriority
             }
 
             var skill = root.ResolveSkill(skills);
-            if (skill is null || !IsTargetConditionSkill(skill))
+            if (skill is null || !IsTargetConditionSkill(root, skill))
             {
                 continue;
             }
