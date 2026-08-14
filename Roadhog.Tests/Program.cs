@@ -284,6 +284,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("bag cleanup discard limits each item to two confirm clicks", TestBagCleanupDiscardLimitsConfirmClicksPerItemAsync),
     ("bag cleanup discard retries inventory close", TestBagCleanupDiscardRetriesInventoryCloseAsync),
     ("bag cleanup discard waits until all attackers are cleared", TestBagCleanupDiscardWaitsUntilAllAttackersAreClearedAsync),
+    ("bag cleanup discard waits for three consecutive safety read failures", TestBagCleanupDiscardWaitsForThreeConsecutiveSafetyReadFailuresAsync),
+    ("bag cleanup discard safety read success resets failure count", TestBagCleanupDiscardSafetyReadSuccessResetsFailureCountAsync),
     ("bag cleanup matcher groups weapon armor and accessory as equipment", TestBagCleanupMatcherGroupsEquipmentTypesAsync),
     ("bag cleanup matcher maps stigma item type", TestBagCleanupMatcherMapsStigmaItemTypeAsync),
     ("bag cleanup matcher excludes name keywords", TestBagCleanupMatcherExcludesNameKeywordsAsync),
@@ -11261,6 +11263,122 @@ static async Task TestBagCleanupDiscardWaitsUntilAllAttackersAreClearedAsync()
     AssertEqual(BagCleanupTickStatus.Running, allCleared.Status, "discard should start after every attacker is cleared");
     AssertFalse(!state.DiscardActive, "safe post-loot check should enter discard state");
     AssertEqual(0, keyboard.MouseCommands.Count, "blocked discard checks should not manipulate the mouse");
+}
+
+static async Task TestBagCleanupDiscardWaitsForThreeConsecutiveSafetyReadFailuresAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var keyboard = new RecordingKeyboardInput();
+    var settings = CreateDiscardScriptSettings(BagCleanupRuleCatalog.GreenManastone, threshold: 2);
+    var gameApi = CreateSafeDiscardGameApi(
+        capacity: 3,
+        new InventoryItemSnapshot(167000450, 52, "green-manastone", 1, 0, false, 24, 2));
+    gameApi.InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0);
+    for (var i = 0; i < 3; i++)
+    {
+        gameApi.WorldObjectReadResults.Enqueue(
+            OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail("transient local entity position read failure"));
+    }
+
+    keyboard.AfterPress = key =>
+    {
+        if (key == "I")
+        {
+            gameApi.InventoryWindow = CreateInventoryWindow(false, 0.0, 0.0);
+        }
+    };
+    var state = new BagCleanupState();
+    state.StartDiscard(1, 2, 1);
+    state.SetDiscardWindow(gameApi.InventoryWindow);
+    state.Advance(BagCleanupStep.ReadDiscardCandidates);
+    var controller = new BagCleanupController(
+        keyboard,
+        new InMemorySharedPathStore(),
+        (_, _, _) => Task.FromResult(OperationResult.Ok()));
+    var context = CreateContext(settings, gameApi, logger);
+
+    var first = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
+    AssertEqual(BagCleanupTickStatus.Running, first.Status, "first safety read failure should keep discard active");
+    AssertEqual("discard_safety_read_retry", first.Reason, "first safety read failure should request a retry");
+    AssertEqual(1, state.ConsecutiveDiscardSafetyReadFailureCount, "first safety read failure count");
+    AssertEqual(BagCleanupStep.ReadDiscardCandidates, state.Step, "first safety read failure should preserve the current step");
+    AssertFalse(!gameApi.InventoryWindow.IsOpen, "first safety read failure should keep inventory open");
+
+    var second = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
+    AssertEqual(BagCleanupTickStatus.Running, second.Status, "second safety read failure should keep discard active");
+    AssertEqual("discard_safety_read_retry", second.Reason, "second safety read failure should request a retry");
+    AssertEqual(2, state.ConsecutiveDiscardSafetyReadFailureCount, "second safety read failure count");
+    AssertEqual(BagCleanupStep.ReadDiscardCandidates, state.Step, "second safety read failure should preserve the current step");
+    AssertFalse(!gameApi.InventoryWindow.IsOpen, "second safety read failure should keep inventory open");
+
+    var third = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
+    AssertEqual(BagCleanupTickStatus.Skipped, third.Status, "third consecutive safety read failure should stop discard");
+    AssertEqual("discard_safety_read_failed", third.Reason, "third consecutive failure should use the existing failure reason");
+    AssertFalse(state.Active, "third consecutive safety read failure should reset discard state");
+    AssertFalse(gameApi.InventoryWindow.IsOpen, "third consecutive safety read failure should close inventory");
+    AssertEqual(
+        2,
+        logger.Entries.Count(entry => entry.EventName == "bag_cleanup.discard.safety_read.retry"),
+        "only the first two safety read failures should be logged as retries");
+    AssertFalse(
+        !logger.Entries.Any(entry => entry.EventName == "bag_cleanup.discard.failed"),
+        "third consecutive safety read failure should use the existing failure cleanup log");
+}
+
+static async Task TestBagCleanupDiscardSafetyReadSuccessResetsFailureCountAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var keyboard = new RecordingKeyboardInput();
+    var settings = CreateDiscardScriptSettings(BagCleanupRuleCatalog.GreenManastone, threshold: 2);
+    var target = new InventoryItemSnapshot(167000450, 53, "green-manastone", 1, 0, false, 24, 2);
+    var gameApi = CreateSafeDiscardGameApi(capacity: 3, target);
+    gameApi.InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0);
+    gameApi.WorldObjectReadResults.Enqueue(
+        OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail("first transient failure"));
+    gameApi.WorldObjectReadResults.Enqueue(
+        OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(Array.Empty<WorldObjectSnapshot>()));
+    for (var i = 0; i < 3; i++)
+    {
+        gameApi.WorldObjectReadResults.Enqueue(
+            OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail("failure after successful reset"));
+    }
+
+    keyboard.AfterPress = key =>
+    {
+        if (key == "I")
+        {
+            gameApi.InventoryWindow = CreateInventoryWindow(false, 0.0, 0.0);
+        }
+    };
+    var state = new BagCleanupState();
+    state.StartDiscard(1, 2, 1);
+    state.SetDiscardWindow(gameApi.InventoryWindow);
+    state.Advance(BagCleanupStep.ReadDiscardCandidates);
+    var controller = new BagCleanupController(
+        keyboard,
+        new InMemorySharedPathStore(),
+        (_, _, _) => Task.FromResult(OperationResult.Ok()));
+    var context = CreateContext(settings, gameApi, logger);
+
+    var firstFailure = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
+    AssertEqual("discard_safety_read_retry", firstFailure.Reason, "first failure should request retry");
+    AssertEqual(1, state.ConsecutiveDiscardSafetyReadFailureCount, "first failure should be counted");
+
+    var success = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
+    AssertEqual("discard_target_selected", success.Reason, "successful safety read should continue the current discard step");
+    AssertEqual(0, state.ConsecutiveDiscardSafetyReadFailureCount, "successful safety read should clear the consecutive count");
+    AssertEqual(BagCleanupStep.DragDiscardItem, state.Step, "successful safety read should advance normally");
+
+    var retryOne = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
+    var retryTwo = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
+    AssertEqual("discard_safety_read_retry", retryOne.Reason, "first post-reset failure should retry");
+    AssertEqual("discard_safety_read_retry", retryTwo.Reason, "second post-reset failure should retry");
+    AssertEqual(2, state.ConsecutiveDiscardSafetyReadFailureCount, "post-reset failures should count from zero");
+    AssertFalse(!state.Active, "two post-reset failures should not stop discard");
+
+    var finalFailure = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
+    AssertEqual("discard_safety_read_failed", finalFailure.Reason, "third post-reset failure should stop discard");
+    AssertFalse(state.Active, "third post-reset failure should reset discard state");
 }
 
 static ScriptSettings CreateDiscardScriptSettings(string discardRuleKey, int threshold)

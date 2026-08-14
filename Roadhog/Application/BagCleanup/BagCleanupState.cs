@@ -25,6 +25,8 @@ public sealed class BagCleanupState
 
     public int DiscardConfirmClickCount { get; private set; }
 
+    public int ConsecutiveDiscardSafetyReadFailureCount { get; private set; }
+
     public int TotalRegisteredSellItemCount { get; private set; }
 
     public int SellBatchCount { get; private set; }
@@ -169,6 +171,17 @@ public sealed class BagCleanupState
         DiscardConfirmSeen = false;
         DiscardConfirmClickCount = 0;
         LatchedDiscardConfirm = null;
+    }
+
+    public int RecordDiscardSafetyReadFailure()
+    {
+        ConsecutiveDiscardSafetyReadFailureCount++;
+        return ConsecutiveDiscardSafetyReadFailureCount;
+    }
+
+    public void ClearDiscardSafetyReadFailures()
+    {
+        ConsecutiveDiscardSafetyReadFailureCount = 0;
     }
 
     public void SetPath(SharedPathDocument path)
@@ -343,6 +356,7 @@ public sealed class BagCleanupState
         InitialDiscardCandidateCount = 0;
         DiscardedItemCount = 0;
         DiscardConfirmClickCount = 0;
+        ConsecutiveDiscardSafetyReadFailureCount = 0;
         DiscardTarget = null;
         DiscardWindow = null;
         DiscardConfirmSeen = false;
