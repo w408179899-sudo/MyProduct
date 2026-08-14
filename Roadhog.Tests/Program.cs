@@ -320,6 +320,11 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat smart pre-aim supports fight-target distance origin", TestSmartPreAimSupportsFightTargetDistanceOriginAsync),
     ("stationary combat smart pre-aim selector keeps stable target", TestSmartPreAimSelectorKeepsStableTargetAsync),
     ("stationary combat smart pre-aim stabilizes aligned target switching", TestSmartPreAimStabilizesAlignedTargetSwitchingAsync),
+    ("stationary combat smart pre-aim handoff keeps committed target", TestSmartPreAimHandoffKeepsCommittedTargetAsync),
+    ("stationary combat smart pre-aim handoff confirms missing target", TestSmartPreAimHandoffConfirmsMissingTargetAsync),
+    ("stationary combat smart pre-aim handoff honors claim settings", TestSmartPreAimHandoffHonorsClaimSettingsAsync),
+    ("stationary combat smart pre-aim handoff yields to local defense", TestSmartPreAimHandoffYieldsToLocalDefenseAsync),
+    ("stationary combat smart pre-aim handoff completes before next pre-aim", TestSmartPreAimHandoffCompletesBeforeNextPreAimAsync),
     ("stationary combat smart pre-aim prevents consumed target bounce", TestSmartPreAimPreventsConsumedTargetBounceAsync),
     ("stationary combat smart pre-aim selector applies normal filters", TestSmartPreAimSelectorAppliesNormalFiltersAsync),
     ("stationary combat smart pre-aim lifecycle spans loot until finish", TestSmartPreAimLifecycleSpansLootUntilFinishAsync),
@@ -389,6 +394,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat preempts radar approach for locked local attacker", TestStationaryCombatPreemptsRadarApproachForLockedLocalAttackerAsync),
     ("stationary combat keeps radar approach for unrelated wrong lock", TestStationaryCombatKeepsRadarApproachForUnrelatedWrongLockAsync),
     ("stationary combat accepts closer aggressive wrong lock after tab", TestStationaryCombatAcceptsCloserAggressiveWrongLockAfterTabAsync),
+    ("stationary combat rejects ordinary aggressive wrong lock during smart pre-aim handoff", TestStationaryCombatRejectsOrdinaryAggressiveWrongLockDuringSmartPreAimHandoffAsync),
     ("stationary combat rejects closer passive wrong lock after tab", TestStationaryCombatRejectsCloserPassiveWrongLockAfterTabAsync),
     ("stationary combat nudges then accepts unchanged locked target after tab", TestStationaryCombatNudgesThenAcceptsUnchangedLockedTargetAfterTabAsync),
     ("stationary combat nudges forward when tab locks corpse", TestStationaryCombatNudgesForwardWhenTabLocksCorpseAsync),
@@ -13185,6 +13191,409 @@ static async Task TestSmartPreAimStabilizesAlignedTargetSwitchingAsync()
     AssertEqual(0u, preAim.PendingSwitchTargetServerObjectId, "clearing pre-aim state should reset pending switch identity");
 }
 
+static async Task TestSmartPreAimHandoffKeepsCommittedTargetAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        SmartPreAimEnabled = true,
+        PreferAggressiveMonsters = true,
+        HasStationaryCombatPosition = true,
+        StationaryCombatRadius = 30
+    };
+    var committed = new WorldObjectSnapshot(
+        41,
+        4041,
+        "committed-b",
+        "monster",
+        new Vector3Snapshot(20, 0, 0),
+        20,
+        100,
+        100);
+    var closerAggressive = new WorldObjectSnapshot(
+        42,
+        4042,
+        "closer-c",
+        "monster",
+        new Vector3Snapshot(5, 0, 0),
+        5,
+        100,
+        100,
+        AggressiveKnown: true,
+        IsAggressiveToPlayer: true);
+    var gameApi = new FakeGameApi
+    {
+        WorldObjects = new[] { closerAggressive, committed }
+    };
+    var controller = new StationaryCombatController(
+        new RecordingKeyboardInput(),
+        new SemiAutoCombatController(new RecordingKeyboardInput()));
+    var state = new StationaryCombatState();
+    SeedAlignedSmartPreAimCandidate(state, committed);
+
+    var selected = await SelectStationaryTargetForTestAsync(
+            controller,
+            CreateContext(settings, gameApi, new InMemoryRoadhogLogger()),
+            state,
+            allowClaimedByOther: false)
+        .ConfigureAwait(false);
+
+    AssertEqual(committed.ServerObjectId, selected?.ServerObjectId ?? 0, "aligned B should become the committed handoff target even when aggressive C is closer");
+    AssertFalse(!state.IsSmartPreAimHandoffTarget(committed.EntityId, committed.ServerObjectId), "aligned B should start the handoff before movement or Tab");
+
+    state.MarkCandidate(committed, DateTimeOffset.Now);
+    selected = await SelectStationaryTargetForTestAsync(
+            controller,
+            CreateContext(settings, gameApi, new InMemoryRoadhogLogger()),
+            state,
+            allowClaimedByOther: false)
+        .ConfigureAwait(false);
+    AssertEqual(committed.ServerObjectId, selected?.ServerObjectId ?? 0, "ordinary closer aggressive C must not replace B during the handoff");
+}
+
+static async Task TestSmartPreAimHandoffConfirmsMissingTargetAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        SmartPreAimEnabled = true,
+        HasStationaryCombatPosition = true,
+        StationaryCombatRadius = 30
+    };
+    var committed = new WorldObjectSnapshot(
+        41,
+        4041,
+        "missing-b",
+        "monster",
+        new Vector3Snapshot(20, 0, 0),
+        20,
+        100,
+        100);
+    var fallback = new WorldObjectSnapshot(
+        42,
+        4042,
+        "fallback-c",
+        "monster",
+        new Vector3Snapshot(5, 0, 0),
+        5,
+        100,
+        100);
+    var gameApi = new FakeGameApi
+    {
+        WorldObjects = new[] { fallback }
+    };
+    var controller = new StationaryCombatController(
+        new RecordingKeyboardInput(),
+        new SemiAutoCombatController(new RecordingKeyboardInput()));
+    var state = new StationaryCombatState();
+    SeedAlignedSmartPreAimCandidate(state, committed);
+    state.StartSmartPreAimHandoff(committed.EntityId, committed.ServerObjectId);
+    state.MarkCandidate(committed, DateTimeOffset.Now);
+    var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
+
+    var first = await SelectStationaryTargetForTestAsync(controller, context, state, allowClaimedByOther: false).ConfigureAwait(false);
+    AssertFalse(first is not null, "first missing B snapshot should wait instead of turning to C");
+    AssertEqual(1, state.SmartPreAimHandoffConsecutiveMissingSnapshots, "first handoff miss count");
+    AssertFalse(!state.HasSmartPreAimHandoff, "first missing B snapshot should preserve the handoff");
+
+    gameApi.WorldObjects = new[] { committed, fallback };
+    var reappeared = await SelectStationaryTargetForTestAsync(controller, context, state, allowClaimedByOther: false).ConfigureAwait(false);
+    AssertEqual(committed.ServerObjectId, reappeared?.ServerObjectId ?? 0, "reappearing B should resume the same handoff");
+    AssertEqual(0, state.SmartPreAimHandoffConsecutiveMissingSnapshots, "reappearing B should reset the handoff miss count");
+
+    gameApi.WorldObjects = new[] { fallback };
+    var restartedFirst = await SelectStationaryTargetForTestAsync(controller, context, state, allowClaimedByOther: false).ConfigureAwait(false);
+    AssertFalse(restartedFirst is not null, "a new first missing B snapshot should wait after reset");
+    AssertEqual(1, state.SmartPreAimHandoffConsecutiveMissingSnapshots, "restarted first handoff miss count");
+
+    var second = await SelectStationaryTargetForTestAsync(controller, context, state, allowClaimedByOther: false).ConfigureAwait(false);
+    AssertFalse(second is not null, "second consecutive missing B snapshot should still wait");
+    AssertEqual(2, state.SmartPreAimHandoffConsecutiveMissingSnapshots, "second consecutive handoff miss count");
+
+    var third = await SelectStationaryTargetForTestAsync(controller, context, state, allowClaimedByOther: false).ConfigureAwait(false);
+    AssertEqual(fallback.ServerObjectId, third?.ServerObjectId ?? 0, "third consecutive missing B snapshot should release the handoff and select C");
+    AssertFalse(state.HasSmartPreAimHandoff, "confirmed missing B should clear the handoff");
+    AssertFalse(state.NextTargetPreAim.HasCandidate, "confirmed missing B should clear the stale pre-aim result");
+}
+
+static async Task TestSmartPreAimHandoffHonorsClaimSettingsAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        SmartPreAimEnabled = true,
+        HasStationaryCombatPosition = true,
+        StationaryCombatRadius = 30
+    };
+    var claimed = new WorldObjectSnapshot(
+        41,
+        4041,
+        "claimed-b",
+        "monster",
+        new Vector3Snapshot(10, 0, 0),
+        10,
+        100,
+        100,
+        TargetServerObjectId: 9000);
+    var fallback = new WorldObjectSnapshot(
+        42,
+        4042,
+        "fallback-c",
+        "monster",
+        new Vector3Snapshot(15, 0, 0),
+        15,
+        100,
+        100);
+    var gameApi = new FakeGameApi
+    {
+        WorldObjects = new[] { claimed, fallback }
+    };
+    var controller = new StationaryCombatController(
+        new RecordingKeyboardInput(),
+        new SemiAutoCombatController(new RecordingKeyboardInput()));
+    var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
+
+    var noContestState = new StationaryCombatState
+    {
+        LocalCombatSideServerObjectId = 7000
+    };
+    SeedAlignedSmartPreAimCandidate(noContestState, claimed);
+    var noContest = await SelectStationaryTargetForTestAsync(
+            controller,
+            context,
+            noContestState,
+            allowClaimedByOther: false)
+        .ConfigureAwait(false);
+    AssertEqual(fallback.ServerObjectId, noContest?.ServerObjectId ?? 0, "claimed B should release the handoff when contest mode is disabled");
+    AssertFalse(noContestState.HasSmartPreAimHandoff, "claimed B should not leave a stale handoff");
+
+    var contestState = new StationaryCombatState
+    {
+        LocalCombatSideServerObjectId = 7000
+    };
+    SeedAlignedSmartPreAimCandidate(contestState, claimed);
+    var contest = await SelectStationaryTargetForTestAsync(
+            controller,
+            context,
+            contestState,
+            allowClaimedByOther: true)
+        .ConfigureAwait(false);
+    AssertEqual(claimed.ServerObjectId, contest?.ServerObjectId ?? 0, "contest mode should preserve its existing permission to commit claimed B");
+    AssertFalse(!contestState.HasSmartPreAimHandoff, "contest mode should keep the claimed B handoff active");
+}
+
+static async Task TestSmartPreAimHandoffYieldsToLocalDefenseAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        SmartPreAimEnabled = true,
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30
+    };
+    var committed = new WorldObjectSnapshot(
+        41,
+        4041,
+        "committed-b",
+        "monster",
+        new Vector3Snapshot(20, 0, 0),
+        20,
+        100,
+        100);
+    var defense = new WorldObjectSnapshot(
+        42,
+        4042,
+        "defense-c",
+        "monster",
+        new Vector3Snapshot(8, 0, 0),
+        8,
+        100,
+        100,
+        TargetServerObjectId: 7000,
+        AggressiveKnown: true,
+        IsAggressiveToPlayer: true);
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+        WorldObjects = new[] { committed, defense },
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0,
+            [7] = 0,
+            [8] = 0,
+            [9] = 0,
+            [10] = 0
+        })
+    };
+    var keyboard = new RecordingKeyboardInput();
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    var state = new StationaryCombatState
+    {
+        LocalCombatSideServerObjectId = 7000
+    };
+    SeedAlignedSmartPreAimCandidate(state, committed);
+    state.StartSmartPreAimHandoff(committed.EntityId, committed.ServerObjectId);
+    state.MarkCandidate(committed, DateTimeOffset.Now);
+
+    await controller
+        .TickAsync(
+            CreateContext(settings, gameApi, new InMemoryRoadhogLogger()),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            state)
+        .ConfigureAwait(false);
+
+    AssertEqual(defense.ServerObjectId, state.CandidateServerObjectId, "a monster attacking the local side must override committed B");
+    AssertFalse(state.HasSmartPreAimHandoff, "local defense override should release the B handoff");
+    AssertFalse(state.NextTargetPreAim.HasCandidate, "local defense override should clear the stale B pre-aim result");
+}
+
+static async Task TestSmartPreAimHandoffCompletesBeforeNextPreAimAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        SmartPreAimEnabled = true,
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30
+    };
+    var committed = new WorldObjectSnapshot(
+        41,
+        4041,
+        "committed-b",
+        "monster",
+        new Vector3Snapshot(8, 0, 0),
+        8,
+        1000,
+        1000,
+        TargetServerObjectId: 7000,
+        IsTargetingLocalPlayer: true);
+    var next = new WorldObjectSnapshot(
+        42,
+        4042,
+        "next-c",
+        "monster",
+        new Vector3Snapshot(12, 0, 0),
+        12,
+        1000,
+        1000);
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+        TargetEntityId = committed.EntityId,
+        TargetOwnServerObjectId = committed.ServerObjectId,
+        TargetCurrentHp = committed.CurrentHp,
+        TargetMaxHp = committed.MaxHp,
+        TargetName = committed.Name,
+        TargetPosition = committed.Position,
+        TargetServerObjectId = 7000,
+        TargetIsTargetingLocalPlayer = true,
+        LocalServerObjectId = 7000,
+        WorldObjects = new[] { committed, next },
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0,
+            [7] = 0,
+            [8] = 0,
+            [9] = 0,
+            [10] = 0
+        })
+    };
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    var context = CreateContext(settings, gameApi, logger);
+    var state = new StationaryCombatState
+    {
+        LocalCombatSideServerObjectId = 7000,
+        Fighting = true,
+        CurrentTargetEntityId = 39,
+        CurrentTargetServerObjectId = 4039
+    };
+    state.NextTargetPreAim.RecordDisplacedTargetGuard(40, 4040, committed.EntityId, committed.ServerObjectId);
+    state.ClearTarget();
+    AssertEqual(committed.ServerObjectId, state.NextTargetPreAim.DisplacedTargetReplacementServerObjectId, "ending A fight should preserve its pending A-to-B displacement record");
+    SeedAlignedSmartPreAimCandidate(state, committed);
+    AssertFalse(!state.NextTargetPreAim.ActivateDisplacedTargetGuard(committed.EntityId, committed.ServerObjectId), "handoff test should preserve the narrow A guard for B fight");
+    state.StartSmartPreAimHandoff(committed.EntityId, committed.ServerObjectId);
+    state.MarkCandidate(committed, DateTimeOffset.Now);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var semiAutoState = new SemiAutoCombatState();
+
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertFalse(!state.Fighting, "locked B should become the formal fight target");
+    AssertEqual(committed.ServerObjectId, state.CurrentTargetServerObjectId, "formal fight should retain committed B identity");
+    AssertFalse(state.HasSmartPreAimHandoff, "formal B fight should clear the handoff before the next pre-aim starts");
+    AssertFalse(!state.NextTargetPreAim.DisplacedTargetGuardActive, "formal B fight should retain only the narrow A bounce guard");
+
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertFalse(!logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.smart_preaim.started" &&
+        Equals(Convert.ToUInt32(entry.Fields["fightTargetServerObjectId"]), committed.ServerObjectId)),
+        "the next pre-aim should restart after B is formally fighting");
+    AssertFalse(state.HasSmartPreAimHandoff, "restarted pre-aim must not recreate the completed handoff during B fight");
+    state.ClearTarget();
+    AssertFalse(state.NextTargetPreAim.DisplacedTargetGuardActive, "ending B fight should clear its narrow displaced-A guard");
+}
+
+static void SeedAlignedSmartPreAimCandidate(StationaryCombatState state, WorldObjectSnapshot target)
+{
+    var preAim = state.NextTargetPreAim;
+    preAim.TargetEntityId = target.EntityId;
+    preAim.TargetServerObjectId = target.ServerObjectId;
+    preAim.TargetName = target.Name;
+    preAim.TargetPosition = target.Position;
+    preAim.TargetSelectedAt = DateTimeOffset.Now;
+    preAim.LastAlignedAt = DateTimeOffset.Now;
+}
+
+static async Task<WorldObjectSnapshot?> SelectStationaryTargetForTestAsync(
+    StationaryCombatController controller,
+    AccountWorkerContext context,
+    StationaryCombatState state,
+    bool allowClaimedByOther)
+{
+    var method = typeof(StationaryCombatController).GetMethod(
+        "SelectTargetAsync",
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+    AssertFalse(method is null, "stationary target selection helper should exist");
+    var task = (Task<WorldObjectSnapshot?>)method!.Invoke(
+        controller,
+        new object[]
+        {
+            context,
+            state,
+            new Vector3Snapshot(0, 0, 0),
+            new Vector3Snapshot(0, 0, 0),
+            30D,
+            allowClaimedByOther,
+            true
+        })!;
+    return await task.ConfigureAwait(false);
+}
+
 static async Task TestSmartPreAimPreventsConsumedTargetBounceAsync()
 {
     var settings = CreateScriptSettings();
@@ -13304,6 +13713,7 @@ static async Task TestSmartPreAimPreventsConsumedTargetBounceAsync()
     await RefreshAsync(fallback.EntityId, fallback.ServerObjectId).ConfigureAwait(false);
     AssertEqual(displaced.EntityId, preAim.TargetEntityId, "changing the foreground fight target should release the displaced-target guard");
     AssertFalse(preAim.DisplacedTargetGuardActive, "cross-fight guard should clear after its replacement fight ends");
+
 }
 
 static Task TestSmartPreAimSelectorAppliesNormalFiltersAsync()
@@ -18466,6 +18876,121 @@ static async Task TestStationaryCombatAcceptsCloserAggressiveWrongLockAfterTabAs
             Equals(Convert.ToUInt16(entry.Fields["targetEntityId"]), (ushort)200) &&
             string.Equals(Convert.ToString(entry.Fields["phase"]), "after_tab_aggressive", StringComparison.Ordinal)),
             "accepted nearby aggressive target should be acquired");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
+    }
+}
+
+static async Task TestStationaryCombatRejectsOrdinaryAggressiveWrongLockDuringSmartPreAimHandoffAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", "0");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            SmartPreAimEnabled = true,
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 30
+        };
+        var committed = new WorldObjectSnapshot(
+            100,
+            100,
+            "committed-b",
+            "monster",
+            new Vector3Snapshot(20, 0, 0),
+            20,
+            1000,
+            1000,
+            AggressiveKnown: true,
+            IsAggressiveToPlayer: true);
+        var ordinaryWrongLock = new WorldObjectSnapshot(
+            200,
+            200,
+            "near-aggressive-c",
+            "monster",
+            new Vector3Snapshot(5, 0, 0),
+            5,
+            1000,
+            1000,
+            AggressiveKnown: true,
+            IsAggressiveToPlayer: true);
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 0,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 0,
+            TargetName = string.Empty,
+            TargetPosition = null,
+            TargetServerObjectId = 0,
+            TargetIsTargetingLocalPlayer = false,
+            WorldObjects = new[] { committed },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        var keyboard = new RecordingKeyboardInput
+        {
+            AfterPress = key =>
+            {
+                if (!string.Equals(key, "Tab", StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                gameApi.TargetEntityId = ordinaryWrongLock.EntityId;
+                gameApi.TargetCurrentHp = ordinaryWrongLock.CurrentHp;
+                gameApi.TargetMaxHp = ordinaryWrongLock.MaxHp;
+                gameApi.TargetName = ordinaryWrongLock.Name;
+                gameApi.TargetPosition = ordinaryWrongLock.Position;
+                gameApi.TargetServerObjectId = ordinaryWrongLock.ServerObjectId;
+                gameApi.TargetIsTargetingLocalPlayer = false;
+                gameApi.WorldObjects = new[] { committed, ordinaryWrongLock };
+            }
+        };
+        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+        var state = new StationaryCombatState();
+        SeedAlignedSmartPreAimCandidate(state, committed);
+
+        await controller
+            .TickAsync(
+                CreateContext(settings, gameApi, logger),
+                SemiAutoSkillPlan.FromSettings(settings.Skills),
+                new SemiAutoCombatState(),
+                state)
+            .ConfigureAwait(false);
+
+        AssertFalse(!keyboard.Keys.Contains("Tab"), "handoff acquire tick should still press Tab for committed B");
+        AssertFalse(keyboard.Keys.Contains("D2"), "ordinary aggressive wrong lock C must not enter skill release during B handoff");
+        AssertFalse(state.Fighting, "ordinary wrong lock C must not become the formal fight target");
+        AssertEqual(committed.ServerObjectId, state.CandidateServerObjectId, "wrong lock rejection should keep committed B as candidate");
+        AssertFalse(!state.IsSmartPreAimHandoffTarget(committed.EntityId, committed.ServerObjectId), "wrong lock rejection should preserve B handoff");
+        AssertFalse(!logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.smart_preaim.handoff_wrong_lock_rejected" &&
+            Equals(Convert.ToUInt16(entry.Fields["lockedEntityId"]), ordinaryWrongLock.EntityId)),
+            "ordinary aggressive wrong lock rejection should be logged");
+        AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.accept_nearby_aggressive_lock"),
+            "ordinary aggressive wrong lock must not use the legacy closer-target acceptance during B handoff");
     }
     finally
     {

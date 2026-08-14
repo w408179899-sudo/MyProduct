@@ -68,6 +68,15 @@ public sealed class StationaryCombatState
 
     public uint CandidateServerObjectId { get; set; }
 
+    public ushort SmartPreAimHandoffEntityId { get; private set; }
+
+    public uint SmartPreAimHandoffServerObjectId { get; private set; }
+
+    public int SmartPreAimHandoffConsecutiveMissingSnapshots { get; private set; }
+
+    public bool HasSmartPreAimHandoff =>
+        SmartPreAimHandoffEntityId != 0 || SmartPreAimHandoffServerObjectId != 0;
+
     public ushort FacedCandidateEntityId { get; set; }
 
     public DateTimeOffset TargetStartedAt { get; private set; } = DateTimeOffset.MinValue;
@@ -227,6 +236,21 @@ public sealed class StationaryCombatState
 
     public void ClearTarget()
     {
+        var clearDisplacedTargetGuard = HasSmartPreAimHandoff;
+        if (!clearDisplacedTargetGuard)
+        {
+            lock (NextTargetPreAim.SyncRoot)
+            {
+                clearDisplacedTargetGuard = NextTargetPreAim.DisplacedTargetGuardActive &&
+                                            IsSameTarget(
+                                                NextTargetPreAim.DisplacedTargetReplacementEntityId,
+                                                NextTargetPreAim.DisplacedTargetReplacementServerObjectId,
+                                                CurrentTargetEntityId,
+                                                CurrentTargetServerObjectId);
+            }
+        }
+
+        ClearSmartPreAimHandoff(clearDisplacedTargetGuard);
         ObstacleNavigation.ClearRoute();
         Fighting = false;
         CurrentTargetEntityId = 0;
@@ -331,6 +355,63 @@ public sealed class StationaryCombatState
         }
 
         return changed;
+    }
+
+    public bool StartSmartPreAimHandoff(ushort entityId, uint serverObjectId)
+    {
+        if (entityId == 0 && serverObjectId == 0)
+        {
+            return false;
+        }
+
+        var changed = !IsSameTarget(
+            SmartPreAimHandoffEntityId,
+            SmartPreAimHandoffServerObjectId,
+            entityId,
+            serverObjectId);
+        SmartPreAimHandoffEntityId = entityId;
+        SmartPreAimHandoffServerObjectId = serverObjectId;
+        if (changed)
+        {
+            SmartPreAimHandoffConsecutiveMissingSnapshots = 0;
+        }
+
+        return changed;
+    }
+
+    public bool IsSmartPreAimHandoffTarget(ushort entityId, uint serverObjectId)
+    {
+        return HasSmartPreAimHandoff &&
+               IsSameTarget(
+                   SmartPreAimHandoffEntityId,
+                   SmartPreAimHandoffServerObjectId,
+                   entityId,
+                   serverObjectId);
+    }
+
+    public int MarkSmartPreAimHandoffMissing()
+    {
+        return ++SmartPreAimHandoffConsecutiveMissingSnapshots;
+    }
+
+    public void ResetSmartPreAimHandoffMissing()
+    {
+        SmartPreAimHandoffConsecutiveMissingSnapshots = 0;
+    }
+
+    public void ClearSmartPreAimHandoff(bool clearDisplacedTargetGuard)
+    {
+        if (clearDisplacedTargetGuard)
+        {
+            lock (NextTargetPreAim.SyncRoot)
+            {
+                NextTargetPreAim.ClearDisplacedTargetGuard();
+            }
+        }
+
+        SmartPreAimHandoffEntityId = 0;
+        SmartPreAimHandoffServerObjectId = 0;
+        SmartPreAimHandoffConsecutiveMissingSnapshots = 0;
     }
 
     public void RefreshCurrentTargetTimeout(DateTimeOffset now)

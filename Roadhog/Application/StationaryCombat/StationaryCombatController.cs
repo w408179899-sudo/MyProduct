@@ -190,6 +190,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         if (!IsSmartPreAimEnabled(context))
         {
             StopNextTargetPreAim(context, state, "disabled", clearCandidate: true);
+            state.ClearSmartPreAimHandoff(clearDisplacedTargetGuard: true);
         }
 
         var gatherSettings = context.Config.ScriptSettings?.Gather ?? new GatherScriptSettings();
@@ -676,10 +677,23 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 .ConfigureAwait(false);
         }
 
+        if (target is not null &&
+            state.HasSmartPreAimHandoff &&
+            !state.IsSmartPreAimHandoffTarget(target.EntityId, target.ServerObjectId))
+        {
+            ReleaseSmartPreAimHandoff(context, state, "target_override", clearPreAimCandidate: true);
+        }
+
         if (target?.Position is null)
         {
             semiAutoState.ResetAttackKeyPressThrottle();
             await StopSoloJumpAsync(state, "stationary_target_unavailable").ConfigureAwait(false);
+            if (state.HasSmartPreAimHandoff)
+            {
+                await StopMovementAsync(context, state).ConfigureAwait(false);
+                return MoveTickDelay;
+            }
+
             StopNextTargetPreAim(context, state, "target_unavailable", clearCandidate: true);
             state.ClearTarget();
             if (combat.ReturnHomeWhenNoTarget && playerDistanceFromHome > ReturnStopDistance)
@@ -5858,6 +5872,28 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return null;
         }
 
+        if (state.IsSmartPreAimHandoffTarget(target.EntityId, target.ServerObjectId) &&
+            !IsTargetingLocalSide(lockedWorldTarget, state) &&
+            !state.IsTeamLeaderProtectionTarget(lockedWorldTarget))
+        {
+            LogActionThrottled(
+                context,
+                state,
+                "stationary_combat.smart_preaim.handoff_wrong_lock_rejected",
+                "locked:" + TargetActionKey(lockedWorldTarget.EntityId, lockedWorldTarget.ServerObjectId),
+                new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["candidateEntityId"] = target.EntityId,
+                    ["candidateServerObjectId"] = target.ServerObjectId,
+                    ["lockedEntityId"] = lockedWorldTarget.EntityId,
+                    ["lockedServerObjectId"] = lockedWorldTarget.ServerObjectId,
+                    ["lockedTargetingServerObjectId"] = lockedWorldTarget.TargetServerObjectId
+                },
+                TimeSpan.FromMilliseconds(500));
+            return null;
+        }
+
         var refreshedCandidate = objects.FirstOrDefault(candidate =>
             StationaryCombatState.IsSameTarget(
                 candidate.EntityId,
@@ -6591,13 +6627,33 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             acquiredTarget = switchedTarget;
         }
 
-        state.Fighting = true;
         var acquiredServerObjectId = acquiredTarget.ServerObjectId != 0
             ? acquiredTarget.ServerObjectId
             : lockedTarget.ServerObjectId;
         var acquiredEntityId = lockedTarget.TargetEntityId != 0
             ? lockedTarget.TargetEntityId
             : acquiredTarget.EntityId;
+        if (state.HasSmartPreAimHandoff)
+        {
+            if (state.IsSmartPreAimHandoffTarget(acquiredEntityId, acquiredServerObjectId))
+            {
+                CompleteSmartPreAimHandoff(
+                    context,
+                    state,
+                    acquiredEntityId,
+                    acquiredServerObjectId);
+            }
+            else
+            {
+                ReleaseSmartPreAimHandoff(
+                    context,
+                    state,
+                    "fight_target_override",
+                    clearPreAimCandidate: true);
+            }
+        }
+
+        state.Fighting = true;
         state.SetCurrentTarget(acquiredEntityId, acquiredServerObjectId);
         var isTeamLeaderProtectionTarget = state.IsTeamLeaderProtectionTarget(acquiredTarget) ||
                                            state.IsTeamLeaderProtectionTarget(lockedTarget);
@@ -7728,6 +7784,173 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         return nearestIndex;
     }
 
+    private bool TryResolveSmartPreAimHandoffTarget(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        IReadOnlyList<WorldObjectSnapshot> objects,
+        DateTimeOffset now,
+        Vector3Snapshot home,
+        double radius,
+        bool allowClaimedByOther,
+        IReadOnlyList<string> activeMonsterNameFilters,
+        out WorldObjectSnapshot? target)
+    {
+        target = null;
+        if (!state.HasSmartPreAimHandoff)
+        {
+            ushort preAimEntityId;
+            uint preAimServerObjectId;
+            DateTimeOffset alignedAt;
+            lock (state.NextTargetPreAim.SyncRoot)
+            {
+                if (!state.NextTargetPreAim.HasAlignedCandidate)
+                {
+                    return false;
+                }
+
+                preAimEntityId = state.NextTargetPreAim.TargetEntityId;
+                preAimServerObjectId = state.NextTargetPreAim.TargetServerObjectId;
+                alignedAt = state.NextTargetPreAim.LastAlignedAt;
+            }
+
+            if (alignedAt == DateTimeOffset.MinValue ||
+                now - alignedAt > ReadSmartPreAimResultTtl() ||
+                ((state.CandidateEntityId != 0 || state.CandidateServerObjectId != 0) &&
+                 !StationaryCombatState.IsSameTarget(
+                     state.CandidateEntityId,
+                     state.CandidateServerObjectId,
+                     preAimEntityId,
+                     preAimServerObjectId)))
+            {
+                return false;
+            }
+
+            state.StartSmartPreAimHandoff(preAimEntityId, preAimServerObjectId);
+            bool displacedTargetGuardActivated;
+            lock (state.NextTargetPreAim.SyncRoot)
+            {
+                displacedTargetGuardActivated = state.NextTargetPreAim.ActivateDisplacedTargetGuard(
+                    preAimEntityId,
+                    preAimServerObjectId);
+            }
+
+            context.Logger.Info("stationary_combat.smart_preaim.handoff_started", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["targetEntityId"] = preAimEntityId,
+                ["targetServerObjectId"] = preAimServerObjectId,
+                ["alignedAgeMs"] = (long)Math.Max(0.0D, (now - alignedAt).TotalMilliseconds),
+                ["displacedTargetGuardActivated"] = displacedTargetGuardActivated
+            });
+        }
+
+        var handoffTarget = objects.FirstOrDefault(candidate =>
+            state.IsSmartPreAimHandoffTarget(candidate.EntityId, candidate.ServerObjectId));
+        if (handoffTarget is null)
+        {
+            var missingSnapshots = state.MarkSmartPreAimHandoffMissing();
+            LogActionThrottled(
+                context,
+                state,
+                "stationary_combat.smart_preaim.handoff_waiting",
+                "missing:" + TargetActionKey(
+                    state.SmartPreAimHandoffEntityId,
+                    state.SmartPreAimHandoffServerObjectId),
+                new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["targetEntityId"] = state.SmartPreAimHandoffEntityId,
+                    ["targetServerObjectId"] = state.SmartPreAimHandoffServerObjectId,
+                    ["consecutiveMissingSnapshots"] = missingSnapshots,
+                    ["requiredMissingSnapshots"] = SmartPreAimSwitchConfirmationThreshold
+                },
+                TimeSpan.FromMilliseconds(200));
+            if (missingSnapshots < SmartPreAimSwitchConfirmationThreshold)
+            {
+                return true;
+            }
+
+            ReleaseSmartPreAimHandoff(
+                context,
+                state,
+                "missing_confirmed",
+                clearPreAimCandidate: true);
+            return false;
+        }
+
+        state.ResetSmartPreAimHandoffMissing();
+        if (!allowClaimedByOther && IsClaimedByOther(handoffTarget, state))
+        {
+            state.IgnoreTarget(handoffTarget);
+            ReleaseSmartPreAimHandoff(
+                context,
+                state,
+                "claimed_by_other",
+                clearPreAimCandidate: true);
+            return false;
+        }
+
+        if (state.IsTargetIgnored(handoffTarget) ||
+            state.IsTargetTemporarilyExcluded(handoffTarget, now) ||
+            IsActiveMonsterFiltered(handoffTarget, activeMonsterNameFilters) ||
+            !IsCandidateStillSelectable(
+                handoffTarget,
+                home,
+                radius,
+                allowClaimedByOther,
+                state))
+        {
+            ReleaseSmartPreAimHandoff(
+                context,
+                state,
+                "target_invalid",
+                clearPreAimCandidate: true);
+            return false;
+        }
+
+        target = handoffTarget;
+        return true;
+    }
+
+    private static void CompleteSmartPreAimHandoff(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        ushort targetEntityId,
+        uint targetServerObjectId)
+    {
+        StopNextTargetPreAim(context, state, "handoff_fight_started", clearCandidate: true);
+        state.ClearSmartPreAimHandoff(clearDisplacedTargetGuard: false);
+        context.Logger.Info("stationary_combat.smart_preaim.handoff_completed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["targetEntityId"] = targetEntityId,
+            ["targetServerObjectId"] = targetServerObjectId
+        });
+    }
+
+    private static void ReleaseSmartPreAimHandoff(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        string reason,
+        bool clearPreAimCandidate)
+    {
+        var targetEntityId = state.SmartPreAimHandoffEntityId;
+        var targetServerObjectId = state.SmartPreAimHandoffServerObjectId;
+        if (clearPreAimCandidate)
+        {
+            StopNextTargetPreAim(context, state, "handoff_" + reason, clearCandidate: true);
+        }
+
+        state.ClearSmartPreAimHandoff(clearDisplacedTargetGuard: true);
+        context.Logger.Info("stationary_combat.smart_preaim.handoff_released", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["targetEntityId"] = targetEntityId,
+            ["targetServerObjectId"] = targetServerObjectId,
+            ["reason"] = reason
+        });
+    }
+
     private async Task<WorldObjectSnapshot?> SelectTargetAsync(
         AccountWorkerContext context,
         StationaryCombatState state,
@@ -7742,6 +7965,20 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         var preferAggressiveMonsters = PrefersAggressiveMonsters(context);
         var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
         var selectionOrigin = ResolvePendingNextTargetSelectionOrigin(context, state, playerPosition);
+
+        if (TryResolveSmartPreAimHandoffTarget(
+                context,
+                state,
+                objects,
+                now,
+                home,
+                radius,
+                allowClaimedByOther,
+                activeMonsterNameFilters,
+                out var handoffTarget))
+        {
+            return handoffTarget;
+        }
 
         if (state.CandidateEntityId != 0 || state.CandidateServerObjectId != 0)
         {
