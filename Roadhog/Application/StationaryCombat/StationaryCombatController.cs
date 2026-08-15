@@ -22,7 +22,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     private static readonly TimeSpan IdleDelay = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan DeathRevivePreClickPause = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan TargetTimeout = TimeSpan.FromMinutes(1);
-    private static readonly TimeSpan DefaultMissingFightTargetTimeout = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan NoTargetRestKeyRetryInterval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan PostLootNoTargetActionDelay = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan GatherPollDelay = TimeSpan.FromMilliseconds(100);
@@ -35,8 +34,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     private static readonly TimeSpan DefaultNoKillRetryDelay = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan StartupTownReturnHoldDuration = TimeSpan.FromMilliseconds(35);
     private static readonly TimeSpan DefaultStartupTownReturnSettleDelay = TimeSpan.FromSeconds(8);
-    private static readonly TimeSpan DefaultManualPathPlayerReadRetryTimeout = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan DefaultManualPathPlayerReadRetryInterval = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan FightSoftRestartApproachTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan TemporaryTargetSwitchGuardGrace = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan DefaultSmartPreAimResultTtl = TimeSpan.FromSeconds(30);
@@ -227,22 +224,9 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         var radius = Math.Max(1.0D, combat.StationaryCombatRadius);
 
         var player = await ReadPlayerAsync(context).ConfigureAwait(false);
-        if (player.Position is null)
-        {
-            semiAutoState.ResetAttackKeyPressThrottle();
-            StopNextTargetPreAim(context, state, "player_read_failed", clearCandidate: true);
-            await StopMovementAsync(context, state).ConfigureAwait(false);
-            StopPathFollowPoller(state);
-            LogThrottled(context, state, "stationary_combat.player.failed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName
-            });
-            return IdleDelay;
-        }
-
         context.RuntimeStates.ClearWarning(context.Config.AccountName);
         _radarSnapshots?.PublishPlayer(context.Config.AccountName, player);
-        var playerPosition = player.Position.Value;
+        var playerPosition = player.Position!.Value;
         var playerDistanceFromHome = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, home);
         await RefreshLocalCombatSideAsync(context, plan, state, player).ConfigureAwait(false);
 
@@ -1020,21 +1004,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 
         var player = await ReadPlayerAsync(context).ConfigureAwait(false);
         context.RuntimeStates.ClearWarning(context.Config.AccountName);
-        if (player.Position is null)
-        {
-            semiAutoState.ResetAttackKeyPressThrottle();
-            await StopMovementAsync(context, state).ConfigureAwait(false);
-            StopPathFollowPoller(state);
-            LogThrottled(context, state, "stationary_combat.path_combat.position.missing", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["combatPathName"] = GetCombatPathName(context),
-                ["reason"] = "player_position_missing"
-            });
-            return IdleDelay;
-        }
-
-        var playerPosition = player.Position.Value;
+        var playerPosition = player.Position!.Value;
         await RefreshLocalCombatSideAsync(context, plan, state, player).ConfigureAwait(false);
 
         if (player.IsDead && state.TopLevelState != StationaryCombatTopLevelState.DeathRecovery)
@@ -1309,9 +1279,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             {
                 home = homeResult.Value.Position;
                 shouldFollowRevivePath = true;
-                playerDistanceFromHome = player.Position is not null
-                    ? StationaryCombatTargetSelector.HorizontalDistance(player.Position.Value, home)
-                    : 0.0D;
+                playerDistanceFromHome = StationaryCombatTargetSelector.HorizontalDistance(player.Position!.Value, home);
             }
             else
             {
@@ -1779,16 +1747,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return StationaryCombatBehaviorStatus.Running;
         }
 
-        if (player.Position is null)
-        {
-            LogActionThrottled(context, state, "stationary_combat.death_recovery.path_wait", "player_no_position", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["reason"] = "player_no_position"
-            }, TimeSpan.FromSeconds(1));
-            return StationaryCombatBehaviorStatus.Running;
-        }
-
         var leaderSiphon = await TryUpdateDeathRecoveryRevivePathLeaderSiphonAsync(
                 context,
                 state)
@@ -1805,7 +1763,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             !await TryRetargetDeathRevivePathAfterLeaderSiphonAsync(
                     context,
                     state,
-                    player.Position.Value,
+                    player.Position!.Value,
                     home,
                     playerDistanceFromHome)
                 .ConfigureAwait(false))
@@ -1846,7 +1804,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 semiAutoState,
                 state,
                 player,
-                player.Position.Value,
+                player.Position!.Value,
                 home,
                 radius,
                 playerDistanceFromHome,
@@ -3690,7 +3648,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
 
         state.SetCurrentTarget(target);
-        state.ResetCurrentTargetMissing();
         if (IsTargetingLocalSide(target, state) ||
             state.IsTeamLeaderProtectionTarget(target))
         {
@@ -3838,12 +3795,12 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                                 context.Config.AccountName,
                                 combat.RadarObstacleAvoidance)
                             ?? new RadarObstacleScriptSettings();
-        if (!radarSettings.Enabled ||
-            player.Position is not { } playerPosition ||
-            target.Position is not { } targetPosition)
+        if (!radarSettings.Enabled || target.Position is not { } targetPosition)
         {
             return null;
         }
+
+        var playerPosition = player.Position!.Value;
 
         var outsideLeash = !state.CurrentTargetIsMaintenanceDefense &&
                            !state.CurrentTargetIsRevivePathClear &&
@@ -4299,10 +4256,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         if (!distance.HasValue && targetPosition is { } position)
         {
             var player = await ReadPlayerAsync(context).ConfigureAwait(false);
-            if (player.Position is { } playerPosition)
-            {
-                distance = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, position);
-            }
+            distance = StationaryCombatTargetSelector.HorizontalDistance(player.Position!.Value, position);
         }
 
         if (distance.HasValue && distance.Value <= ReadLootApproachDistance())
@@ -4577,17 +4531,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         StationaryCombatState state,
         PlayerSnapshot player)
     {
-        if (player.Position is not { } playerPosition)
-        {
-            state.CompleteCleanupReturnToCombat();
-            context.Logger.Warn("stationary_combat.bag_cleanup.return_to_combat.skipped", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["reason"] = "player_position_missing",
-                ["revivePathName"] = GetRevivePathName(context)
-            });
-            return StationaryCombatBehaviorStatus.Success;
-        }
+        var playerPosition = player.Position!.Value;
 
         var homeResult = await TryResolveStationaryHomeAsync(context, state).ConfigureAwait(false);
         if (!homeResult.Success || homeResult.Value is null)
@@ -4702,15 +4646,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     pathResult.Error ?? "Revive path has fewer than two points.");
             }
 
-            if (player.Position is not { } startPosition)
-            {
-                return PostponeNoKillRecovery(
-                    context,
-                    state,
-                    now,
-                    "player_position_missing",
-                    "Player position before town return is not available.");
-            }
+            var startPosition = player.Position!.Value;
 
             semiAutoState.ResetAttackKeyPressThrottle();
             await StopMovementAsync(context, state).ConfigureAwait(false);
@@ -4769,15 +4705,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             }
 
             var afterPlayer = await ReadPlayerAsync(context).ConfigureAwait(false);
-            if (afterPlayer.Position is not { } endPosition)
-            {
-                return PostponeNoKillRecovery(
-                    context,
-                    state,
-                    now,
-                    "town_return_end_position_missing",
-                    "Player position after town return is not available.");
-            }
+            var endPosition = afterPlayer.Position!.Value;
 
             var distance = StationaryCombatTargetSelector.HorizontalDistance(startPosition, endPosition);
             if (distance < ReadNoKillTownReturnMinDistance())
@@ -4818,12 +4746,12 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
 
         if (state.NoKillRecovery.Step != StationaryCombatNoKillRecoveryStep.FollowRevivePath ||
-            player.Position is not { } playerPosition ||
             state.NoKillRecovery.RevivePathPoints.Count < 2)
         {
             return IdleDelay;
         }
 
+        var playerPosition = player.Position!.Value;
         var home = state.NoKillRecovery.RevivePathPoints[^1];
         var combat = context.Config.ScriptSettings?.Combat ?? new CombatScriptSettings();
         var radius = Math.Max(1.0D, combat.StationaryCombatRadius);
@@ -4880,10 +4808,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         StationaryCombatState state,
         PlayerSnapshot player)
     {
-        if (player.Position is not { } playerPosition)
-        {
-            return false;
-        }
+        var playerPosition = player.Position!.Value;
 
         var selection = await SelectRecoveryDefenseTargetAsync(
                 context,
@@ -5179,7 +5104,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 .ConfigureAwait(false);
         }
 
-        state.ResetCurrentTargetMissing();
         if (!target.IsAlive)
         {
             var killedSnapshot = new LockedTargetSnapshot(
@@ -5248,7 +5172,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 
         if (!IsCurrentFightTargetStillSelectable(target, home, radius, state.CurrentTargetIsMaintenanceDefense, state))
         {
-            state.ResetCurrentTargetMissing();
             return await WaitForCurrentFightTargetAsync(
                     context,
                     semiAutoState,
@@ -5289,9 +5212,9 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }, TimeSpan.FromMilliseconds(500));
 
         if (state.CurrentTargetIsMaintenanceDefense &&
-            target.Position is { } targetPosition &&
-            player.Position is { } playerPosition)
+            target.Position is { } targetPosition)
         {
+            var playerPosition = player.Position!.Value;
             var playerDistanceToTarget = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, targetPosition);
             if (state.FacedCandidateEntityId != target.EntityId)
             {
@@ -5376,16 +5299,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     {
         if (!IsLockedTargetEmpty(lockedResult))
         {
-            state.ResetCurrentTargetMissing();
-            return null;
-        }
-
-        var now = DateTimeOffset.Now;
-        var missingSince = state.MarkCurrentTargetMissing(targetEntityId, targetServerObjectId, now);
-        var missingFor = now - missingSince;
-        var timeoutMs = ReadMissingFightTargetTimeoutMs();
-        if (missingFor < TimeSpan.FromMilliseconds(timeoutMs))
-        {
             return null;
         }
 
@@ -5401,8 +5314,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             ["lockedServerObjectId"] = lockedResult.ServerObjectId,
             ["lockedTargetServerObjectId"] = lockedResult.ServerObjectId,
             ["lockedTargetingServerObjectId"] = lockedResult.TargetServerObjectId,
-            ["elapsedMs"] = (long)Math.Max(0.0D, missingFor.TotalMilliseconds),
-            ["timeoutMs"] = timeoutMs,
             ["error"] = null
         });
 
@@ -6051,19 +5962,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
 
         var player = await ReadFreshPlayerAsync(context).ConfigureAwait(false);
-        if (player.Position is null)
-        {
-            LogActionThrottled(context, state, "stationary_combat.target.reacquire_face_wait", "player_read_failed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["reason"] = "player_read_failed",
-                ["targetEntityId"] = target.EntityId,
-                ["targetServerObjectId"] = target.ServerObjectId,
-                ["targetName"] = target.Name
-            }, TimeSpan.FromMilliseconds(500));
-            return false;
-        }
-
         var faced = await FaceTargetStepAsync(context, state, player, targetPosition, target).ConfigureAwait(false);
         if (!faced)
         {
@@ -6750,9 +6648,9 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
 
         var distance = double.NaN;
-        if (player.Position is not null && target.Position is not null)
+        if (target.Position is not null)
         {
-            distance = StationaryCombatTargetSelector.HorizontalDistance(player.Position.Value, target.Position.Value);
+            distance = StationaryCombatTargetSelector.HorizontalDistance(player.Position!.Value, target.Position.Value);
             if (!state.CurrentTargetSoftRestartFaced)
             {
                 var faced = await FaceTargetStepAsync(
@@ -7600,37 +7498,14 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             state.IsSmartPreAimHandoffTarget(candidate.EntityId, candidate.ServerObjectId));
         if (handoffTarget is null)
         {
-            var missingSnapshots = state.MarkSmartPreAimHandoffMissing();
-            LogActionThrottled(
-                context,
-                state,
-                "stationary_combat.smart_preaim.handoff_waiting",
-                "missing:" + TargetActionKey(
-                    state.SmartPreAimHandoffEntityId,
-                    state.SmartPreAimHandoffServerObjectId),
-                new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["targetEntityId"] = state.SmartPreAimHandoffEntityId,
-                    ["targetServerObjectId"] = state.SmartPreAimHandoffServerObjectId,
-                    ["consecutiveMissingSnapshots"] = missingSnapshots,
-                    ["requiredMissingSnapshots"] = SmartPreAimSwitchConfirmationThreshold
-                },
-                TimeSpan.FromMilliseconds(200));
-            if (missingSnapshots < SmartPreAimSwitchConfirmationThreshold)
-            {
-                return true;
-            }
-
             ReleaseSmartPreAimHandoff(
                 context,
                 state,
-                "missing_confirmed",
+                "missing",
                 clearPreAimCandidate: true);
             return false;
         }
 
-        state.ResetSmartPreAimHandoffMissing();
         if (!allowClaimedByOther && IsClaimedByOther(handoffTarget, state))
         {
             state.IgnoreTarget(handoffTarget);
@@ -8222,11 +8097,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
 
         var snapshot = await RefreshGatherSnapshotAsync(context, state).ConfigureAwait(false);
-        if (snapshot is null)
-        {
-            return false;
-        }
-
         if (snapshot.LocalGathering.IsDialogVisible)
         {
             return true;
@@ -8253,40 +8123,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     {
         var now = DateTimeOffset.Now;
         var snapshot = await RefreshGatherSnapshotAsync(context, state).ConfigureAwait(false);
-        if (!IsGatherSnapshotUsable(snapshot))
-        {
-            if (state.Gather.Active)
-            {
-                await StopMovementAsync(context, state).ConfigureAwait(false);
-                StopPathFollowPoller(state);
-                LogActionThrottled(
-                    context,
-                    state,
-                    "stationary_gather.snapshot.unavailable",
-                    "node:" + state.Gather.ServerObjectId,
-                    new Dictionary<string, object?>
-                    {
-                        ["account"] = context.Config.AccountName,
-                        ["serverObjectId"] = state.Gather.ServerObjectId,
-                        ["monsterDataAvailable"] = snapshot?.MonsterDataAvailable ?? false,
-                        ["competitionDataAvailable"] = snapshot?.CompetitionDataAvailable ?? false,
-                        ["localGatheringDataAvailable"] = snapshot?.LocalGathering.DataAvailable ?? false,
-                        ["reason"] = "fresh_snapshot_unavailable"
-                    },
-                    TimeSpan.FromSeconds(1));
-                await StopAndSuppressGatherAsync(
-                        context,
-                        state,
-                        now,
-                        "snapshot_unavailable",
-                        GatherFailureSuppression)
-                    .ConfigureAwait(false);
-            }
-
-            return StationaryGatherTickResult.NotHandled;
-        }
-
-        var localGathering = snapshot!.LocalGathering;
+        var localGathering = snapshot.LocalGathering;
         var gatherCommitted =
             state.Gather.Phase is StationaryGatherPhase.WaitingForStart or StationaryGatherPhase.Gathering ||
             localGathering.IsDialogVisible;
@@ -8390,42 +8227,17 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             {
                 await StopMovementAsync(context, state).ConfigureAwait(false);
                 StopPathFollowPoller(state);
-                if (state.Gather.Phase == StationaryGatherPhase.WaitingForStart)
+                var completedServerObjectId = state.Gather.ServerObjectId;
+                var completedSourceId = state.Gather.GatherSourceId;
+                var completedName = state.Gather.Name;
+                state.Gather.CompleteCurrent();
+                context.Logger.Info("stationary_gather.node.completed", new Dictionary<string, object?>
                 {
-                    return StationaryGatherTickResult.HandledWith(GatherPollDelay);
-                }
-
-                var missingReads = state.Gather.MarkMissing(snapshot.CapturedAt);
-                LogActionThrottled(
-                    context,
-                    state,
-                    "stationary_gather.node.missing",
-                    "node:" + state.Gather.ServerObjectId + ":count:" + missingReads,
-                    new Dictionary<string, object?>
-                    {
-                        ["account"] = context.Config.AccountName,
-                        ["serverObjectId"] = state.Gather.ServerObjectId,
-                        ["gatherSourceId"] = state.Gather.GatherSourceId,
-                        ["name"] = state.Gather.Name,
-                        ["missingReadCount"] = missingReads,
-                        ["requiredMissingReadCount"] = 2,
-                        ["capturedAt"] = snapshot.CapturedAt
-                    },
-                    TimeSpan.Zero);
-                if (missingReads >= 2)
-                {
-                    var completedServerObjectId = state.Gather.ServerObjectId;
-                    var completedSourceId = state.Gather.GatherSourceId;
-                    var completedName = state.Gather.Name;
-                    state.Gather.CompleteCurrent();
-                    context.Logger.Info("stationary_gather.node.completed", new Dictionary<string, object?>
-                    {
-                        ["account"] = context.Config.AccountName,
-                        ["serverObjectId"] = completedServerObjectId,
-                        ["gatherSourceId"] = completedSourceId,
-                        ["name"] = completedName
-                    });
-                }
+                    ["account"] = context.Config.AccountName,
+                    ["serverObjectId"] = completedServerObjectId,
+                    ["gatherSourceId"] = completedSourceId,
+                    ["name"] = completedName
+                });
 
                 return StationaryGatherTickResult.HandledWith(GatherPollDelay);
             }
@@ -8781,7 +8593,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         };
     }
 
-    private async Task<GatherSnapshot?> RefreshGatherSnapshotAsync(
+    private async Task<GatherSnapshot> RefreshGatherSnapshotAsync(
         AccountWorkerContext context,
         StationaryCombatState state,
         bool forceRefresh = false)
@@ -8794,26 +8606,15 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             var snapshot = await ReadGatherSnapshotAsync(context).ConfigureAwait(false);
             state.LastGatherScanAt = now;
             state.CachedGatherSnapshot = snapshot;
-            if (snapshot.MonsterDataAvailable)
-            {
-                state.CachedWorldObjects = snapshot.NearbyMonsters;
-                state.LastWorldScanAt = now;
-                _radarSnapshots?.PublishWorldObjects(
-                    context.Config.AccountName,
-                    state.CachedWorldObjects,
-                    now);
-            }
+            state.CachedWorldObjects = snapshot.NearbyMonsters;
+            state.LastWorldScanAt = now;
+            _radarSnapshots?.PublishWorldObjects(
+                context.Config.AccountName,
+                state.CachedWorldObjects,
+                now);
         }
 
-        return state.CachedGatherSnapshot;
-    }
-
-    private static bool IsGatherSnapshotUsable(GatherSnapshot? snapshot)
-    {
-        return snapshot is not null &&
-               snapshot.MonsterDataAvailable &&
-               snapshot.CompetitionDataAvailable &&
-               snapshot.LocalGathering.DataAvailable;
+        return state.CachedGatherSnapshot!;
     }
 
     private async Task<IReadOnlyList<WorldObjectSnapshot>> RefreshWorldObjectsAsync(
@@ -8824,13 +8625,10 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         var gather = context.Config.ScriptSettings?.Gather;
         if (gather?.StationaryPriorityEnabled == true)
         {
-            var gatherSnapshot = await RefreshGatherSnapshotAsync(context, state, forceRefresh).ConfigureAwait(false);
-            if (gatherSnapshot?.MonsterDataAvailable == true)
-            {
-                state.PruneIgnoredTargets(state.CachedWorldObjects);
-                state.PruneTemporaryTargetExclusions(state.CachedWorldObjects, DateTimeOffset.Now);
-                return state.CachedWorldObjects;
-            }
+            await RefreshGatherSnapshotAsync(context, state, forceRefresh).ConfigureAwait(false);
+            state.PruneIgnoredTargets(state.CachedWorldObjects);
+            state.PruneTemporaryTargetExclusions(state.CachedWorldObjects, DateTimeOffset.Now);
+            return state.CachedWorldObjects;
         }
 
         var now = DateTimeOffset.Now;
@@ -9190,20 +8988,12 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         double reachDistance)
     {
         var freshPlayer = await ReadFreshPlayerAsync(context).ConfigureAwait(false);
-        if (freshPlayer.Position is not null)
-        {
-            player = freshPlayer;
-        }
-
-        if (player.Position is null)
-        {
-            return;
-        }
+        player = freshPlayer;
 
         var options = ReadPathFollowTurnOptions(context.Config.ScriptSettings?.Combat);
         var poller = EnsurePathFollowPoller(context, state, player, options);
         SetPathFollowPollTarget(poller, targetIndex: 0, target, reachDistance, options);
-        if (!TryGetPathFollowPollSnapshot(poller, out var snapshot, out _))
+        if (!TryGetPathFollowPollSnapshot(poller, out var snapshot))
         {
             LogActionThrottled(context, state, "stationary_combat.path_follow", "move_no_yaw", new Dictionary<string, object?>
             {
@@ -9492,8 +9282,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     {
         if (!IsSmartPreAimEnabled(context) ||
             !state.Fighting ||
-            !currentTarget.IsMonsterAlive ||
-            player.Position is null)
+            !currentTarget.IsMonsterAlive)
         {
             return;
         }
@@ -9648,19 +9437,13 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 }
 
                 var player = await ReadPlayerAsync(context).ConfigureAwait(false);
-                if (player.Position is null)
-                {
-                    await DelayAsync(adjustInterval, token).ConfigureAwait(false);
-                    continue;
-                }
-
                 var now = DateTimeOffset.Now;
                 if (now >= nextScanAt)
                 {
                     await RefreshNextTargetPreAimSelectionAsync(
                             context,
                             state,
-                            player.Position.Value,
+                            player.Position!.Value,
                             home,
                             radius,
                             fightTargetEntityId,
@@ -9906,7 +9689,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     currentSelection.Target.EntityId,
                     currentSelection.Target.ServerObjectId))
             {
-                preAim.ConsecutiveMissingSnapshots = 0;
                 preAim.ResetPendingSwitchConfirmation();
                 return proposedSelection;
             }
@@ -9925,20 +9707,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     proposedSelection.Target.EntityId,
                     proposedSelection.Target.ServerObjectId))
             {
-                if (currentSelection.IsTargetingProtectedSide &&
-                    !proposedSelection.IsTargetingProtectedSide &&
-                    currentVisibleTarget is not null)
-                {
-                    return KeepCommittedNextTargetPreAimSelectionForUnavailableSnapshot(
-                        preAim,
-                        currentSelection,
-                        proposedSelection,
-                        currentVisibleTarget,
-                        distanceOrigin,
-                        "threat_unconfirmed");
-                }
-
-                preAim.ConsecutiveMissingSnapshots = 0;
                 preAim.ResetPendingSwitchConfirmation();
                 return proposedSelection;
             }
@@ -9948,38 +9716,19 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 (string.Equals(proposedSelection.DecisionReason, "higher_priority", StringComparison.Ordinal) ||
                  string.Equals(proposedSelection.DecisionReason, "current_invalid", StringComparison.Ordinal)))
             {
-                preAim.ConsecutiveMissingSnapshots = 0;
                 preAim.ResetPendingSwitchConfirmation();
                 return proposedSelection;
             }
 
             if (currentVisibleTarget is not null)
             {
-                if (currentSelection.IsTargetingProtectedSide &&
-                    (proposedSelection is null || !proposedSelection.IsTargetingProtectedSide))
-                {
-                    return KeepCommittedNextTargetPreAimSelectionForUnavailableSnapshot(
-                        preAim,
-                        currentSelection,
-                        proposedSelection,
-                        currentVisibleTarget,
-                        distanceOrigin,
-                        "threat_unconfirmed");
-                }
-
                 if (proposedSelection is null ||
                     string.Equals(proposedSelection.DecisionReason, "current_invalid", StringComparison.Ordinal))
                 {
-                    return KeepCommittedNextTargetPreAimSelectionForUnavailableSnapshot(
-                        preAim,
-                        currentSelection,
-                        proposedSelection,
-                        currentVisibleTarget,
-                        distanceOrigin,
-                        "current_invalid");
+                    preAim.ResetPendingSwitchConfirmation();
+                    return proposedSelection;
                 }
 
-                preAim.ConsecutiveMissingSnapshots = 0;
                 return KeepCommittedNextTargetPreAimSelectionForBetterCandidate(
                     preAim,
                     currentSelection,
@@ -9990,46 +9739,9 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     switchDistanceMargin);
             }
 
-            return KeepCommittedNextTargetPreAimSelectionForUnavailableSnapshot(
-                preAim,
-                currentSelection,
-                proposedSelection,
-                currentVisibleTarget: null,
-                distanceOrigin,
-                "missing");
+            preAim.ResetPendingSwitchConfirmation();
+            return proposedSelection;
         }
-    }
-
-    private static NextTargetPreAimSelection? KeepCommittedNextTargetPreAimSelectionForUnavailableSnapshot(
-        NextTargetPreAimState preAim,
-        NextTargetPreAimSelection currentSelection,
-        NextTargetPreAimSelection? proposedSelection,
-        WorldObjectSnapshot? currentVisibleTarget,
-        Vector3Snapshot distanceOrigin,
-        string reason)
-    {
-        preAim.ResetPendingSwitchConfirmation();
-        var unavailableSnapshots = ++preAim.ConsecutiveMissingSnapshots;
-        if (unavailableSnapshots >= SmartPreAimSwitchConfirmationThreshold)
-        {
-            preAim.ConsecutiveMissingSnapshots = 0;
-            return proposedSelection is null
-                ? null
-                : proposedSelection with
-                {
-                    DecisionReason = $"{proposedSelection.DecisionReason}_after_{unavailableSnapshots}_{reason}"
-                };
-        }
-
-        var currentDistance = currentVisibleTarget?.Position is { } currentPosition
-            ? StationaryCombatTargetSelector.HorizontalDistance(currentPosition, distanceOrigin)
-            : currentSelection.DistanceToOrigin;
-        return currentSelection with
-        {
-            Target = currentVisibleTarget ?? currentSelection.Target,
-            DistanceToOrigin = currentDistance,
-            DecisionReason = $"kept_committed_{reason}_{unavailableSnapshots}"
-        };
     }
 
     private static NextTargetPreAimSelection KeepCommittedNextTargetPreAimSelectionForBetterCandidate(
@@ -10275,7 +9987,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 {
                     preAim.LastAlignedAt = DateTimeOffset.MinValue;
                     preAim.LastAdjustedAt = DateTimeOffset.MinValue;
-                    preAim.ConsecutiveMissingSnapshots = 0;
                     preAim.ResetPendingSwitchConfirmation();
                 }
             }
@@ -10340,8 +10051,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         Vector3Snapshot targetPosition,
         CancellationToken cancellationToken)
     {
-        if (player.Position is null ||
-            state.IsMovingForward ||
+        if (state.IsMovingForward ||
             state.PathFollowPoller is not null ||
             ShouldPauseNextTargetPreAimCameraAdjustment(state))
         {
@@ -10649,11 +10359,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         ushort targetEntityId,
         string targetName)
     {
-        if (player.Position is null)
-        {
-            return false;
-        }
-
         var options = ReadPathFollowTurnOptions(context.Config.ScriptSettings?.Combat) with
         {
             ToleranceDegrees = PreLockFaceYawToleranceDegrees,
@@ -11219,7 +10924,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         double yawTolerance)
     {
         var result = new PathFollowAdjustResult();
-        if (!TryGetPathFollowPollSnapshot(poller, out var snapshot, out _))
+        if (!TryGetPathFollowPollSnapshot(poller, out var snapshot))
         {
             return result;
         }
@@ -11270,7 +10975,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 break;
             }
 
-            if (!TryGetPathFollowPollSnapshot(poller, out snapshot, out _))
+            if (!TryGetPathFollowPollSnapshot(poller, out snapshot))
             {
                 break;
             }
@@ -11310,7 +11015,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 await TryWaitForPathFollowPollSnapshotAsync(poller, previousReadCount, pollWait, context).ConfigureAwait(false);
             }
 
-            if (!TryGetPathFollowPollSnapshot(poller, out snapshot, out _))
+            if (!TryGetPathFollowPollSnapshot(poller, out snapshot))
             {
                 break;
             }
@@ -11472,8 +11177,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         var roster = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
         state.LocalCombatSideServerObjectId = roster.LocalServerObjectId;
         var localPet = roster.LocalPlayerPet;
-        state.LocalCombatSidePetServerObjectId = SpiritmasterCombatContext.IsConfirmedLocalSummonedPet(localPet)
-            ? localPet.Pet.ServerObjectId
+        state.LocalCombatSidePetServerObjectId = localPet?.Pet is { IsSummoned: true, IsAlive: true } pet
+            ? pet.ServerObjectId
             : 0;
     }
 
@@ -11629,15 +11334,10 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             {
                 existing.Options = options;
                 existing.TargetPitch = options.TargetPitchDegrees;
-                if (initialPlayer.Position is not null)
-                {
-                    existing.Local = initialPlayer;
-                    existing.HasLocal = true;
-                    existing.Error = null;
-                    existing.LastReadTime = DateTimeOffset.Now;
-                    existing.ReadCount++;
-                    UpdatePathFollowPollMetricsLocked(existing);
-                }
+                existing.Local = initialPlayer;
+                existing.LastReadTime = DateTimeOffset.Now;
+                existing.ReadCount++;
+                UpdatePathFollowPollMetricsLocked(existing);
             }
 
             return existing;
@@ -11659,7 +11359,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         lock (poller.SyncRoot)
         {
             poller.Local = initialPlayer;
-            poller.HasLocal = initialPlayer.Position is not null;
             poller.LastReadTime = DateTimeOffset.Now;
             UpdatePathFollowPollMetricsLocked(poller);
         }
@@ -11682,28 +11381,19 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     return;
                 }
 
-                if (player.Position is not null)
+                poller.Local = player;
+                poller.LastReadTime = DateTimeOffset.Now;
+                poller.ReadCount++;
+                UpdatePathFollowPollMetricsLocked(poller);
+                if (poller.TargetIndex >= 0 &&
+                    !poller.HasArrived &&
+                    poller.HasMetrics &&
+                    poller.MetricsSnapshot is not null &&
+                    poller.MetricsSnapshot.DistanceToTarget <= poller.ReachDistance)
                 {
-                    poller.Local = player;
-                    poller.HasLocal = true;
-                    poller.Error = null;
-                    poller.LastReadTime = DateTimeOffset.Now;
-                    poller.ReadCount++;
-                    UpdatePathFollowPollMetricsLocked(poller);
-                    if (poller.TargetIndex >= 0 &&
-                        !poller.HasArrived &&
-                        poller.HasMetrics &&
-                        poller.MetricsSnapshot is not null &&
-                        poller.MetricsSnapshot.DistanceToTarget <= poller.ReachDistance)
-                    {
-                        poller.HasArrived = true;
-                        poller.ArrivedTargetIndex = poller.TargetIndex;
-                        poller.ArrivedSnapshot = poller.MetricsSnapshot;
-                    }
-                }
-                else
-                {
-                    poller.Error = "local position unavailable";
+                    poller.HasArrived = true;
+                    poller.ArrivedTargetIndex = poller.TargetIndex;
+                    poller.ArrivedSnapshot = poller.MetricsSnapshot;
                 }
             }
 
@@ -11745,7 +11435,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 
     private static void UpdatePathFollowPollMetricsLocked(PathFollowPollState poller)
     {
-        if (!poller.HasLocal || poller.TargetIndex < 0 || poller.Local?.Position is null)
+        if (poller.TargetIndex < 0)
         {
             poller.HasMetrics = false;
             poller.MetricsSnapshot = null;
@@ -11770,12 +11460,10 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 
     private static bool TryGetPathFollowPollSnapshot(
         PathFollowPollState poller,
-        out CameraTurnSnapshot snapshot,
-        out string? error)
+        out CameraTurnSnapshot snapshot)
     {
         lock (poller.SyncRoot)
         {
-            error = poller.Error;
             if (!poller.HasMetrics || poller.MetricsSnapshot is null)
             {
                 snapshot = default!;
@@ -11799,7 +11487,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         var deadline = DateTimeOffset.UtcNow + timeout;
         do
         {
-            if (TryGetPathFollowPollSnapshot(poller, out var snapshot, out _) &&
+            if (TryGetPathFollowPollSnapshot(poller, out var snapshot) &&
                 (snapshot.ReadCount != previousReadCount || timeout <= TimeSpan.Zero))
             {
                 return true;
@@ -11814,7 +11502,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
         while (!context.StopToken.IsCancellationRequested);
 
-        return TryGetPathFollowPollSnapshot(poller, out _, out _);
+        return TryGetPathFollowPollSnapshot(poller, out _);
     }
 
     private static bool TryMarkPathFollowArrivedNow(
@@ -11902,18 +11590,13 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         Vector3Snapshot target,
         PathFollowTurnOptions options)
     {
-        if (player.Position is null)
-        {
-            return null;
-        }
-
         var currentYaw = player.CameraYawDegrees ?? player.ActorYawDegrees;
         if (currentYaw is null)
         {
             return null;
         }
 
-        var worldPitch = CalculateWorldPitchDegrees(player.Position.Value, target);
+        var worldPitch = CalculateWorldPitchDegrees(player.Position!.Value, target);
         var targetPitch = ResolveTargetPitchDegrees(worldPitch, options);
         var currentPitch = player.CameraPitchDegrees ?? targetPitch;
         var targetYaw = CalculateTargetYawDegrees(player.Position.Value, target);
@@ -12529,14 +12212,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         return ClampInt(ReadRawIntFromEnv("ROADHOG_FACE_TARGET_TIMEOUT_MS", 10_000), 1, 60_000);
     }
 
-    private static int ReadMissingFightTargetTimeoutMs()
-    {
-        return ClampInt(
-            ReadRawIntFromEnv("ROADHOG_MISSING_FIGHT_TARGET_TIMEOUT_MS", (int)DefaultMissingFightTargetTimeout.TotalMilliseconds),
-            0,
-            60_000);
-    }
-
     private static TimeSpan ReadNoKillTimeout()
     {
         return TimeSpan.FromMilliseconds(ClampInt(
@@ -12592,26 +12267,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             ReadDoubleFromEnv("ROADHOG_STARTUP_RETURN_MIN_DISTANCE", DefaultStartupTownReturnMinDistance),
             0.0D,
             10_000.0D);
-    }
-
-    private static TimeSpan ReadManualPathPlayerReadRetryTimeout()
-    {
-        return TimeSpan.FromMilliseconds(ClampInt(
-            ReadRawIntFromEnv(
-                "ROADHOG_MANUAL_PATH_PLAYER_READ_RETRY_TIMEOUT_MS",
-                (int)DefaultManualPathPlayerReadRetryTimeout.TotalMilliseconds),
-            0,
-            60_000));
-    }
-
-    private static TimeSpan ReadManualPathPlayerReadRetryInterval()
-    {
-        return TimeSpan.FromMilliseconds(ClampInt(
-            ReadRawIntFromEnv(
-                "ROADHOG_MANUAL_PATH_PLAYER_READ_RETRY_INTERVAL_MS",
-                (int)DefaultManualPathPlayerReadRetryInterval.TotalMilliseconds),
-            0,
-            5_000));
     }
 
     private static double ReadPathCombatAccessPathDistance()
@@ -13006,9 +12661,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         public CancellationTokenSource Cancellation { get; init; } = new();
         public Task? Task { get; set; }
         public bool StopRequested { get; set; }
-        public bool HasLocal { get; set; }
-        public PlayerSnapshot? Local { get; set; }
-        public string? Error { get; set; }
+        public PlayerSnapshot Local { get; set; } = null!;
         public DateTimeOffset LastReadTime { get; set; }
         public long ReadCount { get; set; }
         public int TargetIndex { get; set; } = -1;

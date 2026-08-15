@@ -78,10 +78,12 @@ var tests = new (string Name, Func<Task> Run)[]
     ("dma snapshot catalog registers every business channel", TestDmaSnapshotCatalogRegistersEveryBusinessChannelAsync),
     ("dma snapshot registry enforces registration and partitions", TestDmaSnapshotRegistryEnforcesRegistrationAndPartitionsAsync),
     ("dma snapshot channel serializes read and commit", TestDmaSnapshotChannelSerializesReadAndCommitAsync),
+    ("dma business reader accepts stable world publication", TestDmaBusinessReaderAcceptsStableWorldPublicationAsync),
     ("dma world snapshot updates good fields and holds failed fields", TestDmaWorldSnapshotMergesFieldFailuresAsync),
     ("dma world partial snapshot is published and failed read holds it", TestDmaWorldPartialSnapshotIsPublishedAndFailedReadHoldsItAsync),
     ("dma inventory partial snapshot merges fields and complete traversal prunes", TestDmaInventorySnapshotMergesFieldsAndPrunesAsync),
     ("dma pet snapshot updates good health fields and holds failed fields", TestDmaPetSnapshotMergesHealthFailuresAsync),
+    ("dma single pet snapshot publishes merged trusted health", TestDmaSinglePetSnapshotPublishesMergedTrustedHealthAsync),
     ("dma pet partial snapshot is published and failed read holds it", TestDmaPetPartialSnapshotIsPublishedAndFailedReadHoldsItAsync),
     ("radar canvas projection is north up", RadarTests.CanvasProjectionIsNorthUpAsync),
     ("radar canvas marker colors match disposition", RadarTests.CanvasMarkerColorsMatchDispositionAsync),
@@ -125,7 +127,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary gather competition falls through to combat", TestStationaryGatherCompetitionFallsThroughToCombatAsync),
     ("stationary gather clears nearby aggressive threat first", TestStationaryGatherClearsNearbyAggressiveThreatFirstAsync),
     ("stationary gather presses within twenty meters", TestStationaryGatherPressesWithinTwentyMetersAsync),
-    ("stationary gather unavailable data fails closed", TestStationaryGatherUnavailableDataFailsClosedAsync),
+    ("stationary gather incomplete capture is hidden below business boundary", TestStationaryGatherIncompleteCaptureIsHiddenBelowBusinessBoundaryAsync),
     ("stationary gather snapshot fault is hidden and active node is retained", TestStationaryGatherSnapshotFailureStopsActiveNodeImmediatelyAsync),
     ("stationary gather ignores transient missing node while waiting", TestStationaryGatherIgnoresTransientMissingNodeWhileWaitingAsync),
     ("stationary gather enforces absolute start wait", TestStationaryGatherEnforcesAbsoluteStartWaitAsync),
@@ -143,7 +145,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("fixed channel revival radius is twenty meters", TestFixedChannelUsesTwentyMeterRevivalRadiusAsync),
     ("fixed channel waits once then retries every thirty seconds", TestFixedChannelWaitsOnceThenRetriesEveryThirtySecondsAsync),
     ("fixed channel read failure retries at verification deadline", TestFixedChannelReadFailureRetriesAtVerificationDeadlineAsync),
-    ("fixed channel initial read failure hard gates ordinary work", TestFixedChannelInitialReadFailureHardGatesOrdinaryWorkAsync),
+    ("fixed channel initial read fault is hidden before correction", TestFixedChannelInitialReadFaultIsHiddenBeforeCorrectionAsync),
     ("fixed channel target unavailable blocks switch attempts", TestFixedChannelTargetUnavailableBlocksSwitchAttemptsAsync),
     ("fixed channel map change cannot verify previous attempt", TestFixedChannelMapChangeCannotVerifyPreviousAttemptAsync),
     ("fixed channel death yields to life guard", TestFixedChannelDeathYieldsToLifeGuardAsync),
@@ -163,7 +165,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("jump assist team stops only on new local cooldown", TestJumpAssistTeamStopsOnlyOnNewCooldownAsync),
     ("jump assist team observes cooldown while paused", TestJumpAssistTeamObservesCooldownWhilePausedAsync),
     ("jump assist group exit stops session", TestJumpAssistGroupExitStopsSessionAsync),
-    ("jump assist team fails closed without skill baseline", TestJumpAssistTeamFailsClosedWithoutSkillBaselineAsync),
+    ("jump assist team trusts empty skill baseline", TestJumpAssistTeamTrustsEmptySkillBaselineAsync),
     ("jump assist disabled worker emits no extra space", TestJumpAssistDisabledWorkerEmitsNoExtraSpaceAsync),
     ("abnormal status catalog classifies chant effects as positive", TestAbnormalStatusCatalogClassifiesChantEffectsAsPositiveAsync),
     ("abnormal status catalog globally ignores death weakness", TestAbnormalStatusCatalogGloballyIgnoresDeathWeaknessAsync),
@@ -261,8 +263,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("aion class catalog maps old twelve classes", TestAionClassCatalogAsync),
     ("runtime player read returns character name", TestRuntimePlayerReadReturnsCharacterNameAsync),
     ("runtime kill efficiency tracks kill intervals", TestRuntimeKillEfficiencyTracksKillIntervalsAsync),
-    ("runtime warning records and clears read failures", TestRuntimeWarningRecordsAndClearsReadFailuresAsync),
-    ("stationary combat does not receive player read warning", TestStationaryCombatRecordsPlayerReadWarningAsync),
+    ("runtime warning records and clears system errors", TestRuntimeWarningRecordsAndClearsSystemErrorsAsync),
+    ("stationary combat retries player faults below business boundary", TestStationaryCombatRetriesPlayerFaultBelowBusinessBoundaryAsync),
     ("service options enable logging by default", TestRoadhogServiceOptionsEnableLoggingByDefaultAsync),
     ("file logger rotates when max size is reached", TestFileLoggerRotatesWhenMaxSizeIsReachedAsync),
     ("file logger deletes expired log files", TestFileLoggerDeletesExpiredLogFilesAsync),
@@ -435,7 +437,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat keeps fight when locked target server id matches", TestStationaryCombatKeepsFightWhenLockedServerIdMatchesAsync),
     ("stationary combat keeps current fight target when lock switches", TestStationaryCombatKeepsCurrentFightTargetWhenLockSwitchesAsync),
     ("stationary combat retries fresh reacquire player read below business", TestStationaryCombatWaitsToTabWhenFreshReacquirePlayerReadFailsAsync),
-    ("stationary combat clears missing current fight target quickly", TestStationaryCombatClearsMissingCurrentFightTargetQuicklyAsync),
+    ("stationary combat clears missing current fight target immediately", TestStationaryCombatClearsMissingCurrentFightTargetImmediatelyAsync),
     ("stationary combat presses C until locked target targets player", TestStationaryCombatPressesCUntilLockedTargetTargetsPlayerAsync),
     ("stationary combat accepts self targeting locked target after opening attack", TestStationaryCombatAcceptsSelfTargetingLockedTargetAfterOpeningAttackAsync),
     ("stationary combat switches away from target claimed by other", TestStationaryCombatSwitchesAwayFromTargetClaimedByOtherAsync),
@@ -554,11 +556,12 @@ var tests = new (string Name, Func<Task> Run)[]
     ("spiritmaster selector trusts target abnormal snapshot over dot window", TestSpiritmasterSelectorTrustsTargetSnapshotOverDotWindowAsync),
     ("spiritmaster selector skips command without pet", TestSpiritmasterSelectorSkipsCommandWithoutPetAsync),
     ("spiritmaster tick summons missing pet", TestSpiritmasterTickSummonsMissingPetAsync),
-    ("spiritmaster tick summons when pet roster is unconfirmed", TestSpiritmasterTickSummonsWhenPetRosterIsUnconfirmedAsync),
-    ("spiritmaster missing pet confirmation resets when pet returns", TestSpiritmasterMissingPetConfirmationResetsWhenPetReturnsAsync),
+    ("spiritmaster trusts published pet without owner revalidation", TestSpiritmasterTrustsPublishedPetWithoutOwnerRevalidationAsync),
+    ("spiritmaster trusts returned pet after immediate summon", TestSpiritmasterTrustsReturnedPetAfterImmediateSummonAsync),
     ("spiritmaster tick prioritizes lowest pet hp rule", TestSpiritmasterTickPrioritizesLowestPetHpRuleAsync),
     ("spiritmaster pet hp local cooldown yields to normal skills", TestSpiritmasterPetHpLocalCooldownYieldsToNormalSkillsAsync),
     ("spiritmaster elemental replenishment enforces player hp floor", TestSpiritmasterElementalReplenishmentEnforcesPlayerHpFloorAsync),
+    ("spiritmaster elemental replenishment hides transient pet read failure", TestSpiritmasterElementalReplenishmentHidesTransientPetReadFailureAsync),
     ("spiritmaster elemental replenishment confirms pet hp increase", TestSpiritmasterElementalReplenishmentConfirmsPetHpIncreaseAsync),
     ("spiritmaster elemental replenishment retries unchanged pet hp", TestSpiritmasterElementalReplenishmentRetriesUnchangedPetHpAsync),
     ("spiritmaster tick gates pet buff by dp", TestSpiritmasterTickGatesPetBuffByDpAsync),
@@ -584,6 +587,17 @@ var tests = new (string Name, Func<Task> Run)[]
     ("chain window does not reset after child advance", TestChainWindowDoesNotResetAfterChildAdvanceAsync),
     ("combat tick counts kill when monster target dies", TestCombatTickCountsKillAsync)
 };
+
+var testFilter = args
+    .FirstOrDefault(static argument => argument.StartsWith("--test-filter=", StringComparison.OrdinalIgnoreCase))?
+    .Split('=', 2)[1]
+    .Trim();
+if (!string.IsNullOrWhiteSpace(testFilter))
+{
+    tests = tests
+        .Where(test => test.Name.Contains(testFilter, StringComparison.OrdinalIgnoreCase))
+        .ToArray();
+}
 
 var failures = 0;
 foreach (var test in tests)
@@ -873,9 +887,7 @@ static async Task TestRuntimePlayerReadUsesAccountScopeAsync()
     };
     var runtime = new RoadhogRuntime(gameApi, logger, accounts, null!);
 
-    var result = await runtime.ReadPlayerAsync("account-scope").ConfigureAwait(false);
-
-    AssertFalse(!result.Success, "runtime player read should succeed");
+    await runtime.ReadPlayerAsync("account-scope").ConfigureAwait(false);
     AssertEqual(712, gameApi.LastPlayerContext?.ProcessId ?? 0, "scoped process id");
     AssertEqual("Aion.bin", gameApi.LastPlayerContext?.TargetProcessName ?? string.Empty, "scoped process name");
     AssertEqual("fpga", gameApi.LastPlayerContext?.VmmDeviceName ?? string.Empty, "scoped vmm device");
@@ -909,14 +921,10 @@ static async Task TestRuntimePathRecordingPlayerReadBypassesMemoryCacheAsync()
     };
     var runtime = new RoadhogRuntime(gameApi, logger, accounts, null!);
 
-    var normalResult = await runtime.ReadPlayerAsync("record-scope").ConfigureAwait(false);
-
-    AssertFalse(!normalResult.Success, "normal player read should succeed");
+    await runtime.ReadPlayerAsync("record-scope").ConfigureAwait(false);
     AssertFalse(gameApi.LastPlayerContext?.BypassMemoryCache ?? true, "normal player read should use default VMM cache");
 
-    var recordingResult = await runtime.ReadPlayerForPathRecordingAsync("record-scope").ConfigureAwait(false);
-
-    AssertFalse(!recordingResult.Success, "path recording player read should succeed");
+    await runtime.ReadPlayerForPathRecordingAsync("record-scope").ConfigureAwait(false);
     AssertFalse(!(gameApi.LastPlayerContext?.BypassMemoryCache ?? false), "path recording player read should bypass VMM cache");
 }
 
@@ -940,9 +948,7 @@ static async Task TestRuntimeSkillReadUsesSavedAccountScopeWhenIdleAsync()
     });
     var runtime = new RoadhogRuntime(gameApi, logger, accounts, null!, configStore);
 
-    var result = await runtime.RefreshSkillsAsync("account-scope").ConfigureAwait(false);
-
-    AssertFalse(!result.Success, "runtime skill read should succeed from saved account scope");
+    await runtime.RefreshSkillsAsync("account-scope").ConfigureAwait(false);
     AssertEqual(812, gameApi.LastSkillsContext?.ProcessId ?? 0, "saved scoped process id");
     AssertEqual("Aion.bin", gameApi.LastSkillsContext?.TargetProcessName ?? string.Empty, "saved scoped process name");
     AssertEqual("fpga://devindex=1", gameApi.LastSkillsContext?.VmmDeviceName ?? string.Empty, "saved scoped vmm device");
@@ -982,9 +988,7 @@ static async Task TestRuntimeSkillReadMapsSavedHardwareKeyToIndexedFpgaDeviceAsy
         new[] { "port:Port_#0004.Hub_#0002" }));
     var runtime = new RoadhogRuntime(gameApi, logger, accounts, null!, configStore, hardwareResolver);
 
-    var result = await runtime.RefreshSkillsAsync("account-scope").ConfigureAwait(false);
-
-    AssertFalse(!result.Success, "runtime skill read should succeed from mapped hardware scope");
+    await runtime.RefreshSkillsAsync("account-scope").ConfigureAwait(false);
     AssertEqual("fpga://devindex=1", gameApi.LastSkillsContext?.VmmDeviceName ?? string.Empty, "mapped scoped vmm device");
 }
 
@@ -1093,10 +1097,9 @@ static async Task TestRuntimeInventoryReadUsesAccountScopeAsync()
     };
     var runtime = new RoadhogRuntime(gameApi, logger, accounts, null!);
 
-    var result = await runtime.RefreshInventoryAsync("account-scope").ConfigureAwait(false);
+    var inventory = await runtime.RefreshInventoryAsync("account-scope").ConfigureAwait(false);
 
-    AssertFalse(!result.Success, "runtime inventory read should succeed");
-    AssertEqual(1, result.Value?.Count ?? 0, "inventory item count");
+    AssertEqual(1, inventory.Count, "inventory item count");
     AssertEqual(712, gameApi.LastInventoryContext?.ProcessId ?? 0, "scoped process id");
     AssertEqual("Aion.bin", gameApi.LastInventoryContext?.TargetProcessName ?? string.Empty, "scoped process name");
     AssertEqual("fpga", gameApi.LastInventoryContext?.VmmDeviceName ?? string.Empty, "scoped vmm device");
@@ -1145,9 +1148,7 @@ static async Task TestRuntimeWorldObjectReadUsesAccountScopeAsync()
     };
     var runtime = new RoadhogRuntime(gameApi, logger, accounts, null!);
 
-    var result = await runtime.RefreshWorldObjectsAsync("account-scope").ConfigureAwait(false);
-
-    AssertFalse(!result.Success, "runtime world object read should succeed");
+    await runtime.RefreshWorldObjectsAsync("account-scope").ConfigureAwait(false);
     AssertEqual(712, gameApi.LastWorldObjectsContext?.ProcessId ?? 0, "scoped process id");
     AssertEqual("Aion.bin", gameApi.LastWorldObjectsContext?.TargetProcessName ?? string.Empty, "scoped process name");
     AssertEqual("fpga", gameApi.LastWorldObjectsContext?.VmmDeviceName ?? string.Empty, "scoped vmm device");
@@ -1193,21 +1194,20 @@ static async Task TestRuntimeGatherReadUsesAccountScopeAsync()
             },
             true,
             true,
-            LocalGatheringSnapshot.Unavailable,
+            new LocalGatheringSnapshot(true, false, 0, false, 0, null, null),
             capturedAt)
     };
     var runtime = new RoadhogRuntime(gameApi, logger, accounts, null!);
 
-    var result = await runtime.RefreshGatherSnapshotAsync("account-scope").ConfigureAwait(false);
+    var snapshot = await runtime.RefreshGatherSnapshotAsync("account-scope").ConfigureAwait(false);
 
-    AssertFalse(!result.Success, "runtime gather read should succeed");
     AssertEqual(712, gameApi.LastGatherContext?.ProcessId ?? 0, "scoped process id");
     AssertEqual("Aion.bin", gameApi.LastGatherContext?.TargetProcessName ?? string.Empty, "scoped process name");
     AssertEqual("fpga", gameApi.LastGatherContext?.VmmDeviceName ?? string.Empty, "scoped vmm device");
-    AssertEqual(1, result.Value?.NearbyMonsters.Count ?? 0, "gather snapshot nearby monster count");
-    AssertFalse(result.Value?.MonsterDataAvailable != true, "gather snapshot monster data availability");
+    AssertEqual(1, snapshot.NearbyMonsters.Count, "gather snapshot nearby monster count");
+    AssertFalse(!snapshot.MonsterDataAvailable, "gather snapshot monster data availability");
     AssertFalse(
-        result.Value?.NearbyMonsters[0].IsAggressiveToPlayer != true,
+        !snapshot.NearbyMonsters[0].IsAggressiveToPlayer,
         "gather snapshot should preserve nearby monster aggression");
 }
 
@@ -1352,7 +1352,7 @@ static Task TestGatherFilterTabReadsAndAddsNearbySourcesAsync()
                     Array.Empty<WorldObjectSnapshot>(),
                     true,
                     true,
-                    LocalGatheringSnapshot.Unavailable,
+                    new LocalGatheringSnapshot(true, false, 0, false, 0, null, null),
                     capturedAt)
             };
 
@@ -1630,14 +1630,15 @@ static Task TestStationaryGatherSelectorEnforcesEligibilityAsync()
         "suppressed concrete node should be skipped");
 
     var noProgress = snapshot with { LocalGathering = LocalGatheringSnapshot.Unavailable };
-    AssertFalse(
+    AssertEqual(
+        allowed.ServerObjectId,
         StationaryGatherSelector.SelectCandidate(
             noProgress,
             settings.Gather,
             home,
             settings.Combat.StationaryCombatRadius,
-            capturedAt) is not null,
-        "unavailable local progress data should fail closed");
+            capturedAt)?.Target.ServerObjectId ?? 0,
+        "business selector should not revalidate provider data availability");
 
     settings.Gather.StationarySearchRadiusMeters = 1.0D;
     var combatRadiusSnapshot = CreateStationaryGatherSnapshot(
@@ -1823,19 +1824,7 @@ static async Task TestStationaryGatherCompletesKeyProgressAndDepletionLoopAsync(
         capturedAt: firstMissingAt);
     state.LastGatherScanAt = DateTimeOffset.MinValue;
     await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
-    AssertEqual(1, state.Gather.ConsecutiveMissingReads, "first successful missing scan should not complete node");
-    AssertFalse(!state.Gather.Active, "first missing scan should keep concrete node locked");
-
-    state.LastGatherScanAt = DateTimeOffset.MinValue;
-    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
-    AssertEqual(1, state.Gather.ConsecutiveMissingReads, "same captured snapshot must not count twice");
-
-    gameApi.Gather = CreateStationaryGatherSnapshot(
-        Array.Empty<GatherObjectSnapshot>(),
-        capturedAt: firstMissingAt.AddMilliseconds(300));
-    state.LastGatherScanAt = DateTimeOffset.MinValue;
-    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
-    AssertFalse(state.Gather.Active, "second independent missing scan should complete node");
+    AssertFalse(state.Gather.Active, "trusted missing node should complete immediately");
     AssertFalse(
         !logger.Entries.Any(entry => entry.EventName == "stationary_gather.node.completed"),
         "completed gather node should be logged");
@@ -2139,7 +2128,7 @@ static async Task TestStationaryGatherPressesWithinTwentyMetersAsync()
     AssertEqual(StationaryGatherPhase.Approaching, farState.Gather.Phase, "far gather node should enter approach phase");
 }
 
-static async Task TestStationaryGatherUnavailableDataFailsClosedAsync()
+static async Task TestStationaryGatherIncompleteCaptureIsHiddenBelowBusinessBoundaryAsync()
 {
     var settings = CreateStationaryGatherSettings();
     var target = CreateGatherObjectForFilterTest(
@@ -2164,7 +2153,9 @@ static async Task TestStationaryGatherUnavailableDataFailsClosedAsync()
         CompetitionDataAvailable = false,
         LocalGathering = LocalGatheringSnapshot.Unavailable
     };
-    var gameApi = CreateStationaryGatherGameApi(unavailable, new[] { ordinaryMonster });
+    var available = CreateStationaryGatherSnapshot(new[] { target });
+    var gameApi = CreateStationaryGatherGameApi(available, new[] { ordinaryMonster });
+    gameApi.GatherReadResults.Enqueue(OperationResult<GatherSnapshot>.Ok(unavailable));
     var keyboard = new RecordingKeyboardInput();
     var state = new StationaryCombatState();
     var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
@@ -2176,9 +2167,10 @@ static async Task TestStationaryGatherUnavailableDataFailsClosedAsync()
             state)
         .ConfigureAwait(false);
 
-    AssertFalse(keyboard.Keys.Contains("NumPad1"), "unavailable gather safety data must fail closed");
-    AssertEqual(20020U, state.CandidateServerObjectId, "unavailable gather data should preserve ordinary combat");
-    AssertFalse(gameApi.WorldObjectReadCount == 0, "unavailable gather monster data should use world fallback");
+    AssertFalse(!keyboard.Keys.Contains("NumPad1"), "business should receive the next complete gather publication");
+    AssertFalse(!state.Gather.Active, "complete publication should select the gather node");
+    AssertEqual(0, gameApi.GatherReadResults.Count, "snapshot reader should consume the incomplete capture below business logic");
+    AssertEqual(0, gameApi.WorldObjectReadCount, "business must not fall back to a separate world read");
 }
 
 static async Task TestStationaryGatherSnapshotFailureStopsActiveNodeImmediatelyAsync()
@@ -2271,39 +2263,17 @@ static async Task TestStationaryGatherIgnoresTransientMissingNodeWhileWaitingAsy
     AssertEqual(StationaryGatherPhase.WaitingForStart, state.Gather.Phase, "initial key should start dialog wait");
     AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad1"), "initial gather key count");
 
-    for (var i = 1; i <= 2; i++)
-    {
-        gameApi.Gather = CreateStationaryGatherSnapshot(
-            Array.Empty<GatherObjectSnapshot>(),
-            monsters: new[] { ordinaryMonster },
-            capturedAt: capturedAt.AddMilliseconds(i * 150));
-        state.LastGatherScanAt = DateTimeOffset.MinValue;
-        await controller.TickAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
-    }
-
-    AssertFalse(!state.Gather.Active, "transient missing reads must preserve the active gather node");
-    AssertEqual(
-        StationaryGatherPhase.WaitingForStart,
-        state.Gather.Phase,
-        "transient missing reads must keep waiting for the dialog");
-    AssertEqual(0, state.Gather.ConsecutiveMissingReads, "waiting reads must not count toward depletion");
-    AssertEqual(0U, state.CandidateServerObjectId, "ordinary combat must not take over the pending gather attempt");
-    AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad1"), "waiting must not add gather key retries");
-    AssertFalse(
-        logger.Entries.Any(entry =>
-            entry.EventName is "stationary_gather.node.missing" or "stationary_gather.node.completed"),
-        "waiting reads must not log depletion progress");
-
     gameApi.Gather = CreateStationaryGatherSnapshot(
-        new[] { target },
+        Array.Empty<GatherObjectSnapshot>(),
         monsters: new[] { ordinaryMonster },
-        localGathering: CreateActiveLocalGathering(target.GatherSourceId),
-        capturedAt: capturedAt.AddMilliseconds(500));
+        capturedAt: capturedAt.AddMilliseconds(150));
     state.LastGatherScanAt = DateTimeOffset.MinValue;
     await controller.TickAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
 
-    AssertEqual(StationaryGatherPhase.Gathering, state.Gather.Phase, "restored dialog should enter gathering");
-    AssertEqual(0U, state.CandidateServerObjectId, "restored gathering must still own the flow");
+    AssertFalse(state.Gather.Active, "trusted missing node should end the pending gather attempt immediately");
+    AssertFalse(
+        !logger.Entries.Any(entry => entry.EventName == "stationary_gather.node.completed"),
+        "trusted missing node should log completion");
 }
 
 static async Task TestStationaryGatherEnforcesAbsoluteStartWaitAsync()
@@ -2422,17 +2392,13 @@ static async Task TestStationaryGatherBlocksMaintenanceUntilCompletionAsync()
     await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
     AssertFalse(keyboard.Keys.Contains("D8"), "maintenance must remain blocked while the read completion is processed");
 
-    for (var i = 1; i <= 2; i++)
-    {
-        gameApi.Gather = CreateStationaryGatherSnapshot(
-            Array.Empty<GatherObjectSnapshot>(),
-            capturedAt: capturedAt.AddMilliseconds(500 + (i * 250)));
-        state.LastGatherScanAt = DateTimeOffset.MinValue;
-        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
-        AssertFalse(keyboard.Keys.Contains("D8"), "maintenance must stay blocked until node completion is confirmed");
-    }
-
-    AssertFalse(state.Gather.Active, "two missing snapshots should complete the gather node");
+    gameApi.Gather = CreateStationaryGatherSnapshot(
+        Array.Empty<GatherObjectSnapshot>(),
+        capturedAt: capturedAt.AddMilliseconds(750));
+    state.LastGatherScanAt = DateTimeOffset.MinValue;
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+    AssertFalse(keyboard.Keys.Contains("D8"), "maintenance must stay blocked during immediate node completion");
+    AssertFalse(state.Gather.Active, "trusted missing snapshot should complete the gather node immediately");
     state.LastGatherScanAt = DateTimeOffset.MinValue;
     await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
     AssertFalse(!keyboard.Keys.Contains("D8"), "maintenance should resume after gathering completes");
@@ -2692,14 +2658,14 @@ static async Task TestRuntimeSummonedPetReadUsesAccountScopeAsync()
             DateTimeOffset.Now,
             2160282797,
             true,
-            "local-link+owner+static-summon-pet")
+            "local-link+owner+static-summon-pet",
+            new SummonedPetHealthFieldValidity(true, true, true))
     };
     var runtime = new RoadhogRuntime(gameApi, logger, accounts, null!);
 
-    var result = await runtime.ReadSummonedPetAsync("account-scope").ConfigureAwait(false);
+    var snapshot = await runtime.ReadSummonedPetAsync("account-scope").ConfigureAwait(false);
 
-    AssertFalse(!result.Success, "runtime summoned pet read should succeed");
-    AssertFalse(result.Value is null || !result.Value.IsSummoned, "summoned pet should be present");
+    AssertFalse(!snapshot.IsSummoned, "summoned pet should be present");
     AssertEqual(712, gameApi.LastSummonedPetContext?.ProcessId ?? 0, "scoped process id");
     AssertEqual("Aion.bin", gameApi.LastSummonedPetContext?.TargetProcessName ?? string.Empty, "scoped process name");
     AssertEqual("fpga", gameApi.LastSummonedPetContext?.VmmDeviceName ?? string.Empty, "scoped vmm device");
@@ -2744,7 +2710,8 @@ static async Task TestRuntimeSummonedPetRosterReadUsesAccountScopeAsync()
             capturedAt,
             2160282797,
             true,
-            "local-link+owner+static-summon-pet"),
+            "local-link+owner+static-summon-pet",
+            new SummonedPetHealthFieldValidity(true, true, true)),
         1,
         new[] { new AbnormalStatusEntrySnapshot(0, 424, 2, 0, 1, 0) });
     var partyPet = new OwnedSummonedPetSnapshot(
@@ -2773,7 +2740,8 @@ static async Task TestRuntimeSummonedPetRosterReadUsesAccountScopeAsync()
             capturedAt,
             0,
             true,
-            "owner+static-summon-pet"),
+            "owner+static-summon-pet",
+            new SummonedPetHealthFieldValidity(true, true, true)),
         0,
         Array.Empty<AbnormalStatusEntrySnapshot>());
 
@@ -2789,11 +2757,10 @@ static async Task TestRuntimeSummonedPetRosterReadUsesAccountScopeAsync()
     };
     var runtime = new RoadhogRuntime(gameApi, logger, accounts, null!);
 
-    var result = await runtime.ReadSummonedPetRosterAsync("account-scope").ConfigureAwait(false);
+    var snapshot = await runtime.ReadSummonedPetRosterAsync("account-scope").ConfigureAwait(false);
 
-    AssertFalse(!result.Success, "runtime summoned pet roster read should succeed");
-    AssertFalse(result.Value is null || !result.Value.LocalPlayerPet.IsSummoned, "local pet should be present");
-    AssertEqual(1, result.Value?.PartyMemberPetCount ?? 0, "party pet count");
+    AssertFalse(!snapshot.LocalPlayerPet.IsSummoned, "local pet should be present");
+    AssertEqual(1, snapshot.PartyMemberPetCount, "party pet count");
     AssertEqual(712, gameApi.LastSummonedPetRosterContext?.ProcessId ?? 0, "scoped process id");
     AssertEqual("Aion.bin", gameApi.LastSummonedPetRosterContext?.TargetProcessName ?? string.Empty, "scoped process name");
     AssertEqual("fpga", gameApi.LastSummonedPetRosterContext?.VmmDeviceName ?? string.Empty, "scoped vmm device");
@@ -2840,7 +2807,8 @@ static async Task TestRuntimeTeamSnapshotUsesAccountScopeAsync()
             capturedAt,
             0,
             true,
-            "owner+static-summon-pet"),
+            "owner+static-summon-pet",
+            new SummonedPetHealthFieldValidity(true, true, true)),
         0,
         Array.Empty<AbnormalStatusEntrySnapshot>(),
         OwnerClassId: AionClassId.Spiritmaster,
@@ -2883,10 +2851,7 @@ static async Task TestRuntimeTeamSnapshotUsesAccountScopeAsync()
     };
     var runtime = new RoadhogRuntime(gameApi, logger, accounts, null!);
 
-    var result = await runtime.ReadTeamSnapshotAsync("account-scope").ConfigureAwait(false);
-
-    AssertFalse(!result.Success, "runtime team snapshot read should succeed");
-    var snapshot = result.Value ?? throw new InvalidOperationException("team snapshot was null");
+    var snapshot = await runtime.ReadTeamSnapshotAsync("account-scope").ConfigureAwait(false);
     AssertEqual(3, snapshot.Members.Count, "team member count");
     AssertEqual(1, snapshot.Members[0].FunctionKeyNumber, "self function key");
     AssertEqual(2, snapshot.Members[1].FunctionKeyNumber, "first teammate function key");
@@ -3280,7 +3245,7 @@ static async Task TestFixedChannelReadFailureRetriesAtVerificationDeadlineAsync(
     AssertEqual(6, switchExecutor.Requests[1].ClickPoints.Count, "retry request must contain all six click points");
 }
 
-static async Task TestFixedChannelInitialReadFailureHardGatesOrdinaryWorkAsync()
+static async Task TestFixedChannelInitialReadFaultIsHiddenBeforeCorrectionAsync()
 {
     var clock = new ManualTimeProvider();
     var gameApi = CreateFixedChannelGameApi(new Vector3Snapshot(0, 0, 0));
@@ -3307,9 +3272,10 @@ static async Task TestFixedChannelInitialReadFailureHardGatesOrdinaryWorkAsync()
             })
         .ConfigureAwait(false);
 
-    AssertFalse(!result.HasValue, "channel read failure must keep ordinary work hard gated");
-    AssertEqual(1, suspendCount, "channel read failure should suspend active ordinary work once");
-    AssertFalse(state.NormalWorkSuspended == false, "channel read failure should retain the hard gate until a valid target snapshot is read");
+    AssertFalse(!result.HasValue, "published mismatch must enter the correction gate");
+    AssertEqual(1, suspendCount, "published mismatch should suspend active ordinary work once");
+    AssertFalse(!state.NormalWorkSuspended, "business should receive the valid retry and start correction in the same tick");
+    AssertEqual(0, gameApi.ChannelReadResults.Count, "snapshot reader should consume the initial fault below business logic");
 }
 
 static async Task TestFixedChannelTargetUnavailableBlocksSwitchAttemptsAsync()
@@ -3510,13 +3476,8 @@ static async Task ConfirmFixedChannelMismatchAsync(
     var first = await controller
         .TickAsync(context, settings, state, combatState, suspendWork)
         .ConfigureAwait(false);
-    AssertFalse(!first.HasValue, "first valid channel mismatch should hard block while confirming");
-
-    clock.Advance(TimeSpan.FromMilliseconds(250));
-    var second = await controller
-        .TickAsync(context, settings, state, combatState, suspendWork)
-        .ConfigureAwait(false);
-    AssertFalse(!second.HasValue, "second valid channel mismatch should enter correction gate");
+    AssertFalse(!first.HasValue, "first published channel mismatch should enter correction immediately");
+    AssertFalse(!state.CorrectionActive, "fixed channel must not require a second data confirmation read");
 }
 
 static Task TestJumpAssistSettingDefaultsAndCloneAsync()
@@ -4124,7 +4085,7 @@ static async Task TestJumpAssistGroupExitStopsSessionAsync()
     AssertEqual(stoppedCount, keyboard.Keys.Count, "group exit should prevent further Space presses");
 }
 
-static async Task TestJumpAssistTeamFailsClosedWithoutSkillBaselineAsync()
+static async Task TestJumpAssistTeamTrustsEmptySkillBaselineAsync()
 {
     var keyboard = new RecordingKeyboardInput();
     var logger = new InMemoryRoadhogLogger();
@@ -4140,11 +4101,11 @@ static async Task TestJumpAssistTeamFailsClosedWithoutSkillBaselineAsync()
     await jumpAssist.EnterTeamGroupAsync().ConfigureAwait(false);
     await Task.Delay(50).ConfigureAwait(false);
 
-    AssertEqual(JumpAssistMode.None, jumpAssist.Mode, "missing skill baseline should not start team session");
-    AssertEqual(0, keyboard.Keys.Count, "missing skill baseline should fail closed without Space");
+    AssertEqual(JumpAssistMode.TeamGroup, jumpAssist.Mode, "published empty skill baseline should start the team session");
+    AssertFalse(keyboard.Keys.Count == 0, "published empty skill baseline should keep ordinary team jump cadence");
     AssertFalse(
-        !logger.Entries.Any(entry => entry.EventName == "jump_assist.team_baseline.failed"),
-        "missing skill baseline should be logged");
+        logger.Entries.Any(entry => entry.EventName == "jump_assist.team_baseline.failed"),
+        "business must not reinterpret an empty published skill list as a read failure");
 }
 
 static async Task TestJumpAssistDisabledWorkerEmitsNoExtraSpaceAsync()
@@ -8319,10 +8280,9 @@ static async Task TestRuntimeLockedTargetAbnormalReadUsesAccountScopeAsync()
     };
     var runtime = new RoadhogRuntime(gameApi, logger, accounts, null!);
 
-    var result = await runtime.ReadLockedTargetAbnormalStatusesAsync("account-scope").ConfigureAwait(false);
+    var snapshot = await runtime.ReadLockedTargetAbnormalStatusesAsync("account-scope").ConfigureAwait(false);
 
-    AssertFalse(!result.Success, "runtime locked target abnormal read should succeed");
-    AssertFalse(result.Value is null || !result.Value.HasAbnormalId(113582), "target abnormal id should be present");
+    AssertFalse(!snapshot.HasAbnormalId(113582), "target abnormal id should be present");
     AssertEqual(712, gameApi.LastLockedTargetAbnormalContext?.ProcessId ?? 0, "scoped process id");
     AssertEqual("Aion.bin", gameApi.LastLockedTargetAbnormalContext?.TargetProcessName ?? string.Empty, "scoped process name");
     AssertEqual("fpga", gameApi.LastLockedTargetAbnormalContext?.VmmDeviceName ?? string.Empty, "scoped vmm device");
@@ -8471,12 +8431,11 @@ static async Task TestRuntimePlayerReadReturnsCharacterNameAsync()
     };
     var runtime = new RoadhogRuntime(gameApi, logger, new AccountRuntimeManager(logger), null!);
 
-    var result = await runtime.ReadPlayerAsync("account-character").ConfigureAwait(false);
+    var snapshot = await runtime.ReadPlayerAsync("account-character").ConfigureAwait(false);
 
-    AssertFalse(!result.Success, "runtime player read should succeed");
-    AssertEqual("测试角色", result.Value?.CharacterName ?? string.Empty, "character name");
-    AssertEqual((ushort)25, result.Value?.Level ?? 0, "character level");
-    AssertEqual("Cleric", result.Value?.CharacterClass ?? string.Empty, "character class");
+    AssertEqual("测试角色", snapshot.CharacterName, "character name");
+    AssertEqual((ushort)25, snapshot.Level, "character level");
+    AssertEqual("Cleric", snapshot.CharacterClass, "character class");
 }
 
 static Task TestAionClassCatalogAsync()
@@ -8533,7 +8492,7 @@ static Task TestRuntimeKillEfficiencyTracksKillIntervalsAsync()
     return Task.CompletedTask;
 }
 
-static Task TestRuntimeWarningRecordsAndClearsReadFailuresAsync()
+static Task TestRuntimeWarningRecordsAndClearsSystemErrorsAsync()
 {
     var logger = new InMemoryRoadhogLogger();
     var runtimeStates = new AccountRuntimeManager(logger);
@@ -8541,7 +8500,7 @@ static Task TestRuntimeWarningRecordsAndClearsReadFailuresAsync()
 
     runtimeStates.MarkWarning(
         "account1",
-        RuntimeWarningText.FromPlayerReadFailure("Target process not found by PID: 1234"));
+        RuntimeWarningText.FromRuntimeError("Target process not found by PID: 1234"));
 
     var warningSnapshot = runtimeStates.Snapshot().Single();
     AssertEqual("游戏进程不存在或已退出", warningSnapshot.LastWarning ?? string.Empty, "runtime warning text");
@@ -8557,7 +8516,7 @@ static Task TestRuntimeWarningRecordsAndClearsReadFailuresAsync()
     return Task.CompletedTask;
 }
 
-static async Task TestStationaryCombatRecordsPlayerReadWarningAsync()
+static async Task TestStationaryCombatRetriesPlayerFaultBelowBusinessBoundaryAsync()
 {
     var settings = CreateScriptSettings();
     settings.MainMode = AccountMainMode.CustomCombat;
@@ -11388,6 +11347,31 @@ static Task TestBagCleanupBusinessReadBoundaryAsync()
         }
     }
 
+    var dataQualityTokens = new[]
+    {
+        ".DataAvailable",
+        "HasReliableHealth",
+        "HealthFields",
+        "ConsecutiveMissingRead",
+        "ConsecutiveMissingSnapshot",
+        "snapshot_unavailable",
+        "player_read_failed",
+        "channel_snapshot_unavailable",
+        "LastValidChannel",
+        "RequireFresh"
+    };
+    foreach (var file in Directory.GetFiles(applicationDirectory, "*.cs", SearchOption.AllDirectories))
+    {
+        var source = File.ReadAllText(file);
+        foreach (var token in dataQualityTokens)
+        {
+            AssertFalse(
+                source.Contains(token, StringComparison.OrdinalIgnoreCase),
+                Path.GetRelativePath(applicationDirectory, file) +
+                " must trust official publications instead of inspecting data quality token " + token);
+        }
+    }
+
     var workerContextSource = File.ReadAllText(
         Path.Combine(applicationDirectory, "Workers", "AccountWorkerContext.cs"));
     AssertFalse(
@@ -11401,6 +11385,31 @@ static Task TestBagCleanupBusinessReadBoundaryAsync()
             runtimeSource.Contains(rawRead, StringComparison.Ordinal),
             "RoadhogRuntime data reads must use IRoadhogSnapshotReader: " + rawRead);
     }
+
+    foreach (var snapshotType in new[]
+             {
+                 "PlayerSnapshot",
+                 "GatherSnapshot",
+                 "SkillSnapshot",
+                 "WorldObjectSnapshot",
+                 "InventoryItemSnapshot",
+                 "SummonedPetSnapshot",
+                 "SummonedPetRosterSnapshot",
+                 "TeamSnapshot",
+                 "RadarLiveSnapshot",
+                 "ChannelSnapshot"
+             })
+    {
+        AssertFalse(
+            runtimeSource.Contains("OperationResult<" + snapshotType, StringComparison.Ordinal),
+            "RoadhogRuntime must return official data directly instead of read status for " + snapshotType);
+    }
+
+    var servicesSource = File.ReadAllText(
+        Path.Combine(directory.FullName, "Roadhog", "Infrastructure", "Composition", "RoadhogServices.cs"));
+    AssertFalse(
+        servicesSource.Contains("public IRoadhogGameApi", StringComparison.Ordinal),
+        "RoadhogServices must not expose the raw game API outside composition");
 
     var formSource = File.ReadAllText(Path.Combine(directory.FullName, "Roadhog", "Form1.cs"));
     AssertFalse(
@@ -13031,25 +13040,15 @@ static async Task TestSmartPreAimStabilizesAlignedTargetSwitchingAsync()
     }
 
     await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(alignedTarget.EntityId, preAim.TargetEntityId, "first missing snapshot should keep the aligned target");
-    AssertEqual(1, preAim.ConsecutiveMissingSnapshots, "first missing snapshot count");
-
-    await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(alignedTarget.EntityId, preAim.TargetEntityId, "second missing snapshot should keep the aligned target");
-    AssertEqual(2, preAim.ConsecutiveMissingSnapshots, "second missing snapshot count");
+    AssertEqual(ordinaryReplacement.EntityId, preAim.TargetEntityId, "trusted replacement snapshot should switch immediately");
 
     gameApi.WorldObjects = new[] { alignedTarget };
     await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(alignedTarget.EntityId, preAim.TargetEntityId, "reappearing aligned target should remain selected");
-    AssertEqual(0, preAim.ConsecutiveMissingSnapshots, "reappearing aligned target should reset the missing count");
+    AssertEqual(alignedTarget.EntityId, preAim.TargetEntityId, "trusted aligned snapshot should switch immediately");
 
     gameApi.WorldObjects = new[] { ordinaryReplacement };
     await RefreshAsync().ConfigureAwait(false);
-    await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(alignedTarget.EntityId, preAim.TargetEntityId, "two new consecutive misses should still keep the aligned target");
-    await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(ordinaryReplacement.EntityId, preAim.TargetEntityId, "third consecutive miss should allow the replacement target");
-    AssertEqual(0, preAim.ConsecutiveMissingSnapshots, "switching after the third miss should reset the missing count");
+    AssertEqual(ordinaryReplacement.EntityId, preAim.TargetEntityId, "trusted missing-current snapshot should accept replacement immediately");
 
     void ResetAlignedSelection(
         WorldObjectSnapshot target,
@@ -13069,7 +13068,6 @@ static async Task TestSmartPreAimStabilizesAlignedTargetSwitchingAsync()
         preAim.AggressivePriority = aggressivePriority;
         preAim.TargetSelectedAt = DateTimeOffset.Now - TimeSpan.FromSeconds(2);
         preAim.LastAlignedAt = DateTimeOffset.Now;
-        preAim.ConsecutiveMissingSnapshots = 0;
         preAim.ResetPendingSwitchConfirmation();
         preAim.ClearDisplacedTargetGuard();
     }
@@ -13110,45 +13108,33 @@ static async Task TestSmartPreAimStabilizesAlignedTargetSwitchingAsync()
     gameApi.WorldObjects = new[] { alignedTarget, urgentThreat };
     await RefreshAsync().ConfigureAwait(false);
     AssertEqual(urgentThreat.EntityId, preAim.TargetEntityId, "a farther target attacking the local side should replace an aligned target immediately");
-    AssertEqual(0, preAim.ConsecutiveMissingSnapshots, "higher-priority replacement should not start a missing count");
 
     var teamTargetedThreat = urgentThreat with { TargetServerObjectId = 9000 };
     ResetAlignedSelection(urgentThreat, 4, targetingLocalSide: true, aggressivePriority: false);
     gameApi.WorldObjects = new[] { teamTargetedThreat, ordinaryReplacement };
     await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(urgentThreat.EntityId, preAim.TargetEntityId, "first unconfirmed local-threat snapshot should keep the aligned threat");
-    AssertEqual(1, preAim.ConsecutiveMissingSnapshots, "first unconfirmed local-threat snapshot count");
-    await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(urgentThreat.EntityId, preAim.TargetEntityId, "second unconfirmed local-threat snapshot should keep the aligned threat");
-    AssertEqual(2, preAim.ConsecutiveMissingSnapshots, "second unconfirmed local-threat snapshot count");
+    AssertEqual(ordinaryReplacement.EntityId, preAim.TargetEntityId, "trusted local-threat downgrade should accept the replacement immediately");
 
+    ResetAlignedSelection(urgentThreat, 4, targetingLocalSide: true, aggressivePriority: false);
     gameApi.WorldObjects = new[] { urgentThreat, ordinaryReplacement };
     await RefreshAsync().ConfigureAwait(false);
     AssertEqual(urgentThreat.EntityId, preAim.TargetEntityId, "reconfirmed local threat should stay selected");
-    AssertEqual(0, preAim.ConsecutiveMissingSnapshots, "reconfirmed local threat should reset the unavailable count");
 
     gameApi.WorldObjects = new[] { teamTargetedThreat, ordinaryReplacement };
     await RefreshAsync().ConfigureAwait(false);
-    await RefreshAsync().ConfigureAwait(false);
-    await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(ordinaryReplacement.EntityId, preAim.TargetEntityId, "third unconfirmed local-threat snapshot should allow the ordinary replacement");
-    AssertEqual(0, preAim.ConsecutiveMissingSnapshots, "local-threat downgrade after the third snapshot should reset the unavailable count");
+    AssertEqual(ordinaryReplacement.EntityId, preAim.TargetEntityId, "trusted local-threat downgrade should switch without a read counter");
 
     var targetFieldClearedThreat = urgentThreat with { TargetServerObjectId = 0 };
     ResetAlignedSelection(urgentThreat, 4, targetingLocalSide: true, aggressivePriority: false);
     gameApi.WorldObjects = new[] { targetFieldClearedThreat };
     await RefreshAsync().ConfigureAwait(false);
-    await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(4, preAim.TargetPriorityTier, "two cleared target-field snapshots should preserve the aligned local-threat classification");
-    await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(urgentThreat.EntityId, preAim.TargetEntityId, "the third cleared target-field snapshot may downgrade without changing the same target");
-    AssertEqual(1, preAim.TargetPriorityTier, "the third cleared target-field snapshot should accept the selector downgrade");
+    AssertEqual(urgentThreat.EntityId, preAim.TargetEntityId, "trusted cleared target field should keep the same target identity");
+    AssertEqual(1, preAim.TargetPriorityTier, "trusted cleared target field should downgrade immediately");
 
     ResetAlignedSelection(urgentThreat, 4, targetingLocalSide: true, aggressivePriority: false);
     gameApi.WorldObjects = new[] { teamTargetedThreat, secondUrgentThreat };
     await RefreshAsync().ConfigureAwait(false);
     AssertEqual(secondUrgentThreat.EntityId, preAim.TargetEntityId, "a newly confirmed local threat should replace an unconfirmed aligned threat immediately");
-    AssertEqual(0, preAim.ConsecutiveMissingSnapshots, "confirmed local-threat replacement should reset the unavailable count");
 
     var claimedAlignedTarget = alignedTarget with { TargetServerObjectId = 9000 };
     ResetAlignedSelection(alignedTarget, 1, targetingLocalSide: false, aggressivePriority: false);
@@ -13156,13 +13142,7 @@ static async Task TestSmartPreAimStabilizesAlignedTargetSwitchingAsync()
     preAim.LastAdjustedAt = DateTimeOffset.Now;
     gameApi.WorldObjects = new[] { claimedAlignedTarget, ordinaryReplacement };
     await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(alignedTarget.EntityId, preAim.TargetEntityId, "first ordinary current-invalid snapshot should keep a camera-committed target before perfect alignment");
-    AssertEqual(1, preAim.ConsecutiveMissingSnapshots, "ordinary current-invalid should use the shared unavailable count");
-    await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(alignedTarget.EntityId, preAim.TargetEntityId, "second ordinary current-invalid snapshot should keep the aligned target");
-    await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(ordinaryReplacement.EntityId, preAim.TargetEntityId, "third ordinary current-invalid snapshot should allow the replacement");
-    AssertEqual(0, preAim.ConsecutiveMissingSnapshots, "confirmed ordinary invalid switch should reset the unavailable count");
+    AssertEqual(ordinaryReplacement.EntityId, preAim.TargetEntityId, "trusted ordinary invalid snapshot should switch immediately");
 
     var playerNearTarget = alignedTarget with
     {
@@ -13323,28 +13303,9 @@ static async Task TestSmartPreAimHandoffConfirmsMissingTargetAsync()
     var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
 
     var first = await SelectStationaryTargetForTestAsync(controller, context, state, allowClaimedByOther: false).ConfigureAwait(false);
-    AssertFalse(first is not null, "first missing B snapshot should wait instead of turning to C");
-    AssertEqual(1, state.SmartPreAimHandoffConsecutiveMissingSnapshots, "first handoff miss count");
-    AssertFalse(!state.HasSmartPreAimHandoff, "first missing B snapshot should preserve the handoff");
-
-    gameApi.WorldObjects = new[] { committed, fallback };
-    var reappeared = await SelectStationaryTargetForTestAsync(controller, context, state, allowClaimedByOther: false).ConfigureAwait(false);
-    AssertEqual(committed.ServerObjectId, reappeared?.ServerObjectId ?? 0, "reappearing B should resume the same handoff");
-    AssertEqual(0, state.SmartPreAimHandoffConsecutiveMissingSnapshots, "reappearing B should reset the handoff miss count");
-
-    gameApi.WorldObjects = new[] { fallback };
-    var restartedFirst = await SelectStationaryTargetForTestAsync(controller, context, state, allowClaimedByOther: false).ConfigureAwait(false);
-    AssertFalse(restartedFirst is not null, "a new first missing B snapshot should wait after reset");
-    AssertEqual(1, state.SmartPreAimHandoffConsecutiveMissingSnapshots, "restarted first handoff miss count");
-
-    var second = await SelectStationaryTargetForTestAsync(controller, context, state, allowClaimedByOther: false).ConfigureAwait(false);
-    AssertFalse(second is not null, "second consecutive missing B snapshot should still wait");
-    AssertEqual(2, state.SmartPreAimHandoffConsecutiveMissingSnapshots, "second consecutive handoff miss count");
-
-    var third = await SelectStationaryTargetForTestAsync(controller, context, state, allowClaimedByOther: false).ConfigureAwait(false);
-    AssertEqual(fallback.ServerObjectId, third?.ServerObjectId ?? 0, "third consecutive missing B snapshot should release the handoff and select C");
-    AssertFalse(state.HasSmartPreAimHandoff, "confirmed missing B should clear the handoff");
-    AssertFalse(state.NextTargetPreAim.HasCandidate, "confirmed missing B should clear the stale pre-aim result");
+    AssertEqual(fallback.ServerObjectId, first?.ServerObjectId ?? 0, "trusted missing B snapshot should release the handoff and select C immediately");
+    AssertFalse(state.HasSmartPreAimHandoff, "trusted missing B snapshot should clear the handoff");
+    AssertFalse(state.NextTargetPreAim.HasCandidate, "trusted missing B snapshot should clear the stale pre-aim result");
 }
 
 static async Task TestSmartPreAimHandoffHonorsClaimSettingsAsync()
@@ -15708,15 +15669,7 @@ static async Task TestStationaryCombatDeathRecoverySummonsSpiritmasterPetBeforeM
         "test should start at post-revive spiritmaster pet gate");
 
     await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
-    AssertEqual(0, keyboard.Keys.Count, "first post-revive missing pet read should not summon or run maintenance");
-    AssertFalse(keyboard.KeyDowns.Contains("W"), "post-revive flow must not move during first missing pet confirmation");
-
-    await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
-    AssertEqual(0, keyboard.Keys.Count, "second post-revive missing pet read should not summon or run maintenance");
-    AssertFalse(keyboard.KeyDowns.Contains("W"), "post-revive flow must not move during second missing pet confirmation");
-
-    await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
-    AssertSequence(new[] { "NumPad6" }, keyboard.Keys.ToArray(), "post-revive flow should summon missing spiritmaster pet first");
+    AssertSequence(new[] { "NumPad6" }, keyboard.Keys.ToArray(), "trusted missing pet should summon immediately after revive");
     AssertFalse(keyboard.Keys.Contains("OemComma"), "post-revive maintenance must not start before spiritmaster pet verification");
     AssertFalse(keyboard.KeyDowns.Contains("W"), "post-revive flow must wait for spiritmaster pet verification before moving");
 
@@ -16310,22 +16263,13 @@ static async Task TestStationaryCombatDeathRecoveryHoldsPathForMissingPetFightPr
 
         await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
 
-        AssertFalse(!keyboard.KeyUps.Contains("W"), "the first missing committed pet target snapshot should release forward movement");
-        AssertFalse(state.IsMovingForward, "the first missing committed pet target snapshot should hold the revive path");
-        AssertFalse(!state.HasSmartPreAimHandoff, "the first missing snapshot should retain the committed handoff identity");
-        AssertEqual(1, state.SmartPreAimHandoffConsecutiveMissingSnapshots, "first recovery handoff missing count");
-        AssertEqual(pathFollowCount, logger.Entries.Count(entry =>
-            entry.EventName == "stationary_combat.death_recovery.path_follow"), "the held snapshot must not emit another path-follow action");
+        AssertFalse(state.HasSmartPreAimHandoff, "trusted missing snapshot should release the recovery handoff immediately");
+        AssertFalse(state.NextTargetPreAim.HasCandidate, "trusted missing recovery target should clear the retained pre-aim result");
+        AssertFalse(
+            logger.Entries.Count(entry => entry.EventName == "stationary_combat.death_recovery.path_follow") < pathFollowCount,
+            "released handoff may resume the revive path immediately");
         AssertFalse(keyboard.Keys.Contains("Tab"), "a missing committed target must not Tab stale identity");
         AssertFalse(keyboard.Keys.Any(key => key.StartsWith("D", StringComparison.OrdinalIgnoreCase)), "a missing committed target must not attack stale coordinates");
-
-        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
-        AssertEqual(2, state.SmartPreAimHandoffConsecutiveMissingSnapshots, "second recovery handoff missing count");
-        AssertFalse(!state.HasSmartPreAimHandoff, "two missing snapshots should still hold movement");
-
-        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
-        AssertFalse(state.HasSmartPreAimHandoff, "three missing snapshots should release the recovery handoff");
-        AssertFalse(state.NextTargetPreAim.HasCandidate, "confirmed missing recovery target should clear the retained pre-aim result");
     }
     finally
     {
@@ -21108,93 +21052,73 @@ static async Task TestStationaryCombatWaitsToTabWhenFreshReacquirePlayerReadFail
     }
 }
 
-static async Task TestStationaryCombatClearsMissingCurrentFightTargetQuicklyAsync()
+static async Task TestStationaryCombatClearsMissingCurrentFightTargetImmediatelyAsync()
 {
-    var previousMissingTimeout = Environment.GetEnvironmentVariable("ROADHOG_MISSING_FIGHT_TARGET_TIMEOUT_MS");
-    try
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
     {
-        Environment.SetEnvironmentVariable("ROADHOG_MISSING_FIGHT_TARGET_TIMEOUT_MS", "1");
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 60
+    };
 
-        var settings = CreateScriptSettings();
-        settings.MainMode = AccountMainMode.CustomCombat;
-        settings.CombatMode = AccountCombatMode.Stationary;
-        settings.Combat = new CombatScriptSettings
-        {
-            HasStationaryCombatPosition = true,
-            StationaryCombatX = 0,
-            StationaryCombatY = 0,
-            StationaryCombatZ = 0,
-            StationaryCombatRadius = 60
-        };
-
-        var keyboard = new RecordingKeyboardInput();
-        var logger = new InMemoryRoadhogLogger();
-        var gameApi = new FakeGameApi
-        {
-            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
-            TargetEntityId = 0,
-            TargetOwnServerObjectId = 0,
-            TargetCurrentHp = 0,
-            TargetMaxHp = 0,
-            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
-            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-            {
-                [1] = 0,
-                [5] = 0,
-                [6] = 0,
-                [7] = 0,
-                [8] = 0,
-                [9] = 0,
-                [10] = 0
-            })
-        };
-        var semiAuto = new SemiAutoCombatController(keyboard);
-        var controller = new StationaryCombatController(keyboard, semiAuto);
-        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-        var state = new StationaryCombatState
-        {
-            Fighting = true,
-            CurrentTargetEntityId = 100,
-            CurrentTargetServerObjectId = 100,
-            CandidateEntityId = 100,
-            CandidateServerObjectId = 100
-        };
-        state.MarkCandidate(100, 100, DateTimeOffset.Now);
-        var semiAutoState = new SemiAutoCombatState();
-        var context = CreateContext(settings, gameApi, logger);
-
-        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
-
-        AssertFalse(!state.Fighting, "first missing target tick should keep fight state briefly");
-        AssertEqual((ushort)100, state.CurrentTargetEntityId, "first missing target tick should keep current target");
-        AssertFalse(!logger.Entries.Any(entry =>
-            entry.EventName == "stationary_combat.target.reacquire_wait" &&
-            string.Equals(Convert.ToString(entry.Fields["reason"]), "target_mismatch_target_missing", StringComparison.Ordinal)),
-            "first missing target tick should log reacquire wait");
-
-        await Task.Delay(5).ConfigureAwait(false);
-        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
-
-        AssertFalse(state.Fighting, "missing target timeout should clear fight state");
-        AssertEqual((ushort)0, state.CurrentTargetEntityId, "missing target timeout should clear current target");
-        AssertFalse(state.IsTargetIgnored(100, 100), "missing target timeout should not permanently ignore the target");
-        AssertFalse(!logger.Entries.Any(entry =>
-            entry.EventName == "stationary_combat.target.lost" &&
-            string.Equals(Convert.ToString(entry.Fields["reason"]), "target_mismatch_target_missing", StringComparison.Ordinal)),
-            "missing target timeout should log target lost");
-
-        gameApi.WorldObjects = new[]
-        {
-            new WorldObjectSnapshot(101, 101, "next", "monster", new Vector3Snapshot(8, 0, 0), 8, 1000, 1000)
-        };
-        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
-
-        AssertEqual((ushort)101, state.CandidateEntityId, "next tick should select a new target after missing target clears");
-    }
-    finally
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
     {
-        Environment.SetEnvironmentVariable("ROADHOG_MISSING_FIGHT_TARGET_TIMEOUT_MS", previousMissingTimeout);
-    }
+        Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+        TargetEntityId = 0,
+        TargetOwnServerObjectId = 0,
+        TargetCurrentHp = 0,
+        TargetMaxHp = 0,
+        WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0,
+            [7] = 0,
+            [8] = 0,
+            [9] = 0,
+            [10] = 0
+        })
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CurrentTargetServerObjectId = 100,
+        CandidateEntityId = 100,
+        CandidateServerObjectId = 100
+    };
+    state.MarkCandidate(100, 100, DateTimeOffset.Now);
+    var semiAutoState = new SemiAutoCombatState();
+    var context = CreateContext(settings, gameApi, logger);
+
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertFalse(state.Fighting, "trusted missing target should clear fight state immediately");
+    AssertEqual((ushort)0, state.CurrentTargetEntityId, "trusted missing target should clear current target immediately");
+    AssertFalse(state.IsTargetIgnored(100, 100), "trusted missing target should not permanently ignore the target");
+    AssertFalse(!logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.target.lost" &&
+        string.Equals(Convert.ToString(entry.Fields["reason"]), "target_mismatch_target_missing", StringComparison.Ordinal)),
+        "trusted missing target should log target lost immediately");
+
+    gameApi.WorldObjects = new[]
+    {
+        new WorldObjectSnapshot(101, 101, "next", "monster", new Vector3Snapshot(8, 0, 0), 8, 1000, 1000)
+    };
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertEqual((ushort)101, state.CandidateEntityId, "next tick should select a new target after trusted absence clears the fight");
 }
 
 static async Task TestStationaryCombatPressesCUntilLockedTargetTargetsPlayerAsync()
@@ -25486,26 +25410,17 @@ static async Task TestSpiritmasterTickSummonsMissingPetAsync()
     var state = new SemiAutoCombatState();
     var context = CreateContext(settings, gameApi, logger);
 
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertEqual(1, state.ConsecutiveSpiritmasterPetMissingReads, "first missing pet read count");
-    AssertEqual(0, keyboard.Keys.Count, "first missing pet read should not summon");
-
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertEqual(2, state.ConsecutiveSpiritmasterPetMissingReads, "second missing pet read count");
-    AssertEqual(0, keyboard.Keys.Count, "second missing pet read should not summon");
-
     var startedAt = DateTimeOffset.Now;
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
     var elapsed = DateTimeOffset.Now - startedAt;
 
-    AssertEqual(3, state.ConsecutiveSpiritmasterPetMissingReads, "third missing pet read count");
     AssertSequence(new[] { "NumPad6", "NumPad8" }, keyboard.Keys.ToArray(), "summon key sequence");
     AssertFalse(elapsed < TimeSpan.FromMilliseconds(1900), "summon speed and summon pet keys should be separated by about two seconds");
 }
 
-static async Task TestSpiritmasterTickSummonsWhenPetRosterIsUnconfirmedAsync()
+static async Task TestSpiritmasterTrustsPublishedPetWithoutOwnerRevalidationAsync()
 {
-    await AssertSpiritmasterSummonsForUnconfirmedRosterAsync(
+    await AssertSpiritmasterTrustsPublishedRosterAsync(
             CreateLocalUnconfirmedPetRoster(
                 ownerConfirmed: false,
                 staticSummonPet: false,
@@ -25513,7 +25428,7 @@ static async Task TestSpiritmasterTickSummonsWhenPetRosterIsUnconfirmedAsync()
             "linked-only roster")
         .ConfigureAwait(false);
 
-    await AssertSpiritmasterSummonsForUnconfirmedRosterAsync(
+    await AssertSpiritmasterTrustsPublishedRosterAsync(
             CreateLocalUnconfirmedPetRoster(
                 ownerConfirmed: true,
                 staticSummonPet: true,
@@ -25522,14 +25437,10 @@ static async Task TestSpiritmasterTickSummonsWhenPetRosterIsUnconfirmedAsync()
         .ConfigureAwait(false);
 }
 
-static async Task AssertSpiritmasterSummonsForUnconfirmedRosterAsync(
+static async Task AssertSpiritmasterTrustsPublishedRosterAsync(
     SummonedPetRosterSnapshot roster,
     string scenario)
 {
-    AssertFalse(
-        SpiritmasterCombatContext.IsConfirmedLocalSummonedPet(roster.LocalPlayerPet),
-        scenario + " should not be treated as confirmed local pet");
-
     var settings = CreateSpiritmasterScriptSettings();
     settings.Skills.Spiritmaster.SummonSkills = new List<SpiritmasterSkillKeyRuleConfig>
     {
@@ -25549,14 +25460,10 @@ static async Task AssertSpiritmasterSummonsForUnconfirmedRosterAsync(
     var context = CreateContext(settings, gameApi, logger);
 
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertEqual(0, keyboard.Keys.Count, scenario + " should wait for three missing reads");
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-
-    AssertSequence(new[] { "NumPad6" }, keyboard.Keys.ToArray(), scenario + " summon key");
+    AssertFalse(keyboard.Keys.Contains("NumPad6"), scenario + " should trust the published summoned pet and not resummon");
 }
 
-static async Task TestSpiritmasterMissingPetConfirmationResetsWhenPetReturnsAsync()
+static async Task TestSpiritmasterTrustsReturnedPetAfterImmediateSummonAsync()
 {
     var settings = CreateSpiritmasterScriptSettings();
     settings.Skills.Spiritmaster.SummonSkills = new List<SpiritmasterSkillKeyRuleConfig>
@@ -25575,22 +25482,14 @@ static async Task TestSpiritmasterMissingPetConfirmationResetsWhenPetReturnsAsyn
     var state = new SemiAutoCombatState();
     var context = CreateContext(settings, gameApi, logger);
 
-    await controller.EnsureSpiritmasterPetAsync(context, plan, state).ConfigureAwait(false);
-    await controller.EnsureSpiritmasterPetAsync(context, plan, state).ConfigureAwait(false);
-    AssertEqual(2, state.ConsecutiveSpiritmasterPetMissingReads, "missing pet count before recovery");
+    var blockedWithoutPet = await controller.EnsureSpiritmasterPetAsync(context, plan, state).ConfigureAwait(false);
+    AssertFalse(!blockedWithoutPet, "trusted missing pet should start summon immediately");
+    AssertSequence(new[] { "NumPad6" }, keyboard.Keys.ToArray(), "trusted missing pet summon key");
 
     gameApi.SummonedPetRoster = CreateLocalPetRoster(isSummoned: true);
     var blockedWithPet = await controller.EnsureSpiritmasterPetAsync(context, plan, state).ConfigureAwait(false);
-    AssertFalse(blockedWithPet, "confirmed pet should allow normal work");
-    AssertEqual(0, state.ConsecutiveSpiritmasterPetMissingReads, "confirmed pet should reset missing count");
-
-    gameApi.SummonedPetRoster = SummonedPetRosterSnapshot.Empty(1000, DateTimeOffset.Now);
-    await controller.EnsureSpiritmasterPetAsync(context, plan, state).ConfigureAwait(false);
-    await controller.EnsureSpiritmasterPetAsync(context, plan, state).ConfigureAwait(false);
-    AssertEqual(0, keyboard.Keys.Count, "two new missing reads after reset should not summon");
-
-    await controller.EnsureSpiritmasterPetAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(new[] { "NumPad6" }, keyboard.Keys.ToArray(), "third consecutive missing read should summon");
+    AssertFalse(blockedWithPet, "trusted present pet should allow normal work");
+    AssertEqual(1, keyboard.Keys.Count, "trusted present pet should not add another summon key");
 }
 
 static async Task TestSpiritmasterTickPrioritizesLowestPetHpRuleAsync()
@@ -25604,10 +25503,12 @@ static async Task TestSpiritmasterTickPrioritizesLowestPetHpRuleAsync()
     var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
     var keyboard = new RecordingKeyboardInput();
     var logger = new InMemoryRoadhogLogger();
+    var petRoster = CreateLocalPetRoster(isSummoned: true, hpPercent: 10);
     var gameApi = new FakeGameApi
     {
         Player = CreateSpiritmasterPlayer(),
-        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true, hpPercent: 10),
+        SummonedPet = petRoster.LocalPlayerPet.Pet,
+        SummonedPetRoster = petRoster,
         Skills = CreateSpiritmasterSkillSnapshots(
             new SkillSnapshot(1678, "Pet Heal", 1, 1, "Pet Heal", 1, false, 1_000, 0),
             new SkillSnapshot(1785, "Emergency Pet Heal", 1, 1, "Emergency Pet Heal", 1, false, 1_000, 0))
@@ -25617,6 +25518,7 @@ static async Task TestSpiritmasterTickPrioritizesLowestPetHpRuleAsync()
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState()).ConfigureAwait(false);
 
     AssertSequence(new[] { "NumPad3" }, keyboard.Keys.ToArray(), "lowest pet hp threshold should run first");
+    AssertEqual(0, gameApi.SummonedPetReadCount, "non-1678 pet rule should keep using the ordinary combat roster snapshot");
 }
 
 static async Task TestSpiritmasterPetHpLocalCooldownYieldsToNormalSkillsAsync()
@@ -25637,10 +25539,12 @@ static async Task TestSpiritmasterPetHpLocalCooldownYieldsToNormalSkillsAsync()
     var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
     var keyboard = new RecordingKeyboardInput();
     var logger = new InMemoryRoadhogLogger();
+    var petRoster = CreateLocalPetRoster(isSummoned: true, hpPercent: 10);
     var gameApi = new FakeGameApi
     {
         Player = CreateSpiritmasterPlayer(),
-        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true, hpPercent: 10),
+        SummonedPet = petRoster.LocalPlayerPet.Pet,
+        SummonedPetRoster = petRoster,
         Skills = CreateSpiritmasterSkillSnapshots(
             new SkillSnapshot(1600, "Normal Skill", 1, 1, "Normal Skill", 1, false, 1_000, 0),
             new SkillSnapshot(1678, "Pet Heal", 1, 1, "Pet Heal", 1, false, 0, 0))
@@ -25663,10 +25567,12 @@ static async Task TestSpiritmasterElementalReplenishmentEnforcesPlayerHpFloorAsy
     var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
     var keyboard = new RecordingKeyboardInput();
     var logger = new InMemoryRoadhogLogger();
+    var initialPetRoster = CreateLocalPetRoster(isSummoned: true, currentHp: 10);
     var gameApi = new FakeGameApi
     {
         Player = CreateSpiritmasterPlayer(currentHp: 64, maxHp: 100),
-        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true, currentHp: 10),
+        SummonedPet = initialPetRoster.LocalPlayerPet.Pet,
+        SummonedPetRoster = initialPetRoster,
         Skills = CreateSpiritmasterSkillSnapshots(
             new SkillSnapshot(1678, "Elemental Replenishment", 1, 1, "Elemental Replenishment", 1, false, 10_300, 0))
     };
@@ -25683,12 +25589,58 @@ static async Task TestSpiritmasterElementalReplenishmentEnforcesPlayerHpFloorAsy
 
     keyboard.Keys.Clear();
     gameApi.Player = CreateSpiritmasterPlayer(currentHp: 65, maxHp: 100);
-    gameApi.SummonedPetRoster = CreateLocalPetRoster(isSummoned: true, currentHp: 10);
+    var thresholdPetRoster = CreateLocalPetRoster(isSummoned: true, currentHp: 10);
+    gameApi.SummonedPet = thresholdPetRoster.LocalPlayerPet.Pet;
+    gameApi.SummonedPetRoster = thresholdPetRoster;
     await controller.TickAsync(context, plan, new SemiAutoCombatState()).ConfigureAwait(false);
 
     AssertSequence(new[] { "NumPad3" }, keyboard.Keys.ToArray(), "exactly 65 percent player hp should allow elemental replenishment");
-    AssertFalse(gameApi.LastPlayerContext?.RequireFresh != true, "player safety read should require fresh data");
-    AssertFalse(gameApi.LastSummonedPetRosterContext?.RequireFresh != true, "pet safety read should require fresh data");
+    AssertFalse(
+        gameApi.LastPlayerContext is null ||
+        gameApi.LastPlayerContext.RequireFresh ||
+        gameApi.LastPlayerContext.BypassMemoryCache,
+        "player safety should use the ordinary stable snapshot");
+    AssertFalse(
+        gameApi.LastSummonedPetContext is null ||
+        gameApi.LastSummonedPetContext.RequireFresh ||
+        gameApi.LastSummonedPetContext.BypassMemoryCache,
+        "pet safety should use the ordinary stable single-pet snapshot");
+    AssertFalse(gameApi.LastSummonedPetRosterContext?.BypassMemoryCache == true, "pet safety must not force a full roster scan");
+}
+
+static async Task TestSpiritmasterElementalReplenishmentHidesTransientPetReadFailureAsync()
+{
+    var settings = CreateElementalReplenishmentTestSettings();
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var petRoster = CreateLocalPetRoster(isSummoned: true, currentHp: 10);
+    var gameApi = new FakeGameApi
+    {
+        Player = CreateSpiritmasterPlayer(),
+        SummonedPet = petRoster.LocalPlayerPet.Pet,
+        SummonedPetRoster = petRoster,
+        Skills = CreateSpiritmasterSkillSnapshots(
+            new SkillSnapshot(1678, "Elemental Replenishment", 1, 1, "Elemental Replenishment", 1, false, 10_300, 0))
+    };
+    gameApi.SummonedPetReadResults.Enqueue(
+        OperationResult<SummonedPetSnapshot>.Fail("linked pet actor is temporarily unavailable"));
+    using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+    var controller = new SemiAutoCombatController(keyboard);
+    var context = CreateContext(settings, gameApi, logger, stopToken: stop.Token);
+
+    await controller.TickAsync(context, plan, new SemiAutoCombatState()).ConfigureAwait(false);
+
+    AssertSequence(new[] { "NumPad3" }, keyboard.Keys.ToArray(), "business logic should receive the published pet snapshot after a transient read failure");
+    AssertEqual(2, gameApi.SummonedPetReadCount, "snapshot boundary should consume the transient failure and retry below business logic");
+    AssertEqual(1, gameApi.SummonedPetRosterReadCount, "combat context should keep its one ordinary roster read");
+    AssertFalse(
+        gameApi.LastSummonedPetContext is null || gameApi.LastSummonedPetContext.RequireFresh,
+        "transient pet failure must retain stable snapshot semantics");
+    AssertFalse(
+        logger.Entries.Any(entry =>
+            entry.EventName == "semi_auto.spiritmaster.elemental_replenishment.confirmation_unknown"),
+        "the transient provider fault must not leak into the 1678 business decision");
 }
 
 static async Task TestSpiritmasterElementalReplenishmentConfirmsPetHpIncreaseAsync()
@@ -25697,10 +25649,12 @@ static async Task TestSpiritmasterElementalReplenishmentConfirmsPetHpIncreaseAsy
     var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
     var keyboard = new RecordingKeyboardInput();
     var logger = new InMemoryRoadhogLogger();
+    var initialPetRoster = CreateLocalPetRoster(isSummoned: true, currentHp: 10);
     var gameApi = new FakeGameApi
     {
         Player = CreateSpiritmasterPlayer(),
-        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true, currentHp: 10),
+        SummonedPet = initialPetRoster.LocalPlayerPet.Pet,
+        SummonedPetRoster = initialPetRoster,
         Skills = CreateSpiritmasterSkillSnapshots(
             new SkillSnapshot(1678, "Elemental Replenishment", 1, 1, "Elemental Replenishment", 1, false, 10_300, 0))
     };
@@ -25713,7 +25667,9 @@ static async Task TestSpiritmasterElementalReplenishmentConfirmsPetHpIncreaseAsy
     AssertFalse(state.PendingSpiritmasterPetHpIncreaseConfirmation is null, "initial press should start pet hp confirmation");
 
     await Task.Delay(120).ConfigureAwait(false);
-    gameApi.SummonedPetRoster = CreateLocalPetRoster(isSummoned: true, currentHp: 30);
+    var healedPetRoster = CreateLocalPetRoster(isSummoned: true, currentHp: 30);
+    gameApi.SummonedPet = healedPetRoster.LocalPlayerPet.Pet;
+    gameApi.SummonedPetRoster = healedPetRoster;
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
 
     AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad3"), "confirmed pet hp increase must not retry elemental replenishment");
@@ -25730,10 +25686,12 @@ static async Task TestSpiritmasterElementalReplenishmentRetriesUnchangedPetHpAsy
     var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
     var keyboard = new RecordingKeyboardInput();
     var logger = new InMemoryRoadhogLogger();
+    var petRoster = CreateLocalPetRoster(isSummoned: true, currentHp: 10);
     var gameApi = new FakeGameApi
     {
         Player = CreateSpiritmasterPlayer(),
-        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true, currentHp: 10),
+        SummonedPet = petRoster.LocalPlayerPet.Pet,
+        SummonedPetRoster = petRoster,
         Skills = CreateSpiritmasterSkillSnapshots(
             new SkillSnapshot(1678, "Elemental Replenishment", 1, 1, "Elemental Replenishment", 1, false, 10_300, 0))
     };
@@ -25743,7 +25701,15 @@ static async Task TestSpiritmasterElementalReplenishmentRetriesUnchangedPetHpAsy
 
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
     await Task.Delay(120).ConfigureAwait(false);
-    gameApi.SummonedPetRoster = CreateLocalPetRoster(isSummoned: true, currentHp: 10);
+    gameApi.SummonedPet = petRoster.LocalPlayerPet.Pet with { CapturedAt = DateTimeOffset.Now };
+    gameApi.SummonedPetRoster = petRoster with
+    {
+        CapturedAt = DateTimeOffset.Now,
+        LocalPlayerPet = petRoster.LocalPlayerPet with
+        {
+            Pet = gameApi.SummonedPet
+        }
+    };
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
 
     AssertEqual(2, keyboard.Keys.Count(key => key == "NumPad3"), "unchanged fresh pet hp should retry elemental replenishment");
@@ -28118,72 +28084,23 @@ static async Task TestStatusMaintenanceChantFollowsActiveStatusAsync()
     AssertEqual(true, Convert.ToBoolean(pressedEntry!.Fields["oneShot"]), "chant maintenance should keep legacy one-shot log flag");
     AssertEqual(true, Convert.ToBoolean(pressedEntry!.Fields["chant"]), "chant maintenance should be logged as chant");
     AssertEqual(6000L, Convert.ToInt64(pressedEntry.Fields["confirmWindowMs"]), "chant status maintenance confirm window");
-    AssertFalse(
-        !state.TryGetStatusMaintenanceActiveSeenAt("skill:8200", out _),
-        "confirmed chant maintenance should remember sticky active status");
-
     keyboard.Keys.Clear();
     await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
 
     AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "active chant status should block repeat press");
-    gameApi.Player = gameApi.Player with { CurrentHp = 0, CapturedAt = DateTimeOffset.Now };
-    await controller.TryRecoverAfterReviveAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
-    AssertFalse(
-        state.TryGetStatusMaintenanceActiveSeenAt("skill:8200", out _),
-        "death/revive recovery should clear sticky chant active status");
-    gameApi.Player = gameApi.Player with { CurrentHp = 100, CapturedAt = DateTimeOffset.Now };
 
     var retryState = new SemiAutoCombatState();
     retryState.RememberStatusMaintenanceAbnormalId(8200, 8232);
-    retryState.MarkStatusMaintenanceActive("skill:8200", DateTimeOffset.Now);
     keyboard.Keys.Clear();
     gameApi.PlayerAbnormalStatuses = PlayerAbnormalStatusSnapshot.Empty(1);
     var retryLogger = new InMemoryRoadhogLogger();
 
     await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, retryLogger), retryState, gameApi.Player).ConfigureAwait(false);
 
-    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "first missing learned chant status should defer maintenance press");
-    var deferredEntry = retryLogger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.maintenance.chant_missing_deferred");
-    AssertFalse(deferredEntry is null, "first missing learned chant status should log deferred maintenance");
-    AssertEqual(1, Convert.ToInt32(deferredEntry!.Fields["missingReadCount"]), "first missing learned chant read count");
-    AssertEqual(3, Convert.ToInt32(deferredEntry.Fields["requiredMissingReads"]), "chant missing read threshold");
-    AssertEqual(60000L, Convert.ToInt64(deferredEntry.Fields["requiredMissingDurationMs"]), "chant missing duration threshold");
-    AssertEqual(true, Convert.ToBoolean(deferredEntry.Fields["stickyActive"]), "missing confirmed chant should be treated as sticky active");
-
-    await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, retryLogger), retryState, gameApi.Player).ConfigureAwait(false);
-
-    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "second immediate missing learned chant status should defer maintenance press");
-    var secondDeferredEntry = retryLogger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.maintenance.chant_missing_deferred");
-    AssertFalse(secondDeferredEntry is null, "second missing learned chant status should log deferred maintenance");
-    AssertEqual(2, Convert.ToInt32(secondDeferredEntry!.Fields["missingReadCount"]), "second missing learned chant read count");
-
-    await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, retryLogger), retryState, gameApi.Player).ConfigureAwait(false);
-
-    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "third immediate missing learned chant status should still wait for duration threshold");
-    var thirdDeferredEntry = retryLogger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.maintenance.chant_missing_deferred");
-    AssertFalse(thirdDeferredEntry is null, "third missing learned chant status should log deferred maintenance");
-    AssertEqual(3, Convert.ToInt32(thirdDeferredEntry!.Fields["missingReadCount"]), "third missing learned chant read count");
-
-    var readyState = new SemiAutoCombatState();
-    readyState.RememberStatusMaintenanceAbnormalId(8200, 8232);
-    readyState.MarkStatusMaintenanceActive("skill:8200", DateTimeOffset.Now - TimeSpan.FromMinutes(5));
-    var firstMissingAt = DateTimeOffset.Now - TimeSpan.FromSeconds(61);
-    readyState.MarkStatusMaintenanceMissingRead("skill:8200", firstMissingAt, out _);
-    readyState.MarkStatusMaintenanceMissingRead("skill:8200", firstMissingAt + TimeSpan.FromMilliseconds(500), out _);
-    keyboard.Keys.Clear();
-    gameApi.PlayerAbnormalStatuses = PlayerAbnormalStatusSnapshot.Empty(1);
-    var readyLogger = new InMemoryRoadhogLogger();
-
-    await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, readyLogger), readyState, gameApi.Player).ConfigureAwait(false);
-
-    AssertSequence(new[] { "NumPad2" }, keyboard.Keys.ToArray(), "sustained missing learned chant status should allow maintenance press");
-    var readyEntry = readyLogger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.maintenance.chant_missing_ready");
-    AssertFalse(readyEntry is null, "sustained missing learned chant status should log ready maintenance");
-    AssertEqual(3, Convert.ToInt32(readyEntry!.Fields["missingReadCount"]), "sustained missing learned chant read count");
-    AssertEqual(true, Convert.ToBoolean(readyEntry.Fields["stickyActive"]), "sustained missing learned chant should record sticky active");
+    AssertSequence(new[] { "NumPad2" }, keyboard.Keys.ToArray(), "trusted missing learned chant status should allow maintenance press immediately");
     AssertFalse(
-        Convert.ToInt64(readyEntry.Fields["missingDurationMs"]) < 60000L,
-        "sustained missing learned chant duration should reach threshold");
+        retryLogger.Entries.Any(entry => entry.EventName.StartsWith("semi_auto.maintenance.chant_missing_", StringComparison.Ordinal)),
+        "business maintenance must not emit missing-read state logs");
 }
 
 static async Task TestStatusMaintenanceSkipsActiveCategoryZeroBuffAsync()
@@ -29742,7 +29659,8 @@ static SummonedPetRosterSnapshot CreateLocalUnconfirmedPetRoster(
         ownerConfirmed,
         ownerConfirmed
             ? "owner+static-summon-pet"
-            : "local-link-only");
+            : "local-link-only",
+        new SummonedPetHealthFieldValidity(true, true, true));
 
     return new SummonedPetRosterSnapshot(
         localServerObjectId,
@@ -30519,7 +30437,8 @@ static SummonedPetRosterSnapshot CreateTeamSupportRoster(
                     now,
                     petServerObjectId,
                     true,
-                    "test"),
+                    "test",
+                    new SummonedPetHealthFieldValidity(true, true, true)),
                 0,
                 Array.Empty<AbnormalStatusEntrySnapshot>(),
                 OwnerClassId: owner.Class,
@@ -30559,7 +30478,8 @@ static OwnedSummonedPetSnapshot CreatePartyPet(
             now,
             petServerObjectId,
             true,
-            "test"),
+            "test",
+            new SummonedPetHealthFieldValidity(true, true, true)),
         0,
         Array.Empty<AbnormalStatusEntrySnapshot>(),
         OwnerClassId: owner.Class,
@@ -30827,16 +30747,15 @@ static Task TestDmaSnapshotCatalogRegistersEveryBusinessChannelAsync()
         "world objects must declare field-aware merge");
     AssertEqual(
         DmaSnapshotMergePolicy.FieldAware,
+        AionVmmSnapshotChannels.All.Single(channel => channel.Name == "summoned_pet").MergePolicy,
+        "single pet snapshots must declare field-aware merge");
+    AssertEqual(
+        DmaSnapshotMergePolicy.FieldAware,
         AionVmmSnapshotChannels.All.Single(channel => channel.Name == "summoned_pet_roster").MergePolicy,
         "pet roster must declare field-aware merge");
-    AssertEqual(
-        DmaSnapshotReadPolicy.RequireFresh,
-        AionVmmSnapshotChannels.All.Single(channel => channel.Name == "inventory_window").ReadPolicy,
-        "inventory window must fail closed on a current read failure");
-    AssertEqual(
-        DmaSnapshotReadPolicy.RequireFresh,
-        AionVmmSnapshotChannels.All.Single(channel => channel.Name == "inventory_discard_confirm").ReadPolicy,
-        "discard confirmation must fail closed on a current read failure");
+    AssertFalse(
+        AionVmmSnapshotChannels.All.Any(channel => channel.ReadPolicy != DmaSnapshotReadPolicy.Stable),
+        "every registered business channel must fall back to its last published snapshot");
     return Task.CompletedTask;
 }
 
@@ -31034,6 +30953,47 @@ static async Task TestDmaSnapshotChannelSerializesReadAndCommitAsync()
     AssertEqual(2, results[1], "second serialized snapshot result");
     AssertEqual(3, results[2], "independent partition snapshot result");
     AssertFalse(!secondEntered.Task.IsCompleted, "the queued read should enter after the prior commit");
+}
+
+static async Task TestDmaBusinessReaderAcceptsStableWorldPublicationAsync()
+{
+    var worldObject = new WorldObjectSnapshot(
+        10,
+        1000,
+        "published target",
+        "monster",
+        new Vector3Snapshot(5, 0, 0),
+        5,
+        CurrentHp: 90,
+        MaxHp: 100,
+        TargetServerObjectId: 7000,
+        IsTargetingLocalPlayer: true,
+        LootableRaw: 0,
+        InteractionState: 41);
+    var gameApi = new FakeGameApi
+    {
+        WorldObjects = new[] { worldObject }
+    };
+    using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+    var reader = new RoadhogSnapshotReader(
+        new AccountConfig
+        {
+            AccountName = "account1",
+            ProcessId = 7964,
+            TargetProcessName = "Aion.bin",
+            VmmDeviceName = "fpga://devindex=2"
+        },
+        gameApi,
+        NoOpRoadhogLogger.Instance,
+        stop.Token);
+
+    var published = await reader.ReadWorldObjectsAsync().ConfigureAwait(false);
+
+    AssertEqual(1, published.Value.Count, "business reader should return the published world snapshot");
+    AssertEqual(worldObject.ServerObjectId, published.Value[0].ServerObjectId, "published world identity");
+    AssertFalse(
+        gameApi.LastWorldObjectsContext is null || gameApi.LastWorldObjectsContext.RequireFresh,
+        "ordinary business reads must accept the stable snapshot publication");
 }
 
 static Task TestDmaWorldSnapshotMergesFieldFailuresAsync()
@@ -31308,6 +31268,54 @@ static Task TestDmaPetSnapshotMergesHealthFailuresAsync()
     AssertFalse(!pet.HealthFields.CurrentHp, "merged current hp should remain reliable from last good");
     AssertFalse(!pet.HealthFields.MaxHp, "merged max hp should be reliable from current read");
     AssertFalse(!pet.HealthFields.HpPercent, "merged hp percent should remain reliable from last good");
+    return Task.CompletedTask;
+}
+
+static Task TestDmaSinglePetSnapshotPublishesMergedTrustedHealthAsync()
+{
+    var api = new AionVmmGameApi(new AionVmmGameApiOptions(), NoOpRoadhogLogger.Instance);
+    var context = CreateDmaSnapshotContext();
+    var startedAt = new DateTimeOffset(2026, 8, 15, 1, 30, 0, TimeSpan.Zero);
+    var initialPet = CreateLocalPetRoster(isSummoned: true, currentHp: 10, maxHp: 100)
+        .LocalPlayerPet.Pet;
+    var initial = api.StabilizeSummonedPetRead(
+        context,
+        OperationResult<SummonedPetSnapshot>.Ok(initialPet),
+        startedAt);
+    AssertFalse(!initial.Success, "complete single pet should publish");
+
+    var partialPet = CreateLocalPetRoster(
+            isSummoned: true,
+            currentHp: 0,
+            maxHp: 120,
+            currentHpAvailable: false,
+            maxHpAvailable: true,
+            hpPercentAvailable: false)
+        .LocalPlayerPet.Pet;
+    var merged = api.StabilizeSummonedPetRead(
+        context,
+        OperationResult<SummonedPetSnapshot>.Ok(partialPet),
+        startedAt.AddSeconds(1));
+    AssertFalse(!merged.Success, "partial single pet should merge before publication");
+    AssertEqual(10u, merged.Value!.CurrentHp, "failed current hp field should retain last published value");
+    AssertEqual(120u, merged.Value.MaxHp, "valid max hp field should publish immediately");
+    AssertEqual((byte)10, merged.Value.HpPercent, "failed hp percent field should retain last published value");
+    AssertFalse(!merged.Value.HasReliableHealth, "merged single pet publication must have reliable health");
+
+    var held = api.StabilizeSummonedPetRead(
+        context,
+        OperationResult<SummonedPetSnapshot>.Fail("transient dma failure"),
+        startedAt.AddHours(1));
+    AssertFalse(!held.Success, "failed single-pet read should return the official publication");
+    AssertEqual(120u, held.Value!.MaxHp, "failed read should retain merged official data without ttl expiry");
+
+    var notSummoned = SummonedPetSnapshot.NotSummoned(initialPet.LocalServerObjectId, startedAt.AddHours(2));
+    var cleared = api.StabilizeSummonedPetRead(
+        context,
+        OperationResult<SummonedPetSnapshot>.Ok(notSummoned),
+        startedAt.AddHours(2));
+    AssertFalse(!cleared.Success, "complete not-summoned snapshot should publish immediately");
+    AssertFalse(cleared.Value!.IsSummoned, "trusted not-summoned publication should replace the old pet");
     return Task.CompletedTask;
 }
 
@@ -32021,8 +32029,16 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
     public SummonedPetSnapshot SummonedPet { get; set; } =
         SummonedPetSnapshot.NotSummoned(0, DateTimeOffset.Now);
 
+    public Queue<OperationResult<SummonedPetSnapshot>> SummonedPetReadResults { get; } = new();
+
+    public OperationResult<SummonedPetSnapshot>? SummonedPetReadFallback { get; set; }
+
+    public int SummonedPetReadCount { get; private set; }
+
     public SummonedPetRosterSnapshot SummonedPetRoster { get; set; } =
         SummonedPetRosterSnapshot.Empty(0, DateTimeOffset.Now);
+
+    public int SummonedPetRosterReadCount { get; private set; }
 
     public PartySnapshot Party { get; set; } =
         PartySnapshot.Empty(DateTimeOffset.Now);
@@ -32181,7 +32197,10 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
 
     public Task<OperationResult<SummonedPetSnapshot>> ReadSummonedPetAsync(CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(OperationResult<SummonedPetSnapshot>.Ok(SummonedPet));
+        SummonedPetReadCount++;
+        return Task.FromResult(SummonedPetReadResults.Count > 0
+            ? SummonedPetReadResults.Dequeue()
+            : SummonedPetReadFallback ?? OperationResult<SummonedPetSnapshot>.Ok(SummonedPet));
     }
 
     public Task<OperationResult<SummonedPetSnapshot>> ReadSummonedPetAsync(
@@ -32195,6 +32214,7 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
     public Task<OperationResult<SummonedPetRosterSnapshot>> ReadSummonedPetRosterAsync(
         CancellationToken cancellationToken = default)
     {
+        SummonedPetRosterReadCount++;
         return Task.FromResult(OperationResult<SummonedPetRosterSnapshot>.Ok(SummonedPetRoster));
     }
 

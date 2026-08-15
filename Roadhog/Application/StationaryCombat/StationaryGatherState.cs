@@ -36,10 +36,6 @@ public sealed class StationaryGatherState
 
     public DateTimeOffset StartWaitStartedAt { get; private set; } = DateTimeOffset.MinValue;
 
-    public int ConsecutiveMissingReads { get; private set; }
-
-    public DateTimeOffset LastMissingSnapshotAt { get; private set; } = DateTimeOffset.MinValue;
-
     public int AttemptStartFailureCount { get; private set; }
 
     public Vector3Snapshot? LastApproachProgressPosition { get; private set; }
@@ -82,8 +78,6 @@ public sealed class StationaryGatherState
         NodeStartedAt = now;
         Phase = StationaryGatherPhase.Ready;
         PhaseStartedAt = now;
-        ConsecutiveMissingReads = 0;
-        LastMissingSnapshotAt = DateTimeOffset.MinValue;
         AttemptStartFailureCount = 0;
         ResetApproachProgress();
     }
@@ -95,20 +89,6 @@ public sealed class StationaryGatherState
         GatherKey = rule.GatherKey;
         Position = target.Position ?? target.SpawnPosition;
         InteractionRadius = target.InteractionRadius;
-        ConsecutiveMissingReads = 0;
-        LastMissingSnapshotAt = DateTimeOffset.MinValue;
-    }
-
-    public int MarkMissing(DateTimeOffset capturedAt)
-    {
-        if (capturedAt == LastMissingSnapshotAt)
-        {
-            return ConsecutiveMissingReads;
-        }
-
-        LastMissingSnapshotAt = capturedAt;
-        ConsecutiveMissingReads++;
-        return ConsecutiveMissingReads;
     }
 
     public void MarkReady(DateTimeOffset now)
@@ -240,8 +220,6 @@ public sealed class StationaryGatherState
         PhaseStartedAt = DateTimeOffset.MinValue;
         LastAttemptFinishedAt = DateTimeOffset.MinValue;
         StartWaitStartedAt = DateTimeOffset.MinValue;
-        ConsecutiveMissingReads = 0;
-        LastMissingSnapshotAt = DateTimeOffset.MinValue;
         AttemptStartFailureCount = 0;
         ResetApproachProgress();
     }

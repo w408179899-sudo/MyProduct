@@ -241,7 +241,6 @@ public enum TacticalMarkedTargetSelectionStatus
 {
     Selected,
     NoActiveSign,
-    SignReadFailed,
     InputFailed,
     TargetNotLivingMonster
 }

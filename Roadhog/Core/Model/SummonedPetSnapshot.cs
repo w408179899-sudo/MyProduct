@@ -31,6 +31,7 @@ public sealed record SummonedPetSnapshot(
     public bool HasReliableHealth =>
         HealthFields.CurrentHp &&
         HealthFields.MaxHp &&
+        HealthFields.HpPercent &&
         MaxHp > 0 &&
         CurrentHp <= MaxHp;
 

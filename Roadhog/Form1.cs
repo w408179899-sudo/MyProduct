@@ -1162,14 +1162,7 @@ namespace Roadhog
                 var accountName = _accounts.FirstOrDefault()?.Account
                     ?? SelectClientAccount(LoadSavedAccountsForRows())?.AccountName
                     ?? "account1";
-                var result = await ReadPlayerForVmmDeviceAsync(accountName, vmmDeviceName).ConfigureAwait(true);
-                if (!result.Success || result.Value is null)
-                {
-                    ShowTopBarStatusMessage("VMM\u8bfb\u53d6\u5931\u8d25: " + (result.Error ?? vmmDeviceName), Color.FromArgb(166, 40, 40), TimeSpan.FromSeconds(8));
-                    return;
-                }
-
-                var player = result.Value;
+                var player = await ReadPlayerForVmmDeviceAsync(accountName, vmmDeviceName).ConfigureAwait(true);
                 var levelClass = FormatLevelClass(player);
                 var characterText = string.IsNullOrWhiteSpace(player.CharacterName)
                     ? "entity=" + player.EntityId.ToString(System.Globalization.CultureInfo.InvariantCulture)
@@ -1186,7 +1179,7 @@ namespace Roadhog
             }
         }
 
-        private Task<Core.Common.OperationResult<Core.Model.PlayerSnapshot>> ReadPlayerForVmmDeviceAsync(
+        private Task<Core.Model.PlayerSnapshot> ReadPlayerForVmmDeviceAsync(
             string accountName,
             string vmmDeviceName)
         {
@@ -1602,11 +1595,7 @@ namespace Roadhog
             try
             {
                 _lastPlayerInfoRefreshAt[account] = DateTimeOffset.Now;
-                var result = await ReadPlayerForRowAsync(account).ConfigureAwait(true);
-                if (!result.Success || result.Value is null)
-                {
-                    return;
-                }
+                var player = await ReadPlayerForRowAsync(account).ConfigureAwait(true);
 
                 var index = _accounts.FindIndex(item => string.Equals(item.Account, account, StringComparison.OrdinalIgnoreCase));
                 if (index < 0)
@@ -1614,7 +1603,6 @@ namespace Roadhog
                     return;
                 }
 
-                var player = result.Value;
                 var row = _accounts[index];
                 var levelClass = FormatLevelClass(player);
                 _accounts[index] = row with
@@ -1639,7 +1627,7 @@ namespace Roadhog
             }
         }
 
-        private Task<Core.Common.OperationResult<Core.Model.PlayerSnapshot>> ReadPlayerForRowAsync(string account)
+        private Task<Core.Model.PlayerSnapshot> ReadPlayerForRowAsync(string account)
         {
             var snapshot = _services.AccountOrchestrator.Snapshot()
                 .FirstOrDefault(item => string.Equals(item.AccountName, account, StringComparison.OrdinalIgnoreCase));

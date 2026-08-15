@@ -10,8 +10,6 @@ public sealed class FixedChannelState
 
     public bool NormalWorkSuspended { get; private set; }
 
-    public int ConsecutiveMismatchReads { get; private set; }
-
     public DateTimeOffset NextChannelReadAt { get; set; } = DateTimeOffset.MinValue;
 
     public string RevivePathName { get; private set; } = string.Empty;
@@ -36,20 +34,7 @@ public sealed class FixedChannelState
 
     public DateTimeOffset SwitchAttemptStartedAt { get; private set; } = DateTimeOffset.MinValue;
 
-    public ChannelSnapshot? LastValidChannel { get; private set; }
-
     public string LastDiagnosticKey { get; private set; } = string.Empty;
-
-    public bool RecordMismatch()
-    {
-        ConsecutiveMismatchReads++;
-        return ConsecutiveMismatchReads >= 2;
-    }
-
-    public void ClearMismatch()
-    {
-        ConsecutiveMismatchReads = 0;
-    }
 
     public bool MarkNormalWorkSuspended()
     {
@@ -60,11 +45,6 @@ public sealed class FixedChannelState
 
         NormalWorkSuspended = true;
         return true;
-    }
-
-    public void RecordValidChannel(ChannelSnapshot channel)
-    {
-        LastValidChannel = channel;
     }
 
     public void BeginCorrection(string pathName, IReadOnlyList<Vector3Snapshot> revivePoints)
@@ -155,7 +135,6 @@ public sealed class FixedChannelState
     {
         Step = FixedChannelCorrectionStep.Monitoring;
         NormalWorkSuspended = false;
-        ConsecutiveMismatchReads = 0;
         NextChannelReadAt = nextReadAt;
         RevivePathName = string.Empty;
         RevivePoints = Array.Empty<Vector3Snapshot>();
@@ -168,7 +147,6 @@ public sealed class FixedChannelState
         SwitchAttemptStartedAt = DateTimeOffset.MinValue;
         SwitchVerificationDeadline = DateTimeOffset.MinValue;
         SwitchAttemptCount = 0;
-        LastValidChannel = null;
         LastDiagnosticKey = string.Empty;
     }
 }

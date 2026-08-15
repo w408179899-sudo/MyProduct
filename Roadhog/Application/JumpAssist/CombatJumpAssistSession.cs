@@ -10,7 +10,6 @@ public sealed class CombatJumpAssistSession : IAsyncDisposable
     private static readonly TimeSpan DefaultJumpInterval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan DefaultCooldownPollInterval = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan DefaultKeyHoldDuration = TimeSpan.FromMilliseconds(50);
-    private static readonly TimeSpan TeamBaselineRetryInterval = TimeSpan.FromSeconds(1);
 
     private readonly object _syncRoot = new();
     private readonly AccountWorkerContext _context;
@@ -35,7 +34,6 @@ public sealed class CombatJumpAssistSession : IAsyncDisposable
     private bool _teamJumpTargetActivated;
     private uint _pendingTeamJumpTargetServerObjectId;
     private SemaphoreSlim? _sessionWakeSignal;
-    private DateTimeOffset _lastTeamBaselineFailureAt = DateTimeOffset.MinValue;
 
     public CombatJumpAssistSession(
         AccountWorkerContext context,
@@ -219,19 +217,7 @@ public sealed class CombatJumpAssistSession : IAsyncDisposable
             _teamCooldownConfirmed = false;
         }
 
-        var baseline = await ReadTeamCooldownBaselineAsync(targetServerObjectId).ConfigureAwait(false);
-        if (baseline is null)
-        {
-            lock (_syncRoot)
-            {
-                if (_teamJumpTargetServerObjectId == targetServerObjectId)
-                {
-                    _teamJumpTargetServerObjectId = 0;
-                }
-            }
-
-            return;
-        }
+        var baseline = await ReadTeamCooldownBaselineAsync().ConfigureAwait(false);
 
         lock (_syncRoot)
         {
@@ -333,18 +319,10 @@ public sealed class CombatJumpAssistSession : IAsyncDisposable
                 return;
             }
 
-            if (DateTimeOffset.Now - _lastTeamBaselineFailureAt < TeamBaselineRetryInterval)
-            {
-                return;
-            }
         }
 
         await StopCurrentSessionAsync("team_group_entered").ConfigureAwait(false);
         var baseline = await ReadTeamCooldownBaselineAsync().ConfigureAwait(false);
-        if (baseline is null)
-        {
-            return;
-        }
 
         lock (_syncRoot)
         {
@@ -574,8 +552,6 @@ public sealed class CombatJumpAssistSession : IAsyncDisposable
             ? DateTimeOffset.Now + _jumpInterval
             : DateTimeOffset.MinValue;
         var nextCooldownPollAt = DateTimeOffset.MinValue;
-        var teamCooldownSnapshotAvailable = mode != JumpAssistMode.TeamGroup;
-        var lastCooldownReadWarningAt = DateTimeOffset.MinValue;
 
         try
         {
@@ -606,9 +582,7 @@ public sealed class CombatJumpAssistSession : IAsyncDisposable
                 {
                     nextCooldownPollAt = now + _cooldownPollInterval;
                     var skills = await ReadSkillsAsync().ConfigureAwait(false);
-                    teamCooldownSnapshotAvailable = skills.Count > 0;
-                    if (teamCooldownSnapshotAvailable &&
-                        TryFindAdvancedCooldown(
+                    if (TryFindAdvancedCooldown(
                             cooldownBaseline,
                             skills,
                             out var advancedSkill))
@@ -617,22 +591,11 @@ public sealed class CombatJumpAssistSession : IAsyncDisposable
                         return;
                     }
 
-                    if (!teamCooldownSnapshotAvailable &&
-                        now - lastCooldownReadWarningAt >= TimeSpan.FromSeconds(3))
-                    {
-                        lastCooldownReadWarningAt = now;
-                        _context.Logger.Warn("jump_assist.team_cooldown_read.failed", new Dictionary<string, object?>
-                        {
-                            ["account"] = _context.Config.AccountName,
-                            ["error"] = "skill_snapshot_empty"
-                        });
-                    }
                 }
 
                 now = DateTimeOffset.Now;
                 var periodicJumpDue = now >= nextJumpAt;
-                if (teamCooldownSnapshotAvailable &&
-                    TryBeginJump(
+                if (TryBeginJump(
                         generation,
                         mode,
                         periodicJumpDue,
@@ -881,29 +844,12 @@ public sealed class CombatJumpAssistSession : IAsyncDisposable
     private async Task<IReadOnlyList<SkillSnapshot>> ReadSkillsAsync() =>
         (await _context.Snapshots.ReadSkillsAsync().ConfigureAwait(false)).Value;
 
-    private async Task<IReadOnlyDictionary<uint, uint>?> ReadTeamCooldownBaselineAsync(
-        uint targetServerObjectId = 0)
+    private async Task<IReadOnlyDictionary<uint, uint>> ReadTeamCooldownBaselineAsync()
     {
         var skills = await ReadSkillsAsync().ConfigureAwait(false);
-        if (skills.Count > 0)
-        {
-            return skills
-                .GroupBy(skill => skill.SkillId)
-                .ToDictionary(group => group.Key, group => group.First().CooldownEndTime);
-        }
-
-        lock (_syncRoot)
-        {
-            _lastTeamBaselineFailureAt = DateTimeOffset.Now;
-        }
-
-        _context.Logger.Warn("jump_assist.team_baseline.failed", new Dictionary<string, object?>
-        {
-            ["account"] = _context.Config.AccountName,
-            ["targetServerObjectId"] = targetServerObjectId,
-            ["error"] = "skill_snapshot_empty"
-        });
-        return null;
+        return skills
+            .GroupBy(skill => skill.SkillId)
+            .ToDictionary(group => group.Key, group => group.First().CooldownEndTime);
     }
 
     private static bool TryFindAdvancedCooldown(

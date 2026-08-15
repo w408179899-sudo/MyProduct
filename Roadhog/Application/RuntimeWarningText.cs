@@ -4,11 +4,6 @@ public static class RuntimeWarningText
 {
     private const int MaxDetailLength = 80;
 
-    public static string FromPlayerReadFailure(string? error)
-    {
-        return Format(error, "读取角色失败");
-    }
-
     public static string FromRuntimeError(string? error)
     {
         return Format(error, "运行异常");

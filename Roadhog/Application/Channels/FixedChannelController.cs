@@ -49,7 +49,7 @@ public sealed class FixedChannelController
         var targetChannelNumber = settings.FixedChannelNumber;
         if (targetChannelNumber == 0)
         {
-            if (state.CorrectionActive || state.NormalWorkSuspended || state.ConsecutiveMismatchReads > 0)
+            if (state.CorrectionActive || state.NormalWorkSuspended)
             {
                 state.Reset(DateTimeOffset.MinValue);
             }
@@ -79,26 +79,6 @@ public sealed class FixedChannelController
 
         var channel = await ReadChannelAsync(context).ConfigureAwait(false);
         state.NextChannelReadAt = now + (state.CorrectionActive ? ActivePollInterval : NormalPollInterval);
-        if (!channel.IsValid)
-        {
-            LogOnce(context, state, "channel_invalid:" + channel.Index + ":" + channel.Count + ":" + channel.MapId, "fixed_channel.read.invalid", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["targetChannelNumber"] = targetChannelNumber,
-                ["channelIndex"] = channel.Index,
-                ["channelCount"] = channel.Count,
-                ["mapId"] = channel.MapId
-            });
-            return await HandleChannelUnavailableAsync(
-                    context,
-                    settings,
-                    state,
-                    now,
-                    suspendNormalWorkAsync)
-                .ConfigureAwait(false);
-        }
-
-        state.RecordValidChannel(channel);
 
         if (channel.Number == targetChannelNumber &&
             (state.Step != FixedChannelCorrectionStep.VerifyingSwitch ||
@@ -110,28 +90,6 @@ public sealed class FixedChannelController
 
         if (!state.CorrectionActive)
         {
-            if (!state.RecordMismatch())
-            {
-                var firstMismatchPlayer = await ReadPlayerAsync(context).ConfigureAwait(false);
-                if (firstMismatchPlayer.IsDead)
-                {
-                    return null;
-                }
-
-                await EnsureNormalWorkSuspendedAsync(state, suspendNormalWorkAsync).ConfigureAwait(false);
-                context.Logger.Warn("fixed_channel.mismatch.observed", new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["currentChannelNumber"] = channel.Number,
-                    ["targetChannelNumber"] = targetChannelNumber,
-                    ["channelCount"] = channel.Count,
-                    ["mapId"] = channel.MapId,
-                    ["confirmationRead"] = state.ConsecutiveMismatchReads
-                });
-                state.NextChannelReadAt = now + ActivePollInterval;
-                return ActivePollInterval;
-            }
-
             var player = await ReadPlayerAsync(context).ConfigureAwait(false);
             if (player.IsDead)
             {
@@ -193,15 +151,6 @@ public sealed class FixedChannelController
         DateTimeOffset now)
     {
         var player = await ReadPlayerAsync(context).ConfigureAwait(false);
-        if (player.Position is null)
-        {
-            LogOnce(context, state, "return_player_failed:position_missing", "fixed_channel.return.player_failed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName
-            });
-            return ActivePollInterval;
-        }
-
         if (player.IsDead)
         {
             LogOnce(context, state, "return_player_dead", "fixed_channel.return.deferred_for_death", new Dictionary<string, object?>
@@ -211,7 +160,7 @@ public sealed class FixedChannelController
             return null;
         }
 
-        var distance = HorizontalDistance(player.Position.Value, state.RevivePoints[0]);
+        var distance = HorizontalDistance(player.Position!.Value, state.RevivePoints[0]);
         if (distance <= RevivalPointRadiusMeters)
         {
             state.EnterInitialWait(now, InitialSwitchWait, channel.MapId);
@@ -279,22 +228,13 @@ public sealed class FixedChannelController
         DateTimeOffset now)
     {
         var player = await ReadPlayerAsync(context).ConfigureAwait(false);
-        if (player.Position is null)
-        {
-            LogOnce(context, state, "wait_player_failed:position_missing", "fixed_channel.wait.player_failed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName
-            });
-            return ActivePollInterval;
-        }
-
         if (player.IsDead)
         {
             state.LeaveRevivalPoint();
             return null;
         }
 
-        var distance = HorizontalDistance(player.Position.Value, state.RevivePoints[0]);
+        var distance = HorizontalDistance(player.Position!.Value, state.RevivePoints[0]);
         if (distance > RevivalPointRadiusMeters)
         {
             state.LeaveRevivalPoint();
@@ -343,22 +283,14 @@ public sealed class FixedChannelController
         DateTimeOffset now)
     {
         var player = await ReadPlayerAsync(context).ConfigureAwait(false);
-        if (player.Position is null)
-        {
-            LogOnce(context, state, "verify_player_failed:position_missing", "fixed_channel.switch.player_failed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["attemptNumber"] = state.SwitchAttemptCount
-            });
-        }
-        else if (player.IsDead)
+        if (player.IsDead)
         {
             state.LeaveRevivalPoint();
             return null;
         }
         else
         {
-            var distance = HorizontalDistance(player.Position.Value, state.RevivePoints[0]);
+            var distance = HorizontalDistance(player.Position!.Value, state.RevivePoints[0]);
             if (distance > RevivalPointRadiusMeters)
             {
                 state.LeaveRevivalPoint();
@@ -544,53 +476,6 @@ public sealed class FixedChannelController
             ["channelCount"] = channel.Count,
             ["mapId"] = channel.MapId
         });
-    }
-
-    private async Task<TimeSpan?> HandleChannelUnavailableAsync(
-        AccountWorkerContext context,
-        ScriptSettings settings,
-        FixedChannelState state,
-        DateTimeOffset now,
-        Func<Task> suspendNormalWorkAsync)
-    {
-        if (!state.CorrectionActive)
-        {
-            state.ClearMismatch();
-        }
-
-        if (state.Step == FixedChannelCorrectionStep.VerifyingSwitch &&
-            now >= state.SwitchVerificationDeadline &&
-            state.LastValidChannel is { } lastChannel)
-        {
-            context.Logger.Warn("fixed_channel.switch.verify_timeout", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["attemptNumber"] = state.SwitchAttemptCount,
-                ["currentChannelNumber"] = null,
-                ["targetChannelNumber"] = settings.FixedChannelNumber,
-                ["attemptMapId"] = state.SwitchAttemptMapId,
-                ["currentMapId"] = null,
-                ["verificationSeconds"] = SwitchVerificationWindow.TotalSeconds,
-                ["reason"] = "channel_snapshot_unavailable"
-            });
-
-            if (settings.FixedChannelNumber > lastChannel.Count)
-            {
-                LogTargetUnavailable(context, state, settings.FixedChannelNumber, lastChannel);
-                return ActivePollInterval;
-            }
-
-            return await ExecuteSwitchAttemptAsync(context, settings, state, lastChannel).ConfigureAwait(false);
-        }
-
-        var player = await ReadPlayerAsync(context).ConfigureAwait(false);
-        if (player.IsDead)
-        {
-            return null;
-        }
-
-        await EnsureNormalWorkSuspendedAsync(state, suspendNormalWorkAsync).ConfigureAwait(false);
-        return ActivePollInterval;
     }
 
     private static async Task EnsureNormalWorkSuspendedAsync(

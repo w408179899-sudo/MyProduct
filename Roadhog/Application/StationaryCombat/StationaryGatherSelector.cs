@@ -17,13 +17,6 @@ public static class StationaryGatherSelector
         DateTimeOffset now,
         Func<uint, DateTimeOffset, bool>? isSuppressed = null)
     {
-        if (!snapshot.CompetitionDataAvailable ||
-            !snapshot.MonsterDataAvailable ||
-            !snapshot.LocalGathering.DataAvailable)
-        {
-            return null;
-        }
-
         var rules = (settings.Rules ?? new List<GatherFilterRuleSettings>())
             .Where(rule =>
                 rule.Enabled &&

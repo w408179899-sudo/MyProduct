@@ -37,7 +37,6 @@ public sealed class RoadhogServices : IDisposable
 {
     private RoadhogServices(
         IRoadhogLogger logger,
-        IRoadhogGameApi gameApi,
         IHardwareDeviceResolver hardwareResolver,
         ITargetProcessResolver processResolver,
         IAccountConfigStore accountConfigStore,
@@ -58,7 +57,6 @@ public sealed class RoadhogServices : IDisposable
         KmBoxNetDeviceConfig kmBoxNetConfig)
     {
         Logger = logger;
-        GameApi = gameApi;
         HardwareResolver = hardwareResolver;
         ProcessResolver = processResolver;
         AccountConfigStore = accountConfigStore;
@@ -83,8 +81,6 @@ public sealed class RoadhogServices : IDisposable
     private bool _disposed;
 
     public IRoadhogLogger Logger { get; }
-
-    public IRoadhogGameApi GameApi { get; }
 
     public IHardwareDeviceResolver HardwareResolver { get; }
 
@@ -264,7 +260,6 @@ public sealed class RoadhogServices : IDisposable
 
         return new RoadhogServices(
             logger,
-            gameApi,
             hardwareResolver,
             processResolver,
             accountConfigStore,

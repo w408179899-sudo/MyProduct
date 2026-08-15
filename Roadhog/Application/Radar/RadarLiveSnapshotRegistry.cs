@@ -70,7 +70,7 @@ public sealed class RadarLiveSnapshotRegistry
                 now - entry.WorldObjectsCapturedAt > worldObjectsMaximumAge ||
                 now - entry.MapCapturedAt > mapMaximumAge)
             {
-                snapshot = new RadarLiveSnapshot(0, null, Array.Empty<WorldObjectSnapshot>(), now, "snapshot_unavailable");
+                snapshot = new RadarLiveSnapshot(0, null, Array.Empty<WorldObjectSnapshot>(), now, "cache_miss");
                 return false;
             }
 

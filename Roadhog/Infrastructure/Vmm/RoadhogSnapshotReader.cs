@@ -41,7 +41,7 @@ internal sealed class RoadhogSnapshotReader : IRoadhogSnapshotReader
             config.TargetProcessName,
             config.VmmDeviceName,
             BypassMemoryCache: false,
-            RequireFresh: true);
+            RequireFresh: false);
         _currentReadContext = _readContext with { BypassMemoryCache = true };
     }
 
@@ -77,7 +77,9 @@ internal sealed class RoadhogSnapshotReader : IRoadhogSnapshotReader
             () => _gameApi is IRoadhogScopedGameApi scoped
                 ? scoped.ReadSummonedPetAsync(_readContext, _stopToken)
                 : _gameApi.ReadSummonedPetAsync(_stopToken),
-            afterVersion);
+            afterVersion,
+            static pet => !pet.IsSummoned || pet.HasReliableHealth,
+            "Summoned-pet snapshot is incomplete.");
 
     public Task<PublishedGameSnapshot<SummonedPetRosterSnapshot>> ReadSummonedPetRosterAsync(long afterVersion = 0) =>
         ReadSummonedPetRosterAsync(_readContext, afterVersion);
@@ -93,7 +95,14 @@ internal sealed class RoadhogSnapshotReader : IRoadhogSnapshotReader
             () => _gameApi is IRoadhogScopedGameApi scoped
                 ? scoped.ReadSummonedPetRosterAsync(readContext, _stopToken)
                 : _gameApi.ReadSummonedPetRosterAsync(_stopToken),
-            afterVersion);
+            afterVersion,
+            static roster =>
+                HasPublishablePetHealth(roster.LocalPlayerPet.Pet) &&
+                roster.PartyMemberPets.All(static pet => HasPublishablePetHealth(pet.Pet)),
+            "Summoned-pet roster snapshot is incomplete.");
+
+    private static bool HasPublishablePetHealth(SummonedPetSnapshot pet) =>
+        !pet.IsSummoned || pet.HasReliableHealth;
 
     public Task<PublishedGameSnapshot<PartySnapshot>> ReadPartyAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync(
@@ -139,7 +148,9 @@ internal sealed class RoadhogSnapshotReader : IRoadhogSnapshotReader
                 : _gameApi is IRoadhogChannelGameApi api
                     ? api.ReadChannelAsync(_stopToken)
                     : Missing<ChannelSnapshot>("Channel snapshot channel is unavailable."),
-            afterVersion);
+            afterVersion,
+            static channel => channel.IsValid,
+            "Channel snapshot is structurally invalid.");
 
     public Task<PublishedGameSnapshot<LockedTargetSnapshot>> ReadLockedTargetAsync(long afterVersion = 0) =>
         ReadLockedTargetAsync(_readContext, afterVersion);
@@ -222,7 +233,12 @@ internal sealed class RoadhogSnapshotReader : IRoadhogSnapshotReader
             () => _gameApi is IRoadhogScopedGameApi scoped
                 ? scoped.ReadGatherSnapshotAsync(_readContext, _stopToken)
                 : _gameApi.ReadGatherSnapshotAsync(_stopToken),
-            afterVersion);
+            afterVersion,
+            static gather =>
+                gather.MonsterDataAvailable &&
+                gather.CompetitionDataAvailable &&
+                gather.LocalGathering.DataAvailable,
+            "Gather snapshot is structurally incomplete.");
 
     public Task<PublishedGameSnapshot<IReadOnlyList<LootCorpseSnapshot>>> ReadLootCorpsesAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync(

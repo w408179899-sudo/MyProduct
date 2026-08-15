@@ -47,14 +47,8 @@ internal static class TeamMonitorLiveProbe
             return await WatchAttackersAsync(services, account, watchMs, intervalMs).ConfigureAwait(false);
         }
 
-        var result = await services.Runtime.ReadTeamSnapshotAsync(account).ConfigureAwait(false);
-        if (!result.Success || result.Value is null)
-        {
-            Console.Error.WriteLine("Team snapshot read failed: " + (result.Error ?? "unknown error"));
-            return 2;
-        }
-
-        PrintSnapshot(result.Value);
+        var snapshot = await services.Runtime.ReadTeamSnapshotAsync(account).ConfigureAwait(false);
+        PrintSnapshot(snapshot);
         return 0;
     }
 
@@ -75,25 +69,10 @@ internal static class TeamMonitorLiveProbe
         var hitCount = 0;
         while (DateTimeOffset.Now < endsAt)
         {
-            var teamResult = await services.Runtime.ReadTeamSnapshotAsync(account).ConfigureAwait(false);
-            if (!teamResult.Success || teamResult.Value is null)
-            {
-                Console.WriteLine("AttackWatchRead=team_failed Error=\"" + (teamResult.Error ?? "unknown error") + "\"");
-                await Task.Delay(intervalMs).ConfigureAwait(false);
-                continue;
-            }
-
-            var worldResult = await services.Runtime.RefreshWorldObjectsAsync(account).ConfigureAwait(false);
-            if (!worldResult.Success || worldResult.Value is null)
-            {
-                Console.WriteLine("AttackWatchRead=world_failed Error=\"" + (worldResult.Error ?? "unknown error") + "\"");
-                await Task.Delay(intervalMs).ConfigureAwait(false);
-                continue;
-            }
-
-            var team = teamResult.Value;
+            var team = await services.Runtime.ReadTeamSnapshotAsync(account).ConfigureAwait(false);
+            var worldObjects = await services.Runtime.RefreshWorldObjectsAsync(account).ConfigureAwait(false);
             var watched = BuildWatchedTargets(team);
-            var matches = worldResult.Value
+            var matches = worldObjects
                 .Where(target => target.TargetServerObjectId != 0 && watched.ContainsKey(target.TargetServerObjectId))
                 .OrderBy(target => target.DistanceToLocalPlayer ?? double.MaxValue)
                 .ToArray();

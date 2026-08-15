@@ -95,7 +95,7 @@ public sealed class RoadhogRuntime
         _stationaryObstacleNavigator?.NotifyMapSaved(mapId);
     }
 
-    public async Task<OperationResult<RadarLiveSnapshot>> ReadRadarSnapshotAsync(
+    public async Task<RadarLiveSnapshot> ReadRadarSnapshotAsync(
         string accountName,
         CancellationToken cancellationToken = default)
     {
@@ -109,232 +109,128 @@ public sealed class RoadhogRuntime
                 TimeSpan.FromSeconds(2),
                 out var cached))
         {
-            return OperationResult<RadarLiveSnapshot>.Ok(cached);
+            return cached;
         }
 
-        var mapResult = await ReadChannelSnapshotAsync(accountName, cancellationToken).ConfigureAwait(false);
-        var playerResult = await ReadPlayerSnapshotAsync(accountName, cancellationToken).ConfigureAwait(false);
-        var objectsResult = await ReadWorldObjectsAsync(accountName, cancellationToken).ConfigureAwait(false);
-        if (!mapResult.Success || mapResult.Value is null || mapResult.Value.MapId == 0)
-        {
-            return OperationResult<RadarLiveSnapshot>.Fail(mapResult.Error ?? "MapId is unavailable.");
-        }
-
-        if (!playerResult.Success || playerResult.Value?.Position is null)
-        {
-            return OperationResult<RadarLiveSnapshot>.Fail(playerResult.Error ?? "Player position is unavailable.");
-        }
-
-        if (!objectsResult.Success || objectsResult.Value is null)
-        {
-            return OperationResult<RadarLiveSnapshot>.Fail(objectsResult.Error ?? "World objects are unavailable.");
-        }
+        var map = await ReadChannelSnapshotAsync(accountName, cancellationToken).ConfigureAwait(false);
+        var player = await ReadPlayerSnapshotAsync(accountName, cancellationToken).ConfigureAwait(false);
+        var objects = await ReadWorldObjectsAsync(accountName, cancellationToken).ConfigureAwait(false);
 
         var capturedAt = DateTimeOffset.Now;
-        _radarSnapshots?.PublishMapId(accountName, mapResult.Value.MapId, capturedAt);
-        _radarSnapshots?.PublishPlayer(accountName, playerResult.Value);
-        _radarSnapshots?.PublishWorldObjects(accountName, objectsResult.Value, capturedAt);
-        return OperationResult<RadarLiveSnapshot>.Ok(new RadarLiveSnapshot(
-            mapResult.Value.MapId,
-            playerResult.Value,
-            objectsResult.Value,
-            capturedAt));
+        _radarSnapshots?.PublishMapId(accountName, map.MapId, capturedAt);
+        _radarSnapshots?.PublishPlayer(accountName, player);
+        _radarSnapshots?.PublishWorldObjects(accountName, objects, capturedAt);
+        return new RadarLiveSnapshot(map.MapId, player, objects, capturedAt);
     }
 
-    public async Task<OperationResult<PlayerSnapshot>> ReadPlayerAsync(
+    public async Task<PlayerSnapshot> ReadPlayerAsync(
         string? accountName = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await ReadPlayerSnapshotAsync(accountName, cancellationToken).ConfigureAwait(false);
-        if (result.Success)
+        var snapshot = await ReadPlayerSnapshotAsync(accountName, cancellationToken).ConfigureAwait(false);
+        _logger.Info("player.refresh.ok", new Dictionary<string, object?>
         {
-            _logger.Info("player.refresh.ok", new Dictionary<string, object?>
-            {
-                ["account"] = accountName,
-                ["hasPosition"] = result.Value?.Position is not null
-            });
-        }
-        else
-        {
-            _logger.Warn("player.refresh.failed", new Dictionary<string, object?>
-            {
-                ["account"] = accountName,
-                ["error"] = result.Error
-            });
-        }
-
-        return result;
+            ["account"] = accountName
+        });
+        return snapshot;
     }
 
-    public async Task<OperationResult<PlayerAbnormalStatusSnapshot>> ReadPlayerAbnormalStatusesAsync(
+    public async Task<PlayerAbnormalStatusSnapshot> ReadPlayerAbnormalStatusesAsync(
         string? accountName = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await ReadPlayerAbnormalStatusSnapshotAsync(accountName, cancellationToken).ConfigureAwait(false);
-        if (result.Success)
+        var snapshot = await ReadPlayerAbnormalStatusSnapshotAsync(accountName, cancellationToken).ConfigureAwait(false);
+        _logger.Info("player_abnormal.refresh.ok", new Dictionary<string, object?>
         {
-            _logger.Info("player_abnormal.refresh.ok", new Dictionary<string, object?>
-            {
-                ["account"] = accountName,
-                ["category2EntryCount"] = result.Value?.Category2EntryCount ?? 0,
-                ["category2EntrySummary"] = result.Value?.Category2EntrySummary
-            });
-        }
-        else
-        {
-            _logger.Warn("player_abnormal.refresh.failed", new Dictionary<string, object?>
-            {
-                ["account"] = accountName,
-                ["error"] = result.Error
-            });
-        }
-
-        return result;
+            ["account"] = accountName,
+            ["category2EntryCount"] = snapshot.Category2EntryCount,
+            ["category2EntrySummary"] = snapshot.Category2EntrySummary
+        });
+        return snapshot;
     }
 
-    public async Task<OperationResult<LockedTargetAbnormalStatusSnapshot>> ReadLockedTargetAbnormalStatusesAsync(
+    public async Task<LockedTargetAbnormalStatusSnapshot> ReadLockedTargetAbnormalStatusesAsync(
         string? accountName = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await ReadLockedTargetAbnormalStatusSnapshotAsync(accountName, cancellationToken).ConfigureAwait(false);
-        if (result.Success)
+        var snapshot = await ReadLockedTargetAbnormalStatusSnapshotAsync(accountName, cancellationToken).ConfigureAwait(false);
+        _logger.Info("locked_target_abnormal.refresh.ok", new Dictionary<string, object?>
         {
-            _logger.Info("locked_target_abnormal.refresh.ok", new Dictionary<string, object?>
-            {
-                ["account"] = accountName,
-                ["hasTarget"] = result.Value?.HasTarget ?? false,
-                ["targetEntityId"] = result.Value?.Target.TargetEntityId ?? 0,
-                ["abnormalStatusCount"] = result.Value?.AbnormalStatusCount ?? 0,
-                ["physicalDebuffCount"] = result.Value?.PhysicalDebuffCount ?? 0
-            });
-        }
-        else
-        {
-            _logger.Warn("locked_target_abnormal.refresh.failed", new Dictionary<string, object?>
-            {
-                ["account"] = accountName,
-                ["error"] = result.Error
-            });
-        }
-
-        return result;
+            ["account"] = accountName,
+            ["hasTarget"] = snapshot.HasTarget,
+            ["targetEntityId"] = snapshot.Target.TargetEntityId,
+            ["abnormalStatusCount"] = snapshot.AbnormalStatusCount,
+            ["physicalDebuffCount"] = snapshot.PhysicalDebuffCount
+        });
+        return snapshot;
     }
 
-    public async Task<OperationResult<SummonedPetSnapshot>> ReadSummonedPetAsync(
+    public async Task<SummonedPetSnapshot> ReadSummonedPetAsync(
         string? accountName = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await ReadSummonedPetSnapshotAsync(accountName, cancellationToken).ConfigureAwait(false);
-        if (result.Success)
+        var snapshot = await ReadSummonedPetSnapshotAsync(accountName, cancellationToken).ConfigureAwait(false);
+        _logger.Info("summoned_pet.refresh.ok", new Dictionary<string, object?>
         {
-            _logger.Info("summoned_pet.refresh.ok", new Dictionary<string, object?>
-            {
-                ["account"] = accountName,
-                ["isSummoned"] = result.Value?.IsSummoned ?? false,
-                ["serverObjectId"] = result.Value?.ServerObjectId ?? 0,
-                ["templateId"] = result.Value?.NpcTemplateId ?? 0,
-                ["name"] = result.Value?.Name
-            });
-        }
-        else
-        {
-            _logger.Warn("summoned_pet.refresh.failed", new Dictionary<string, object?>
-            {
-                ["account"] = accountName,
-                ["error"] = result.Error
-            });
-        }
-
-        return result;
+            ["account"] = accountName,
+            ["isSummoned"] = snapshot.IsSummoned,
+            ["serverObjectId"] = snapshot.ServerObjectId,
+            ["templateId"] = snapshot.NpcTemplateId,
+            ["name"] = snapshot.Name
+        });
+        return snapshot;
     }
 
-    public async Task<OperationResult<SummonedPetRosterSnapshot>> ReadSummonedPetRosterAsync(
+    public async Task<SummonedPetRosterSnapshot> ReadSummonedPetRosterAsync(
         string? accountName = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await ReadSummonedPetRosterSnapshotAsync(accountName, cancellationToken).ConfigureAwait(false);
-        if (result.Success)
+        var snapshot = await ReadSummonedPetRosterSnapshotAsync(accountName, cancellationToken).ConfigureAwait(false);
+        _logger.Info("summoned_pet_roster.refresh.ok", new Dictionary<string, object?>
         {
-            _logger.Info("summoned_pet_roster.refresh.ok", new Dictionary<string, object?>
-            {
-                ["account"] = accountName,
-                ["localPetSummoned"] = result.Value?.LocalPlayerPet.IsSummoned ?? false,
-                ["partyPetCount"] = result.Value?.PartyMemberPetCount ?? 0,
-                ["visibleSummonedPetCount"] = result.Value?.VisibleSummonedPetCount ?? 0
-            });
-        }
-        else
-        {
-            _logger.Warn("summoned_pet_roster.refresh.failed", new Dictionary<string, object?>
-            {
-                ["account"] = accountName,
-                ["error"] = result.Error
-            });
-        }
-
-        return result;
+            ["account"] = accountName,
+            ["localPetSummoned"] = snapshot.LocalPlayerPet.IsSummoned,
+            ["partyPetCount"] = snapshot.PartyMemberPetCount,
+            ["visibleSummonedPetCount"] = snapshot.VisibleSummonedPetCount
+        });
+        return snapshot;
     }
 
-    public async Task<OperationResult<TeamSnapshot>> ReadTeamSnapshotAsync(
+    public async Task<TeamSnapshot> ReadTeamSnapshotAsync(
         string? accountName = null,
         CancellationToken cancellationToken = default)
     {
         var monitor = new TeamMonitor(CreateSnapshotReader(accountName, cancellationToken), _logger);
-        var snapshot = await monitor.ReadSnapshotAsync().ConfigureAwait(false);
-        return OperationResult<TeamSnapshot>.Ok(snapshot);
+        return await monitor.ReadSnapshotAsync().ConfigureAwait(false);
     }
 
-    public async Task<OperationResult<IReadOnlyList<SkillSnapshot>>> RefreshSkillsAsync(
+    public async Task<IReadOnlyList<SkillSnapshot>> RefreshSkillsAsync(
         string? accountName = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await ReadSkillsAsync(accountName, cancellationToken).ConfigureAwait(false);
-        if (result.Success)
+        var snapshot = await ReadSkillsAsync(accountName, cancellationToken).ConfigureAwait(false);
+        _logger.Info("skills.refresh.ok", new Dictionary<string, object?>
         {
-            _logger.Info("skills.refresh.ok", new Dictionary<string, object?>
-            {
-                ["account"] = accountName,
-                ["count"] = result.Value?.Count ?? 0
-            });
-        }
-        else
-        {
-            _logger.Warn("skills.refresh.failed", new Dictionary<string, object?>
-            {
-                ["account"] = accountName,
-                ["error"] = result.Error
-            });
-        }
-
-        return result;
+            ["account"] = accountName,
+            ["count"] = snapshot.Count
+        });
+        return snapshot;
     }
 
-    public async Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> RefreshWorldObjectsAsync(
+    public async Task<IReadOnlyList<WorldObjectSnapshot>> RefreshWorldObjectsAsync(
         string? accountName = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await ReadWorldObjectsAsync(accountName, cancellationToken).ConfigureAwait(false);
-        if (result.Success)
+        var snapshot = await ReadWorldObjectsAsync(accountName, cancellationToken).ConfigureAwait(false);
+        _logger.Info("world_objects.refresh.ok", new Dictionary<string, object?>
         {
-            _logger.Info("world_objects.refresh.ok", new Dictionary<string, object?>
-            {
-                ["account"] = accountName,
-                ["count"] = result.Value?.Count ?? 0
-            });
-        }
-        else
-        {
-            _logger.Warn("world_objects.refresh.failed", new Dictionary<string, object?>
-            {
-                ["account"] = accountName,
-                ["error"] = result.Error
-            });
-        }
-
-        return result;
+            ["account"] = accountName,
+            ["count"] = snapshot.Count
+        });
+        return snapshot;
     }
 
-    public async Task<OperationResult<PlayerSnapshot>> ReadPlayerForVmmDeviceAsync(
+    public async Task<PlayerSnapshot> ReadPlayerForVmmDeviceAsync(
         string accountName,
         string vmmDeviceName,
         CancellationToken cancellationToken = default)
@@ -349,91 +245,51 @@ public sealed class RoadhogRuntime
         var read = await new RoadhogSnapshotReader(config, _gameApi, _logger, cancellationToken)
             .ReadPlayerAsync()
             .ConfigureAwait(false);
-        return OperationResult<PlayerSnapshot>.Ok(read.Value);
+        return read.Value;
     }
 
-    public async Task<OperationResult<GatherSnapshot>> RefreshGatherSnapshotAsync(
+    public async Task<GatherSnapshot> RefreshGatherSnapshotAsync(
         string? accountName = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await ReadGatherSnapshotAsync(accountName, cancellationToken).ConfigureAwait(false);
-        if (result.Success)
+        var snapshot = await ReadGatherSnapshotAsync(accountName, cancellationToken).ConfigureAwait(false);
+        _logger.Info("gather.refresh.ok", new Dictionary<string, object?>
         {
-            _logger.Info("gather.refresh.ok", new Dictionary<string, object?>
-            {
-                ["account"] = accountName,
-                ["objects"] = result.Value?.Objects.Count ?? 0,
-                ["nearbyPlayers"] = result.Value?.NearbyPlayers.Count ?? 0,
-                ["nearbyMonsters"] = result.Value?.NearbyMonsters.Count ?? 0,
-                ["monsterDataAvailable"] = result.Value?.MonsterDataAvailable ?? false,
-                ["competitionDataAvailable"] = result.Value?.CompetitionDataAvailable ?? false
-            });
-        }
-        else
-        {
-            _logger.Warn("gather.refresh.failed", new Dictionary<string, object?>
-            {
-                ["account"] = accountName,
-                ["error"] = result.Error
-            });
-        }
-
-        return result;
+            ["account"] = accountName,
+            ["objects"] = snapshot.Objects.Count,
+            ["nearbyPlayers"] = snapshot.NearbyPlayers.Count,
+            ["nearbyMonsters"] = snapshot.NearbyMonsters.Count
+        });
+        return snapshot;
     }
 
-    public async Task<OperationResult<IReadOnlyList<InventoryItemSnapshot>>> RefreshInventoryAsync(
+    public async Task<IReadOnlyList<InventoryItemSnapshot>> RefreshInventoryAsync(
         string? accountName = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await ReadInventoryAsync(accountName, cancellationToken).ConfigureAwait(false);
-        if (result.Success)
+        var snapshot = await ReadInventoryAsync(accountName, cancellationToken).ConfigureAwait(false);
+        _logger.Info("inventory.refresh.ok", new Dictionary<string, object?>
         {
-            _logger.Info("inventory.refresh.ok", new Dictionary<string, object?>
-            {
-                ["account"] = accountName,
-                ["count"] = result.Value?.Count ?? 0
-            });
-        }
-        else
-        {
-            _logger.Warn("inventory.refresh.failed", new Dictionary<string, object?>
-            {
-                ["account"] = accountName,
-                ["error"] = result.Error
-            });
-        }
-
-        return result;
+            ["account"] = accountName,
+            ["count"] = snapshot.Count
+        });
+        return snapshot;
     }
 
-    public async Task<OperationResult<PlayerSnapshot>> ReadPlayerForPathRecordingAsync(
+    public async Task<PlayerSnapshot> ReadPlayerForPathRecordingAsync(
         string? accountName = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await ReadPlayerSnapshotAsync(
+        var snapshot = await ReadPlayerSnapshotAsync(
             accountName,
             cancellationToken,
             bypassMemoryCache: true).ConfigureAwait(false);
-        if (result.Success)
+        _logger.Info("path_record.player_refresh.ok", new Dictionary<string, object?>
         {
-            _logger.Info("path_record.player_refresh.ok", new Dictionary<string, object?>
-            {
-                ["account"] = accountName,
-                ["hasPosition"] = result.Value?.Position is not null,
-                ["bypassMemoryCache"] = true
-            });
-        }
-        else
-        {
-            _logger.Warn("path_record.player_refresh.failed", new Dictionary<string, object?>
-            {
-                ["account"] = accountName,
-                ["error"] = result.Error,
-                ["bypassMemoryCache"] = true
-            });
-        }
-
-        return result;
+            ["account"] = accountName,
+            ["bypassMemoryCache"] = true
+        });
+        return snapshot;
     }
 
 #if DEBUG
@@ -677,22 +533,17 @@ public sealed class RoadhogRuntime
             coordinateWindow = windowRead.Value;
         }
 
-        var read = await ReadInventoryAsync(accountName, cancellationToken).ConfigureAwait(false);
-        if (!read.Success || read.Value is null)
-        {
-            return OperationResult<BagCleanupSellRegistrationResult>.Fail(
-                "Inventory read failed: " + read.Error);
-        }
+        var inventory = await ReadInventoryAsync(accountName, cancellationToken).ConfigureAwait(false);
 
         var candidates = BagCleanupItemMatcher
-            .SelectSellRegistrationItems(read.Value, settings)
+            .SelectSellRegistrationItems(inventory, settings)
             .ToArray();
         if (candidates.Length == 0)
         {
             _logger.Info("bag_cleanup.sell_register.none", new Dictionary<string, object?>
             {
                 ["account"] = accountName,
-                ["inventoryCount"] = read.Value.Count
+                ["inventoryCount"] = inventory.Count
             });
             return OperationResult<BagCleanupSellRegistrationResult>.Ok(
                 new BagCleanupSellRegistrationResult(0, Array.Empty<BagCleanupSellRegistrationItem>()));
@@ -1385,26 +1236,13 @@ public sealed class RoadhogRuntime
 #if DEBUG
     private static async Task<RoadhogApiProbeCheckResult> RunApiProbeCheckAsync<T>(
         string name,
-        Func<CancellationToken, Task<OperationResult<T>>> read,
+        Func<CancellationToken, Task<T>> read,
         Func<T, string> describe,
         CancellationToken cancellationToken)
     {
         try
         {
-            var result = await read(cancellationToken).ConfigureAwait(false);
-            if (!result.Success)
-            {
-                return RoadhogApiProbeCheckResult.Fail(
-                    name,
-                    result.Error ?? "API read failed.");
-            }
-
-            var value = result.Value;
-            if (value is null)
-            {
-                return RoadhogApiProbeCheckResult.Fail(name, "API returned null.");
-            }
-
+            var value = await read(cancellationToken).ConfigureAwait(false);
             return RoadhogApiProbeCheckResult.Pass(name, describe(value));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1462,99 +1300,99 @@ public sealed class RoadhogRuntime
             .ToArray();
     }
 
-    private async Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetSnapshotAsync(
+    private async Task<LockedTargetSnapshot> ReadLockedTargetSnapshotAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
         var read = await CreateSnapshotReader(accountName, cancellationToken)
             .ReadLockedTargetAsync()
             .ConfigureAwait(false);
-        return OperationResult<LockedTargetSnapshot>.Ok(read.Value);
+        return read.Value;
     }
 #endif
 
-    private async Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(
+    private async Task<IReadOnlyList<SkillSnapshot>> ReadSkillsAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
         var read = await CreateSnapshotReader(accountName, cancellationToken)
             .ReadSkillsAsync()
             .ConfigureAwait(false);
-        return OperationResult<IReadOnlyList<SkillSnapshot>>.Ok(read.Value);
+        return read.Value;
     }
 
-    private async Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(
+    private async Task<IReadOnlyList<WorldObjectSnapshot>> ReadWorldObjectsAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
         var read = await CreateSnapshotReader(accountName, cancellationToken)
             .ReadWorldObjectsAsync()
             .ConfigureAwait(false);
-        return OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(read.Value);
+        return read.Value;
     }
 
-    private async Task<OperationResult<ChannelSnapshot>> ReadChannelSnapshotAsync(
+    private async Task<ChannelSnapshot> ReadChannelSnapshotAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
         var read = await CreateSnapshotReader(accountName, cancellationToken)
             .ReadChannelAsync()
             .ConfigureAwait(false);
-        return OperationResult<ChannelSnapshot>.Ok(read.Value);
+        return read.Value;
     }
 
-    private async Task<OperationResult<GatherSnapshot>> ReadGatherSnapshotAsync(
+    private async Task<GatherSnapshot> ReadGatherSnapshotAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
         var read = await CreateSnapshotReader(accountName, cancellationToken)
             .ReadGatherSnapshotAsync()
             .ConfigureAwait(false);
-        return OperationResult<GatherSnapshot>.Ok(read.Value);
+        return read.Value;
     }
 
-    private async Task<OperationResult<IReadOnlyList<InventoryItemSnapshot>>> ReadInventoryAsync(
+    private async Task<IReadOnlyList<InventoryItemSnapshot>> ReadInventoryAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
         var read = await CreateSnapshotReader(accountName, cancellationToken)
             .ReadInventoryAsync()
             .ConfigureAwait(false);
-        return OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Ok(read.Value);
+        return read.Value;
     }
 
 #if DEBUG
-    private async Task<OperationResult<ulong>> ReadInventoryMoneyAsync(
+    private async Task<ulong> ReadInventoryMoneyAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
         var read = await CreateSnapshotReader(accountName, cancellationToken)
             .ReadInventoryMoneyAsync()
             .ConfigureAwait(false);
-        return OperationResult<ulong>.Ok(read.Value);
+        return read.Value;
     }
 
-    private async Task<OperationResult<int>> ReadInventoryCapacityAsync(
+    private async Task<int> ReadInventoryCapacityAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
         var read = await CreateSnapshotReader(accountName, cancellationToken)
             .ReadInventoryCapacityAsync()
             .ConfigureAwait(false);
-        return OperationResult<int>.Ok(read.Value);
+        return read.Value;
     }
 
-    private async Task<OperationResult<IReadOnlyList<LootCorpseSnapshot>>> ReadLootCorpsesAsync(
+    private async Task<IReadOnlyList<LootCorpseSnapshot>> ReadLootCorpsesAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
         var read = await CreateSnapshotReader(accountName, cancellationToken)
             .ReadLootCorpsesAsync()
             .ConfigureAwait(false);
-        return OperationResult<IReadOnlyList<LootCorpseSnapshot>>.Ok(read.Value);
+        return read.Value;
     }
 
-    private async Task<OperationResult<InventoryWindowSnapshot>> ReadInventoryWindowSnapshotAsync(
+    private async Task<InventoryWindowSnapshot> ReadInventoryWindowSnapshotAsync(
         string? accountName,
         InventoryWindowRectSource rectSource,
         CancellationToken cancellationToken)
@@ -1562,11 +1400,11 @@ public sealed class RoadhogRuntime
         var read = await CreateSnapshotReader(accountName, cancellationToken)
             .ReadInventoryWindowAsync(rectSource)
             .ConfigureAwait(false);
-        return OperationResult<InventoryWindowSnapshot>.Ok(read.Value);
+        return read.Value;
     }
 #endif
 
-    private async Task<OperationResult<PlayerSnapshot>> ReadPlayerSnapshotAsync(
+    private async Task<PlayerSnapshot> ReadPlayerSnapshotAsync(
         string? accountName,
         CancellationToken cancellationToken,
         bool bypassMemoryCache = false)
@@ -1575,47 +1413,47 @@ public sealed class RoadhogRuntime
         var read = bypassMemoryCache
             ? await snapshots.ReadCurrentPlayerAsync().ConfigureAwait(false)
             : await snapshots.ReadPlayerAsync().ConfigureAwait(false);
-        return OperationResult<PlayerSnapshot>.Ok(read.Value);
+        return read.Value;
     }
 
-    private async Task<OperationResult<PlayerAbnormalStatusSnapshot>> ReadPlayerAbnormalStatusSnapshotAsync(
+    private async Task<PlayerAbnormalStatusSnapshot> ReadPlayerAbnormalStatusSnapshotAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
         var read = await CreateSnapshotReader(accountName, cancellationToken)
             .ReadPlayerAbnormalStatusesAsync()
             .ConfigureAwait(false);
-        return OperationResult<PlayerAbnormalStatusSnapshot>.Ok(read.Value);
+        return read.Value;
     }
 
-    private async Task<OperationResult<LockedTargetAbnormalStatusSnapshot>> ReadLockedTargetAbnormalStatusSnapshotAsync(
+    private async Task<LockedTargetAbnormalStatusSnapshot> ReadLockedTargetAbnormalStatusSnapshotAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
         var read = await CreateSnapshotReader(accountName, cancellationToken)
             .ReadLockedTargetAbnormalStatusesAsync()
             .ConfigureAwait(false);
-        return OperationResult<LockedTargetAbnormalStatusSnapshot>.Ok(read.Value);
+        return read.Value;
     }
 
-    private async Task<OperationResult<SummonedPetSnapshot>> ReadSummonedPetSnapshotAsync(
+    private async Task<SummonedPetSnapshot> ReadSummonedPetSnapshotAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
         var read = await CreateSnapshotReader(accountName, cancellationToken)
             .ReadSummonedPetAsync()
             .ConfigureAwait(false);
-        return OperationResult<SummonedPetSnapshot>.Ok(read.Value);
+        return read.Value;
     }
 
-    private async Task<OperationResult<SummonedPetRosterSnapshot>> ReadSummonedPetRosterSnapshotAsync(
+    private async Task<SummonedPetRosterSnapshot> ReadSummonedPetRosterSnapshotAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
         var read = await CreateSnapshotReader(accountName, cancellationToken)
             .ReadSummonedPetRosterAsync()
             .ConfigureAwait(false);
-        return OperationResult<SummonedPetRosterSnapshot>.Ok(read.Value);
+        return read.Value;
     }
 
 #if DEBUG
@@ -1639,8 +1477,7 @@ public sealed class RoadhogRuntime
                 account.ProcessId,
                 account.TargetProcessName,
                 account.VmmDeviceName,
-                bypassMemoryCache,
-                RequireFresh: bypassMemoryCache);
+                bypassMemoryCache);
         }
 
         var config = LoadSavedAccountConfig(accountName);
@@ -1650,15 +1487,13 @@ public sealed class RoadhogRuntime
                 0,
                 string.Empty,
                 string.Empty,
-                bypassMemoryCache,
-                RequireFresh: bypassMemoryCache)
+                bypassMemoryCache)
             : new GameApiReadContext(
                 config.AccountName,
                 config.ProcessId,
                 config.TargetProcessName,
                 config.VmmDeviceName,
-                bypassMemoryCache,
-                RequireFresh: bypassMemoryCache);
+                bypassMemoryCache);
     }
 
     private IRoadhogSnapshotReader CreateSnapshotReader(

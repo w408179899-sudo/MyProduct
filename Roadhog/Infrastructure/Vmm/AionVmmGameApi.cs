@@ -313,9 +313,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         GameApiReadContext context,
         CancellationToken cancellationToken = default)
     {
-        return Task.Run(
-            () => ReadStable(context, AionVmmSnapshotChannels.SummonedPet, () => ReadSummonedPetCore(context)),
-            cancellationToken);
+        return Task.Run(() => ReadStableSummonedPetCore(context), cancellationToken);
     }
 
     public Task<OperationResult<SummonedPetRosterSnapshot>> ReadSummonedPetRosterAsync(
@@ -382,7 +380,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         CancellationToken cancellationToken = default)
     {
         return Task.Run(
-            () => ReadStable(context, AionVmmSnapshotChannels.Channel, () => ReadChannelCore(context)),
+            () => ReadStable(context, AionVmmSnapshotChannels.Channel, () => ReadStableChannelCore(context)),
             cancellationToken);
     }
 
@@ -552,15 +550,11 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         InventoryWindowRectSource rectSource,
         CancellationToken cancellationToken = default)
     {
-        var freshContext = context with
-        {
-            RequireFresh = true
-        };
         return Task.Run(
             () => ReadStable(
-                freshContext,
+                context,
                 AionVmmSnapshotChannels.InventoryWindow,
-                () => ReadInventoryWindowCore(freshContext, rectSource),
+                () => ReadInventoryWindowCore(context, rectSource),
                 partitionKey: rectSource.ToString()),
             cancellationToken);
     }
@@ -569,15 +563,11 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         GameApiReadContext context,
         CancellationToken cancellationToken = default)
     {
-        var freshContext = context with
-        {
-            RequireFresh = true
-        };
         return Task.Run(
             () => ReadStable(
-                freshContext,
+                context,
                 AionVmmSnapshotChannels.InventoryDiscardConfirm,
-                () => ReadInventoryDiscardConfirmCore(freshContext)),
+                () => ReadInventoryDiscardConfirmCore(context)),
             cancellationToken);
     }
 
@@ -633,6 +623,71 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                result.Value.LocalGathering.DataAvailable
             ? result
             : OperationResult<GatherSnapshot>.Fail("Gather snapshot is structurally incomplete.");
+    }
+
+    private OperationResult<ChannelSnapshot> ReadStableChannelCore(GameApiReadContext context)
+    {
+        var result = ReadChannelCore(context);
+        return result.Success && result.Value is { IsValid: true }
+            ? result
+            : OperationResult<ChannelSnapshot>.Fail(
+                result.Error ?? "Channel snapshot is structurally invalid.");
+    }
+
+    private OperationResult<SummonedPetSnapshot> ReadStableSummonedPetCore(GameApiReadContext context)
+    {
+        return _stableSnapshotReads.Execute(
+            BuildStableSnapshotReadScopeKey(context),
+            AionVmmSnapshotChannels.SummonedPet,
+            () => StabilizeSummonedPetRead(context, ReadSummonedPetCore(context), DateTimeOffset.Now));
+    }
+
+    internal OperationResult<SummonedPetSnapshot> StabilizeSummonedPetRead(
+        GameApiReadContext context,
+        OperationResult<SummonedPetSnapshot> observed,
+        DateTimeOffset now)
+    {
+        var channel = AionVmmSnapshotChannels.SummonedPet;
+        if (!observed.Success || observed.Value is null)
+        {
+            return StabilizeRead(context, channel, observed, now);
+        }
+
+        var current = observed.Value;
+        if (!current.IsSummoned || HasCompletePetHealth(current))
+        {
+            return StabilizeRead(context, channel, observed, now);
+        }
+
+        var sessionKey = BuildStableSnapshotSessionKey(context);
+        const string error = "Summoned-pet health fields are incomplete.";
+        var failed = OperationResult<SummonedPetSnapshot>.Fail(error);
+        if (!_stableSnapshots.TryUpdate<SummonedPetSnapshot>(
+                sessionKey,
+                channel,
+                now,
+                previous => MergeSummonedPetHealth(current, previous),
+                out var merged,
+                out var age) ||
+            merged is null)
+        {
+            return StabilizeRead(context, channel, failed, now);
+        }
+
+        LogStableSnapshotFallback(
+            context,
+            channel.ResolveDataKey(),
+            age,
+            error,
+            "partial_merge",
+            new Dictionary<string, object?>
+            {
+                ["petServerObjectId"] = merged.ServerObjectId,
+                ["currentHpAvailable"] = merged.HealthFields.CurrentHp,
+                ["maxHpAvailable"] = merged.HealthFields.MaxHp,
+                ["hpPercentAvailable"] = merged.HealthFields.HpPercent
+            });
+        return OperationResult<SummonedPetSnapshot>.Ok(merged);
     }
 
     private OperationResult<IReadOnlyList<InventoryItemSnapshot>> ReadStableInventoryCore(
@@ -1073,6 +1128,31 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                     currentPet.HealthFields.HpPercent || previousPet.HealthFields.HpPercent)
             }
         };
+    }
+
+    internal static SummonedPetSnapshot MergeSummonedPetHealth(
+        SummonedPetSnapshot current,
+        SummonedPetSnapshot previous)
+    {
+        if (!current.IsSummoned ||
+            !previous.IsSummoned ||
+            current.ServerObjectId == 0 ||
+            current.ServerObjectId != previous.ServerObjectId)
+        {
+            return previous;
+        }
+
+        var merged = current with
+        {
+            CurrentHp = current.HealthFields.CurrentHp ? current.CurrentHp : previous.CurrentHp,
+            MaxHp = current.HealthFields.MaxHp ? current.MaxHp : previous.MaxHp,
+            HpPercent = current.HealthFields.HpPercent ? current.HpPercent : previous.HpPercent,
+            HealthFields = new SummonedPetHealthFieldValidity(
+                current.HealthFields.CurrentHp || previous.HealthFields.CurrentHp,
+                current.HealthFields.MaxHp || previous.HealthFields.MaxHp,
+                current.HealthFields.HpPercent || previous.HealthFields.HpPercent)
+        };
+        return HasCompletePetHealth(merged) ? merged : previous;
     }
 
     private string BuildStableSnapshotSessionKey(GameApiReadContext context)
@@ -2244,13 +2324,15 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 }
 
                 var npcCatalog = GetNpcXmlCatalog();
+                var readStartedAt = Stopwatch.GetTimestamp();
                 if (!TryReadSummonedPet(
                         process,
                         gameBase,
                         npcCatalog.Details,
                         context.BypassMemoryCache,
                         out var snapshot,
-                        out var readError))
+                        out var readError,
+                        out var scannedServerObjects))
                 {
                     return OperationResult<SummonedPetSnapshot>.Fail(readError);
                 }
@@ -2264,7 +2346,11 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                     ["serverObjectId"] = snapshot.ServerObjectId,
                     ["entityId"] = snapshot.EntityId,
                     ["templateId"] = snapshot.NpcTemplateId,
-                    ["name"] = snapshot.Name
+                    ["name"] = snapshot.Name,
+                    ["bypassMemoryCache"] = context.BypassMemoryCache,
+                    ["lookupMode"] = "linked_server_object_id",
+                    ["scannedServerObjects"] = scannedServerObjects,
+                    ["durationMs"] = Stopwatch.GetElapsedTime(readStartedAt).TotalMilliseconds
                 });
 
                 return OperationResult<SummonedPetSnapshot>.Ok(snapshot);
@@ -6676,11 +6762,13 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         IReadOnlyDictionary<uint, NpcStaticDetail> npcStaticDetails,
         bool bypassMemoryCache,
         out SummonedPetSnapshot snapshot,
-        out string error)
+        out string error,
+        out int scannedServerObjects)
     {
         var capturedAt = DateTimeOffset.Now;
         snapshot = SummonedPetSnapshot.NotSummoned(0, capturedAt);
         error = string.Empty;
+        scannedServerObjects = 0;
 
         if (!TryReadPointer(process, gameBase + EntitySystemPointerRva, out var entitySystem, bypassMemoryCache))
         {
@@ -6713,11 +6801,21 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             return false;
         }
 
-        TryReadUInt32(
-            process,
-            localActor.Actor + ActorCurrentSummonedPetServerObjectIdOffset,
-            out var linkedPetServerObjectId,
-            bypassMemoryCache);
+        if (!TryReadUInt32(
+                process,
+                localActor.Actor + ActorCurrentSummonedPetServerObjectIdOffset,
+                out var linkedPetServerObjectId,
+                bypassMemoryCache))
+        {
+            error = "failed to read local linked pet server object id";
+            return false;
+        }
+
+        if (linkedPetServerObjectId == 0)
+        {
+            snapshot = SummonedPetSnapshot.NotSummoned(localActor.ServerObjectId, capturedAt);
+            return true;
+        }
 
         if (!TryReadPointer(process, gameBase + ServerObjectTreeRva, out var serverTreeHeader, bypassMemoryCache) || serverTreeHeader == 0)
         {
@@ -6731,88 +6829,175 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             return false;
         }
 
-        var localPositionKnown = TryReadEntityPosition(process, localEntity, out var localX, out var localY, out var localZ, bypassMemoryCache);
-        for (var guard = 0; node != 0 && node != serverTreeHeader && guard < 100000; guard++)
+        var localPositionKnown = TryReadEntityPosition(
+            process,
+            localEntity,
+            out var localX,
+            out var localY,
+            out var localZ,
+            bypassMemoryCache);
+        var visited = new HashSet<ulong>();
+        for (var guard = 0; guard < 100000; guard++)
         {
-            if (IsNilNode(process, node, serverTreeHeader, bypassMemoryCache))
+            if (!visited.Add(node))
+            {
+                error = "summoned pet ServerObject tree cycle detected";
+                return false;
+            }
+
+            if (!TryIsWorldTreeNilNode(
+                    process,
+                    node,
+                    serverTreeHeader,
+                    out var isNil,
+                    bypassMemoryCache))
+            {
+                error = "failed to read summoned pet ServerObject tree node state";
+                return false;
+            }
+
+            if (isNil)
             {
                 break;
             }
 
-            if (TryReadUInt32(process, node + ServerNodeServerObjectIdOffset, out var serverObjectId, bypassMemoryCache) &&
-                TryReadUInt16(process, node + ServerNodeEntityIdOffset, out var entityId, bypassMemoryCache) &&
-                entityId != 0 &&
-                entityId != localEntityId &&
-                TryFindEntityById(process, entityTreeHeader, entityId, out var entity, bypassMemoryCache) &&
-                entity != 0 &&
-                TryResolveActorFromEntity(process, entity, serverObjectId, out var actor, bypassMemoryCache) &&
-                actor.ObjectType == SummonedPetSnapshot.ActorObjectType)
+            scannedServerObjects++;
+            if (!TryReadUInt32(
+                    process,
+                    node + ServerNodeServerObjectIdOffset,
+                    out var serverObjectId,
+                    bypassMemoryCache))
             {
-                var actorServerObjectId = actor.ServerObjectId != 0 ? actor.ServerObjectId : serverObjectId;
-                var localLinkMatches = linkedPetServerObjectId != 0 && actorServerObjectId == linkedPetServerObjectId;
-                var ownerConfirmed =
-                    TryReadUInt32(process, actor.Actor + ActorSummonOwnerServerObjectIdOffset, out var ownerServerObjectId, bypassMemoryCache) &&
-                    ownerServerObjectId == localActor.ServerObjectId;
+                error = "failed to read summoned pet ServerObject tree node identity";
+                return false;
+            }
+
+            if (serverObjectId == linkedPetServerObjectId)
+            {
+                if (!TryReadUInt16(
+                        process,
+                        node + ServerNodeEntityIdOffset,
+                        out var entityId,
+                        bypassMemoryCache) ||
+                    entityId == 0 ||
+                    entityId == localEntityId)
+                {
+                    error = "linked pet ServerObject node has no valid entity id";
+                    return false;
+                }
+
+                var entityLookup = FindWorldEntityById(
+                    process,
+                    entityTreeHeader,
+                    entityId,
+                    out var entity,
+                    bypassMemoryCache);
+                if (entityLookup != WorldEntityLookupStatus.Found || entity == 0)
+                {
+                    error = "linked pet entity lookup " + entityLookup.ToString().ToLowerInvariant();
+                    return false;
+                }
+
+                if (!TryResolveActorFromEntity(
+                        process,
+                        entity,
+                        linkedPetServerObjectId,
+                        out var actor,
+                        bypassMemoryCache) ||
+                    actor.ServerObjectId != linkedPetServerObjectId ||
+                    actor.ObjectType != SummonedPetSnapshot.ActorObjectType)
+                {
+                    error = "failed to resolve linked pet actor by server object id";
+                    return false;
+                }
+
+                if (!TryReadUInt32(
+                        process,
+                        actor.Actor + ActorSummonOwnerServerObjectIdOffset,
+                        out var ownerServerObjectId,
+                        bypassMemoryCache) ||
+                    ownerServerObjectId != localActor.ServerObjectId)
+                {
+                    error = "linked pet owner does not match local player";
+                    return false;
+                }
+
                 var hasStaticDetail = npcStaticDetails.TryGetValue(actor.NpcTemplateId, out var npcStaticDetail);
                 var isSummonPetStatic = hasStaticDetail && IsSummonPetNpcStaticDetail(npcStaticDetail);
-
-                if (localLinkMatches && ownerConfirmed && isSummonPetStatic)
+                if (!isSummonPetStatic)
                 {
-                    Vector3Snapshot? position = null;
-                    double? distance = null;
-                    if (TryReadEntityPosition(process, entity, out var x, out var y, out var z, bypassMemoryCache) &&
-                        IsReasonablePosition(x, y, z))
-                    {
-                        position = new Vector3Snapshot(x, y, z);
-                        if (localPositionKnown)
-                        {
-                            var dx = x - localX;
-                            var dy = y - localY;
-                            var dz = z - localZ;
-                            distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
-                        }
-                    }
-
-                    snapshot = new SummonedPetSnapshot(
-                        true,
-                        entityId,
-                        actorServerObjectId,
-                        TryReadUInt16(process, entity + EntityTypeOffset, out var entityType, bypassMemoryCache) ? entityType : (ushort)0,
-                        actor.ObjectType,
-                        actor.NpcTemplateId,
-                        actor.Name,
-                        hasStaticDetail ? npcStaticDetail.Name : string.Empty,
-                        hasStaticDetail ? npcStaticDetail.NpcType : string.Empty,
-                        hasStaticDetail ? npcStaticDetail.Tribe : string.Empty,
-                        actor.Level,
-                        actor.CurrentHp,
-                        actor.MaxHp,
-                        actor.HpPercent,
-                        position,
-                        distance,
-                        localActor.ServerObjectId,
-                        capturedAt,
-                        linkedPetServerObjectId,
-                        ownerConfirmed,
-                        BuildSummonedPetEvidenceSource(localLinkMatches, ownerConfirmed, isSummonPetStatic),
-                        new SummonedPetHealthFieldValidity(
-                            actor.CurrentHpAvailable,
-                            actor.MaxHpAvailable,
-                            actor.HpPercentAvailable));
-                    return true;
+                    error = "linked pet static summon metadata is unavailable";
+                    return false;
                 }
+
+                Vector3Snapshot? position = null;
+                double? distance = null;
+                if (TryReadEntityPosition(process, entity, out var x, out var y, out var z, bypassMemoryCache) &&
+                    IsReasonablePosition(x, y, z))
+                {
+                    position = new Vector3Snapshot(x, y, z);
+                    if (localPositionKnown)
+                    {
+                        var dx = x - localX;
+                        var dy = y - localY;
+                        var dz = z - localZ;
+                        distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                    }
+                }
+
+                snapshot = new SummonedPetSnapshot(
+                    true,
+                    entityId,
+                    actor.ServerObjectId,
+                    TryReadUInt16(process, entity + EntityTypeOffset, out var entityType, bypassMemoryCache) ? entityType : (ushort)0,
+                    actor.ObjectType,
+                    actor.NpcTemplateId,
+                    actor.Name,
+                    npcStaticDetail.Name,
+                    npcStaticDetail.NpcType,
+                    npcStaticDetail.Tribe,
+                    actor.Level,
+                    actor.CurrentHp,
+                    actor.MaxHp,
+                    actor.HpPercent,
+                    position,
+                    distance,
+                    localActor.ServerObjectId,
+                    capturedAt,
+                    linkedPetServerObjectId,
+                    true,
+                    BuildSummonedPetEvidenceSource(
+                        localLinkMatches: true,
+                        ownerConfirmed: true,
+                        staticSummonPet: true),
+                    new SummonedPetHealthFieldValidity(
+                        actor.CurrentHpAvailable,
+                        actor.MaxHpAvailable,
+                        actor.HpPercentAvailable));
+                return true;
             }
 
-            if (!TryGetNextTreeNode(process, serverTreeHeader, node, out var next) || next == node)
+            var advance = TryGetNextWorldTreeNode(
+                process,
+                serverTreeHeader,
+                node,
+                out var next,
+                bypassMemoryCache);
+            if (advance != WorldTreeAdvanceStatus.Succeeded || next == node)
             {
-                break;
+                error = advance == WorldTreeAdvanceStatus.GuardLimitReached
+                    ? "summoned pet ServerObject tree advance guard limit reached"
+                    : "failed to advance summoned pet ServerObject tree";
+                return false;
             }
 
             node = next;
         }
 
-        snapshot = SummonedPetSnapshot.NotSummoned(localActor.ServerObjectId, capturedAt);
-        return true;
+        error = "linked pet server object id " +
+                linkedPetServerObjectId.ToString(CultureInfo.InvariantCulture) +
+                " was not found in ServerObject tree";
+        return false;
     }
 
     private static SummonedPetRosterReadAttempt ReadSummonedPetRosterWithQuality(

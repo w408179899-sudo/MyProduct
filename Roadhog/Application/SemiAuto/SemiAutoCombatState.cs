@@ -17,16 +17,12 @@ public sealed class SemiAutoCombatState
     private readonly Dictionary<string, DateTimeOffset> maintenanceKeyPressedAt = new(StringComparer.OrdinalIgnoreCase);
     private DateTimeOffset lastMaintenanceKeyPressedAt = DateTimeOffset.MinValue;
     private readonly Dictionary<uint, uint> statusMaintenanceAbnormalIds = new();
-    private readonly Dictionary<string, DateTimeOffset> statusMaintenanceActiveSeenAt = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, int> statusMaintenanceMissingReadCounts = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, DateTimeOffset> statusMaintenanceMissingReadStartedAt = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<uint, uint> spiritmasterDotAbnormalIds = new();
     private readonly Dictionary<uint, uint> spiritmasterPetBuffAbnormalIds = new();
     private readonly Dictionary<uint, DateTimeOffset> spiritmasterPetHpCooldownUntil = new();
     private DateTimeOffset lastAttackKeyPressedAt = DateTimeOffset.MinValue;
     private DateTimeOffset lastSpiritmasterSummonAttemptAt = DateTimeOffset.MinValue;
     private DateTimeOffset spiritmasterSummonVerifyUntil = DateTimeOffset.MinValue;
-    private int consecutiveSpiritmasterPetMissingReads;
     private uint? lastPressedSkillId;
     private uint lastPressedCooldownEndTime;
     private DateTimeOffset lastPressedCooldownExpiresAt = DateTimeOffset.MinValue;
@@ -91,8 +87,6 @@ public sealed class SemiAutoCombatState
 
     public bool HasPendingSpiritmasterSummonVerification =>
         spiritmasterSummonVerifyUntil != DateTimeOffset.MinValue;
-
-    public int ConsecutiveSpiritmasterPetMissingReads => consecutiveSpiritmasterPetMissingReads;
 
     public SpiritmasterPetHpIncreaseConfirmation? PendingSpiritmasterPetHpIncreaseConfirmation =>
         pendingSpiritmasterPetHpIncreaseConfirmation;
@@ -307,21 +301,6 @@ public sealed class SemiAutoCombatState
         lastSpiritmasterSummonAttemptAt = now;
     }
 
-    public int RecordSpiritmasterPetMissingRead()
-    {
-        if (consecutiveSpiritmasterPetMissingReads < int.MaxValue)
-        {
-            consecutiveSpiritmasterPetMissingReads++;
-        }
-
-        return consecutiveSpiritmasterPetMissingReads;
-    }
-
-    public void ResetSpiritmasterPetMissingReads()
-    {
-        consecutiveSpiritmasterPetMissingReads = 0;
-    }
-
     public bool IsAwaitingSpiritmasterSummonVerification(DateTimeOffset now)
     {
         return HasPendingSpiritmasterSummonVerification && now < spiritmasterSummonVerifyUntil;
@@ -355,71 +334,6 @@ public sealed class SemiAutoCombatState
         {
             statusMaintenanceAbnormalIds[skillId] = abnormalId;
         }
-    }
-
-    public void MarkStatusMaintenanceActive(string ruleKey, DateTimeOffset now)
-    {
-        if (string.IsNullOrWhiteSpace(ruleKey))
-        {
-            return;
-        }
-
-        var key = ruleKey.Trim();
-        statusMaintenanceActiveSeenAt[key] = now;
-        ClearStatusMaintenanceMissingRead(key);
-    }
-
-    public bool TryGetStatusMaintenanceActiveSeenAt(string ruleKey, out DateTimeOffset activeSeenAt)
-    {
-        activeSeenAt = DateTimeOffset.MinValue;
-        return !string.IsNullOrWhiteSpace(ruleKey) &&
-               statusMaintenanceActiveSeenAt.TryGetValue(ruleKey.Trim(), out activeSeenAt);
-    }
-
-    public int MarkStatusMaintenanceMissingRead(
-        string ruleKey,
-        DateTimeOffset now,
-        out DateTimeOffset firstMissingAt)
-    {
-        firstMissingAt = now;
-        if (string.IsNullOrWhiteSpace(ruleKey))
-        {
-            return 0;
-        }
-
-        var key = ruleKey.Trim();
-        if (!statusMaintenanceMissingReadStartedAt.TryGetValue(key, out firstMissingAt))
-        {
-            firstMissingAt = now;
-            statusMaintenanceMissingReadStartedAt[key] = firstMissingAt;
-        }
-
-        statusMaintenanceMissingReadCounts.TryGetValue(key, out var count);
-        count++;
-        statusMaintenanceMissingReadCounts[key] = count;
-        return count;
-    }
-
-    public void ClearStatusMaintenanceMissingRead(string ruleKey)
-    {
-        if (!string.IsNullOrWhiteSpace(ruleKey))
-        {
-            var key = ruleKey.Trim();
-            statusMaintenanceMissingReadCounts.Remove(key);
-            statusMaintenanceMissingReadStartedAt.Remove(key);
-        }
-    }
-
-    public void ClearStatusMaintenanceStickyState()
-    {
-        statusMaintenanceActiveSeenAt.Clear();
-    }
-
-    public void ClearStatusMaintenanceTransientState()
-    {
-        ClearStatusMaintenanceStickyState();
-        statusMaintenanceMissingReadCounts.Clear();
-        statusMaintenanceMissingReadStartedAt.Clear();
     }
 
     public bool TryGetSpiritmasterDotAbnormalId(uint skillId, out uint abnormalId)

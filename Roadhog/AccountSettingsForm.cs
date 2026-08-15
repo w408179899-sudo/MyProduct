@@ -2663,20 +2663,10 @@ namespace Roadhog
 
         private async Task AddCurrentPlayerPointAsync(PathEditorControls editor, string reason, bool showSkipped, bool dense)
         {
-            var result = dense
+            var player = dense
                 ? await _runtime.ReadPlayerForPathRecordingAsync(_account).ConfigureAwait(true)
                 : await _runtime.ReadPlayerAsync(_account).ConfigureAwait(true);
-            if (!result.Success || result.Value is null)
-            {
-                SetPathStatus(editor, result.Error ?? "读取玩家坐标失败", true);
-                return;
-            }
-
-            if (result.Value.Position is not { } position)
-            {
-                SetPathStatus(editor, "玩家坐标为空", true);
-                return;
-            }
+            var position = player.Position!.Value;
 
             var minimumDistanceMeters = ReadDouble(
                 pathRecordingMinimumDistanceTextBox,
@@ -2684,8 +2674,8 @@ namespace Roadhog
                 PathRecordingBuffer.MinimumAllowedDistanceMeters,
                 PathRecordingBuffer.MaximumAllowedDistanceMeters);
             var addResult = dense
-                ? editor.Buffer.TryAddDense(position, result.Value.CapturedAt, minimumDistanceMeters)
-                : editor.Buffer.TryAdd(position, result.Value.CapturedAt, minimumDistanceMeters);
+                ? editor.Buffer.TryAddDense(position, player.CapturedAt, minimumDistanceMeters)
+                : editor.Buffer.TryAdd(position, player.CapturedAt, minimumDistanceMeters);
             if (!addResult.Success)
             {
                 editor.SkippedCount++;
@@ -2897,14 +2887,8 @@ namespace Roadhog
 
             try
             {
-                var result = await _runtime.RefreshWorldObjectsAsync(_account).ConfigureAwait(true);
-                if (!result.Success || result.Value is null)
-                {
-                    SetPathStatus(editor, result.Error ?? "读取附近NPC失败", true);
-                    return;
-                }
-
-                var count = PopulateCleanupNpcCombo(editor, result.Value);
+                var objects = await _runtime.RefreshWorldObjectsAsync(_account).ConfigureAwait(true);
+                var count = PopulateCleanupNpcCombo(editor, objects);
                 SetPathStatus(
                     editor,
                     "已刷新 10m 内 NPC " + count.ToString(CultureInfo.InvariantCulture) + " 个",
@@ -3872,14 +3856,8 @@ namespace Roadhog
 
             try
             {
-                var result = await _runtime.RefreshInventoryAsync(_account).ConfigureAwait(true);
-                if (!result.Success || result.Value is null)
-                {
-                    SetBagCleanupInventoryStatus(result.Error ?? "读取背包失败", true);
-                    return;
-                }
-
-                var count = PopulateBagCleanupInventoryCombo(result.Value);
+                var inventory = await _runtime.RefreshInventoryAsync(_account).ConfigureAwait(true);
+                var count = PopulateBagCleanupInventoryCombo(inventory);
                 SetBagCleanupInventoryStatus(
                     count == 0
                         ? "背包为空或当前接口未返回物品"
@@ -5528,20 +5506,13 @@ namespace Roadhog
 
             try
             {
-                var result = await _runtime
+                var snapshot = await _runtime
                     .RefreshGatherSnapshotAsync(_account)
                     .ConfigureAwait(true);
-                if (!result.Success || result.Value is null)
-                {
-                    PopulateNearbyGatherFilterCombo(Array.Empty<GatherObjectSnapshot>());
-                    SetGatherFilterStatus(result.Error ?? "读取附近采集物失败", true);
-                    return;
-                }
-
-                var sourceCount = PopulateNearbyGatherFilterCombo(result.Value.Objects);
+                var sourceCount = PopulateNearbyGatherFilterCombo(snapshot.Objects);
                 SetGatherFilterStatus(
                     "已读取 " +
-                    result.Value.Objects.Count.ToString(CultureInfo.InvariantCulture) +
+                    snapshot.Objects.Count.ToString(CultureInfo.InvariantCulture) +
                     " 个 / " +
                     sourceCount.ToString(CultureInfo.InvariantCulture) +
                     " 类",
@@ -5756,14 +5727,8 @@ namespace Roadhog
 
             try
             {
-                var result = await _runtime.RefreshWorldObjectsAsync(_account).ConfigureAwait(true);
-                if (!result.Success || result.Value is null)
-                {
-                    SetActiveMonsterFilterStatus(result.Error ?? "读取当前怪物失败", true);
-                    return;
-                }
-
-                var count = PopulateActiveMonsterFilterCombo(result.Value);
+                var objects = await _runtime.RefreshWorldObjectsAsync(_account).ConfigureAwait(true);
+                var count = PopulateActiveMonsterFilterCombo(objects);
                 SetActiveMonsterFilterStatus("已刷新 " + count.ToString(CultureInfo.InvariantCulture) + " 个怪物", false);
             }
             finally
@@ -7709,19 +7674,7 @@ namespace Roadhog
 
             try
             {
-                var result = await _runtime.RefreshSkillsAsync(_account).ConfigureAwait(true);
-                if (!result.Success || result.Value is null)
-                {
-                    MessageBox.Show(
-                        this,
-                        result.Error ?? "刷新当前技能失败。",
-                        "刷新当前技能",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Warning);
-                    return;
-                }
-
-                currentManualSkills = result.Value;
+                currentManualSkills = await _runtime.RefreshSkillsAsync(_account).ConfigureAwait(true);
                 if (availableTree is not null && skillAutoModeRadio?.Checked == true)
                 {
                     PopulateAvailableSkillTreeFromSkills(availableTree, currentManualSkills);
@@ -7757,19 +7710,7 @@ namespace Roadhog
 
             try
             {
-                var result = await _runtime.RefreshSkillsAsync(_account).ConfigureAwait(true);
-                if (!result.Success || result.Value is null)
-                {
-                    MessageBox.Show(
-                        this,
-                        result.Error ?? "刷新当前已选技能失败。",
-                        "刷新当前已选技能",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Warning);
-                    return;
-                }
-
-                currentManualSkills = result.Value;
+                currentManualSkills = await _runtime.RefreshSkillsAsync(_account).ConfigureAwait(true);
                 var refreshResult = RefreshSelectedSkillTreeToHighestCurrentSkills(selectedTree, currentManualSkills);
                 RefreshManualSkillMappingCombos();
                 RefreshMaintenanceSkillCombos();

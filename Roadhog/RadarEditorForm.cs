@@ -275,14 +275,7 @@ internal sealed class RadarEditorForm : Form
         _refreshInFlight = true;
         try
         {
-            var result = await _runtime.ReadRadarSnapshotAsync(_account, _lifetime.Token).ConfigureAwait(true);
-            if (!result.Success || result.Value?.Player?.Position is null)
-            {
-                SetStatus("\u96f7\u8fbe\u5237\u65b0\u5931\u8d25\uff1a" + (result.Error ?? "unknown"), true);
-                return;
-            }
-
-            var snapshot = result.Value;
+            var snapshot = await _runtime.ReadRadarSnapshotAsync(_account, _lifetime.Token).ConfigureAwait(true);
             if (_document.MapId != snapshot.MapId)
             {
                 if (_dirty && _document.MapId != 0)
@@ -306,7 +299,7 @@ internal sealed class RadarEditorForm : Form
             if (!force)
             {
                 SetStatus(
-                    $"\u5df2\u5237\u65b0  \u89d2\u8272: {snapshot.Player.Position.Value.X:F1}, {snapshot.Player.Position.Value.Y:F1}  \u602a\u7269: {CountMonsters(snapshot.WorldObjects)}",
+                    $"\u5df2\u5237\u65b0  \u89d2\u8272: {snapshot.Player!.Position!.Value.X:F1}, {snapshot.Player.Position.Value.Y:F1}  \u602a\u7269: {CountMonsters(snapshot.WorldObjects)}",
                     false);
             }
         }

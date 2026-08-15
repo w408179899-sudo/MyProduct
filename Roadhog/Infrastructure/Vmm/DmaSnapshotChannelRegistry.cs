@@ -241,7 +241,9 @@ internal static class AionVmmSnapshotChannels
         ChannelRegistry.Register<PlayerAbnormalStatusSnapshot>("player_abnormal_statuses");
 
     public static readonly DmaSnapshotChannel<SummonedPetSnapshot> SummonedPet =
-        ChannelRegistry.Register<SummonedPetSnapshot>("summoned_pet");
+        ChannelRegistry.Register<SummonedPetSnapshot>(
+            "summoned_pet",
+            mergePolicy: DmaSnapshotMergePolicy.FieldAware);
 
     public static readonly DmaSnapshotChannel<SummonedPetRosterSnapshot> SummonedPetRoster =
         ChannelRegistry.Register<SummonedPetRosterSnapshot>(
@@ -291,13 +293,10 @@ internal static class AionVmmSnapshotChannels
     public static readonly DmaSnapshotChannel<InventoryWindowSnapshot> InventoryWindow =
         ChannelRegistry.Register<InventoryWindowSnapshot>(
             "inventory_window",
-            partitioned: true,
-            readPolicy: DmaSnapshotReadPolicy.RequireFresh);
+            partitioned: true);
 
     public static readonly DmaSnapshotChannel<InventoryDiscardConfirmSnapshot> InventoryDiscardConfirm =
-        ChannelRegistry.Register<InventoryDiscardConfirmSnapshot>(
-            "inventory_discard_confirm",
-            readPolicy: DmaSnapshotReadPolicy.RequireFresh);
+        ChannelRegistry.Register<InventoryDiscardConfirmSnapshot>("inventory_discard_confirm");
 
     static AionVmmSnapshotChannels()
     {

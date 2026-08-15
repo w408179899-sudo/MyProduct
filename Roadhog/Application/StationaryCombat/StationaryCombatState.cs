@@ -72,8 +72,6 @@ public sealed class StationaryCombatState
 
     public uint SmartPreAimHandoffServerObjectId { get; private set; }
 
-    public int SmartPreAimHandoffConsecutiveMissingSnapshots { get; private set; }
-
     public bool HasSmartPreAimHandoff =>
         SmartPreAimHandoffEntityId != 0 || SmartPreAimHandoffServerObjectId != 0;
 
@@ -136,12 +134,6 @@ public sealed class StationaryCombatState
     public DateTimeOffset CurrentTargetSoftRestartStartedAt { get; private set; } = DateTimeOffset.MinValue;
 
     public DateTimeOffset TemporaryTargetSwitchGuardUntil { get; private set; } = DateTimeOffset.MinValue;
-
-    public ushort MissingCurrentTargetEntityId { get; private set; }
-
-    public uint MissingCurrentTargetServerObjectId { get; private set; }
-
-    public DateTimeOffset MissingCurrentTargetSince { get; private set; } = DateTimeOffset.MinValue;
 
     public ushort PendingTabCandidateEntityId { get; private set; }
 
@@ -259,7 +251,6 @@ public sealed class StationaryCombatState
         ResetCombatApproachStuckTracking();
         ResetCurrentTargetDamageObservation();
         ResetCurrentTargetStallObservation();
-        ResetCurrentTargetMissing();
         ClearPendingTabVerification();
         LeaderTacticalMark.Reset();
     }
@@ -359,10 +350,6 @@ public sealed class StationaryCombatState
             serverObjectId);
         SmartPreAimHandoffEntityId = entityId;
         SmartPreAimHandoffServerObjectId = serverObjectId;
-        if (changed)
-        {
-            SmartPreAimHandoffConsecutiveMissingSnapshots = 0;
-        }
 
         return changed;
     }
@@ -377,16 +364,6 @@ public sealed class StationaryCombatState
                    serverObjectId);
     }
 
-    public int MarkSmartPreAimHandoffMissing()
-    {
-        return ++SmartPreAimHandoffConsecutiveMissingSnapshots;
-    }
-
-    public void ResetSmartPreAimHandoffMissing()
-    {
-        SmartPreAimHandoffConsecutiveMissingSnapshots = 0;
-    }
-
     public void ClearSmartPreAimHandoff(bool clearDisplacedTargetGuard)
     {
         if (clearDisplacedTargetGuard)
@@ -399,7 +376,6 @@ public sealed class StationaryCombatState
 
         SmartPreAimHandoffEntityId = 0;
         SmartPreAimHandoffServerObjectId = 0;
-        SmartPreAimHandoffConsecutiveMissingSnapshots = 0;
     }
 
     public void RefreshCurrentTargetTimeout(DateTimeOffset now)
@@ -794,26 +770,6 @@ public sealed class StationaryCombatState
 
         key = default;
         return false;
-    }
-
-    public DateTimeOffset MarkCurrentTargetMissing(ushort entityId, uint serverObjectId, DateTimeOffset now)
-    {
-        if (!IsSameTarget(MissingCurrentTargetEntityId, MissingCurrentTargetServerObjectId, entityId, serverObjectId) ||
-            MissingCurrentTargetSince == DateTimeOffset.MinValue)
-        {
-            MissingCurrentTargetEntityId = entityId;
-            MissingCurrentTargetServerObjectId = serverObjectId;
-            MissingCurrentTargetSince = now;
-        }
-
-        return MissingCurrentTargetSince;
-    }
-
-    public void ResetCurrentTargetMissing()
-    {
-        MissingCurrentTargetEntityId = 0;
-        MissingCurrentTargetServerObjectId = 0;
-        MissingCurrentTargetSince = DateTimeOffset.MinValue;
     }
 
     public bool IsCurrentTarget(LockedTargetSnapshot target)
@@ -1380,8 +1336,6 @@ public sealed class NextTargetPreAimState
 
     public DateTimeOffset LastAlignedAt { get; set; } = DateTimeOffset.MinValue;
 
-    public int ConsecutiveMissingSnapshots { get; set; }
-
     public ushort PendingSwitchTargetEntityId { get; set; }
 
     public uint PendingSwitchTargetServerObjectId { get; set; }
@@ -1436,7 +1390,6 @@ public sealed class NextTargetPreAimState
         LastSnapshotAt = DateTimeOffset.MinValue;
         LastAdjustedAt = DateTimeOffset.MinValue;
         LastAlignedAt = DateTimeOffset.MinValue;
-        ConsecutiveMissingSnapshots = 0;
         ResetPendingSwitchConfirmation();
         if (!DisplacedTargetGuardActive)
         {

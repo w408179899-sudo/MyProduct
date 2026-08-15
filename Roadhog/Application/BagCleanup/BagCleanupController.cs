@@ -962,14 +962,7 @@ public sealed class BagCleanupController
         }
 
         var before = await context.Snapshots.ReadPlayerAsync().ConfigureAwait(false);
-        if (before.Value.Position is not { } startPosition)
-        {
-            return RecoverableFailure(
-                context,
-                state,
-                "town_return_start_position_missing",
-                "Player position before town return is not available.");
-        }
+        var startPosition = before.Value.Position!.Value;
 
         var press = await _input.PressKeyAsync(key, TownReturnHoldDuration, context.StopToken).ConfigureAwait(false);
         if (!press.Success)
@@ -1011,19 +1004,7 @@ public sealed class BagCleanupController
         }
 
         var after = await context.Snapshots.ReadPlayerAsync().ConfigureAwait(false);
-        if (after.Value.Position is not { } endPosition)
-        {
-            if (DateTimeOffset.Now - state.StepStartedAt < ReadTownReturnTimeout())
-            {
-                return BagCleanupTickResult.Running("waiting_for_town_return_position");
-            }
-
-            return RecoverableFailure(
-                context,
-                state,
-                "town_return_end_position_missing",
-                "Player position after town return is not available.");
-        }
+        var endPosition = after.Value.Position!.Value;
 
         var distance = Distance(startPosition, endPosition);
         var requiredDistance = ReadTownReturnMinDistance();
@@ -1550,14 +1531,7 @@ public sealed class BagCleanupController
         }
 
         var before = await context.Snapshots.ReadPlayerAsync().ConfigureAwait(false);
-        if (before.Value.Position is not { } startPosition)
-        {
-            return FallbackToReversePathAfterTownReturnFailure(
-                context,
-                state,
-                "return_to_revive_start_position_missing",
-                "Player position before returning to revive point is not available.");
-        }
+        var startPosition = before.Value.Position!.Value;
 
         var press = await _input.PressKeyAsync(key, TownReturnHoldDuration, context.StopToken).ConfigureAwait(false);
         if (!press.Success)
@@ -1596,19 +1570,7 @@ public sealed class BagCleanupController
         }
 
         var after = await context.Snapshots.ReadPlayerAsync().ConfigureAwait(false);
-        if (after.Value.Position is not { } endPosition)
-        {
-            if (DateTimeOffset.Now - state.StepStartedAt < ReadTownReturnTimeout())
-            {
-                return BagCleanupTickResult.Running("waiting_for_return_to_revive_position");
-            }
-
-            return FallbackToReversePathAfterTownReturnFailure(
-                context,
-                state,
-                "return_to_revive_end_position_missing",
-                "Player position after returning to revive point is not available.");
-        }
+        var endPosition = after.Value.Position!.Value;
 
         var distance = Distance(startPosition, endPosition);
         var requiredDistance = ReadTownReturnMinDistance();
