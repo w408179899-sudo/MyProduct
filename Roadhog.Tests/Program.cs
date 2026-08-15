@@ -21668,6 +21668,9 @@ static async Task TestStationaryCombatKeepsVerifiedLeaderMarkedTargetClaimedByOt
     AssertFalse(state.IsTargetIgnored(100, 100), "verified leader marked target should not be ignored as claimed");
     AssertFalse(!keyboard.Keys.Contains("D2"), "verified leader marked target should continue skill release");
     AssertFalse(logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.opening_attack.wait_targeting"),
+        "verified leader marked target claimed by another player should bypass opening attack wait");
+    AssertFalse(logger.Entries.Any(entry =>
         entry.EventName == "stationary_combat.target.ignored" &&
         string.Equals(Convert.ToString(entry.Fields["reason"]), "target_owned_by_other", StringComparison.Ordinal)),
         "verified leader marked target should not log claimed-target ignore");
@@ -21728,6 +21731,8 @@ static async Task<(StationaryCombatState State, RecordingKeyboardInput Keyboard,
         StationaryCombatRadius = 60,
         ContestMonster = false
     };
+    settings.SemiAuto.AttackKeyLoopEnabled = true;
+    settings.SemiAuto.AttackKeyLoopIntervalMs = 1;
     settings.Team = new TeamScriptSettings
     {
         Role = TeamRole.Leader,

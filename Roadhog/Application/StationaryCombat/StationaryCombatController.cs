@@ -6937,7 +6937,13 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     {
         if (state.CurrentTargetIsMaintenanceDefense ||
             IsTargetingLocalSide(target, state) ||
-            IsTargetingSelf(target))
+            IsTargetingSelf(target) ||
+            (IsClaimedByOther(target, state) &&
+             IsCurrentVerifiedLeaderTacticalMarkedTarget(
+                 context,
+                 state,
+                 target.TargetEntityId,
+                 target.ServerObjectId)))
         {
             semiAutoState.MarkOpeningAttackKeyAttempted(target);
             return null;
@@ -9010,17 +9016,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         string targetName,
         uint targetingServerObjectId)
     {
-        var team = context.Config.ScriptSettings?.Team;
-        if (team?.Role != TeamRole.Leader ||
-            team.Leader is not { Enabled: true, TacticalMarkEnabled: true } ||
-            !state.LeaderTacticalMark.Verified ||
-            targetServerObjectId == 0 ||
-            state.LeaderTacticalMark.TargetServerObjectId != targetServerObjectId ||
-            !StationaryCombatState.IsSameTarget(
-                state.CurrentTargetEntityId,
-                state.CurrentTargetServerObjectId,
-                targetEntityId,
-                targetServerObjectId))
+        if (!IsCurrentVerifiedLeaderTacticalMarkedTarget(context, state, targetEntityId, targetServerObjectId))
         {
             return false;
         }
@@ -9040,6 +9036,25 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             },
             TimeSpan.FromMilliseconds(500));
         return true;
+    }
+
+    private static bool IsCurrentVerifiedLeaderTacticalMarkedTarget(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        ushort targetEntityId,
+        uint targetServerObjectId)
+    {
+        var team = context.Config.ScriptSettings?.Team;
+        return team?.Role == TeamRole.Leader &&
+               team.Leader is { Enabled: true, TacticalMarkEnabled: true } &&
+               state.LeaderTacticalMark.Verified &&
+               targetServerObjectId != 0 &&
+               state.LeaderTacticalMark.TargetServerObjectId == targetServerObjectId &&
+               StationaryCombatState.IsSameTarget(
+                   state.CurrentTargetEntityId,
+                   state.CurrentTargetServerObjectId,
+                   targetEntityId,
+                   targetServerObjectId);
     }
 
     private static bool PrefersAggressiveMonsters(AccountWorkerContext context)
