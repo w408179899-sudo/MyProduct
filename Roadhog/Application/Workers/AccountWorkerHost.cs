@@ -7,7 +7,7 @@ namespace Roadhog.Application.Workers;
 
 public sealed class AccountWorkerHost
 {
-    private readonly IRoadhogGameApi _gameApi;
+    private readonly IRoadhogSnapshotReaderFactory _snapshotReaders;
     private readonly IRoadhogLogger _logger;
     private readonly AccountRuntimeManager _runtimeStates;
     private readonly IAccountWorkerLoop _workerLoop;
@@ -17,13 +17,13 @@ public sealed class AccountWorkerHost
     private Task? _task;
 
     public AccountWorkerHost(
-        IRoadhogGameApi gameApi,
+        IRoadhogSnapshotReaderFactory snapshotReaders,
         IRoadhogLogger logger,
         AccountRuntimeManager runtimeStates,
         IAccountWorkerLoop workerLoop,
         AccountWorkerOptions options)
     {
-        _gameApi = gameApi;
+        _snapshotReaders = snapshotReaders;
         _logger = logger;
         _runtimeStates = runtimeStates;
         _workerLoop = workerLoop;
@@ -121,7 +121,7 @@ public sealed class AccountWorkerHost
 
         try
         {
-            var context = new AccountWorkerContext(config, _gameApi, _logger, _runtimeStates, _options, stopToken);
+            var context = new AccountWorkerContext(config, _snapshotReaders, _logger, _runtimeStates, _options, stopToken);
             await _workerLoop.RunAsync(context).ConfigureAwait(false);
             _runtimeStates.MarkStopped(config.AccountName);
         }

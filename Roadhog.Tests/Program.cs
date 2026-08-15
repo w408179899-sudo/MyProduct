@@ -73,18 +73,20 @@ var tests = new (string Name, Func<Task> Run)[]
     ("dma stable snapshot falls back to last good", TestDmaStableSnapshotFallsBackToLastGoodAsync),
     ("dma stable snapshot preserves valid zero and false", TestDmaStableSnapshotPreservesValidZeroAndFalseAsync),
     ("dma stable snapshot retains last good until lifecycle reset", TestDmaStableSnapshotRetainsLastGoodUntilLifecycleResetAsync),
-    ("dma stable snapshot fresh read fails closed", TestDmaStableSnapshotFreshReadFailsClosedAsync),
+    ("dma snapshot catalog has no fresh policy", TestDmaSnapshotCatalogHasNoFreshPolicyAsync),
     ("dma stable snapshot isolates and clears sessions", TestDmaStableSnapshotIsolatesAndClearsSessionsAsync),
     ("dma snapshot catalog registers every business channel", TestDmaSnapshotCatalogRegistersEveryBusinessChannelAsync),
     ("dma snapshot registry enforces registration and partitions", TestDmaSnapshotRegistryEnforcesRegistrationAndPartitionsAsync),
     ("dma snapshot channel serializes read and commit", TestDmaSnapshotChannelSerializesReadAndCommitAsync),
     ("dma business reader accepts stable world publication", TestDmaBusinessReaderAcceptsStableWorldPublicationAsync),
+    ("dma business reader retries cold start below boundary", TestDmaBusinessReaderRetriesColdStartBelowBoundaryAsync),
     ("dma world snapshot updates good fields and holds failed fields", TestDmaWorldSnapshotMergesFieldFailuresAsync),
     ("dma world partial snapshot is published and failed read holds it", TestDmaWorldPartialSnapshotIsPublishedAndFailedReadHoldsItAsync),
     ("dma inventory partial snapshot merges fields and complete traversal prunes", TestDmaInventorySnapshotMergesFieldsAndPrunesAsync),
     ("dma pet snapshot updates good health fields and holds failed fields", TestDmaPetSnapshotMergesHealthFailuresAsync),
     ("dma single pet snapshot publishes merged trusted health", TestDmaSinglePetSnapshotPublishesMergedTrustedHealthAsync),
     ("dma pet partial snapshot is published and failed read holds it", TestDmaPetPartialSnapshotIsPublishedAndFailedReadHoldsItAsync),
+    ("dma pet partial missing linked actor retains identity", TestDmaPetPartialMissingLinkedActorRetainsIdentityAsync),
     ("radar canvas projection is north up", RadarTests.CanvasProjectionIsNorthUpAsync),
     ("radar canvas marker colors match disposition", RadarTests.CanvasMarkerColorsMatchDispositionAsync),
     ("radar canvas draws continuous obstacles until cancelled", RadarTests.CanvasDrawsContinuousObstaclesUntilCancelledAsync),
@@ -417,6 +419,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat keeps radar approach for unrelated wrong lock", TestStationaryCombatKeepsRadarApproachForUnrelatedWrongLockAsync),
     ("stationary combat accepts closer aggressive wrong lock after tab", TestStationaryCombatAcceptsCloserAggressiveWrongLockAfterTabAsync),
     ("stationary combat rejects ordinary aggressive wrong lock during smart pre-aim handoff", TestStationaryCombatRejectsOrdinaryAggressiveWrongLockDuringSmartPreAimHandoffAsync),
+    ("stationary combat accepts protected-side wrong lock during smart pre-aim handoff", TestStationaryCombatAcceptsProtectedSideWrongLockDuringSmartPreAimHandoffAsync),
     ("stationary combat rejects closer passive wrong lock after tab", TestStationaryCombatRejectsCloserPassiveWrongLockAfterTabAsync),
     ("stationary combat leaves unrelated unchanged wrong lock alone", TestStationaryCombatLeavesUnrelatedUnchangedWrongLockAloneAsync),
     ("stationary combat nudges forward when tab locks corpse", TestStationaryCombatNudgesForwardWhenTabLocksCorpseAsync),
@@ -439,7 +442,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat defense can select ignored local target", TestStationaryCombatDefenseCanSelectIgnoredLocalTargetAsync),
     ("stationary combat keeps fight when locked target server id matches", TestStationaryCombatKeepsFightWhenLockedServerIdMatchesAsync),
     ("stationary combat keeps current fight target when lock switches", TestStationaryCombatKeepsCurrentFightTargetWhenLockSwitchesAsync),
-    ("stationary combat retries fresh reacquire player read below business", TestStationaryCombatWaitsToTabWhenFreshReacquirePlayerReadFailsAsync),
+    ("stationary combat retries reacquire snapshot below business", TestStationaryCombatRetriesReacquireSnapshotBelowBusinessAsync),
     ("stationary combat clears missing current fight target immediately", TestStationaryCombatClearsMissingCurrentFightTargetImmediatelyAsync),
     ("stationary combat presses C until locked target targets player", TestStationaryCombatPressesCUntilLockedTargetTargetsPlayerAsync),
     ("stationary combat accepts self targeting locked target after opening attack", TestStationaryCombatAcceptsSelfTargetingLockedTargetAfterOpeningAttackAsync),
@@ -928,7 +931,7 @@ static async Task TestRuntimePathRecordingPlayerReadBypassesMemoryCacheAsync()
     AssertFalse(gameApi.LastPlayerContext?.BypassMemoryCache ?? true, "normal player read should use default VMM cache");
 
     await runtime.ReadPlayerForPathRecordingAsync("record-scope").ConfigureAwait(false);
-    AssertFalse(!(gameApi.LastPlayerContext?.BypassMemoryCache ?? false), "path recording player read should bypass VMM cache");
+    AssertFalse(gameApi.LastPlayerContext?.BypassMemoryCache == true, "path recording must use the official stable player channel");
 }
 
 static async Task TestRuntimeSkillReadUsesSavedAccountScopeWhenIdleAsync()
@@ -5523,8 +5526,8 @@ static async Task TestTeamSupportJoinCombatSelectsLeaderTargetInsideGroupRangeAs
     AssertSequence(new[] { "F2", "C", "Oem3" }, keyboard.Keys.ToArray(), "support join combat should follow leader then assist target");
     AssertLeaderTargetAdopted(combatState, targetServerObjectId, "support join combat should hand target to normal combat");
     AssertFalse(
-        !(gameApi.LastLockedTargetContext?.BypassMemoryCache ?? false),
-        "support assist target verification should bypass VMM cache");
+        gameApi.LastLockedTargetContext?.BypassMemoryCache == true,
+        "support assist target verification must use the official snapshot channel");
     AssertEqual(0, gameApi.TacticsSignReadCount, "disabled support tactical targeting should not read sign slots");
 }
 
@@ -5573,11 +5576,11 @@ static async Task TestTeamSupportTacticalMarkKeyAdoptsSelectedLivingMonsterAsync
     AssertFalse(!combatState.CurrentTargetIsTacticalMark, "support selected target should retain tactical target origin");
     AssertEqual(1, gameApi.TacticsSignReadCount, "support tactical mode should scan all sign slots before pressing the key");
     AssertFalse(
-        !(gameApi.LastTacticsSignContext?.BypassMemoryCache ?? false),
-        "support tactical sign scan should bypass VMM cache");
+        gameApi.LastTacticsSignContext?.BypassMemoryCache == true,
+        "support tactical sign scan must use the official snapshot channel");
     AssertFalse(
-        !(gameApi.LastLockedTargetContext?.BypassMemoryCache ?? false),
-        "support tactical target validation should bypass VMM cache");
+        gameApi.LastLockedTargetContext?.BypassMemoryCache == true,
+        "support tactical target validation must use the official snapshot channel");
 }
 
 static async Task TestTeamSupportTacticalMarkRejectsNewTargetOutsideStationaryRadiusAsync()
@@ -6254,8 +6257,8 @@ static async Task TestTeamSupportJoinCombatWaitsAfterAssistTargetKeyAsync()
     AssertEqual(1, keyboard.Keys.Count(key => string.Equals(key, "Oem3", StringComparison.Ordinal)), "assist target key should be pressed once");
     AssertLeaderTargetAdopted(combatState, targetServerObjectId, "support should adopt target after confirm poll");
     AssertFalse(
-        !(gameApi.LastLockedTargetContext?.BypassMemoryCache ?? false),
-        "support delayed assist confirmation should bypass VMM cache");
+        gameApi.LastLockedTargetContext?.BypassMemoryCache == true,
+        "support delayed assist confirmation must use the official snapshot channel");
 }
 
 static async Task TestTeamSupportJoinCombatAcceptsAlreadyLockedLeaderTargetAsync()
@@ -6295,8 +6298,8 @@ static async Task TestTeamSupportJoinCombatAcceptsAlreadyLockedLeaderTargetAsync
     AssertEqual(0, keyboard.Keys.Count, "already locked leader target should not switch back to leader or press assist key");
     AssertLeaderTargetAdopted(combatState, targetServerObjectId, "support should adopt already locked leader target");
     AssertFalse(
-        !(gameApi.LastLockedTargetContext?.BypassMemoryCache ?? false),
-        "support already-locked target check should bypass VMM cache");
+        gameApi.LastLockedTargetContext?.BypassMemoryCache == true,
+        "support already-locked target check must use the official snapshot channel");
 }
 
 static async Task TestTeamSupportAcceptedTargetPreparesJumpUntilCombatPhaseAsync()
@@ -6751,8 +6754,8 @@ static async Task TestTeamLeaderTacticalMarkPressesBeforeVerificationAndAcceptsA
     AssertSequence(new[] { markKey, markKey }, keyboard.Keys.ToArray(), "successful verification should not press mark again");
     AssertEqual(2, gameApi.TacticsSignReadCount, "failed and successful verification should each read tactical sign slots");
     AssertFalse(
-        !(gameApi.LastTacticsSignContext?.BypassMemoryCache ?? false),
-        "leader tactical sign verification should bypass VMM cache");
+        gameApi.LastTacticsSignContext?.BypassMemoryCache == true,
+        "leader tactical sign verification must use the official snapshot channel");
 }
 
 static async Task TestTeamOutputTacticalMarkKeyAdoptsSelectedLivingMonsterAsync()
@@ -6795,11 +6798,11 @@ static async Task TestTeamOutputTacticalMarkKeyAdoptsSelectedLivingMonsterAsync(
     AssertFalse(!combatState.CurrentTargetIsTacticalMark, "selected target should retain tactical target origin");
     AssertEqual(1, gameApi.TacticsSignReadCount, "tactical mode should scan all sign slots before pressing the key");
     AssertFalse(
-        !(gameApi.LastTacticsSignContext?.BypassMemoryCache ?? false),
-        "output tactical sign scan should bypass VMM cache");
+        gameApi.LastTacticsSignContext?.BypassMemoryCache == true,
+        "output tactical sign scan must use the official snapshot channel");
     AssertFalse(
-        !(gameApi.LastLockedTargetContext?.BypassMemoryCache ?? false),
-        "output tactical target validation should bypass VMM cache");
+        gameApi.LastLockedTargetContext?.BypassMemoryCache == true,
+        "output tactical target validation must use the official snapshot channel");
 }
 
 static async Task TestTeamOutputTacticalMarkRejectsNewTargetOutsideStationaryRadiusAsync()
@@ -7064,8 +7067,8 @@ static async Task TestTeamOutputAssistsOnlyLeaderAttackedMonsterAsync()
         "output assist key sequence");
     AssertLeaderTargetAdopted(combatState, targetServerObjectId, "output should hand leader target to normal combat");
     AssertFalse(
-        !(gameApi.LastLockedTargetContext?.BypassMemoryCache ?? false),
-        "output assist target verification should bypass VMM cache");
+        gameApi.LastLockedTargetContext?.BypassMemoryCache == true,
+        "output assist target verification must use the official snapshot channel");
     AssertEqual(0, gameApi.TacticsSignReadCount, "disabled tactical targeting should not read sign slots");
 }
 
@@ -7239,8 +7242,8 @@ static async Task TestTeamOutputAcceptsAlreadyLockedLeaderTargetAsync()
     AssertEqual(0, keyboard.Keys.Count, "already locked leader target should not switch back to leader or press assist key");
     AssertLeaderTargetAdopted(combatState, targetServerObjectId, "output should adopt already locked leader target");
     AssertFalse(
-        !(gameApi.LastLockedTargetContext?.BypassMemoryCache ?? false),
-        "output already-locked target check should bypass VMM cache");
+        gameApi.LastLockedTargetContext?.BypassMemoryCache == true,
+        "output already-locked target check must use the official snapshot channel");
 }
 
 static async Task TestTeamOutputAcceptedTargetPreparesJumpUntilCombatPhaseAsync()
@@ -8377,7 +8380,14 @@ static async Task TestRuntimeApiProbeCoversVmmReadPathsAsync()
 
     AssertFalse(!result.Success, "runtime api probe should return a result");
     var probe = result.Value ?? throw new InvalidOperationException("runtime api probe returned null");
-    AssertFalse(!probe.AllPassed, "all fake api probe checks should pass");
+    AssertFalse(
+        !probe.AllPassed,
+        "all fake api probe checks should pass: " +
+        string.Join(
+            " | ",
+            probe.Checks
+                .Where(check => !check.Success)
+                .Select(check => check.Name + "=" + check.Detail)));
     AssertEqual(RoadhogApiProbeResult.RequiredCheckNames.Count, probe.TotalCount, "api probe check count");
     AssertSequence(
         RoadhogApiProbeResult.RequiredCheckNames,
@@ -11327,20 +11337,8 @@ static Task TestBagCleanupBusinessReadBoundaryAsync()
         "BagCleanupController must not receive typed data-read OperationResult values");
 
     var applicationDirectory = Path.Combine(directory.FullName, "Roadhog", "Application");
-    var compositionBoundaries = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    {
-        "RoadhogRuntime.cs",
-        "AccountOrchestrator.cs",
-        "AccountWorkerContext.cs",
-        "AccountWorkerHost.cs"
-    };
     foreach (var file in Directory.GetFiles(applicationDirectory, "*.cs", SearchOption.AllDirectories))
     {
-        if (compositionBoundaries.Contains(Path.GetFileName(file)))
-        {
-            continue;
-        }
-
         var source = File.ReadAllText(file);
         foreach (var token in forbidden)
         {
@@ -11361,7 +11359,10 @@ static Task TestBagCleanupBusinessReadBoundaryAsync()
         "player_read_failed",
         "channel_snapshot_unavailable",
         "LastValidChannel",
-        "RequireFresh"
+        "RequireFresh",
+        "TryReadFresh",
+        "ReadCurrent",
+        "forceRefresh"
     };
     foreach (var file in Directory.GetFiles(applicationDirectory, "*.cs", SearchOption.AllDirectories))
     {
@@ -11380,6 +11381,38 @@ static Task TestBagCleanupBusinessReadBoundaryAsync()
     AssertFalse(
         workerContextSource.Contains("public IRoadhogGameApi", StringComparison.Ordinal),
         "AccountWorkerContext must not expose the raw game API to business consumers");
+
+    var exportedTypes = typeof(RoadhogRuntime).Assembly.GetExportedTypes();
+    foreach (var rawTypeName in new[]
+             {
+                 "IRoadhogGameApi",
+                 "IRoadhogScopedGameApi",
+                 "GameApiReadContext",
+                 "AionVmmGameApi",
+                 "MockRoadhogGameApi",
+                 "ToolProcessApiClient",
+                 "WorldObjectReadResult",
+                 "SummonedPetRosterReadResult"
+             })
+    {
+        AssertFalse(
+            exportedTypes.Any(type => string.Equals(type.Name, rawTypeName, StringComparison.Ordinal)),
+            "raw provider type must not be publicly exported: " + rawTypeName);
+    }
+
+    foreach (var method in typeof(IRoadhogSnapshotReader).GetMethods())
+    {
+        AssertFalse(
+            method.Name.Contains("Fresh", StringComparison.OrdinalIgnoreCase) ||
+            method.Name.Contains("Current", StringComparison.OrdinalIgnoreCase),
+            "business snapshot API must not expose freshness semantics: " + method.Name);
+        AssertFalse(
+            !method.ReturnType.IsGenericType ||
+            method.ReturnType.GetGenericTypeDefinition() != typeof(Task<>) ||
+            !method.ReturnType.GetGenericArguments()[0].IsGenericType ||
+            method.ReturnType.GetGenericArguments()[0].GetGenericTypeDefinition() != typeof(PublishedGameSnapshot<>),
+            "every business data method must return a published snapshot: " + method.Name);
+    }
 
     var runtimeSource = File.ReadAllText(Path.Combine(applicationDirectory, "RoadhogRuntime.cs"));
     foreach (var rawRead in new[] { "_gameApi.Read", "scopedApi.Read", "inventoryApi.Read" })
@@ -13579,8 +13612,7 @@ static async Task<WorldObjectSnapshot?> SelectStationaryTargetForTestAsync(
             new Vector3Snapshot(0, 0, 0),
             new Vector3Snapshot(0, 0, 0),
             30D,
-            allowClaimedByOther,
-            true
+            allowClaimedByOther
         })!;
     return await task.ConfigureAwait(false);
 }
@@ -17386,7 +17418,7 @@ static async Task TestPathCombatUsesConfiguredPathFollowPrecisionAsync()
         AssertFalse(!state.PathCombat.Active, "path combat should start with configured path");
         AssertEqual(1, state.PathCombat.PointIndex, "configured precision should treat first waypoint as reached");
         AssertFalse(!keyboard.KeyDowns.Contains("W"), "path combat should walk toward the next waypoint");
-        AssertFalse(!(gameApi.LastPlayerContext?.BypassMemoryCache ?? false), "path follow player read should bypass VMM cache before holding W");
+        AssertFalse(gameApi.LastPlayerContext?.BypassMemoryCache == true, "path follow must use the official player snapshot before holding W");
         AssertFalse(!logger.Entries.Any(entry =>
                 entry.EventName == "stationary_combat.path_combat.point_reached" &&
                 Convert.ToInt32(entry.Fields["pointIndex"]) == 0),
@@ -18795,9 +18827,14 @@ static async Task TestStationaryCombatLeavesUnrelatedUnchangedWrongLockAloneAsyn
         var controller = new StationaryCombatController(keyboard, semiAuto);
         var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
         var state = new StationaryCombatState();
+        var context = CreateContext(settings, gameApi, logger);
+        var semiAutoState = new SemiAutoCombatState();
 
         await controller
-            .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
+            .TickAsync(context, plan, semiAutoState, state)
+            .ConfigureAwait(false);
+        await controller
+            .TickAsync(context, plan, semiAutoState, state)
             .ConfigureAwait(false);
 
         AssertSequence(new[] { "Tab" }, keyboard.Keys, "unchanged unrelated wrong lock should only retry Tab");
@@ -19171,12 +19208,22 @@ static async Task TestStationaryCombatRejectsOrdinaryAggressiveWrongLockDuringSm
         var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
         var state = new StationaryCombatState();
         SeedAlignedSmartPreAimCandidate(state, committed);
+        var context = CreateContext(settings, gameApi, logger);
+        var semiAutoState = new SemiAutoCombatState();
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
 
         await controller
             .TickAsync(
-                CreateContext(settings, gameApi, logger),
-                SemiAutoSkillPlan.FromSettings(settings.Skills),
-                new SemiAutoCombatState(),
+                context,
+                plan,
+                semiAutoState,
+                state)
+            .ConfigureAwait(false);
+        await controller
+            .TickAsync(
+                context,
+                plan,
+                semiAutoState,
                 state)
             .ConfigureAwait(false);
 
@@ -19196,6 +19243,146 @@ static async Task TestStationaryCombatRejectsOrdinaryAggressiveWrongLockDuringSm
     {
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
         Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
+    }
+}
+
+static async Task TestStationaryCombatAcceptsProtectedSideWrongLockDuringSmartPreAimHandoffAsync()
+{
+    const uint localServerObjectId = 1000;
+    const uint localPetServerObjectId = 1100;
+    const uint teammateServerObjectId = 2000;
+    const uint teammatePetServerObjectId = 8200;
+    var cases = new[]
+    {
+        (Name: "local_player", ProtectedServerObjectId: localServerObjectId, IsTargetingLocalPlayer: true),
+        (Name: "local_pet", ProtectedServerObjectId: localPetServerObjectId, IsTargetingLocalPlayer: false),
+        (Name: "teammate", ProtectedServerObjectId: teammateServerObjectId, IsTargetingLocalPlayer: false),
+        (Name: "teammate_pet", ProtectedServerObjectId: teammatePetServerObjectId, IsTargetingLocalPlayer: false)
+    };
+
+    foreach (var testCase in cases)
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            SmartPreAimEnabled = true,
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 30
+        };
+        settings.Team = new TeamScriptSettings
+        {
+            Role = TeamRole.Leader,
+            GroupDistanceMeters = 20
+        };
+
+        var self = CreatePartyMemberSnapshot(localServerObjectId, "Self", true, true, 0.0);
+        var teammate = CreatePartyMemberSnapshot(teammateServerObjectId, "Teammate", false, false, 8.0);
+        var committed = new WorldObjectSnapshot(
+            100,
+            100,
+            "committed-b",
+            "monster",
+            new Vector3Snapshot(5, 0, 0),
+            5,
+            1000,
+            1000,
+            AggressiveKnown: true,
+            IsAggressiveToPlayer: true);
+        var defenseLock = new WorldObjectSnapshot(
+            200,
+            200,
+            "defense-c-" + testCase.Name,
+            "monster",
+            new Vector3Snapshot(40, 0, 0),
+            40,
+            1000,
+            1000,
+            TargetServerObjectId: testCase.ProtectedServerObjectId,
+            IsTargetingLocalPlayer: testCase.IsTargetingLocalPlayer,
+            AggressiveKnown: true,
+            IsAggressiveToPlayer: false);
+        var lockedTarget = new LockedTargetSnapshot(
+            defenseLock.EntityId,
+            defenseLock.ServerObjectId,
+            0,
+            LockedTargetSnapshot.MonsterObjectType,
+            defenseLock.Name,
+            defenseLock.CurrentHp,
+            defenseLock.MaxHp,
+            defenseLock.Position,
+            defenseLock.DistanceToLocalPlayer,
+            DateTimeOffset.Now,
+            testCase.ProtectedServerObjectId,
+            testCase.IsTargetingLocalPlayer,
+            localServerObjectId);
+        var gameApi = CreateTeamSupportGameApi(self, teammate);
+        gameApi.SummonedPetRoster = CreateTeamSupportRoster(
+            localServerObjectId,
+            teammate,
+            teammatePetServerObjectId);
+        gameApi.WorldObjects = new[] { committed, defenseLock };
+        gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0,
+            [7] = 0,
+            [8] = 0,
+            [9] = 0,
+            [10] = 0
+        });
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var controller = new StationaryCombatController(
+            keyboard,
+            new SemiAutoCombatController(keyboard));
+        var state = new StationaryCombatState
+        {
+            LocalCombatSideServerObjectId = localServerObjectId,
+            LocalCombatSidePetServerObjectId = localPetServerObjectId
+        };
+        SeedAlignedSmartPreAimCandidate(state, committed);
+        state.StartSmartPreAimHandoff(committed.EntityId, committed.ServerObjectId);
+        state.MarkCandidate(committed, DateTimeOffset.Now);
+        var context = CreateContext(settings, gameApi, logger);
+        var method = typeof(StationaryCombatController).GetMethod(
+            "TryAcceptNearbyAggressiveLockedTargetAsync",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        AssertFalse(method is null, "nearby locked-target acceptance helper should exist");
+
+        var task = method!.Invoke(controller, new object[]
+        {
+            context,
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            state,
+            committed,
+            lockedTarget,
+            new Vector3Snapshot(0, 0, 0),
+            30.0D,
+            0
+        }) as Task<TimeSpan?>;
+        AssertFalse(task is null, "protected-side lock acceptance should return a delay task");
+        var delay = await task!.ConfigureAwait(false);
+
+        AssertFalse(delay is null, testCase.Name + " protected-side lock should be handled");
+        AssertFalse(!state.Fighting, testCase.Name + " protected-side lock should enter fight state");
+        AssertEqual(defenseLock.ServerObjectId, state.CurrentTargetServerObjectId, testCase.Name + " protected-side lock should become current target");
+        AssertFalse(!state.CurrentTargetIsMaintenanceDefense, testCase.Name + " protected-side lock should retain defense semantics");
+        AssertFalse(state.HasSmartPreAimHandoff, testCase.Name + " protected-side lock should release the previous handoff");
+        AssertFalse(!logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.smart_preaim.handoff_defense_lock_accepted" &&
+            Equals(Convert.ToUInt32(entry.Fields["lockedServerObjectId"]), defenseLock.ServerObjectId)),
+            testCase.Name + " protected-side acceptance should be logged");
+        AssertFalse(logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.smart_preaim.handoff_wrong_lock_rejected"),
+            testCase.Name + " protected-side lock must not be rejected as an ordinary wrong lock");
     }
 }
 
@@ -20785,6 +20972,8 @@ static async Task TestStationaryCombatConsumesWaypointArrivalAndCommitsClearTarg
             Equals(entry.Fields["targetServerObjectId"], targetServerObjectId) &&
             Equals(entry.Fields["committed"], true)),
             "post-stop straight-line confirmation should log the direct commitment");
+        AssertFalse(gameApi.PlayerReadCount == 0, "post-stop direct confirmation must use the official player snapshot channel");
+        AssertFalse(gameApi.LastLockedTargetContext is null, "post-stop target confirmation must use the official locked-target snapshot channel");
     }
     finally
     {
@@ -21068,8 +21257,8 @@ static async Task TestStationaryCombatKeepsCurrentFightTargetWhenLockSwitchesAsy
             "lock mismatch should log original target reacquire");
         AssertEqual(2, gameApi.PlayerReadCount, "fight reacquire should refresh player immediately before tab");
         AssertFalse(
-            gameApi.LastPlayerContext?.BypassMemoryCache != true,
-            "fight reacquire player refresh should bypass the memory cache");
+            gameApi.LastPlayerContext?.BypassMemoryCache == true,
+            "fight reacquire must use the official player snapshot channel");
         AssertFalse(gameApi.WorldObjectReadCount == 0, "fight reacquire should force a current world object refresh");
 
         var entries = logger.Entries.ToArray();
@@ -21087,7 +21276,7 @@ static async Task TestStationaryCombatKeepsCurrentFightTargetWhenLockSwitchesAsy
     }
 }
 
-static async Task TestStationaryCombatWaitsToTabWhenFreshReacquirePlayerReadFailsAsync()
+static async Task TestStationaryCombatRetriesReacquireSnapshotBelowBusinessAsync()
 {
     var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
     Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", "0");
@@ -21162,12 +21351,12 @@ static async Task TestStationaryCombatWaitsToTabWhenFreshReacquirePlayerReadFail
             .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
             .ConfigureAwait(false);
 
-        AssertFalse(!state.Fighting, "transient fresh player fault should preserve fight state");
-        AssertEqual((ushort)100, state.CurrentTargetEntityId, "transient fresh player fault should preserve current target");
-        AssertEqual(3, gameApi.PlayerReadCount, "snapshot layer should retry the transient fresh player read");
+        AssertFalse(!state.Fighting, "transient player capture fault should preserve fight state");
+        AssertEqual((ushort)100, state.CurrentTargetEntityId, "transient player capture fault should preserve current target");
+        AssertEqual(3, gameApi.PlayerReadCount, "snapshot layer should retry the transient player capture");
         AssertFalse(
-            gameApi.LastPlayerContext?.BypassMemoryCache != true,
-            "fight reacquire player refresh should retain current-read semantics");
+            gameApi.LastPlayerContext?.BypassMemoryCache == true,
+            "fight reacquire must not request a cache-bypass escape hatch");
         AssertFalse(!keyboard.Keys.Contains("Tab"), "next normal player snapshot should allow the original tab flow");
         AssertFalse(state.LastTabAt == DateTimeOffset.MinValue, "successful tab should update last tab time");
         AssertFalse(
@@ -23958,8 +24147,8 @@ static async Task TestStationaryCombatRestoresOwnPetLockInsideHpMaintenanceAsync
                 Convert.ToBoolean(entry.Fields["matched"])),
             "own pet recovery should verify the original monster identity");
         AssertFalse(
-            gameApi.LastLockedTargetContext?.BypassMemoryCache != true,
-            "own pet recovery verification should bypass the target cache");
+            gameApi.LastLockedTargetContext?.BypassMemoryCache == true,
+            "own pet recovery verification must use the official target snapshot channel");
         AssertFalse(
             !logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.key_pressed"),
             "hp absorption should complete after target recovery");
@@ -25729,14 +25918,10 @@ static async Task TestSpiritmasterElementalReplenishmentEnforcesPlayerHpFloorAsy
 
     AssertSequence(new[] { "NumPad3" }, keyboard.Keys.ToArray(), "exactly 65 percent player hp should allow elemental replenishment");
     AssertFalse(
-        gameApi.LastPlayerContext is null ||
-        gameApi.LastPlayerContext.RequireFresh ||
-        gameApi.LastPlayerContext.BypassMemoryCache,
+        gameApi.LastPlayerContext is null || gameApi.LastPlayerContext.BypassMemoryCache,
         "player safety should use the ordinary stable snapshot");
     AssertFalse(
-        gameApi.LastSummonedPetContext is null ||
-        gameApi.LastSummonedPetContext.RequireFresh ||
-        gameApi.LastSummonedPetContext.BypassMemoryCache,
+        gameApi.LastSummonedPetContext is null || gameApi.LastSummonedPetContext.BypassMemoryCache,
         "pet safety should use the ordinary stable single-pet snapshot");
     AssertFalse(gameApi.LastSummonedPetRosterContext?.BypassMemoryCache == true, "pet safety must not force a full roster scan");
 }
@@ -25768,7 +25953,7 @@ static async Task TestSpiritmasterElementalReplenishmentHidesTransientPetReadFai
     AssertEqual(2, gameApi.SummonedPetReadCount, "snapshot boundary should consume the transient failure and retry below business logic");
     AssertEqual(1, gameApi.SummonedPetRosterReadCount, "combat context should keep its one ordinary roster read");
     AssertFalse(
-        gameApi.LastSummonedPetContext is null || gameApi.LastSummonedPetContext.RequireFresh,
+        gameApi.LastSummonedPetContext is null || gameApi.LastSummonedPetContext.BypassMemoryCache,
         "transient pet failure must retain stable snapshot semantics");
     AssertFalse(
         logger.Entries.Any(entry =>
@@ -27970,8 +28155,8 @@ static async Task TestSupportStatusMaintenanceSelectsSelfBeforeBuffAsync()
 
     AssertSequence(new[] { "F1", "NumPad3" }, keyboard.Keys.ToArray(), "support status maintenance should select self before pressing the buff key");
     AssertFalse(
-        gameApi.LastLockedTargetContext?.BypassMemoryCache != true,
-        "self-target confirmation should bypass memory cache");
+        gameApi.LastLockedTargetContext?.BypassMemoryCache == true,
+        "self-target confirmation must use the official target snapshot channel");
     var selectionEntry = logger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.maintenance.self_target_selected");
     AssertFalse(selectionEntry is null, "support self-target selection should be logged");
     AssertEqual(false, Convert.ToBoolean(selectionEntry!.Fields["alreadySelected"]), "selection log should record F1 selection");
@@ -30360,7 +30545,7 @@ static AccountWorkerContext CreateContext(
 
     return new AccountWorkerContext(
         account,
-        gameApi,
+        new RoadhogSnapshotReaderFactory(gameApi),
         logger,
         runtimeStates ?? new AccountRuntimeManager(logger),
         options ?? new AccountWorkerOptions(),
@@ -30766,31 +30951,16 @@ static Task TestDmaStableSnapshotRetainsLastGoodUntilLifecycleResetAsync()
     return Task.CompletedTask;
 }
 
-static Task TestDmaStableSnapshotFreshReadFailsClosedAsync()
+static Task TestDmaSnapshotCatalogHasNoFreshPolicyAsync()
 {
-    var registry = new DmaSnapshotChannelRegistry();
-    var channel = registry.Register<bool>("discard_safety");
-    registry.Seal();
-    var store = new DmaStableSnapshotStore(registry);
-    var capturedAt = new DateTimeOffset(2026, 8, 15, 1, 0, 0, TimeSpan.Zero);
-    const string session = "fpga://devindex=2\u001eaccount1\u001e7964";
-
-    store.Resolve(
-        session,
-        channel,
-        CreateDmaSnapshotContext(),
-        OperationResult<bool>.Ok(true),
-        capturedAt);
-    var result = store.Resolve(
-        session,
-        channel,
-        CreateDmaSnapshotContext(requireFresh: true),
-        OperationResult<bool>.Fail("fresh safety read failed"),
-        capturedAt.AddMilliseconds(50));
-
-    AssertFalse(result.Result.Success, "fresh-required failure must not return stale safety data");
-    AssertFalse(result.UsedFallback, "fresh-required failure must not use fallback");
-    AssertEqual(StableSnapshotFailureReason.FreshRequired, result.FailureReason, "fresh-required reason");
+    AssertEqual(
+        1,
+        Enum.GetValues<DmaSnapshotReadPolicy>().Length,
+        "the provider catalog must expose only the stable snapshot policy");
+    AssertEqual(
+        DmaSnapshotReadPolicy.Stable,
+        Enum.GetValues<DmaSnapshotReadPolicy>()[0],
+        "stable must be the only provider publication policy");
     return Task.CompletedTask;
 }
 
@@ -30911,9 +31081,6 @@ static Task TestDmaSnapshotRegistryEnforcesRegistrationAndPartitionsAsync()
     var registry = new DmaSnapshotChannelRegistry();
     var scalar = registry.Register<int>("scalar");
     var partitioned = registry.Register<string>("partitioned", partitioned: true);
-    var freshOnly = registry.Register<int>(
-        "fresh_only",
-        readPolicy: DmaSnapshotReadPolicy.RequireFresh);
 
     var duplicateRejected = false;
     try
@@ -30977,19 +31144,6 @@ static Task TestDmaSnapshotRegistryEnforcesRegistrationAndPartitionsAsync()
     }
 
     AssertFalse(!foreignRejected, "a channel token from another registry must be rejected");
-
-    store.Resolve(session, freshOnly, context, OperationResult<int>.Ok(7), now);
-    var declaredFreshFailure = store.Resolve(
-        session,
-        freshOnly,
-        context,
-        OperationResult<int>.Fail("fresh channel failed"),
-        now.AddSeconds(1));
-    AssertFalse(declaredFreshFailure.Result.Success, "fresh-only channel policy must reject stale fallback");
-    AssertEqual(
-        StableSnapshotFailureReason.FreshRequired,
-        declaredFreshFailure.FailureReason,
-        "fresh-only channel failure reason");
 
     var replaceUpdateRejected = false;
     try
@@ -31125,8 +31279,38 @@ static async Task TestDmaBusinessReaderAcceptsStableWorldPublicationAsync()
     AssertEqual(1, published.Value.Count, "business reader should return the published world snapshot");
     AssertEqual(worldObject.ServerObjectId, published.Value[0].ServerObjectId, "published world identity");
     AssertFalse(
-        gameApi.LastWorldObjectsContext is null || gameApi.LastWorldObjectsContext.RequireFresh,
+        gameApi.LastWorldObjectsContext is null || gameApi.LastWorldObjectsContext.BypassMemoryCache,
         "ordinary business reads must accept the stable snapshot publication");
+}
+
+static async Task TestDmaBusinessReaderRetriesColdStartBelowBoundaryAsync()
+{
+    var gameApi = new FakeGameApi();
+    gameApi.WorldObjectReadResults.Enqueue(
+        OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail("injected partial world capture"));
+    var logger = new InMemoryRoadhogLogger();
+    using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+    var reader = new RoadhogSnapshotReader(
+        new AccountConfig
+        {
+            AccountName = "account1",
+            ProcessId = 7964,
+            TargetProcessName = "Aion.bin",
+            VmmDeviceName = "fpga://devindex=2"
+        },
+        gameApi,
+        logger,
+        stop.Token);
+
+    var published = await reader.ReadWorldObjectsAsync().ConfigureAwait(false);
+
+    AssertEqual(0, published.Value.Count, "cold start must wait for the first official world publication");
+    AssertEqual(2, gameApi.WorldObjectReadCount, "cold-start failure and successful retry stay below business code");
+    AssertFalse(
+        typeof(IRoadhogSnapshotReader).GetMethods().Any(method =>
+            method.Name.Contains("Fresh", StringComparison.OrdinalIgnoreCase) ||
+            method.Name.Contains("Current", StringComparison.OrdinalIgnoreCase)),
+        "business snapshot API must not expose freshness escape hatches");
 }
 
 static Task TestDmaWorldSnapshotMergesFieldFailuresAsync()
@@ -31497,6 +31681,43 @@ static Task TestDmaPetPartialSnapshotIsPublishedAndFailedReadHoldsItAsync()
     return Task.CompletedTask;
 }
 
+static Task TestDmaPetPartialMissingLinkedActorRetainsIdentityAsync()
+{
+    const uint petServerObjectId = 2000;
+    var previous = CreateLocalPetRoster(
+        isSummoned: true,
+        currentHp: 80,
+        maxHp: 100,
+        petServerObjectId: petServerObjectId);
+    var capturedAt = previous.CapturedAt.AddMilliseconds(50);
+    var missingActor = previous with
+    {
+        CapturedAt = capturedAt,
+        LocalLinkedPetServerObjectId = petServerObjectId + 1,
+        LocalPlayerPet = previous.LocalPlayerPet with
+        {
+            Pet = SummonedPetSnapshot.NotSummoned(previous.LocalServerObjectId, capturedAt)
+        }
+    };
+    var partial = new SummonedPetRosterReadResult(
+        SummonedPetRosterReadCompleteness.Partial,
+        missingActor,
+        new SummonedPetRosterFieldValidity(
+            LocalServerObjectId: true,
+            LocalLinkedPetServerObjectId: true,
+            VisibleActorTraversal: false),
+        CreateDmaPetReadDiagnostics(capturedAt),
+        "linked_pet_actor_or_detail_missing");
+
+    var merged = AionVmmGameApi.MergeSummonedPetRosterRead(partial, previous);
+
+    AssertFalse(!merged.LocalPlayerPet.Pet.IsSummoned, "partial traversal must not clear a confirmed summoned pet");
+    AssertEqual(petServerObjectId, merged.LocalLinkedPetServerObjectId, "partial traversal must retain the confirmed linked-pet identity");
+    AssertEqual(petServerObjectId, merged.LocalPlayerPet.Pet.ServerObjectId, "partial traversal must retain pet identity");
+    AssertEqual(80u, merged.LocalPlayerPet.Pet.CurrentHp, "partial traversal must retain pet health with identity");
+    return Task.CompletedTask;
+}
+
 static WorldObjectReadDiagnostics CreateDmaWorldReadDiagnostics(DateTimeOffset now)
 {
     return new WorldObjectReadDiagnostics(
@@ -31546,15 +31767,14 @@ static SummonedPetRosterReadDiagnostics CreateDmaPetReadDiagnostics(DateTimeOffs
         FirstIssue: "injected partial read");
 }
 
-static GameApiReadContext CreateDmaSnapshotContext(bool requireFresh = false)
+static GameApiReadContext CreateDmaSnapshotContext()
 {
     return new GameApiReadContext(
         "account1",
         7964,
         "Aion.bin",
         "fpga://devindex=2",
-        BypassMemoryCache: requireFresh,
-        RequireFresh: requireFresh);
+        BypassMemoryCache: false);
 }
 
 static void AssertLeaderTargetAdopted(
@@ -32120,8 +32340,16 @@ sealed class InMemoryScriptProfileStore : IScriptProfileStore
 sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi
 #if DEBUG
     , IRoadhogApiAddressProbe
+    , IRoadhogSnapshotDiagnostics
 #endif
+    , IRoadhogSnapshotReaderFactory
 {
+    public IRoadhogSnapshotReader Create(
+        AccountConfig config,
+        IRoadhogLogger logger,
+        CancellationToken cancellationToken = default) =>
+        new RoadhogSnapshotReader(config, this, logger, cancellationToken);
+
     private readonly object _playerReadSync = new();
 
     public PlayerSnapshot Player { get; set; } = new(
@@ -32418,9 +32646,14 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
             return Task.FromResult(LockedTargetReadResults.Dequeue());
         }
 
+        return Task.FromResult(OperationResult<LockedTargetSnapshot>.Ok(CreateLockedTargetSnapshot()));
+    }
+
+    private LockedTargetSnapshot CreateLockedTargetSnapshot()
+    {
         var objectType = ResolveLockedTargetObjectType();
         var lootableRaw = ResolveLockedTargetLootableRaw(objectType);
-        return Task.FromResult(OperationResult<LockedTargetSnapshot>.Ok(new LockedTargetSnapshot(
+        return new LockedTargetSnapshot(
             TargetEntityId,
             TargetOwnServerObjectId != 0 ? TargetOwnServerObjectId : TargetEntityId,
             0,
@@ -32435,7 +32668,7 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
             TargetIsTargetingLocalPlayer,
             LocalServerObjectId,
             lootableRaw,
-            ResolveLockedTargetInteractionState(lootableRaw))));
+            ResolveLockedTargetInteractionState(lootableRaw));
     }
 
     public Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(
@@ -32627,6 +32860,20 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
     }
 
 #if DEBUG
+    public Task<OperationResult<IReadOnlyList<GameApiAddressProbeResult>>> ProbeProviderAsync(
+        AccountConfig config,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        return ProbeAddressesAsync(
+            new GameApiReadContext(
+                config.AccountName,
+                config.ProcessId,
+                config.TargetProcessName,
+                config.VmmDeviceName),
+            cancellationToken);
+    }
+
     public Task<OperationResult<IReadOnlyList<GameApiAddressProbeResult>>> ProbeAddressesAsync(
         GameApiReadContext context,
         CancellationToken cancellationToken = default)

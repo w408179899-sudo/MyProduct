@@ -13,14 +13,13 @@ using Roadhog.Core.Input;
 using Roadhog.Core.Model;
 using Roadhog.Core.Radar;
 using Roadhog.Core.Paths;
-using Roadhog.Infrastructure.Vmm;
 using System.Globalization;
 
 namespace Roadhog.Application;
 
 public sealed class RoadhogRuntime
 {
-    private readonly IRoadhogGameApi _gameApi;
+    private readonly IRoadhogSnapshotReaderFactory _snapshotReaders;
     private readonly IRoadhogLogger _logger;
     private readonly IAccountConfigStore? _accountConfigStore;
     private readonly IHardwareDeviceResolver? _hardwareResolver;
@@ -58,7 +57,7 @@ public sealed class RoadhogRuntime
     private const double DefaultBagPage2OffsetY = 298.0;
 
     public RoadhogRuntime(
-        IRoadhogGameApi gameApi,
+        IRoadhogSnapshotReaderFactory snapshotReaders,
         IRoadhogLogger logger,
         AccountRuntimeManager accounts,
         AccountOrchestrator orchestrator,
@@ -69,7 +68,7 @@ public sealed class RoadhogRuntime
         StationaryObstacleNavigator? stationaryObstacleNavigator = null,
         RadarLiveSnapshotRegistry? radarSnapshots = null)
     {
-        _gameApi = gameApi;
+        _snapshotReaders = snapshotReaders;
         _logger = logger;
         _accountConfigStore = accountConfigStore;
         _hardwareResolver = hardwareResolver;
@@ -242,7 +241,7 @@ public sealed class RoadhogRuntime
             TargetProcessName = string.Empty,
             VmmDeviceName = vmmDeviceName
         };
-        var read = await new RoadhogSnapshotReader(config, _gameApi, _logger, cancellationToken)
+        var read = await _snapshotReaders.Create(config, _logger, cancellationToken)
             .ReadPlayerAsync()
             .ConfigureAwait(false);
         return read.Value;
@@ -282,12 +281,10 @@ public sealed class RoadhogRuntime
     {
         var snapshot = await ReadPlayerSnapshotAsync(
             accountName,
-            cancellationToken,
-            bypassMemoryCache: true).ConfigureAwait(false);
+            cancellationToken).ConfigureAwait(false);
         _logger.Info("path_record.player_refresh.ok", new Dictionary<string, object?>
         {
-            ["account"] = accountName,
-            ["bypassMemoryCache"] = true
+            ["account"] = accountName
         });
         return snapshot;
     }
@@ -659,7 +656,7 @@ public sealed class RoadhogRuntime
         var config = LoadExecutionAccountConfig(account, scriptSettings);
         var context = new AccountWorkerContext(
             config,
-            _gameApi,
+            _snapshotReaders,
             _logger,
             Accounts,
             new AccountWorkerOptions(),
@@ -1011,7 +1008,7 @@ public sealed class RoadhogRuntime
         var config = LoadExecutionAccountConfig(accountName, settings);
         var context = new AccountWorkerContext(
             config,
-            _gameApi,
+            _snapshotReaders,
             _logger,
             Accounts,
             new AccountWorkerOptions(),
@@ -1261,15 +1258,15 @@ public sealed class RoadhogRuntime
         string? accountName,
         CancellationToken cancellationToken)
     {
-        if (_gameApi is not IRoadhogApiAddressProbe addressProbe)
+        if (_snapshotReaders is not IRoadhogSnapshotDiagnostics diagnostics)
         {
             return CreateFailedAddressProbeChecks("Address probe provider is unavailable.");
         }
 
         try
         {
-            var result = await addressProbe
-                .ProbeAddressesAsync(CreateReadContextOrDefault(accountName), cancellationToken)
+            var result = await diagnostics
+                .ProbeProviderAsync(ResolveSnapshotConfig(accountName), cancellationToken)
                 .ConfigureAwait(false);
             if (!result.Success || result.Value is null)
             {
@@ -1406,13 +1403,10 @@ public sealed class RoadhogRuntime
 
     private async Task<PlayerSnapshot> ReadPlayerSnapshotAsync(
         string? accountName,
-        CancellationToken cancellationToken,
-        bool bypassMemoryCache = false)
+        CancellationToken cancellationToken)
     {
         var snapshots = CreateSnapshotReader(accountName, cancellationToken);
-        var read = bypassMemoryCache
-            ? await snapshots.ReadCurrentPlayerAsync().ConfigureAwait(false)
-            : await snapshots.ReadPlayerAsync().ConfigureAwait(false);
+        var read = await snapshots.ReadPlayerAsync().ConfigureAwait(false);
         return read.Value;
     }
 
@@ -1456,49 +1450,14 @@ public sealed class RoadhogRuntime
         return read.Value;
     }
 
-#if DEBUG
-    private GameApiReadContext CreateReadContextOrDefault(string? accountName)
-    {
-        return string.IsNullOrWhiteSpace(accountName)
-            ? new GameApiReadContext(string.Empty, 0, string.Empty, string.Empty)
-            : CreateReadContext(accountName);
-    }
-#endif
-
-    private GameApiReadContext CreateReadContext(string accountName, bool bypassMemoryCache = false)
-    {
-        var account = Accounts.Snapshot()
-            .FirstOrDefault(item => string.Equals(item.AccountName, accountName, StringComparison.OrdinalIgnoreCase));
-
-        if (account is not null)
-        {
-            return new GameApiReadContext(
-                account.AccountName,
-                account.ProcessId,
-                account.TargetProcessName,
-                account.VmmDeviceName,
-                bypassMemoryCache);
-        }
-
-        var config = LoadSavedAccountConfig(accountName);
-        return config is null
-            ? new GameApiReadContext(
-                accountName,
-                0,
-                string.Empty,
-                string.Empty,
-                bypassMemoryCache)
-            : new GameApiReadContext(
-                config.AccountName,
-                config.ProcessId,
-                config.TargetProcessName,
-                config.VmmDeviceName,
-                bypassMemoryCache);
-    }
-
     private IRoadhogSnapshotReader CreateSnapshotReader(
         string? accountName,
         CancellationToken cancellationToken)
+    {
+        return _snapshotReaders.Create(ResolveSnapshotConfig(accountName), _logger, cancellationToken);
+    }
+
+    private AccountConfig ResolveSnapshotConfig(string? accountName)
     {
         AccountConfig config;
         if (string.IsNullOrWhiteSpace(accountName))
@@ -1523,7 +1482,7 @@ public sealed class RoadhogRuntime
                 };
         }
 
-        return new RoadhogSnapshotReader(config, _gameApi, _logger, cancellationToken);
+        return config;
     }
 
     private AccountConfig? LoadSavedAccountConfig(string accountName)

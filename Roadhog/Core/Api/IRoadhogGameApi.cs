@@ -3,7 +3,7 @@ using Roadhog.Core.Model;
 
 namespace Roadhog.Core.Api;
 
-public interface IRoadhogGameApi
+internal interface IRoadhogGameApi
 {
     Task<OperationResult<PlayerSnapshot>> ReadPlayerAsync(CancellationToken cancellationToken = default);
 

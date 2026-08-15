@@ -1,7 +1,6 @@
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Api;
 using Roadhog.Core.Diagnostics;
-using Roadhog.Infrastructure.Vmm;
 
 namespace Roadhog.Application.Workers;
 
@@ -9,7 +8,7 @@ public sealed class AccountWorkerContext
 {
     public AccountWorkerContext(
         AccountConfig config,
-        IRoadhogGameApi gameApi,
+        IRoadhogSnapshotReaderFactory snapshotReaders,
         IRoadhogLogger logger,
         AccountRuntimeManager runtimeStates,
         AccountWorkerOptions options,
@@ -20,7 +19,7 @@ public sealed class AccountWorkerContext
         RuntimeStates = runtimeStates;
         Options = options;
         StopToken = stopToken;
-        Snapshots = new RoadhogSnapshotReader(config, gameApi, logger, stopToken);
+        Snapshots = snapshotReaders.Create(config, logger, stopToken);
     }
 
     public AccountConfig Config { get; }

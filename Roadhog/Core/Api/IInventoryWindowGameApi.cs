@@ -3,7 +3,7 @@ using Roadhog.Core.Model;
 
 namespace Roadhog.Core.Api;
 
-public interface IInventoryWindowGameApi
+internal interface IInventoryWindowGameApi
 {
     Task<OperationResult<InventoryWindowSnapshot>> ReadInventoryWindowAsync(
         GameApiReadContext context,

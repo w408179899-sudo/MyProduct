@@ -22,8 +22,7 @@ internal interface IDmaSnapshotChannel
 
 internal enum DmaSnapshotReadPolicy
 {
-    Stable = 0,
-    RequireFresh = 1
+    Stable = 0
 }
 
 internal enum DmaSnapshotMergePolicy

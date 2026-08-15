@@ -7,14 +7,14 @@ namespace Roadhog.Core.Model;
 /// fields are unknown; callers must inspect <see cref="WorldObjectFieldValidity"/>
 /// before drawing a negative conclusion from a default value.
 /// </summary>
-public enum WorldObjectReadCompleteness
+internal enum WorldObjectReadCompleteness
 {
     Complete = 0,
     Partial = 1,
     Failed = 2
 }
 
-public enum WorldObjectTraversalTermination
+internal enum WorldObjectTraversalTermination
 {
     NotStarted = 0,
     EmptyTree = 1,
@@ -30,7 +30,7 @@ public enum WorldObjectTraversalTermination
 /// Describes whether behavior-driving fields were actually read. A valid zero is
 /// intentionally different from a zero left behind by a failed memory read.
 /// </summary>
-public sealed record WorldObjectFieldValidity(
+internal sealed record WorldObjectFieldValidity(
     bool CurrentHp,
     bool MaxHp,
     bool TargetServerObjectId,
@@ -38,11 +38,11 @@ public sealed record WorldObjectFieldValidity(
     bool LootableRaw,
     bool InteractionState);
 
-public sealed record WorldObjectObservation(
+internal sealed record WorldObjectObservation(
     WorldObjectSnapshot Snapshot,
     WorldObjectFieldValidity Fields);
 
-public sealed record WorldObjectReadDiagnostics(
+internal sealed record WorldObjectReadDiagnostics(
     long CaptureSequence,
     DateTimeOffset StartedAt,
     DateTimeOffset CompletedAt,
@@ -70,7 +70,7 @@ public sealed record WorldObjectReadDiagnostics(
     public double DurationMilliseconds => Math.Max(0D, (CompletedAt - StartedAt).TotalMilliseconds);
 }
 
-public sealed record WorldObjectReadResult
+internal sealed record WorldObjectReadResult
 {
     public WorldObjectReadResult(
         WorldObjectReadCompleteness completeness,

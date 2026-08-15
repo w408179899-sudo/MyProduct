@@ -1762,7 +1762,7 @@ public sealed class SemiAutoCombatController
             return true;
         }
 
-        var current = await ReadCurrentLockedTargetAsync(context).ConfigureAwait(false);
+        var current = await ReadLockedTargetForConfirmationAsync(context).ConfigureAwait(false);
         if (IsSelectedLocalPlayer(current, player))
         {
             LogStatusMaintenanceSelfTargetSelected(context, rule, current, alreadySelected: true);
@@ -1785,7 +1785,7 @@ public sealed class SemiAutoCombatController
         }
 
         await Task.Delay(SupportSelfSelectConfirmDelay, context.StopToken).ConfigureAwait(false);
-        var confirmed = await ReadCurrentLockedTargetAsync(context).ConfigureAwait(false);
+        var confirmed = await ReadLockedTargetForConfirmationAsync(context).ConfigureAwait(false);
         if (!IsSelectedLocalPlayer(confirmed, player))
         {
             LogStatusMaintenanceSelfTargetSelectionFailed(
@@ -2413,7 +2413,7 @@ public sealed class SemiAutoCombatController
                         context,
                         state,
                         safety.Player,
-                        "initial_fresh");
+                        "initial_snapshot");
                     continue;
                 }
 
@@ -3848,7 +3848,7 @@ public sealed class SemiAutoCombatController
                 new Dictionary<string, object?>
                 {
                     ["account"] = context.Config.AccountName,
-                    ["reason"] = "fresh_pet_identity_changed",
+                    ["reason"] = "pet_identity_changed",
                     ["expectedPetServerObjectId"] = pending.PetServerObjectId,
                     ["currentPetServerObjectId"] = safety.Pet.ServerObjectId,
                     ["attemptCount"] = pending.AttemptCount
@@ -4399,9 +4399,6 @@ public sealed class SemiAutoCombatController
     private static async Task<PlayerSnapshot> ReadPlayerAsync(AccountWorkerContext context) =>
         (await context.Snapshots.ReadPlayerAsync().ConfigureAwait(false)).Value;
 
-    private static async Task<PlayerSnapshot> ReadCurrentPlayerAsync(AccountWorkerContext context) =>
-        (await context.Snapshots.ReadCurrentPlayerAsync().ConfigureAwait(false)).Value;
-
     private static async Task<IReadOnlyList<InventoryItemSnapshot>> ReadInventoryAsync(AccountWorkerContext context) =>
         (await context.Snapshots.ReadInventoryAsync().ConfigureAwait(false)).Value;
 
@@ -4432,8 +4429,8 @@ public sealed class SemiAutoCombatController
     private static async Task<LockedTargetSnapshot> ReadLockedTargetAsync(AccountWorkerContext context) =>
         (await context.Snapshots.ReadLockedTargetAsync().ConfigureAwait(false)).Value;
 
-    private static async Task<LockedTargetSnapshot> ReadCurrentLockedTargetAsync(AccountWorkerContext context) =>
-        (await context.Snapshots.ReadCurrentLockedTargetAsync().ConfigureAwait(false)).Value;
+    private static async Task<LockedTargetSnapshot> ReadLockedTargetForConfirmationAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadLockedTargetAsync().ConfigureAwait(false)).Value;
 
     private static async Task<LockedTargetAbnormalStatusSnapshot> ReadLockedTargetAbnormalStatusesAsync(AccountWorkerContext context) =>
         (await context.Snapshots.ReadLockedTargetAbnormalStatusesAsync().ConfigureAwait(false)).Value;

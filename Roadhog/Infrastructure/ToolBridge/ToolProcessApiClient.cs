@@ -8,7 +8,7 @@ using Roadhog.Infrastructure.Gathering;
 
 namespace Roadhog.Infrastructure.ToolBridge;
 
-public sealed class ToolProcessApiClient : IRoadhogGameApi
+internal sealed class ToolProcessApiClient : IRoadhogGameApi
 {
     private readonly ToolBridgeOptions _options;
     private readonly IRoadhogLogger _logger;

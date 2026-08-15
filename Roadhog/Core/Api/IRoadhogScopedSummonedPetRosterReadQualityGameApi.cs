@@ -6,7 +6,7 @@ namespace Roadhog.Core.Api;
 /// Optional capability for consumers that must distinguish an explicitly
 /// absent summoned pet from a partial or failed external-memory capture.
 /// </summary>
-public interface IRoadhogScopedSummonedPetRosterReadQualityGameApi
+internal interface IRoadhogScopedSummonedPetRosterReadQualityGameApi
 {
     Task<SummonedPetRosterReadResult> ReadSummonedPetRosterWithQualityAsync(
         GameApiReadContext context,

@@ -20,7 +20,6 @@ internal sealed class RoadhogSnapshotReader : IRoadhogSnapshotReader
     private readonly IRoadhogLogger _logger;
     private readonly CancellationToken _stopToken;
     private readonly GameApiReadContext _readContext;
-    private readonly GameApiReadContext _currentReadContext;
     private readonly object _versionSync = new();
     private readonly Dictionary<string, long> _versions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DateTimeOffset> _faultLogAt = new(StringComparer.Ordinal);
@@ -40,16 +39,11 @@ internal sealed class RoadhogSnapshotReader : IRoadhogSnapshotReader
             config.ProcessId,
             config.TargetProcessName,
             config.VmmDeviceName,
-            BypassMemoryCache: false,
-            RequireFresh: false);
-        _currentReadContext = _readContext with { BypassMemoryCache = true };
+            BypassMemoryCache: false);
     }
 
     public Task<PublishedGameSnapshot<PlayerSnapshot>> ReadPlayerAsync(long afterVersion = 0) =>
         ReadPlayerAsync(_readContext, afterVersion);
-
-    public Task<PublishedGameSnapshot<PlayerSnapshot>> ReadCurrentPlayerAsync(long afterVersion = 0) =>
-        ReadPlayerAsync(_currentReadContext, afterVersion);
 
     private Task<PublishedGameSnapshot<PlayerSnapshot>> ReadPlayerAsync(
         GameApiReadContext readContext,
@@ -84,9 +78,6 @@ internal sealed class RoadhogSnapshotReader : IRoadhogSnapshotReader
     public Task<PublishedGameSnapshot<SummonedPetRosterSnapshot>> ReadSummonedPetRosterAsync(long afterVersion = 0) =>
         ReadSummonedPetRosterAsync(_readContext, afterVersion);
 
-    public Task<PublishedGameSnapshot<SummonedPetRosterSnapshot>> ReadCurrentSummonedPetRosterAsync(long afterVersion = 0) =>
-        ReadSummonedPetRosterAsync(_currentReadContext, afterVersion);
-
     private Task<PublishedGameSnapshot<SummonedPetRosterSnapshot>> ReadSummonedPetRosterAsync(
         GameApiReadContext readContext,
         long afterVersion) =>
@@ -117,9 +108,6 @@ internal sealed class RoadhogSnapshotReader : IRoadhogSnapshotReader
     public Task<PublishedGameSnapshot<TacticsSignSnapshot>> ReadTacticsSignsAsync(long afterVersion = 0) =>
         ReadTacticsSignsAsync(_readContext, afterVersion);
 
-    public Task<PublishedGameSnapshot<TacticsSignSnapshot>> ReadCurrentTacticsSignsAsync(long afterVersion = 0) =>
-        ReadTacticsSignsAsync(_currentReadContext, afterVersion);
-
     private Task<PublishedGameSnapshot<TacticsSignSnapshot>> ReadTacticsSignsAsync(
         GameApiReadContext readContext,
         long afterVersion) =>
@@ -134,9 +122,6 @@ internal sealed class RoadhogSnapshotReader : IRoadhogSnapshotReader
 
     public Task<PublishedGameSnapshot<ChannelSnapshot>> ReadChannelAsync(long afterVersion = 0) =>
         ReadChannelAsync(_readContext, afterVersion);
-
-    public Task<PublishedGameSnapshot<ChannelSnapshot>> ReadCurrentChannelAsync(long afterVersion = 0) =>
-        ReadChannelAsync(_currentReadContext, afterVersion);
 
     private Task<PublishedGameSnapshot<ChannelSnapshot>> ReadChannelAsync(
         GameApiReadContext readContext,
@@ -154,9 +139,6 @@ internal sealed class RoadhogSnapshotReader : IRoadhogSnapshotReader
 
     public Task<PublishedGameSnapshot<LockedTargetSnapshot>> ReadLockedTargetAsync(long afterVersion = 0) =>
         ReadLockedTargetAsync(_readContext, afterVersion);
-
-    public Task<PublishedGameSnapshot<LockedTargetSnapshot>> ReadCurrentLockedTargetAsync(long afterVersion = 0) =>
-        ReadLockedTargetAsync(_currentReadContext, afterVersion);
 
     private Task<PublishedGameSnapshot<LockedTargetSnapshot>> ReadLockedTargetAsync(
         GameApiReadContext readContext,
@@ -294,13 +276,7 @@ internal sealed class RoadhogSnapshotReader : IRoadhogSnapshotReader
 
             if (observed.Success && observed.Value is { } value && (validate is null || validate(value)))
             {
-                long version;
-                lock (_versionSync)
-                {
-                    _versions.TryGetValue(channel, out version);
-                    version++;
-                    _versions[channel] = version;
-                }
+                var version = AdvanceVersion(channel);
 
                 if (version > afterVersion)
                 {
@@ -315,6 +291,17 @@ internal sealed class RoadhogSnapshotReader : IRoadhogSnapshotReader
             }
 
             await Task.Delay(RetryDelay, _stopToken).ConfigureAwait(false);
+        }
+    }
+
+    private long AdvanceVersion(string channel)
+    {
+        lock (_versionSync)
+        {
+            _versions.TryGetValue(channel, out var version);
+            version++;
+            _versions[channel] = version;
+            return version;
         }
     }
 

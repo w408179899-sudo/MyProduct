@@ -1,13 +1,13 @@
 namespace Roadhog.Core.Model;
 
-public enum SummonedPetRosterReadCompleteness
+internal enum SummonedPetRosterReadCompleteness
 {
     Complete = 0,
     Partial = 1,
     Failed = 2
 }
 
-public enum SummonedPetRosterTraversalTermination
+internal enum SummonedPetRosterTraversalTermination
 {
     NotStarted = 0,
     EmptyTree = 1,
@@ -19,7 +19,7 @@ public enum SummonedPetRosterTraversalTermination
     GuardLimitReached = 7
 }
 
-public enum LocalSummonedPetPresence
+internal enum LocalSummonedPetPresence
 {
     Unknown = 0,
     Present = 1,
@@ -30,12 +30,12 @@ public enum LocalSummonedPetPresence
 /// Availability of fields needed to decide local-pet identity. A stored zero
 /// is business evidence only when its matching availability flag is true.
 /// </summary>
-public sealed record SummonedPetRosterFieldValidity(
+internal sealed record SummonedPetRosterFieldValidity(
     bool LocalServerObjectId,
     bool LocalLinkedPetServerObjectId,
     bool VisibleActorTraversal);
 
-public sealed record SummonedPetRosterReadDiagnostics(
+internal sealed record SummonedPetRosterReadDiagnostics(
     long CaptureSequence,
     DateTimeOffset StartedAt,
     DateTimeOffset CompletedAt,
@@ -56,7 +56,7 @@ public sealed record SummonedPetRosterReadDiagnostics(
     public double DurationMilliseconds => Math.Max(0D, (CompletedAt - StartedAt).TotalMilliseconds);
 }
 
-public sealed record LocalSummonedPetPresenceDecision(
+internal sealed record LocalSummonedPetPresenceDecision(
     LocalSummonedPetPresence Presence,
     uint ServerObjectId,
     long CaptureSequence,
@@ -72,7 +72,7 @@ public sealed record LocalSummonedPetPresenceDecision(
 /// be established by a valid non-zero local link even when optional pet detail
 /// is incomplete. Absence requires a complete capture and a valid zero link.
 /// </summary>
-public sealed record SummonedPetRosterReadResult(
+internal sealed record SummonedPetRosterReadResult(
     SummonedPetRosterReadCompleteness Completeness,
     SummonedPetRosterSnapshot? Snapshot,
     SummonedPetRosterFieldValidity Fields,

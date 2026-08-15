@@ -242,7 +242,7 @@ public sealed class TeamOutputController
                 : TeamOutputTickResult.Continue(TeamOutputTickDelay);
         }
 
-        var currentTargetResult = await ReadLockedTargetAsync(context, requireCurrent: true).ConfigureAwait(false);
+        var currentTargetResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
         if (TeamLeaderTargetValidator.IsLeaderAttackTarget(
                 currentTargetResult,
                 leader,
@@ -485,7 +485,7 @@ public sealed class TeamOutputController
                 await Task.Delay(AssistTargetConfirmRetryDelay, context.StopToken).ConfigureAwait(false);
             }
 
-            lastTarget = await ReadLockedTargetAsync(context, requireCurrent: true).ConfigureAwait(false);
+            lastTarget = await ReadLockedTargetAsync(context).ConfigureAwait(false);
             if (TeamLeaderTargetValidator.IsLeaderAttackTarget(
                     lastTarget,
                     leader,
@@ -546,7 +546,7 @@ public sealed class TeamOutputController
             return MemberSelectionResult.NotSelected;
         }
 
-        var current = await ReadLockedTargetAsync(context, requireCurrent: true).ConfigureAwait(false);
+        var current = await ReadLockedTargetAsync(context).ConfigureAwait(false);
         if (IsSelectedMemberBody(current, member))
         {
             return MemberSelectionResult.AlreadySelectedResult;
@@ -570,7 +570,7 @@ public sealed class TeamOutputController
             }
 
             await Task.Delay(SelectConfirmDelay, context.StopToken).ConfigureAwait(false);
-            current = await ReadLockedTargetAsync(context, requireCurrent: true).ConfigureAwait(false);
+            current = await ReadLockedTargetAsync(context).ConfigureAwait(false);
             if (IsSelectedMemberBody(current, member))
             {
                 context.Logger.Info("team_output.leader_selected", new Dictionary<string, object?>
@@ -859,15 +859,8 @@ public sealed class TeamOutputController
         return DateTimeOffset.Now - lastLogAt >= WarningLogInterval;
     }
 
-    private static async Task<LockedTargetSnapshot> ReadLockedTargetAsync(
-        AccountWorkerContext context,
-        bool requireCurrent = false)
-    {
-        var snapshot = requireCurrent
-            ? await context.Snapshots.ReadCurrentLockedTargetAsync().ConfigureAwait(false)
-            : await context.Snapshots.ReadLockedTargetAsync().ConfigureAwait(false);
-        return snapshot.Value;
-    }
+    private static async Task<LockedTargetSnapshot> ReadLockedTargetAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadLockedTargetAsync().ConfigureAwait(false)).Value;
 
     private static async Task<IReadOnlyList<WorldObjectSnapshot>> ReadWorldObjectsAsync(AccountWorkerContext context) =>
         (await context.Snapshots.ReadWorldObjectsAsync().ConfigureAwait(false)).Value;

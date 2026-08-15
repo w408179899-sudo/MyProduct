@@ -15,7 +15,7 @@ using Vmmsharp;
 
 namespace Roadhog.Infrastructure.Vmm;
 
-public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IRoadhogScopedWorldObjectReadQualityGameApi, IRoadhogScopedSummonedPetRosterReadQualityGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi
+internal sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IRoadhogScopedWorldObjectReadQualityGameApi, IRoadhogScopedSummonedPetRosterReadQualityGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi
 #if DEBUG
     , IRoadhogApiAddressProbe
 #endif
@@ -761,12 +761,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 ["returnedCount"] = merged.Count
             });
 
-        // Fresh callers are waiting for a complete post-action publication.
-        // The valid fields above are still merged into the one current snapshot,
-        // but an incomplete traversal cannot prove that an absent item was deleted.
-        return context.RequireFresh
-            ? failed
-            : OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Ok(merged);
+        return OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Ok(merged);
     }
 
     private static bool HasCompleteInventoryItemFields(InventoryItemObservation observation)
@@ -894,9 +889,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 ["observedCount"] = read.Observations.Count,
                 ["returnedCount"] = merged.Count
             });
-        return context.RequireFresh
-            ? failed
-            : OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(merged);
+        return OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(merged);
     }
 
     private OperationResult<SummonedPetRosterSnapshot> ReadStableSummonedPetRosterCore(
@@ -968,9 +961,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 ["localPetServerObjectId"] = merged.LocalLinkedPetServerObjectId,
                 ["visiblePetCount"] = merged.VisibleSummonedPetCount
             });
-        return context.RequireFresh
-            ? failed
-            : OperationResult<SummonedPetRosterSnapshot>.Ok(merged);
+        return OperationResult<SummonedPetRosterSnapshot>.Ok(merged);
     }
 
     private static bool HasCompleteWorldObjectFields(WorldObjectObservation observation)
@@ -1069,7 +1060,10 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         var current = read.Snapshot;
         var localIdentityReliable = read.Fields.LocalServerObjectId &&
                                     read.Fields.LocalLinkedPetServerObjectId;
-        var local = localIdentityReliable
+        var localPresenceReliable = localIdentityReliable &&
+                                    (current.LocalLinkedPetServerObjectId == 0 ||
+                                     current.LocalPlayerPet.Pet.ServerObjectId == current.LocalLinkedPetServerObjectId);
+        var local = localPresenceReliable
             ? MergeOwnedPetHealth(current.LocalPlayerPet, previous.LocalPlayerPet)
             : previous.LocalPlayerPet;
         var partyPets = read.Fields.VisibleActorTraversal &&
@@ -1088,7 +1082,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             LocalServerObjectId = read.Fields.LocalServerObjectId
                 ? current.LocalServerObjectId
                 : previous.LocalServerObjectId,
-            LocalLinkedPetServerObjectId = read.Fields.LocalLinkedPetServerObjectId
+            LocalLinkedPetServerObjectId = localPresenceReliable
                 ? current.LocalLinkedPetServerObjectId
                 : previous.LocalLinkedPetServerObjectId,
             LocalPlayerPet = local,

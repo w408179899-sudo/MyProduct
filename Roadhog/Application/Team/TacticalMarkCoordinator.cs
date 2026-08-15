@@ -183,10 +183,10 @@ public sealed class TacticalMarkCoordinator
     }
 
     private static async Task<TacticsSignSnapshot> ReadTacticsSignsAsync(AccountWorkerContext context) =>
-        (await context.Snapshots.ReadCurrentTacticsSignsAsync().ConfigureAwait(false)).Value;
+        (await context.Snapshots.ReadTacticsSignsAsync().ConfigureAwait(false)).Value;
 
     private static async Task<LockedTargetSnapshot> ReadLockedTargetAsync(AccountWorkerContext context) =>
-        (await context.Snapshots.ReadCurrentLockedTargetAsync().ConfigureAwait(false)).Value;
+        (await context.Snapshots.ReadLockedTargetAsync().ConfigureAwait(false)).Value;
 }
 
 public sealed class LeaderTacticalMarkState

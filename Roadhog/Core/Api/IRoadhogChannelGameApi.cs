@@ -3,13 +3,13 @@ using Roadhog.Core.Model;
 
 namespace Roadhog.Core.Api;
 
-public interface IRoadhogChannelGameApi
+internal interface IRoadhogChannelGameApi
 {
     Task<OperationResult<ChannelSnapshot>> ReadChannelAsync(
         CancellationToken cancellationToken = default);
 }
 
-public interface IRoadhogScopedChannelGameApi : IRoadhogChannelGameApi
+internal interface IRoadhogScopedChannelGameApi : IRoadhogChannelGameApi
 {
     Task<OperationResult<ChannelSnapshot>> ReadChannelAsync(
         GameApiReadContext context,

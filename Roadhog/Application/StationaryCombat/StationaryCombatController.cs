@@ -16,7 +16,6 @@ namespace Roadhog.Application.StationaryCombat;
 
 public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 {
-    private static readonly TimeSpan ScanInterval = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan TabInterval = TimeSpan.FromMilliseconds(180);
     private static readonly TimeSpan MoveTickDelay = TimeSpan.FromMilliseconds(80);
     private static readonly TimeSpan IdleDelay = TimeSpan.FromMilliseconds(200);
@@ -200,7 +199,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 
             state.Gather.Reset();
             state.CachedGatherSnapshot = null;
-            state.LastGatherScanAt = DateTimeOffset.MinValue;
         }
 
         var homeResult = await TryResolveStationaryHomeAsync(context, state).ConfigureAwait(false);
@@ -348,8 +346,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             noTargetRestWakeTarget = await SelectMaintenanceDefenseTargetAsync(
                     context,
                     state,
-                    playerPosition,
-                    forceRefresh: true)
+                    playerPosition)
                 .ConfigureAwait(false);
             noTargetRestWakeTarget ??= await SelectTargetAsync(
                     context,
@@ -357,8 +354,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     playerPosition,
                     home,
                     radius,
-                    combat.ContestMonster,
-                    forceRefresh: true)
+                    combat.ContestMonster)
                 .ConfigureAwait(false);
         }
 
@@ -404,8 +400,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     noTargetRestWakeTarget = await SelectMaintenanceDefenseTargetAsync(
                             context,
                             state,
-                            playerPosition,
-                            forceRefresh: true)
+                            playerPosition)
                         .ConfigureAwait(false);
                     if (noTargetRestWakeTarget?.Position is not null)
                     {
@@ -478,8 +473,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 noTargetRestWakeTarget = await SelectMaintenanceDefenseTargetAsync(
                         context,
                         state,
-                        playerPosition,
-                        forceRefresh: true)
+                        playerPosition)
                     .ConfigureAwait(false);
                 noTargetRestWakeTarget ??= await SelectTargetAsync(
                         context,
@@ -637,8 +631,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             target = await SelectMaintenanceDefenseTargetAsync(
                     context,
                     state,
-                    playerPosition,
-                    forceRefresh: semiAutoState.IsMaintenanceResting)
+                    playerPosition)
                 .ConfigureAwait(false);
         }
 
@@ -2672,8 +2665,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         var target = await SelectMaintenanceDefenseTargetAsync(
                 context,
                 state,
-                playerPosition,
-                forceRefresh: semiAutoState.IsMaintenanceResting)
+                playerPosition)
             .ConfigureAwait(false);
         if (target is not null && semiAutoState.IsMaintenanceResting)
         {
@@ -2709,8 +2701,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     playerPosition,
                     playerPosition,
                     radius,
-                    allowClaimedByOther,
-                    forceRefresh: true)
+                    allowClaimedByOther)
                 .ConfigureAwait(false);
         }
 
@@ -3282,12 +3273,11 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         Vector3Snapshot playerPosition,
         bool allowRevivePathClear)
     {
-        var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh: true).ConfigureAwait(false);
+        var objects = await RefreshWorldObjectsAsync(context, state).ConfigureAwait(false);
         var target = await SelectMaintenanceDefenseTargetAsync(
                 context,
                 state,
                 playerPosition,
-                forceRefresh: false,
                 preloadedObjects: objects)
             .ConfigureAwait(false);
         if (target?.Position is not null)
@@ -3342,7 +3332,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 context,
                 state,
                 playerPosition,
-                forceRefresh: false,
                 preloadedObjects: objects)
             .ConfigureAwait(false);
         return target?.Position is null
@@ -3922,7 +3911,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return true;
         }
 
-        var lockedResult = await ReadFreshLockedTargetAsync(context).ConfigureAwait(false);
+        var lockedResult = await ReadLockedTargetForActionAsync(context).ConfigureAwait(false);
         if (lockedResult.ServerObjectId != localPetServerObjectId)
         {
             return true;
@@ -3976,7 +3965,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 elapsedMs += waitMs;
             }
 
-            var verifyResult = await ReadFreshLockedTargetAsync(context).ConfigureAwait(false);
+            var verifyResult = await ReadLockedTargetForActionAsync(context).ConfigureAwait(false);
             var matched = verifyResult is { IsMonsterAlive: true } verifiedTarget &&
                           StationaryCombatState.IsSameTarget(
                               expectedEntityId,
@@ -5080,7 +5069,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return playerDistanceFromHome > radius ? MoveTickDelay : IdleDelay;
         }
 
-        var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh: true).ConfigureAwait(false);
+        var objects = await RefreshWorldObjectsAsync(context, state).ConfigureAwait(false);
         var target = objects.FirstOrDefault(candidate =>
             StationaryCombatState.IsSameTarget(
                 targetEntityId,
@@ -5684,8 +5673,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return null;
         }
 
-        var forceRefresh = delayMs <= ReadTabVerifyPollMs();
-        var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh).ConfigureAwait(false);
+        var objects = await RefreshWorldObjectsAsync(context, state).ConfigureAwait(false);
         var lockedWorldTarget = objects.FirstOrDefault(candidate =>
             StationaryCombatState.IsSameTarget(
                 candidate.EntityId,
@@ -5695,6 +5683,22 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         if (lockedWorldTarget is null)
         {
             return null;
+        }
+
+        var protectedSideDelay = await TryAcceptSmartPreAimProtectedSideLockedTargetAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                target,
+                lockedTarget,
+                lockedWorldTarget,
+                home,
+                radius)
+            .ConfigureAwait(false);
+        if (protectedSideDelay is not null)
+        {
+            return protectedSideDelay.Value;
         }
 
         if (state.IsSmartPreAimHandoffTarget(target.EntityId, target.ServerObjectId) &&
@@ -5775,6 +5779,81 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 radius,
                 allowLockedFallback: true,
                 phase: "after_tab_aggressive")
+            .ConfigureAwait(false);
+    }
+
+    private async Task<TimeSpan?> TryAcceptSmartPreAimProtectedSideLockedTargetAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        WorldObjectSnapshot candidate,
+        LockedTargetSnapshot lockedTarget,
+        WorldObjectSnapshot lockedWorldTarget,
+        Vector3Snapshot home,
+        double radius)
+    {
+        if (!state.IsSmartPreAimHandoffTarget(candidate.EntityId, candidate.ServerObjectId) ||
+            lockedTarget.ServerObjectId == 0 ||
+            lockedWorldTarget.ServerObjectId == 0 ||
+            !lockedTarget.HasKnownHealth ||
+            !lockedWorldTarget.HasKnownHealth ||
+            lockedWorldTarget.Position is null ||
+            !StationaryCombatTargetSelector.IsSelectableMonster(lockedWorldTarget) ||
+            state.IsTargetTemporarilyExcluded(lockedWorldTarget, DateTimeOffset.Now))
+        {
+            return null;
+        }
+
+        var targetingLocalSide = IsTargetingLocalSide(lockedTarget, state) ||
+                                 IsTargetingLocalSide(lockedWorldTarget, state);
+        var targetingRecordedTeamProtection = state.IsTeamLeaderProtectionTarget(lockedWorldTarget);
+        var targetingTeamSide = false;
+        if (!targetingLocalSide && !targetingRecordedTeamProtection && lockedTarget.TargetServerObjectId != 0)
+        {
+            var teamSideServerObjectIds = await ResolveSmartPreAimTeamSideServerObjectIdsAsync(
+                    context,
+                    state,
+                    DateTimeOffset.Now)
+                .ConfigureAwait(false);
+            targetingTeamSide = teamSideServerObjectIds.Contains(lockedTarget.TargetServerObjectId);
+        }
+
+        if (!targetingLocalSide && !targetingTeamSide && !targetingRecordedTeamProtection)
+        {
+            return null;
+        }
+
+        if (targetingTeamSide)
+        {
+            state.MarkTeamLeaderProtectionTarget(lockedWorldTarget);
+        }
+
+        context.Logger.Info("stationary_combat.smart_preaim.handoff_defense_lock_accepted", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["candidateEntityId"] = candidate.EntityId,
+            ["candidateServerObjectId"] = candidate.ServerObjectId,
+            ["lockedEntityId"] = lockedWorldTarget.EntityId,
+            ["lockedServerObjectId"] = lockedWorldTarget.ServerObjectId,
+            ["lockedTargetingServerObjectId"] = lockedTarget.TargetServerObjectId,
+            ["worldTargetingServerObjectId"] = lockedWorldTarget.TargetServerObjectId,
+            ["targetingLocalSide"] = targetingLocalSide,
+            ["targetingTeamSide"] = targetingTeamSide,
+            ["recordedTeamProtection"] = targetingRecordedTeamProtection
+        });
+
+        return await TryAcquireLockedTargetAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                lockedWorldTarget,
+                lockedTarget,
+                home,
+                radius,
+                allowLockedFallback: false,
+                phase: "after_tab_smart_preaim_defense")
             .ConfigureAwait(false);
     }
 
@@ -5985,7 +6064,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return false;
         }
 
-        var player = await ReadFreshPlayerAsync(context).ConfigureAwait(false);
+        var player = await ReadPlayerForActionAsync(context).ConfigureAwait(false);
         var faced = await FaceTargetStepAsync(context, state, player, targetPosition, target).ConfigureAwait(false);
         if (!faced)
         {
@@ -6501,7 +6580,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         Vector3Snapshot home,
         double radius)
     {
-        var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh: true).ConfigureAwait(false);
+        var objects = await RefreshWorldObjectsAsync(context, state).ConfigureAwait(false);
         var lockedWorldTarget = objects.FirstOrDefault(target =>
             StationaryCombatState.IsSameTarget(
                 target.EntityId,
@@ -7148,8 +7227,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         var target = await SelectMaintenanceDefenseTargetAsync(
                 context,
                 state,
-                playerPosition,
-                forceRefresh: true)
+                playerPosition)
             .ConfigureAwait(false);
         target ??= await SelectTargetAsync(
                 context,
@@ -7370,8 +7448,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         var target = await SelectMaintenanceDefenseTargetAsync(
                 context,
                 state,
-                playerPosition,
-                forceRefresh: true)
+                playerPosition)
             .ConfigureAwait(false);
         target ??= await SelectTargetAsync(
                 context,
@@ -7613,10 +7690,9 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         Vector3Snapshot playerPosition,
         Vector3Snapshot home,
         double radius,
-        bool allowClaimedByOther,
-        bool forceRefresh = false)
+        bool allowClaimedByOther)
     {
-        var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh).ConfigureAwait(false);
+        var objects = await RefreshWorldObjectsAsync(context, state).ConfigureAwait(false);
         var now = DateTimeOffset.Now;
         var preferAggressiveMonsters = PrefersAggressiveMonsters(context);
         var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
@@ -7897,11 +7973,10 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         AccountWorkerContext context,
         StationaryCombatState state,
         Vector3Snapshot playerPosition,
-        bool forceRefresh,
         IReadOnlyList<WorldObjectSnapshot>? preloadedObjects = null)
     {
         var objects = preloadedObjects ??
-                      await RefreshWorldObjectsAsync(context, state, forceRefresh).ConfigureAwait(false);
+                      await RefreshWorldObjectsAsync(context, state).ConfigureAwait(false);
         var now = DateTimeOffset.Now;
         var selectionOrigin = ResolvePendingNextTargetSelectionOrigin(context, state, playerPosition);
         var availableObjects = objects
@@ -8084,11 +8159,10 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         AccountWorkerContext context,
         StationaryCombatState state,
         Vector3Snapshot playerPosition,
-        bool forceRefresh,
         IReadOnlyList<WorldObjectSnapshot>? preloadedObjects = null)
     {
         var objects = preloadedObjects ??
-                      await RefreshWorldObjectsAsync(context, state, forceRefresh).ConfigureAwait(false);
+                      await RefreshWorldObjectsAsync(context, state).ConfigureAwait(false);
         var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
         var clearRadius = ResolveRevivePathAggressiveClearRadius(context.Config.ScriptSettings?.Paths);
         return objects
@@ -8619,53 +8693,38 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 
     private async Task<GatherSnapshot> RefreshGatherSnapshotAsync(
         AccountWorkerContext context,
-        StationaryCombatState state,
-        bool forceRefresh = false)
+        StationaryCombatState state)
     {
         var now = DateTimeOffset.Now;
-        if (forceRefresh ||
-            state.CachedGatherSnapshot is null ||
-            now - state.LastGatherScanAt >= ScanInterval)
-        {
-            var snapshot = await ReadGatherSnapshotAsync(context).ConfigureAwait(false);
-            state.LastGatherScanAt = now;
-            state.CachedGatherSnapshot = snapshot;
-            state.CachedWorldObjects = snapshot.NearbyMonsters;
-            state.LastWorldScanAt = now;
-            _radarSnapshots?.PublishWorldObjects(
-                context.Config.AccountName,
-                state.CachedWorldObjects,
-                now);
-        }
-
-        return state.CachedGatherSnapshot!;
+        var snapshot = await ReadGatherSnapshotAsync(context).ConfigureAwait(false);
+        state.CachedGatherSnapshot = snapshot;
+        state.CachedWorldObjects = snapshot.NearbyMonsters;
+        _radarSnapshots?.PublishWorldObjects(
+            context.Config.AccountName,
+            state.CachedWorldObjects,
+            now);
+        return snapshot;
     }
 
     private async Task<IReadOnlyList<WorldObjectSnapshot>> RefreshWorldObjectsAsync(
         AccountWorkerContext context,
-        StationaryCombatState state,
-        bool forceRefresh = false)
+        StationaryCombatState state)
     {
         var gather = context.Config.ScriptSettings?.Gather;
         if (gather?.StationaryPriorityEnabled == true)
         {
-            await RefreshGatherSnapshotAsync(context, state, forceRefresh).ConfigureAwait(false);
+            await RefreshGatherSnapshotAsync(context, state).ConfigureAwait(false);
             state.PruneIgnoredTargets(state.CachedWorldObjects);
             state.PruneTemporaryTargetExclusions(state.CachedWorldObjects, DateTimeOffset.Now);
             return state.CachedWorldObjects;
         }
 
         var now = DateTimeOffset.Now;
-        if (forceRefresh || state.CachedWorldObjects.Count == 0 || now - state.LastWorldScanAt >= ScanInterval)
-        {
-            state.CachedWorldObjects = await ReadWorldObjectsAsync(context).ConfigureAwait(false);
-            _radarSnapshots?.PublishWorldObjects(
-                context.Config.AccountName,
-                state.CachedWorldObjects,
-                now);
-
-            state.LastWorldScanAt = now;
-        }
+        state.CachedWorldObjects = await ReadWorldObjectsAsync(context).ConfigureAwait(false);
+        _radarSnapshots?.PublishWorldObjects(
+            context.Config.AccountName,
+            state.CachedWorldObjects,
+            now);
 
         state.PruneIgnoredTargets(state.CachedWorldObjects);
         state.PruneTemporaryTargetExclusions(state.CachedWorldObjects, now);
@@ -8687,7 +8746,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return null;
         }
 
-        var mapId = await ReadCurrentRadarMapIdAsync(context, state).ConfigureAwait(false);
+        var mapId = await ReadRadarMapIdAsync(context, state).ConfigureAwait(false);
         if (mapId == 0)
         {
             LogActionThrottled(
@@ -8736,8 +8795,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return false;
         }
 
-        var player = await ReadFreshPlayerAsync(context).ConfigureAwait(false);
-        if (player.Position is not { } playerPosition)
+        var playerSnapshot = await context.Snapshots.ReadPlayerAsync().ConfigureAwait(false);
+        if (playerSnapshot.Value.Position is not { } playerPosition)
         {
             LogRadarDirectConfirmation(
                 context,
@@ -8753,8 +8812,9 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         Vector3Snapshot? targetPosition = null;
         if (targetSource == RadarDirectTargetSource.LockedTarget)
         {
-            var target = await ReadFreshLockedTargetAsync(context).ConfigureAwait(false);
-            if (target.ServerObjectId == targetServerObjectId &&
+            var targetSnapshot = await context.Snapshots.ReadLockedTargetAsync().ConfigureAwait(false);
+            if (targetSnapshot.Value is { } target &&
+                target.ServerObjectId == targetServerObjectId &&
                 target.IsMonsterAlive &&
                 target.Position is { } position)
             {
@@ -8763,8 +8823,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
         else
         {
-            var objects = await ReadWorldObjectsAsync(context).ConfigureAwait(false);
-            targetPosition = objects
+            var worldSnapshot = await context.Snapshots.ReadWorldObjectsAsync().ConfigureAwait(false);
+            targetPosition = worldSnapshot.Value
                 .FirstOrDefault(candidate =>
                     candidate.ServerObjectId == targetServerObjectId &&
                     candidate.IsAlive &&
@@ -8839,7 +8899,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             TimeSpan.FromMilliseconds(500));
     }
 
-    private async Task<uint> ReadCurrentRadarMapIdAsync(
+    private async Task<uint> ReadRadarMapIdAsync(
         AccountWorkerContext context,
         StationaryCombatState state)
     {
@@ -9134,8 +9194,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         double reachDistance,
         Func<PathFollowStopContext, Task<bool>>? afterWaypointStopAsync = null)
     {
-        var freshPlayer = await ReadFreshPlayerAsync(context).ConfigureAwait(false);
-        player = freshPlayer;
+        var actionPlayer = await ReadPlayerForActionAsync(context).ConfigureAwait(false);
+        player = actionPlayer;
 
         var options = ReadPathFollowTurnOptions(context.Config.ScriptSettings?.Combat);
         var poller = EnsurePathFollowPoller(context, state, player, options);
@@ -11344,8 +11404,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     private static async Task<PlayerSnapshot> ReadPlayerAsync(AccountWorkerContext context) =>
         (await context.Snapshots.ReadPlayerAsync().ConfigureAwait(false)).Value;
 
-    private static async Task<PlayerSnapshot> ReadFreshPlayerAsync(AccountWorkerContext context) =>
-        (await context.Snapshots.ReadCurrentPlayerAsync().ConfigureAwait(false)).Value;
+    private static async Task<PlayerSnapshot> ReadPlayerForActionAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadPlayerAsync().ConfigureAwait(false)).Value;
 
     private static async Task RefreshLocalCombatSideAsync(
         AccountWorkerContext context,
@@ -11377,8 +11437,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     private static async Task<LockedTargetSnapshot> ReadLockedTargetAsync(AccountWorkerContext context) =>
         (await context.Snapshots.ReadLockedTargetAsync().ConfigureAwait(false)).Value;
 
-    private static async Task<LockedTargetSnapshot> ReadFreshLockedTargetAsync(AccountWorkerContext context) =>
-        (await context.Snapshots.ReadCurrentLockedTargetAsync().ConfigureAwait(false)).Value;
+    private static async Task<LockedTargetSnapshot> ReadLockedTargetForActionAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadLockedTargetAsync().ConfigureAwait(false)).Value;
 
     private static async Task<IReadOnlyList<WorldObjectSnapshot>> ReadWorldObjectsAsync(AccountWorkerContext context) =>
         (await context.Snapshots.ReadWorldObjectsAsync().ConfigureAwait(false)).Value;
@@ -11562,7 +11622,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         var interval = TimeSpan.FromMilliseconds(ReadPathFollowTickMs());
         while (!poller.Cancellation.IsCancellationRequested)
         {
-            var player = await ReadFreshPlayerAsync(context).ConfigureAwait(false);
+            var player = await ReadPlayerForActionAsync(context).ConfigureAwait(false);
             lock (poller.SyncRoot)
             {
                 if (poller.StopRequested)

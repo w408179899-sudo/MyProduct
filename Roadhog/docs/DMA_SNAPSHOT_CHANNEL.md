@@ -17,8 +17,8 @@ Roadhog 的 DMA 业务数据统一注册在 `AionVmmSnapshotChannels`，并经�
 ## 业务约束
 
 - 全部业务控制器只依赖 `AccountWorkerContext.Snapshots`，不得创建 `GameApiReadContext`，不得设置
-  `BypassMemoryCache` 或 `RequireFresh`，也不得直接引用原始 GameApi。Runtime/UI 的数据刷新入口同样只能调用快照读取器。
-- “动作后读取当前值”通过快照接口中的用途方法表达；是否绕过内存缓存、是否要求 fresh 仍由底层决定，业务不创建读取策略。
+  `BypassMemoryCache`，也不得直接引用原始 GameApi 或读数完整性类型。Runtime/UI 的数据刷新入口同样只能调用快照读取器。
+- “动作后读取当前值”不再暴露 Fresh/Current 逃生口；动作验证同样等待官方快照发布，是否绕过内存缓存由底层统一决定，业务不创建读取策略。
 - DEBUG 地址探针是明确隔离的底层诊断入口，不向业务状态机提供数据。
 - `PublishedGameSnapshot<T>.Version` 只在底层发布一份新的正常快照后增长。
 - 不可逆动作先记录版本 N，动作后等待 `Version > N`，再用新快照验证结果。

@@ -4,7 +4,7 @@ using Roadhog.Core.Model;
 
 namespace Roadhog.Infrastructure.Mock;
 
-public sealed class MockRoadhogGameApi : IRoadhogGameApi
+internal sealed class MockRoadhogGameApi : IRoadhogGameApi
 {
     public Task<OperationResult<PlayerSnapshot>> ReadPlayerAsync(CancellationToken cancellationToken = default)
     {

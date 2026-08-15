@@ -163,6 +163,7 @@ public sealed class RoadhogServices : IDisposable
             : options.UseMockGameApi
                 ? new MockRoadhogGameApi()
                 : new AionVmmGameApi(options.AionVmm, logger);
+        var snapshotReaders = new RoadhogSnapshotReaderFactory(gameApi);
         var hardwareResolver = new WindowsHardwareDeviceResolver(options.HardwareResolver);
         var processResolver = new AionProcessResolver(options.ProcessResolver);
         var accountConfigStore = new JsonAccountConfigStore(options.AccountConfigPath);
@@ -231,7 +232,7 @@ public sealed class RoadhogServices : IDisposable
             PollPlayerSnapshot = options.PollPlayerSnapshotInWorker
         };
         var accountOrchestrator = new AccountOrchestrator(
-            gameApi,
+            snapshotReaders,
             logger,
             accounts,
             hardwareResolver,
@@ -246,7 +247,7 @@ public sealed class RoadhogServices : IDisposable
             workerOptions,
             licenseCoordinator);
         var runtime = new RoadhogRuntime(
-            gameApi,
+            snapshotReaders,
             logger,
             accounts,
             accountOrchestrator,

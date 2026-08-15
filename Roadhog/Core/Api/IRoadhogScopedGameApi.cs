@@ -3,7 +3,7 @@ using Roadhog.Core.Model;
 
 namespace Roadhog.Core.Api;
 
-public interface IRoadhogScopedGameApi : IRoadhogGameApi
+internal interface IRoadhogScopedGameApi : IRoadhogGameApi
 {
     Task<OperationResult<PlayerSnapshot>> ReadPlayerAsync(
         GameApiReadContext context,

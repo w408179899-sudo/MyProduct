@@ -502,10 +502,10 @@ public sealed class FixedChannelController
     }
 
     private static async Task<ChannelSnapshot> ReadChannelAsync(AccountWorkerContext context) =>
-        (await context.Snapshots.ReadCurrentChannelAsync().ConfigureAwait(false)).Value;
+        (await context.Snapshots.ReadChannelAsync().ConfigureAwait(false)).Value;
 
     private static async Task<PlayerSnapshot> ReadPlayerAsync(AccountWorkerContext context) =>
-        (await context.Snapshots.ReadCurrentPlayerAsync().ConfigureAwait(false)).Value;
+        (await context.Snapshots.ReadPlayerAsync().ConfigureAwait(false)).Value;
 
     private static double HorizontalDistance(Vector3Snapshot left, Vector3Snapshot right)
     {

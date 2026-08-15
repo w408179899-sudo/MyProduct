@@ -6,29 +6,19 @@ public interface IRoadhogSnapshotReader
 {
     Task<PublishedGameSnapshot<PlayerSnapshot>> ReadPlayerAsync(long afterVersion = 0);
 
-    Task<PublishedGameSnapshot<PlayerSnapshot>> ReadCurrentPlayerAsync(long afterVersion = 0);
-
     Task<PublishedGameSnapshot<PlayerAbnormalStatusSnapshot>> ReadPlayerAbnormalStatusesAsync(long afterVersion = 0);
 
     Task<PublishedGameSnapshot<SummonedPetSnapshot>> ReadSummonedPetAsync(long afterVersion = 0);
 
     Task<PublishedGameSnapshot<SummonedPetRosterSnapshot>> ReadSummonedPetRosterAsync(long afterVersion = 0);
 
-    Task<PublishedGameSnapshot<SummonedPetRosterSnapshot>> ReadCurrentSummonedPetRosterAsync(long afterVersion = 0);
-
     Task<PublishedGameSnapshot<PartySnapshot>> ReadPartyAsync(long afterVersion = 0);
 
     Task<PublishedGameSnapshot<TacticsSignSnapshot>> ReadTacticsSignsAsync(long afterVersion = 0);
 
-    Task<PublishedGameSnapshot<TacticsSignSnapshot>> ReadCurrentTacticsSignsAsync(long afterVersion = 0);
-
     Task<PublishedGameSnapshot<ChannelSnapshot>> ReadChannelAsync(long afterVersion = 0);
 
-    Task<PublishedGameSnapshot<ChannelSnapshot>> ReadCurrentChannelAsync(long afterVersion = 0);
-
     Task<PublishedGameSnapshot<LockedTargetSnapshot>> ReadLockedTargetAsync(long afterVersion = 0);
-
-    Task<PublishedGameSnapshot<LockedTargetSnapshot>> ReadCurrentLockedTargetAsync(long afterVersion = 0);
 
     Task<PublishedGameSnapshot<LockedTargetAbnormalStatusSnapshot>> ReadLockedTargetAbnormalStatusesAsync(long afterVersion = 0);
 

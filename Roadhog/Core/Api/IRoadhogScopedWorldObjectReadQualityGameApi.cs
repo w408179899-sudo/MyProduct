@@ -6,7 +6,7 @@ namespace Roadhog.Core.Api;
 /// Optional capability for callers that need structural traversal completeness
 /// plus per-object field validity without changing the legacy API.
 /// </summary>
-public interface IRoadhogScopedWorldObjectReadQualityGameApi
+internal interface IRoadhogScopedWorldObjectReadQualityGameApi
 {
     Task<WorldObjectReadResult> ReadWorldObjectsWithQualityAsync(
         GameApiReadContext context,

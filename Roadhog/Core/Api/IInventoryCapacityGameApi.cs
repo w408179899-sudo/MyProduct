@@ -2,7 +2,7 @@ using Roadhog.Core.Common;
 
 namespace Roadhog.Core.Api;
 
-public interface IInventoryCapacityGameApi
+internal interface IInventoryCapacityGameApi
 {
     Task<OperationResult<int>> ReadInventoryCapacityAsync(
         GameApiReadContext context,

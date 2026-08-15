@@ -3,14 +3,14 @@ using Roadhog.Core.Common;
 
 namespace Roadhog.Core.Api;
 
-public interface IRoadhogApiAddressProbe
+internal interface IRoadhogApiAddressProbe
 {
     Task<OperationResult<IReadOnlyList<GameApiAddressProbeResult>>> ProbeAddressesAsync(
         GameApiReadContext context,
         CancellationToken cancellationToken = default);
 }
 
-public sealed record GameApiAddressProbeResult(
+internal sealed record GameApiAddressProbeResult(
     string Name,
     bool Success,
     string Detail)

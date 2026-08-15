@@ -46,11 +46,6 @@ internal sealed class DmaStableSnapshotStore
             return StableSnapshotResolution<T>.Fresh(observed);
         }
 
-        if (context.RequireFresh || channel.ReadPolicy == DmaSnapshotReadPolicy.RequireFresh)
-        {
-            return StableSnapshotResolution<T>.Failed(observed, StableSnapshotFailureReason.FreshRequired);
-        }
-
         lock (_syncRoot)
         {
             if (!_entries.TryGetValue(key, out var entry) ||
@@ -153,8 +148,7 @@ internal sealed class DmaStableSnapshotStore
 internal enum StableSnapshotFailureReason
 {
     None = 0,
-    Missing = 1,
-    FreshRequired = 2
+    Missing = 1
 }
 
 internal sealed record StableSnapshotResolution<T>(

@@ -12,7 +12,7 @@ namespace Roadhog.Application;
 public sealed class AccountOrchestrator
 {
     private readonly Dictionary<string, AccountWorkerHost> _workers = new(StringComparer.OrdinalIgnoreCase);
-    private readonly IRoadhogGameApi _gameApi;
+    private readonly IRoadhogSnapshotReaderFactory _snapshotReaders;
     private readonly IRoadhogLogger _logger;
     private readonly AccountRuntimeManager _runtimeStates;
     private readonly IHardwareDeviceResolver _hardwareResolver;
@@ -24,7 +24,7 @@ public sealed class AccountOrchestrator
     private readonly object _syncRoot = new();
 
     public AccountOrchestrator(
-        IRoadhogGameApi gameApi,
+        IRoadhogSnapshotReaderFactory snapshotReaders,
         IRoadhogLogger logger,
         AccountRuntimeManager runtimeStates,
         IHardwareDeviceResolver hardwareResolver,
@@ -33,7 +33,7 @@ public sealed class AccountOrchestrator
         AccountWorkerOptions workerOptions,
         ILicenseRuntimeGate? licenseRuntimeGate = null)
     {
-        _gameApi = gameApi;
+        _snapshotReaders = snapshotReaders;
         _logger = logger;
         _runtimeStates = runtimeStates;
         _hardwareResolver = hardwareResolver;
@@ -141,7 +141,7 @@ public sealed class AccountOrchestrator
         {
             if (!_workers.TryGetValue(accountName, out var worker))
             {
-                worker = new AccountWorkerHost(_gameApi, _logger, _runtimeStates, _workerLoop, _workerOptions);
+                worker = new AccountWorkerHost(_snapshotReaders, _logger, _runtimeStates, _workerLoop, _workerOptions);
                 _workers[accountName] = worker;
             }
 
