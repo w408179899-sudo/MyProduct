@@ -9,30 +9,32 @@ internal sealed class DmaStableSnapshotStore
 
     private readonly object _syncRoot = new();
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
-    private readonly TimeSpan _timeToLive;
+    private readonly DmaSnapshotChannelRegistry _channels;
 
-    public DmaStableSnapshotStore(TimeSpan timeToLive)
+    public DmaStableSnapshotStore(DmaSnapshotChannelRegistry channels)
     {
-        if (timeToLive <= TimeSpan.Zero)
+        _channels = channels ?? throw new ArgumentNullException(nameof(channels));
+        if (!_channels.IsSealed)
         {
-            throw new ArgumentOutOfRangeException(nameof(timeToLive));
+            throw new InvalidOperationException(
+                "DMA snapshot channel registry must be fully registered and sealed before use.");
         }
-
-        _timeToLive = timeToLive;
     }
 
     public StableSnapshotResolution<T> Resolve<T>(
         string sessionKey,
-        string dataKey,
+        DmaSnapshotChannel<T> channel,
         GameApiReadContext context,
         OperationResult<T> observed,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        string? partitionKey = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionKey);
-        ArgumentException.ThrowIfNullOrWhiteSpace(dataKey);
+        ArgumentNullException.ThrowIfNull(channel);
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(observed);
 
+        var dataKey = _channels.ResolveDataKey(channel, partitionKey);
         var key = BuildKey(sessionKey, dataKey);
         if (observed.Success && observed.Value is not null)
         {
@@ -44,7 +46,7 @@ internal sealed class DmaStableSnapshotStore
             return StableSnapshotResolution<T>.Fresh(observed);
         }
 
-        if (context.RequireFresh)
+        if (context.RequireFresh || channel.ReadPolicy == DmaSnapshotReadPolicy.RequireFresh)
         {
             return StableSnapshotResolution<T>.Failed(observed, StableSnapshotFailureReason.FreshRequired);
         }
@@ -57,12 +59,7 @@ internal sealed class DmaStableSnapshotStore
                 return StableSnapshotResolution<T>.Failed(observed, StableSnapshotFailureReason.Missing);
             }
 
-            var age = now - entry.CapturedAt;
-            if (age < TimeSpan.Zero || age > _timeToLive)
-            {
-                _entries.Remove(key);
-                return StableSnapshotResolution<T>.Failed(observed, StableSnapshotFailureReason.Expired, age);
-            }
+            var age = GetNonNegativeAge(entry.CapturedAt, now);
 
             return StableSnapshotResolution<T>.Fallback(
                 OperationResult<T>.Ok((T)entry.Value),
@@ -71,27 +68,43 @@ internal sealed class DmaStableSnapshotStore
         }
     }
 
-    public bool TryGetFresh<T>(
+    public bool TryUpdate<T>(
         string sessionKey,
-        string dataKey,
+        DmaSnapshotChannel<T> channel,
         DateTimeOffset now,
+        Func<T, T> update,
         out T? value,
-        out TimeSpan age)
+        out TimeSpan age,
+        string? partitionKey = null)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionKey);
+        ArgumentNullException.ThrowIfNull(channel);
+        ArgumentNullException.ThrowIfNull(update);
+
+        var dataKey = _channels.ResolveDataKey(channel, partitionKey);
+        if (channel.MergePolicy != DmaSnapshotMergePolicy.FieldAware)
+        {
+            throw new InvalidOperationException(
+                "DMA snapshot channel does not allow field-aware updates: " + channel.Name);
+        }
+
         var key = BuildKey(sessionKey, dataKey);
         lock (_syncRoot)
         {
             if (_entries.TryGetValue(key, out var entry) &&
                 entry.ValueType == typeof(T))
             {
-                age = now - entry.CapturedAt;
-                if (age >= TimeSpan.Zero && age <= _timeToLive)
+                age = GetNonNegativeAge(entry.CapturedAt, now);
+                var updated = update((T)entry.Value);
+                if (updated is null)
                 {
-                    value = (T)entry.Value;
-                    return true;
+                    value = default;
+                    return false;
                 }
 
-                _entries.Remove(key);
+                value = updated;
+                _entries[key] = new Entry(updated, typeof(T), now);
+                return true;
             }
         }
 
@@ -130,14 +143,18 @@ internal sealed class DmaStableSnapshotStore
     {
         return sessionKey + "\u001f" + dataKey;
     }
+
+    private static TimeSpan GetNonNegativeAge(DateTimeOffset capturedAt, DateTimeOffset now)
+    {
+        return now > capturedAt ? now - capturedAt : TimeSpan.Zero;
+    }
 }
 
 internal enum StableSnapshotFailureReason
 {
     None = 0,
     Missing = 1,
-    Expired = 2,
-    FreshRequired = 3
+    FreshRequired = 2
 }
 
 internal sealed record StableSnapshotResolution<T>(

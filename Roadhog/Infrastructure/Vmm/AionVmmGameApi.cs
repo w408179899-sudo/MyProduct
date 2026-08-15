@@ -244,6 +244,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
     private readonly DmaStableSnapshotStore _stableSnapshots;
     private readonly Dictionary<string, VmmConnection> _connections = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTimeOffset> _connectionRetryNotBefore = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> _resolvedProcessIdsBySnapshotIdentity = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> _playerReadFailureCounts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, InventoryWindowCandidate> _inventoryWindowCandidateCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _connectionSync = new();
@@ -254,6 +255,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
     private readonly Dictionary<string, DateTimeOffset> _summonedPetRosterQualityLogAtByKey = new(StringComparer.Ordinal);
     private readonly object _stableSnapshotLogSync = new();
     private readonly Dictionary<string, DateTimeOffset> _stableSnapshotLogAtByKey = new(StringComparer.Ordinal);
+    private readonly DmaSnapshotReadCoordinator _stableSnapshotReads = new();
     private SkillXmlCatalog? _xmlCatalog;
     private NpcXmlCatalog? _npcXmlCatalog;
     private bool _nativeLibrariesLoaded;
@@ -264,7 +266,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
     {
         _options = options;
         _logger = logger;
-        _stableSnapshots = new DmaStableSnapshotStore(options.StableSnapshotTimeToLive);
+        _stableSnapshots = new DmaStableSnapshotStore(AionVmmSnapshotChannels.Registry);
     }
 
     public Task<OperationResult<PlayerSnapshot>> ReadPlayerAsync(CancellationToken cancellationToken = default)
@@ -277,7 +279,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         GameApiReadContext context,
         CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => ReadStable(context, "player", () => ReadPlayerCore(context)), cancellationToken);
+        return Task.Run(
+            () => ReadStable(context, AionVmmSnapshotChannels.Player, () => ReadPlayerCore(context)),
+            cancellationToken);
     }
 
     public Task<OperationResult<PlayerAbnormalStatusSnapshot>> ReadPlayerAbnormalStatusesAsync(
@@ -292,7 +296,10 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         CancellationToken cancellationToken = default)
     {
         return Task.Run(
-            () => ReadStable(context, "player_abnormal_statuses", () => ReadPlayerAbnormalStatusesCore(context)),
+            () => ReadStable(
+                context,
+                AionVmmSnapshotChannels.PlayerAbnormalStatuses,
+                () => ReadPlayerAbnormalStatusesCore(context)),
             cancellationToken);
     }
 
@@ -306,7 +313,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         GameApiReadContext context,
         CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => ReadStable(context, "summoned_pet", () => ReadSummonedPetCore(context)), cancellationToken);
+        return Task.Run(
+            () => ReadStable(context, AionVmmSnapshotChannels.SummonedPet, () => ReadSummonedPetCore(context)),
+            cancellationToken);
     }
 
     public Task<OperationResult<SummonedPetRosterSnapshot>> ReadSummonedPetRosterAsync(
@@ -340,7 +349,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         GameApiReadContext context,
         CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => ReadStable(context, "party", () => ReadPartyCore(context)), cancellationToken);
+        return Task.Run(
+            () => ReadStable(context, AionVmmSnapshotChannels.Party, () => ReadPartyCore(context)),
+            cancellationToken);
     }
 
     public Task<OperationResult<TacticsSignSnapshot>> ReadTacticsSignsAsync(
@@ -354,7 +365,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         GameApiReadContext context,
         CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => ReadStable(context, "tactics_signs", () => ReadTacticsSignsCore(context)), cancellationToken);
+        return Task.Run(
+            () => ReadStable(context, AionVmmSnapshotChannels.TacticsSigns, () => ReadTacticsSignsCore(context)),
+            cancellationToken);
     }
 
     public Task<OperationResult<ChannelSnapshot>> ReadChannelAsync(
@@ -368,7 +381,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         GameApiReadContext context,
         CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => ReadStable(context, "channel", () => ReadChannelCore(context)), cancellationToken);
+        return Task.Run(
+            () => ReadStable(context, AionVmmSnapshotChannels.Channel, () => ReadChannelCore(context)),
+            cancellationToken);
     }
 
     public Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(CancellationToken cancellationToken = default)
@@ -381,7 +396,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         GameApiReadContext context,
         CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => ReadStable(context, "locked_target", () => ReadLockedTargetCore(context)), cancellationToken);
+        return Task.Run(
+            () => ReadStable(context, AionVmmSnapshotChannels.LockedTarget, () => ReadLockedTargetCore(context)),
+            cancellationToken);
     }
 
     public Task<OperationResult<LockedTargetAbnormalStatusSnapshot>> ReadLockedTargetAbnormalStatusesAsync(
@@ -398,7 +415,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         return Task.Run(
             () => ReadStable(
                 context,
-                "locked_target_abnormal_statuses",
+                AionVmmSnapshotChannels.LockedTargetAbnormalStatuses,
                 () => ReadLockedTargetAbnormalStatusesCore(context)),
             cancellationToken);
     }
@@ -413,7 +430,13 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         GameApiReadContext context,
         CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => ReadStable(context, "skills:all", () => ReadSkillsCore(context, null)), cancellationToken);
+        return Task.Run(
+            () => ReadStable(
+                context,
+                AionVmmSnapshotChannels.Skills,
+                () => ReadSkillsCore(context, null),
+                partitionKey: "all"),
+            cancellationToken);
     }
 
     public Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(
@@ -421,8 +444,14 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         IReadOnlyCollection<uint> skillIds,
         CancellationToken cancellationToken = default)
     {
-        var dataKey = "skills:" + string.Join(',', skillIds.OrderBy(static skillId => skillId));
-        return Task.Run(() => ReadStable(context, dataKey, () => ReadSkillsCore(context, skillIds)), cancellationToken);
+        var partitionKey = "ids:" + string.Join(',', skillIds.OrderBy(static skillId => skillId));
+        return Task.Run(
+            () => ReadStable(
+                context,
+                AionVmmSnapshotChannels.Skills,
+                () => ReadSkillsCore(context, skillIds),
+                partitionKey),
+            cancellationToken);
     }
 
     public Task<OperationResult<IReadOnlyList<InventoryItemSnapshot>>> ReadInventoryAsync(CancellationToken cancellationToken = default)
@@ -435,21 +464,27 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         GameApiReadContext context,
         CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => ReadStable(context, "inventory", () => ReadInventoryCore(context)), cancellationToken);
+        return Task.Run(
+            () => ReadStable(context, AionVmmSnapshotChannels.Inventory, () => ReadInventoryCore(context)),
+            cancellationToken);
     }
 
     public Task<OperationResult<ulong>> ReadInventoryMoneyAsync(
         GameApiReadContext context,
         CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => ReadStable(context, "inventory_money", () => ReadInventoryMoneyCore(context)), cancellationToken);
+        return Task.Run(
+            () => ReadStable(context, AionVmmSnapshotChannels.InventoryMoney, () => ReadInventoryMoneyCore(context)),
+            cancellationToken);
     }
 
     public Task<OperationResult<int>> ReadInventoryCapacityAsync(
         GameApiReadContext context,
         CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => ReadStable(context, "inventory_capacity", () => ReadInventoryCapacityCore(context)), cancellationToken);
+        return Task.Run(
+            () => ReadStable(context, AionVmmSnapshotChannels.InventoryCapacity, () => ReadInventoryCapacityCore(context)),
+            cancellationToken);
     }
 
     public Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(CancellationToken cancellationToken = default)
@@ -482,7 +517,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         GameApiReadContext context,
         CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => ReadStable(context, "gather", () => ReadStableGatherSnapshotCore(context)), cancellationToken);
+        return Task.Run(
+            () => ReadStable(context, AionVmmSnapshotChannels.Gather, () => ReadStableGatherSnapshotCore(context)),
+            cancellationToken);
     }
 
     public Task<OperationResult<IReadOnlyList<LootCorpseSnapshot>>> ReadLootCorpsesAsync(CancellationToken cancellationToken = default)
@@ -495,7 +532,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         GameApiReadContext context,
         CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => ReadStable(context, "loot_corpses", () => ReadLootCorpsesCore(context)), cancellationToken);
+        return Task.Run(
+            () => ReadStable(context, AionVmmSnapshotChannels.LootCorpses, () => ReadLootCorpsesCore(context)),
+            cancellationToken);
     }
 
     public Task<OperationResult<InventoryWindowSnapshot>> ReadInventoryWindowAsync(
@@ -513,11 +552,16 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         InventoryWindowRectSource rectSource,
         CancellationToken cancellationToken = default)
     {
+        var freshContext = context with
+        {
+            RequireFresh = true
+        };
         return Task.Run(
             () => ReadStable(
-                context with { RequireFresh = true },
-                "inventory_window:" + rectSource,
-                () => ReadInventoryWindowCore(context, rectSource)),
+                freshContext,
+                AionVmmSnapshotChannels.InventoryWindow,
+                () => ReadInventoryWindowCore(freshContext, rectSource),
+                partitionKey: rectSource.ToString()),
             cancellationToken);
     }
 
@@ -525,21 +569,40 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         GameApiReadContext context,
         CancellationToken cancellationToken = default)
     {
+        var freshContext = context with
+        {
+            RequireFresh = true
+        };
         return Task.Run(
             () => ReadStable(
-                context with { RequireFresh = true },
-                "inventory_discard_confirm",
-                () => ReadInventoryDiscardConfirmCore(context)),
+                freshContext,
+                AionVmmSnapshotChannels.InventoryDiscardConfirm,
+                () => ReadInventoryDiscardConfirmCore(freshContext)),
             cancellationToken);
     }
 
     private OperationResult<T> ReadStable<T>(
         GameApiReadContext context,
-        string dataKey,
-        Func<OperationResult<T>> read)
+        DmaSnapshotChannel<T> channel,
+        Func<OperationResult<T>> read,
+        string? partitionKey = null)
     {
+        return _stableSnapshotReads.Execute(
+            BuildStableSnapshotReadScopeKey(context),
+            channel,
+            () => StabilizeRead(context, channel, read(), DateTimeOffset.Now, partitionKey),
+            partitionKey);
+    }
+
+    private OperationResult<T> StabilizeRead<T>(
+        GameApiReadContext context,
+        DmaSnapshotChannel<T> channel,
+        OperationResult<T> observed,
+        DateTimeOffset now,
+        string? partitionKey = null)
+    {
+        var dataKey = channel.ResolveDataKey(partitionKey);
         var sessionKey = BuildStableSnapshotSessionKey(context);
-        var observed = read();
         if (!observed.Success && IsStableSnapshotSessionFailure(observed.Error))
         {
             _stableSnapshots.ClearSession(sessionKey);
@@ -548,10 +611,11 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
 
         var resolution = _stableSnapshots.Resolve(
             sessionKey,
-            dataKey,
+            channel,
             context,
             observed,
-            DateTimeOffset.Now);
+            now,
+            partitionKey);
         LogStableSnapshotResolution(context, dataKey, resolution);
         return resolution.Result;
     }
@@ -574,9 +638,23 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
     private OperationResult<IReadOnlyList<WorldObjectSnapshot>> ReadStableWorldObjectsCore(
         GameApiReadContext context)
     {
-        const string dataKey = "world_objects";
+        return _stableSnapshotReads.Execute(
+            BuildStableSnapshotReadScopeKey(context),
+            AionVmmSnapshotChannels.WorldObjects,
+            () => StabilizeWorldObjectRead(
+                context,
+                ReadWorldObjectsWithQualityCore(context),
+                DateTimeOffset.Now));
+    }
+
+    internal OperationResult<IReadOnlyList<WorldObjectSnapshot>> StabilizeWorldObjectRead(
+        GameApiReadContext context,
+        WorldObjectReadResult read,
+        DateTimeOffset now)
+    {
+        var channel = AionVmmSnapshotChannels.WorldObjects;
+        var dataKey = channel.ResolveDataKey();
         var sessionKey = BuildStableSnapshotSessionKey(context);
-        var read = ReadWorldObjectsWithQualityCore(context);
         var error = string.IsNullOrWhiteSpace(read.Error)
             ? read.Diagnostics.FirstIssue ?? "World-object capture is incomplete."
             : read.Error;
@@ -584,10 +662,11 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         if (read.Completeness == WorldObjectReadCompleteness.Complete &&
             read.Observations.All(HasCompleteWorldObjectFields))
         {
-            return ReadStable(
+            return StabilizeRead(
                 context,
-                dataKey,
-                () => OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(read.Objects));
+                channel,
+                OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(read.Objects),
+                now);
         }
 
         var failed = OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail(error);
@@ -597,26 +676,28 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             return failed;
         }
 
-        if (context.RequireFresh ||
-            !_stableSnapshots.TryGetFresh<IReadOnlyList<WorldObjectSnapshot>>(
-                sessionKey,
-                dataKey,
-                DateTimeOffset.Now,
-                out var previous,
-                out var age) ||
-            previous is null)
+        if (context.RequireFresh)
         {
-            var resolution = _stableSnapshots.Resolve(
-                sessionKey,
-                dataKey,
-                context,
-                failed,
-                DateTimeOffset.Now);
-            LogStableSnapshotResolution(context, dataKey, resolution);
-            return resolution.Result;
+            return StabilizeRead(context, channel, failed, now);
         }
 
-        var merged = MergeWorldObjectRead(read, previous);
+        if (read.Completeness == WorldObjectReadCompleteness.Failed)
+        {
+            return StabilizeRead(context, channel, failed, now);
+        }
+
+        if (!_stableSnapshots.TryUpdate<IReadOnlyList<WorldObjectSnapshot>>(
+                sessionKey,
+                channel,
+                now,
+                previous => MergeWorldObjectRead(read, previous),
+                out var merged,
+                out var age) ||
+            merged is null)
+        {
+            return StabilizeRead(context, channel, failed, now);
+        }
+
         LogStableSnapshotFallback(
             context,
             dataKey,
@@ -635,19 +716,34 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
     private OperationResult<SummonedPetRosterSnapshot> ReadStableSummonedPetRosterCore(
         GameApiReadContext context)
     {
-        const string dataKey = "summoned_pet_roster";
+        return _stableSnapshotReads.Execute(
+            BuildStableSnapshotReadScopeKey(context),
+            AionVmmSnapshotChannels.SummonedPetRoster,
+            () => StabilizeSummonedPetRosterRead(
+                context,
+                ReadSummonedPetRosterWithQualityCore(context),
+                DateTimeOffset.Now));
+    }
+
+    internal OperationResult<SummonedPetRosterSnapshot> StabilizeSummonedPetRosterRead(
+        GameApiReadContext context,
+        SummonedPetRosterReadResult read,
+        DateTimeOffset now)
+    {
+        var channel = AionVmmSnapshotChannels.SummonedPetRoster;
+        var dataKey = channel.ResolveDataKey();
         var sessionKey = BuildStableSnapshotSessionKey(context);
-        var read = ReadSummonedPetRosterWithQualityCore(context);
         var error = string.IsNullOrWhiteSpace(read.Error)
             ? read.Diagnostics.FirstIssue ?? "Summoned-pet roster capture is incomplete."
             : read.Error;
 
         if (read.Snapshot is not null && IsCompleteSummonedPetRoster(read))
         {
-            return ReadStable(
+            return StabilizeRead(
                 context,
-                dataKey,
-                () => OperationResult<SummonedPetRosterSnapshot>.Ok(read.Snapshot));
+                channel,
+                OperationResult<SummonedPetRosterSnapshot>.Ok(read.Snapshot),
+                now);
         }
 
         var failed = OperationResult<SummonedPetRosterSnapshot>.Fail(error);
@@ -657,26 +753,28 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             return failed;
         }
 
-        if (context.RequireFresh ||
-            !_stableSnapshots.TryGetFresh<SummonedPetRosterSnapshot>(
-                sessionKey,
-                dataKey,
-                DateTimeOffset.Now,
-                out var previous,
-                out var age) ||
-            previous is null)
+        if (context.RequireFresh)
         {
-            var resolution = _stableSnapshots.Resolve(
-                sessionKey,
-                dataKey,
-                context,
-                failed,
-                DateTimeOffset.Now);
-            LogStableSnapshotResolution(context, dataKey, resolution);
-            return resolution.Result;
+            return StabilizeRead(context, channel, failed, now);
         }
 
-        var merged = MergeSummonedPetRosterRead(read, previous);
+        if (read.Completeness == SummonedPetRosterReadCompleteness.Failed)
+        {
+            return StabilizeRead(context, channel, failed, now);
+        }
+
+        if (!_stableSnapshots.TryUpdate<SummonedPetRosterSnapshot>(
+                sessionKey,
+                channel,
+                now,
+                previous => MergeSummonedPetRosterRead(read, previous),
+                out var merged,
+                out var age) ||
+            merged is null)
+        {
+            return StabilizeRead(context, channel, failed, now);
+        }
+
         LogStableSnapshotFallback(
             context,
             dataKey,
@@ -851,11 +949,65 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
 
     private string BuildStableSnapshotSessionKey(GameApiReadContext context)
     {
+        var processId = context.ProcessId;
+        if (processId <= 0)
+        {
+            var processIdentityKey = BuildStableSnapshotProcessIdentityKey(context);
+            lock (_connectionSync)
+            {
+                _resolvedProcessIdsBySnapshotIdentity.TryGetValue(processIdentityKey, out processId);
+            }
+        }
+
+        return BuildStableSnapshotSessionKey(context, processId);
+    }
+
+    private string BuildStableSnapshotSessionKey(GameApiReadContext context, int processId)
+    {
         var connectionKey = BuildConnectionKey(context.VmmDeviceName);
         return connectionKey + "\u001e" +
                context.AccountName.Trim() + "\u001e" +
-               context.ProcessId.ToString(CultureInfo.InvariantCulture) + "\u001e" +
+               processId.ToString(CultureInfo.InvariantCulture) + "\u001e" +
+               ResolveProcessName(context.TargetProcessName) + "\u001e" +
+               ResolveModuleName();
+    }
+
+    private string BuildStableSnapshotProcessIdentityKey(GameApiReadContext context)
+    {
+        return BuildConnectionKey(context.VmmDeviceName) + "\u001e" +
+               context.AccountName.Trim() + "\u001e" +
                ResolveProcessName(context.TargetProcessName);
+    }
+
+    private void TrackResolvedSnapshotProcess(GameApiReadContext context, int actualProcessId)
+    {
+        if (actualProcessId <= 0)
+        {
+            return;
+        }
+
+        var identityKey = BuildStableSnapshotProcessIdentityKey(context);
+        var previousProcessId = 0;
+        lock (_connectionSync)
+        {
+            _resolvedProcessIdsBySnapshotIdentity.TryGetValue(identityKey, out previousProcessId);
+            _resolvedProcessIdsBySnapshotIdentity[identityKey] = actualProcessId;
+        }
+
+        if (previousProcessId > 0 && previousProcessId != actualProcessId)
+        {
+            _stableSnapshots.ClearSession(BuildStableSnapshotSessionKey(context, previousProcessId));
+        }
+    }
+
+    private string BuildStableSnapshotReadScopeKey(GameApiReadContext context)
+    {
+        // Use the requested identity, not the currently resolved PID.  A by-name
+        // context begins at PID 0 and learns its PID during the first read; a
+        // PID-dependent gate key would split that first queue into two gates.
+        return BuildStableSnapshotProcessIdentityKey(context) + "\u001e" +
+               context.ProcessId.ToString(CultureInfo.InvariantCulture) + "\u001e" +
+               ResolveModuleName();
     }
 
     private static bool IsStableSnapshotSessionFailure(string? error)
@@ -1733,9 +1885,15 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 TryReadUInt32(
                     process,
                     target.Actor.Actor + ActorAbnormalCategory2CountOffset,
-                    out var abnormalCategory2Count);
+                    out var abnormalCategory2Count,
+                    context.BypassMemoryCache);
 
-                if (!TryReadActorAbnormalStatusEntries(process, target.Actor.Actor, out var entries, out readError))
+                if (!TryReadActorAbnormalStatusEntries(
+                        process,
+                        target.Actor.Actor,
+                        out var entries,
+                        out readError,
+                        context.BypassMemoryCache))
                 {
                     return OperationResult<LockedTargetAbnormalStatusSnapshot>.Fail(readError);
                 }
@@ -1902,7 +2060,12 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                     return OperationResult<PlayerAbnormalStatusSnapshot>.Fail("Module not found: " + moduleName);
                 }
 
-                if (!TryReadLocalPlayerAbnormalStatuses(process, gameBase, out var snapshot, out var readError))
+                if (!TryReadLocalPlayerAbnormalStatuses(
+                        process,
+                        gameBase,
+                        out var snapshot,
+                        out var readError,
+                        context.BypassMemoryCache))
                 {
                     return OperationResult<PlayerAbnormalStatusSnapshot>.Fail(readError);
                 }
@@ -3238,6 +3401,13 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             }
 
             _connectionRetryNotBefore[key] = DateTimeOffset.Now + VmmReconnectDelay;
+            var processIdentityPrefix = key + "\u001e";
+            foreach (var identityKey in _resolvedProcessIdsBySnapshotIdentity.Keys
+                         .Where(identityKey => identityKey.StartsWith(processIdentityPrefix, StringComparison.OrdinalIgnoreCase))
+                         .ToArray())
+            {
+                _resolvedProcessIdsBySnapshotIdentity.Remove(identityKey);
+            }
         }
 
         _stableSnapshots.ClearConnection(key);
@@ -3382,6 +3552,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             {
                 if (process.IsValid)
                 {
+                    TrackResolvedSnapshotProcess(context, SafeGetProcessPid(process));
                     return true;
                 }
 
@@ -3424,6 +3595,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             return false;
         }
 
+        TrackResolvedSnapshotProcess(context, actualPid);
         return true;
     }
 
@@ -5459,47 +5631,80 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         VmmProcess process,
         ulong gameBase,
         out PlayerAbnormalStatusSnapshot snapshot,
-        out string error)
+        out string error,
+        bool bypassMemoryCache = false)
     {
         snapshot = PlayerAbnormalStatusSnapshot.Empty();
         error = string.Empty;
 
-        if (!TryReadUInt16(process, gameBase + LocalEntityIdRva, out var localEntityId) || localEntityId == 0)
+        if (!TryReadUInt16(
+                process,
+                gameBase + LocalEntityIdRva,
+                out var localEntityId,
+                bypassMemoryCache) ||
+            localEntityId == 0)
         {
             error = "failed to read local entity id at Game.dll+0x" + LocalEntityIdRva.ToString("X");
             return false;
         }
 
-        if (!TryReadPointer(process, gameBase + EntitySystemPointerRva, out var entitySystem))
+        if (!TryReadPointer(
+                process,
+                gameBase + EntitySystemPointerRva,
+                out var entitySystem,
+                bypassMemoryCache))
         {
             error = "failed to read EntitySystem pointer at Game.dll+0x" + EntitySystemPointerRva.ToString("X");
             return false;
         }
 
-        if (!TryReadPointer(process, entitySystem + EntityTreeOffset, out var entityTreeHeader))
+        if (!TryReadPointer(
+                process,
+                entitySystem + EntityTreeOffset,
+                out var entityTreeHeader,
+                bypassMemoryCache))
         {
             error = "failed to read EntitySystem tree header at EntitySystem+0x" + EntityTreeOffset.ToString("X");
             return false;
         }
 
-        if (!TryFindEntityById(process, entityTreeHeader, localEntityId, out var localEntity))
+        if (!TryFindEntityById(
+                process,
+                entityTreeHeader,
+                localEntityId,
+                out var localEntity,
+                bypassMemoryCache))
         {
             error = "local entity id " + localEntityId + " was not found in EntitySystem tree";
             return false;
         }
 
-        if (!TryResolveActorFromEntity(process, localEntity, 0, out var actor))
+        if (!TryResolveActorFromEntity(
+                process,
+                localEntity,
+                0,
+                out var actor,
+                bypassMemoryCache))
         {
             error = "failed to resolve local actor for entity id " + localEntityId;
             return false;
         }
 
-        if (!TryReadUInt32(process, actor.Actor + ActorAbnormalCategory2CountOffset, out var abnormalCategory2Count))
+        if (!TryReadUInt32(
+                process,
+                actor.Actor + ActorAbnormalCategory2CountOffset,
+                out var abnormalCategory2Count,
+                bypassMemoryCache))
         {
             error = "failed to read local abnormal category count";
             return false;
         }
-        if (!TryReadActorAbnormalStatusEntries(process, actor.Actor, out var entries, out error))
+        if (!TryReadActorAbnormalStatusEntries(
+                process,
+                actor.Actor,
+                out var entries,
+                out error,
+                bypassMemoryCache))
         {
             return false;
         }
@@ -5522,12 +5727,12 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         entries = Array.Empty<AbnormalStatusEntrySnapshot>();
         error = string.Empty;
 
-        if (!TryReadPointer(
+        if (!TryReadPointerOrNull(
                 process,
                 actorAddress + ActorAbnormalStatusBeginOffset,
                 out var begin,
                 bypassMemoryCache) ||
-            !TryReadPointer(
+            !TryReadPointerOrNull(
                 process,
                 actorAddress + ActorAbnormalStatusEndOffset,
                 out var end,
@@ -10072,6 +10277,29 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         {
             value = v32;
             return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryReadPointerOrNull(
+        VmmProcess process,
+        ulong address,
+        out ulong value,
+        bool bypassMemoryCache = false)
+    {
+        value = 0;
+        if (TryReadUInt64(process, address, out var v64, bypassMemoryCache) &&
+            (v64 == 0 || IsLikelyUserPointer(v64)))
+        {
+            value = v64;
+            return true;
+        }
+
+        if (TryReadUInt32(process, address, out var v32, bypassMemoryCache))
+        {
+            value = v32;
+            return v32 == 0 || IsLikelyUserPointer(v32);
         }
 
         return false;

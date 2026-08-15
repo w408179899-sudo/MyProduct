@@ -71,11 +71,17 @@ if (KmboxKeyPressProbe.ShouldRun(args))
 var tests = new (string Name, Func<Task> Run)[]
 {
     ("dma stable snapshot falls back to last good", TestDmaStableSnapshotFallsBackToLastGoodAsync),
-    ("dma stable snapshot fallback does not renew ttl", TestDmaStableSnapshotFallbackDoesNotRenewTtlAsync),
+    ("dma stable snapshot preserves valid zero and false", TestDmaStableSnapshotPreservesValidZeroAndFalseAsync),
+    ("dma stable snapshot retains last good until lifecycle reset", TestDmaStableSnapshotRetainsLastGoodUntilLifecycleResetAsync),
     ("dma stable snapshot fresh read fails closed", TestDmaStableSnapshotFreshReadFailsClosedAsync),
     ("dma stable snapshot isolates and clears sessions", TestDmaStableSnapshotIsolatesAndClearsSessionsAsync),
+    ("dma snapshot catalog registers every business channel", TestDmaSnapshotCatalogRegistersEveryBusinessChannelAsync),
+    ("dma snapshot registry enforces registration and partitions", TestDmaSnapshotRegistryEnforcesRegistrationAndPartitionsAsync),
+    ("dma snapshot channel serializes read and commit", TestDmaSnapshotChannelSerializesReadAndCommitAsync),
     ("dma world snapshot updates good fields and holds failed fields", TestDmaWorldSnapshotMergesFieldFailuresAsync),
+    ("dma world partial snapshot is published and failed read holds it", TestDmaWorldPartialSnapshotIsPublishedAndFailedReadHoldsItAsync),
     ("dma pet snapshot updates good health fields and holds failed fields", TestDmaPetSnapshotMergesHealthFailuresAsync),
+    ("dma pet partial snapshot is published and failed read holds it", TestDmaPetPartialSnapshotIsPublishedAndFailedReadHoldsItAsync),
     ("radar canvas projection is north up", RadarTests.CanvasProjectionIsNorthUpAsync),
     ("radar canvas marker colors match disposition", RadarTests.CanvasMarkerColorsMatchDispositionAsync),
     ("radar canvas draws continuous obstacles until cancelled", RadarTests.CanvasDrawsContinuousObstaclesUntilCancelledAsync),
@@ -366,6 +372,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat death recovery path defends when targeted", TestStationaryCombatDeathRecoveryPathDefendsWhenTargetedAsync),
     ("stationary combat death recovery path clears nearby aggressive monsters", TestStationaryCombatDeathRecoveryPathClearsNearbyAggressiveMonstersAsync),
     ("stationary combat death recovery path postpones rest for nearby aggressive after loot", TestStationaryCombatDeathRecoveryPathPostponesRestForNearbyAggressiveAfterLootAsync),
+    ("stationary combat death recovery adopts pet fight pre-aim after loot", TestStationaryCombatDeathRecoveryAdoptsPetFightPreAimAfterLootAsync),
+    ("stationary combat death recovery holds path for missing pet fight pre-aim", TestStationaryCombatDeathRecoveryHoldsPathForMissingPetFightPreAimAsync),
     ("stationary combat death recovery path interrupts rest for nearby aggressive", TestStationaryCombatDeathRecoveryPathInterruptsRestForNearbyAggressiveAsync),
     ("stationary combat death recovery path rests before continuing low hp", TestStationaryCombatDeathRecoveryPathRestsBeforeContinuingLowHpAsync),
     ("stationary combat death recovery path jumps when stuck", TestStationaryCombatDeathRecoveryPathJumpsWhenStuckAsync),
@@ -15983,6 +15991,228 @@ static async Task TestStationaryCombatDeathRecoveryPathPostponesRestForNearbyAgg
         "death recovery post-loot rest postponement should identify revive path clear target");
 }
 
+static async Task TestStationaryCombatDeathRecoveryAdoptsPetFightPreAimAfterLootAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Paths.RevivePathAggressiveClearRadius = 12;
+    settings.Maintenance.SitMaintenanceEnabled = true;
+    settings.Maintenance.SitHpBelowPercent = 30;
+    settings.Maintenance.SitHpRecoverToPercent = 75;
+    settings.Combat = new CombatScriptSettings
+    {
+        EnableLoot = true,
+        SmartPreAimEnabled = true,
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 100,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 10
+    };
+
+    const ushort targetEntityId = 240;
+    const uint targetServerObjectId = 2400;
+    var petFightTarget = new WorldObjectSnapshot(
+        targetEntityId,
+        targetServerObjectId,
+        "pet-fight-pre-aim",
+        "monster",
+        new Vector3Snapshot(20, 0, 0),
+        20,
+        1000,
+        1000,
+        TargetServerObjectId: 0,
+        IsTargetingLocalPlayer: false,
+        AggressiveKnown: true,
+        IsAggressiveToPlayer: false);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(
+            1,
+            0,
+            "Fake",
+            20,
+            100,
+            100,
+            100,
+            0,
+            new Vector3Snapshot(0, 0, 0),
+            DateTimeOffset.Now),
+        TargetEntityId = 0,
+        TargetCurrentHp = 0,
+        TargetMaxHp = 0,
+        TargetPosition = null,
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>()),
+        WorldObjects = new[] { petFightTarget }
+    };
+    var controller = new StationaryCombatController(
+        keyboard,
+        new SemiAutoCombatController(keyboard));
+    var state = new StationaryCombatState();
+    state.EnterDeathRecovery(DateTimeOffset.Now);
+    for (var i = 0; i < 7; i++)
+    {
+        state.DeathRecovery.Advance(DateTimeOffset.Now);
+    }
+
+    state.StartLootAfterKill(
+        new LockedTargetSnapshot(
+            100,
+            5000,
+            0,
+            LockedTargetSnapshot.MonsterObjectType,
+            "dead-target",
+            0,
+            100,
+            new Vector3Snapshot(2, 0, 0),
+            2,
+            DateTimeOffset.Now),
+        DateTimeOffset.Now);
+    state.LootAfterKill.MoveToPostCombatMaintenance(DateTimeOffset.Now);
+    SeedAlignedSmartPreAimCandidate(state, petFightTarget);
+    state.NextTargetPreAim.TargetingLocalSide = true;
+
+    await controller
+        .TickAsync(
+            CreateContext(settings, gameApi, logger),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            state)
+        .ConfigureAwait(false);
+
+    AssertFalse(!state.Fighting, "the retained pet-fight pre-aim target should enter combat before revive-path maintenance or movement");
+    AssertEqual(targetEntityId, state.CurrentTargetEntityId, "post-loot pet-fight handoff entity");
+    AssertEqual(targetServerObjectId, state.CurrentTargetServerObjectId, "post-loot pet-fight handoff server identity");
+    AssertFalse(state.LootAfterKill.Active, "pet-fight handoff should finish the old corpse loot flow");
+    AssertFalse(!state.CurrentTargetIsRevivePathClear, "a retained pet-fight target without a current reverse target relation should remain a revive-path clear target");
+    AssertFalse(state.CurrentTargetIsMaintenanceDefense, "stale positive pet-fight evidence must not fabricate a current targeting relation");
+    AssertFalse(keyboard.Keys.Contains("OemComma"), "pet-fight handoff should preempt post-loot sitting");
+    AssertFalse(keyboard.KeyDowns.Contains("W"), "pet-fight handoff should not resume the revive path");
+    AssertFalse(!logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.loot.post_combat_maintenance_postponed" &&
+            entry.Fields.TryGetValue("smartPreAimHandoff", out var value) &&
+            value is true &&
+            Convert.ToUInt32(entry.Fields["targetServerObjectId"]) == targetServerObjectId),
+        "post-loot handoff should log the retained smart pre-aim identity");
+    AssertFalse(!logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.smart_preaim.handoff_completed" &&
+            Convert.ToUInt32(entry.Fields["targetServerObjectId"]) == targetServerObjectId),
+        "direct post-loot adoption should complete and clear the smart pre-aim handoff");
+}
+
+static async Task TestStationaryCombatDeathRecoveryHoldsPathForMissingPetFightPreAimAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Paths.RevivePathAggressiveClearRadius = 12;
+        settings.Combat = new CombatScriptSettings
+        {
+            SmartPreAimEnabled = true,
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 100,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 10
+        };
+
+        var missingTarget = new WorldObjectSnapshot(
+            241,
+            2401,
+            "missing-pet-fight-pre-aim",
+            "monster",
+            new Vector3Snapshot(20, 0, 0),
+            20,
+            1000,
+            1000);
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(
+                1,
+                0,
+                "Fake",
+                100,
+                100,
+                100,
+                100,
+                0,
+                new Vector3Snapshot(0, 0, 0),
+                DateTimeOffset.Now,
+                90,
+                10,
+                90),
+            TargetEntityId = 0,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 0,
+            TargetPosition = null,
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>()),
+            WorldObjects = Array.Empty<WorldObjectSnapshot>()
+        };
+        var controller = new StationaryCombatController(
+            keyboard,
+            new SemiAutoCombatController(keyboard));
+        var state = new StationaryCombatState();
+        state.EnterDeathRecovery(DateTimeOffset.Now);
+        for (var i = 0; i < 7; i++)
+        {
+            state.DeathRecovery.Advance(DateTimeOffset.Now);
+        }
+
+        state.DeathRecovery.RevivePathName = "revive-a";
+        state.DeathRecovery.RevivePathPoints = new[]
+        {
+            new Vector3Snapshot(0, 0, 0),
+            new Vector3Snapshot(50, 0, 0)
+        };
+        state.DeathRecovery.RevivePathPointIndex = 1;
+        var context = CreateContext(settings, gameApi, logger);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var semiAutoState = new SemiAutoCombatState();
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        AssertFalse(!state.IsMovingForward, "revive path should be moving before the retained target becomes unavailable");
+
+        SeedAlignedSmartPreAimCandidate(state, missingTarget);
+        state.NextTargetPreAim.TargetingLocalSide = true;
+        keyboard.Keys.Clear();
+        keyboard.KeyUps.Clear();
+        var pathFollowCount = logger.Entries.Count(entry =>
+            entry.EventName == "stationary_combat.death_recovery.path_follow");
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(!keyboard.KeyUps.Contains("W"), "the first missing committed pet target snapshot should release forward movement");
+        AssertFalse(state.IsMovingForward, "the first missing committed pet target snapshot should hold the revive path");
+        AssertFalse(!state.HasSmartPreAimHandoff, "the first missing snapshot should retain the committed handoff identity");
+        AssertEqual(1, state.SmartPreAimHandoffConsecutiveMissingSnapshots, "first recovery handoff missing count");
+        AssertEqual(pathFollowCount, logger.Entries.Count(entry =>
+            entry.EventName == "stationary_combat.death_recovery.path_follow"), "the held snapshot must not emit another path-follow action");
+        AssertFalse(keyboard.Keys.Contains("Tab"), "a missing committed target must not Tab stale identity");
+        AssertFalse(keyboard.Keys.Any(key => key.StartsWith("D", StringComparison.OrdinalIgnoreCase)), "a missing committed target must not attack stale coordinates");
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        AssertEqual(2, state.SmartPreAimHandoffConsecutiveMissingSnapshots, "second recovery handoff missing count");
+        AssertFalse(!state.HasSmartPreAimHandoff, "two missing snapshots should still hold movement");
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        AssertFalse(state.HasSmartPreAimHandoff, "three missing snapshots should release the recovery handoff");
+        AssertFalse(state.NextTargetPreAim.HasCandidate, "confirmed missing recovery target should clear the retained pre-aim result");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
 static async Task TestStationaryCombatDeathRecoveryPathInterruptsRestForNearbyAggressiveAsync()
 {
     var settings = CreateScriptSettings();
@@ -30249,19 +30479,22 @@ static OperationResult<LockedTargetSnapshot> CreateFakeLockedTargetResult(
 
 static Task TestDmaStableSnapshotFallsBackToLastGoodAsync()
 {
-    var store = new DmaStableSnapshotStore(TimeSpan.FromSeconds(2));
+    var registry = new DmaSnapshotChannelRegistry();
+    var channel = registry.Register<uint>("player");
+    registry.Seal();
+    var store = new DmaStableSnapshotStore(registry);
     var context = CreateDmaSnapshotContext();
     var capturedAt = new DateTimeOffset(2026, 8, 15, 1, 0, 0, TimeSpan.Zero);
 
     var fresh = store.Resolve(
         "fpga://devindex=2\u001eaccount1\u001e7964",
-        "player",
+        channel,
         context,
         OperationResult<uint>.Ok(123),
         capturedAt);
     var fallback = store.Resolve(
         "fpga://devindex=2\u001eaccount1\u001e7964",
-        "player",
+        channel,
         context,
         OperationResult<uint>.Fail("transient dma read failure"),
         capturedAt.AddMilliseconds(250));
@@ -30274,48 +30507,86 @@ static Task TestDmaStableSnapshotFallsBackToLastGoodAsync()
     return Task.CompletedTask;
 }
 
-static Task TestDmaStableSnapshotFallbackDoesNotRenewTtlAsync()
+static Task TestDmaStableSnapshotPreservesValidZeroAndFalseAsync()
 {
-    var store = new DmaStableSnapshotStore(TimeSpan.FromSeconds(2));
+    var registry = new DmaSnapshotChannelRegistry();
+    var zeroChannel = registry.Register<uint>("zero");
+    var falseChannel = registry.Register<bool>("false");
+    registry.Seal();
+    var store = new DmaStableSnapshotStore(registry);
+    var context = CreateDmaSnapshotContext();
+    var capturedAt = new DateTimeOffset(2026, 8, 15, 1, 30, 0, TimeSpan.Zero);
+    const string session = "fpga://devindex=2\u001eaccount1\u001e7964";
+
+    store.Resolve(session, zeroChannel, context, OperationResult<uint>.Ok(0), capturedAt);
+    store.Resolve(session, falseChannel, context, OperationResult<bool>.Ok(false), capturedAt);
+    var zeroFallback = store.Resolve(
+        session,
+        zeroChannel,
+        context,
+        OperationResult<uint>.Fail("zero read failed"),
+        capturedAt.AddSeconds(3));
+    var falseFallback = store.Resolve(
+        session,
+        falseChannel,
+        context,
+        OperationResult<bool>.Fail("false read failed"),
+        capturedAt.AddSeconds(3));
+
+    AssertFalse(!zeroFallback.Result.Success || zeroFallback.Result.Value != 0, "valid zero must remain published data");
+    AssertFalse(!falseFallback.Result.Success || falseFallback.Result.Value, "valid false must remain published data");
+    return Task.CompletedTask;
+}
+
+static Task TestDmaStableSnapshotRetainsLastGoodUntilLifecycleResetAsync()
+{
+    var registry = new DmaSnapshotChannelRegistry();
+    var channel = registry.Register<string>("world");
+    registry.Seal();
+    var store = new DmaStableSnapshotStore(registry);
     var context = CreateDmaSnapshotContext();
     var capturedAt = new DateTimeOffset(2026, 8, 15, 1, 0, 0, TimeSpan.Zero);
     const string session = "fpga://devindex=2\u001eaccount1\u001e7964";
 
-    store.Resolve(session, "world", context, OperationResult<string>.Ok("complete"), capturedAt);
+    store.Resolve(session, channel, context, OperationResult<string>.Ok("complete"), capturedAt);
     var firstFallback = store.Resolve(
         session,
-        "world",
+        channel,
         context,
         OperationResult<string>.Fail("first failure"),
         capturedAt.AddSeconds(1));
-    var expired = store.Resolve(
+    var retained = store.Resolve(
         session,
-        "world",
+        channel,
         context,
         OperationResult<string>.Fail("second failure"),
-        capturedAt.AddMilliseconds(2001));
+        capturedAt.AddHours(1));
 
     AssertFalse(!firstFallback.UsedFallback, "first failure should fall back");
-    AssertFalse(expired.Result.Success, "fallback must expire from original capture time");
-    AssertEqual(StableSnapshotFailureReason.Expired, expired.FailureReason, "expiry reason");
+    AssertFalse(!retained.Result.Success || !retained.UsedFallback, "last good should remain available without a time expiry");
+    AssertEqual("complete", retained.Result.Value!, "retained value");
+    AssertEqual(TimeSpan.FromHours(1), retained.FallbackAge, "failed reads must not renew capture time");
     return Task.CompletedTask;
 }
 
 static Task TestDmaStableSnapshotFreshReadFailsClosedAsync()
 {
-    var store = new DmaStableSnapshotStore(TimeSpan.FromSeconds(2));
+    var registry = new DmaSnapshotChannelRegistry();
+    var channel = registry.Register<bool>("discard_safety");
+    registry.Seal();
+    var store = new DmaStableSnapshotStore(registry);
     var capturedAt = new DateTimeOffset(2026, 8, 15, 1, 0, 0, TimeSpan.Zero);
     const string session = "fpga://devindex=2\u001eaccount1\u001e7964";
 
     store.Resolve(
         session,
-        "discard_safety",
+        channel,
         CreateDmaSnapshotContext(),
         OperationResult<bool>.Ok(true),
         capturedAt);
     var result = store.Resolve(
         session,
-        "discard_safety",
+        channel,
         CreateDmaSnapshotContext(requireFresh: true),
         OperationResult<bool>.Fail("fresh safety read failed"),
         capturedAt.AddMilliseconds(50));
@@ -30328,23 +30599,27 @@ static Task TestDmaStableSnapshotFreshReadFailsClosedAsync()
 
 static Task TestDmaStableSnapshotIsolatesAndClearsSessionsAsync()
 {
-    var store = new DmaStableSnapshotStore(TimeSpan.FromSeconds(2));
+    var registry = new DmaSnapshotChannelRegistry();
+    var playerChannel = registry.Register<int>("player");
+    var partyChannel = registry.Register<int>("party");
+    registry.Seal();
+    var store = new DmaStableSnapshotStore(registry);
     var context = CreateDmaSnapshotContext();
     var capturedAt = new DateTimeOffset(2026, 8, 15, 1, 0, 0, TimeSpan.Zero);
     const string connection = "fpga://devindex=2";
     const string firstSession = connection + "\u001eaccount1\u001e7964";
     const string secondSession = connection + "\u001eaccount1\u001e9000";
 
-    store.Resolve(firstSession, "player", context, OperationResult<int>.Ok(7), capturedAt);
+    store.Resolve(firstSession, playerChannel, context, OperationResult<int>.Ok(7), capturedAt);
     var otherSession = store.Resolve(
         secondSession,
-        "player",
+        playerChannel,
         context,
         OperationResult<int>.Fail("no initial snapshot"),
         capturedAt.AddMilliseconds(1));
     var otherData = store.Resolve(
         firstSession,
-        "party",
+        partyChannel,
         context,
         OperationResult<int>.Fail("no party snapshot"),
         capturedAt.AddMilliseconds(1));
@@ -30355,12 +30630,262 @@ static Task TestDmaStableSnapshotIsolatesAndClearsSessionsAsync()
     store.ClearConnection(connection);
     var cleared = store.Resolve(
         firstSession,
-        "player",
+        playerChannel,
         context,
         OperationResult<int>.Fail("connection reset"),
         capturedAt.AddMilliseconds(2));
     AssertFalse(cleared.Result.Success, "connection reset must clear last-good snapshots");
     return Task.CompletedTask;
+}
+
+static Task TestDmaSnapshotCatalogRegistersEveryBusinessChannelAsync()
+{
+    var expected = new[]
+    {
+        "channel",
+        "gather",
+        "inventory",
+        "inventory_capacity",
+        "inventory_discard_confirm",
+        "inventory_money",
+        "inventory_window",
+        "locked_target",
+        "locked_target_abnormal_statuses",
+        "loot_corpses",
+        "party",
+        "player",
+        "player_abnormal_statuses",
+        "skills",
+        "summoned_pet",
+        "summoned_pet_roster",
+        "tactics_signs",
+        "world_objects"
+    };
+    var actual = AionVmmSnapshotChannels.All.Select(static channel => channel.Name).ToArray();
+
+    AssertEqual(
+        string.Join('|', expected),
+        string.Join('|', actual),
+        "registered DMA business snapshot channels");
+    AssertFalse(
+        !AionVmmSnapshotChannels.All.Single(channel => channel.Name == "skills").Partitioned,
+        "skill subsets must use explicit channel partitions");
+    AssertFalse(
+        !AionVmmSnapshotChannels.All.Single(channel => channel.Name == "inventory_window").Partitioned,
+        "inventory window rect sources must use explicit channel partitions");
+    AssertEqual(
+        DmaSnapshotMergePolicy.FieldAware,
+        AionVmmSnapshotChannels.All.Single(channel => channel.Name == "world_objects").MergePolicy,
+        "world objects must declare field-aware merge");
+    AssertEqual(
+        DmaSnapshotMergePolicy.FieldAware,
+        AionVmmSnapshotChannels.All.Single(channel => channel.Name == "summoned_pet_roster").MergePolicy,
+        "pet roster must declare field-aware merge");
+    AssertEqual(
+        DmaSnapshotReadPolicy.RequireFresh,
+        AionVmmSnapshotChannels.All.Single(channel => channel.Name == "inventory_window").ReadPolicy,
+        "inventory window must fail closed on a current read failure");
+    AssertEqual(
+        DmaSnapshotReadPolicy.RequireFresh,
+        AionVmmSnapshotChannels.All.Single(channel => channel.Name == "inventory_discard_confirm").ReadPolicy,
+        "discard confirmation must fail closed on a current read failure");
+    return Task.CompletedTask;
+}
+
+static Task TestDmaSnapshotRegistryEnforcesRegistrationAndPartitionsAsync()
+{
+    var unsealedRegistry = new DmaSnapshotChannelRegistry();
+    unsealedRegistry.Register<int>("unsealed");
+    var unsealedRejected = false;
+    try
+    {
+        _ = new DmaStableSnapshotStore(unsealedRegistry);
+    }
+    catch (InvalidOperationException)
+    {
+        unsealedRejected = true;
+    }
+
+    AssertFalse(!unsealedRejected, "snapshot store must reject a registry that is still open for late channels");
+
+    var registry = new DmaSnapshotChannelRegistry();
+    var scalar = registry.Register<int>("scalar");
+    var partitioned = registry.Register<string>("partitioned", partitioned: true);
+    var freshOnly = registry.Register<int>(
+        "fresh_only",
+        readPolicy: DmaSnapshotReadPolicy.RequireFresh);
+
+    var duplicateRejected = false;
+    try
+    {
+        registry.Register<long>("scalar");
+    }
+    catch (InvalidOperationException)
+    {
+        duplicateRejected = true;
+    }
+
+    AssertFalse(!duplicateRejected, "duplicate channel registration must fail regardless of value type");
+    registry.Seal();
+
+    var lateRegistrationRejected = false;
+    try
+    {
+        registry.Register<int>("late");
+    }
+    catch (InvalidOperationException)
+    {
+        lateRegistrationRejected = true;
+    }
+
+    AssertFalse(!lateRegistrationRejected, "sealed registry must reject unregistered future reads");
+
+    var context = CreateDmaSnapshotContext();
+    var now = new DateTimeOffset(2026, 8, 15, 3, 0, 0, TimeSpan.Zero);
+    const string session = "fpga://devindex=2\u001eaccount1\u001e7964";
+    var store = new DmaStableSnapshotStore(registry);
+    store.Resolve(session, partitioned, context, OperationResult<string>.Ok("one"), now, "one");
+    var isolated = store.Resolve(
+        session,
+        partitioned,
+        context,
+        OperationResult<string>.Fail("partition two has no value"),
+        now.AddSeconds(1),
+        "two");
+    var retained = store.Resolve(
+        session,
+        partitioned,
+        context,
+        OperationResult<string>.Fail("partition one failed"),
+        now.AddHours(1),
+        "one");
+
+    AssertFalse(isolated.Result.Success, "one channel partition must not leak into another");
+    AssertFalse(!retained.Result.Success || retained.Result.Value != "one", "registered partition should retain its last good value");
+
+    var foreignRegistry = new DmaSnapshotChannelRegistry();
+    var foreignChannel = foreignRegistry.Register<int>("scalar");
+    foreignRegistry.Seal();
+    var foreignRejected = false;
+    try
+    {
+        store.Resolve(session, foreignChannel, context, OperationResult<int>.Ok(1), now);
+    }
+    catch (InvalidOperationException)
+    {
+        foreignRejected = true;
+    }
+
+    AssertFalse(!foreignRejected, "a channel token from another registry must be rejected");
+
+    store.Resolve(session, freshOnly, context, OperationResult<int>.Ok(7), now);
+    var declaredFreshFailure = store.Resolve(
+        session,
+        freshOnly,
+        context,
+        OperationResult<int>.Fail("fresh channel failed"),
+        now.AddSeconds(1));
+    AssertFalse(declaredFreshFailure.Result.Success, "fresh-only channel policy must reject stale fallback");
+    AssertEqual(
+        StableSnapshotFailureReason.FreshRequired,
+        declaredFreshFailure.FailureReason,
+        "fresh-only channel failure reason");
+
+    var replaceUpdateRejected = false;
+    try
+    {
+        store.TryUpdate(
+            session,
+            scalar,
+            now,
+            value => value + 1,
+            out _,
+            out _);
+    }
+    catch (InvalidOperationException)
+    {
+        replaceUpdateRejected = true;
+    }
+
+    AssertFalse(!replaceUpdateRejected, "replace-only channels must reject field-aware update calls");
+
+    var unexpectedPartitionRejected = false;
+    try
+    {
+        store.Resolve(session, scalar, context, OperationResult<int>.Ok(1), now, "not-allowed");
+    }
+    catch (InvalidOperationException)
+    {
+        unexpectedPartitionRejected = true;
+    }
+
+    AssertFalse(!unexpectedPartitionRejected, "non-partitioned channels must reject ad-hoc cache keys");
+    return Task.CompletedTask;
+}
+
+static async Task TestDmaSnapshotChannelSerializesReadAndCommitAsync()
+{
+    var registry = new DmaSnapshotChannelRegistry();
+    var channel = registry.Register<int>("world_objects", partitioned: true);
+    registry.Seal();
+    var coordinator = new DmaSnapshotReadCoordinator();
+    var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var secondStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var secondEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var independentPartitionEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    var first = Task.Run(() => coordinator.Execute(
+        "account1|pid0",
+        channel,
+        () =>
+        {
+            firstEntered.TrySetResult();
+            releaseFirst.Task.GetAwaiter().GetResult();
+            return 1;
+        },
+        "nearby"));
+    await firstEntered.Task.ConfigureAwait(false);
+
+    var second = Task.Run(() =>
+    {
+        secondStarted.TrySetResult();
+        return coordinator.Execute(
+            "account1|pid0",
+            channel,
+            () =>
+            {
+                secondEntered.TrySetResult();
+                return 2;
+            },
+            "nearby");
+    });
+    var independentPartition = Task.Run(() => coordinator.Execute(
+        "account1|pid0",
+        channel,
+        () =>
+        {
+            independentPartitionEntered.TrySetResult();
+            return 3;
+        },
+        "far"));
+    await secondStarted.Task.ConfigureAwait(false);
+    await Task.WhenAny(
+            independentPartitionEntered.Task,
+            Task.Delay(TimeSpan.FromSeconds(1)))
+        .ConfigureAwait(false);
+
+    AssertFalse(secondEntered.Task.IsCompleted, "a later read must not enter before the earlier read commits");
+    AssertFalse(
+        !independentPartitionEntered.Task.IsCompleted,
+        "an independent channel partition must not wait for another partition's commit");
+    releaseFirst.TrySetResult();
+    var results = await Task.WhenAll(first, second, independentPartition).ConfigureAwait(false);
+
+    AssertEqual(1, results[0], "first serialized snapshot result");
+    AssertEqual(2, results[1], "second serialized snapshot result");
+    AssertEqual(3, results[2], "independent partition snapshot result");
+    AssertFalse(!secondEntered.Task.IsCompleted, "the queued read should enter after the prior commit");
 }
 
 static Task TestDmaWorldSnapshotMergesFieldFailuresAsync()
@@ -30429,6 +30954,108 @@ static Task TestDmaWorldSnapshotMergesFieldFailuresAsync()
     return Task.CompletedTask;
 }
 
+static Task TestDmaWorldPartialSnapshotIsPublishedAndFailedReadHoldsItAsync()
+{
+    var api = new AionVmmGameApi(new AionVmmGameApiOptions(), NoOpRoadhogLogger.Instance);
+    var context = CreateDmaSnapshotContext();
+    var startedAt = new DateTimeOffset(2026, 8, 15, 1, 0, 0, TimeSpan.Zero);
+    var initialTarget = new WorldObjectSnapshot(
+        10,
+        1000,
+        "target",
+        "monster",
+        new Vector3Snapshot(5, 0, 0),
+        5,
+        CurrentHp: 90,
+        MaxHp: 100,
+        TargetServerObjectId: 7000,
+        IsTargetingLocalPlayer: true,
+        LootableRaw: 0,
+        InteractionState: 41);
+    var temporarilyMissing = new WorldObjectSnapshot(
+        11,
+        1001,
+        "temporarily missing",
+        "monster",
+        new Vector3Snapshot(8, 0, 0),
+        8,
+        CurrentHp: 50,
+        MaxHp: 50);
+    var completeFields = new WorldObjectFieldValidity(true, true, true, true, true, true);
+    var complete = new WorldObjectReadResult(
+        WorldObjectReadCompleteness.Complete,
+        new[]
+        {
+            new WorldObjectObservation(initialTarget, completeFields),
+            new WorldObjectObservation(temporarilyMissing, completeFields)
+        },
+        CreateDmaWorldReadDiagnostics(startedAt));
+
+    var initial = api.StabilizeWorldObjectRead(context, complete, startedAt);
+    AssertFalse(!initial.Success, "complete world snapshot should publish");
+
+    var partialObserved = initialTarget with
+    {
+        Position = new Vector3Snapshot(4, 0, 0),
+        DistanceToLocalPlayer = 4,
+        CurrentHp = 0,
+        MaxHp = 120,
+        TargetServerObjectId = 8000,
+        IsTargetingLocalPlayer = false,
+        LootableRaw = 1,
+        InteractionState = 37
+    };
+    var partial = new WorldObjectReadResult(
+        WorldObjectReadCompleteness.Partial,
+        new[]
+        {
+            new WorldObjectObservation(
+                partialObserved,
+                new WorldObjectFieldValidity(false, true, true, false, true, true))
+        },
+        CreateDmaWorldReadDiagnostics(startedAt.AddSeconds(5)),
+        "injected partial read");
+    var merged = api.StabilizeWorldObjectRead(context, partial, startedAt.AddSeconds(5));
+    AssertFalse(!merged.Success, "partial world snapshot should merge into the stable snapshot");
+    var mergedTarget = merged.Value!.Single(item => item.ServerObjectId == initialTarget.ServerObjectId);
+    AssertEqual(2, merged.Value!.Count, "partial world snapshot should retain missing objects");
+    AssertEqual(90u, mergedTarget.CurrentHp, "partial merge should hold failed hp");
+    AssertEqual(120u, mergedTarget.MaxHp, "partial merge should publish valid max hp");
+
+    var failedObservation = new WorldObjectObservation(
+        partialObserved with { CurrentHp = 1, MaxHp = 1 },
+        completeFields);
+    var failed = new WorldObjectReadResult(
+        WorldObjectReadCompleteness.Failed,
+        new[] { failedObservation },
+        CreateDmaWorldReadDiagnostics(startedAt.AddHours(1)),
+        "transient dma failure");
+    var held = api.StabilizeWorldObjectRead(context, failed, startedAt.AddHours(1));
+    AssertFalse(!held.Success, "failed world read should return the stable snapshot even after the former ttl");
+    var heldTarget = held.Value!.Single(item => item.ServerObjectId == initialTarget.ServerObjectId);
+    AssertEqual(2, held.Value!.Count, "failed world read must not prune objects");
+    AssertEqual(90u, heldTarget.CurrentHp, "failed world read must not update current hp");
+    AssertEqual(120u, heldTarget.MaxHp, "failed world read should retain the published partial merge");
+
+    var completeEmpty = new WorldObjectReadResult(
+        WorldObjectReadCompleteness.Complete,
+        Array.Empty<WorldObjectObservation>(),
+        CreateDmaWorldReadDiagnostics(startedAt.AddHours(2)));
+    var pruned = api.StabilizeWorldObjectRead(context, completeEmpty, startedAt.AddHours(2));
+    AssertFalse(!pruned.Success || pruned.Value!.Count != 0, "complete empty world snapshot should prune prior objects");
+
+    var sessionFailure = new WorldObjectReadResult(
+        WorldObjectReadCompleteness.Failed,
+        Array.Empty<WorldObjectObservation>(),
+        CreateDmaWorldReadDiagnostics(startedAt.AddHours(3)),
+        "Target process not found: Aion.bin");
+    var invalidated = api.StabilizeWorldObjectRead(context, sessionFailure, startedAt.AddHours(3));
+    var afterInvalidation = api.StabilizeWorldObjectRead(context, failed, startedAt.AddHours(4));
+    AssertFalse(invalidated.Success, "process lifecycle failure should fail and invalidate the stable snapshot");
+    AssertFalse(afterInvalidation.Success, "no snapshot should survive process lifecycle invalidation");
+    return Task.CompletedTask;
+}
+
 static Task TestDmaPetSnapshotMergesHealthFailuresAsync()
 {
     var previous = CreateLocalPetRoster(isSummoned: true, currentHp: 10, maxHp: 100);
@@ -30455,6 +31082,51 @@ static Task TestDmaPetSnapshotMergesHealthFailuresAsync()
     AssertFalse(!pet.HealthFields.CurrentHp, "merged current hp should remain reliable from last good");
     AssertFalse(!pet.HealthFields.MaxHp, "merged max hp should be reliable from current read");
     AssertFalse(!pet.HealthFields.HpPercent, "merged hp percent should remain reliable from last good");
+    return Task.CompletedTask;
+}
+
+static Task TestDmaPetPartialSnapshotIsPublishedAndFailedReadHoldsItAsync()
+{
+    var api = new AionVmmGameApi(new AionVmmGameApiOptions(), NoOpRoadhogLogger.Instance);
+    var context = CreateDmaSnapshotContext();
+    var startedAt = new DateTimeOffset(2026, 8, 15, 2, 0, 0, TimeSpan.Zero);
+    var initialRoster = CreateLocalPetRoster(isSummoned: true, currentHp: 10, maxHp: 100);
+    var complete = new SummonedPetRosterReadResult(
+        SummonedPetRosterReadCompleteness.Complete,
+        initialRoster,
+        new SummonedPetRosterFieldValidity(true, true, true),
+        CreateDmaPetReadDiagnostics(startedAt));
+    var initial = api.StabilizeSummonedPetRosterRead(context, complete, startedAt);
+    AssertFalse(!initial.Success, "complete pet roster should publish");
+
+    var partialRoster = CreateLocalPetRoster(
+        isSummoned: true,
+        currentHp: 0,
+        maxHp: 120,
+        currentHpAvailable: false,
+        maxHpAvailable: true,
+        hpPercentAvailable: false);
+    var partial = new SummonedPetRosterReadResult(
+        SummonedPetRosterReadCompleteness.Partial,
+        partialRoster,
+        new SummonedPetRosterFieldValidity(true, true, true),
+        CreateDmaPetReadDiagnostics(startedAt.AddSeconds(5)),
+        "injected partial pet read");
+    var merged = api.StabilizeSummonedPetRosterRead(context, partial, startedAt.AddSeconds(5));
+    AssertFalse(!merged.Success, "partial pet roster should merge into the stable snapshot");
+    AssertEqual(10u, merged.Value!.LocalPlayerPet.Pet.CurrentHp, "partial pet merge should hold failed current hp");
+    AssertEqual(120u, merged.Value.LocalPlayerPet.Pet.MaxHp, "partial pet merge should publish valid max hp");
+
+    var failed = SummonedPetRosterReadResult.Failed(
+        3,
+        startedAt.AddHours(1),
+        startedAt.AddHours(1),
+        false,
+        "transient dma failure");
+    var held = api.StabilizeSummonedPetRosterRead(context, failed, startedAt.AddHours(1));
+    AssertFalse(!held.Success, "failed pet read should return the stable snapshot even after the former ttl");
+    AssertEqual(10u, held.Value!.LocalPlayerPet.Pet.CurrentHp, "failed pet read must not update current hp");
+    AssertEqual(120u, held.Value.LocalPlayerPet.Pet.MaxHp, "failed pet read should retain the published partial merge");
     return Task.CompletedTask;
 }
 

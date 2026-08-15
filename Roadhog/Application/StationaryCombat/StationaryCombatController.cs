@@ -273,7 +273,11 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             (!state.DeathRecovery.RevivePathLeaderSiphonActive || player.IsDead))
         {
             await StopSoloJumpAsync(state, "stationary_death_recovery").ConfigureAwait(false);
-            StopNextTargetPreAim(context, state, "death_recovery", clearCandidate: true);
+            if (!ShouldPreserveDeathRecoverySmartPreAim(state, player))
+            {
+                StopNextTargetPreAim(context, state, "death_recovery", clearCandidate: true);
+            }
+
             return await TickDeathRecoveryAsync(
                     context,
                     plan,
@@ -3435,6 +3439,111 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         });
     }
 
+    private async Task<RecoveryDefenseSelection> SelectRecoveryDefenseTargetAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        Vector3Snapshot playerPosition,
+        bool allowRevivePathClear)
+    {
+        var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh: true).ConfigureAwait(false);
+        var target = await SelectMaintenanceDefenseTargetAsync(
+                context,
+                state,
+                playerPosition,
+                forceRefresh: false,
+                preloadedObjects: objects)
+            .ConfigureAwait(false);
+        if (target?.Position is not null)
+        {
+            if (state.HasSmartPreAimHandoff &&
+                !state.IsSmartPreAimHandoffTarget(target.EntityId, target.ServerObjectId))
+            {
+                ReleaseSmartPreAimHandoff(context, state, "target_override", clearPreAimCandidate: true);
+            }
+
+            return new RecoveryDefenseSelection(target, false, false, false);
+        }
+
+        if (!allowRevivePathClear)
+        {
+            return RecoveryDefenseSelection.None;
+        }
+
+        var clearRadius = ResolveRevivePathAggressiveClearRadius(context.Config.ScriptSettings?.Paths);
+        var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
+        if (IsSmartPreAimEnabled(context) &&
+            TryResolveSmartPreAimHandoffTarget(
+                context,
+                state,
+                objects,
+                DateTimeOffset.Now,
+                playerPosition,
+                clearRadius,
+                allowClaimedByOther: false,
+                activeMonsterNameFilters,
+                out var handoffTarget,
+                additionalEligibility: candidate =>
+                    IsRevivePathSmartPreAimHandoffEligible(
+                        candidate,
+                        state,
+                        playerPosition,
+                        clearRadius)))
+        {
+            if (handoffTarget?.Position is null)
+            {
+                return new RecoveryDefenseSelection(null, false, true, true);
+            }
+
+            return new RecoveryDefenseSelection(
+                handoffTarget,
+                !IsMaintenanceDefenseTarget(handoffTarget, state),
+                false,
+                true);
+        }
+
+        target = await SelectRevivePathAggressiveClearTargetAsync(
+                context,
+                state,
+                playerPosition,
+                forceRefresh: false,
+                preloadedObjects: objects)
+            .ConfigureAwait(false);
+        return target?.Position is null
+            ? RecoveryDefenseSelection.None
+            : new RecoveryDefenseSelection(target, true, false, false);
+    }
+
+    private static bool IsRevivePathSmartPreAimHandoffEligible(
+        WorldObjectSnapshot target,
+        StationaryCombatState state,
+        Vector3Snapshot playerPosition,
+        double clearRadius)
+    {
+        if (IsTargetingLocalSide(target, state) || WasSmartPreAimTargetingLocalSide(target, state))
+        {
+            return true;
+        }
+
+        return target.IsAggressiveToPlayer &&
+               target.Position is { } position &&
+               StationaryCombatTargetSelector.HorizontalDistance(position, playerPosition) <= clearRadius;
+    }
+
+    private static bool WasSmartPreAimTargetingLocalSide(
+        WorldObjectSnapshot target,
+        StationaryCombatState state)
+    {
+        lock (state.NextTargetPreAim.SyncRoot)
+        {
+            return state.NextTargetPreAim.TargetingLocalSide &&
+                   StationaryCombatState.IsSameTarget(
+                       state.NextTargetPreAim.TargetEntityId,
+                       state.NextTargetPreAim.TargetServerObjectId,
+                       target.EntityId,
+                       target.ServerObjectId);
+        }
+    }
+
     private async Task<TimeSpan?> TryHandleRecoveryDefenseTargetAsync(
         AccountWorkerContext context,
         SemiAutoSkillPlan plan,
@@ -3461,24 +3570,22 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 .ConfigureAwait(false);
         }
 
-        var target = await SelectMaintenanceDefenseTargetAsync(
+        var selection = await SelectRecoveryDefenseTargetAsync(
                 context,
                 state,
                 playerPosition,
-                forceRefresh: true)
+                allowRevivePathClear: IsRevivePathRecoveryPhase(recoveryPhase))
             .ConfigureAwait(false);
-        var isRevivePathClearTarget = false;
-        if (target?.Position is null && IsRevivePathRecoveryPhase(recoveryPhase))
+        if (selection.HoldForSmartPreAimHandoff)
         {
-            target = await SelectRevivePathAggressiveClearTargetAsync(
-                    context,
-                    state,
-                    playerPosition,
-                    forceRefresh: true)
-                .ConfigureAwait(false);
-            isRevivePathClearTarget = target?.Position is not null;
+            semiAutoState.ResetAttackKeyPressThrottle();
+            await StopMovementAsync(context, state).ConfigureAwait(false);
+            StopPathFollowPoller(state);
+            return IdleDelay;
         }
 
+        var target = selection.Target;
+        var isRevivePathClearTarget = selection.IsRevivePathClearTarget;
         if (target?.Position is null)
         {
             return null;
@@ -3541,7 +3648,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 ["aggressiveToPlayer"] = target.IsAggressiveToPlayer,
                 ["passiveToPlayer"] = target.IsPassiveToPlayer,
                 ["aggressiveSource"] = target.AggressiveSource,
-                ["revivePathClear"] = isRevivePathClearTarget
+                ["revivePathClear"] = isRevivePathClearTarget,
+                ["smartPreAimHandoff"] = selection.IsSmartPreAimHandoffTarget
             });
         }
 
@@ -4981,24 +5089,22 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return false;
         }
 
-        var target = await SelectMaintenanceDefenseTargetAsync(
+        var selection = await SelectRecoveryDefenseTargetAsync(
                 context,
                 state,
                 playerPosition,
-                forceRefresh: true)
+                allowRevivePathClear: IsDeathRecoveryRevivePathActive(state))
             .ConfigureAwait(false);
-        var isRevivePathClearTarget = false;
-        if (target?.Position is null && IsDeathRecoveryRevivePathActive(state))
+        if (selection.HoldForSmartPreAimHandoff)
         {
-            target = await SelectRevivePathAggressiveClearTargetAsync(
-                    context,
-                    state,
-                    playerPosition,
-                    forceRefresh: true)
-                .ConfigureAwait(false);
-            isRevivePathClearTarget = target?.Position is not null;
+            semiAutoState.ResetAttackKeyPressThrottle();
+            await StopMovementAsync(context, state).ConfigureAwait(false);
+            StopPathFollowPoller(state);
+            return true;
         }
 
+        var target = selection.Target;
+        var isRevivePathClearTarget = selection.IsRevivePathClearTarget;
         if (target?.Position is null)
         {
             return false;
@@ -5030,6 +5136,14 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         state.MarkCandidate(target, DateTimeOffset.Now);
         state.FacedCandidateEntityId = 0;
         state.ClearPendingTabVerification();
+        if (selection.IsSmartPreAimHandoffTarget)
+        {
+            CompleteSmartPreAimHandoff(
+                context,
+                state,
+                target.EntityId,
+                target.ServerObjectId);
+        }
 
         context.Logger.Info("stationary_combat.loot.post_combat_maintenance_postponed", new Dictionary<string, object?>
         {
@@ -5040,7 +5154,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             ["targetName"] = target.Name,
             ["targetingServerObjectId"] = target.TargetServerObjectId,
             ["targetingMe"] = IsTargetingLocalSide(target, state),
-            ["revivePathClear"] = isRevivePathClearTarget
+            ["revivePathClear"] = isRevivePathClearTarget,
+            ["smartPreAimHandoff"] = selection.IsSmartPreAimHandoffTarget
         });
         return true;
     }
@@ -7646,7 +7761,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         double radius,
         bool allowClaimedByOther,
         IReadOnlyList<string> activeMonsterNameFilters,
-        out WorldObjectSnapshot? target)
+        out WorldObjectSnapshot? target,
+        Func<WorldObjectSnapshot, bool>? additionalEligibility = null)
     {
         target = null;
         if (!state.HasSmartPreAimHandoff)
@@ -7743,15 +7859,20 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return false;
         }
 
-        if (state.IsTargetIgnored(handoffTarget) ||
-            state.IsTargetTemporarilyExcluded(handoffTarget, now) ||
-            IsActiveMonsterFiltered(handoffTarget, activeMonsterNameFilters) ||
-            !IsCandidateStillSelectable(
+        var targetSelectable = additionalEligibility is null
+            ? IsCandidateStillSelectable(
                 handoffTarget,
                 home,
                 radius,
                 allowClaimedByOther,
-                state))
+                state)
+            : handoffTarget.Position is not null &&
+              StationaryCombatTargetSelector.IsSelectableMonster(handoffTarget) &&
+              additionalEligibility(handoffTarget);
+        if (state.IsTargetIgnored(handoffTarget) ||
+            state.IsTargetTemporarilyExcluded(handoffTarget, now) ||
+            IsActiveMonsterFiltered(handoffTarget, activeMonsterNameFilters) ||
+            !targetSelectable)
         {
             ReleaseSmartPreAimHandoff(
                 context,
@@ -8094,9 +8215,11 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         AccountWorkerContext context,
         StationaryCombatState state,
         Vector3Snapshot playerPosition,
-        bool forceRefresh)
+        bool forceRefresh,
+        IReadOnlyList<WorldObjectSnapshot>? preloadedObjects = null)
     {
-        var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh).ConfigureAwait(false);
+        var objects = preloadedObjects ??
+                      await RefreshWorldObjectsAsync(context, state, forceRefresh).ConfigureAwait(false);
         var now = DateTimeOffset.Now;
         var selectionOrigin = ResolvePendingNextTargetSelectionOrigin(context, state, playerPosition);
         var availableObjects = objects
@@ -8312,9 +8435,11 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         AccountWorkerContext context,
         StationaryCombatState state,
         Vector3Snapshot playerPosition,
-        bool forceRefresh)
+        bool forceRefresh,
+        IReadOnlyList<WorldObjectSnapshot>? preloadedObjects = null)
     {
-        var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh).ConfigureAwait(false);
+        var objects = preloadedObjects ??
+                      await RefreshWorldObjectsAsync(context, state, forceRefresh).ConfigureAwait(false);
         var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
         var clearRadius = ResolveRevivePathAggressiveClearRadius(context.Config.ScriptSettings?.Paths);
         return objects
@@ -9598,6 +9723,27 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     {
         return context.Config.ScriptSettings?.CombatMode == AccountCombatMode.Stationary &&
                context.Config.ScriptSettings?.Combat?.SmartPreAimEnabled == true;
+    }
+
+    private static bool ShouldPreserveDeathRecoverySmartPreAim(
+        StationaryCombatState state,
+        PlayerSnapshot player)
+    {
+        if (player.IsDead ||
+            state.DeathRecovery.Step != StationaryCombatDeathRecoveryStep.FollowRevivePath)
+        {
+            return false;
+        }
+
+        if (state.Fighting || state.LootAfterKill.Active || state.HasSmartPreAimHandoff)
+        {
+            return true;
+        }
+
+        lock (state.NextTargetPreAim.SyncRoot)
+        {
+            return state.NextTargetPreAim.HasAlignedCandidate;
+        }
     }
 
     private static bool UsesFightTargetPositionForSmartPreAim(AccountWorkerContext context)
@@ -12980,6 +13126,16 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     }
 
     private readonly record struct PostLootNoTargetDelayResult(bool Delayed, WorldObjectSnapshot? Target);
+
+    private readonly record struct RecoveryDefenseSelection(
+        WorldObjectSnapshot? Target,
+        bool IsRevivePathClearTarget,
+        bool HoldForSmartPreAimHandoff,
+        bool IsSmartPreAimHandoffTarget)
+    {
+        public static RecoveryDefenseSelection None { get; } =
+            new(null, false, false, false);
+    }
 
     private readonly record struct StationaryGatherTickResult(
         bool Handled,

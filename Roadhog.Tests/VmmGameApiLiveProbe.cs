@@ -34,8 +34,9 @@ internal static class VmmGameApiLiveProbe
             MemProcFsHome = AppContext.BaseDirectory
         };
         var context = new GameApiReadContext("live-probe", processId, processName, device, true);
-        var api = new AionVmmGameApi(options, NoOpRoadhogLogger.Instance);
+        var api = new AionVmmGameApi(options, new SnapshotProbeLogger());
         var requiredReadsPassed = true;
+        var snapshotRepeat = Math.Max(1, ReadIntOption(args, "--snapshot-repeat="));
 
         var player = await api.ReadPlayerAsync(context).ConfigureAwait(false);
         PrintResult(
@@ -56,7 +57,25 @@ internal static class VmmGameApiLiveProbe
             playerAbnormal.Success,
             playerAbnormal.Error,
             "count=" + (playerAbnormal.Value?.Entries.Count ?? 0).ToString(CultureInfo.InvariantCulture));
-        requiredReadsPassed &= playerAbnormal.Success;
+        var playerAbnormalReady = playerAbnormal.Success;
+        var playerAbnormalFailedAfterReady = false;
+        for (var attempt = 2; attempt <= snapshotRepeat; attempt++)
+        {
+            var repeated = await api.ReadPlayerAbnormalStatusesAsync(context).ConfigureAwait(false);
+            PrintResult(
+                "PlayerAbnormalStatuses#" + attempt.ToString(CultureInfo.InvariantCulture),
+                repeated.Success,
+                repeated.Error,
+                "count=" + (repeated.Value?.Entries.Count ?? 0).ToString(CultureInfo.InvariantCulture));
+            if (playerAbnormalReady && !repeated.Success)
+            {
+                playerAbnormalFailedAfterReady = true;
+            }
+
+            playerAbnormalReady |= repeated.Success;
+        }
+
+        requiredReadsPassed &= playerAbnormalReady && !playerAbnormalFailedAfterReady;
 
         var summonedPet = await api.ReadSummonedPetAsync(context).ConfigureAwait(false);
         PrintResult(
@@ -309,5 +328,40 @@ internal static class VmmGameApiLiveProbe
         return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) && parsed > 0
             ? parsed
             : 0;
+    }
+
+    private sealed class SnapshotProbeLogger : IRoadhogLogger
+    {
+        public void Info(string eventName, IReadOnlyDictionary<string, object?>? fields = null)
+        {
+        }
+
+        public void Warn(string eventName, IReadOnlyDictionary<string, object?>? fields = null)
+        {
+            if (!string.Equals(eventName, "vmm.snapshot.fallback", StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            Console.WriteLine(
+                "FALLBACK data=" + ReadField(fields, "data") +
+                " mode=" + ReadField(fields, "mode") +
+                " ageMs=" + ReadField(fields, "ageMs") +
+                " observedError=" + ReadField(fields, "observedError"));
+        }
+
+        public void Error(
+            string eventName,
+            Exception exception,
+            IReadOnlyDictionary<string, object?>? fields = null)
+        {
+        }
+
+        private static string ReadField(IReadOnlyDictionary<string, object?>? fields, string key)
+        {
+            return fields is not null && fields.TryGetValue(key, out var value)
+                ? Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty
+                : string.Empty;
+        }
     }
 }
