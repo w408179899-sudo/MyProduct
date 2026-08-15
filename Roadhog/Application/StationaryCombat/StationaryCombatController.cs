@@ -865,12 +865,24 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         {
             semiAutoState.ResetAttackKeyPressThrottle();
             var destination = ToVector3(radarNavigation.Destination, playerPosition.Z);
+            Func<PathFollowStopContext, Task<bool>>? afterWaypointStopAsync =
+                radarNavigation.Action == RadarNavigationAction.MoveToWaypoint
+                    ? stop => TryCommitRadarDirectAfterWaypointStopAsync(
+                        context,
+                        state,
+                        target.ServerObjectId,
+                        radarSettings,
+                        RadarDirectTargetSource.WorldObjects,
+                        "target_approach",
+                        stop)
+                    : null;
             await PathFollowStepAsync(
                     context,
                     state,
                     player,
                     destination,
-                    radarNavigation.ReachDistanceMeters)
+                    radarNavigation.ReachDistanceMeters,
+                    afterWaypointStopAsync)
                 .ConfigureAwait(false);
             LogRadarNavigation(context, state, radarNavigation, "target_approach");
             await TryJumpCombatApproachIfStuckAsync(
@@ -3845,12 +3857,24 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         state.ResetCurrentTargetStallObservation();
         state.ResetCurrentTargetDamageObservation();
         semiAutoState.ResetAttackKeyPressThrottle();
+        Func<PathFollowStopContext, Task<bool>>? afterWaypointStopAsync =
+            navigation.Action == RadarNavigationAction.MoveToWaypoint
+                ? stop => TryCommitRadarDirectAfterWaypointStopAsync(
+                    context,
+                    state,
+                    target.ServerObjectId,
+                    radarSettings,
+                    RadarDirectTargetSource.LockedTarget,
+                    "locked_target_approach",
+                    stop)
+                : null;
         await PathFollowStepAsync(
                 context,
                 state,
                 player,
                 ToVector3(navigation.Destination, playerPosition.Z),
-                navigation.ReachDistanceMeters)
+                navigation.ReachDistanceMeters,
+                afterWaypointStopAsync)
             .ConfigureAwait(false);
         LogRadarNavigation(context, state, navigation, "locked_target_approach");
         var worldTarget = new WorldObjectSnapshot(
@@ -8693,6 +8717,128 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             .ConfigureAwait(false);
     }
 
+    private async Task<bool> TryCommitRadarDirectAfterWaypointStopAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        uint targetServerObjectId,
+        RadarObstacleScriptSettings settings,
+        RadarDirectTargetSource targetSource,
+        string phase,
+        PathFollowStopContext stop)
+    {
+        if (stop.Arrived)
+        {
+            state.ObstacleNavigation.LatchCurrentWaypointArrival();
+        }
+
+        if (!stop.StoppedForward || targetServerObjectId == 0)
+        {
+            return false;
+        }
+
+        var player = await ReadFreshPlayerAsync(context).ConfigureAwait(false);
+        if (player.Position is not { } playerPosition)
+        {
+            LogRadarDirectConfirmation(
+                context,
+                state,
+                phase,
+                targetServerObjectId,
+                stop,
+                committed: false,
+                "player_position_unavailable");
+            return false;
+        }
+
+        Vector3Snapshot? targetPosition = null;
+        if (targetSource == RadarDirectTargetSource.LockedTarget)
+        {
+            var target = await ReadFreshLockedTargetAsync(context).ConfigureAwait(false);
+            if (target.ServerObjectId == targetServerObjectId &&
+                target.IsMonsterAlive &&
+                target.Position is { } position)
+            {
+                targetPosition = position;
+            }
+        }
+        else
+        {
+            var objects = await ReadWorldObjectsAsync(context).ConfigureAwait(false);
+            targetPosition = objects
+                .FirstOrDefault(candidate =>
+                    candidate.ServerObjectId == targetServerObjectId &&
+                    candidate.IsAlive &&
+                    candidate.Position is not null)
+                ?.Position;
+        }
+
+        if (targetPosition is not { } confirmedTargetPosition)
+        {
+            LogRadarDirectConfirmation(
+                context,
+                state,
+                phase,
+                targetServerObjectId,
+                stop,
+                committed: false,
+                "same_target_missing");
+            return false;
+        }
+
+        var confirmation = await ResolveObstacleNavigationAsync(
+                context,
+                state,
+                playerPosition,
+                confirmedTargetPosition,
+                RadarNavigationPurpose.ApproachTarget,
+                targetServerObjectId,
+                settings,
+                AcquireDistance)
+            .ConfigureAwait(false);
+        var committed = confirmation?.Action is RadarNavigationAction.Direct or RadarNavigationAction.Ready;
+        if (committed)
+        {
+            state.ObstacleNavigation.CommitDirectApproach(targetServerObjectId);
+        }
+
+        LogRadarDirectConfirmation(
+            context,
+            state,
+            phase,
+            targetServerObjectId,
+            stop,
+            committed,
+            confirmation?.Reason ?? "map_unavailable");
+        return committed;
+    }
+
+    private static void LogRadarDirectConfirmation(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        string phase,
+        uint targetServerObjectId,
+        PathFollowStopContext stop,
+        bool committed,
+        string reason)
+    {
+        LogActionThrottled(
+            context,
+            state,
+            "stationary_combat.radar.direct_confirmation",
+            phase + ":" + (committed ? "committed" : "blocked"),
+            new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["phase"] = phase,
+                ["targetServerObjectId"] = targetServerObjectId,
+                ["stopReason"] = stop.Reason,
+                ["arrived"] = stop.Arrived,
+                ["committed"] = committed,
+                ["reason"] = reason
+            },
+            TimeSpan.FromMilliseconds(500));
+    }
+
     private async Task<uint> ReadCurrentRadarMapIdAsync(
         AccountWorkerContext context,
         StationaryCombatState state)
@@ -8985,7 +9131,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         StationaryCombatState state,
         PlayerSnapshot player,
         Vector3Snapshot target,
-        double reachDistance)
+        double reachDistance,
+        Func<PathFollowStopContext, Task<bool>>? afterWaypointStopAsync = null)
     {
         var freshPlayer = await ReadFreshPlayerAsync(context).ConfigureAwait(false);
         player = freshPlayer;
@@ -8993,6 +9140,25 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         var options = ReadPathFollowTurnOptions(context.Config.ScriptSettings?.Combat);
         var poller = EnsurePathFollowPoller(context, state, player, options);
         SetPathFollowPollTarget(poller, targetIndex: 0, target, reachDistance, options);
+        if (TryConsumePathFollowArrival(poller, out var arrivedSnapshot))
+        {
+            var stoppedForward = state.IsMovingForward;
+            await StopMovementAsync(context, state).ConfigureAwait(false);
+            LogPathAction(context, state, "arrived_latched", arrivedSnapshot, 0, 0);
+            if (afterWaypointStopAsync is not null)
+            {
+                await afterWaypointStopAsync(
+                        new PathFollowStopContext(
+                            Arrived: true,
+                            StoppedForward: stoppedForward,
+                            Reason: "arrived_latched"))
+                    .ConfigureAwait(false);
+            }
+
+            StopPathFollowPoller(state);
+            return;
+        }
+
         if (!TryGetPathFollowPollSnapshot(poller, out var snapshot))
         {
             LogActionThrottled(context, state, "stationary_combat.path_follow", "move_no_yaw", new Dictionary<string, object?>
@@ -9010,8 +9176,19 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             if (snapshot.DistanceToTarget <= reachDistance)
             {
                 TryMarkPathFollowArrivedNow(poller, out _, out _);
+                var stoppedForward = state.IsMovingForward;
                 await StopMovementAsync(context, state).ConfigureAwait(false);
                 LogPathAction(context, state, "arrived", snapshot, 0, 0);
+                if (afterWaypointStopAsync is not null)
+                {
+                    await afterWaypointStopAsync(
+                            new PathFollowStopContext(
+                                Arrived: true,
+                                StoppedForward: stoppedForward,
+                                Reason: "arrived"))
+                        .ConfigureAwait(false);
+                }
+
                 StopPathFollowPoller(state);
                 return;
             }
@@ -9019,8 +9196,20 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             var restartMoveForLargeYaw = ShouldRestartMoveForYaw(state.IsMovingForward, snapshot.YawError, options.RestartYawThresholdDegrees);
             if (restartMoveForLargeYaw)
             {
+                var stoppedForward = state.IsMovingForward;
                 await StopMovementAsync(context, state).ConfigureAwait(false);
                 LogPathAction(context, state, "move_restart_yaw", snapshot, 0, 0);
+                if (afterWaypointStopAsync is not null &&
+                    await afterWaypointStopAsync(
+                            new PathFollowStopContext(
+                                Arrived: false,
+                                StoppedForward: stoppedForward,
+                                Reason: "move_restart_yaw"))
+                        .ConfigureAwait(false))
+                {
+                    StopPathFollowPoller(state);
+                    return;
+                }
             }
 
             var activeYawTolerance = state.IsMovingForward
@@ -11421,6 +11610,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 !SamePoint(poller.TargetPoint, target))
             {
                 poller.HasArrived = false;
+                poller.ArrivedTargetIndex = -1;
+                poller.ArrivedSnapshot = null;
                 poller.HasMetrics = false;
             }
 
@@ -11474,6 +11665,31 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             {
                 Age = DateTimeOffset.Now - poller.LastReadTime
             };
+            return true;
+        }
+    }
+
+    private static bool TryConsumePathFollowArrival(
+        PathFollowPollState poller,
+        out CameraTurnSnapshot snapshot)
+    {
+        lock (poller.SyncRoot)
+        {
+            if (!poller.HasArrived ||
+                poller.ArrivedTargetIndex != poller.TargetIndex ||
+                poller.ArrivedSnapshot is null)
+            {
+                snapshot = default!;
+                return false;
+            }
+
+            snapshot = poller.ArrivedSnapshot with
+            {
+                Age = DateTimeOffset.Now - poller.LastReadTime
+            };
+            poller.HasArrived = false;
+            poller.ArrivedTargetIndex = -1;
+            poller.ArrivedSnapshot = null;
             return true;
         }
     }
@@ -12675,6 +12891,17 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         public bool HasArrived { get; set; }
         public int ArrivedTargetIndex { get; set; }
         public CameraTurnSnapshot? ArrivedSnapshot { get; set; }
+    }
+
+    private sealed record PathFollowStopContext(
+        bool Arrived,
+        bool StoppedForward,
+        string Reason);
+
+    private enum RadarDirectTargetSource
+    {
+        WorldObjects,
+        LockedTarget
     }
 
     private sealed record StationaryHomeResolution(

@@ -554,6 +554,219 @@ internal static class RadarTests
             Require(
                 RadarGeometry.IsPathClear(nearWaypoint, second.Destination, new[] { wall }),
                 "retained waypoint leg must not intersect the wall");
+
+            var guardedGoal = new RadarPoint(20.0D, -10.0D);
+            var crossedFrom = new RadarPoint(12.0D, 3.5D);
+            var crossedTo = new RadarPoint(8.0D, 7.5D);
+            Require(
+                RadarGeometry.PointToSegmentDistance(waypoint, crossedFrom, crossedTo) <= 0.0001D,
+                "safety scenario movement segment should cross the current waypoint");
+            Require(
+                !RadarGeometry.IsPathClear(crossedTo, guardedGoal, new[] { wall }),
+                "safety scenario next leg should remain blocked by the wall");
+
+            state.ClearRoute();
+            state.Purpose = RadarNavigationPurpose.ApproachTarget;
+            state.TargetServerObjectId = 99;
+            state.PlannedGoal = guardedGoal;
+            state.Route = new[] { waypoint, guardedGoal };
+            state.WaypointIndex = 0;
+            state.HasWaypointMovementSample = true;
+            state.LastWaypointMovementSample = crossedFrom;
+            state.LastWaypointMovementSampleIndex = 0;
+
+            var crossedButBlocked = await navigator.ResolveAsync(
+                    state,
+                    124,
+                    crossedTo,
+                    guardedGoal,
+                    RadarNavigationPurpose.ApproachTarget,
+                    99,
+                    settings,
+                    1.0D)
+                .ConfigureAwait(false);
+
+            Require(state.WaypointIndex == 0, "crossed waypoint must remain pending while the next leg crosses the wall");
+            RequireNear(waypoint.X, crossedButBlocked.Destination.X, "blocked crossed waypoint X");
+            RequireNear(waypoint.Y, crossedButBlocked.Destination.Y, "blocked crossed waypoint Y");
+            RequireNear(0.0D, crossedButBlocked.ReachDistanceMeters, "blocked crossed waypoint must retain precise movement");
+            Require(crossedButBlocked.Reason == "move_waypoint_precise", "blocked crossed waypoint should retain precise reason");
+        }
+        finally
+        {
+            DeleteVerifiedTemporaryDirectory(directory);
+        }
+    }
+
+    public static async Task NavigatorAdvancesWaypointCrossedBetweenSamplesAsync()
+    {
+        var directory = CreateTemporaryDirectory();
+        try
+        {
+            var firstWall = Segment(10.0D, -5.0D, 10.0D, 5.0D);
+            var secondWall = Segment(20.0D, -5.0D, 20.0D, 5.0D);
+            var store = new JsonRadarMapStore(directory);
+            var save = await store.SaveAsync(new RadarMapDocument
+            {
+                MapId = 125,
+                Segments = new List<RadarObstacleSegment> { firstWall, secondWall }
+            }).ConfigureAwait(false);
+            Require(save.Success, "waypoint overshoot map should save");
+
+            var navigator = new StationaryObstacleNavigator(
+                store,
+                new RadarRoutePlanner(),
+                new RadarMapRevisionRegistry());
+            var state = new StationaryObstacleNavigationState();
+            var settings = new RadarObstacleScriptSettings
+            {
+                Enabled = true,
+                WaypointReachMeters = 1.5D,
+                MaximumDetourExtraMeters = 30.0D
+            };
+            var goal = new RadarPoint(30.0D, 0.0D);
+
+            await navigator.ResolveAsync(
+                    state,
+                    125,
+                    new RadarPoint(0.0D, 0.0D),
+                    goal,
+                    RadarNavigationPurpose.ApproachTarget,
+                    99,
+                    settings,
+                    1.0D)
+                .ConfigureAwait(false);
+
+            var firstWaypoint = new RadarPoint(10.0D, 5.5D);
+            var secondWaypoint = new RadarPoint(20.0D, 5.5D);
+            state.ClearRoute();
+            state.Purpose = RadarNavigationPurpose.ApproachTarget;
+            state.TargetServerObjectId = 99;
+            state.PlannedGoal = goal;
+            state.Route = new[] { firstWaypoint, secondWaypoint, goal };
+            state.WaypointIndex = 0;
+
+            var beforePosition = new RadarPoint(5.0D, 10.5D);
+            var afterPosition = new RadarPoint(11.11D, 4.39D);
+            RequireNear(
+                1.57D,
+                Math.Round(afterPosition.DistanceTo(firstWaypoint), 2),
+                "post-overshoot distance should mirror the live 1.57 meter sample");
+
+            var beforeCrossing = await navigator.ResolveAsync(
+                    state,
+                    125,
+                    beforePosition,
+                    goal,
+                    RadarNavigationPurpose.ApproachTarget,
+                    99,
+                    settings,
+                    1.0D)
+                .ConfigureAwait(false);
+            RequireNear(firstWaypoint.X, beforeCrossing.Destination.X, "pre-crossing waypoint X");
+            RequireNear(firstWaypoint.Y, beforeCrossing.Destination.Y, "pre-crossing waypoint Y");
+
+            var afterCrossing = await navigator.ResolveAsync(
+                    state,
+                    125,
+                    afterPosition,
+                    goal,
+                    RadarNavigationPurpose.ApproachTarget,
+                    99,
+                    settings,
+                    1.0D)
+                .ConfigureAwait(false);
+
+            Require(state.WaypointIndex == 1, "crossed waypoint should be committed exactly once");
+            RequireNear(secondWaypoint.X, afterCrossing.Destination.X, "overshoot must advance to next waypoint X");
+            RequireNear(secondWaypoint.Y, afterCrossing.Destination.Y, "overshoot must advance to next waypoint Y");
+            Require(
+                RadarGeometry.IsPathClear(
+                    afterPosition,
+                    afterCrossing.Destination,
+                    new[] { firstWall, secondWall }),
+                "overshoot advancement must keep the next leg clear");
+        }
+        finally
+        {
+            DeleteVerifiedTemporaryDirectory(directory);
+        }
+    }
+
+    public static async Task NavigatorDirectCommitmentStaysOnSameTargetAsync()
+    {
+        var directory = CreateTemporaryDirectory();
+        try
+        {
+            var store = new JsonRadarMapStore(directory);
+            var save = await store.SaveAsync(new RadarMapDocument
+            {
+                MapId = 126,
+                Segments = new List<RadarObstacleSegment>
+                {
+                    Segment(10.0D, -5.0D, 10.0D, 5.0D)
+                }
+            }).ConfigureAwait(false);
+            Require(save.Success, "direct commitment map should save");
+
+            var navigator = new StationaryObstacleNavigator(
+                store,
+                new RadarRoutePlanner(),
+                new RadarMapRevisionRegistry());
+            var state = new StationaryObstacleNavigationState();
+            var settings = new RadarObstacleScriptSettings
+            {
+                Enabled = true,
+                WaypointReachMeters = 1.5D,
+                MaximumDetourExtraMeters = 30.0D
+            };
+            var start = new RadarPoint(0.0D, 0.0D);
+            var goal = new RadarPoint(20.0D, 0.0D);
+
+            var planned = await navigator.ResolveAsync(
+                    state,
+                    126,
+                    start,
+                    goal,
+                    RadarNavigationPurpose.ApproachTarget,
+                    99,
+                    settings,
+                    1.0D)
+                .ConfigureAwait(false);
+            Require(planned.Action == RadarNavigationAction.MoveToWaypoint, "wall should first produce a detour");
+
+            state.CommitDirectApproach(99);
+            var committed = await navigator.ResolveAsync(
+                    state,
+                    126,
+                    start,
+                    goal,
+                    RadarNavigationPurpose.ApproachTarget,
+                    99,
+                    settings,
+                    1.0D)
+                .ConfigureAwait(false);
+
+            Require(committed.Action == RadarNavigationAction.Direct, "same target should stay in direct approach");
+            Require(committed.Reason == "direct_committed", "same target should expose direct commitment reason");
+            Require(state.Route.Count == 0, "direct commitment should discard the old waypoint route");
+
+            var replacement = await navigator.ResolveAsync(
+                    state,
+                    126,
+                    start,
+                    goal,
+                    RadarNavigationPurpose.ApproachTarget,
+                    100,
+                    settings,
+                    1.0D)
+                .ConfigureAwait(false);
+            Require(replacement.Action == RadarNavigationAction.MoveToWaypoint, "target change should restore obstacle planning");
+            Require(!state.IsDirectApproachCommitted(99), "target change should clear the old direct commitment");
+
+            state.CommitDirectApproach(100);
+            state.ClearRoute();
+            Require(!state.IsDirectApproachCommitted(100), "route reset should clear direct commitment");
         }
         finally
         {

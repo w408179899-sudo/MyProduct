@@ -28,6 +28,8 @@ public sealed record RadarNavigationDecision(
 
 public sealed class StationaryObstacleNavigationState
 {
+    private uint _directCommittedTargetServerObjectId;
+
     public uint ObservedMapId { get; set; }
 
     public DateTimeOffset LastObservedMapReadAt { get; set; } = DateTimeOffset.MinValue;
@@ -50,16 +52,62 @@ public sealed class StationaryObstacleNavigationState
 
     public int WaypointIndex { get; set; }
 
+    public bool HasWaypointMovementSample { get; set; }
+
+    public RadarPoint LastWaypointMovementSample { get; set; }
+
+    public int LastWaypointMovementSampleIndex { get; set; } = -1;
+
+    public bool CurrentWaypointReached { get; set; }
+
     public RadarRoutePlan? LastPlan { get; set; }
 
     public DateTimeOffset LastPlanAt { get; set; } = DateTimeOffset.MinValue;
 
+    public bool IsDirectApproachCommitted(uint targetServerObjectId) =>
+        targetServerObjectId != 0 &&
+        _directCommittedTargetServerObjectId == targetServerObjectId;
+
+    public void CommitDirectApproach(uint targetServerObjectId)
+    {
+        if (targetServerObjectId == 0)
+        {
+            return;
+        }
+
+        ClearRouteCore();
+        _directCommittedTargetServerObjectId = targetServerObjectId;
+    }
+
+    public void ClearDirectApproachCommit()
+    {
+        _directCommittedTargetServerObjectId = 0;
+    }
+
+    public void LatchCurrentWaypointArrival()
+    {
+        if (WaypointIndex >= 0 && WaypointIndex < Route.Count)
+        {
+            CurrentWaypointReached = true;
+        }
+    }
+
     public void ClearRoute()
+    {
+        ClearRouteCore();
+        ClearDirectApproachCommit();
+    }
+
+    private void ClearRouteCore()
     {
         TargetServerObjectId = 0;
         PlannedGoal = default;
         Route = Array.Empty<RadarPoint>();
         WaypointIndex = 0;
+        HasWaypointMovementSample = false;
+        LastWaypointMovementSample = default;
+        LastWaypointMovementSampleIndex = -1;
+        CurrentWaypointReached = false;
         LastPlan = null;
         LastPlanAt = DateTimeOffset.MinValue;
     }
@@ -174,6 +222,14 @@ public sealed class StationaryObstacleNavigator
             }
         }
 
+        if (purpose == RadarNavigationPurpose.ApproachTarget &&
+            state.IsDirectApproachCommitted(targetServerObjectId))
+        {
+            return Direct(goal, finalReachDistanceMeters, mapId, "direct_committed");
+        }
+
+        state.ClearDirectApproachCommit();
+
         var index = state.SpatialIndex;
         var directObstacles = index.QueryCorridor(start, goal, 1.0D);
         var directClear = RadarGeometry.IsPathClear(start, goal, directObstacles);
@@ -197,13 +253,23 @@ public sealed class StationaryObstacleNavigator
             return Direct(goal, finalReachDistanceMeters, mapId, "direct", directObstacles.Count);
         }
 
+        var waypointReachDistance = ResolveWaypointReachDistance(settings);
         var goalMoved = state.PlannedGoal.DistanceTo(goal) > Math.Max(0.1D, settings.TargetReplanDistanceMeters);
         var hasCurrentWaypoint = state.WaypointIndex >= 0 && state.WaypointIndex < state.Route.Count;
-        var routeMatches = state.Route.Count > 0 &&
+        var routeIdentityMatches = state.Route.Count > 0 &&
+                                   hasCurrentWaypoint &&
+                                   state.Purpose == purpose &&
+                                   state.TargetServerObjectId == targetServerObjectId &&
+                                   !goalMoved;
+        if (routeIdentityMatches)
+        {
+            ObserveWaypointMovement(state, start, waypointReachDistance);
+            AdvanceReachedWaypoints(state, index, start, waypointReachDistance);
+            hasCurrentWaypoint = state.WaypointIndex >= 0 && state.WaypointIndex < state.Route.Count;
+        }
+
+        var routeMatches = routeIdentityMatches &&
                            hasCurrentWaypoint &&
-                           state.Purpose == purpose &&
-                           state.TargetServerObjectId == targetServerObjectId &&
-                           !goalMoved &&
                            IsRouteLegClear(index, start, state.Route[state.WaypointIndex]);
         if (state.LastPlan is { Success: false } failedPlan &&
             state.Purpose == purpose &&
@@ -245,6 +311,7 @@ public sealed class StationaryObstacleNavigator
             state.LastPlanAt = DateTimeOffset.Now;
             state.Route = plan.Success ? plan.Points.Skip(1).ToArray() : Array.Empty<RadarPoint>();
             state.WaypointIndex = 0;
+            ResetWaypointMovementObservation(state, start);
             if (!plan.Success || state.Route.Count == 0)
             {
                 return new RadarNavigationDecision(
@@ -258,18 +325,13 @@ public sealed class StationaryObstacleNavigator
             }
         }
 
-        var waypointReachDistance = ResolveWaypointReachDistance(settings);
-        while (state.WaypointIndex < state.Route.Count - 1 &&
-               start.DistanceTo(state.Route[state.WaypointIndex]) <= waypointReachDistance &&
-               IsRouteLegClear(index, start, state.Route[state.WaypointIndex + 1]))
-        {
-            state.WaypointIndex++;
-        }
+        ObserveWaypointMovement(state, start, waypointReachDistance);
+        AdvanceReachedWaypoints(state, index, start, waypointReachDistance);
 
         var destination = state.Route[Math.Clamp(state.WaypointIndex, 0, state.Route.Count - 1)];
         var isFinal = state.WaypointIndex == state.Route.Count - 1;
         var nextLegBlockedInsideReach = !isFinal &&
-                                        start.DistanceTo(destination) <= waypointReachDistance &&
+                                        state.CurrentWaypointReached &&
                                         !IsRouteLegClear(index, start, state.Route[state.WaypointIndex + 1]);
         return new RadarNavigationDecision(
             RadarNavigationAction.MoveToWaypoint,
@@ -295,6 +357,62 @@ public sealed class StationaryObstacleNavigator
             settings.WaypointReachMeters,
             MinimumWaypointReachMeters,
             MaximumWaypointReachMeters);
+    }
+
+    private static void ObserveWaypointMovement(
+        StationaryObstacleNavigationState state,
+        RadarPoint start,
+        double waypointReachDistance)
+    {
+        if (state.WaypointIndex < 0 || state.WaypointIndex >= state.Route.Count)
+        {
+            ResetWaypointMovementObservation(state, start);
+            return;
+        }
+
+        if (state.LastWaypointMovementSampleIndex != state.WaypointIndex)
+        {
+            ResetWaypointMovementObservation(state, start);
+        }
+
+        var waypoint = state.Route[state.WaypointIndex];
+        var reachedByCurrentSample = start.DistanceTo(waypoint) <= waypointReachDistance;
+        var reachedBetweenSamples = state.HasWaypointMovementSample &&
+                                    RadarGeometry.PointToSegmentDistance(
+                                        waypoint,
+                                        state.LastWaypointMovementSample,
+                                        start) <= waypointReachDistance;
+        state.CurrentWaypointReached |= reachedByCurrentSample || reachedBetweenSamples;
+        state.LastWaypointMovementSample = start;
+        state.HasWaypointMovementSample = true;
+        state.LastWaypointMovementSampleIndex = state.WaypointIndex;
+    }
+
+    private static void AdvanceReachedWaypoints(
+        StationaryObstacleNavigationState state,
+        RadarObstacleSpatialIndex index,
+        RadarPoint start,
+        double waypointReachDistance)
+    {
+        while (state.CurrentWaypointReached &&
+               state.WaypointIndex >= 0 &&
+               state.WaypointIndex < state.Route.Count - 1 &&
+               IsRouteLegClear(index, start, state.Route[state.WaypointIndex + 1]))
+        {
+            state.WaypointIndex++;
+            ResetWaypointMovementObservation(state, start);
+            ObserveWaypointMovement(state, start, waypointReachDistance);
+        }
+    }
+
+    private static void ResetWaypointMovementObservation(
+        StationaryObstacleNavigationState state,
+        RadarPoint start)
+    {
+        state.HasWaypointMovementSample = true;
+        state.LastWaypointMovementSample = start;
+        state.LastWaypointMovementSampleIndex = state.WaypointIndex;
+        state.CurrentWaypointReached = false;
     }
 
     private static bool IsRouteLegClear(

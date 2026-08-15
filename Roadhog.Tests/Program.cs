@@ -98,8 +98,11 @@ var tests = new (string Name, Func<Task> Run)[]
     ("radar navigator honors disabled switch and plans when enabled", RadarTests.NavigatorHonorsDisabledSwitchAndPlansWhenEnabledAsync),
     ("radar navigator allows script 4 near wall route", RadarTests.NavigatorAllowsScript4NearWallRouteAsync),
     ("radar navigator does not skip waypoint across wall", RadarTests.NavigatorDoesNotSkipWaypointAcrossWallAsync),
+    ("radar navigator advances waypoint crossed between samples", RadarTests.NavigatorAdvancesWaypointCrossedBetweenSamplesAsync),
+    ("radar navigator direct commitment stays on same target", RadarTests.NavigatorDirectCommitmentStaysOnSameTargetAsync),
     ("radar obstacle switch persists from stationary ui", TestRadarObstacleSwitchPersistsFromStationaryUiAsync),
     ("stationary combat locked target waits for clear radar route", TestStationaryCombatLockedTargetWaitsForClearRadarRouteAsync),
+    ("stationary combat consumes waypoint arrival and commits clear target", TestStationaryCombatConsumesWaypointArrivalAndCommitsClearTargetAsync),
     ("path recorder enforces five meter minimum", TestPathRecorderMinimumDistanceAsync),
     ("shared path store saves loads and deletes path files", TestSharedPathStoreRoundTripAsync),
     ("path tab opens configured path folder", TestPathTabOpensConfiguredPathFolderAsync),
@@ -20661,6 +20664,136 @@ static async Task TestStationaryCombatLockedTargetWaitsForClearRadarRouteAsync()
     }
 }
 
+static async Task TestStationaryCombatConsumesWaypointArrivalAndCommitsClearTargetAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    var previousPathFollowTick = Environment.GetEnvironmentVariable("ROADHOG_PATH_FOLLOW_TICK_MS");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    Environment.SetEnvironmentVariable("ROADHOG_PATH_FOLLOW_TICK_MS", "50");
+    using var stop = new CancellationTokenSource();
+    try
+    {
+        const uint mapId = 779;
+        const uint targetServerObjectId = 9000;
+        var settings = CreateStationarySoftRestartSettings();
+        settings.Combat.RadarObstacleAvoidance = new RadarObstacleScriptSettings
+        {
+            Enabled = true,
+            WaypointReachMeters = 1.5D,
+            MaximumDetourExtraMeters = 30.0D
+        };
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = CreateStationarySoftRestartGameApi(40);
+        gameApi.Channel = new ChannelSnapshot(0, 1, mapId, DateTimeOffset.Now);
+        var mapStore = new StaticRadarMapStore(new RadarMapDocument
+        {
+            MapId = mapId,
+            Segments = new List<RadarObstacleSegment>
+            {
+                new()
+                {
+                    Start = new RadarPoint(10.0D, -8.0D),
+                    End = new RadarPoint(10.0D, 8.0D)
+                }
+            }
+        });
+        var navigator = new StationaryObstacleNavigator(
+            mapStore,
+            new RadarRoutePlanner(),
+            new RadarMapRevisionRegistry());
+        var preview = await navigator.ResolveAsync(
+                new StationaryObstacleNavigationState(),
+                mapId,
+                new RadarPoint(0, 0),
+                new RadarPoint(40, 0),
+                RadarNavigationPurpose.ApproachTarget,
+                targetServerObjectId,
+                settings.Combat.RadarObstacleAvoidance,
+                25.0D)
+            .ConfigureAwait(false);
+        var initialWaypoint = preview.Destination;
+        var initialYaw = Math.Atan2(initialWaypoint.X, -initialWaypoint.Y) * 180.0D / Math.PI;
+        if (initialYaw < 0)
+        {
+            initialYaw += 360.0D;
+        }
+
+        gameApi.Player = gameApi.Player with { CameraYawDegrees = initialYaw };
+        var controller = new StationaryCombatController(
+            keyboard,
+            new SemiAutoCombatController(keyboard),
+            obstacleNavigator: navigator);
+        var state = new StationaryCombatState { Fighting = true };
+        state.SetCurrentTarget(100, targetServerObjectId);
+        state.MarkCandidate(100, targetServerObjectId, DateTimeOffset.Now);
+        var context = CreateContext(settings, gameApi, logger, stopToken: stop.Token);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var semiAutoState = new SemiAutoCombatState();
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(!keyboard.KeyDowns.Contains("W"), "first radar waypoint tick should hold W");
+        AssertFalse(state.ObstacleNavigation.Route.Count == 0, "first radar tick should retain a waypoint route");
+        var waypoint = state.ObstacleNavigation.Route[state.ObstacleNavigation.WaypointIndex];
+        gameApi.Player = gameApi.Player with
+        {
+            Position = new Vector3Snapshot((float)waypoint.X, (float)waypoint.Y, 0),
+            CapturedAt = DateTimeOffset.Now
+        };
+
+        var readsBeforeWaypoint = gameApi.PlayerReadCount;
+        var latchDeadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(2);
+        while (gameApi.PlayerReadCount <= readsBeforeWaypoint && DateTimeOffset.UtcNow < latchDeadline)
+        {
+            await Task.Delay(10).ConfigureAwait(false);
+        }
+
+        await Task.Delay(30).ConfigureAwait(false);
+        AssertFalse(gameApi.PlayerReadCount <= readsBeforeWaypoint, "path poller should sample the reached waypoint");
+
+        gameApi.Player = gameApi.Player with
+        {
+            Position = new Vector3Snapshot(5, 0, 0),
+            CapturedAt = DateTimeOffset.Now
+        };
+        await Task.Delay(70).ConfigureAwait(false);
+        keyboard.AfterKeyUp = key =>
+        {
+            if (string.Equals(key, "W", StringComparison.OrdinalIgnoreCase))
+            {
+                gameApi.Player = gameApi.Player with
+                {
+                    Position = new Vector3Snapshot(12, 0, 0),
+                    CapturedAt = DateTimeOffset.Now
+                };
+            }
+        };
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertEqual(1, keyboard.KeyUps.Count(key => string.Equals(key, "W", StringComparison.OrdinalIgnoreCase)), "latched arrival should stop W once");
+        AssertEqual(1, keyboard.KeyDowns.Count(key => string.Equals(key, "W", StringComparison.OrdinalIgnoreCase)), "clear confirmation must not restart W toward the old waypoint");
+        AssertFalse(!state.ObstacleNavigation.IsDirectApproachCommitted(targetServerObjectId), "clear post-stop snapshot should commit direct approach to the same target");
+        AssertFalse(state.ObstacleNavigation.Route.Count != 0, "direct commitment should discard the old waypoint route");
+        AssertFalse(!logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.path_follow" &&
+            string.Equals(Convert.ToString(entry.Fields["action"]), "arrived_latched", StringComparison.Ordinal)),
+            "foreground path following should consume the background arrival latch");
+        AssertFalse(!logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.radar.direct_confirmation" &&
+            Equals(entry.Fields["targetServerObjectId"], targetServerObjectId) &&
+            Equals(entry.Fields["committed"], true)),
+            "post-stop straight-line confirmation should log the direct commitment");
+    }
+    finally
+    {
+        stop.Cancel();
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+        Environment.SetEnvironmentVariable("ROADHOG_PATH_FOLLOW_TICK_MS", previousPathFollowTick);
+    }
+}
+
 static ScriptSettings CreateStationarySoftRestartSettings()
 {
     var settings = CreateScriptSettings();
@@ -31573,6 +31706,8 @@ sealed class RecordingKeyboardInput : IKeyboardInput
 
     public Action<string>? AfterPress { get; set; }
 
+    public Action<string>? AfterKeyUp { get; set; }
+
     public Func<string, OperationResult>? PressResult { get; set; }
 
     public Action<RoadhogMouseButton>? AfterMouseDown { get; set; }
@@ -31611,6 +31746,7 @@ sealed class RecordingKeyboardInput : IKeyboardInput
         CancellationToken cancellationToken = default)
     {
         KeyUps.Add(key);
+        AfterKeyUp?.Invoke(key);
         return Task.FromResult(OperationResult.Ok());
     }
 
