@@ -25,6 +25,8 @@ public sealed class BagCleanupState
 
     public int DiscardConfirmClickCount { get; private set; }
 
+    public long DiscardInventoryVersion { get; private set; }
+
     public int TotalRegisteredSellItemCount { get; private set; }
 
     public int SellBatchCount { get; private set; }
@@ -140,6 +142,12 @@ public sealed class BagCleanupState
         DiscardConfirmSeen = false;
         DiscardConfirmClickCount = 0;
         LatchedDiscardConfirm = null;
+        DiscardInventoryVersion = 0;
+    }
+
+    public void SetDiscardInventoryVersion(long version)
+    {
+        DiscardInventoryVersion = Math.Max(0, version);
     }
 
     public void MarkDiscardConfirmSeen(InventoryDiscardConfirmSnapshot? confirm = null)
@@ -169,6 +177,7 @@ public sealed class BagCleanupState
         DiscardConfirmSeen = false;
         DiscardConfirmClickCount = 0;
         LatchedDiscardConfirm = null;
+        DiscardInventoryVersion = 0;
     }
 
     public void SetPath(SharedPathDocument path)
@@ -347,6 +356,7 @@ public sealed class BagCleanupState
         DiscardWindow = null;
         DiscardConfirmSeen = false;
         LatchedDiscardConfirm = null;
+        DiscardInventoryVersion = 0;
     }
 
     private void SetReturnAfterFailure(string reason, string error)

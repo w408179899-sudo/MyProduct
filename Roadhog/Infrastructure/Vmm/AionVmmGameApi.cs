@@ -465,7 +465,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         CancellationToken cancellationToken = default)
     {
         return Task.Run(
-            () => ReadStable(context, AionVmmSnapshotChannels.Inventory, () => ReadInventoryCore(context)),
+            () => ReadStableInventoryCore(context),
             cancellationToken);
     }
 
@@ -635,6 +635,140 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             : OperationResult<GatherSnapshot>.Fail("Gather snapshot is structurally incomplete.");
     }
 
+    private OperationResult<IReadOnlyList<InventoryItemSnapshot>> ReadStableInventoryCore(
+        GameApiReadContext context)
+    {
+        return _stableSnapshotReads.Execute(
+            BuildStableSnapshotReadScopeKey(context),
+            AionVmmSnapshotChannels.Inventory,
+            () => StabilizeInventoryRead(
+                context,
+                ReadInventoryWithQualityCore(context),
+                DateTimeOffset.Now));
+    }
+
+    internal OperationResult<IReadOnlyList<InventoryItemSnapshot>> StabilizeInventoryRead(
+        GameApiReadContext context,
+        InventoryReadResult read,
+        DateTimeOffset now)
+    {
+        var channel = AionVmmSnapshotChannels.Inventory;
+        var dataKey = channel.ResolveDataKey();
+        var sessionKey = BuildStableSnapshotSessionKey(context);
+        var error = string.IsNullOrWhiteSpace(read.Error)
+            ? "Inventory capture is incomplete."
+            : read.Error;
+
+        if (read.Completeness == InventoryReadCompleteness.Complete &&
+            read.Observations.All(HasCompleteInventoryItemFields))
+        {
+            return StabilizeRead(
+                context,
+                channel,
+                OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Ok(read.Items),
+                now);
+        }
+
+        var failed = OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Fail(error);
+        if (IsStableSnapshotSessionFailure(error))
+        {
+            _stableSnapshots.ClearSession(sessionKey);
+            return failed;
+        }
+
+        if (read.Completeness == InventoryReadCompleteness.Failed)
+        {
+            return StabilizeRead(context, channel, failed, now);
+        }
+
+        if (!_stableSnapshots.TryUpdate<IReadOnlyList<InventoryItemSnapshot>>(
+                sessionKey,
+                channel,
+                now,
+                previous => MergeInventoryRead(read, previous),
+                out var merged,
+                out var age) ||
+            merged is null)
+        {
+            return StabilizeRead(context, channel, failed, now);
+        }
+
+        LogStableSnapshotFallback(
+            context,
+            dataKey,
+            age,
+            error,
+            "partial_merge",
+            new Dictionary<string, object?>
+            {
+                ["completeness"] = read.Completeness.ToString(),
+                ["observedCount"] = read.Observations.Count,
+                ["returnedCount"] = merged.Count
+            });
+
+        // Fresh callers are waiting for a complete post-action publication.
+        // The valid fields above are still merged into the one current snapshot,
+        // but an incomplete traversal cannot prove that an absent item was deleted.
+        return context.RequireFresh
+            ? failed
+            : OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Ok(merged);
+    }
+
+    private static bool HasCompleteInventoryItemFields(InventoryItemObservation observation)
+    {
+        return observation.Fields.TemplateId &&
+               observation.Fields.Count &&
+               observation.Fields.Name &&
+               observation.Fields.Slot &&
+               observation.Fields.IsEquipped &&
+               observation.Fields.ItemType &&
+               observation.Fields.QualityRank &&
+               observation.Fields.VendorSellUnitPrice;
+    }
+
+    internal static IReadOnlyList<InventoryItemSnapshot> MergeInventoryRead(
+        InventoryReadResult read,
+        IReadOnlyList<InventoryItemSnapshot> previous)
+    {
+        var previousByIdentity = previous
+            .GroupBy(static item => item.InstanceId)
+            .ToDictionary(static group => group.Key, static group => group.First());
+        var merged = read.Completeness == InventoryReadCompleteness.Complete
+            ? new Dictionary<ulong, InventoryItemSnapshot>()
+            : previousByIdentity.ToDictionary(static pair => pair.Key, static pair => pair.Value);
+
+        foreach (var observation in read.Observations)
+        {
+            var current = observation.Snapshot;
+            previousByIdentity.TryGetValue(current.InstanceId, out var lastGood);
+            if (!HasCompleteInventoryItemFields(observation) && lastGood is null)
+            {
+                continue;
+            }
+
+            merged[current.InstanceId] = current with
+            {
+                TemplateId = observation.Fields.TemplateId ? current.TemplateId : lastGood!.TemplateId,
+                Count = observation.Fields.Count ? current.Count : lastGood!.Count,
+                Name = observation.Fields.Name ? current.Name : lastGood!.Name,
+                Slot = observation.Fields.Slot ? current.Slot : lastGood!.Slot,
+                IsEquipped = observation.Fields.IsEquipped ? current.IsEquipped : lastGood!.IsEquipped,
+                ItemType = observation.Fields.ItemType ? current.ItemType : lastGood!.ItemType,
+                QualityRank = observation.Fields.QualityRank ? current.QualityRank : lastGood!.QualityRank,
+                VendorSellUnitPrice = observation.Fields.VendorSellUnitPrice
+                    ? current.VendorSellUnitPrice
+                    : lastGood!.VendorSellUnitPrice
+            };
+        }
+
+        return merged.Values
+            .Where(static item => item.Slot >= 0)
+            .OrderBy(static item => item.Slot)
+            .ThenBy(static item => item.TemplateId)
+            .ThenBy(static item => item.InstanceId)
+            .ToArray();
+    }
+
     private OperationResult<IReadOnlyList<WorldObjectSnapshot>> ReadStableWorldObjectsCore(
         GameApiReadContext context)
     {
@@ -676,11 +810,6 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             return failed;
         }
 
-        if (context.RequireFresh)
-        {
-            return StabilizeRead(context, channel, failed, now);
-        }
-
         if (read.Completeness == WorldObjectReadCompleteness.Failed)
         {
             return StabilizeRead(context, channel, failed, now);
@@ -710,7 +839,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 ["observedCount"] = read.Observations.Count,
                 ["returnedCount"] = merged.Count
             });
-        return OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(merged);
+        return context.RequireFresh
+            ? failed
+            : OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(merged);
     }
 
     private OperationResult<SummonedPetRosterSnapshot> ReadStableSummonedPetRosterCore(
@@ -753,11 +884,6 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             return failed;
         }
 
-        if (context.RequireFresh)
-        {
-            return StabilizeRead(context, channel, failed, now);
-        }
-
         if (read.Completeness == SummonedPetRosterReadCompleteness.Failed)
         {
             return StabilizeRead(context, channel, failed, now);
@@ -787,7 +913,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 ["localPetServerObjectId"] = merged.LocalLinkedPetServerObjectId,
                 ["visiblePetCount"] = merged.VisibleSummonedPetCount
             });
-        return OperationResult<SummonedPetRosterSnapshot>.Ok(merged);
+        return context.RequireFresh
+            ? failed
+            : OperationResult<SummonedPetRosterSnapshot>.Ok(merged);
     }
 
     private static bool HasCompleteWorldObjectFields(WorldObjectObservation observation)
@@ -1466,7 +1594,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             return ObjectAddressProbeFail(name, "InventoryTreeHeader", header, NodeLeftOffset, "begin node pointer read failed");
         }
 
-        var equipmentInstanceIds = ReadInventoryEquipmentInstanceIds(process, manager);
+        var equipmentInstanceIds = ReadInventoryEquipmentInstanceIds(process, manager, out var equipmentIdsComplete);
         var visited = new HashSet<ulong>();
         var guardLimit = treeCount is > 0 and < 100000
             ? checked((int)treeCount + 16)
@@ -1481,7 +1609,12 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
 
             if (TryReadUInt32(process, node + InventoryNodeInstanceIdOffset, out var nodeInstanceId) &&
                 TryReadPointer(process, node + InventoryNodeItemOffset, out var itemAddress) &&
-                TryReadInventoryItemFromNode(process, node, equipmentInstanceIds, out var item))
+                TryReadInventoryItemFromNode(
+                    process,
+                    node,
+                    equipmentInstanceIds,
+                    equipmentIdsComplete,
+                    out var item))
             {
                 var detail = "treeCount=" + treeCount.ToString(CultureInfo.InvariantCulture) +
                     ", nodeInstanceId=" + nodeInstanceId.ToString(CultureInfo.InvariantCulture) +
@@ -2702,7 +2835,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         }
     }
 
-    private OperationResult<IReadOnlyList<InventoryItemSnapshot>> ReadInventoryCore(GameApiReadContext context)
+    private InventoryReadResult ReadInventoryWithQualityCore(GameApiReadContext context)
     {
         try
         {
@@ -2711,50 +2844,60 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             {
                 if (!TryResolveProcess(connection.Vmm, context, out var process, out var processError))
                 {
-                    return OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Fail(processError);
+                    return new InventoryReadResult(
+                        InventoryReadCompleteness.Failed,
+                        Array.Empty<InventoryItemObservation>(),
+                        processError);
                 }
 
                 var moduleName = ResolveModuleName();
                 var gameBase = process.GetModuleBase(moduleName);
                 if (gameBase == 0)
                 {
-                    return OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Fail("Module not found: " + moduleName);
+                    return new InventoryReadResult(
+                        InventoryReadCompleteness.Failed,
+                        Array.Empty<InventoryItemObservation>(),
+                        "Module not found: " + moduleName);
                 }
 
-                if (!TryReadInventoryItems(process, gameBase, out var items, out var readError))
-                {
-                    return OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Fail(readError);
-                }
+                var completeness = ReadInventoryItems(process, gameBase, out var items, out var readError);
 
-                var qualityByTemplate = new Dictionary<uint, byte>();
+                var qualityByTemplate = new Dictionary<uint, (bool Success, byte Rank)>();
                 var staticChunkCache = new Dictionary<uint, byte[]>();
                 for (var i = 0; i < items.Count; i++)
                 {
                     var item = items[i];
-                    item.QualityRank = ReadItemQualityRank(
+                    item.QualityRankValid = TryReadItemQualityRank(
                         process,
                         gameBase,
                         item.TemplateId,
                         qualityByTemplate,
-                        staticChunkCache);
+                        staticChunkCache,
+                        out item.QualityRank);
                     items[i] = item;
                 }
 
-                var snapshots = items
-                    .Where(IsNormalBagInventoryItem)
-                    .OrderBy(item => item.Slot)
-                    .ThenBy(item => item.TemplateId)
-                    .ThenBy(item => item.InstanceId)
-                    .Select(item => new InventoryItemSnapshot(
-                        item.TemplateId,
-                        item.InstanceId,
-                        item.Name,
-                        ClampInventoryCount(item.Count),
-                        item.Slot,
-                        IsEquippedInventoryItem(item),
-                        item.ItemType,
-                        item.QualityRank,
-                        item.VendorSellUnitPrice))
+                var observations = items
+                    .Select(item => new InventoryItemObservation(
+                        new InventoryItemSnapshot(
+                            item.TemplateId,
+                            item.InstanceId,
+                            item.Name,
+                            ClampInventoryCount(item.Count),
+                            item.Slot,
+                            IsEquippedInventoryItem(item),
+                            item.ItemType,
+                            item.QualityRank,
+                            item.VendorSellUnitPrice),
+                        new InventoryItemFieldValidity(
+                            item.TemplateIdValid,
+                            item.CountValid,
+                            item.NameValid,
+                            item.SlotValid,
+                            item.IsInEquipmentArrayValid && item.SlotValid,
+                            item.ItemTypeValid,
+                            item.QualityRankValid,
+                            item.VendorSellUnitPriceValid)))
                     .ToArray();
 
                 _logger.Info("vmm.inventory.read", new Dictionary<string, object?>
@@ -2762,16 +2905,21 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                     ["account"] = context.AccountName,
                     ["pid"] = SafeGetProcessPid(process),
                     ["processName"] = process.Name,
-                    ["count"] = snapshots.Length
+                    ["count"] = observations.Length,
+                    ["completeness"] = completeness.ToString(),
+                    ["error"] = readError
                 });
 
-                return OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Ok(snapshots);
+                return new InventoryReadResult(completeness, observations, readError);
             }
         }
         catch (Exception ex)
         {
             _logger.Error("vmm.inventory.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
-            return OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Fail(ex.Message);
+            return new InventoryReadResult(
+                InventoryReadCompleteness.Failed,
+                Array.Empty<InventoryItemObservation>(),
+                ex.Message);
         }
     }
 
@@ -4523,7 +4671,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             .ToHashSet();
     }
 
-    private static bool TryReadInventoryItems(
+    private static InventoryReadCompleteness ReadInventoryItems(
         VmmProcess process,
         ulong gameBase,
         out List<InventoryItemInfo> items,
@@ -4535,22 +4683,25 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         if (!TryReadPointer(process, gameBase + InventoryManagerGlobalRva, out var manager) || manager == 0)
         {
             error = "failed to read InventoryManager pointer at Game.dll+0x" + InventoryManagerGlobalRva.ToString("X");
-            return false;
+            return InventoryReadCompleteness.Failed;
         }
 
-        var equipmentInstanceIds = ReadInventoryEquipmentInstanceIds(process, manager);
+        var equipmentInstanceIds = ReadInventoryEquipmentInstanceIds(
+            process,
+            manager,
+            out var equipmentInstanceIdsComplete);
         TryReadUInt64(process, manager + InventoryItemTreeCountOffset, out var treeCount);
 
         if (!TryReadPointer(process, manager + InventoryItemTreeHeaderOffset, out var header) || header == 0)
         {
             error = "failed to read inventory item tree header at InventoryManager+0x" + InventoryItemTreeHeaderOffset.ToString("X");
-            return false;
+            return InventoryReadCompleteness.Failed;
         }
 
         if (!TryReadPointer(process, header + NodeLeftOffset, out var node))
         {
             error = "failed to read inventory item tree begin node";
-            return false;
+            return InventoryReadCompleteness.Failed;
         }
 
         var visited = new HashSet<ulong>();
@@ -4563,19 +4714,19 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             if (guard >= guardLimit)
             {
                 error = "inventory item tree exceeded traversal guard";
-                return false;
+                return InventoryReadCompleteness.Partial;
             }
 
             if (!visited.Add(node))
             {
                 error = "inventory item tree cycle detected";
-                return false;
+                return InventoryReadCompleteness.Partial;
             }
 
             if (!TryIsWorldTreeNilNode(process, node, header, out var isNil, bypassMemoryCache: false))
             {
                 error = "failed to read inventory item tree node identity";
-                return false;
+                return InventoryReadCompleteness.Partial;
             }
 
             if (isNil)
@@ -4583,10 +4734,15 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 break;
             }
 
-            if (!TryReadInventoryItemFromNode(process, node, equipmentInstanceIds, out var item))
+            if (!TryReadInventoryItemFromNode(
+                    process,
+                    node,
+                    equipmentInstanceIds,
+                    equipmentInstanceIdsComplete,
+                    out var item))
             {
                 error = "failed to read inventory item tree node";
-                return false;
+                return InventoryReadCompleteness.Partial;
             }
 
             items.Add(item);
@@ -4594,19 +4750,20 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             if (!TryGetNextTreeNode(process, header, node, out var next) || next == node)
             {
                 error = "failed to advance inventory item tree";
-                return false;
+                return InventoryReadCompleteness.Partial;
             }
 
             node = next;
         }
 
-        return true;
+        return InventoryReadCompleteness.Complete;
     }
 
     private static bool TryReadInventoryItemFromNode(
         VmmProcess process,
         ulong node,
         IReadOnlyCollection<uint> equipmentInstanceIds,
+        bool equipmentInstanceIdsComplete,
         out InventoryItemInfo info)
     {
         info = new InventoryItemInfo
@@ -4631,39 +4788,54 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
 
         info.InstanceId = instanceId;
         info.IsInEquipmentArray = ContainsUInt32(equipmentInstanceIds, instanceId);
+        info.IsInEquipmentArrayValid = equipmentInstanceIdsComplete;
 
-        TryReadUInt32(process, item + InventoryItemTemplateIdOffset, out info.TemplateId);
+        info.TemplateIdValid = TryReadUInt32(process, item + InventoryItemTemplateIdOffset, out info.TemplateId);
 
         if (TryReadUInt64(process, item + InventoryItemCountOffset, out var count))
         {
             info.Count = count;
+            info.CountValid = true;
         }
 
         if (TryReadMsvcWString(process, item + InventoryItemNameOffset, out var name))
         {
             info.Name = name;
+            info.NameValid = true;
         }
 
-        TryReadUInt32(process, item + InventoryItemTypeOffset, out info.ItemType);
-        TryReadUInt32(process, item + InventoryItemEquipmentMaskOffset, out info.EquipmentMask);
-        TryReadUInt64(process, item + InventoryItemVendorSellUnitPriceOffset, out info.VendorSellUnitPrice);
+        info.ItemTypeValid = TryReadUInt32(process, item + InventoryItemTypeOffset, out info.ItemType);
+        info.EquipmentMaskValid = TryReadUInt32(process, item + InventoryItemEquipmentMaskOffset, out info.EquipmentMask);
+        info.VendorSellUnitPriceValid = TryReadUInt64(
+            process,
+            item + InventoryItemVendorSellUnitPriceOffset,
+            out info.VendorSellUnitPrice);
 
         if (TryReadInt16(process, item + InventoryItemSlotOffset, out var slot))
         {
             info.Slot = slot;
+            info.SlotValid = true;
         }
 
         return true;
     }
 
-    private static uint[] ReadInventoryEquipmentInstanceIds(VmmProcess process, ulong manager)
+    private static uint[] ReadInventoryEquipmentInstanceIds(
+        VmmProcess process,
+        ulong manager,
+        out bool complete)
     {
         var result = new uint[InventoryEquipmentIdCount];
+        complete = true;
         for (var i = 0; i < result.Length; i++)
         {
             if (TryReadUInt32(process, manager + InventoryEquipmentIdsOffset + (ulong)(i * 4), out var value))
             {
                 result[i] = value;
+            }
+            else
+            {
+                complete = false;
             }
         }
 
@@ -9919,33 +10091,34 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         return true;
     }
 
-    private static byte ReadItemQualityRank(
+    private static bool TryReadItemQualityRank(
         VmmProcess process,
         ulong gameBase,
         uint templateId,
-        Dictionary<uint, byte> qualityByTemplate,
-        Dictionary<uint, byte[]> staticChunkCache)
+        Dictionary<uint, (bool Success, byte Rank)> qualityByTemplate,
+        Dictionary<uint, byte[]> staticChunkCache,
+        out byte qualityRank)
     {
+        qualityRank = 0;
         if (templateId == 0)
         {
-            return 0;
+            return false;
         }
 
         if (qualityByTemplate.TryGetValue(templateId, out var cached))
         {
-            return cached;
+            qualityRank = cached.Rank;
+            return cached.Success;
         }
 
-        var quality = TryReadItemStaticQualityRank(
+        var success = TryReadItemStaticQualityRank(
             process,
             gameBase,
             templateId,
             staticChunkCache,
-            out var rank)
-                ? rank
-                : (byte)0;
-        qualityByTemplate[templateId] = quality;
-        return quality;
+            out qualityRank);
+        qualityByTemplate[templateId] = (success, qualityRank);
+        return success;
     }
 
     private static bool TryReadItemStaticQualityRank(
@@ -10419,6 +10592,15 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         public ulong VendorSellUnitPrice;
         public short Slot;
         public bool IsInEquipmentArray;
+        public bool TemplateIdValid;
+        public bool CountValid;
+        public bool NameValid;
+        public bool ItemTypeValid;
+        public bool QualityRankValid;
+        public bool EquipmentMaskValid;
+        public bool VendorSellUnitPriceValid;
+        public bool SlotValid;
+        public bool IsInEquipmentArrayValid;
     }
 
     private sealed class SummonedPetOwnerInfo

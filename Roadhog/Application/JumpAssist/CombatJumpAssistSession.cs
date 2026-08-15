@@ -605,14 +605,12 @@ public sealed class CombatJumpAssistSession : IAsyncDisposable
                     now >= nextCooldownPollAt)
                 {
                     nextCooldownPollAt = now + _cooldownPollInterval;
-                    var skillsResult = await ReadSkillsAsync(token).ConfigureAwait(false);
-                    teamCooldownSnapshotAvailable =
-                        skillsResult.Success &&
-                        skillsResult.Value is { Count: > 0 };
+                    var skills = await ReadSkillsAsync().ConfigureAwait(false);
+                    teamCooldownSnapshotAvailable = skills.Count > 0;
                     if (teamCooldownSnapshotAvailable &&
                         TryFindAdvancedCooldown(
                             cooldownBaseline,
-                            skillsResult.Value!,
+                            skills,
                             out var advancedSkill))
                     {
                         CompleteTeamSessionFromCooldown(generation, advancedSkill);
@@ -626,7 +624,7 @@ public sealed class CombatJumpAssistSession : IAsyncDisposable
                         _context.Logger.Warn("jump_assist.team_cooldown_read.failed", new Dictionary<string, object?>
                         {
                             ["account"] = _context.Config.AccountName,
-                            ["error"] = skillsResult.Error ?? "skill_snapshot_empty"
+                            ["error"] = "skill_snapshot_empty"
                         });
                     }
                 }
@@ -880,31 +878,16 @@ public sealed class CombatJumpAssistSession : IAsyncDisposable
         _sessionWakeSignal.Release();
     }
 
-    private Task<Core.Common.OperationResult<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(
-        CancellationToken cancellationToken)
-    {
-        if (_context.GameApi is IRoadhogScopedGameApi scopedApi)
-        {
-            return scopedApi.ReadSkillsAsync(
-                new GameApiReadContext(
-                    _context.Config.AccountName,
-                    _context.Config.ProcessId,
-                    _context.Config.TargetProcessName,
-                    _context.Config.VmmDeviceName),
-                cancellationToken);
-        }
-
-        return _context.GameApi.ReadSkillsAsync(cancellationToken);
-    }
+    private async Task<IReadOnlyList<SkillSnapshot>> ReadSkillsAsync() =>
+        (await _context.Snapshots.ReadSkillsAsync().ConfigureAwait(false)).Value;
 
     private async Task<IReadOnlyDictionary<uint, uint>?> ReadTeamCooldownBaselineAsync(
         uint targetServerObjectId = 0)
     {
-        var baselineResult = await ReadSkillsAsync(_context.StopToken).ConfigureAwait(false);
-        if (baselineResult.Success &&
-            baselineResult.Value is { Count: > 0 })
+        var skills = await ReadSkillsAsync().ConfigureAwait(false);
+        if (skills.Count > 0)
         {
-            return baselineResult.Value
+            return skills
                 .GroupBy(skill => skill.SkillId)
                 .ToDictionary(group => group.Key, group => group.First().CooldownEndTime);
         }
@@ -918,7 +901,7 @@ public sealed class CombatJumpAssistSession : IAsyncDisposable
         {
             ["account"] = _context.Config.AccountName,
             ["targetServerObjectId"] = targetServerObjectId,
-            ["error"] = baselineResult.Error ?? "skill_snapshot_empty"
+            ["error"] = "skill_snapshot_empty"
         });
         return null;
     }

@@ -13,6 +13,7 @@ using Roadhog.Core.Input;
 using Roadhog.Core.Model;
 using Roadhog.Core.Radar;
 using Roadhog.Core.Paths;
+using Roadhog.Infrastructure.Vmm;
 using System.Globalization;
 
 namespace Roadhog.Application;
@@ -274,15 +275,13 @@ public sealed class RoadhogRuntime
         return result;
     }
 
-    public Task<OperationResult<TeamSnapshot>> ReadTeamSnapshotAsync(
+    public async Task<OperationResult<TeamSnapshot>> ReadTeamSnapshotAsync(
         string? accountName = null,
         CancellationToken cancellationToken = default)
     {
-        var monitor = new TeamMonitor(_gameApi, _logger);
-        var context = string.IsNullOrWhiteSpace(accountName)
-            ? null
-            : CreateReadContext(accountName);
-        return monitor.ReadSnapshotAsync(context, cancellationToken);
+        var monitor = new TeamMonitor(CreateSnapshotReader(accountName, cancellationToken), _logger);
+        var snapshot = await monitor.ReadSnapshotAsync().ConfigureAwait(false);
+        return OperationResult<TeamSnapshot>.Ok(snapshot);
     }
 
     public async Task<OperationResult<IReadOnlyList<SkillSnapshot>>> RefreshSkillsAsync(
@@ -333,6 +332,24 @@ public sealed class RoadhogRuntime
         }
 
         return result;
+    }
+
+    public async Task<OperationResult<PlayerSnapshot>> ReadPlayerForVmmDeviceAsync(
+        string accountName,
+        string vmmDeviceName,
+        CancellationToken cancellationToken = default)
+    {
+        var config = new AccountConfig
+        {
+            AccountName = accountName,
+            ProcessId = 0,
+            TargetProcessName = string.Empty,
+            VmmDeviceName = vmmDeviceName
+        };
+        var read = await new RoadhogSnapshotReader(config, _gameApi, _logger, cancellationToken)
+            .ReadPlayerAsync()
+            .ConfigureAwait(false);
+        return OperationResult<PlayerSnapshot>.Ok(read.Value);
     }
 
     public async Task<OperationResult<GatherSnapshot>> RefreshGatherSnapshotAsync(
@@ -862,11 +879,7 @@ public sealed class RoadhogRuntime
                 }
             }
 
-            var inventoryRead = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
-            if (!inventoryRead.Success || inventoryRead.Value is null)
-            {
-                return Fail("inventory_read_before_sell_failed", inventoryRead.Error ?? "Inventory read failed.");
-            }
+            var inventoryRead = await context.Snapshots.ReadInventoryAsync().ConfigureAwait(false);
 
             var candidates = BagCleanupItemMatcher
                 .SelectSellRegistrationItems(inventoryRead.Value, maintenance)
@@ -913,14 +926,9 @@ public sealed class RoadhogRuntime
             InventoryWindowSnapshot? coordinateWindow = null;
             if (maintenance.BagCleanupItemCoordinateMode == BagCleanupItemCoordinateMode.WindowRectRelativeExperimental)
             {
-                var windowRead = await BagCleanupGameApi
-                    .ReadInventoryWindowAsync(context, InventoryWindowRectSource.RootWidgetRectExperimental)
+                var windowRead = await context.Snapshots
+                    .ReadInventoryWindowAsync(InventoryWindowRectSource.RootWidgetRectExperimental)
                     .ConfigureAwait(false);
-                if (!windowRead.Success || windowRead.Value is null)
-                {
-                    return Fail("inventory_window_rect_failed", windowRead.Error ?? "Experimental inventory Rect read failed.");
-                }
-
                 coordinateWindow = windowRead.Value;
             }
 
@@ -940,11 +948,7 @@ public sealed class RoadhogRuntime
                 return Fail("inventory_window_close_failed", closeInventory.Error ?? "Inventory window close failed.");
             }
 
-            var moneyBefore = await BagCleanupGameApi.ReadInventoryMoneyAsync(context).ConfigureAwait(false);
-            if (!moneyBefore.Success)
-            {
-                return Fail("money_read_before_sell_failed", moneyBefore.Error ?? "Inventory money read before sell failed.");
-            }
+            var moneyBefore = await context.Snapshots.ReadInventoryMoneyAsync().ConfigureAwait(false);
 
             initialMoney ??= moneyBefore.Value;
             var clickSell = await seller
@@ -961,11 +965,7 @@ public sealed class RoadhogRuntime
 
             await DelayAsync(TimeSpan.FromMilliseconds(ReadBagCleanupSellVerifyDelayMs()), cancellationToken)
                 .ConfigureAwait(false);
-            var moneyAfter = await BagCleanupGameApi.ReadInventoryMoneyAsync(context).ConfigureAwait(false);
-            if (!moneyAfter.Success)
-            {
-                return Fail("money_verify_read_failed", moneyAfter.Error ?? "Inventory money verify read failed.");
-            }
+            var moneyAfter = await context.Snapshots.ReadInventoryMoneyAsync().ConfigureAwait(false);
 
             if (moneyAfter.Value <= moneyBefore.Value)
             {
@@ -983,11 +983,7 @@ public sealed class RoadhogRuntime
             finalMoney = moneyAfter.Value;
             registeredItems.AddRange(registered.Value);
 
-            var afterInventoryRead = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
-            if (!afterInventoryRead.Success || afterInventoryRead.Value is null)
-            {
-                return Fail("inventory_read_after_sell_failed", afterInventoryRead.Error ?? "Inventory read after sell failed.");
-            }
+            var afterInventoryRead = await context.Snapshots.ReadInventoryAsync().ConfigureAwait(false);
 
             var remainingSellCandidateCount = BagCleanupItemMatcher
                 .SelectSellRegistrationItems(afterInventoryRead.Value, maintenance)
@@ -1041,14 +1037,7 @@ public sealed class RoadhogRuntime
                 "Keyboard input is not available for inventory window reading.");
         }
 
-        if (_gameApi is not IInventoryWindowGameApi inventoryApi)
-        {
-            return OperationResult<InventoryWindowSnapshot>.Fail("Inventory window VMM API is not available.");
-        }
-
-        var context = string.IsNullOrWhiteSpace(accountName)
-            ? new GameApiReadContext(string.Empty, 0, string.Empty, string.Empty)
-            : CreateReadContext(accountName);
+        var snapshots = CreateSnapshotReader(accountName, cancellationToken);
         var open = await PressInventoryToggleAsync(cancellationToken).ConfigureAwait(false);
         if (!open.Success)
         {
@@ -1056,17 +1045,11 @@ public sealed class RoadhogRuntime
         }
 
         await DelayAsync(InventoryOpenSettleDelay, cancellationToken).ConfigureAwait(false);
-        var read = await inventoryApi
-            .ReadInventoryWindowAsync(context, rectSource, cancellationToken)
+        var read = await snapshots
+            .ReadInventoryWindowAsync(rectSource)
             .ConfigureAwait(false);
-        if (!read.Success || read.Value is null)
-        {
-            return OperationResult<InventoryWindowSnapshot>.Fail(
-                "Inventory window read after blind open failed: " + read.Error);
-        }
-
         return read.Value.IsOpen
-            ? read
+            ? OperationResult<InventoryWindowSnapshot>.Ok(read.Value)
             : OperationResult<InventoryWindowSnapshot>.Fail(
                 "Inventory window did not read as open after blind pressing " + InventoryToggleKey + ".");
     }
@@ -1081,14 +1064,7 @@ public sealed class RoadhogRuntime
             return OperationResult.Fail("Keyboard input is not available for inventory window normalization.");
         }
 
-        if (_gameApi is not IInventoryWindowGameApi inventoryApi)
-        {
-            return OperationResult.Fail("Inventory window VMM API is not available.");
-        }
-
-        var context = string.IsNullOrWhiteSpace(accountName)
-            ? new GameApiReadContext(string.Empty, 0, string.Empty, string.Empty)
-            : CreateReadContext(accountName);
+        var snapshots = CreateSnapshotReader(accountName, cancellationToken);
 
         var open = await PressInventoryToggleAsync(cancellationToken).ConfigureAwait(false);
         if (!open.Success)
@@ -1097,12 +1073,7 @@ public sealed class RoadhogRuntime
         }
 
         await DelayAsync(InventoryOpenSettleDelay, cancellationToken).ConfigureAwait(false);
-        var read = await inventoryApi.ReadInventoryWindowAsync(context, cancellationToken).ConfigureAwait(false);
-        if (!read.Success || read.Value is null)
-        {
-            return OperationResult.Fail("Inventory window read after blind open failed: " + read.Error);
-        }
-
+        var read = await snapshots.ReadInventoryWindowAsync().ConfigureAwait(false);
         var snapshot = read.Value;
         if (!snapshot.IsOpen)
         {
@@ -1113,8 +1084,9 @@ public sealed class RoadhogRuntime
         if (!snapshot.IsAtTopLeft())
         {
             var drag = await DragInventoryWindowToTopLeftAsync(
-                    inventoryApi,
-                    context,
+                    snapshots,
+                    accountName,
+                    read.Version,
                     snapshot,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -1147,11 +1119,9 @@ public sealed class RoadhogRuntime
         }
 
         await DelayAsync(InventoryCloseSettleDelay, cancellationToken).ConfigureAwait(false);
-        var finalRead = await inventoryApi.ReadInventoryWindowAsync(context, cancellationToken).ConfigureAwait(false);
-        if (!finalRead.Success || finalRead.Value is null)
-        {
-            return OperationResult.Fail("Inventory window read after close failed: " + finalRead.Error);
-        }
+        var finalRead = await snapshots
+            .ReadInventoryWindowAsync(afterVersion: read.Version)
+            .ConfigureAwait(false);
 
         if (finalRead.Value.IsOpen)
         {
@@ -1200,12 +1170,14 @@ public sealed class RoadhogRuntime
     }
 
     private async Task<OperationResult<InventoryWindowSnapshot>> DragInventoryWindowToTopLeftAsync(
-        IInventoryWindowGameApi inventoryApi,
-        GameApiReadContext context,
+        IRoadhogSnapshotReader snapshots,
+        string? accountName,
+        long initialVersion,
         InventoryWindowSnapshot initialSnapshot,
         CancellationToken cancellationToken)
     {
         var current = initialSnapshot;
+        var currentVersion = initialVersion;
         foreach (var xOffset in InventoryTitleDragXOffsets)
         {
             foreach (var yOffset in InventoryTitleDragYOffsets)
@@ -1213,7 +1185,7 @@ public sealed class RoadhogRuntime
                 var start = EstimateInventoryTitleDragPoint(current, xOffset, yOffset);
                 _logger.Info("inventory_window.drag.attempt", new Dictionary<string, object?>
                 {
-                    ["account"] = context.AccountName,
+                    ["account"] = accountName,
                     ["rectX"] = current.X,
                     ["rectY"] = current.Y,
                     ["startX"] = start.X,
@@ -1265,7 +1237,7 @@ public sealed class RoadhogRuntime
                     {
                         _logger.Warn("inventory_window.drag.mouse_up_failed", new Dictionary<string, object?>
                         {
-                            ["account"] = context.AccountName,
+                            ["account"] = accountName,
                             ["error"] = up.Error
                         });
                     }
@@ -1277,18 +1249,16 @@ public sealed class RoadhogRuntime
                 }
 
                 await DelayAsync(InventoryDragSettleDelay, cancellationToken).ConfigureAwait(false);
-                var read = await inventoryApi.ReadInventoryWindowAsync(context, cancellationToken).ConfigureAwait(false);
-                if (!read.Success || read.Value is null)
-                {
-                    return OperationResult<InventoryWindowSnapshot>.Fail("Inventory window read after drag failed: " + read.Error);
-                }
-
+                var read = await snapshots
+                    .ReadInventoryWindowAsync(afterVersion: currentVersion)
+                    .ConfigureAwait(false);
+                currentVersion = read.Version;
                 current = read.Value;
                 if (current.IsAtTopLeft())
                 {
                     _logger.Info("inventory_window.drag.ok", new Dictionary<string, object?>
                     {
-                        ["account"] = context.AccountName,
+                        ["account"] = accountName,
                         ["startX"] = start.X,
                         ["startY"] = start.Y,
                         ["xOffset"] = xOffset,
@@ -1492,212 +1462,160 @@ public sealed class RoadhogRuntime
             .ToArray();
     }
 
-    private Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetSnapshotAsync(
+    private async Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetSnapshotAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
-        if (_gameApi is IRoadhogScopedGameApi scopedApi &&
-            !string.IsNullOrWhiteSpace(accountName))
-        {
-            return scopedApi.ReadLockedTargetAsync(CreateReadContext(accountName), cancellationToken);
-        }
-
-        return _gameApi.ReadLockedTargetAsync(cancellationToken);
+        var read = await CreateSnapshotReader(accountName, cancellationToken)
+            .ReadLockedTargetAsync()
+            .ConfigureAwait(false);
+        return OperationResult<LockedTargetSnapshot>.Ok(read.Value);
     }
 #endif
 
-    private Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(
+    private async Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
-        if (_gameApi is IRoadhogScopedGameApi scopedApi &&
-            !string.IsNullOrWhiteSpace(accountName))
-        {
-            return scopedApi.ReadSkillsAsync(CreateReadContext(accountName), cancellationToken);
-        }
-
-        return _gameApi.ReadSkillsAsync(cancellationToken);
+        var read = await CreateSnapshotReader(accountName, cancellationToken)
+            .ReadSkillsAsync()
+            .ConfigureAwait(false);
+        return OperationResult<IReadOnlyList<SkillSnapshot>>.Ok(read.Value);
     }
 
-    private Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(
+    private async Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
-        if (_gameApi is IRoadhogScopedGameApi scopedApi &&
-            !string.IsNullOrWhiteSpace(accountName))
-        {
-            return scopedApi.ReadWorldObjectsAsync(CreateReadContext(accountName), cancellationToken);
-        }
-
-        return _gameApi.ReadWorldObjectsAsync(cancellationToken);
+        var read = await CreateSnapshotReader(accountName, cancellationToken)
+            .ReadWorldObjectsAsync()
+            .ConfigureAwait(false);
+        return OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(read.Value);
     }
 
-    private Task<OperationResult<ChannelSnapshot>> ReadChannelSnapshotAsync(
+    private async Task<OperationResult<ChannelSnapshot>> ReadChannelSnapshotAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
-        if (_gameApi is IRoadhogScopedChannelGameApi scopedApi &&
-            !string.IsNullOrWhiteSpace(accountName))
-        {
-            return scopedApi.ReadChannelAsync(CreateReadContext(accountName), cancellationToken);
-        }
-
-        if (_gameApi is IRoadhogChannelGameApi channelApi)
-        {
-            return channelApi.ReadChannelAsync(cancellationToken);
-        }
-
-        return Task.FromResult(OperationResult<ChannelSnapshot>.Fail("MapId API is unavailable."));
+        var read = await CreateSnapshotReader(accountName, cancellationToken)
+            .ReadChannelAsync()
+            .ConfigureAwait(false);
+        return OperationResult<ChannelSnapshot>.Ok(read.Value);
     }
 
-    private Task<OperationResult<GatherSnapshot>> ReadGatherSnapshotAsync(
+    private async Task<OperationResult<GatherSnapshot>> ReadGatherSnapshotAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
-        if (_gameApi is IRoadhogScopedGameApi scopedApi &&
-            !string.IsNullOrWhiteSpace(accountName))
-        {
-            return scopedApi.ReadGatherSnapshotAsync(CreateReadContext(accountName), cancellationToken);
-        }
-
-        return _gameApi.ReadGatherSnapshotAsync(cancellationToken);
+        var read = await CreateSnapshotReader(accountName, cancellationToken)
+            .ReadGatherSnapshotAsync()
+            .ConfigureAwait(false);
+        return OperationResult<GatherSnapshot>.Ok(read.Value);
     }
 
-    private Task<OperationResult<IReadOnlyList<InventoryItemSnapshot>>> ReadInventoryAsync(
+    private async Task<OperationResult<IReadOnlyList<InventoryItemSnapshot>>> ReadInventoryAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
-        if (_gameApi is IRoadhogScopedGameApi scopedApi &&
-            !string.IsNullOrWhiteSpace(accountName))
-        {
-            return scopedApi.ReadInventoryAsync(CreateReadContext(accountName), cancellationToken);
-        }
-
-        return _gameApi.ReadInventoryAsync(cancellationToken);
+        var read = await CreateSnapshotReader(accountName, cancellationToken)
+            .ReadInventoryAsync()
+            .ConfigureAwait(false);
+        return OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Ok(read.Value);
     }
 
 #if DEBUG
-    private Task<OperationResult<ulong>> ReadInventoryMoneyAsync(
+    private async Task<OperationResult<ulong>> ReadInventoryMoneyAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
-        if (_gameApi is not IInventoryMoneyGameApi moneyApi)
-        {
-            return Task.FromResult(OperationResult<ulong>.Fail(
-                "Inventory money VMM API is not available."));
-        }
-
-        return moneyApi.ReadInventoryMoneyAsync(CreateReadContextOrDefault(accountName), cancellationToken);
+        var read = await CreateSnapshotReader(accountName, cancellationToken)
+            .ReadInventoryMoneyAsync()
+            .ConfigureAwait(false);
+        return OperationResult<ulong>.Ok(read.Value);
     }
 
-    private Task<OperationResult<int>> ReadInventoryCapacityAsync(
+    private async Task<OperationResult<int>> ReadInventoryCapacityAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
-        if (_gameApi is not IInventoryCapacityGameApi capacityApi)
-        {
-            return Task.FromResult(OperationResult<int>.Fail(
-                "Inventory capacity VMM API is not available."));
-        }
-
-        return capacityApi.ReadInventoryCapacityAsync(CreateReadContextOrDefault(accountName), cancellationToken);
+        var read = await CreateSnapshotReader(accountName, cancellationToken)
+            .ReadInventoryCapacityAsync()
+            .ConfigureAwait(false);
+        return OperationResult<int>.Ok(read.Value);
     }
 
-    private Task<OperationResult<IReadOnlyList<LootCorpseSnapshot>>> ReadLootCorpsesAsync(
+    private async Task<OperationResult<IReadOnlyList<LootCorpseSnapshot>>> ReadLootCorpsesAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
-        if (_gameApi is IRoadhogScopedGameApi scopedApi &&
-            !string.IsNullOrWhiteSpace(accountName))
-        {
-            return scopedApi.ReadLootCorpsesAsync(CreateReadContext(accountName), cancellationToken);
-        }
-
-        return _gameApi.ReadLootCorpsesAsync(cancellationToken);
+        var read = await CreateSnapshotReader(accountName, cancellationToken)
+            .ReadLootCorpsesAsync()
+            .ConfigureAwait(false);
+        return OperationResult<IReadOnlyList<LootCorpseSnapshot>>.Ok(read.Value);
     }
 
-    private Task<OperationResult<InventoryWindowSnapshot>> ReadInventoryWindowSnapshotAsync(
+    private async Task<OperationResult<InventoryWindowSnapshot>> ReadInventoryWindowSnapshotAsync(
         string? accountName,
         InventoryWindowRectSource rectSource,
         CancellationToken cancellationToken)
     {
-        if (_gameApi is not IInventoryWindowGameApi inventoryWindowApi)
-        {
-            return Task.FromResult(OperationResult<InventoryWindowSnapshot>.Fail(
-                "Inventory window VMM API is not available."));
-        }
-
-        return inventoryWindowApi.ReadInventoryWindowAsync(
-            CreateReadContextOrDefault(accountName),
-            rectSource,
-            cancellationToken);
+        var read = await CreateSnapshotReader(accountName, cancellationToken)
+            .ReadInventoryWindowAsync(rectSource)
+            .ConfigureAwait(false);
+        return OperationResult<InventoryWindowSnapshot>.Ok(read.Value);
     }
 #endif
 
-    private Task<OperationResult<PlayerSnapshot>> ReadPlayerSnapshotAsync(
+    private async Task<OperationResult<PlayerSnapshot>> ReadPlayerSnapshotAsync(
         string? accountName,
         CancellationToken cancellationToken,
         bool bypassMemoryCache = false)
     {
-        if (_gameApi is IRoadhogScopedGameApi scopedApi &&
-            !string.IsNullOrWhiteSpace(accountName))
-        {
-            return scopedApi.ReadPlayerAsync(CreateReadContext(accountName, bypassMemoryCache), cancellationToken);
-        }
-
-        return _gameApi.ReadPlayerAsync(cancellationToken);
+        var snapshots = CreateSnapshotReader(accountName, cancellationToken);
+        var read = bypassMemoryCache
+            ? await snapshots.ReadCurrentPlayerAsync().ConfigureAwait(false)
+            : await snapshots.ReadPlayerAsync().ConfigureAwait(false);
+        return OperationResult<PlayerSnapshot>.Ok(read.Value);
     }
 
-    private Task<OperationResult<PlayerAbnormalStatusSnapshot>> ReadPlayerAbnormalStatusSnapshotAsync(
+    private async Task<OperationResult<PlayerAbnormalStatusSnapshot>> ReadPlayerAbnormalStatusSnapshotAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
-        if (_gameApi is IRoadhogScopedGameApi scopedApi &&
-            !string.IsNullOrWhiteSpace(accountName))
-        {
-            return scopedApi.ReadPlayerAbnormalStatusesAsync(CreateReadContext(accountName), cancellationToken);
-        }
-
-        return _gameApi.ReadPlayerAbnormalStatusesAsync(cancellationToken);
+        var read = await CreateSnapshotReader(accountName, cancellationToken)
+            .ReadPlayerAbnormalStatusesAsync()
+            .ConfigureAwait(false);
+        return OperationResult<PlayerAbnormalStatusSnapshot>.Ok(read.Value);
     }
 
-    private Task<OperationResult<LockedTargetAbnormalStatusSnapshot>> ReadLockedTargetAbnormalStatusSnapshotAsync(
+    private async Task<OperationResult<LockedTargetAbnormalStatusSnapshot>> ReadLockedTargetAbnormalStatusSnapshotAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
-        if (_gameApi is IRoadhogScopedGameApi scopedApi &&
-            !string.IsNullOrWhiteSpace(accountName))
-        {
-            return scopedApi.ReadLockedTargetAbnormalStatusesAsync(CreateReadContext(accountName), cancellationToken);
-        }
-
-        return _gameApi.ReadLockedTargetAbnormalStatusesAsync(cancellationToken);
+        var read = await CreateSnapshotReader(accountName, cancellationToken)
+            .ReadLockedTargetAbnormalStatusesAsync()
+            .ConfigureAwait(false);
+        return OperationResult<LockedTargetAbnormalStatusSnapshot>.Ok(read.Value);
     }
 
-    private Task<OperationResult<SummonedPetSnapshot>> ReadSummonedPetSnapshotAsync(
+    private async Task<OperationResult<SummonedPetSnapshot>> ReadSummonedPetSnapshotAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
-        if (_gameApi is IRoadhogScopedGameApi scopedApi &&
-            !string.IsNullOrWhiteSpace(accountName))
-        {
-            return scopedApi.ReadSummonedPetAsync(CreateReadContext(accountName), cancellationToken);
-        }
-
-        return _gameApi.ReadSummonedPetAsync(cancellationToken);
+        var read = await CreateSnapshotReader(accountName, cancellationToken)
+            .ReadSummonedPetAsync()
+            .ConfigureAwait(false);
+        return OperationResult<SummonedPetSnapshot>.Ok(read.Value);
     }
 
-    private Task<OperationResult<SummonedPetRosterSnapshot>> ReadSummonedPetRosterSnapshotAsync(
+    private async Task<OperationResult<SummonedPetRosterSnapshot>> ReadSummonedPetRosterSnapshotAsync(
         string? accountName,
         CancellationToken cancellationToken)
     {
-        if (_gameApi is IRoadhogScopedGameApi scopedApi &&
-            !string.IsNullOrWhiteSpace(accountName))
-        {
-            return scopedApi.ReadSummonedPetRosterAsync(CreateReadContext(accountName), cancellationToken);
-        }
-
-        return _gameApi.ReadSummonedPetRosterAsync(cancellationToken);
+        var read = await CreateSnapshotReader(accountName, cancellationToken)
+            .ReadSummonedPetRosterAsync()
+            .ConfigureAwait(false);
+        return OperationResult<SummonedPetRosterSnapshot>.Ok(read.Value);
     }
 
 #if DEBUG
@@ -1741,6 +1659,36 @@ public sealed class RoadhogRuntime
                 config.VmmDeviceName,
                 bypassMemoryCache,
                 RequireFresh: bypassMemoryCache);
+    }
+
+    private IRoadhogSnapshotReader CreateSnapshotReader(
+        string? accountName,
+        CancellationToken cancellationToken)
+    {
+        AccountConfig config;
+        if (string.IsNullOrWhiteSpace(accountName))
+        {
+            config = new AccountConfig();
+        }
+        else
+        {
+            var runtimeAccount = Accounts.Snapshot()
+                .FirstOrDefault(item => string.Equals(
+                    item.AccountName,
+                    accountName,
+                    StringComparison.OrdinalIgnoreCase));
+            config = runtimeAccount is null
+                ? LoadSavedAccountConfig(accountName) ?? new AccountConfig { AccountName = accountName }
+                : new AccountConfig
+                {
+                    AccountName = runtimeAccount.AccountName,
+                    ProcessId = runtimeAccount.ProcessId,
+                    TargetProcessName = runtimeAccount.TargetProcessName,
+                    VmmDeviceName = runtimeAccount.VmmDeviceName
+                };
+        }
+
+        return new RoadhogSnapshotReader(config, _gameApi, _logger, cancellationToken);
     }
 
     private AccountConfig? LoadSavedAccountConfig(string accountName)

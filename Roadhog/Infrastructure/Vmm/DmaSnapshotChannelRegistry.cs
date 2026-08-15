@@ -267,7 +267,9 @@ internal static class AionVmmSnapshotChannels
         ChannelRegistry.Register<IReadOnlyList<SkillSnapshot>>("skills", partitioned: true);
 
     public static readonly DmaSnapshotChannel<IReadOnlyList<InventoryItemSnapshot>> Inventory =
-        ChannelRegistry.Register<IReadOnlyList<InventoryItemSnapshot>>("inventory");
+        ChannelRegistry.Register<IReadOnlyList<InventoryItemSnapshot>>(
+            "inventory",
+            mergePolicy: DmaSnapshotMergePolicy.FieldAware);
 
     public static readonly DmaSnapshotChannel<ulong> InventoryMoney =
         ChannelRegistry.Register<ulong>("inventory_money");

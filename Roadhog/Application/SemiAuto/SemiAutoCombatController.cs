@@ -112,29 +112,8 @@ public sealed class SemiAutoCombatController
             return Ms(settings.TargetIdleDelayMs, 200);
         }
 
-        var targetResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
-        if (!targetResult.Success || targetResult.Value is null)
-        {
-            state.ResetOpeningAttackKey();
-            state.ResetSpiritmasterOpeningAttackKey();
-            state.ResetOpeningSkill();
-            state.ResetAttackKeyPressThrottle();
-            if (ShouldLog(state.LastTargetWarningAt, now))
-            {
-                state.LastTargetWarningAt = now;
-                context.Logger.Warn(
-                    "semi_auto.target.read_failed",
-                    new Dictionary<string, object?>
-                    {
-                        ["account"] = context.Config.AccountName,
-                        ["error"] = targetResult.Error
-                    });
-            }
-
-            return Ms(settings.TargetIdleDelayMs, 200);
-        }
-
-        var targetKilled = state.ObserveTarget(targetResult.Value, out var killedTargetEntityId, out var liveTargetChanged);
+        var target = await ReadLockedTargetAsync(context).ConfigureAwait(false);
+        var targetKilled = state.ObserveTarget(target, out var killedTargetEntityId, out var liveTargetChanged);
         if (liveTargetChanged)
         {
             ClearPendingChainForTargetTransition(context, state, "target_changed");
@@ -145,21 +124,21 @@ public sealed class SemiAutoCombatController
             var counted = context.RuntimeStates.MarkKill(
                 context.Config.AccountName,
                 killedTargetEntityId,
-                targetResult.Value.ServerObjectId,
-                targetResult.Value.CapturedAt);
+                target.ServerObjectId,
+                target.CapturedAt);
             if (counted)
             {
                 context.Logger.Info("semi_auto.target.kill_counted", new Dictionary<string, object?>
                 {
                     ["account"] = context.Config.AccountName,
                     ["targetEntityId"] = killedTargetEntityId,
-                    ["targetServerObjectId"] = targetResult.Value.ServerObjectId,
-                    ["targetName"] = targetResult.Value.Name
+                    ["targetServerObjectId"] = target.ServerObjectId,
+                    ["targetName"] = target.Name
                 });
             }
         }
 
-        if (!targetResult.Value.IsMonsterAlive)
+        if (!target.IsMonsterAlive)
         {
             state.ClearSpiritmasterPetHpIncreaseConfirmation();
             ClearPendingChainForTargetTransition(context, state, "target_not_attackable");
@@ -175,14 +154,14 @@ public sealed class SemiAutoCombatController
                     new Dictionary<string, object?>
                     {
                         ["account"] = context.Config.AccountName,
-                        ["hasTarget"] = targetResult.Value.HasTarget,
-                        ["targetEntityId"] = targetResult.Value.TargetEntityId,
-                        ["targetName"] = targetResult.Value.Name,
-                        ["objectType"] = targetResult.Value.ObjectType,
-                        ["currentHp"] = targetResult.Value.CurrentHp,
-                        ["maxHp"] = targetResult.Value.MaxHp,
-                        ["isMonster"] = targetResult.Value.IsMonster,
-                        ["isAlive"] = targetResult.Value.IsAlive
+                        ["hasTarget"] = target.HasTarget,
+                        ["targetEntityId"] = target.TargetEntityId,
+                        ["targetName"] = target.Name,
+                        ["objectType"] = target.ObjectType,
+                        ["currentHp"] = target.CurrentHp,
+                        ["maxHp"] = target.MaxHp,
+                        ["isMonster"] = target.IsMonster,
+                        ["isAlive"] = target.IsAlive
                     });
             }
 
@@ -196,16 +175,16 @@ public sealed class SemiAutoCombatController
                     state,
                     settings,
                     skillSettings.Spiritmaster,
-                    targetResult.Value)
+                    target)
                 .ConfigureAwait(false))
         {
-            jumpAssist?.ActivatePreparedTeamCombatJump(targetResult.Value.ServerObjectId);
+            jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
             return Ms(settings.TickIntervalMs, 40);
         }
 
-        if (await PressOpeningSkillIfNeededAsync(context, state, settings, plan, targetResult.Value).ConfigureAwait(false))
+        if (await PressOpeningSkillIfNeededAsync(context, state, settings, plan, target).ConfigureAwait(false))
         {
-            jumpAssist?.ActivatePreparedTeamCombatJump(targetResult.Value.ServerObjectId);
+            jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
             return Ms(settings.TickIntervalMs, 40);
         }
 
@@ -214,32 +193,14 @@ public sealed class SemiAutoCombatController
             return Ms(settings.TickIntervalMs, 40);
         }
 
-        if (await PressOpeningAttackKeyIfNeededAsync(context, state, settings, targetResult.Value).ConfigureAwait(false))
+        if (await PressOpeningAttackKeyIfNeededAsync(context, state, settings, target).ConfigureAwait(false))
         {
-            jumpAssist?.ActivatePreparedTeamCombatJump(targetResult.Value.ServerObjectId);
+            jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
             return Ms(settings.TickIntervalMs, 40);
         }
 
-        var skillsResult = await ReadSkillsAsync(context, plan).ConfigureAwait(false);
-        if (!skillsResult.Success || skillsResult.Value is null)
-        {
-            if (ShouldLog(state.LastSkillWarningAt, now))
-            {
-                state.LastSkillWarningAt = now;
-                context.Logger.Warn(
-                    "semi_auto.skills.read_failed",
-                    new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["error"] = skillsResult.Error
-                });
-            }
-
-            await PressAttackKeyIfDueAsync(context, state, settings).ConfigureAwait(false);
-            return Ms(settings.TickIntervalMs, 50);
-        }
-
-        if (skillsResult.Value.Count == 0)
+        var skills = await ReadSkillsAsync(context, plan).ConfigureAwait(false);
+        if (skills.Count == 0)
         {
             if (ShouldLog(state.LastNoSkillLogAt, now))
             {
@@ -249,8 +210,8 @@ public sealed class SemiAutoCombatController
                     new Dictionary<string, object?>
                     {
                         ["account"] = context.Config.AccountName,
-                        ["targetEntityId"] = targetResult.Value.TargetEntityId,
-                        ["targetName"] = targetResult.Value.Name
+                        ["targetEntityId"] = target.TargetEntityId,
+                        ["targetName"] = target.Name
                     });
             }
 
@@ -258,13 +219,13 @@ public sealed class SemiAutoCombatController
             return Ms(settings.TickIntervalMs, 50);
         }
 
-        var configuredSkills = ResolveConfiguredSkills(plan, skillsResult.Value);
+        var configuredSkills = ResolveConfiguredSkills(plan, skills);
         var cooldownObservedSkills = configuredSkills;
         if (plan.UsesSpiritmasterAutoLogic)
         {
             cooldownObservedSkills = MergeSkillSnapshots(
                 configuredSkills,
-                ResolveSpiritmasterConfiguredSkills(skillSettings.Spiritmaster, skillsResult.Value));
+                ResolveSpiritmasterConfiguredSkills(skillSettings.Spiritmaster, skills));
         }
 
         var osTick = CurrentOsTick();
@@ -320,7 +281,7 @@ public sealed class SemiAutoCombatController
         TryStartPendingChainWindowFromRootCooldown(context, state, configuredSkills, now, settings);
 
         var spiritContext = plan.UsesSpiritmasterAutoLogic
-            ? await ReadSpiritmasterCombatContextAsync(context, targetResult.Value).ConfigureAwait(false)
+            ? await ReadSpiritmasterCombatContextAsync(context, target).ConfigureAwait(false)
             : null;
         var useSpiritmasterLogic =
             plan.UsesSpiritmasterAutoLogic &&
@@ -333,7 +294,7 @@ public sealed class SemiAutoCombatController
                 out _))
         {
             await PressPendingSkillCooldownRetryIfDueAsync(context, state, settings).ConfigureAwait(false);
-            jumpAssist?.ActivatePreparedTeamCombatJump(targetResult.Value.ServerObjectId);
+            jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
             return Ms(settings.TickIntervalMs, 40);
         }
 
@@ -344,11 +305,11 @@ public sealed class SemiAutoCombatController
                     state,
                     settings,
                     skillSettings.Spiritmaster,
-                    skillsResult.Value,
+                    skills,
                     spiritContext)
                 .ConfigureAwait(false))
         {
-            jumpAssist?.ActivatePreparedTeamCombatJump(targetResult.Value.ServerObjectId);
+            jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
             return Ms(settings.TickIntervalMs, 40);
         }
 
@@ -369,7 +330,7 @@ public sealed class SemiAutoCombatController
             return Ms(settings.TickIntervalMs, 40);
         }
 
-        jumpAssist?.ActivatePreparedTeamCombatJump(targetResult.Value.ServerObjectId);
+        jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
 
         var conditionTargetAbnormalStatuses = spiritContext?.LockedTargetAbnormalStatuses;
         if (conditionTargetAbnormalStatuses is null &&
@@ -417,10 +378,10 @@ public sealed class SemiAutoCombatController
                 new Dictionary<string, object?>
                 {
                     ["account"] = context.Config.AccountName,
-                    ["targetEntityId"] = targetResult.Value.TargetEntityId,
-                    ["targetName"] = targetResult.Value.Name,
+                    ["targetEntityId"] = target.TargetEntityId,
+                    ["targetName"] = target.Name,
                     ["skillCount"] = configuredSkills.Count,
-                    ["rawSkillCount"] = skillsResult.Value.Count,
+                    ["rawSkillCount"] = skills.Count,
                     ["topLevelSkillCount"] = plan.Roots.Count,
                     ["chainRootCount"] = plan.Roots.Count(root => root.Children.Count > 0),
                     ["triggerPrefixCount"] = plan.TriggerPrefixRoots.Count,
@@ -478,15 +439,14 @@ public sealed class SemiAutoCombatController
         }
 
         var now = DateTimeOffset.Now;
-        var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
-        if (!playerResult.Success || playerResult.Value is null || playerResult.Value.IsDead)
+        var player = await ReadPlayerAsync(context).ConfigureAwait(false);
+        if (player.IsDead)
         {
             state.ResetSpiritmasterPetMissingReads();
             state.ClearSpiritmasterSummonVerification();
             return false;
         }
 
-        var player = playerResult.Value;
         if (player.CharacterClassId is { } classId && classId != AionClassId.Spiritmaster)
         {
             state.ResetSpiritmasterPetMissingReads();
@@ -494,29 +454,8 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
-        var rosterResult = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
-        if (!rosterResult.Success || rosterResult.Value is null)
-        {
-            state.ResetSpiritmasterPetMissingReads();
-            if (state.HasPendingSpiritmasterSummonVerification)
-            {
-                if (ShouldLog(state.LastSpiritmasterSummonVerifyLogAt, now))
-                {
-                    state.LastSpiritmasterSummonVerifyLogAt = now;
-                    context.Logger.Warn("semi_auto.spiritmaster.summon_verify_roster_failed", new Dictionary<string, object?>
-                    {
-                        ["account"] = context.Config.AccountName,
-                        ["error"] = rosterResult.Error
-                    });
-                }
-
-                return true;
-            }
-
-            return false;
-        }
-
-        var localPet = rosterResult.Value.LocalPlayerPet;
+        var roster = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
+        var localPet = roster.LocalPlayerPet;
         var pet = localPet.Pet;
         if (SpiritmasterCombatContext.IsConfirmedLocalSummonedPet(localPet))
         {
@@ -827,33 +766,14 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
-        var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
-        if (!playerResult.Success || playerResult.Value is null)
-        {
-            context.RuntimeStates.MarkWarning(
-                context.Config.AccountName,
-                Roadhog.Application.RuntimeWarningText.FromPlayerReadFailure(playerResult.Error));
-            var now = DateTimeOffset.Now;
-            if (ShouldLog(state.LastMaintenanceWarningAt, now))
-            {
-                state.LastMaintenanceWarningAt = now;
-                context.Logger.Warn("semi_auto.maintenance.player_failed", new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["error"] = playerResult.Error
-                });
-            }
-
-            return false;
-        }
-
+        var player = await ReadPlayerAsync(context).ConfigureAwait(false);
         context.RuntimeStates.ClearWarning(context.Config.AccountName);
         return await TryHandleMaintenanceAsync(
                 context,
                 state,
                 settings,
                 maintenance,
-                playerResult.Value,
+                player,
                 allowSitMaintenance,
                 clearSitWhenDisallowed,
                 plan: plan,
@@ -1081,8 +1001,8 @@ public sealed class SemiAutoCombatController
         }
 
         var percent = Percent(current, max);
-        OperationResult<IReadOnlyList<SkillSnapshot>>? skillsResult = null;
-        OperationResult<IReadOnlyList<InventoryItemSnapshot>>? inventoryResult = null;
+        IReadOnlyList<SkillSnapshot>? skills = null;
+        IReadOnlyList<InventoryItemSnapshot>? inventory = null;
         foreach (var rule in (rules ?? Array.Empty<MaintenanceKeyRuleConfig>())
                      .Where(rule => !string.IsNullOrWhiteSpace(rule.Key) &&
                                      IsMaintenanceRuleAllowed(rule, runTiming, includeAlwaysRules))
@@ -1126,14 +1046,8 @@ public sealed class SemiAutoCombatController
                         .ConfigureAwait(false);
                 }
 
-                inventoryResult ??= await ReadInventoryAsync(context).ConfigureAwait(false);
-                if (!inventoryResult.Success || inventoryResult.Value is null)
-                {
-                    LogMaintenancePotionInventoryReadFailed(context, state, rule, inventoryResult.Error);
-                    continue;
-                }
-
-                if (!inventoryResult.Value.Any(IsSpiritMpPotion))
+                inventory ??= await ReadInventoryAsync(context).ConfigureAwait(false);
+                if (!inventory.Any(IsSpiritMpPotion))
                 {
                     continue;
                 }
@@ -1164,26 +1078,18 @@ public sealed class SemiAutoCombatController
             SkillSnapshot? maintenanceSkill = null;
             if (hasExplicitSkill || plan is not null)
             {
-                skillsResult ??= await ReadAllSkillsAsync(context).ConfigureAwait(false);
-                if (skillsResult.Success && skillsResult.Value is not null)
+                skills ??= await ReadAllSkillsAsync(context).ConfigureAwait(false);
+                maintenanceSkill = ResolveMaintenanceRuleSkill(rule, plan, skills);
+                if (maintenanceSkill is not null &&
+                    GetMaintenanceCooldownReadiness(maintenanceSkill, state) == SemiAutoSkillCooldownReadiness.CoolingDown)
                 {
-                    maintenanceSkill = ResolveMaintenanceRuleSkill(rule, plan, skillsResult.Value);
-                    if (maintenanceSkill is not null &&
-                        GetMaintenanceCooldownReadiness(maintenanceSkill, state) == SemiAutoSkillCooldownReadiness.CoolingDown)
-                    {
-                        LogMaintenanceRuleSkippedCooling(context, state, rule, resource, maintenanceSkill);
-                        continue;
-                    }
-
-                    if (hasExplicitSkill && maintenanceSkill is null)
-                    {
-                        LogMaintenanceRuleSkippedMissing(context, state, rule, resource);
-                        continue;
-                    }
+                    LogMaintenanceRuleSkippedCooling(context, state, rule, resource, maintenanceSkill);
+                    continue;
                 }
-                else if (hasExplicitSkill)
+
+                if (hasExplicitSkill && maintenanceSkill is null)
                 {
-                    LogMaintenanceRuleSkillReadFailed(context, state, rule, resource, skillsResult.Error);
+                    LogMaintenanceRuleSkippedMissing(context, state, rule, resource);
                     continue;
                 }
             }
@@ -1284,29 +1190,7 @@ public sealed class SemiAutoCombatController
         PlayerSnapshot player,
         string phase)
     {
-        var abnormalResult = await ReadPlayerAbnormalStatusesAsync(context).ConfigureAwait(false);
-        if (!abnormalResult.Success || abnormalResult.Value is null)
-        {
-            var warningAt = DateTimeOffset.Now;
-            if (ShouldLog(state.LastMaintenanceWarningAt, warningAt))
-            {
-                state.LastMaintenanceWarningAt = warningAt;
-                context.Logger.Warn("semi_auto.maintenance.rest_wait_abnormal_read_failed", new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["phase"] = phase,
-                    ["error"] = abnormalResult.Error,
-                    ["hp"] = player.CurrentHp,
-                    ["maxHp"] = player.MaxHp,
-                    ["mp"] = player.CurrentMp,
-                    ["maxMp"] = player.MaxMp
-                });
-            }
-
-            return true;
-        }
-
-        var abnormal = abnormalResult.Value;
+        var abnormal = await ReadPlayerAbnormalStatusesAsync(context).ConfigureAwait(false);
         var harmfulEntries = abnormal.Entries
             .Where(StatusCatalog.IsHarmfulForRest)
             .ToArray();
@@ -1485,20 +1369,14 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
-        var abnormalResult = await ReadPlayerAbnormalStatusesAsync(context).ConfigureAwait(false);
-        if (!abnormalResult.Success || abnormalResult.Value is null)
-        {
-            LogStatusMaintenanceAbnormalReadFailed(context, state, resource, abnormalResult.Error);
-            return false;
-        }
-
-        OperationResult<IReadOnlyList<SkillSnapshot>>? skillsResult = null;
+        var abnormal = await ReadPlayerAbnormalStatusesAsync(context).ConfigureAwait(false);
+        IReadOnlyList<SkillSnapshot>? skills = null;
         foreach (var rule in configuredRules)
         {
             var configuredSkillId = rule.SkillId;
             var now = DateTimeOffset.Now;
             var configuredStateKey = CreateStatusMaintenanceRuleStateKey(rule, configuredSkillId);
-            if (IsStatusMaintenanceActive(rule, configuredSkillId, state, abnormalResult.Value.Entries))
+            if (IsStatusMaintenanceActive(rule, configuredSkillId, state, abnormal.Entries))
             {
                 if (IsChantStatusMaintenanceRule(rule, null))
                 {
@@ -1515,34 +1393,26 @@ public sealed class SemiAutoCombatController
             SkillSnapshot? maintenanceSkill = null;
             if (HasExplicitStatusMaintenanceSkill(rule))
             {
-                skillsResult ??= await ReadAllSkillsAsync(context).ConfigureAwait(false);
-                if (skillsResult.Success && skillsResult.Value is not null)
+                skills ??= await ReadAllSkillsAsync(context).ConfigureAwait(false);
+                maintenanceSkill = ResolveStatusMaintenanceRuleSkill(rule, skills);
+                if (maintenanceSkill is not null &&
+                    requireCooldownCalibrationForMaintenance &&
+                    !state.HasCooldownTickCalibration &&
+                    maintenanceSkill.CooldownEndTime != 0)
                 {
-                    maintenanceSkill = ResolveStatusMaintenanceRuleSkill(rule, skillsResult.Value);
-                    if (maintenanceSkill is not null &&
-                        requireCooldownCalibrationForMaintenance &&
-                        !state.HasCooldownTickCalibration &&
-                        maintenanceSkill.CooldownEndTime != 0)
-                    {
-                        continue;
-                    }
-
-                    if (maintenanceSkill is not null &&
-                        GetMaintenanceCooldownReadiness(maintenanceSkill, state) == SemiAutoSkillCooldownReadiness.CoolingDown)
-                    {
-                        LogStatusMaintenanceRuleSkippedCooling(context, state, rule, resource, maintenanceSkill);
-                        continue;
-                    }
-
-                    if (maintenanceSkill is null)
-                    {
-                        LogStatusMaintenanceRuleSkippedMissing(context, state, rule, resource);
-                        continue;
-                    }
+                    continue;
                 }
-                else
+
+                if (maintenanceSkill is not null &&
+                    GetMaintenanceCooldownReadiness(maintenanceSkill, state) == SemiAutoSkillCooldownReadiness.CoolingDown)
                 {
-                    LogStatusMaintenanceRuleSkillReadFailed(context, state, rule, resource, skillsResult.Error);
+                    LogStatusMaintenanceRuleSkippedCooling(context, state, rule, resource, maintenanceSkill);
+                    continue;
+                }
+
+                if (maintenanceSkill is null)
+                {
+                    LogStatusMaintenanceRuleSkippedMissing(context, state, rule, resource);
                     continue;
                 }
             }
@@ -1551,7 +1421,7 @@ public sealed class SemiAutoCombatController
             var isChantStatusMaintenance = IsChantStatusMaintenanceRule(rule, maintenanceSkill);
             var stateKey = CreateStatusMaintenanceRuleStateKey(rule, skillId);
             if (skillId != configuredSkillId &&
-                IsStatusMaintenanceActive(rule, skillId, state, abnormalResult.Value.Entries))
+                IsStatusMaintenanceActive(rule, skillId, state, abnormal.Entries))
             {
                 if (isChantStatusMaintenance)
                 {
@@ -1565,7 +1435,7 @@ public sealed class SemiAutoCombatController
                 continue;
             }
 
-            if (IsStatusMaintenanceActive(rule, skillId, state, abnormalResult.Value.Entries))
+            if (IsStatusMaintenanceActive(rule, skillId, state, abnormal.Entries))
             {
                 if (isChantStatusMaintenance)
                 {
@@ -1590,7 +1460,7 @@ public sealed class SemiAutoCombatController
                     rule,
                     skillId,
                     state,
-                    abnormalResult.Value.Entries,
+                    abnormal.Entries,
                     now,
                     out chantExpectedAbnormalId,
                     out chantMissingReadCount,
@@ -1647,7 +1517,7 @@ public sealed class SemiAutoCombatController
                     rule,
                     resource,
                     player,
-                    abnormalResult.Value,
+                    abnormal,
                     beforeMaintenanceKeyPress,
                     maintenanceSkill,
                     isChantStatusMaintenance)
@@ -1679,7 +1549,7 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
-        OperationResult<IReadOnlyList<SkillSnapshot>>? skillsResult = null;
+        IReadOnlyList<SkillSnapshot>? skills = null;
         foreach (var rule in configuredRules)
         {
             var requiredDp = NormalizeRequiredDp(rule.RequiredDp);
@@ -1698,26 +1568,18 @@ public sealed class SemiAutoCombatController
             SkillSnapshot? maintenanceSkill = null;
             if (hasExplicitSkill)
             {
-                skillsResult ??= await ReadAllSkillsAsync(context).ConfigureAwait(false);
-                if (skillsResult.Success && skillsResult.Value is not null)
+                skills ??= await ReadAllSkillsAsync(context).ConfigureAwait(false);
+                maintenanceSkill = ResolveDpMaintenanceRuleSkill(rule, skills);
+                if (maintenanceSkill is not null &&
+                    GetMaintenanceCooldownReadiness(maintenanceSkill, state) == SemiAutoSkillCooldownReadiness.CoolingDown)
                 {
-                    maintenanceSkill = ResolveDpMaintenanceRuleSkill(rule, skillsResult.Value);
-                    if (maintenanceSkill is not null &&
-                        GetMaintenanceCooldownReadiness(maintenanceSkill, state) == SemiAutoSkillCooldownReadiness.CoolingDown)
-                    {
-                        LogDpMaintenanceRuleSkippedCooling(context, state, rule, resource, maintenanceSkill);
-                        continue;
-                    }
-
-                    if (maintenanceSkill is null)
-                    {
-                        LogDpMaintenanceRuleSkippedMissing(context, state, rule, resource);
-                        continue;
-                    }
+                    LogDpMaintenanceRuleSkippedCooling(context, state, rule, resource, maintenanceSkill);
+                    continue;
                 }
-                else
+
+                if (maintenanceSkill is null)
                 {
-                    LogDpMaintenanceRuleSkillReadFailed(context, state, rule, resource, skillsResult.Error);
+                    LogDpMaintenanceRuleSkippedMissing(context, state, rule, resource);
                     continue;
                 }
             }
@@ -1775,10 +1637,8 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
-        var baselineResult = await ReadAllSkillsAsync(context).ConfigureAwait(false);
-        var baselineCooldowns = baselineResult.Success && baselineResult.Value is not null
-            ? SnapshotCooldownEndTimes(baselineResult.Value)
-            : null;
+        var baselineSkills = await ReadAllSkillsAsync(context).ConfigureAwait(false);
+        var baselineCooldowns = SnapshotCooldownEndTimes(baselineSkills);
         var startedAt = DateTimeOffset.Now;
         var deadline = startedAt + MaintenanceConfirmWindow;
         var attempts = 0;
@@ -1797,17 +1657,13 @@ public sealed class SemiAutoCombatController
             }
 
             state.MarkMaintenanceKeyAttempted(rule.Key, DateTimeOffset.Now);
-            if (baselineCooldowns is not null)
+            if (baselineCooldowns.Count > 0)
             {
-                var skillsResult = await ReadAllSkillsAsync(context).ConfigureAwait(false);
-                if (skillsResult.Success &&
-                    skillsResult.Value is not null)
+                var skills = await ReadAllSkillsAsync(context).ConfigureAwait(false);
+                if (TryFindAdvancedCooldown(baselineCooldowns, skills, maintenanceSkill, out confirmedSkill))
                 {
-                    if (TryFindAdvancedCooldown(baselineCooldowns, skillsResult.Value, maintenanceSkill, out confirmedSkill))
-                    {
-                        TryUpdateMaintenanceCooldownCalibration(context, state, confirmedSkill);
-                        break;
-                    }
+                    TryUpdateMaintenanceCooldownCalibration(context, state, confirmedSkill);
+                    break;
                 }
             }
 
@@ -1836,8 +1692,8 @@ public sealed class SemiAutoCombatController
                 ["attempts"] = attempts,
                 ["confirmWindowMs"] = (long)MaintenanceConfirmWindow.TotalMilliseconds,
                 ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAt - startedAt).TotalMilliseconds),
-                ["baselineReadSuccess"] = baselineResult.Success,
-                ["baselineError"] = baselineResult.Error,
+                ["baselineReadSuccess"] = true,
+                ["baselineError"] = null,
                 ["maintenanceSkillId"] = maintenanceSkill?.SkillId,
                 ["maintenanceSkillName"] = maintenanceSkill?.Name
             });
@@ -1928,53 +1784,46 @@ public sealed class SemiAutoCombatController
         while (DateTimeOffset.Now <= deadline)
         {
             polls++;
-            var abnormalResult = await ReadPlayerAbnormalStatusesAsync(context).ConfigureAwait(false);
-            if (abnormalResult.Success && abnormalResult.Value is not null)
+            var abnormal = await ReadPlayerAbnormalStatusesAsync(context).ConfigureAwait(false);
+            var confirmedAbnormalId = ResolveConfirmedStatusMaintenanceAbnormalId(
+                rule,
+                skillId,
+                state,
+                beforeIds,
+                abnormal.Entries);
+            if (confirmedAbnormalId != 0)
             {
-                var confirmedAbnormalId = ResolveConfirmedStatusMaintenanceAbnormalId(
-                    rule,
-                    skillId,
-                    state,
-                    beforeIds,
-                    abnormalResult.Value.Entries);
-                if (confirmedAbnormalId != 0)
+                if (skillId != 0)
                 {
-                    if (skillId != 0)
-                    {
-                        state.RememberStatusMaintenanceAbnormalId(skillId, confirmedAbnormalId);
-                    }
-
-                    var completedAt = DateTimeOffset.Now;
-                    var stateKey = CreateStatusMaintenanceRuleStateKey(rule, skillId);
-                    if (isChantStatusMaintenance)
-                    {
-                        state.MarkStatusMaintenanceActive(stateKey, completedAt);
-                    }
-                    else
-                    {
-                        state.ClearStatusMaintenanceMissingRead(stateKey);
-                    }
-
-                    context.Logger.Info("semi_auto.maintenance.status_key_pressed", new Dictionary<string, object?>
-                    {
-                        ["account"] = context.Config.AccountName,
-                        ["resource"] = resource,
-                        ["key"] = rule.Key,
-                        ["skillId"] = skillId,
-                        ["skillName"] = skillName,
-                        ["abnormalStatusId"] = confirmedAbnormalId,
-                        ["oneShot"] = isChantStatusMaintenance,
-                        ["chant"] = isChantStatusMaintenance,
-                        ["polls"] = polls,
-                        ["confirmWindowMs"] = (long)confirmWindow.TotalMilliseconds,
-                        ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAt - startedAt).TotalMilliseconds)
-                    });
-                    return true;
+                    state.RememberStatusMaintenanceAbnormalId(skillId, confirmedAbnormalId);
                 }
-            }
-            else
-            {
-                LogStatusMaintenanceAbnormalReadFailed(context, state, resource, abnormalResult.Error);
+
+                var completedAt = DateTimeOffset.Now;
+                var stateKey = CreateStatusMaintenanceRuleStateKey(rule, skillId);
+                if (isChantStatusMaintenance)
+                {
+                    state.MarkStatusMaintenanceActive(stateKey, completedAt);
+                }
+                else
+                {
+                    state.ClearStatusMaintenanceMissingRead(stateKey);
+                }
+
+                context.Logger.Info("semi_auto.maintenance.status_key_pressed", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["resource"] = resource,
+                    ["key"] = rule.Key,
+                    ["skillId"] = skillId,
+                    ["skillName"] = skillName,
+                    ["abnormalStatusId"] = confirmedAbnormalId,
+                    ["oneShot"] = isChantStatusMaintenance,
+                    ["chant"] = isChantStatusMaintenance,
+                    ["polls"] = polls,
+                    ["confirmWindowMs"] = (long)confirmWindow.TotalMilliseconds,
+                    ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAt - startedAt).TotalMilliseconds)
+                });
+                return true;
             }
 
             var remaining = deadline - DateTimeOffset.Now;
@@ -2019,10 +1868,10 @@ public sealed class SemiAutoCombatController
             return true;
         }
 
-        var current = await ReadLockedTargetAsync(context, bypassMemoryCache: true).ConfigureAwait(false);
+        var current = await ReadCurrentLockedTargetAsync(context).ConfigureAwait(false);
         if (IsSelectedLocalPlayer(current, player))
         {
-            LogStatusMaintenanceSelfTargetSelected(context, rule, current.Value!, alreadySelected: true);
+            LogStatusMaintenanceSelfTargetSelected(context, rule, current, alreadySelected: true);
             return true;
         }
 
@@ -2042,7 +1891,7 @@ public sealed class SemiAutoCombatController
         }
 
         await Task.Delay(SupportSelfSelectConfirmDelay, context.StopToken).ConfigureAwait(false);
-        var confirmed = await ReadLockedTargetAsync(context, bypassMemoryCache: true).ConfigureAwait(false);
+        var confirmed = await ReadCurrentLockedTargetAsync(context).ConfigureAwait(false);
         if (!IsSelectedLocalPlayer(confirmed, player))
         {
             LogStatusMaintenanceSelfTargetSelectionFailed(
@@ -2050,12 +1899,12 @@ public sealed class SemiAutoCombatController
                 state,
                 rule,
                 confirmed,
-                confirmed.Success ? "target_mismatch" : "read_failed",
-                confirmed.Error);
+                "target_mismatch",
+                null);
             return false;
         }
 
-        LogStatusMaintenanceSelfTargetSelected(context, rule, confirmed.Value!, alreadySelected: false);
+        LogStatusMaintenanceSelfTargetSelected(context, rule, confirmed, alreadySelected: false);
         return true;
     }
 
@@ -2198,10 +2047,8 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
-        var baselineResult = await ReadAllSkillsAsync(context).ConfigureAwait(false);
-        var baselineCooldowns = baselineResult.Success && baselineResult.Value is not null
-            ? SnapshotCooldownEndTimes(baselineResult.Value)
-            : null;
+        var baselineSkills = await ReadAllSkillsAsync(context).ConfigureAwait(false);
+        var baselineCooldowns = SnapshotCooldownEndTimes(baselineSkills);
         var startedAt = DateTimeOffset.Now;
         var deadline = startedAt + MaintenanceConfirmWindow;
         var attempts = 0;
@@ -2235,17 +2082,13 @@ public sealed class SemiAutoCombatController
             }
 
             state.MarkMaintenanceKeyAttempted(rule.Key, DateTimeOffset.Now);
-            if (baselineCooldowns is not null)
+            if (baselineCooldowns.Count > 0)
             {
-                var skillsResult = await ReadAllSkillsAsync(context).ConfigureAwait(false);
-                if (skillsResult.Success &&
-                    skillsResult.Value is not null)
+                var skills = await ReadAllSkillsAsync(context).ConfigureAwait(false);
+                if (TryFindAdvancedCooldown(baselineCooldowns, skills, maintenanceSkill, out confirmedSkill))
                 {
-                    if (TryFindAdvancedCooldown(baselineCooldowns, skillsResult.Value, maintenanceSkill, out confirmedSkill))
-                    {
-                        TryUpdateMaintenanceCooldownCalibration(context, state, confirmedSkill);
-                        break;
-                    }
+                    TryUpdateMaintenanceCooldownCalibration(context, state, confirmedSkill);
+                    break;
                 }
             }
 
@@ -2276,8 +2119,8 @@ public sealed class SemiAutoCombatController
                 ["attempts"] = attempts,
                 ["confirmWindowMs"] = (long)MaintenanceConfirmWindow.TotalMilliseconds,
                 ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAt - startedAt).TotalMilliseconds),
-                ["baselineReadSuccess"] = baselineResult.Success,
-                ["baselineError"] = baselineResult.Error,
+                ["baselineReadSuccess"] = true,
+                ["baselineError"] = null,
                 ["maintenanceSkillId"] = maintenanceSkill?.SkillId,
                 ["maintenanceSkillName"] = maintenanceSkill?.Name
             });
@@ -2481,38 +2324,15 @@ public sealed class SemiAutoCombatController
         AccountWorkerContext context,
         LockedTargetSnapshot target)
     {
-        PlayerSnapshot? player = null;
-        SummonedPetRosterSnapshot? petRoster = null;
-        LockedTargetAbnormalStatusSnapshot? lockedTargetAbnormalStatuses = null;
-
-        var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
-        if (playerResult.Success)
-        {
-            player = playerResult.Value;
-        }
+        var player = await ReadPlayerAsync(context).ConfigureAwait(false);
 
         if (player?.CharacterClassId is { } classId && classId != AionClassId.Spiritmaster)
         {
             return new SpiritmasterCombatContext(player, null, null);
         }
 
-        var rosterResult = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
-        if (rosterResult.Success)
-        {
-            petRoster = rosterResult.Value;
-        }
-
-        var abnormalResult = await ReadLockedTargetAbnormalStatusesAsync(context).ConfigureAwait(false);
-        if (abnormalResult.Success)
-        {
-            lockedTargetAbnormalStatuses = abnormalResult.Value;
-        }
-
-        lockedTargetAbnormalStatuses ??= new LockedTargetAbnormalStatusSnapshot(
-            target,
-            0,
-            Array.Empty<AbnormalStatusEntrySnapshot>(),
-            DateTimeOffset.Now);
+        var petRoster = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
+        var lockedTargetAbnormalStatuses = await ReadLockedTargetAbnormalStatusesAsync(context).ConfigureAwait(false);
 
         return new SpiritmasterCombatContext(player, petRoster, lockedTargetAbnormalStatuses);
     }
@@ -2930,13 +2750,8 @@ public sealed class SemiAutoCombatController
         SkillSnapshot skill,
         HashSet<uint> beforeIds)
     {
-        var rosterResult = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
-        if (!rosterResult.Success || rosterResult.Value is null)
-        {
-            return;
-        }
-
-        var afterEntries = rosterResult.Value.LocalPlayerPet.AbnormalStatuses;
+        var roster = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
+        var afterEntries = roster.LocalPlayerPet.AbnormalStatuses;
         var learned = afterEntries
             .Where(entry => entry.AbnormalId != 0 && !beforeIds.Contains(entry.AbnormalId))
             .OrderByDescending(entry => entry.IsBuffCategory)
@@ -2967,13 +2782,8 @@ public sealed class SemiAutoCombatController
         SemiAutoCombatState state,
         SkillSnapshot skill)
     {
-        var abnormalResult = await ReadLockedTargetAbnormalStatusesAsync(context).ConfigureAwait(false);
-        if (!abnormalResult.Success || abnormalResult.Value is null)
-        {
-            return;
-        }
-
-        var target = abnormalResult.Value.Target;
+        var abnormal = await ReadLockedTargetAbnormalStatusesAsync(context).ConfigureAwait(false);
+        var target = abnormal.Target;
         var targetId = target.ServerObjectId != 0 ? target.ServerObjectId : target.TargetEntityId;
         if (targetId == 0)
         {
@@ -2982,7 +2792,7 @@ public sealed class SemiAutoCombatController
 
         if (!state.TryCompleteSpiritmasterDotObservation(
                 targetId,
-                abnormalResult.Value.Entries,
+                abnormal.Entries,
                 DateTimeOffset.Now,
                 out var learnedSkillId,
                 out var abnormalId))
@@ -3315,10 +3125,8 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
-        var skillsResult = await ReadSkillsAsync(context, plan).ConfigureAwait(false);
-        var observedSkills = skillsResult.Success && skillsResult.Value is not null
-            ? ResolveConfiguredSkills(plan, skillsResult.Value)
-            : Array.Empty<SkillSnapshot>();
+        var skills = await ReadSkillsAsync(context, plan).ConfigureAwait(false);
+        var observedSkills = ResolveConfiguredSkills(plan, skills);
 
         if (!state.IsAwaitingPressedSkillCooldownConfirmation(
                 observedSkills,
@@ -3439,25 +3247,8 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
-        var skillsResult = await ReadOpeningSkillAsync(context, openingSkill).ConfigureAwait(false);
-        if (!skillsResult.Success || skillsResult.Value is null)
-        {
-            state.MarkOpeningSkillHandled(target);
-            context.Logger.Warn("semi_auto.opening_skill.read_failed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["targetEntityId"] = target.TargetEntityId,
-                ["targetServerObjectId"] = target.ServerObjectId,
-                ["targetName"] = target.Name,
-                ["skill"] = openingSkill.Name,
-                ["skillId"] = openingSkill.SkillId,
-                ["key"] = openingSkill.Key,
-                ["error"] = skillsResult.Error
-            });
-            return false;
-        }
-
-        var skill = openingSkill.ResolveSkill(skillsResult.Value);
+        var skills = await ReadOpeningSkillAsync(context, openingSkill).ConfigureAwait(false);
+        var skill = openingSkill.ResolveSkill(skills);
         if (skill is null)
         {
             state.MarkOpeningSkillHandled(target);
@@ -4401,23 +4192,9 @@ public sealed class SemiAutoCombatController
             AccountWorkerContext context,
             SemiAutoCombatState state)
     {
-        var rosterResult = await ReadSummonedPetRosterAsync(
-                context,
-                bypassMemoryCache: true,
-                requireFresh: true)
+        var roster = await ReadCurrentSummonedPetRosterAsync(context)
             .ConfigureAwait(false);
-        if (!rosterResult.Success || rosterResult.Value is null)
-        {
-            LogSpiritmasterElementalReplenishmentUnknown(
-                context,
-                state,
-                "pet_roster_read_failed",
-                null,
-                rosterResult.Error);
-            return null;
-        }
-
-        var localPet = rosterResult.Value.LocalPlayerPet;
+        var localPet = roster.LocalPlayerPet;
         if (!SpiritmasterCombatContext.IsConfirmedLocalSummonedPet(localPet))
         {
             LogSpiritmasterElementalReplenishmentUnknown(
@@ -4438,23 +4215,9 @@ public sealed class SemiAutoCombatController
             return null;
         }
 
-        var playerResult = await ReadPlayerAsync(
-                context,
-                bypassMemoryCache: true,
-                requireFresh: true)
+        var player = await ReadCurrentPlayerAsync(context)
             .ConfigureAwait(false);
-        if (!playerResult.Success || playerResult.Value is null)
-        {
-            LogSpiritmasterElementalReplenishmentUnknown(
-                context,
-                state,
-                "player_read_failed",
-                localPet.Pet,
-                playerResult.Error);
-            return null;
-        }
-
-        if (!playerResult.Value.HasReliableHealth)
+        if (!player.HasReliableHealth)
         {
             LogSpiritmasterElementalReplenishmentUnknown(
                 context,
@@ -4464,7 +4227,7 @@ public sealed class SemiAutoCombatController
             return null;
         }
 
-        return new SpiritmasterElementalReplenishmentSafetySnapshot(playerResult.Value, localPet.Pet);
+        return new SpiritmasterElementalReplenishmentSafetySnapshot(player, localPet.Pet);
     }
 
     private static bool IsSpiritmasterElementalReplenishment(SkillSnapshot skill)
@@ -4585,13 +4348,10 @@ public sealed class SemiAutoCombatController
     }
 
     private static bool IsSelectedLocalPlayer(
-        OperationResult<LockedTargetSnapshot> result,
+        LockedTargetSnapshot target,
         PlayerSnapshot player)
     {
-        var target = result.Value;
-        if (!result.Success ||
-            target is null ||
-            target.ObjectType != LockedTargetSnapshot.PlayerObjectType ||
+        if (target.ObjectType != LockedTargetSnapshot.PlayerObjectType ||
             target.ServerObjectId == 0)
         {
             return false;
@@ -4631,7 +4391,7 @@ public sealed class SemiAutoCombatController
         AccountWorkerContext context,
         SemiAutoCombatState state,
         StatusMaintenanceRuleConfig rule,
-        OperationResult<LockedTargetSnapshot> targetResult,
+        LockedTargetSnapshot target,
         string reason,
         string? error)
     {
@@ -4642,7 +4402,6 @@ public sealed class SemiAutoCombatController
         }
 
         state.LastMaintenanceWarningAt = now;
-        var target = targetResult.Value;
         context.Logger.Warn("semi_auto.maintenance.self_target_select.failed", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
@@ -4652,11 +4411,11 @@ public sealed class SemiAutoCombatController
             ["statusKey"] = rule.Key,
             ["skillId"] = rule.SkillId,
             ["skillName"] = rule.SkillName,
-            ["targetReadSuccess"] = targetResult.Success,
-            ["targetEntityId"] = target?.TargetEntityId,
-            ["targetServerObjectId"] = target?.ServerObjectId,
-            ["targetObjectType"] = target?.ObjectType,
-            ["localServerObjectId"] = target?.LocalServerObjectId
+            ["targetReadSuccess"] = true,
+            ["targetEntityId"] = target.TargetEntityId,
+            ["targetServerObjectId"] = target.ServerObjectId,
+            ["targetObjectType"] = target.ObjectType,
+            ["localServerObjectId"] = target.LocalServerObjectId
         });
     }
 
@@ -5123,31 +4882,14 @@ public sealed class SemiAutoCombatController
         });
     }
 
-    private static Task<OperationResult<PlayerSnapshot>> ReadPlayerAsync(
-        AccountWorkerContext context,
-        bool bypassMemoryCache = false,
-        bool requireFresh = false)
-    {
-        if (context.GameApi is IRoadhogScopedGameApi scopedApi)
-        {
-            return scopedApi.ReadPlayerAsync(
-                CreateReadContext(context, bypassMemoryCache, requireFresh),
-                context.StopToken);
-        }
+    private static async Task<PlayerSnapshot> ReadPlayerAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadPlayerAsync().ConfigureAwait(false)).Value;
 
-        return context.GameApi.ReadPlayerAsync(context.StopToken);
-    }
+    private static async Task<PlayerSnapshot> ReadCurrentPlayerAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadCurrentPlayerAsync().ConfigureAwait(false)).Value;
 
-    private static Task<OperationResult<IReadOnlyList<InventoryItemSnapshot>>> ReadInventoryAsync(
-        AccountWorkerContext context)
-    {
-        if (context.GameApi is IRoadhogScopedGameApi scopedApi)
-        {
-            return scopedApi.ReadInventoryAsync(CreateReadContext(context), context.StopToken);
-        }
-
-        return context.GameApi.ReadInventoryAsync(context.StopToken);
-    }
+    private static async Task<IReadOnlyList<InventoryItemSnapshot>> ReadInventoryAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadInventoryAsync().ConfigureAwait(false)).Value;
 
     private static bool ShouldReadTargetConditionAbnormalStatuses(
         SemiAutoScriptSettings settings,
@@ -5167,132 +4909,47 @@ public sealed class SemiAutoCombatController
         AccountWorkerContext context,
         SemiAutoCombatState state)
     {
-        var result = await ReadLockedTargetAbnormalStatusesAsync(context).ConfigureAwait(false);
-        if (result.Success && result.Value is not null)
-        {
-            return result.Value;
-        }
-
-        var now = DateTimeOffset.Now;
-        if (ShouldLog(state.LastConditionSkillWarningAt, now))
-        {
-            state.LastConditionSkillWarningAt = now;
-            context.Logger.Warn("semi_auto.condition_skill.target_abnormal_read_failed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["error"] = result.Error
-            });
-        }
-
-        return null;
+        return await ReadLockedTargetAbnormalStatusesAsync(context).ConfigureAwait(false);
     }
 
-    private static Task<OperationResult<PlayerAbnormalStatusSnapshot>> ReadPlayerAbnormalStatusesAsync(
-        AccountWorkerContext context)
-    {
-        if (context.GameApi is IRoadhogScopedGameApi scopedApi)
-        {
-            return scopedApi.ReadPlayerAbnormalStatusesAsync(CreateReadContext(context), context.StopToken);
-        }
+    private static async Task<PlayerAbnormalStatusSnapshot> ReadPlayerAbnormalStatusesAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadPlayerAbnormalStatusesAsync().ConfigureAwait(false)).Value;
 
-        return context.GameApi.ReadPlayerAbnormalStatusesAsync(context.StopToken);
-    }
+    private static async Task<LockedTargetSnapshot> ReadLockedTargetAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadLockedTargetAsync().ConfigureAwait(false)).Value;
 
-    private static Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(
-        AccountWorkerContext context,
-        bool bypassMemoryCache = false)
-    {
-        if (context.GameApi is IRoadhogScopedGameApi scopedApi)
-        {
-            return scopedApi.ReadLockedTargetAsync(CreateReadContext(context, bypassMemoryCache), context.StopToken);
-        }
+    private static async Task<LockedTargetSnapshot> ReadCurrentLockedTargetAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadCurrentLockedTargetAsync().ConfigureAwait(false)).Value;
 
-        return context.GameApi.ReadLockedTargetAsync(context.StopToken);
-    }
+    private static async Task<LockedTargetAbnormalStatusSnapshot> ReadLockedTargetAbnormalStatusesAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadLockedTargetAbnormalStatusesAsync().ConfigureAwait(false)).Value;
 
-    private static Task<OperationResult<LockedTargetAbnormalStatusSnapshot>> ReadLockedTargetAbnormalStatusesAsync(
-        AccountWorkerContext context)
-    {
-        if (context.GameApi is IRoadhogScopedGameApi scopedApi)
-        {
-            return scopedApi.ReadLockedTargetAbnormalStatusesAsync(CreateReadContext(context), context.StopToken);
-        }
+    private static async Task<SummonedPetRosterSnapshot> ReadSummonedPetRosterAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadSummonedPetRosterAsync().ConfigureAwait(false)).Value;
 
-        return context.GameApi.ReadLockedTargetAbnormalStatusesAsync(context.StopToken);
-    }
+    private static async Task<SummonedPetRosterSnapshot> ReadCurrentSummonedPetRosterAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadCurrentSummonedPetRosterAsync().ConfigureAwait(false)).Value;
 
-    private static Task<OperationResult<SummonedPetRosterSnapshot>> ReadSummonedPetRosterAsync(
-        AccountWorkerContext context,
-        bool bypassMemoryCache = false,
-        bool requireFresh = false)
-    {
-        if (context.GameApi is IRoadhogScopedGameApi scopedApi)
-        {
-            return scopedApi.ReadSummonedPetRosterAsync(
-                CreateReadContext(context, bypassMemoryCache, requireFresh),
-                context.StopToken);
-        }
-
-        return context.GameApi.ReadSummonedPetRosterAsync(context.StopToken);
-    }
-
-    private static Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadOpeningSkillAsync(
+    private static async Task<IReadOnlyList<SkillSnapshot>> ReadOpeningSkillAsync(
         AccountWorkerContext context,
         SemiAutoSkillNode openingSkill)
     {
-        if (context.GameApi is IRoadhogScopedGameApi scopedApi && openingSkill.SkillId != 0)
-        {
-            return scopedApi.ReadSkillsAsync(
-                CreateReadContext(context),
-                new[] { openingSkill.SkillId },
-                context.StopToken);
-        }
-
-        return ReadAllSkillsAsync(context);
+        var ids = openingSkill.SkillId == 0 ? null : new[] { openingSkill.SkillId };
+        return (await context.Snapshots.ReadSkillsAsync(ids).ConfigureAwait(false)).Value;
     }
 
-    private static Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(
+    private static async Task<IReadOnlyList<SkillSnapshot>> ReadSkillsAsync(
         AccountWorkerContext context,
         SemiAutoSkillPlan plan)
     {
-        if (context.GameApi is IRoadhogScopedGameApi scopedApi)
-        {
-            var readContext = CreateReadContext(context);
-            if (!plan.RequiresFullSkillRead && plan.SkillReadIds.Count > 0)
-            {
-                return scopedApi.ReadSkillsAsync(readContext, plan.SkillReadIds, context.StopToken);
-            }
-
-            return scopedApi.ReadSkillsAsync(readContext, context.StopToken);
-        }
-
-        return context.GameApi.ReadSkillsAsync(context.StopToken);
+        var ids = !plan.RequiresFullSkillRead && plan.SkillReadIds.Count > 0
+            ? plan.SkillReadIds
+            : null;
+        return (await context.Snapshots.ReadSkillsAsync(ids).ConfigureAwait(false)).Value;
     }
 
-    private static Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadAllSkillsAsync(
-        AccountWorkerContext context)
-    {
-        if (context.GameApi is IRoadhogScopedGameApi scopedApi)
-        {
-            return scopedApi.ReadSkillsAsync(CreateReadContext(context), context.StopToken);
-        }
-
-        return context.GameApi.ReadSkillsAsync(context.StopToken);
-    }
-
-    private static GameApiReadContext CreateReadContext(
-        AccountWorkerContext context,
-        bool bypassMemoryCache = false,
-        bool requireFresh = false)
-    {
-        return new GameApiReadContext(
-            context.Config.AccountName,
-            context.Config.ProcessId,
-            context.Config.TargetProcessName,
-            context.Config.VmmDeviceName,
-            bypassMemoryCache,
-            requireFresh || bypassMemoryCache);
-    }
+    private static async Task<IReadOnlyList<SkillSnapshot>> ReadAllSkillsAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadSkillsAsync().ConfigureAwait(false)).Value;
 
     private static TimeSpan Ms(int configuredMs, int fallbackMs)
     {

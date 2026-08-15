@@ -22,12 +22,7 @@ public sealed class BagCleanupDiscarder
     public async Task<OperationResult<InventoryWindowSnapshot>> EnsureInventoryWindowTopLeftAsync(
         AccountWorkerContext context)
     {
-        var read = await BagCleanupGameApi.ReadInventoryWindowAsync(context).ConfigureAwait(false);
-        if (!read.Success || read.Value is null)
-        {
-            return OperationResult<InventoryWindowSnapshot>.Fail(
-                "Inventory window read before discard failed: " + read.Error);
-        }
+        var read = await context.Snapshots.ReadInventoryWindowAsync().ConfigureAwait(false);
 
         if (read.Value.IsOpen && read.Value.IsAtTopLeft())
         {
@@ -184,8 +179,8 @@ public sealed class BagCleanupDiscarder
         await _input.MouseUpAsync(RoadhogMouseButton.Left, CancellationToken.None).ConfigureAwait(false);
         for (var attempt = 0; attempt < 2; attempt++)
         {
-            var read = await BagCleanupGameApi.ReadInventoryDiscardConfirmAsync(context).ConfigureAwait(false);
-            if (read.Success && read.Value?.PendingItemInstanceId == 0)
+            var read = await context.Snapshots.ReadInventoryDiscardConfirmAsync().ConfigureAwait(false);
+            if (read.Value.PendingItemInstanceId == 0)
             {
                 return OperationResult.Ok();
             }
@@ -202,11 +197,10 @@ public sealed class BagCleanupDiscarder
                 .ConfigureAwait(false);
         }
 
-        var verify = await BagCleanupGameApi.ReadInventoryDiscardConfirmAsync(context).ConfigureAwait(false);
-        return verify.Success && verify.Value?.PendingItemInstanceId == 0
+        var verify = await context.Snapshots.ReadInventoryDiscardConfirmAsync().ConfigureAwait(false);
+        return verify.Value.PendingItemInstanceId == 0
             ? OperationResult.Ok()
-            : OperationResult.Fail(
-                "Discard confirmation remained pending after cancellation. " + verify.Error);
+            : OperationResult.Fail("Discard confirmation remained pending after cancellation.");
     }
 
     public async Task<OperationResult> CloseInventoryWindowIfOpenAsync(AccountWorkerContext context)
@@ -215,12 +209,8 @@ public sealed class BagCleanupDiscarder
         string? lastError = null;
         for (var attempt = 1; attempt <= 2; attempt++)
         {
-            var read = await BagCleanupGameApi.ReadInventoryWindowAsync(context).ConfigureAwait(false);
-            if (!read.Success || read.Value is null)
-            {
-                lastError = "Inventory window read before close failed: " + read.Error;
-            }
-            else if (!read.Value.IsOpen)
+            var read = await context.Snapshots.ReadInventoryWindowAsync().ConfigureAwait(false);
+            if (!read.Value.IsOpen)
             {
                 return OperationResult.Ok();
             }
@@ -233,13 +223,13 @@ public sealed class BagCleanupDiscarder
                 }
                 else
                 {
-                    var verify = await BagCleanupGameApi.ReadInventoryWindowAsync(context).ConfigureAwait(false);
-                    if (verify.Success && verify.Value is { IsOpen: false })
+                    var verify = await context.Snapshots.ReadInventoryWindowAsync().ConfigureAwait(false);
+                    if (!verify.Value.IsOpen)
                     {
                         return OperationResult.Ok();
                     }
 
-                    lastError = "Inventory window did not close after discard. " + verify.Error;
+                    lastError = "Inventory window did not close after discard.";
                 }
             }
 

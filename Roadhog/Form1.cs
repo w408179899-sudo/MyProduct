@@ -1190,18 +1190,9 @@ namespace Roadhog
             string accountName,
             string vmmDeviceName)
         {
-            if (_services.GameApi is Core.Api.IRoadhogScopedGameApi scopedApi)
-            {
-                return scopedApi.ReadPlayerAsync(
-                    new Core.Api.GameApiReadContext(
-                        accountName,
-                        0,
-                        string.Empty,
-                        NormalizeVmmDeviceName(vmmDeviceName)),
-                    CancellationToken.None);
-            }
-
-            return _services.GameApi.ReadPlayerAsync(CancellationToken.None);
+            return _services.Runtime.ReadPlayerForVmmDeviceAsync(
+                accountName,
+                NormalizeVmmDeviceName(vmmDeviceName));
         }
 
         private Core.Hardware.HardwareDeviceFeature? FindFpgaDeviceByKey(string hardwareKey)
@@ -1658,15 +1649,9 @@ namespace Roadhog
             }
 
             var row = _accounts.FirstOrDefault(item => string.Equals(item.Account, account, StringComparison.OrdinalIgnoreCase));
-            if (row is not null && _services.GameApi is Core.Api.IRoadhogScopedGameApi scopedApi)
+            if (row is not null)
             {
-                return scopedApi.ReadPlayerAsync(
-                    new Core.Api.GameApiReadContext(
-                        row.Account,
-                        0,
-                        string.Empty,
-                        row.VmmDeviceName),
-                    CancellationToken.None);
+                return _services.Runtime.ReadPlayerForVmmDeviceAsync(row.Account, row.VmmDeviceName);
             }
 
             return _services.Runtime.ReadPlayerAsync(account);

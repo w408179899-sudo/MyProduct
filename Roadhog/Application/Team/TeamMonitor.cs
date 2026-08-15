@@ -1,5 +1,4 @@
 using Roadhog.Core.Api;
-using Roadhog.Core.Common;
 using Roadhog.Core.Diagnostics;
 using Roadhog.Core.Model;
 
@@ -7,35 +6,22 @@ namespace Roadhog.Application.Team;
 
 public sealed class TeamMonitor
 {
-    private readonly IRoadhogGameApi _gameApi;
+    private readonly IRoadhogSnapshotReader _snapshots;
     private readonly IRoadhogLogger? _logger;
 
-    public TeamMonitor(IRoadhogGameApi gameApi, IRoadhogLogger? logger = null)
+    public TeamMonitor(IRoadhogSnapshotReader snapshots, IRoadhogLogger? logger = null)
     {
-        _gameApi = gameApi;
+        _snapshots = snapshots;
         _logger = logger;
     }
 
-    public async Task<OperationResult<TeamSnapshot>> ReadSnapshotAsync(
-        GameApiReadContext? context = null,
-        CancellationToken cancellationToken = default)
+    public async Task<TeamSnapshot> ReadSnapshotAsync()
     {
-        var partyResult = await ReadPartyAsync(context, cancellationToken).ConfigureAwait(false);
-        if (!partyResult.Success || partyResult.Value is null)
-        {
-            return OperationResult<TeamSnapshot>.Fail(partyResult.Error ?? "Party snapshot read failed.");
-        }
-
-        var rosterResult = await ReadSummonedPetRosterAsync(context, cancellationToken).ConfigureAwait(false);
-        if (!rosterResult.Success || rosterResult.Value is null)
-        {
-            return OperationResult<TeamSnapshot>.Fail(rosterResult.Error ?? "Summoned pet roster read failed.");
-        }
-
-        var snapshot = BuildSnapshot(partyResult.Value, rosterResult.Value);
+        var party = await _snapshots.ReadPartyAsync().ConfigureAwait(false);
+        var roster = await _snapshots.ReadSummonedPetRosterAsync().ConfigureAwait(false);
+        var snapshot = BuildSnapshot(party.Value, roster.Value);
         _logger?.Info("team_monitor.snapshot.read", new Dictionary<string, object?>
         {
-            ["account"] = context?.AccountName,
             ["memberCount"] = snapshot.Members.Count,
             ["localServerObjectId"] = snapshot.Party.LocalServerObjectId,
             ["leaderServerObjectId"] = snapshot.Party.LeaderServerObjectId,
@@ -43,36 +29,7 @@ public sealed class TeamMonitor
             ["partyPetCount"] = snapshot.PartyMemberPetCount
         });
 
-        return OperationResult<TeamSnapshot>.Ok(snapshot);
-    }
-
-    private async Task<OperationResult<PartySnapshot>> ReadPartyAsync(
-        GameApiReadContext? context,
-        CancellationToken cancellationToken)
-    {
-        if (context is not null && _gameApi is IRoadhogScopedPartyGameApi scopedPartyApi)
-        {
-            return await scopedPartyApi.ReadPartyAsync(context, cancellationToken).ConfigureAwait(false);
-        }
-
-        if (_gameApi is IRoadhogPartyGameApi partyApi)
-        {
-            return await partyApi.ReadPartyAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        return OperationResult<PartySnapshot>.Fail("Party snapshot API is not available.");
-    }
-
-    private async Task<OperationResult<SummonedPetRosterSnapshot>> ReadSummonedPetRosterAsync(
-        GameApiReadContext? context,
-        CancellationToken cancellationToken)
-    {
-        if (context is not null && _gameApi is IRoadhogScopedGameApi scopedApi)
-        {
-            return await scopedApi.ReadSummonedPetRosterAsync(context, cancellationToken).ConfigureAwait(false);
-        }
-
-        return await _gameApi.ReadSummonedPetRosterAsync(cancellationToken).ConfigureAwait(false);
+        return snapshot;
     }
 
     private static TeamSnapshot BuildSnapshot(PartySnapshot party, SummonedPetRosterSnapshot roster)

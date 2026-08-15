@@ -226,26 +226,21 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         var home = homeResolution.Position;
         var radius = Math.Max(1.0D, combat.StationaryCombatRadius);
 
-        var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
-        if (!playerResult.Success || playerResult.Value?.Position is null)
+        var player = await ReadPlayerAsync(context).ConfigureAwait(false);
+        if (player.Position is null)
         {
             semiAutoState.ResetAttackKeyPressThrottle();
             StopNextTargetPreAim(context, state, "player_read_failed", clearCandidate: true);
             await StopMovementAsync(context, state).ConfigureAwait(false);
             StopPathFollowPoller(state);
-            context.RuntimeStates.MarkWarning(
-                context.Config.AccountName,
-                Roadhog.Application.RuntimeWarningText.FromPlayerReadFailure(playerResult.Error));
             LogThrottled(context, state, "stationary_combat.player.failed", new Dictionary<string, object?>
             {
-                ["account"] = context.Config.AccountName,
-                ["error"] = playerResult.Error
+                ["account"] = context.Config.AccountName
             });
             return IdleDelay;
         }
 
         context.RuntimeStates.ClearWarning(context.Config.AccountName);
-        var player = playerResult.Value;
         _radarSnapshots?.PublishPlayer(context.Config.AccountName, player);
         var playerPosition = player.Position.Value;
         var playerDistanceFromHome = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, home);
@@ -1023,25 +1018,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         var combat = context.Config.ScriptSettings?.Combat ?? new CombatScriptSettings();
         var radius = ResolvePathCombatRadius(combat);
 
-        var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
-        if (!playerResult.Success || playerResult.Value is null)
-        {
-            semiAutoState.ResetAttackKeyPressThrottle();
-            await StopMovementAsync(context, state).ConfigureAwait(false);
-            StopPathFollowPoller(state);
-            context.RuntimeStates.MarkWarning(
-                context.Config.AccountName,
-                Roadhog.Application.RuntimeWarningText.FromPlayerReadFailure(playerResult.Error));
-            LogThrottled(context, state, "stationary_combat.path_combat.player.failed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["error"] = playerResult.Error
-            });
-            return IdleDelay;
-        }
-
+        var player = await ReadPlayerAsync(context).ConfigureAwait(false);
         context.RuntimeStates.ClearWarning(context.Config.AccountName);
-        var player = playerResult.Value;
         if (player.Position is null)
         {
             semiAutoState.ResetAttackKeyPressThrottle();
@@ -1213,18 +1191,10 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 
         try
         {
-            var initialPlayerResult = await ReadManualPathPlayerWithRetryAsync(
-                    context,
-                    state,
-                    displayName,
-                    pointIndex: -1)
+            var initialPlayer = await ReadManualPathPlayerAsync(
+                    context)
                 .ConfigureAwait(false);
-            if (!initialPlayerResult.Success || initialPlayerResult.Value?.Position is null)
-            {
-                return OperationResult.Fail(initialPlayerResult.Error ?? "Player position is missing.");
-            }
-
-            var initialPosition = initialPlayerResult.Value.Position.Value;
+            var initialPosition = initialPlayer.Position!.Value;
             var nearestPointIndex = FindNearestPathPointIndex(initialPosition, pathPoints, double.MaxValue);
             if (nearestPointIndex < 0)
             {
@@ -1248,19 +1218,10 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             {
                 context.StopToken.ThrowIfCancellationRequested();
 
-                var playerResult = await ReadManualPathPlayerWithRetryAsync(
-                        context,
-                        state,
-                        displayName,
-                        state.PathCombat.PointIndex)
+                var player = await ReadManualPathPlayerAsync(
+                        context)
                     .ConfigureAwait(false);
-                if (!playerResult.Success || playerResult.Value?.Position is null)
-                {
-                    return OperationResult.Fail(playerResult.Error ?? "Player position is missing.");
-                }
-
-                var player = playerResult.Value;
-                var playerPosition = player.Position.Value;
+                var playerPosition = player.Position!.Value;
                 var pointIndex = state.PathCombat.PointIndex;
                 var point = state.PathCombat.Points[pointIndex];
                 var distance = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, point);
@@ -1304,67 +1265,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
     }
 
-    private async Task<OperationResult<PlayerSnapshot>> ReadManualPathPlayerWithRetryAsync(
-        AccountWorkerContext context,
-        StationaryCombatState state,
-        string pathName,
-        int pointIndex)
-    {
-        var failedAt = DateTimeOffset.MinValue;
-        var attempt = 0;
-        var lastError = "Player position is missing.";
-        while (!context.StopToken.IsCancellationRequested)
-        {
-            var result = await ReadPlayerAsync(context).ConfigureAwait(false);
-            if (result.Success && result.Value?.Position is not null)
-            {
-                if (attempt > 0)
-                {
-                    context.Logger.Info("manual_path.player_read.recovered", new Dictionary<string, object?>
-                    {
-                        ["account"] = context.Config.AccountName,
-                        ["pathName"] = pathName,
-                        ["pointIndex"] = pointIndex,
-                        ["attempts"] = attempt,
-                        ["failedMs"] = (long)Math.Max(0.0D, (DateTimeOffset.Now - failedAt).TotalMilliseconds)
-                    });
-                }
-
-                return result;
-            }
-
-            attempt++;
-            failedAt = failedAt == DateTimeOffset.MinValue ? DateTimeOffset.Now : failedAt;
-            lastError = result.Error ?? "Player position is missing.";
-            await StopMovementAsync(context, state).ConfigureAwait(false);
-            StopPathFollowPoller(state);
-
-            var failedFor = DateTimeOffset.Now - failedAt;
-            var timeout = ReadManualPathPlayerReadRetryTimeout();
-            context.Logger.Warn("manual_path.player_read.retry", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["pathName"] = pathName,
-                ["pointIndex"] = pointIndex,
-                ["attempt"] = attempt,
-                ["failedMs"] = (long)Math.Max(0.0D, failedFor.TotalMilliseconds),
-                ["timeoutMs"] = (long)timeout.TotalMilliseconds,
-                ["error"] = lastError
-            });
-            if (failedFor >= timeout)
-            {
-                return OperationResult<PlayerSnapshot>.Fail(
-                    "Player read failed continuously during path execution. attempts=" + attempt +
-                    ", timeoutMs=" + (long)timeout.TotalMilliseconds +
-                    ", error=" + lastError);
-            }
-
-            await DelayAsync(ReadManualPathPlayerReadRetryInterval(), context).ConfigureAwait(false);
-        }
-
-        context.StopToken.ThrowIfCancellationRequested();
-        return OperationResult<PlayerSnapshot>.Fail(lastError);
-    }
+    private static Task<PlayerSnapshot> ReadManualPathPlayerAsync(AccountWorkerContext context) =>
+        ReadPlayerAsync(context);
 
     public async Task<TimeSpan?> TickPlayerLifeGuardAsync(
         AccountWorkerContext context,
@@ -1373,30 +1275,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         StationaryCombatState state,
         bool followRevivePath)
     {
-        var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
-        if (!playerResult.Success || playerResult.Value is null)
-        {
-            context.RuntimeStates.MarkWarning(
-                context.Config.AccountName,
-                Roadhog.Application.RuntimeWarningText.FromPlayerReadFailure(playerResult.Error));
-            if (state.TopLevelState != StationaryCombatTopLevelState.DeathRecovery)
-            {
-                return null;
-            }
-
-            semiAutoState.ResetAttackKeyPressThrottle();
-            await StopMovementAsync(context, state).ConfigureAwait(false);
-            StopPathFollowPoller(state);
-            LogThrottled(context, state, "player_life.guard.player_failed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["error"] = playerResult.Error
-            });
-            return IdleDelay;
-        }
-
+        var player = await ReadPlayerAsync(context).ConfigureAwait(false);
         context.RuntimeStates.ClearWarning(context.Config.AccountName);
-        var player = playerResult.Value;
         if (player.IsDead && state.TopLevelState != StationaryCombatTopLevelState.DeathRecovery)
         {
             await AbortDiscardForExternalInterruptionIfActiveAsync(context, state, "death_recovery")
@@ -2075,22 +1955,9 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 team.GroupDistanceMeters);
         }
 
-        var monitor = new TeamMonitor(context.GameApi, context.Logger);
-        var snapshotResult = await monitor
-            .ReadSnapshotAsync(CreateReadContext(context), context.StopToken)
-            .ConfigureAwait(false);
-        if (!snapshotResult.Success || snapshotResult.Value is null)
-        {
-            return ClearDeathRecoveryRevivePathLeaderSiphon(
-                context,
-                state,
-                "snapshot_failed",
-                null,
-                team.GroupDistanceMeters,
-                snapshotResult.Error);
-        }
-
-        var leader = snapshotResult.Value.LeaderMember;
+        var monitor = new TeamMonitor(context.Snapshots, context.Logger);
+        var snapshot = await monitor.ReadSnapshotAsync().ConfigureAwait(false);
+        var leader = snapshot.LeaderMember;
         if (!TeamLeaderRuntimePolicy.IsLeaderInGroupRange(leader, team.GroupDistanceMeters))
         {
             return ClearDeathRecoveryRevivePathLeaderSiphon(
@@ -3740,38 +3607,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         double playerDistanceFromHome)
     {
         var now = DateTimeOffset.Now;
-        var targetResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
-        if (!targetResult.Success || targetResult.Value is null)
-        {
-            StopNextTargetPreAim(context, state, "current_target_read_failed", clearCandidate: true);
-            if (IsTargetTimedOut(state, now))
-            {
-                return await IgnoreCurrentTargetAsync(
-                        context,
-                        semiAutoState,
-                        state,
-                        state.CurrentTargetEntityId,
-                        state.CurrentTargetServerObjectId,
-                        string.Empty,
-                        "not_locked")
-                    .ConfigureAwait(false);
-            }
-
-            return await ReacquireCurrentFightTargetAsync(
-                    context,
-                    plan,
-                    semiAutoState,
-                    state,
-                    player,
-                    home,
-                    radius,
-                    playerDistanceFromHome,
-                    targetResult,
-                    "target_read_failed")
-                .ConfigureAwait(false);
-        }
-
-        var target = targetResult.Value;
+        var target = await ReadLockedTargetAsync(context).ConfigureAwait(false);
         if (!state.IsCurrentTarget(target))
         {
             StopNextTargetPreAim(context, state, "current_target_mismatch", clearCandidate: true);
@@ -3797,7 +3633,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     home,
                     radius,
                     playerDistanceFromHome,
-                    targetResult,
+                    target,
                     "target_mismatch")
                 .ConfigureAwait(false);
         }
@@ -3955,7 +3791,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     target.Name,
                     playerDistanceFromHome,
                     radius,
-                    targetResult,
+                    target,
                     "target_outside_leash")
                 .ConfigureAwait(false);
         }
@@ -4106,14 +3942,12 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
 
         var lockedResult = await ReadFreshLockedTargetAsync(context).ConfigureAwait(false);
-        if (!lockedResult.Success ||
-            lockedResult.Value is null ||
-            lockedResult.Value.ServerObjectId != localPetServerObjectId)
+        if (lockedResult.ServerObjectId != localPetServerObjectId)
         {
             return true;
         }
 
-        var petTarget = lockedResult.Value;
+        var petTarget = lockedResult;
         context.Logger.Warn("stationary_combat.own_pet_target_recovery.detected", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
@@ -4162,8 +3996,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             }
 
             var verifyResult = await ReadFreshLockedTargetAsync(context).ConfigureAwait(false);
-            var matched = verifyResult.Success &&
-                          verifyResult.Value is { IsMonsterAlive: true } verifiedTarget &&
+            var matched = verifyResult is { IsMonsterAlive: true } verifiedTarget &&
                           StationaryCombatState.IsSameTarget(
                               expectedEntityId,
                               expectedServerObjectId,
@@ -4174,14 +4007,14 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 ["account"] = context.Config.AccountName,
                 ["expectedEntityId"] = expectedEntityId,
                 ["expectedServerObjectId"] = expectedServerObjectId,
-                ["lockedReadSuccess"] = verifyResult.Success,
-                ["lockedEntityId"] = verifyResult.Value?.TargetEntityId ?? 0,
-                ["lockedServerObjectId"] = verifyResult.Value?.ServerObjectId ?? 0,
-                ["lockedName"] = verifyResult.Value?.Name ?? string.Empty,
-                ["lockedAlive"] = verifyResult.Value?.IsMonsterAlive ?? false,
+                ["lockedReadSuccess"] = true,
+                ["lockedEntityId"] = verifyResult.TargetEntityId,
+                ["lockedServerObjectId"] = verifyResult.ServerObjectId,
+                ["lockedName"] = verifyResult.Name,
+                ["lockedAlive"] = verifyResult.IsMonsterAlive,
                 ["matched"] = matched,
                 ["elapsedMs"] = elapsedMs,
-                ["error"] = verifyResult.Error
+                ["error"] = null
             });
             if (matched)
             {
@@ -4369,7 +4202,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         StationaryCombatState state)
     {
         var lockedResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
-        if (lockedResult.Success && lockedResult.Value is { HasTarget: true } locked)
+        if (lockedResult is { HasTarget: true } locked)
         {
             if (IsSameLootTarget(state.LootAfterKill, locked))
             {
@@ -4381,30 +4214,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     locked.InteractionState);
             }
         }
-        else if (!lockedResult.Success)
-        {
-            return new LootAttemptEligibility(
-                false,
-                "locked_target",
-                "lootability_read_failed",
-                state.LootAfterKill.KilledTargetLootableRaw,
-                state.LootAfterKill.KilledTargetInteractionState,
-                lockedResult.Error);
-        }
-
-        var corpsesResult = await ReadLootCorpsesAsync(context).ConfigureAwait(false);
-        if (!corpsesResult.Success)
-        {
-            return new LootAttemptEligibility(
-                false,
-                "loot_corpses",
-                "lootability_read_failed",
-                state.LootAfterKill.KilledTargetLootableRaw,
-                state.LootAfterKill.KilledTargetInteractionState,
-                corpsesResult.Error);
-        }
-
-        var corpse = corpsesResult.Value?.FirstOrDefault(corpse => IsSameLootTarget(state.LootAfterKill, corpse));
+        var corpses = await ReadLootCorpsesAsync(context).ConfigureAwait(false);
+        var corpse = corpses.FirstOrDefault(corpse => IsSameLootTarget(state.LootAfterKill, corpse));
         if (corpse is null)
         {
             return new LootAttemptEligibility(
@@ -4454,7 +4265,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         double? distance = null;
 
         var lockedResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
-        if (lockedResult.Success && lockedResult.Value is { HasTarget: true } locked)
+        if (lockedResult is { HasTarget: true } locked)
         {
             if (!IsSameLootTarget(state.LootAfterKill, locked))
             {
@@ -4473,7 +4284,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             targetPosition = locked.Position ?? targetPosition;
             distance = locked.DistanceToLocalPlayer;
         }
-        else if (lockedResult.Success)
+        else
         {
             context.Logger.Info("stationary_combat.loot.target_missing_after_pick", new Dictionary<string, object?>
             {
@@ -4487,8 +4298,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 
         if (!distance.HasValue && targetPosition is { } position)
         {
-            var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
-            if (playerResult.Success && playerResult.Value?.Position is { } playerPosition)
+            var player = await ReadPlayerAsync(context).ConfigureAwait(false);
+            if (player.Position is { } playerPosition)
             {
                 distance = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, position);
             }
@@ -4741,22 +4552,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             await Task.Delay(SemiAutoCombatController.MaintenanceGlobalKeyInterval, context.StopToken)
                 .ConfigureAwait(false);
 
-            var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
-            if (!playerResult.Success || playerResult.Value is null)
-            {
-                context.Logger.Warn(logEventPrefix + ".post_combat_maintenance_player_failed", new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["targetEntityId"] = targetEntityId,
-                    ["targetServerObjectId"] = targetServerObjectId,
-                    ["targetName"] = targetName,
-                    ["iteration"] = iteration,
-                    ["error"] = playerResult.Error
-                });
-                break;
-            }
-
-            currentPlayer = playerResult.Value;
+            currentPlayer = await ReadPlayerAsync(context).ConfigureAwait(false);
             if (currentPlayer.IsDead)
             {
                 context.Logger.Warn(logEventPrefix + ".post_combat_maintenance_player_dead", new Dictionary<string, object?>
@@ -4972,15 +4768,15 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     "Town return start position was not recorded.");
             }
 
-            var afterResult = await ReadPlayerAsync(context).ConfigureAwait(false);
-            if (!afterResult.Success || afterResult.Value?.Position is not { } endPosition)
+            var afterPlayer = await ReadPlayerAsync(context).ConfigureAwait(false);
+            if (afterPlayer.Position is not { } endPosition)
             {
                 return PostponeNoKillRecovery(
                     context,
                     state,
                     now,
                     "town_return_end_position_missing",
-                    afterResult.Error ?? "Player position after town return is not available.");
+                    "Player position after town return is not available.");
             }
 
             var distance = StationaryCombatTargetSelector.HorizontalDistance(startPosition, endPosition);
@@ -5018,7 +4814,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 ["startPointIndex"] = 0,
                 ["pathPointCount"] = revivePoints.Count
             });
-            player = afterResult.Value;
+            player = afterPlayer;
         }
 
         if (state.NoKillRecovery.Step != StationaryCombatNoKillRecoveryStep.FollowRevivePath ||
@@ -5242,10 +5038,9 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         return string.Equals(loot.KilledTargetName, corpse.Name, StringComparison.Ordinal);
     }
 
-    private static bool IsLockedTargetEmpty(OperationResult<LockedTargetSnapshot> lockedResult)
+    private static bool IsLockedTargetEmpty(LockedTargetSnapshot lockedResult)
     {
-        return lockedResult.Success &&
-               (lockedResult.Value is null || !lockedResult.Value.HasTarget);
+        return !lockedResult.HasTarget;
     }
 
     private static bool ShouldStartLootAfterKill(
@@ -5319,7 +5114,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         Vector3Snapshot home,
         double radius,
         double playerDistanceFromHome,
-        OperationResult<LockedTargetSnapshot> lockedResult,
+        LockedTargetSnapshot lockedResult,
         string reason)
     {
         var targetEntityId = state.CurrentTargetEntityId != 0
@@ -5480,19 +5275,17 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             ["targetServerObjectId"] = target.ServerObjectId,
             ["targetingServerObjectId"] = target.TargetServerObjectId,
             ["targetName"] = target.Name,
-            ["lockedReadSuccess"] = lockedResult.Success,
-            ["lockedEntityId"] = lockedResult.Value?.TargetEntityId ?? 0,
-            ["lockedServerObjectId"] = lockedResult.Value?.ServerObjectId ?? 0,
-            ["lockedTargetServerObjectId"] = lockedResult.Value?.ServerObjectId ?? 0,
-            ["lockedTargetingServerObjectId"] = lockedResult.Value?.TargetServerObjectId ?? 0,
-            ["lockedLocalServerObjectId"] = lockedResult.Value?.LocalServerObjectId ?? 0,
-            ["lockedTargetingMe"] = lockedResult.Value is null
-                ? false
-                : IsTargetingLocalPlayerByServerObjectId(lockedResult.Value),
-            ["lockedName"] = lockedResult.Value?.Name ?? string.Empty,
-            ["lockedAlive"] = lockedResult.Value?.IsMonsterAlive ?? false,
-            ["lockedHp"] = lockedResult.Value?.CurrentHp ?? 0,
-            ["error"] = lockedResult.Error
+            ["lockedReadSuccess"] = true,
+            ["lockedEntityId"] = lockedResult.TargetEntityId,
+            ["lockedServerObjectId"] = lockedResult.ServerObjectId,
+            ["lockedTargetServerObjectId"] = lockedResult.ServerObjectId,
+            ["lockedTargetingServerObjectId"] = lockedResult.TargetServerObjectId,
+            ["lockedLocalServerObjectId"] = lockedResult.LocalServerObjectId,
+            ["lockedTargetingMe"] = IsTargetingLocalPlayerByServerObjectId(lockedResult),
+            ["lockedName"] = lockedResult.Name,
+            ["lockedAlive"] = lockedResult.IsMonsterAlive,
+            ["lockedHp"] = lockedResult.CurrentHp,
+            ["error"] = null
         }, TimeSpan.FromMilliseconds(500));
 
         if (state.CurrentTargetIsMaintenanceDefense &&
@@ -5578,7 +5371,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         uint targetServerObjectId,
         double playerDistanceFromHome,
         double radius,
-        OperationResult<LockedTargetSnapshot> lockedResult,
+        LockedTargetSnapshot lockedResult,
         string reason)
     {
         if (!IsLockedTargetEmpty(lockedResult))
@@ -5603,14 +5396,14 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             ["targetEntityId"] = targetEntityId,
             ["serverObjectId"] = targetServerObjectId,
             ["targetServerObjectId"] = targetServerObjectId,
-            ["lockedReadSuccess"] = lockedResult.Success,
-            ["lockedEntityId"] = lockedResult.Value?.TargetEntityId ?? 0,
-            ["lockedServerObjectId"] = lockedResult.Value?.ServerObjectId ?? 0,
-            ["lockedTargetServerObjectId"] = lockedResult.Value?.ServerObjectId ?? 0,
-            ["lockedTargetingServerObjectId"] = lockedResult.Value?.TargetServerObjectId ?? 0,
+            ["lockedReadSuccess"] = true,
+            ["lockedEntityId"] = lockedResult.TargetEntityId,
+            ["lockedServerObjectId"] = lockedResult.ServerObjectId,
+            ["lockedTargetServerObjectId"] = lockedResult.ServerObjectId,
+            ["lockedTargetingServerObjectId"] = lockedResult.TargetServerObjectId,
             ["elapsedMs"] = (long)Math.Max(0.0D, missingFor.TotalMilliseconds),
             ["timeoutMs"] = timeoutMs,
-            ["error"] = lockedResult.Error
+            ["error"] = null
         });
 
         state.ClearTarget();
@@ -5628,7 +5421,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         string targetName,
         double playerDistanceFromHome,
         double radius,
-        OperationResult<LockedTargetSnapshot> lockedResult,
+        LockedTargetSnapshot lockedResult,
         string reason)
     {
         state.Fighting = true;
@@ -5644,15 +5437,15 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             ["serverObjectId"] = targetServerObjectId,
             ["targetServerObjectId"] = targetServerObjectId,
             ["targetName"] = targetName,
-            ["lockedReadSuccess"] = lockedResult.Success,
-            ["lockedEntityId"] = lockedResult.Value?.TargetEntityId ?? 0,
-            ["lockedServerObjectId"] = lockedResult.Value?.ServerObjectId ?? 0,
-            ["lockedTargetServerObjectId"] = lockedResult.Value?.ServerObjectId ?? 0,
-            ["lockedTargetingServerObjectId"] = lockedResult.Value?.TargetServerObjectId ?? 0,
-            ["lockedName"] = lockedResult.Value?.Name ?? string.Empty,
-            ["lockedAlive"] = lockedResult.Value?.IsMonsterAlive ?? false,
-            ["lockedHp"] = lockedResult.Value?.CurrentHp ?? 0,
-            ["error"] = lockedResult.Error
+            ["lockedReadSuccess"] = true,
+            ["lockedEntityId"] = lockedResult.TargetEntityId,
+            ["lockedServerObjectId"] = lockedResult.ServerObjectId,
+            ["lockedTargetServerObjectId"] = lockedResult.ServerObjectId,
+            ["lockedTargetingServerObjectId"] = lockedResult.TargetServerObjectId,
+            ["lockedName"] = lockedResult.Name,
+            ["lockedAlive"] = lockedResult.IsMonsterAlive,
+            ["lockedHp"] = lockedResult.CurrentHp,
+            ["error"] = null
         }, TimeSpan.FromMilliseconds(500));
         return playerDistanceFromHome > radius ? MoveTickDelay : IdleDelay;
     }
@@ -5707,12 +5500,12 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 ["account"] = context.Config.AccountName,
                 ["candidateEntityId"] = target.EntityId,
                 ["candidateName"] = target.Name,
-                ["lockedReadSuccess"] = lockedResult.Success,
-                ["lockedEntityId"] = lockedResult.Value?.TargetEntityId ?? 0,
-                ["lockedName"] = lockedResult.Value?.Name ?? string.Empty,
-                ["lockedAlive"] = lockedResult.Value?.IsMonsterAlive ?? false,
-                ["lockedHp"] = lockedResult.Value?.CurrentHp ?? 0,
-                ["error"] = lockedResult.Error
+                ["lockedReadSuccess"] = true,
+                ["lockedEntityId"] = lockedResult.TargetEntityId,
+                ["lockedName"] = lockedResult.Name,
+                ["lockedAlive"] = lockedResult.IsMonsterAlive,
+                ["lockedHp"] = lockedResult.CurrentHp,
+                ["error"] = null
             }, TimeSpan.FromMilliseconds(500));
 
             return await PressTabAndVerifyAsync(context, plan, semiAutoState, state, target, lockedResult, home, radius).ConfigureAwait(false);
@@ -5727,7 +5520,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state,
         WorldObjectSnapshot target,
-        OperationResult<LockedTargetSnapshot> lockedResult,
+        LockedTargetSnapshot lockedResult,
         Vector3Snapshot home,
         double radius)
     {
@@ -5767,7 +5560,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state,
         WorldObjectSnapshot target,
-        OperationResult<LockedTargetSnapshot> lockedBeforeResult,
+        LockedTargetSnapshot lockedBeforeResult,
         Vector3Snapshot home,
         double radius)
     {
@@ -5797,7 +5590,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         state.StartPendingTabVerification(
             target,
             DateTimeOffset.Now + TimeSpan.FromMilliseconds(verifyWindowMs),
-            lockedBeforeResult.Value);
+            lockedBeforeResult);
         context.Logger.Info("stationary_combat.tab.pressed", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
@@ -5806,10 +5599,10 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             ["candidateTargetServerObjectId"] = target.ServerObjectId,
             ["candidateTargetingServerObjectId"] = target.TargetServerObjectId,
             ["candidateName"] = target.Name,
-            ["previousLockedEntityId"] = lockedBeforeResult.Value?.TargetEntityId ?? 0,
-            ["previousLockedServerObjectId"] = lockedBeforeResult.Value?.ServerObjectId ?? 0,
-            ["previousLockedTargetServerObjectId"] = lockedBeforeResult.Value?.ServerObjectId ?? 0,
-            ["previousLockedTargetingServerObjectId"] = lockedBeforeResult.Value?.TargetServerObjectId ?? 0,
+            ["previousLockedEntityId"] = lockedBeforeResult.TargetEntityId,
+            ["previousLockedServerObjectId"] = lockedBeforeResult.ServerObjectId,
+            ["previousLockedTargetServerObjectId"] = lockedBeforeResult.ServerObjectId,
+            ["previousLockedTargetingServerObjectId"] = lockedBeforeResult.TargetServerObjectId,
             ["verifyWindowMs"] = verifyWindowMs
         });
 
@@ -5886,7 +5679,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state,
         WorldObjectSnapshot target,
-        OperationResult<LockedTargetSnapshot> lockedResult,
+        LockedTargetSnapshot lockedResult,
         Vector3Snapshot home,
         double radius,
         int delayMs)
@@ -5941,13 +5734,12 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state,
         WorldObjectSnapshot target,
-        OperationResult<LockedTargetSnapshot> lockedResult,
+        LockedTargetSnapshot lockedResult,
         Vector3Snapshot home,
         double radius,
         int delayMs)
     {
-        if (!lockedResult.Success ||
-            lockedResult.Value is not { IsMonsterAlive: true } lockedTarget ||
+        if (lockedResult is not { IsMonsterAlive: true } lockedTarget ||
             StationaryCombatState.IsSameTarget(
                 target.EntityId,
                 target.ServerObjectId,
@@ -6258,8 +6050,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return false;
         }
 
-        var playerResult = await ReadFreshPlayerAsync(context).ConfigureAwait(false);
-        if (!playerResult.Success || playerResult.Value?.Position is null)
+        var player = await ReadFreshPlayerAsync(context).ConfigureAwait(false);
+        if (player.Position is null)
         {
             LogActionThrottled(context, state, "stationary_combat.target.reacquire_face_wait", "player_read_failed", new Dictionary<string, object?>
             {
@@ -6267,13 +6059,12 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 ["reason"] = "player_read_failed",
                 ["targetEntityId"] = target.EntityId,
                 ["targetServerObjectId"] = target.ServerObjectId,
-                ["targetName"] = target.Name,
-                ["error"] = playerResult.Error
+                ["targetName"] = target.Name
             }, TimeSpan.FromMilliseconds(500));
             return false;
         }
 
-        var faced = await FaceTargetStepAsync(context, state, playerResult.Value, targetPosition, target).ConfigureAwait(false);
+        var faced = await FaceTargetStepAsync(context, state, player, targetPosition, target).ConfigureAwait(false);
         if (!faced)
         {
             LogActionThrottled(context, state, "stationary_combat.target.reacquire_face_wait", "face_incomplete", new Dictionary<string, object?>
@@ -6307,20 +6098,15 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         AccountWorkerContext context,
         StationaryCombatState state,
         WorldObjectSnapshot target,
-        OperationResult<LockedTargetSnapshot> lockedResult,
+        LockedTargetSnapshot lockedResult,
         int delayMs)
     {
-        if (!lockedResult.Success)
+        if (lockedResult is { IsMonsterAlive: true })
         {
             return;
         }
 
-        if (lockedResult.Value is { IsMonsterAlive: true })
-        {
-            return;
-        }
-
-        if (lockedResult.Value is { IsLockedMonster: true, HasKnownHealth: true, CurrentHp: 0 } lockedTarget)
+        if (lockedResult is { IsLockedMonster: true, HasKnownHealth: true, CurrentHp: 0 } lockedTarget)
         {
             var reason = ResolveTabCorpseNudgeReason(state, lockedTarget);
             await PressForwardForTabCorpseAsync(context, state, target, lockedTarget, delayMs, reason)
@@ -6328,7 +6114,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return;
         }
 
-        if (lockedResult.Value is { HasTarget: true })
+        if (lockedResult is { HasTarget: true })
         {
             return;
         }
@@ -6466,7 +6252,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         AccountWorkerContext context,
         StationaryCombatState state,
         WorldObjectSnapshot target,
-        OperationResult<LockedTargetSnapshot> lockedResult,
+        LockedTargetSnapshot lockedResult,
         int delayMs)
     {
         context.Logger.Info("stationary_combat.tab.verify", new Dictionary<string, object?>
@@ -6478,16 +6264,15 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             ["candidateTargetingServerObjectId"] = target.TargetServerObjectId,
             ["candidateName"] = target.Name,
             ["delayMs"] = delayMs,
-            ["lockedReadSuccess"] = lockedResult.Success,
-            ["lockedEntityId"] = lockedResult.Value?.TargetEntityId ?? 0,
-            ["lockedServerObjectId"] = lockedResult.Value?.ServerObjectId ?? 0,
-            ["lockedTargetServerObjectId"] = lockedResult.Value?.ServerObjectId ?? 0,
-            ["lockedTargetingServerObjectId"] = lockedResult.Value?.TargetServerObjectId ?? 0,
-            ["lockedName"] = lockedResult.Value?.Name ?? string.Empty,
-            ["lockedAlive"] = lockedResult.Value?.IsMonsterAlive ?? false,
-            ["lockedHp"] = lockedResult.Value?.CurrentHp ?? 0,
-            ["matched"] = lockedResult.Success &&
-                          lockedResult.Value is { IsMonsterAlive: true } lockedTarget &&
+            ["lockedReadSuccess"] = true,
+            ["lockedEntityId"] = lockedResult.TargetEntityId,
+            ["lockedServerObjectId"] = lockedResult.ServerObjectId,
+            ["lockedTargetServerObjectId"] = lockedResult.ServerObjectId,
+            ["lockedTargetingServerObjectId"] = lockedResult.TargetServerObjectId,
+            ["lockedName"] = lockedResult.Name,
+            ["lockedAlive"] = lockedResult.IsMonsterAlive,
+            ["lockedHp"] = lockedResult.CurrentHp,
+            ["matched"] = lockedResult is { IsMonsterAlive: true } lockedTarget &&
                           StationaryCombatState.IsSameTarget(
                               target.EntityId,
                               target.ServerObjectId,
@@ -6497,7 +6282,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             ["previousLockedServerObjectId"] = state.PendingTabPreviousLockedServerObjectId,
             ["previousLockedTargetServerObjectId"] = state.PendingTabPreviousLockedServerObjectId,
             ["pendingUntil"] = state.PendingTabVerifyUntil,
-            ["error"] = lockedResult.Error
+            ["error"] = null
         });
     }
 
@@ -6507,7 +6292,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state,
         WorldObjectSnapshot candidate,
-        OperationResult<LockedTargetSnapshot> lockedResult,
+        LockedTargetSnapshot lockedResult,
         Vector3Snapshot home,
         double radius)
     {
@@ -6517,8 +6302,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             state.CurrentTargetIsGatherSafetyClear ||
             state.CurrentTargetBypassesHomeLeash ||
             state.CurrentTargetIsTacticalMark ||
-            !lockedResult.Success ||
-            lockedResult.Value is not { IsMonsterAlive: true } lockedTarget ||
+            lockedResult is not { IsMonsterAlive: true } lockedTarget ||
             StationaryCombatState.IsSameTarget(
                 candidate.EntityId,
                 candidate.ServerObjectId,
@@ -6549,14 +6333,13 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state,
         WorldObjectSnapshot target,
-        OperationResult<LockedTargetSnapshot> lockedResult,
+        LockedTargetSnapshot lockedResult,
         Vector3Snapshot home,
         double radius,
         bool allowLockedFallback,
         string phase)
     {
-        if (!lockedResult.Success ||
-            lockedResult.Value is not { IsMonsterAlive: true } lockedTarget)
+        if (lockedResult is not { IsMonsterAlive: true } lockedTarget)
         {
             return null;
         }
@@ -8272,34 +8055,12 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         StationaryCombatState state,
         Vector3Snapshot playerPosition)
     {
-        var worldObjectsResult = await ReadWorldObjectsAsync(context).ConfigureAwait(false);
-        if (!worldObjectsResult.Success || worldObjectsResult.Value is null)
-        {
-            LogLeaderRestBlocked(
-                context,
-                state,
-                "world_objects_failed",
-                error: worldObjectsResult.Error);
-            return (false, null);
-        }
+        var objects = await ReadWorldObjectsAsync(context).ConfigureAwait(false);
 
-        var monitor = new TeamMonitor(context.GameApi, context.Logger);
-        var snapshotResult = await monitor
-            .ReadSnapshotAsync(CreateReadContext(context), context.StopToken)
-            .ConfigureAwait(false);
-        if (!snapshotResult.Success || snapshotResult.Value is null)
-        {
-            LogLeaderRestBlocked(
-                context,
-                state,
-                "team_snapshot_failed",
-                error: snapshotResult.Error);
-            return (false, null);
-        }
+        var monitor = new TeamMonitor(context.Snapshots, context.Logger);
+        var snapshot = await monitor.ReadSnapshotAsync().ConfigureAwait(false);
 
         var team = context.Config.ScriptSettings?.Team ?? new TeamScriptSettings();
-        var objects = worldObjectsResult.Value;
-        var snapshot = snapshotResult.Value;
         var teamThreat = TeamLeaderProtectionSelector.SelectThreat(
             snapshot,
             objects,
@@ -8410,22 +8171,11 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return null;
         }
 
-        var monitor = new TeamMonitor(context.GameApi, context.Logger);
-        var snapshotResult = await monitor
-            .ReadSnapshotAsync(CreateReadContext(context), context.StopToken)
-            .ConfigureAwait(false);
-        if (!snapshotResult.Success || snapshotResult.Value is null)
-        {
-            LogActionThrottled(context, state, "stationary_combat.team_leader.snapshot.failed", "snapshot", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["error"] = snapshotResult.Error
-            }, TimeSpan.FromSeconds(3));
-            return null;
-        }
+        var monitor = new TeamMonitor(context.Snapshots, context.Logger);
+        var snapshot = await monitor.ReadSnapshotAsync().ConfigureAwait(false);
 
         return TeamLeaderProtectionSelector.SelectThreat(
-            snapshotResult.Value,
+            snapshot,
             objects,
             playerPosition,
             team.GroupDistanceMeters);
@@ -9041,23 +8791,12 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             state.CachedGatherSnapshot is null ||
             now - state.LastGatherScanAt >= ScanInterval)
         {
-            var result = await ReadGatherSnapshotAsync(context).ConfigureAwait(false);
+            var snapshot = await ReadGatherSnapshotAsync(context).ConfigureAwait(false);
             state.LastGatherScanAt = now;
-            if (!result.Success || result.Value is null)
+            state.CachedGatherSnapshot = snapshot;
+            if (snapshot.MonsterDataAvailable)
             {
-                state.CachedGatherSnapshot = null;
-                LogThrottled(context, state, "stationary_gather.snapshot.failed", new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["error"] = result.Error
-                });
-                return null;
-            }
-
-            state.CachedGatherSnapshot = result.Value;
-            if (result.Value.MonsterDataAvailable)
-            {
-                state.CachedWorldObjects = result.Value.NearbyMonsters;
+                state.CachedWorldObjects = snapshot.NearbyMonsters;
                 state.LastWorldScanAt = now;
                 _radarSnapshots?.PublishWorldObjects(
                     context.Config.AccountName,
@@ -9097,24 +8836,11 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         var now = DateTimeOffset.Now;
         if (forceRefresh || state.CachedWorldObjects.Count == 0 || now - state.LastWorldScanAt >= ScanInterval)
         {
-            var objectsResult = await ReadWorldObjectsAsync(context).ConfigureAwait(false);
-            if (!objectsResult.Success || objectsResult.Value is null)
-            {
-                LogThrottled(context, state, "stationary_combat.world_objects.failed", new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["error"] = objectsResult.Error
-                });
-                state.CachedWorldObjects = Array.Empty<WorldObjectSnapshot>();
-            }
-            else
-            {
-                state.CachedWorldObjects = objectsResult.Value;
-                _radarSnapshots?.PublishWorldObjects(
-                    context.Config.AccountName,
-                    state.CachedWorldObjects,
-                    now);
-            }
+            state.CachedWorldObjects = await ReadWorldObjectsAsync(context).ConfigureAwait(false);
+            _radarSnapshots?.PublishWorldObjects(
+                context.Config.AccountName,
+                state.CachedWorldObjects,
+                now);
 
             state.LastWorldScanAt = now;
         }
@@ -9181,32 +8907,17 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return navigation.ObservedMapId;
         }
 
-        OperationResult<ChannelSnapshot> result;
-        if (context.GameApi is IRoadhogScopedChannelGameApi scopedApi)
-        {
-            result = await scopedApi
-                .ReadChannelAsync(CreateReadContext(context), context.StopToken)
-                .ConfigureAwait(false);
-        }
-        else if (context.GameApi is IRoadhogChannelGameApi channelApi)
-        {
-            result = await channelApi.ReadChannelAsync(context.StopToken).ConfigureAwait(false);
-        }
-        else
-        {
-            return 0;
-        }
-
+        var channel = (await context.Snapshots.ReadChannelAsync().ConfigureAwait(false)).Value;
         navigation.LastObservedMapReadAt = now;
-        if (!result.Success || result.Value is null || result.Value.MapId == 0)
+        if (channel.MapId == 0)
         {
             navigation.ObservedMapId = 0;
             return 0;
         }
 
-        navigation.ObservedMapId = result.Value.MapId;
-        _radarSnapshots?.PublishMapId(context.Config.AccountName, result.Value.MapId, now);
-        return result.Value.MapId;
+        navigation.ObservedMapId = channel.MapId;
+        _radarSnapshots?.PublishMapId(context.Config.AccountName, channel.MapId, now);
+        return channel.MapId;
     }
 
     private static RadarPoint ToRadarPoint(Vector3Snapshot point)
@@ -9478,10 +9189,10 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         Vector3Snapshot target,
         double reachDistance)
     {
-        var freshPlayerResult = await ReadFreshPlayerAsync(context).ConfigureAwait(false);
-        if (freshPlayerResult.Success && freshPlayerResult.Value?.Position is not null)
+        var freshPlayer = await ReadFreshPlayerAsync(context).ConfigureAwait(false);
+        if (freshPlayer.Position is not null)
         {
-            player = freshPlayerResult.Value;
+            player = freshPlayer;
         }
 
         if (player.Position is null)
@@ -9936,8 +9647,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     break;
                 }
 
-                var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
-                if (!playerResult.Success || playerResult.Value?.Position is null)
+                var player = await ReadPlayerAsync(context).ConfigureAwait(false);
+                if (player.Position is null)
                 {
                     await DelayAsync(adjustInterval, token).ConfigureAwait(false);
                     continue;
@@ -9949,7 +9660,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     await RefreshNextTargetPreAimSelectionAsync(
                             context,
                             state,
-                            playerResult.Value.Position.Value,
+                            player.Position.Value,
                             home,
                             radius,
                             fightTargetEntityId,
@@ -9969,7 +9680,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     await AdjustNextTargetPreAimAsync(
                             context,
                             state,
-                            playerResult.Value,
+                            player,
                             targetEntityId,
                             targetServerObjectId,
                             targetName,
@@ -10069,16 +9780,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         uint fightTargetServerObjectId,
         long sessionId)
     {
-        var result = await ReadWorldObjectsAsync(context).ConfigureAwait(false);
-        if (!result.Success || result.Value is null)
-        {
-            context.Logger.Warn("stationary_combat.smart_preaim.snapshot_failed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["error"] = result.Error
-            });
-            return;
-        }
+        var objects = await ReadWorldObjectsAsync(context).ConfigureAwait(false);
 
         if (!IsSmartPreAimLoopStillValid(
                 context,
@@ -10091,7 +9793,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
 
         var now = DateTimeOffset.Now;
-        var exclusions = state.CreateNextTargetPreAimExclusionSnapshot(result.Value, now);
+        var exclusions = state.CreateNextTargetPreAimExclusionSnapshot(objects, now);
         lock (state.NextTargetPreAim.SyncRoot)
         {
             if (state.NextTargetPreAim.TryGetActiveDisplacedTargetForFightTarget(
@@ -10107,7 +9809,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
 
         IReadOnlySet<uint> teamSideServerObjectIds = new HashSet<uint>();
-        if (ShouldResolveSmartPreAimTeamSideServerObjectIds(result.Value, state))
+        if (ShouldResolveSmartPreAimTeamSideServerObjectIds(objects, state))
         {
             teamSideServerObjectIds = await ResolveSmartPreAimTeamSideServerObjectIdsAsync(
                     context,
@@ -10137,13 +9839,13 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         var distanceOrigin = ResolveSmartPreAimDistanceOrigin(
             context,
             state,
-            result.Value,
+            objects,
             playerPosition,
             fightTargetEntityId,
             fightTargetServerObjectId);
         var switchDistanceMargin = ReadSmartPreAimSwitchDistanceMargin();
         var selection = NextTargetPreAimSelector.Select(
-            result.Value,
+            objects,
             distanceOrigin,
             home,
             radius,
@@ -10165,7 +9867,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             currentSelection,
             selection,
             hasCommittedCandidate,
-            result.Value,
+            objects,
             playerPosition,
             distanceOrigin,
             switchDistanceMargin);
@@ -10174,7 +9876,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             context,
             state,
             selection,
-            result.Value.Count,
+            objects.Count,
             distanceOrigin,
             now,
             fightTargetEntityId,
@@ -10421,33 +10123,21 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             preAim.LastTeamSideSnapshotAttemptAt = now;
         }
 
-        var monitor = new TeamMonitor(context.GameApi);
-        var snapshotResult = await monitor
-            .ReadSnapshotAsync(CreateReadContext(context), context.StopToken)
-            .ConfigureAwait(false);
+        var monitor = new TeamMonitor(context.Snapshots);
+        var snapshot = await monitor.ReadSnapshotAsync().ConfigureAwait(false);
         lock (preAim.SyncRoot)
         {
-            if (snapshotResult.Success && snapshotResult.Value is not null)
+            var team = context.Config.ScriptSettings?.Team ?? new TeamScriptSettings();
+            var protectedIds = TeamLeaderProtectionSelector.CreateProtectedServerObjectIds(
+                snapshot,
+                team.GroupDistanceMeters);
+            preAim.TeamSideServerObjectIds.Clear();
+            foreach (var protectedId in protectedIds)
             {
-                var team = context.Config.ScriptSettings?.Team ?? new TeamScriptSettings();
-                var protectedIds = TeamLeaderProtectionSelector.CreateProtectedServerObjectIds(
-                    snapshotResult.Value,
-                    team.GroupDistanceMeters);
-                preAim.TeamSideServerObjectIds.Clear();
-                foreach (var protectedId in protectedIds)
-                {
-                    preAim.TeamSideServerObjectIds.Add(protectedId);
-                }
-
-                preAim.TeamSideSnapshotCapturedAt = now;
-            }
-            else if (preAim.TeamSideSnapshotCapturedAt == DateTimeOffset.MinValue ||
-                     now - preAim.TeamSideSnapshotCapturedAt >= SmartPreAimTeamSnapshotRetention)
-            {
-                preAim.TeamSideServerObjectIds.Clear();
-                preAim.LastTeamSideSnapshotAttemptAt = DateTimeOffset.MinValue;
+                preAim.TeamSideServerObjectIds.Add(protectedId);
             }
 
+            preAim.TeamSideSnapshotCapturedAt = now;
             return preAim.TeamSideServerObjectIds.ToHashSet();
         }
     }
@@ -11757,19 +11447,11 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
     }
 
-    private static Task<OperationResult<PlayerSnapshot>> ReadPlayerAsync(AccountWorkerContext context)
-    {
-        return context.GameApi is IRoadhogScopedGameApi scopedApi
-            ? scopedApi.ReadPlayerAsync(CreateReadContext(context), context.StopToken)
-            : context.GameApi.ReadPlayerAsync(context.StopToken);
-    }
+    private static async Task<PlayerSnapshot> ReadPlayerAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadPlayerAsync().ConfigureAwait(false)).Value;
 
-    private static Task<OperationResult<PlayerSnapshot>> ReadFreshPlayerAsync(AccountWorkerContext context)
-    {
-        return context.GameApi is IRoadhogScopedGameApi scopedApi
-            ? scopedApi.ReadPlayerAsync(CreateReadContext(context, bypassMemoryCache: true), context.StopToken)
-            : context.GameApi.ReadPlayerAsync(context.StopToken);
-    }
+    private static async Task<PlayerSnapshot> ReadFreshPlayerAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadCurrentPlayerAsync().ConfigureAwait(false)).Value;
 
     private static async Task RefreshLocalCombatSideAsync(
         AccountWorkerContext context,
@@ -11787,13 +11469,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         state.LocalCombatSideServerObjectId = 0;
         state.LocalCombatSidePetServerObjectId = 0;
 
-        var rosterResult = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
-        if (!rosterResult.Success || rosterResult.Value is null)
-        {
-            return;
-        }
-
-        var roster = rosterResult.Value;
+        var roster = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
         state.LocalCombatSideServerObjectId = roster.LocalServerObjectId;
         var localPet = roster.LocalPlayerPet;
         state.LocalCombatSidePetServerObjectId = SpiritmasterCombatContext.IsConfirmedLocalSummonedPet(localPet)
@@ -11801,70 +11477,31 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             : 0;
     }
 
-    private static Task<OperationResult<SummonedPetRosterSnapshot>> ReadSummonedPetRosterAsync(AccountWorkerContext context)
-    {
-        return context.GameApi is IRoadhogScopedGameApi scopedApi
-            ? scopedApi.ReadSummonedPetRosterAsync(CreateReadContext(context), context.StopToken)
-            : context.GameApi.ReadSummonedPetRosterAsync(context.StopToken);
-    }
+    private static async Task<SummonedPetRosterSnapshot> ReadSummonedPetRosterAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadSummonedPetRosterAsync().ConfigureAwait(false)).Value;
 
-    private static Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(AccountWorkerContext context)
-    {
-        return context.GameApi is IRoadhogScopedGameApi scopedApi
-            ? scopedApi.ReadLockedTargetAsync(CreateReadContext(context), context.StopToken)
-            : context.GameApi.ReadLockedTargetAsync(context.StopToken);
-    }
+    private static async Task<LockedTargetSnapshot> ReadLockedTargetAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadLockedTargetAsync().ConfigureAwait(false)).Value;
 
-    private static Task<OperationResult<LockedTargetSnapshot>> ReadFreshLockedTargetAsync(AccountWorkerContext context)
-    {
-        return context.GameApi is IRoadhogScopedGameApi scopedApi
-            ? scopedApi.ReadLockedTargetAsync(CreateReadContext(context, bypassMemoryCache: true), context.StopToken)
-            : context.GameApi.ReadLockedTargetAsync(context.StopToken);
-    }
+    private static async Task<LockedTargetSnapshot> ReadFreshLockedTargetAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadCurrentLockedTargetAsync().ConfigureAwait(false)).Value;
 
-    private static Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(AccountWorkerContext context)
-    {
-        return context.GameApi is IRoadhogScopedGameApi scopedApi
-            ? scopedApi.ReadWorldObjectsAsync(CreateReadContext(context), context.StopToken)
-            : context.GameApi.ReadWorldObjectsAsync(context.StopToken);
-    }
+    private static async Task<IReadOnlyList<WorldObjectSnapshot>> ReadWorldObjectsAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadWorldObjectsAsync().ConfigureAwait(false)).Value;
 
-    private static Task<OperationResult<GatherSnapshot>> ReadGatherSnapshotAsync(AccountWorkerContext context)
-    {
-        return context.GameApi is IRoadhogScopedGameApi scopedApi
-            ? scopedApi.ReadGatherSnapshotAsync(CreateReadContext(context), context.StopToken)
-            : context.GameApi.ReadGatherSnapshotAsync(context.StopToken);
-    }
+    private static async Task<GatherSnapshot> ReadGatherSnapshotAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadGatherSnapshotAsync().ConfigureAwait(false)).Value;
 
-    private static Task<OperationResult<IReadOnlyList<LootCorpseSnapshot>>> ReadLootCorpsesAsync(AccountWorkerContext context)
-    {
-        return context.GameApi is IRoadhogScopedGameApi scopedApi
-            ? scopedApi.ReadLootCorpsesAsync(CreateReadContext(context), context.StopToken)
-            : context.GameApi.ReadLootCorpsesAsync(context.StopToken);
-    }
-
-    private static GameApiReadContext CreateReadContext(
-        AccountWorkerContext context,
-        bool bypassMemoryCache = false)
-    {
-        return new GameApiReadContext(
-            context.Config.AccountName,
-            context.Config.ProcessId,
-            context.Config.TargetProcessName,
-            context.Config.VmmDeviceName,
-            bypassMemoryCache,
-            RequireFresh: bypassMemoryCache);
-    }
+    private static async Task<IReadOnlyList<LootCorpseSnapshot>> ReadLootCorpsesAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadLootCorpsesAsync().ConfigureAwait(false)).Value;
 
     private async Task<CameraTurnSnapshot?> ReadTurnSnapshotAsync(
         AccountWorkerContext context,
         Vector3Snapshot target,
         PathFollowTurnOptions options)
     {
-        var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
-        return playerResult.Success && playerResult.Value is not null
-            ? BuildCameraTurnSnapshot(playerResult.Value, target, options)
-            : null;
+        var player = await ReadPlayerAsync(context).ConfigureAwait(false);
+        return BuildCameraTurnSnapshot(player, target, options);
     }
 
     private async Task<CameraTurnSnapshot?> ReadStableTurnSnapshotAsync(
@@ -12037,7 +11674,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         var interval = TimeSpan.FromMilliseconds(ReadPathFollowTickMs());
         while (!poller.Cancellation.IsCancellationRequested)
         {
-            var playerResult = await ReadFreshPlayerAsync(context).ConfigureAwait(false);
+            var player = await ReadFreshPlayerAsync(context).ConfigureAwait(false);
             lock (poller.SyncRoot)
             {
                 if (poller.StopRequested)
@@ -12045,9 +11682,9 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     return;
                 }
 
-                if (playerResult.Success && playerResult.Value?.Position is not null)
+                if (player.Position is not null)
                 {
-                    poller.Local = playerResult.Value;
+                    poller.Local = player;
                     poller.HasLocal = true;
                     poller.Error = null;
                     poller.LastReadTime = DateTimeOffset.Now;
@@ -12066,7 +11703,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 }
                 else
                 {
-                    poller.Error = playerResult.Error ?? "local position unavailable";
+                    poller.Error = "local position unavailable";
                 }
             }
 

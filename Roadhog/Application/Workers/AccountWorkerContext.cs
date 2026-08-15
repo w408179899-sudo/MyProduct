@@ -1,6 +1,7 @@
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Api;
 using Roadhog.Core.Diagnostics;
+using Roadhog.Infrastructure.Vmm;
 
 namespace Roadhog.Application.Workers;
 
@@ -15,16 +16,16 @@ public sealed class AccountWorkerContext
         CancellationToken stopToken)
     {
         Config = config;
-        GameApi = gameApi;
         Logger = logger;
         RuntimeStates = runtimeStates;
         Options = options;
         StopToken = stopToken;
+        Snapshots = new RoadhogSnapshotReader(config, gameApi, logger, stopToken);
     }
 
     public AccountConfig Config { get; }
 
-    public IRoadhogGameApi GameApi { get; }
+    public IRoadhogSnapshotReader Snapshots { get; }
 
     public IRoadhogLogger Logger { get; }
 

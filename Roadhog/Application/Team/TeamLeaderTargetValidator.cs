@@ -1,4 +1,3 @@
-using Roadhog.Core.Common;
 using Roadhog.Core.Model;
 
 namespace Roadhog.Application.Team;
@@ -50,13 +49,13 @@ internal static class TeamLeaderTargetValidator
     }
 
     public static bool IsLeaderAttackTarget(
-        OperationResult<LockedTargetSnapshot> result,
+        LockedTargetSnapshot target,
         TeamMemberSnapshot leader,
         uint leaderTargetServerObjectId,
         out string rejectReason)
     {
         return IsLeaderAttackTarget(
-            result,
+            target,
             leader,
             leaderTargetServerObjectId,
             null,
@@ -64,19 +63,12 @@ internal static class TeamLeaderTargetValidator
     }
 
     public static bool IsLeaderAttackTarget(
-        OperationResult<LockedTargetSnapshot> result,
+        LockedTargetSnapshot target,
         TeamMemberSnapshot leader,
         uint leaderTargetServerObjectId,
         IReadOnlySet<uint>? extraProtectedServerObjectIds,
         out string rejectReason)
     {
-        if (!result.Success || result.Value is null)
-        {
-            rejectReason = "target_read_failed";
-            return false;
-        }
-
-        var target = result.Value;
         if (leaderTargetServerObjectId == 0)
         {
             rejectReason = "leader_target_unknown";

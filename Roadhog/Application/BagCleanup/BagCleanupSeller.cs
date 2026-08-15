@@ -118,11 +118,7 @@ public sealed class BagCleanupSeller
             ["source"] = "normalize"
         });
 
-        var read = await BagCleanupGameApi.ReadInventoryWindowAsync(context).ConfigureAwait(false);
-        if (!read.Success || read.Value is null)
-        {
-            return OperationResult<InventoryWindowSnapshot>.Fail("Inventory window read failed: " + read.Error);
-        }
+        var read = await context.Snapshots.ReadInventoryWindowAsync().ConfigureAwait(false);
 
         var snapshot = read.Value;
         if (!snapshot.IsOpen)
@@ -354,12 +350,7 @@ public sealed class BagCleanupSeller
                 }
 
                 await DelayAsync(InventoryDragSettleDelay, context.StopToken).ConfigureAwait(false);
-                var read = await BagCleanupGameApi.ReadInventoryWindowAsync(context).ConfigureAwait(false);
-                if (!read.Success || read.Value is null)
-                {
-                    return OperationResult<InventoryWindowSnapshot>.Fail(
-                        "Inventory window read after drag failed: " + read.Error);
-                }
+                var read = await context.Snapshots.ReadInventoryWindowAsync().ConfigureAwait(false);
 
                 current = read.Value;
                 if (current.IsAtTopLeft())

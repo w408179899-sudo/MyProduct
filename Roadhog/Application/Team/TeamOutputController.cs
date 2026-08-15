@@ -48,32 +48,8 @@ public sealed class TeamOutputController
             state.TacticalMarkRangeRetry.Clear();
         }
 
-        var readContext = CreateReadContext(context);
-        var monitor = new TeamMonitor(context.GameApi, context.Logger);
-        var snapshotResult = await monitor.ReadSnapshotAsync(readContext, context.StopToken).ConfigureAwait(false);
-        if (!snapshotResult.Success || snapshotResult.Value is null)
-        {
-            if (ShouldLog(state.LastSnapshotWarningAt))
-            {
-                state.LastSnapshotWarningAt = DateTimeOffset.Now;
-                context.Logger.Warn("team_output.snapshot.failed", new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["error"] = snapshotResult.Error
-                });
-            }
-
-            var allowNormalWork = await RecordLeaderUnavailableTickAsync(
-                    state,
-                    combatState,
-                    "team_output_snapshot_unavailable")
-                .ConfigureAwait(false);
-            return allowNormalWork
-                ? TeamOutputTickResult.Continue(TeamOutputTickDelay)
-                : TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
-        }
-
-        var snapshot = snapshotResult.Value;
+        var monitor = new TeamMonitor(context.Snapshots, context.Logger);
+        var snapshot = await monitor.ReadSnapshotAsync().ConfigureAwait(false);
         var leader = snapshot.LeaderMember;
         if (leader is null || leader.IsSelf)
         {
@@ -266,7 +242,7 @@ public sealed class TeamOutputController
                 : TeamOutputTickResult.Continue(TeamOutputTickDelay);
         }
 
-        var currentTargetResult = await ReadLockedTargetAsync(context, bypassMemoryCache: true).ConfigureAwait(false);
+        var currentTargetResult = await ReadLockedTargetAsync(context, requireCurrent: true).ConfigureAwait(false);
         if (TeamLeaderTargetValidator.IsLeaderAttackTarget(
                 currentTargetResult,
                 leader,
@@ -319,7 +295,7 @@ public sealed class TeamOutputController
             LogTargetRejected(
                 context,
                 state,
-                verification.LockedTargetResult.Value,
+                verification.LockedTarget,
                 leader,
                 leaderTargetServerObjectId,
                 verification.RejectReason);
@@ -331,7 +307,7 @@ public sealed class TeamOutputController
                 context,
                 leader,
                 leaderTargetServerObjectId,
-                verification.LockedTargetResult,
+                verification.LockedTarget,
                 combatState,
                 "assist_key",
                 verification.PollCount)
@@ -379,7 +355,7 @@ public sealed class TeamOutputController
             return TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
         }
 
-        var target = selection.LockedTargetResult.Value;
+        var target = selection.LockedTarget!;
         var isLeaderCurrentTarget = TeamLeaderTargetValidator.IsLeaderCurrentLivingTarget(target, leader);
         if (!isLeaderCurrentTarget &&
             !TeamCombatTargetAdopter.IsCurrentTacticalMarkedTarget(combatState, target) &&
@@ -459,21 +435,21 @@ public sealed class TeamOutputController
         AccountWorkerContext context,
         TeamMemberSnapshot leader,
         uint leaderTargetServerObjectId,
-        OperationResult<LockedTargetSnapshot> lockedTargetResult,
+        LockedTargetSnapshot lockedTarget,
         StationaryCombatState? combatState,
         string source,
         int pollCount)
     {
         var combatAdopted = TeamCombatTargetAdopter.TryAdoptLeaderAttackTarget(
             combatState,
-            lockedTargetResult.Value);
+            lockedTarget);
         if (combatAdopted)
         {
             var jumpAssist = combatState?.JumpAssist;
             if (jumpAssist is not null)
             {
                 await jumpAssist
-                    .PrepareTeamCombatJumpAsync(lockedTargetResult.Value?.ServerObjectId ?? 0)
+                    .PrepareTeamCombatJumpAsync(lockedTarget.ServerObjectId)
                     .ConfigureAwait(false);
             }
         }
@@ -484,9 +460,9 @@ public sealed class TeamOutputController
             ["leader"] = leader.Name,
             ["leaderServerObjectId"] = leader.ServerObjectId,
             ["leaderTargetServerObjectId"] = leaderTargetServerObjectId,
-            ["targetName"] = lockedTargetResult.Value?.Name,
-            ["targetServerObjectId"] = lockedTargetResult.Value?.ServerObjectId,
-            ["targetTargetServerObjectId"] = lockedTargetResult.Value?.TargetServerObjectId,
+            ["targetName"] = lockedTarget.Name,
+            ["targetServerObjectId"] = lockedTarget.ServerObjectId,
+            ["targetTargetServerObjectId"] = lockedTarget.TargetServerObjectId,
             ["source"] = source,
             ["confirmPollCount"] = pollCount,
             ["combatAdopted"] = combatAdopted
@@ -499,7 +475,7 @@ public sealed class TeamOutputController
         TeamMemberSnapshot leader,
         uint leaderTargetServerObjectId)
     {
-        var lastResult = OperationResult<LockedTargetSnapshot>.Fail("target_not_read");
+        LockedTargetSnapshot? lastTarget = null;
         var lastRejectReason = "target_not_read";
         await Task.Delay(AssistTargetInitialConfirmDelay, context.StopToken).ConfigureAwait(false);
         for (var poll = 1; poll <= AssistTargetConfirmPolls; poll++)
@@ -509,18 +485,18 @@ public sealed class TeamOutputController
                 await Task.Delay(AssistTargetConfirmRetryDelay, context.StopToken).ConfigureAwait(false);
             }
 
-            lastResult = await ReadLockedTargetAsync(context, bypassMemoryCache: true).ConfigureAwait(false);
+            lastTarget = await ReadLockedTargetAsync(context, requireCurrent: true).ConfigureAwait(false);
             if (TeamLeaderTargetValidator.IsLeaderAttackTarget(
-                    lastResult,
+                    lastTarget,
                     leader,
                     leaderTargetServerObjectId,
                     out lastRejectReason))
             {
-                return new AssistTargetVerification(lastResult, true, string.Empty, poll);
+                return new AssistTargetVerification(lastTarget, true, string.Empty, poll);
             }
         }
 
-        return new AssistTargetVerification(lastResult, false, lastRejectReason, AssistTargetConfirmPolls);
+        return new AssistTargetVerification(lastTarget!, false, lastRejectReason, AssistTargetConfirmPolls);
     }
 
     private async Task<bool> SelectLeaderAndAssistAsync(
@@ -570,7 +546,7 @@ public sealed class TeamOutputController
             return MemberSelectionResult.NotSelected;
         }
 
-        var current = await ReadLockedTargetAsync(context, bypassMemoryCache: true).ConfigureAwait(false);
+        var current = await ReadLockedTargetAsync(context, requireCurrent: true).ConfigureAwait(false);
         if (IsSelectedMemberBody(current, member))
         {
             return MemberSelectionResult.AlreadySelectedResult;
@@ -594,7 +570,7 @@ public sealed class TeamOutputController
             }
 
             await Task.Delay(SelectConfirmDelay, context.StopToken).ConfigureAwait(false);
-            current = await ReadLockedTargetAsync(context, bypassMemoryCache: true).ConfigureAwait(false);
+            current = await ReadLockedTargetAsync(context, requireCurrent: true).ConfigureAwait(false);
             if (IsSelectedMemberBody(current, member))
             {
                 context.Logger.Info("team_output.leader_selected", new Dictionary<string, object?>
@@ -651,23 +627,8 @@ public sealed class TeamOutputController
             return null;
         }
 
-        var worldResult = await ReadWorldObjectsAsync(context).ConfigureAwait(false);
-        if (!worldResult.Success || worldResult.Value is null)
-        {
-            if (ShouldLog(state.LastSelfDefenseWarningAt))
-            {
-                state.LastSelfDefenseWarningAt = DateTimeOffset.Now;
-                context.Logger.Warn("team_output.self_defense.world_objects.failed", new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["error"] = worldResult.Error
-                });
-            }
-
-            return null;
-        }
-
-        var threat = worldResult.Value
+        var worldObjects = await ReadWorldObjectsAsync(context).ConfigureAwait(false);
+        var threat = worldObjects
             .Where(StationaryCombatTargetSelector.IsSelectableMonster)
             .FirstOrDefault(target =>
                 target.TargetServerObjectId != 0 &&
@@ -719,14 +680,12 @@ public sealed class TeamOutputController
     }
 
     private static bool IsSelectedMemberBody(
-        OperationResult<LockedTargetSnapshot> result,
+        LockedTargetSnapshot target,
         TeamMemberSnapshot member)
     {
-        return result.Success &&
-               result.Value is not null &&
-               result.Value.ObjectType == LockedTargetSnapshot.PlayerObjectType &&
-               result.Value.ServerObjectId != 0 &&
-               result.Value.ServerObjectId == member.ServerObjectId;
+        return target.ObjectType == LockedTargetSnapshot.PlayerObjectType &&
+               target.ServerObjectId != 0 &&
+               target.ServerObjectId == member.ServerObjectId;
     }
 
     private static void LogTargetRejected(
@@ -900,34 +859,18 @@ public sealed class TeamOutputController
         return DateTimeOffset.Now - lastLogAt >= WarningLogInterval;
     }
 
-    private static Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(
+    private static async Task<LockedTargetSnapshot> ReadLockedTargetAsync(
         AccountWorkerContext context,
-        bool bypassMemoryCache = false)
+        bool requireCurrent = false)
     {
-        return context.GameApi is IRoadhogScopedGameApi scopedApi
-            ? scopedApi.ReadLockedTargetAsync(CreateReadContext(context, bypassMemoryCache), context.StopToken)
-            : context.GameApi.ReadLockedTargetAsync(context.StopToken);
+        var snapshot = requireCurrent
+            ? await context.Snapshots.ReadCurrentLockedTargetAsync().ConfigureAwait(false)
+            : await context.Snapshots.ReadLockedTargetAsync().ConfigureAwait(false);
+        return snapshot.Value;
     }
 
-    private static Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(AccountWorkerContext context)
-    {
-        return context.GameApi is IRoadhogScopedGameApi scopedApi
-            ? scopedApi.ReadWorldObjectsAsync(CreateReadContext(context), context.StopToken)
-            : context.GameApi.ReadWorldObjectsAsync(context.StopToken);
-    }
-
-    private static GameApiReadContext CreateReadContext(
-        AccountWorkerContext context,
-        bool bypassMemoryCache = false)
-    {
-        return new GameApiReadContext(
-            context.Config.AccountName,
-            context.Config.ProcessId,
-            context.Config.TargetProcessName,
-            context.Config.VmmDeviceName,
-            bypassMemoryCache,
-            RequireFresh: bypassMemoryCache);
-    }
+    private static async Task<IReadOnlyList<WorldObjectSnapshot>> ReadWorldObjectsAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadWorldObjectsAsync().ConfigureAwait(false)).Value;
 
     private readonly record struct MemberSelectionResult(
         bool Selected,
@@ -941,7 +884,7 @@ public sealed class TeamOutputController
     }
 
     private readonly record struct AssistTargetVerification(
-        OperationResult<LockedTargetSnapshot> LockedTargetResult,
+        LockedTargetSnapshot LockedTarget,
         bool Accepted,
         string RejectReason,
         int PollCount);

@@ -77,26 +77,8 @@ public sealed class FixedChannelController
                 : null;
         }
 
-        var channelResult = await TryReadChannelAsync(context).ConfigureAwait(false);
+        var channel = await ReadChannelAsync(context).ConfigureAwait(false);
         state.NextChannelReadAt = now + (state.CorrectionActive ? ActivePollInterval : NormalPollInterval);
-        if (!channelResult.Success || channelResult.Value is null)
-        {
-            LogOnce(context, state, "channel_read_failed:" + channelResult.Error, "fixed_channel.read.failed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["targetChannelNumber"] = targetChannelNumber,
-                ["error"] = channelResult.Error
-            });
-            return await HandleChannelUnavailableAsync(
-                    context,
-                    settings,
-                    state,
-                    now,
-                    suspendNormalWorkAsync)
-                .ConfigureAwait(false);
-        }
-
-        var channel = channelResult.Value;
         if (!channel.IsValid)
         {
             LogOnce(context, state, "channel_invalid:" + channel.Index + ":" + channel.Count + ":" + channel.MapId, "fixed_channel.read.invalid", new Dictionary<string, object?>
@@ -130,8 +112,8 @@ public sealed class FixedChannelController
         {
             if (!state.RecordMismatch())
             {
-                var firstMismatchPlayer = await TryReadPlayerAsync(context).ConfigureAwait(false);
-                if (firstMismatchPlayer.Success && firstMismatchPlayer.Value?.IsDead == true)
+                var firstMismatchPlayer = await ReadPlayerAsync(context).ConfigureAwait(false);
+                if (firstMismatchPlayer.IsDead)
                 {
                     return null;
                 }
@@ -150,18 +132,8 @@ public sealed class FixedChannelController
                 return ActivePollInterval;
             }
 
-            var playerResult = await TryReadPlayerAsync(context).ConfigureAwait(false);
-            if (!playerResult.Success || playerResult.Value is null)
-            {
-                LogOnce(context, state, "player_read_failed:" + playerResult.Error, "fixed_channel.player.failed", new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["error"] = playerResult.Error
-                });
-                return ActivePollInterval;
-            }
-
-            if (playerResult.Value.IsDead)
+            var player = await ReadPlayerAsync(context).ConfigureAwait(false);
+            if (player.IsDead)
             {
                 return null;
             }
@@ -220,18 +192,16 @@ public sealed class FixedChannelController
         ChannelSnapshot channel,
         DateTimeOffset now)
     {
-        var playerResult = await TryReadPlayerAsync(context).ConfigureAwait(false);
-        if (!playerResult.Success || playerResult.Value?.Position is null)
+        var player = await ReadPlayerAsync(context).ConfigureAwait(false);
+        if (player.Position is null)
         {
-            LogOnce(context, state, "return_player_failed:" + playerResult.Error, "fixed_channel.return.player_failed", new Dictionary<string, object?>
+            LogOnce(context, state, "return_player_failed:position_missing", "fixed_channel.return.player_failed", new Dictionary<string, object?>
             {
-                ["account"] = context.Config.AccountName,
-                ["error"] = playerResult.Error
+                ["account"] = context.Config.AccountName
             });
             return ActivePollInterval;
         }
 
-        var player = playerResult.Value;
         if (player.IsDead)
         {
             LogOnce(context, state, "return_player_dead", "fixed_channel.return.deferred_for_death", new Dictionary<string, object?>
@@ -308,24 +278,23 @@ public sealed class FixedChannelController
         ChannelSnapshot channel,
         DateTimeOffset now)
     {
-        var playerResult = await TryReadPlayerAsync(context).ConfigureAwait(false);
-        if (!playerResult.Success || playerResult.Value?.Position is null)
+        var player = await ReadPlayerAsync(context).ConfigureAwait(false);
+        if (player.Position is null)
         {
-            LogOnce(context, state, "wait_player_failed:" + playerResult.Error, "fixed_channel.wait.player_failed", new Dictionary<string, object?>
+            LogOnce(context, state, "wait_player_failed:position_missing", "fixed_channel.wait.player_failed", new Dictionary<string, object?>
             {
-                ["account"] = context.Config.AccountName,
-                ["error"] = playerResult.Error
+                ["account"] = context.Config.AccountName
             });
             return ActivePollInterval;
         }
 
-        if (playerResult.Value.IsDead)
+        if (player.IsDead)
         {
             state.LeaveRevivalPoint();
             return null;
         }
 
-        var distance = HorizontalDistance(playerResult.Value.Position.Value, state.RevivePoints[0]);
+        var distance = HorizontalDistance(player.Position.Value, state.RevivePoints[0]);
         if (distance > RevivalPointRadiusMeters)
         {
             state.LeaveRevivalPoint();
@@ -373,24 +342,23 @@ public sealed class FixedChannelController
         ChannelSnapshot channel,
         DateTimeOffset now)
     {
-        var playerResult = await TryReadPlayerAsync(context).ConfigureAwait(false);
-        if (!playerResult.Success || playerResult.Value?.Position is null)
+        var player = await ReadPlayerAsync(context).ConfigureAwait(false);
+        if (player.Position is null)
         {
-            LogOnce(context, state, "verify_player_failed:" + playerResult.Error, "fixed_channel.switch.player_failed", new Dictionary<string, object?>
+            LogOnce(context, state, "verify_player_failed:position_missing", "fixed_channel.switch.player_failed", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
-                ["attemptNumber"] = state.SwitchAttemptCount,
-                ["error"] = playerResult.Error
+                ["attemptNumber"] = state.SwitchAttemptCount
             });
         }
-        else if (playerResult.Value.IsDead)
+        else if (player.IsDead)
         {
             state.LeaveRevivalPoint();
             return null;
         }
         else
         {
-            var distance = HorizontalDistance(playerResult.Value.Position.Value, state.RevivePoints[0]);
+            var distance = HorizontalDistance(player.Position.Value, state.RevivePoints[0]);
             if (distance > RevivalPointRadiusMeters)
             {
                 state.LeaveRevivalPoint();
@@ -615,8 +583,8 @@ public sealed class FixedChannelController
             return await ExecuteSwitchAttemptAsync(context, settings, state, lastChannel).ConfigureAwait(false);
         }
 
-        var playerResult = await TryReadPlayerAsync(context).ConfigureAwait(false);
-        if (playerResult.Success && playerResult.Value?.IsDead == true)
+        var player = await ReadPlayerAsync(context).ConfigureAwait(false);
+        if (player.IsDead)
         {
             return null;
         }
@@ -648,71 +616,11 @@ public sealed class FixedChannelController
         }
     }
 
-    private static async Task<OperationResult<ChannelSnapshot>> TryReadChannelAsync(AccountWorkerContext context)
-    {
-        try
-        {
-            return await ReadChannelCoreAsync(context).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (context.StopToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            return OperationResult<ChannelSnapshot>.Fail("Channel snapshot read threw: " + ex.Message);
-        }
-    }
+    private static async Task<ChannelSnapshot> ReadChannelAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadCurrentChannelAsync().ConfigureAwait(false)).Value;
 
-    private static Task<OperationResult<ChannelSnapshot>> ReadChannelCoreAsync(AccountWorkerContext context)
-    {
-        if (context.GameApi is IRoadhogScopedChannelGameApi scopedApi)
-        {
-            return scopedApi.ReadChannelAsync(CreateReadContext(context, bypassMemoryCache: true), context.StopToken);
-        }
-
-        if (context.GameApi is IRoadhogChannelGameApi channelApi)
-        {
-            return channelApi.ReadChannelAsync(context.StopToken);
-        }
-
-        return Task.FromResult(OperationResult<ChannelSnapshot>.Fail(
-            "Configured game API does not provide channel snapshots."));
-    }
-
-    private static async Task<OperationResult<PlayerSnapshot>> TryReadPlayerAsync(AccountWorkerContext context)
-    {
-        try
-        {
-            return await ReadPlayerCoreAsync(context).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (context.StopToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            return OperationResult<PlayerSnapshot>.Fail("Player snapshot read threw: " + ex.Message);
-        }
-    }
-
-    private static Task<OperationResult<PlayerSnapshot>> ReadPlayerCoreAsync(AccountWorkerContext context)
-    {
-        return context.GameApi is IRoadhogScopedGameApi scopedApi
-            ? scopedApi.ReadPlayerAsync(CreateReadContext(context, bypassMemoryCache: true), context.StopToken)
-            : context.GameApi.ReadPlayerAsync(context.StopToken);
-    }
-
-    private static GameApiReadContext CreateReadContext(AccountWorkerContext context, bool bypassMemoryCache)
-    {
-        return new GameApiReadContext(
-            context.Config.AccountName,
-            context.Config.ProcessId,
-            context.Config.TargetProcessName,
-            context.Config.VmmDeviceName,
-            bypassMemoryCache,
-            RequireFresh: bypassMemoryCache);
-    }
+    private static async Task<PlayerSnapshot> ReadPlayerAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadCurrentPlayerAsync().ConfigureAwait(false)).Value;
 
     private static double HorizontalDistance(Vector3Snapshot left, Vector3Snapshot right)
     {

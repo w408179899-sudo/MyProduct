@@ -1,5 +1,6 @@
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
+using Roadhog.Core.Api;
 using Roadhog.Core.Common;
 using Roadhog.Core.Input;
 using Roadhog.Core.Model;
@@ -155,18 +156,8 @@ public sealed class BagCleanupController
             }
         }
 
-        var read = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
-        if (!read.Success || read.Value is null)
-        {
-            return RecoverableFailure(context, state, "inventory_read_failed", read.Error ?? "Inventory read failed.");
-        }
-
+        var read = await context.Snapshots.ReadInventoryAsync().ConfigureAwait(false);
         var capacity = await ReadInventoryCapacityAsync(context).ConfigureAwait(false);
-        if (!capacity.Success)
-        {
-            return RecoverableFailure(context, state, "inventory_capacity_read_failed", capacity.Error ?? "Inventory capacity read failed.");
-        }
-
         var totalSlots = capacity.Value;
         var occupiedSlots = CountOccupiedSlots(read.Value, totalSlots);
         var freeSlots = CountFreeSlots(read.Value, totalSlots);
@@ -227,12 +218,12 @@ public sealed class BagCleanupController
             }
 
             var safe = await _safetyChecker.CheckSafeToReturnAsync(context).ConfigureAwait(false);
-            if (!safe.Success)
+            if (!safe)
             {
                 context.Logger.Info("bag_cleanup.discard.start.blocked", new Dictionary<string, object?>
                 {
                     ["account"] = context.Config.AccountName,
-                    ["reason"] = safe.Error
+                    ["reason"] = "nearby_attacker"
                 });
                 return BagCleanupTickResult.Skipped("discard_unsafe");
             }
@@ -384,15 +375,7 @@ public sealed class BagCleanupController
             return interrupted;
         }
 
-        var read = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
-        if (!read.Success || read.Value is null)
-        {
-            return await FailDiscardLocallyAsync(
-                context,
-                state,
-                "discard_inventory_read_failed",
-                read.Error ?? "Inventory read failed during discard.").ConfigureAwait(false);
-        }
+        var read = await context.Snapshots.ReadInventoryAsync().ConfigureAwait(false);
 
         var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
         var candidates = BagCleanupItemMatcher.SelectDiscardItems(read.Value, maintenance);
@@ -445,34 +428,27 @@ public sealed class BagCleanupController
                 "Discard target state is missing before drag.").ConfigureAwait(false);
         }
 
-        var inventoryRead = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
-        var currentTarget = inventoryRead.Value?.FirstOrDefault(item =>
+        var inventoryRead = await context.Snapshots.ReadInventoryAsync().ConfigureAwait(false);
+        var currentTarget = inventoryRead.Value.FirstOrDefault(item =>
             !item.IsEquipped && item.InstanceId == lockedTarget.InstanceId);
-        if (!inventoryRead.Success || currentTarget is null)
+        if (currentTarget is null)
         {
             return await FailDiscardLocallyAsync(
                 context,
                 state,
                 "discard_target_changed",
-                inventoryRead.Error ?? "Discard target disappeared before drag.").ConfigureAwait(false);
+                "Discard target disappeared before drag.").ConfigureAwait(false);
         }
+
+        state.SetDiscardInventoryVersion(inventoryRead.Version);
 
         var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
         InventoryWindowSnapshot? coordinateWindow = state.DiscardWindow;
         if (maintenance.BagCleanupItemCoordinateMode == BagCleanupItemCoordinateMode.WindowRectRelativeExperimental)
         {
-            var windowRead = await BagCleanupGameApi
-                .ReadInventoryWindowAsync(context, InventoryWindowRectSource.RootWidgetRectExperimental)
+            var windowRead = await context.Snapshots
+                .ReadInventoryWindowAsync(InventoryWindowRectSource.RootWidgetRectExperimental)
                 .ConfigureAwait(false);
-            if (!windowRead.Success || windowRead.Value is null)
-            {
-                return await FailDiscardLocallyAsync(
-                    context,
-                    state,
-                    "discard_inventory_rect_failed",
-                    windowRead.Error ?? "Discard inventory Rect read failed.").ConfigureAwait(false);
-            }
-
             coordinateWindow = windowRead.Value;
         }
 
@@ -513,15 +489,7 @@ public sealed class BagCleanupController
                 "Discard target state is missing while waiting for confirmation.").ConfigureAwait(false);
         }
 
-        var confirmRead = await BagCleanupGameApi.ReadInventoryDiscardConfirmAsync(context).ConfigureAwait(false);
-        if (!confirmRead.Success || confirmRead.Value is null)
-        {
-            return await FailDiscardLocallyAsync(
-                context,
-                state,
-                "discard_confirm_read_failed",
-                confirmRead.Error ?? "Discard confirmation read failed.").ConfigureAwait(false);
-        }
+        var confirmRead = await context.Snapshots.ReadInventoryDiscardConfirmAsync().ConfigureAwait(false);
 
         var targetId = checked((uint)target.InstanceId);
         var confirm = confirmRead.Value;
@@ -574,38 +542,11 @@ public sealed class BagCleanupController
         }
 
         var targetId = checked((uint)target.InstanceId);
-        var confirmRead = await BagCleanupGameApi.ReadInventoryDiscardConfirmAsync(context).ConfigureAwait(false);
-        InventoryDiscardConfirmSnapshot confirm;
-        if (confirmRead.Success && confirmRead.Value is not null)
+        var confirmRead = await context.Snapshots.ReadInventoryDiscardConfirmAsync().ConfigureAwait(false);
+        var confirm = confirmRead.Value;
+        if (!confirm.IsOpen || confirm.PendingItemInstanceId != targetId)
         {
-            confirm = confirmRead.Value;
-            if (!confirm.IsOpen || confirm.PendingItemInstanceId != targetId)
-            {
-                state.ClearLatchedDiscardConfirm();
-            }
-        }
-        else if (state.LatchedDiscardConfirm is
-                 {
-                     IsOpen: true
-                 } latched && latched.PendingItemInstanceId == targetId)
-        {
-            confirm = latched;
-            context.Logger.Warn("bag_cleanup.discard.confirm_latch_fallback", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["instanceId"] = targetId,
-                ["kind"] = latched.Kind.ToString(),
-                ["dialogId"] = latched.DialogId,
-                ["readError"] = confirmRead.Error
-            });
-        }
-        else
-        {
-            return await FailDiscardLocallyAsync(
-                context,
-                state,
-                "discard_confirm_read_failed",
-                confirmRead.Error ?? "Discard confirmation re-read failed.").ConfigureAwait(false);
+            state.ClearLatchedDiscardConfirm();
         }
 
         if (confirm.PendingItemInstanceId == 0)
@@ -675,18 +616,10 @@ public sealed class BagCleanupController
                 "Discard target state is missing during verification.").ConfigureAwait(false);
         }
 
-        var confirmRead = await BagCleanupGameApi.ReadInventoryDiscardConfirmAsync(context).ConfigureAwait(false);
-        var inventoryRead = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
-        if (!confirmRead.Success || confirmRead.Value is null ||
-            !inventoryRead.Success || inventoryRead.Value is null)
-        {
-            return await FailDiscardLocallyAsync(
-                context,
-                state,
-                "discard_verify_read_failed",
-                confirmRead.Error ?? inventoryRead.Error ?? "Discard verification read failed.")
-                .ConfigureAwait(false);
-        }
+        var confirmRead = await context.Snapshots.ReadInventoryDiscardConfirmAsync().ConfigureAwait(false);
+        var inventoryRead = await context.Snapshots
+            .ReadInventoryAsync(state.DiscardInventoryVersion)
+            .ConfigureAwait(false);
 
         var targetId = checked((uint)target.InstanceId);
         var targetStillPresent = inventoryRead.Value.Any(item => item.InstanceId == target.InstanceId);
@@ -750,20 +683,8 @@ public sealed class BagCleanupController
                 close.Error ?? "Inventory window close failed after discard.").ConfigureAwait(false);
         }
 
-        var inventoryRead = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
+        var inventoryRead = await context.Snapshots.ReadInventoryAsync().ConfigureAwait(false);
         var capacityRead = await ReadInventoryCapacityAsync(context).ConfigureAwait(false);
-        if (!inventoryRead.Success || inventoryRead.Value is null || !capacityRead.Success)
-        {
-            state.Reset();
-            context.Logger.Warn("bag_cleanup.discard.complete_read_failed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["inventoryError"] = inventoryRead.Error,
-                ["capacityError"] = capacityRead.Error
-            });
-            return BagCleanupTickResult.Skipped("discard_complete_read_failed");
-        }
-
         var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
         var discardCandidates = BagCleanupItemMatcher.SelectDiscardItems(inventoryRead.Value, maintenance);
         var sellCandidates = BagCleanupItemMatcher.SelectSellRegistrationItems(inventoryRead.Value, maintenance);
@@ -800,18 +721,9 @@ public sealed class BagCleanupController
         BagCleanupState state)
     {
         var attacker = await _safetyChecker.FindAttackingTargetNameAsync(context).ConfigureAwait(false);
-        if (!attacker.Success)
-        {
-            return await FailDiscardLocallyAsync(
-                context,
-                state,
-                "discard_safety_read_failed",
-                attacker.Error ?? "Discard safety read failed.").ConfigureAwait(false);
-        }
-
-        return string.IsNullOrWhiteSpace(attacker.Value)
+        return string.IsNullOrWhiteSpace(attacker)
             ? null
-            : await AbortDiscardForAttackAsync(context, state, attacker.Value).ConfigureAwait(false);
+            : await AbortDiscardForAttackAsync(context, state, attacker).ConfigureAwait(false);
     }
 
     public Task<BagCleanupTickResult> AbortDiscardForAttackAsync(
@@ -854,16 +766,16 @@ public sealed class BagCleanupController
         var targetId = target is { InstanceId: > 0 and <= uint.MaxValue }
             ? checked((uint)target.InstanceId)
             : 0;
-        var confirmRead = await BagCleanupGameApi.ReadInventoryDiscardConfirmAsync(context).ConfigureAwait(false);
-        var liveConfirmVisible = confirmRead.Success && confirmRead.Value is
+        var confirmRead = await context.Snapshots.ReadInventoryDiscardConfirmAsync().ConfigureAwait(false);
+        var liveConfirmVisible = confirmRead.Value is
         {
             IsOpen: true
         } confirm && targetId != 0 && confirm.PendingItemInstanceId == targetId;
-        if (liveConfirmVisible && confirmRead.Value is not null)
+        if (liveConfirmVisible)
         {
             state.MarkDiscardConfirmSeen(confirmRead.Value);
         }
-        else if (confirmRead.Success)
+        else
         {
             state.ClearLatchedDiscardConfirm();
         }
@@ -916,54 +828,12 @@ public sealed class BagCleanupController
         var deadline = DateTimeOffset.Now + ReadDiscardVerifyTimeout();
         while (DateTimeOffset.Now < deadline)
         {
-            var confirmRead = await BagCleanupGameApi.ReadInventoryDiscardConfirmAsync(context).ConfigureAwait(false);
-            var inventoryRead = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
-            if (!inventoryRead.Success || inventoryRead.Value is null)
-            {
-                return OperationResult.Fail(
-                    inventoryRead.Error ?? "Interrupted discard inventory verification read failed.");
-            }
+            var confirmRead = await context.Snapshots.ReadInventoryDiscardConfirmAsync().ConfigureAwait(false);
+            var inventoryRead = await context.Snapshots
+                .ReadInventoryAsync(state.DiscardInventoryVersion)
+                .ConfigureAwait(false);
 
             var targetStillPresent = inventoryRead.Value.Any(item => item.InstanceId == target.InstanceId);
-            if (!confirmRead.Success || confirmRead.Value is null)
-            {
-                if (targetStillPresent &&
-                    state.DiscardConfirmClickCount < MaxDiscardConfirmClicksPerItem &&
-                    state.LatchedDiscardConfirm is
-                    {
-                        IsOpen: true
-                    } latched && latched.PendingItemInstanceId == targetId)
-                {
-                    context.Logger.Warn("bag_cleanup.discard.confirm_latch_fallback", new Dictionary<string, object?>
-                    {
-                        ["account"] = context.Config.AccountName,
-                        ["instanceId"] = targetId,
-                        ["kind"] = latched.Kind.ToString(),
-                        ["dialogId"] = latched.DialogId,
-                        ["readError"] = confirmRead.Error,
-                        ["interruptionReason"] = "combat_handoff"
-                    });
-                    var latchedClick = await _discarder
-                        .ClickDiscardConfirmAsync(
-                            context,
-                            maintenance.BagCleanupDiscardConfirmClickX,
-                            maintenance.BagCleanupDiscardConfirmClickY,
-                            targetId,
-                            latched.Kind)
-                        .ConfigureAwait(false);
-                    if (!latchedClick.Success)
-                    {
-                        return latchedClick;
-                    }
-
-                    state.MarkDiscardConfirmClicked();
-                }
-
-                await DelayAsync(TimeSpan.FromMilliseconds(ReadDiscardPollDelayMs()), context.StopToken)
-                    .ConfigureAwait(false);
-                continue;
-            }
-
             var confirm = confirmRead.Value;
             if (!confirm.IsOpen || confirm.PendingItemInstanceId != targetId)
             {
@@ -1012,11 +882,12 @@ public sealed class BagCleanupController
                 .ConfigureAwait(false);
         }
 
-        var finalConfirm = await BagCleanupGameApi.ReadInventoryDiscardConfirmAsync(context).ConfigureAwait(false);
-        var finalInventory = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
-        var removed = finalInventory.Success && finalInventory.Value is not null &&
-            finalInventory.Value.All(item => item.InstanceId != target.InstanceId);
-        return removed && finalConfirm.Success && finalConfirm.Value?.PendingItemInstanceId == 0
+        var finalConfirm = await context.Snapshots.ReadInventoryDiscardConfirmAsync().ConfigureAwait(false);
+        var finalInventory = await context.Snapshots
+            .ReadInventoryAsync(state.DiscardInventoryVersion)
+            .ConfigureAwait(false);
+        var removed = finalInventory.Value.All(item => item.InstanceId != target.InstanceId);
+        return removed && finalConfirm.Value.PendingItemInstanceId == 0
             ? OperationResult.Ok()
             : OperationResult.Fail("Interrupted discard could not be completed before combat.");
     }
@@ -1049,7 +920,7 @@ public sealed class BagCleanupController
         BagCleanupState state)
     {
         var safe = await _safetyChecker.CheckSafeToReturnAsync(context).ConfigureAwait(false);
-        if (safe.Success)
+        if (safe)
         {
             state.Advance(BagCleanupStep.PressTownReturn);
             context.Logger.Info("bag_cleanup.safe.ok", new Dictionary<string, object?>
@@ -1064,7 +935,7 @@ public sealed class BagCleanupController
         {
             ["account"] = context.Config.AccountName,
             ["retry"] = state.RetryCount,
-            ["error"] = safe.Error
+            ["reason"] = "nearby_attacker"
         });
 
         if (DateTimeOffset.Now - state.StepStartedAt < ReadSafeWaitTimeout())
@@ -1072,7 +943,7 @@ public sealed class BagCleanupController
             return BagCleanupTickResult.Running("waiting_for_safety");
         }
 
-        return RecoverableFailure(context, state, "safe_wait_timeout", safe.Error ?? "Safe wait timed out.");
+        return RecoverableFailure(context, state, "safe_wait_timeout", "Nearby attacker remained present.");
     }
 
     private async Task<BagCleanupTickResult> TickPressTownReturnAsync(
@@ -1090,14 +961,14 @@ public sealed class BagCleanupController
                 "Bag cleanup town return key is not configured.");
         }
 
-        var before = await BagCleanupGameApi.ReadPlayerAsync(context).ConfigureAwait(false);
-        if (!before.Success || before.Value?.Position is not { } startPosition)
+        var before = await context.Snapshots.ReadPlayerAsync().ConfigureAwait(false);
+        if (before.Value.Position is not { } startPosition)
         {
             return RecoverableFailure(
                 context,
                 state,
                 "town_return_start_position_missing",
-                before.Error ?? "Player position before town return is not available.");
+                "Player position before town return is not available.");
         }
 
         var press = await _input.PressKeyAsync(key, TownReturnHoldDuration, context.StopToken).ConfigureAwait(false);
@@ -1139,8 +1010,8 @@ public sealed class BagCleanupController
                 "Player position before town return was not recorded.");
         }
 
-        var after = await BagCleanupGameApi.ReadPlayerAsync(context).ConfigureAwait(false);
-        if (!after.Success || after.Value?.Position is not { } endPosition)
+        var after = await context.Snapshots.ReadPlayerAsync().ConfigureAwait(false);
+        if (after.Value.Position is not { } endPosition)
         {
             if (DateTimeOffset.Now - state.StepStartedAt < ReadTownReturnTimeout())
             {
@@ -1151,7 +1022,7 @@ public sealed class BagCleanupController
                 context,
                 state,
                 "town_return_end_position_missing",
-                after.Error ?? "Player position after town return is not available.");
+                "Player position after town return is not available.");
         }
 
         var distance = Distance(startPosition, endPosition);
@@ -1193,17 +1064,7 @@ public sealed class BagCleanupController
         BagCleanupState state)
     {
         var attack = await _safetyChecker.FindAttackingTargetNameAsync(context).ConfigureAwait(false);
-        if (!attack.Success)
-        {
-            context.Logger.Warn("bag_cleanup.return.attack_check_failed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["error"] = attack.Error
-            });
-            return null;
-        }
-
-        if (string.IsNullOrWhiteSpace(attack.Value))
+        if (string.IsNullOrWhiteSpace(attack))
         {
             return null;
         }
@@ -1219,7 +1080,7 @@ public sealed class BagCleanupController
         context.Logger.Warn("bag_cleanup.return.interrupted_by_attack", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
-            ["attackerName"] = attack.Value,
+            ["attackerName"] = attack,
             ["firstEscapeSuccess"] = firstEscape.Success,
             ["firstEscapeError"] = firstEscape.Error,
             ["secondEscapeSuccess"] = secondEscape.Success,
@@ -1419,15 +1280,7 @@ public sealed class BagCleanupController
         AccountWorkerContext context,
         BagCleanupState state)
     {
-        var read = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
-        if (!read.Success || read.Value is null)
-        {
-            return ReturnByReversePathAfterFailure(
-                context,
-                state,
-                "inventory_read_before_sell_failed",
-                read.Error ?? "Inventory read failed.");
-        }
+        var read = await context.Snapshots.ReadInventoryAsync().ConfigureAwait(false);
 
         var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
         var candidates = BagCleanupItemMatcher.SelectSellRegistrationItems(read.Value, maintenance);
@@ -1461,18 +1314,9 @@ public sealed class BagCleanupController
         InventoryWindowSnapshot? coordinateWindow = null;
         if (maintenance.BagCleanupItemCoordinateMode == BagCleanupItemCoordinateMode.WindowRectRelativeExperimental)
         {
-            var read = await BagCleanupGameApi
-                .ReadInventoryWindowAsync(context, InventoryWindowRectSource.RootWidgetRectExperimental)
+            var read = await context.Snapshots
+                .ReadInventoryWindowAsync(InventoryWindowRectSource.RootWidgetRectExperimental)
                 .ConfigureAwait(false);
-            if (!read.Success || read.Value is null)
-            {
-                return ReturnByReversePathAfterFailure(
-                    context,
-                    state,
-                    "inventory_window_rect_failed",
-                    read.Error ?? "Experimental inventory Rect read failed.");
-            }
-
             coordinateWindow = read.Value;
         }
 
@@ -1519,15 +1363,7 @@ public sealed class BagCleanupController
     {
         var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
         var point = ResolveBagCleanupSellButtonClickPoint(state.CleanupPath, maintenance);
-        var moneyBefore = await BagCleanupGameApi.ReadInventoryMoneyAsync(context).ConfigureAwait(false);
-        if (!moneyBefore.Success)
-        {
-            return ReturnByReversePathAfterFailure(
-                context,
-                state,
-                "money_read_before_sell_failed",
-                moneyBefore.Error ?? "Inventory money read before sell failed.");
-        }
+        var moneyBefore = await context.Snapshots.ReadInventoryMoneyAsync().ConfigureAwait(false);
 
         state.SetInitialMoney(moneyBefore.Value);
         context.Logger.Info("bag_cleanup.sell.money.before", new Dictionary<string, object?>
@@ -1562,15 +1398,7 @@ public sealed class BagCleanupController
         BagCleanupState state)
     {
         await DelayAsync(TimeSpan.FromMilliseconds(ReadSellVerifyDelayMs()), context.StopToken).ConfigureAwait(false);
-        var moneyAfter = await BagCleanupGameApi.ReadInventoryMoneyAsync(context).ConfigureAwait(false);
-        if (!moneyAfter.Success)
-        {
-            return ReturnByReversePathAfterFailure(
-                context,
-                state,
-                "money_verify_read_failed",
-                moneyAfter.Error ?? "Inventory money verify read failed.");
-        }
+        var moneyAfter = await context.Snapshots.ReadInventoryMoneyAsync().ConfigureAwait(false);
 
         if (state.InitialMoney is not { } initialMoney)
         {
@@ -1581,53 +1409,19 @@ public sealed class BagCleanupController
                 "Money before sell was not recorded.");
         }
 
-        IReadOnlyList<InventoryItemSnapshot>? inventory = null;
-        var inventoryRead = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
-        if (inventoryRead.Success && inventoryRead.Value is not null)
-        {
-            inventory = inventoryRead.Value;
-        }
-        else
-        {
-            context.Logger.Warn("bag_cleanup.verify.inventory_read_failed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["error"] = inventoryRead.Error
-            });
-        }
-
-        int? freeSlots = null;
-        int? occupiedSlots = null;
-        int? totalSlots = null;
-        if (inventory is not null)
-        {
-            var capacity = await ReadInventoryCapacityAsync(context).ConfigureAwait(false);
-            if (capacity.Success)
-            {
-                totalSlots = capacity.Value;
-                occupiedSlots = CountOccupiedSlots(inventory, capacity.Value);
-                freeSlots = CountFreeSlots(inventory, capacity.Value);
-            }
-            else
-            {
-                context.Logger.Warn("bag_cleanup.verify.capacity_read_failed", new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["error"] = capacity.Error
-                });
-            }
-        }
+        var inventoryRead = await context.Snapshots.ReadInventoryAsync().ConfigureAwait(false);
+        IReadOnlyList<InventoryItemSnapshot> inventory = inventoryRead.Value;
+        var capacity = await ReadInventoryCapacityAsync(context).ConfigureAwait(false);
+        int? totalSlots = capacity.Value;
+        int? occupiedSlots = CountOccupiedSlots(inventory, capacity.Value);
+        int? freeSlots = CountFreeSlots(inventory, capacity.Value);
 
         var initialIds = state.SellCandidates.Select(item => item.InstanceId).ToHashSet();
-        var remaining = inventory?.Count(item => initialIds.Contains(item.InstanceId));
-        int? remainingSellCandidateCount = null;
-        if (inventory is not null)
-        {
-            var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
-            remainingSellCandidateCount = BagCleanupItemMatcher
-                .SelectSellRegistrationItems(inventory, maintenance)
-                .Count;
-        }
+        var remaining = inventory.Count(item => initialIds.Contains(item.InstanceId));
+        var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
+        var remainingSellCandidateCount = BagCleanupItemMatcher
+            .SelectSellRegistrationItems(inventory, maintenance)
+            .Count;
 
         if (moneyAfter.Value > initialMoney)
         {
@@ -1671,7 +1465,7 @@ public sealed class BagCleanupController
             ", after=" +
             moneyAfter.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) +
             ", remainingCandidateCount=" +
-            (remaining?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "unknown"));
+            remaining.ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
 
     private static BagCleanupTickResult ReturnByReversePathAfterFailure(
@@ -1755,14 +1549,14 @@ public sealed class BagCleanupController
                 "Town return key is not configured.");
         }
 
-        var before = await BagCleanupGameApi.ReadPlayerAsync(context).ConfigureAwait(false);
-        if (!before.Success || before.Value?.Position is not { } startPosition)
+        var before = await context.Snapshots.ReadPlayerAsync().ConfigureAwait(false);
+        if (before.Value.Position is not { } startPosition)
         {
             return FallbackToReversePathAfterTownReturnFailure(
                 context,
                 state,
                 "return_to_revive_start_position_missing",
-                before.Error ?? "Player position before returning to revive point is not available.");
+                "Player position before returning to revive point is not available.");
         }
 
         var press = await _input.PressKeyAsync(key, TownReturnHoldDuration, context.StopToken).ConfigureAwait(false);
@@ -1801,8 +1595,8 @@ public sealed class BagCleanupController
                 "Player position before returning to revive point was not recorded.");
         }
 
-        var after = await BagCleanupGameApi.ReadPlayerAsync(context).ConfigureAwait(false);
-        if (!after.Success || after.Value?.Position is not { } endPosition)
+        var after = await context.Snapshots.ReadPlayerAsync().ConfigureAwait(false);
+        if (after.Value.Position is not { } endPosition)
         {
             if (DateTimeOffset.Now - state.StepStartedAt < ReadTownReturnTimeout())
             {
@@ -1813,7 +1607,7 @@ public sealed class BagCleanupController
                 context,
                 state,
                 "return_to_revive_end_position_missing",
-                after.Error ?? "Player position after returning to revive point is not available.");
+                "Player position after returning to revive point is not available.");
         }
 
         var distance = Distance(startPosition, endPosition);
@@ -2018,21 +1812,10 @@ public sealed class BagCleanupController
         return BagCleanupTickResult.RecoverableFailure(reason, error);
     }
 
-    private static async Task<OperationResult<int>> ReadInventoryCapacityAsync(
+    private static Task<PublishedGameSnapshot<int>> ReadInventoryCapacityAsync(
         AccountWorkerContext context)
     {
-        var read = await BagCleanupGameApi.ReadInventoryCapacityAsync(context).ConfigureAwait(false);
-        if (!read.Success)
-        {
-            return read;
-        }
-
-        if (read.Value <= 0)
-        {
-            return OperationResult<int>.Fail("Inventory capacity is invalid: " + read.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        }
-
-        return read;
+        return context.Snapshots.ReadInventoryCapacityAsync();
     }
 
     private static double Distance(Vector3Snapshot left, Vector3Snapshot right)

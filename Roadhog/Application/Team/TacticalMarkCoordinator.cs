@@ -49,14 +49,9 @@ public sealed class TacticalMarkCoordinator
         }
 
         state.MarkVerifiedAt(now);
-        var signsResult = await ReadTacticsSignsAsync(context, bypassMemoryCache: true).ConfigureAwait(false);
-        if (!signsResult.Success || signsResult.Value is null)
-        {
-            LogLeaderReadFailure(context, state, target, signsResult.Error);
-            return;
-        }
+        var signs = await ReadTacticsSignsAsync(context).ConfigureAwait(false);
 
-        if (signsResult.Value.Contains(target.ServerObjectId))
+        if (signs.Contains(target.ServerObjectId))
         {
             if (!state.Verified)
             {
@@ -95,15 +90,8 @@ public sealed class TacticalMarkCoordinator
         string selectKey,
         TimeSpan keyHold)
     {
-        var signsResult = await ReadTacticsSignsAsync(context, bypassMemoryCache: true).ConfigureAwait(false);
-        if (!signsResult.Success || signsResult.Value is null)
-        {
-            return TacticalMarkedTargetSelectionResult.NotSelected(
-                TacticalMarkedTargetSelectionStatus.SignReadFailed,
-                signsResult.Error);
-        }
-
-        var activeSignCount = signsResult.Value.ServerObjectIds.Count(serverObjectId => serverObjectId != 0);
+        var signs = await ReadTacticsSignsAsync(context).ConfigureAwait(false);
+        var activeSignCount = signs.ServerObjectIds.Count(serverObjectId => serverObjectId != 0);
         if (activeSignCount == 0)
         {
             return TacticalMarkedTargetSelectionResult.NotSelected(
@@ -123,8 +111,7 @@ public sealed class TacticalMarkCoordinator
         }
 
         await Task.Delay(SelectionInitialConfirmDelay, context.StopToken).ConfigureAwait(false);
-        OperationResult<LockedTargetSnapshot> lastTargetResult =
-            OperationResult<LockedTargetSnapshot>.Fail("target_not_read");
+        LockedTargetSnapshot? lastTarget = null;
         for (var poll = 1; poll <= SelectionConfirmPolls; poll++)
         {
             if (poll > 1)
@@ -132,11 +119,11 @@ public sealed class TacticalMarkCoordinator
                 await Task.Delay(SelectionConfirmRetryDelay, context.StopToken).ConfigureAwait(false);
             }
 
-            lastTargetResult = await ReadLockedTargetAsync(context, bypassMemoryCache: true).ConfigureAwait(false);
-            if (lastTargetResult.Success && IsStrictlyLivingMonster(lastTargetResult.Value))
+            lastTarget = await ReadLockedTargetAsync(context).ConfigureAwait(false);
+            if (IsStrictlyLivingMonster(lastTarget))
             {
                 return TacticalMarkedTargetSelectionResult.Selected(
-                    lastTargetResult,
+                    lastTarget,
                     activeSignCount,
                     poll);
             }
@@ -144,10 +131,10 @@ public sealed class TacticalMarkCoordinator
 
         return new TacticalMarkedTargetSelectionResult(
             TacticalMarkedTargetSelectionStatus.TargetNotLivingMonster,
-            lastTargetResult,
+            lastTarget,
             activeSignCount,
             SelectionConfirmPolls,
-            lastTargetResult.Error);
+            null);
     }
 
     public static bool IsStrictlyLivingMonster(LockedTargetSnapshot? target)
@@ -195,71 +182,11 @@ public sealed class TacticalMarkCoordinator
         });
     }
 
-    private static void LogLeaderReadFailure(
-        AccountWorkerContext context,
-        LeaderTacticalMarkState state,
-        LockedTargetSnapshot target,
-        string? error)
-    {
-        var now = DateTimeOffset.Now;
-        if (now - state.LastWarningAt < TimeSpan.FromSeconds(3))
-        {
-            return;
-        }
+    private static async Task<TacticsSignSnapshot> ReadTacticsSignsAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadCurrentTacticsSignsAsync().ConfigureAwait(false)).Value;
 
-        state.LastWarningAt = now;
-        context.Logger.Warn("team_leader.tactical_mark.read_failed", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["targetServerObjectId"] = target.ServerObjectId,
-            ["targetName"] = target.Name,
-            ["error"] = error
-        });
-    }
-
-    private static Task<OperationResult<TacticsSignSnapshot>> ReadTacticsSignsAsync(
-        AccountWorkerContext context,
-        bool bypassMemoryCache)
-    {
-        if (context.GameApi is IRoadhogScopedTacticsSignGameApi scopedApi)
-        {
-            return scopedApi.ReadTacticsSignsAsync(
-                CreateReadContext(context, bypassMemoryCache),
-                context.StopToken);
-        }
-
-        if (context.GameApi is IRoadhogTacticsSignGameApi api)
-        {
-            return api.ReadTacticsSignsAsync(context.StopToken);
-        }
-
-        return Task.FromResult(OperationResult<TacticsSignSnapshot>.Fail(
-            "Tactics sign API is not available."));
-    }
-
-    private static Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(
-        AccountWorkerContext context,
-        bool bypassMemoryCache)
-    {
-        return context.GameApi is IRoadhogScopedGameApi scopedApi
-            ? scopedApi.ReadLockedTargetAsync(
-                CreateReadContext(context, bypassMemoryCache),
-                context.StopToken)
-            : context.GameApi.ReadLockedTargetAsync(context.StopToken);
-    }
-
-    private static GameApiReadContext CreateReadContext(
-        AccountWorkerContext context,
-        bool bypassMemoryCache)
-    {
-        return new GameApiReadContext(
-            context.Config.AccountName,
-            context.Config.ProcessId,
-            context.Config.TargetProcessName,
-            context.Config.VmmDeviceName,
-            bypassMemoryCache,
-            RequireFresh: bypassMemoryCache);
-    }
+    private static async Task<LockedTargetSnapshot> ReadLockedTargetAsync(AccountWorkerContext context) =>
+        (await context.Snapshots.ReadCurrentLockedTargetAsync().ConfigureAwait(false)).Value;
 }
 
 public sealed class LeaderTacticalMarkState
@@ -321,7 +248,7 @@ public enum TacticalMarkedTargetSelectionStatus
 
 public sealed record TacticalMarkedTargetSelectionResult(
     TacticalMarkedTargetSelectionStatus Status,
-    OperationResult<LockedTargetSnapshot> LockedTargetResult,
+    LockedTargetSnapshot? LockedTarget,
     int ActiveSignCount,
     int PollCount,
     string? Error)
@@ -329,13 +256,13 @@ public sealed record TacticalMarkedTargetSelectionResult(
     public bool Accepted => Status == TacticalMarkedTargetSelectionStatus.Selected;
 
     public static TacticalMarkedTargetSelectionResult Selected(
-        OperationResult<LockedTargetSnapshot> lockedTargetResult,
+        LockedTargetSnapshot lockedTarget,
         int activeSignCount,
         int pollCount)
     {
         return new TacticalMarkedTargetSelectionResult(
             TacticalMarkedTargetSelectionStatus.Selected,
-            lockedTargetResult,
+            lockedTarget,
             activeSignCount,
             pollCount,
             null);
@@ -348,7 +275,7 @@ public sealed record TacticalMarkedTargetSelectionResult(
     {
         return new TacticalMarkedTargetSelectionResult(
             status,
-            OperationResult<LockedTargetSnapshot>.Fail(error ?? status.ToString()),
+            null,
             activeSignCount,
             0,
             error);

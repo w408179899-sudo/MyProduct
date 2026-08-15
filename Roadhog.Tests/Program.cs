@@ -80,6 +80,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("dma snapshot channel serializes read and commit", TestDmaSnapshotChannelSerializesReadAndCommitAsync),
     ("dma world snapshot updates good fields and holds failed fields", TestDmaWorldSnapshotMergesFieldFailuresAsync),
     ("dma world partial snapshot is published and failed read holds it", TestDmaWorldPartialSnapshotIsPublishedAndFailedReadHoldsItAsync),
+    ("dma inventory partial snapshot merges fields and complete traversal prunes", TestDmaInventorySnapshotMergesFieldsAndPrunesAsync),
     ("dma pet snapshot updates good health fields and holds failed fields", TestDmaPetSnapshotMergesHealthFailuresAsync),
     ("dma pet partial snapshot is published and failed read holds it", TestDmaPetPartialSnapshotIsPublishedAndFailedReadHoldsItAsync),
     ("radar canvas projection is north up", RadarTests.CanvasProjectionIsNorthUpAsync),
@@ -125,7 +126,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary gather clears nearby aggressive threat first", TestStationaryGatherClearsNearbyAggressiveThreatFirstAsync),
     ("stationary gather presses within twenty meters", TestStationaryGatherPressesWithinTwentyMetersAsync),
     ("stationary gather unavailable data fails closed", TestStationaryGatherUnavailableDataFailsClosedAsync),
-    ("stationary gather snapshot failure stops active node immediately", TestStationaryGatherSnapshotFailureStopsActiveNodeImmediatelyAsync),
+    ("stationary gather snapshot fault is hidden and active node is retained", TestStationaryGatherSnapshotFailureStopsActiveNodeImmediatelyAsync),
     ("stationary gather ignores transient missing node while waiting", TestStationaryGatherIgnoresTransientMissingNodeWhileWaitingAsync),
     ("stationary gather enforces absolute start wait", TestStationaryGatherEnforcesAbsoluteStartWaitAsync),
     ("stationary gather blocks maintenance until completion", TestStationaryGatherBlocksMaintenanceUntilCompletionAsync),
@@ -261,7 +262,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("runtime player read returns character name", TestRuntimePlayerReadReturnsCharacterNameAsync),
     ("runtime kill efficiency tracks kill intervals", TestRuntimeKillEfficiencyTracksKillIntervalsAsync),
     ("runtime warning records and clears read failures", TestRuntimeWarningRecordsAndClearsReadFailuresAsync),
-    ("stationary combat records player read warning", TestStationaryCombatRecordsPlayerReadWarningAsync),
+    ("stationary combat does not receive player read warning", TestStationaryCombatRecordsPlayerReadWarningAsync),
     ("service options enable logging by default", TestRoadhogServiceOptionsEnableLoggingByDefaultAsync),
     ("file logger rotates when max size is reached", TestFileLoggerRotatesWhenMaxSizeIsReachedAsync),
     ("file logger deletes expired log files", TestFileLoggerDeletesExpiredLogFilesAsync),
@@ -292,12 +293,14 @@ var tests = new (string Name, Func<Task> Run)[]
     ("bag cleanup discard transitions to full cleanup only after exhaustion", TestBagCleanupDiscardTransitionsToFullCleanupAfterExhaustionAsync),
     ("bag cleanup discard aborts before confirm and does not resume", TestBagCleanupDiscardAbortsBeforeConfirmAsync),
     ("bag cleanup discard confirms current item before attack handoff", TestBagCleanupDiscardConfirmsBeforeAttackHandoffAsync),
-    ("bag cleanup discard uses latched confirm after reread failure", TestBagCleanupDiscardUsesLatchedConfirmAfterRereadFailureAsync),
+    ("bag cleanup confirm read fault is hidden until normal snapshot", TestBagCleanupDiscardUsesLatchedConfirmAfterRereadFailureAsync),
     ("bag cleanup discard clears stale confirm latch after successful read", TestBagCleanupDiscardClearsStaleConfirmLatchAfterSuccessfulReadAsync),
     ("bag cleanup discard limits each item to two confirm clicks", TestBagCleanupDiscardLimitsConfirmClicksPerItemAsync),
     ("bag cleanup discard retries inventory close", TestBagCleanupDiscardRetriesInventoryCloseAsync),
     ("bag cleanup discard waits until all attackers are cleared", TestBagCleanupDiscardWaitsUntilAllAttackersAreClearedAsync),
-    ("bag cleanup discard safety read failure stops immediately", TestBagCleanupDiscardSafetyFailureStopsImmediatelyAsync),
+    ("bag cleanup account2 world fault is hidden and cleanup continues", TestBagCleanupDiscardSafetyFailureStopsImmediatelyAsync),
+    ("bag cleanup account3 inventory cycle is hidden and delete verification continues", TestBagCleanupInventoryCycleFailureIsHiddenAsync),
+    ("application business code cannot reference raw read APIs", TestBagCleanupBusinessReadBoundaryAsync),
     ("bag cleanup matcher groups weapon armor and accessory as equipment", TestBagCleanupMatcherGroupsEquipmentTypesAsync),
     ("bag cleanup matcher maps stigma item type", TestBagCleanupMatcherMapsStigmaItemTypeAsync),
     ("bag cleanup matcher excludes name keywords", TestBagCleanupMatcherExcludesNameKeywordsAsync),
@@ -381,7 +384,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("worker runs team output during revive path leader siphon", TestWorkerRunsTeamOutputDuringRevivePathLeaderSiphonAsync),
     ("worker continues loot during revive path leader siphon", TestWorkerContinuesLootDuringRevivePathLeaderSiphonAsync),
     ("manual path retries transient player read failures", TestManualPathRetriesTransientPlayerReadFailuresAsync),
-    ("manual path fails after player read retry timeout", TestManualPathFailsAfterPlayerReadRetryTimeoutAsync),
+    ("manual path waits through persistent player faults until canceled", TestManualPathFailsAfterPlayerReadRetryTimeoutAsync),
     ("path combat worker follows configured combat path", TestPathCombatWorkerFollowsConfiguredCombatPathAsync),
     ("path combat follows revive path before distant combat path", TestPathCombatFollowsRevivePathBeforeDistantCombatPathAsync),
     ("path combat starts combat path after access path completes", TestPathCombatStartsCombatPathAfterAccessPathCompletesAsync),
@@ -431,7 +434,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat defense can select ignored local target", TestStationaryCombatDefenseCanSelectIgnoredLocalTargetAsync),
     ("stationary combat keeps fight when locked target server id matches", TestStationaryCombatKeepsFightWhenLockedServerIdMatchesAsync),
     ("stationary combat keeps current fight target when lock switches", TestStationaryCombatKeepsCurrentFightTargetWhenLockSwitchesAsync),
-    ("stationary combat waits to tab when fresh reacquire player read fails", TestStationaryCombatWaitsToTabWhenFreshReacquirePlayerReadFailsAsync),
+    ("stationary combat retries fresh reacquire player read below business", TestStationaryCombatWaitsToTabWhenFreshReacquirePlayerReadFailsAsync),
     ("stationary combat clears missing current fight target quickly", TestStationaryCombatClearsMissingCurrentFightTargetQuicklyAsync),
     ("stationary combat presses C until locked target targets player", TestStationaryCombatPressesCUntilLockedTargetTargetsPlayerAsync),
     ("stationary combat accepts self targeting locked target after opening attack", TestStationaryCombatAcceptsSelfTargetingLockedTargetAfterOpeningAttackAsync),
@@ -471,8 +474,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat mp sit maintenance runs without defense target", TestStationaryCombatMpSitMaintenanceRunsWithoutDefenseTargetAsync),
     ("stationary combat leader does not sit while multiple monsters attack teammates", TestStationaryCombatLeaderDoesNotSitWhileMultipleMonstersAttackTeammatesAsync),
     ("stationary combat leader sits when the team is out of combat", TestStationaryCombatLeaderSitsWhenTeamIsOutOfCombatAsync),
-    ("stationary combat leader rest guard fails closed on team snapshot failure", TestStationaryCombatLeaderRestGuardFailsClosedOnTeamSnapshotFailureAsync),
-    ("stationary combat leader rest guard fails closed on world snapshot failure", TestStationaryCombatLeaderRestGuardFailsClosedOnWorldSnapshotFailureAsync),
+    ("stationary combat leader rest waits on team snapshot fault", TestStationaryCombatLeaderRestGuardFailsClosedOnTeamSnapshotFailureAsync),
+    ("stationary combat leader rest waits on world snapshot fault", TestStationaryCombatLeaderRestGuardFailsClosedOnWorldSnapshotFailureAsync),
     ("stationary combat mp sit maintenance preempts target and potion", TestStationaryCombatMpSitMaintenancePreemptsTargetAndPotionAsync),
     ("stationary combat skips sit maintenance while fighting", TestStationaryCombatSkipsSitMaintenanceWhileFightingAsync),
     ("skill tree assigns keys by root order and chain children inherit root key", TestSkillTreeKeyMappingAsync),
@@ -2214,23 +2217,20 @@ static async Task TestStationaryGatherSnapshotFailureStopsActiveNodeImmediatelyA
     AssertFalse(!state.Gather.Active, "initial usable snapshot should select the gather node");
     AssertFalse(!keyboard.Keys.Contains("NumPad1"), "initial usable snapshot should press the gather key");
 
-    gameApi.GatherReadFallback = OperationResult<GatherSnapshot>.Fail("fresh gather read failure");
+    gameApi.GatherReadResults.Enqueue(OperationResult<GatherSnapshot>.Fail("fresh gather read failure"));
     state.LastGatherScanAt = DateTimeOffset.MinValue;
     await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
 
-    AssertFalse(state.Gather.Active, "fresh snapshot failure should release the gather node immediately");
+    AssertFalse(!state.Gather.Active, "a lower-layer read fault must not release the active gather node");
     AssertFalse(
-        !state.Gather.IsSuppressed(target.ServerObjectId, DateTimeOffset.Now),
-        "fresh snapshot failure should suppress the concrete gather node");
-    AssertEqual(
-        ordinaryMonster.ServerObjectId,
-        state.CandidateServerObjectId,
-        "fresh snapshot failure may return to ordinary combat");
+        state.Gather.IsSuppressed(target.ServerObjectId, DateTimeOffset.Now),
+        "a lower-layer read fault must not suppress the concrete gather node");
+    AssertEqual(0, gameApi.GatherReadResults.Count, "snapshot reader should consume the transient fault and retry");
     AssertFalse(
-        !logger.Entries.Any(entry =>
+        logger.Entries.Any(entry =>
             entry.EventName == "stationary_gather.node.suppressed" &&
             string.Equals(Convert.ToString(entry.Fields["reason"]), "snapshot_unavailable", StringComparison.Ordinal)),
-        "snapshot failure suppression reason should be logged");
+        "business logic must never observe or log snapshot_unavailable for a read fault");
 }
 
 static async Task TestStationaryGatherIgnoresTransientMissingNodeWhileWaitingAsync()
@@ -7938,10 +7938,10 @@ static async Task TestTeamLeaderProtectionPrioritizesHealerThreatsAsync()
         ClassName = "Gladiator"
     };
     var gameApi = CreateTeamSupportGameApi(self, cleric, gladiator);
-    var snapshot = (await new TeamMonitor(gameApi, new InMemoryRoadhogLogger())
-            .ReadSnapshotAsync(new GameApiReadContext("account", 0, string.Empty, string.Empty))
-            .ConfigureAwait(false))
-        .Value!;
+    var logger = new InMemoryRoadhogLogger();
+    var snapshot = await new TeamMonitor(CreateContext(new ScriptSettings(), gameApi, logger).Snapshots, logger)
+        .ReadSnapshotAsync()
+        .ConfigureAwait(false);
     var threat = TeamLeaderProtectionSelector.SelectThreat(
         snapshot,
         new[]
@@ -7996,10 +7996,10 @@ static async Task TestTeamLeaderProtectionOnlyIncludesSpiritmasterPetsAsync()
             CreatePartyPet(spiritmaster, 8200)
         },
         new[] { chanter.ServerObjectId, spiritmaster.ServerObjectId });
-    var snapshot = (await new TeamMonitor(gameApi, new InMemoryRoadhogLogger())
-            .ReadSnapshotAsync(new GameApiReadContext("account", 0, string.Empty, string.Empty))
-            .ConfigureAwait(false))
-        .Value!;
+    var logger = new InMemoryRoadhogLogger();
+    var snapshot = await new TeamMonitor(CreateContext(new ScriptSettings(), gameApi, logger).Snapshots, logger)
+        .ReadSnapshotAsync()
+        .ConfigureAwait(false);
     var threat = TeamLeaderProtectionSelector.SelectThreat(
         snapshot,
         new[]
@@ -8038,10 +8038,10 @@ static async Task TestTeamLeaderProtectionIgnoresMembersOutsideGroupDistanceAsyn
         ClassName = "Gladiator"
     };
     var gameApi = CreateTeamSupportGameApi(self, farCleric, nearGladiator);
-    var snapshot = (await new TeamMonitor(gameApi, new InMemoryRoadhogLogger())
-            .ReadSnapshotAsync(new GameApiReadContext("account", 0, string.Empty, string.Empty))
-            .ConfigureAwait(false))
-        .Value!;
+    var logger = new InMemoryRoadhogLogger();
+    var snapshot = await new TeamMonitor(CreateContext(new ScriptSettings(), gameApi, logger).Snapshots, logger)
+        .ReadSnapshotAsync()
+        .ConfigureAwait(false);
     var threat = TeamLeaderProtectionSelector.SelectThreat(
         snapshot,
         new[]
@@ -8575,10 +8575,11 @@ static async Task TestStationaryCombatRecordsPlayerReadWarningAsync()
     var logger = new InMemoryRoadhogLogger();
     var runtimeStates = new AccountRuntimeManager(logger);
     runtimeStates.GetOrCreate("account1");
-    var gameApi = new FakeGameApi
-    {
-        PlayerReadFallback = OperationResult<PlayerSnapshot>.Fail("failed to read local entity id at Game.dll+0x1234")
-    };
+    var gameApi = new FakeGameApi();
+    gameApi.PlayerReadResults.Enqueue(
+        OperationResult<PlayerSnapshot>.Fail("failed to read local entity id at Game.dll+0x1234"));
+    gameApi.PlayerReadFallback = OperationResult<PlayerSnapshot>.Ok(
+        gameApi.Player with { Position = new Vector3Snapshot(0, 0, 0) });
     var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
     var context = CreateContext(settings, gameApi, logger, runtimeStates);
 
@@ -8587,19 +8588,12 @@ static async Task TestStationaryCombatRecordsPlayerReadWarningAsync()
         .ConfigureAwait(false);
 
     var warningSnapshot = runtimeStates.Snapshot().Single();
-    AssertEqual("读取不到角色，疑似掉线或未进游戏", warningSnapshot.LastWarning ?? string.Empty, "stationary player warning");
-    AssertFalse(warningSnapshot.LastWarningAt is null, "stationary player warning timestamp");
-
-    gameApi.PlayerReadFallback = OperationResult<PlayerSnapshot>.Ok(
-        gameApi.Player with { Position = new Vector3Snapshot(0, 0, 0) });
-
-    await controller
-        .TickAsync(context, SemiAutoSkillPlan.FromSettings(settings.Skills), new SemiAutoCombatState(), new StationaryCombatState())
-        .ConfigureAwait(false);
-
-    var clearedSnapshot = runtimeStates.Snapshot().Single();
-    AssertEqual(string.Empty, clearedSnapshot.LastWarning ?? string.Empty, "stationary player warning should clear");
-    AssertFalse(clearedSnapshot.LastWarningAt is not null, "stationary player warning timestamp should clear");
+    AssertEqual(string.Empty, warningSnapshot.LastWarning ?? string.Empty, "business runtime must not receive player read warnings");
+    AssertFalse(warningSnapshot.LastWarningAt is not null, "business runtime warning timestamp must stay clear");
+    AssertEqual(0, gameApi.PlayerReadResults.Count, "snapshot reader should consume the transient player fault and retry");
+    AssertFalse(
+        !logger.Entries.Any(entry => entry.EventName == "snapshot.read.retry"),
+        "the lower snapshot layer should own the transient read diagnostic");
 }
 
 static Task TestFileLoggerRotatesWhenMaxSizeIsReachedAsync()
@@ -11078,14 +11072,17 @@ static async Task TestBagCleanupDiscardUsesLatchedConfirmAfterRereadFailureAsync
 
     var result = await controller.TickAfterLootAsync(CreateContext(settings, gameApi, logger), state).ConfigureAwait(false);
 
-    AssertEqual(BagCleanupTickStatus.Running, result.Status, "latched confirm fallback should keep discard running");
-    AssertEqual("discard_confirm_clicked", result.Reason, "latched normal confirm should use the normal completion path");
-    AssertFalse(gameApi.InventoryItems.Any(item => item.InstanceId == target.InstanceId), "latched exact confirm should discard the same item");
-    AssertFalse(!keyboard.MouseCommands.Contains("move:650,470"), "latched confirm should use the configured customer coordinate");
-    AssertEqual(1, state.DiscardConfirmClickCount, "latched confirm should count as exactly one click");
+    AssertEqual(BagCleanupTickStatus.Running, result.Status, "hidden confirm fault should keep discard running");
+    AssertEqual("discard_confirm_clicked", result.Reason, "next normal confirm snapshot should use the normal completion path");
+    AssertFalse(gameApi.InventoryItems.Any(item => item.InstanceId == target.InstanceId), "normal confirm snapshot should discard the same item");
+    AssertFalse(!keyboard.MouseCommands.Contains("move:650,470"), "normal confirm snapshot should use the configured customer coordinate");
+    AssertEqual(1, state.DiscardConfirmClickCount, "normal confirm should count as exactly one click");
     AssertFalse(
-        !logger.Entries.Any(entry => entry.EventName == "bag_cleanup.discard.confirm_latch_fallback"),
-        "transient reread fallback should be logged");
+        !logger.Entries.Any(entry => entry.EventName == "snapshot.read.retry"),
+        "transient confirm fault should be contained and logged below bag cleanup");
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName == "bag_cleanup.discard.confirm_latch_fallback"),
+        "bag cleanup must not use a business-layer read fallback");
 }
 
 static async Task TestBagCleanupDiscardClearsStaleConfirmLatchAfterSuccessfulReadAsync()
@@ -11261,7 +11258,7 @@ static async Task TestBagCleanupDiscardSafetyFailureStopsImmediatelyAsync()
         new InventoryItemSnapshot(167000450, 52, "green-manastone", 1, 0, false, 24, 2));
     gameApi.InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0);
     gameApi.WorldObjectReadResults.Enqueue(
-        OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail("fresh local entity position read failure"));
+        OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail("world_target_self_reference"));
 
     keyboard.AfterPress = key =>
     {
@@ -11281,13 +11278,136 @@ static async Task TestBagCleanupDiscardSafetyFailureStopsImmediatelyAsync()
     var context = CreateContext(settings, gameApi, logger);
 
     var result = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
-    AssertEqual(BagCleanupTickStatus.Skipped, result.Status, "fresh safety read failure should stop discard immediately");
-    AssertEqual("discard_safety_read_failed", result.Reason, "fresh safety read failure reason");
-    AssertFalse(state.Active, "fresh safety read failure should reset discard state");
-    AssertFalse(gameApi.InventoryWindow.IsOpen, "fresh safety read failure should close inventory");
+    AssertEqual(BagCleanupTickStatus.Running, result.Status, "account2 world fault should be hidden until a normal snapshot");
+    AssertEqual("discard_target_selected", result.Reason, "next normal world snapshot should continue the same cleanup");
+    AssertEqual(BagCleanupStep.DragDiscardItem, state.Step, "world read fault must not reset discard state");
+    AssertFalse(!gameApi.InventoryWindow.IsOpen, "waiting for a world snapshot must not close inventory");
+    AssertFalse(gameApi.WorldObjectReadCount < 2, "snapshot layer should retry the failed world read");
     AssertFalse(
-        !logger.Entries.Any(entry => entry.EventName == "bag_cleanup.discard.failed"),
-        "fresh safety read failure should use the existing failure cleanup log");
+        logger.Entries.Any(entry => entry.EventName == "bag_cleanup.discard.failed"),
+        "business cleanup must never receive the world read fault");
+}
+
+static async Task TestBagCleanupInventoryCycleFailureIsHiddenAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var keyboard = new RecordingKeyboardInput();
+    var settings = CreateDiscardScriptSettings(BagCleanupRuleCatalog.GreenManastone, threshold: 2);
+    var target = new InventoryItemSnapshot(167000450, 53, "green-manastone", 1, 0, false, 24, 2);
+    var gameApi = CreateSafeDiscardGameApi(capacity: 3, target);
+    var context = CreateContext(settings, gameApi, logger);
+    var baseline = await context.Snapshots.ReadInventoryAsync().ConfigureAwait(false);
+
+    var state = new BagCleanupState();
+    state.StartDiscard(1, 2, 1);
+    state.SetDiscardTarget(target);
+    state.SetDiscardInventoryVersion(baseline.Version);
+    state.Advance(BagCleanupStep.VerifyDiscardItem);
+    gameApi.InventoryReadResults.Enqueue(
+        OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Fail("inventory item tree cycle detected"));
+    gameApi.InventoryItems = Array.Empty<InventoryItemSnapshot>();
+    gameApi.InventoryDiscardConfirm = InventoryDiscardConfirmSnapshot.Closed(DateTimeOffset.Now);
+    var controller = new BagCleanupController(
+        keyboard,
+        new InMemorySharedPathStore(),
+        (_, _, _) => Task.FromResult(OperationResult.Ok()));
+
+    var result = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
+
+    AssertEqual(BagCleanupTickStatus.Running, result.Status, "account3 inventory cycle should be hidden below cleanup");
+    AssertEqual("discard_verified", result.Reason, "next higher inventory snapshot should verify deletion");
+    AssertEqual(BagCleanupStep.ReadDiscardCandidates, state.Step, "cleanup should continue with the remaining queue");
+    AssertEqual(1, state.DiscardedItemCount, "verified deletion should remain counted");
+    AssertFalse(gameApi.InventoryReadCount < 3, "inventory snapshot reader should retry after the injected cycle");
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName == "bag_cleanup.discard.failed"),
+        "business cleanup must never receive the inventory tree fault");
+}
+
+static Task TestBagCleanupBusinessReadBoundaryAsync()
+{
+    var directory = new DirectoryInfo(AppContext.BaseDirectory);
+    while (directory is not null &&
+           !Directory.Exists(Path.Combine(directory.FullName, "Roadhog", "Application", "BagCleanup")))
+    {
+        directory = directory.Parent;
+    }
+
+    AssertFalse(directory is null, "repository root should be discoverable for architecture check");
+    var bagDirectory = Path.Combine(directory!.FullName, "Roadhog", "Application", "BagCleanup");
+    AssertFalse(
+        File.Exists(Path.Combine(bagDirectory, "BagCleanupGameApi.cs")),
+        "the direct bag-cleanup read entry must remain deleted");
+
+    var forbidden = new[]
+    {
+        "GameApiReadContext",
+        "IRoadhogGameApi",
+        "IRoadhogScopedGameApi",
+        "BypassMemoryCache",
+        "RequireFresh",
+        ".GameApi"
+    };
+    foreach (var file in Directory.GetFiles(bagDirectory, "*.cs", SearchOption.TopDirectoryOnly))
+    {
+        var source = File.ReadAllText(file);
+        foreach (var token in forbidden)
+        {
+            AssertFalse(
+                source.Contains(token, StringComparison.OrdinalIgnoreCase),
+                Path.GetFileName(file) + " must not reference raw read token " + token);
+        }
+    }
+
+    var controllerSource = File.ReadAllText(Path.Combine(bagDirectory, "BagCleanupController.cs"));
+    AssertFalse(
+        controllerSource.Contains("OperationResult<", StringComparison.Ordinal),
+        "BagCleanupController must not receive typed data-read OperationResult values");
+
+    var applicationDirectory = Path.Combine(directory.FullName, "Roadhog", "Application");
+    var compositionBoundaries = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "RoadhogRuntime.cs",
+        "AccountOrchestrator.cs",
+        "AccountWorkerContext.cs",
+        "AccountWorkerHost.cs"
+    };
+    foreach (var file in Directory.GetFiles(applicationDirectory, "*.cs", SearchOption.AllDirectories))
+    {
+        if (compositionBoundaries.Contains(Path.GetFileName(file)))
+        {
+            continue;
+        }
+
+        var source = File.ReadAllText(file);
+        foreach (var token in forbidden)
+        {
+            AssertFalse(
+                source.Contains(token, StringComparison.OrdinalIgnoreCase),
+                Path.GetRelativePath(applicationDirectory, file) + " must not reference raw read token " + token);
+        }
+    }
+
+    var workerContextSource = File.ReadAllText(
+        Path.Combine(applicationDirectory, "Workers", "AccountWorkerContext.cs"));
+    AssertFalse(
+        workerContextSource.Contains("public IRoadhogGameApi", StringComparison.Ordinal),
+        "AccountWorkerContext must not expose the raw game API to business consumers");
+
+    var runtimeSource = File.ReadAllText(Path.Combine(applicationDirectory, "RoadhogRuntime.cs"));
+    foreach (var rawRead in new[] { "_gameApi.Read", "scopedApi.Read", "inventoryApi.Read" })
+    {
+        AssertFalse(
+            runtimeSource.Contains(rawRead, StringComparison.Ordinal),
+            "RoadhogRuntime data reads must use IRoadhogSnapshotReader: " + rawRead);
+    }
+
+    var formSource = File.ReadAllText(Path.Combine(directory.FullName, "Roadhog", "Form1.cs"));
+    AssertFalse(
+        formSource.Contains("_services.GameApi", StringComparison.Ordinal) ||
+        formSource.Contains("GameApiReadContext", StringComparison.Ordinal),
+        "UI data reads must go through RoadhogRuntime snapshot-backed methods");
+    return Task.CompletedTask;
 }
 
 static ScriptSettings CreateDiscardScriptSettings(string discardRuleKey, int threshold)
@@ -16963,11 +17083,11 @@ static async Task TestManualPathRetriesTransientPlayerReadFailuresAsync()
         AssertFalse(!keyboard.KeyDowns.Contains("W"), "path should begin moving before the transient read failure");
         AssertFalse(!keyboard.KeyUps.Contains("W"), "transient read failure should release W");
         AssertFalse(
-            logger.Entries.Count(entry => entry.EventName == "manual_path.player_read.retry") <= 0,
-            "player read retry should be logged");
+            !logger.Entries.Any(entry => entry.EventName == "snapshot.read.retry"),
+            "the lower snapshot layer should log player read retries");
         AssertFalse(
-            !logger.Entries.Any(entry => entry.EventName == "manual_path.player_read.recovered"),
-            "player read recovery should be logged");
+            logger.Entries.Any(entry => entry.EventName == "manual_path.player_read.retry"),
+            "business path logic must not receive player read retries");
     }
     finally
     {
@@ -16978,42 +17098,37 @@ static async Task TestManualPathRetriesTransientPlayerReadFailuresAsync()
 
 static async Task TestManualPathFailsAfterPlayerReadRetryTimeoutAsync()
 {
-    var previousTimeout = Environment.GetEnvironmentVariable("ROADHOG_MANUAL_PATH_PLAYER_READ_RETRY_TIMEOUT_MS");
-    var previousInterval = Environment.GetEnvironmentVariable("ROADHOG_MANUAL_PATH_PLAYER_READ_RETRY_INTERVAL_MS");
-    Environment.SetEnvironmentVariable("ROADHOG_MANUAL_PATH_PLAYER_READ_RETRY_TIMEOUT_MS", "0");
-    Environment.SetEnvironmentVariable("ROADHOG_MANUAL_PATH_PLAYER_READ_RETRY_INTERVAL_MS", "0");
-    try
-    {
-        var settings = CreateScriptSettings();
-        var keyboard = new RecordingKeyboardInput();
-        var logger = new InMemoryRoadhogLogger();
-        var gameApi = new FakeGameApi();
-        var atStart = gameApi.Player with { Position = new Vector3Snapshot(0, 0, 0) };
-        gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Ok(atStart));
-        gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Ok(atStart));
-        gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Ok(atStart));
-        gameApi.PlayerReadFallback = OperationResult<PlayerSnapshot>.Fail("persistent player read failure");
-        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    var settings = CreateScriptSettings();
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi();
+    var atStart = gameApi.Player with { Position = new Vector3Snapshot(0, 0, 0) };
+    gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Ok(atStart));
+    gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Ok(atStart));
+    gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Ok(atStart));
+    gameApi.PlayerReadFallback = OperationResult<PlayerSnapshot>.Fail("persistent player read failure");
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    using var stop = new CancellationTokenSource(TimeSpan.FromMilliseconds(150));
+    OperationResult? result = null;
 
-        var result = await controller
-            .ExecutePathOnceAsync(
-                CreateContext(settings, gameApi, logger),
-                "cleanup-path",
-                new[] { new Vector3Snapshot(0, 0, 0), new Vector3Snapshot(10, 0, 0) })
-            .ConfigureAwait(false);
+    result = await controller
+        .ExecutePathOnceAsync(
+            CreateContext(settings, gameApi, logger, stopToken: stop.Token),
+            "cleanup-path",
+            new[] { new Vector3Snapshot(0, 0, 0), new Vector3Snapshot(10, 0, 0) })
+        .ConfigureAwait(false);
 
-        AssertFalse(result.Success, "player read should fail after the configured retry timeout");
-        AssertFalse(
-            !(result.Error ?? string.Empty).Contains("failed continuously", StringComparison.OrdinalIgnoreCase),
-            "timeout failure should describe the continuous player read failure");
-        AssertFalse(!keyboard.KeyUps.Contains("W"), "timed-out player read should release W");
-        AssertEqual(1, logger.Entries.Count(entry => entry.EventName == "manual_path.player_read.retry"), "timeout retry log count");
-    }
-    finally
-    {
-        Environment.SetEnvironmentVariable("ROADHOG_MANUAL_PATH_PLAYER_READ_RETRY_TIMEOUT_MS", previousTimeout);
-        Environment.SetEnvironmentVariable("ROADHOG_MANUAL_PATH_PLAYER_READ_RETRY_INTERVAL_MS", previousInterval);
-    }
+    AssertFalse(result.Success, "persistent read faults should keep waiting until worker cancellation");
+    AssertFalse(
+        !(result.Error ?? string.Empty).Contains("canceled", StringComparison.OrdinalIgnoreCase),
+        "manual path should end only because the worker was canceled");
+    AssertFalse(keyboard.KeyDowns.Contains("W"), "movement must not start before the next normal player snapshot");
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName == "manual_path.player_read.retry"),
+        "business path logic must not receive player read retry events");
+    AssertFalse(
+        !logger.Entries.Any(entry => entry.EventName == "snapshot.read.retry"),
+        "the lower snapshot layer should own persistent player read retries");
 }
 
 static async Task TestPathCombatWorkerFollowsConfiguredCombatPathAsync()
@@ -20970,19 +21085,22 @@ static async Task TestStationaryCombatWaitsToTabWhenFreshReacquirePlayerReadFail
             .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
             .ConfigureAwait(false);
 
-        AssertFalse(!state.Fighting, "failed fresh player read should preserve fight state");
-        AssertEqual((ushort)100, state.CurrentTargetEntityId, "failed fresh player read should preserve current target");
-        AssertEqual(2, gameApi.PlayerReadCount, "fight reacquire should attempt one fresh player read");
+        AssertFalse(!state.Fighting, "transient fresh player fault should preserve fight state");
+        AssertEqual((ushort)100, state.CurrentTargetEntityId, "transient fresh player fault should preserve current target");
+        AssertEqual(3, gameApi.PlayerReadCount, "snapshot layer should retry the transient fresh player read");
         AssertFalse(
             gameApi.LastPlayerContext?.BypassMemoryCache != true,
-            "failed fight reacquire player refresh should bypass the memory cache");
-        AssertFalse(keyboard.Keys.Contains("Tab"), "failed fresh player read must block tab");
-        AssertEqual(DateTimeOffset.MinValue, state.LastTabAt, "blocked tab should not update last tab time");
+            "fight reacquire player refresh should retain current-read semantics");
+        AssertFalse(!keyboard.Keys.Contains("Tab"), "next normal player snapshot should allow the original tab flow");
+        AssertFalse(state.LastTabAt == DateTimeOffset.MinValue, "successful tab should update last tab time");
         AssertFalse(
-            !logger.Entries.Any(entry =>
+            logger.Entries.Any(entry =>
                 entry.EventName == "stationary_combat.target.reacquire_face_wait" &&
                 Equals(Convert.ToString(entry.Fields["reason"]), "player_read_failed")),
-            "failed fresh player read should log reacquire face wait");
+            "business reacquire logic must not receive player_read_failed");
+        AssertFalse(
+            !logger.Entries.Any(entry => entry.EventName == "snapshot.read.retry"),
+            "the lower snapshot layer should own the transient current-read fault");
     }
     finally
     {
@@ -24157,21 +24275,34 @@ static async Task TestStationaryCombatLeaderRestGuardFailsClosedOnTeamSnapshotFa
     var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
     var semiAutoState = new SemiAutoCombatState();
     CalibrateCooldownClock(semiAutoState);
+    using var stop = new CancellationTokenSource(TimeSpan.FromMilliseconds(150));
+    var canceled = false;
 
-    await controller
-        .TickAsync(
-            CreateContext(settings, gameApi, logger),
-            SemiAutoSkillPlan.FromSettings(settings.Skills),
-            semiAutoState,
-            new StationaryCombatState())
-        .ConfigureAwait(false);
+    try
+    {
+        await controller
+            .TickAsync(
+                CreateContext(settings, gameApi, logger, stopToken: stop.Token),
+                SemiAutoSkillPlan.FromSettings(settings.Skills),
+                semiAutoState,
+                new StationaryCombatState())
+            .ConfigureAwait(false);
+    }
+    catch (OperationCanceledException) when (stop.IsCancellationRequested)
+    {
+        canceled = true;
+    }
 
-    AssertFalse(keyboard.Keys.Contains("OemComma"), "unknown team combat state must fail closed and block sitting");
-    AssertFalse(semiAutoState.IsMaintenanceResting, "team snapshot failure must keep maintenance rest inactive");
+    AssertFalse(!canceled, "missing normal team snapshot should keep the business tick waiting until cancellation");
+    AssertFalse(keyboard.Keys.Contains("OemComma"), "waiting for a normal team snapshot must block sitting");
+    AssertFalse(semiAutoState.IsMaintenanceResting, "waiting for a team snapshot must keep maintenance rest inactive");
     AssertFalse(!logger.Entries.Any(entry =>
+        entry.EventName == "snapshot.read.retry"),
+        "the lower snapshot layer should own the team read fault");
+    AssertFalse(logger.Entries.Any(entry =>
         entry.EventName == "stationary_combat.team_leader.maintenance_rest_blocked" &&
         string.Equals(Convert.ToString(entry.Fields["reason"]), "team_snapshot_failed", StringComparison.Ordinal)),
-        "team snapshot failure should log the fail-closed reason");
+        "business logic must not receive team_snapshot_failed");
 }
 
 static async Task TestStationaryCombatLeaderRestGuardFailsClosedOnWorldSnapshotFailureAsync()
@@ -24188,21 +24319,34 @@ static async Task TestStationaryCombatLeaderRestGuardFailsClosedOnWorldSnapshotF
     var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
     var semiAutoState = new SemiAutoCombatState();
     CalibrateCooldownClock(semiAutoState);
+    using var stop = new CancellationTokenSource(TimeSpan.FromMilliseconds(150));
+    var canceled = false;
 
-    await controller
-        .TickAsync(
-            CreateContext(settings, gameApi, logger),
-            SemiAutoSkillPlan.FromSettings(settings.Skills),
-            semiAutoState,
-            new StationaryCombatState())
-        .ConfigureAwait(false);
+    try
+    {
+        await controller
+            .TickAsync(
+                CreateContext(settings, gameApi, logger, stopToken: stop.Token),
+                SemiAutoSkillPlan.FromSettings(settings.Skills),
+                semiAutoState,
+                new StationaryCombatState())
+            .ConfigureAwait(false);
+    }
+    catch (OperationCanceledException) when (stop.IsCancellationRequested)
+    {
+        canceled = true;
+    }
 
-    AssertFalse(keyboard.Keys.Contains("OemComma"), "unknown world combat state must fail closed and block sitting");
-    AssertFalse(semiAutoState.IsMaintenanceResting, "world snapshot failure must keep maintenance rest inactive");
+    AssertFalse(!canceled, "missing normal world snapshot should keep the business tick waiting until cancellation");
+    AssertFalse(keyboard.Keys.Contains("OemComma"), "waiting for a normal world snapshot must block sitting");
+    AssertFalse(semiAutoState.IsMaintenanceResting, "waiting for a world snapshot must keep maintenance rest inactive");
     AssertFalse(!logger.Entries.Any(entry =>
+        entry.EventName == "snapshot.read.retry"),
+        "the lower snapshot layer should own the world read fault");
+    AssertFalse(logger.Entries.Any(entry =>
         entry.EventName == "stationary_combat.team_leader.maintenance_rest_blocked" &&
         string.Equals(Convert.ToString(entry.Fields["reason"]), "world_objects_failed", StringComparison.Ordinal)),
-        "world snapshot failure should log the fail-closed reason");
+        "business logic must not receive world_objects_failed");
 }
 
 static ScriptSettings CreateLeaderSitGuardSettings()
@@ -30675,6 +30819,10 @@ static Task TestDmaSnapshotCatalogRegistersEveryBusinessChannelAsync()
         "inventory window rect sources must use explicit channel partitions");
     AssertEqual(
         DmaSnapshotMergePolicy.FieldAware,
+        AionVmmSnapshotChannels.All.Single(channel => channel.Name == "inventory").MergePolicy,
+        "inventory items must declare field-aware merge");
+    AssertEqual(
+        DmaSnapshotMergePolicy.FieldAware,
         AionVmmSnapshotChannels.All.Single(channel => channel.Name == "world_objects").MergePolicy,
         "world objects must declare field-aware merge");
     AssertEqual(
@@ -31053,6 +31201,84 @@ static Task TestDmaWorldPartialSnapshotIsPublishedAndFailedReadHoldsItAsync()
     var afterInvalidation = api.StabilizeWorldObjectRead(context, failed, startedAt.AddHours(4));
     AssertFalse(invalidated.Success, "process lifecycle failure should fail and invalidate the stable snapshot");
     AssertFalse(afterInvalidation.Success, "no snapshot should survive process lifecycle invalidation");
+    return Task.CompletedTask;
+}
+
+static Task TestDmaInventorySnapshotMergesFieldsAndPrunesAsync()
+{
+    var api = new AionVmmGameApi(new AionVmmGameApiOptions(), NoOpRoadhogLogger.Instance);
+    var context = CreateDmaSnapshotContext();
+    var startedAt = new DateTimeOffset(2026, 8, 15, 3, 0, 0, TimeSpan.Zero);
+    var first = new InventoryItemSnapshot(100, 1, "old-name", 7, 4, false, 24, 2, 90);
+    var temporarilyMissing = new InventoryItemSnapshot(200, 2, "retained", 1, 5, false, 1, 4, 10);
+    var completeFields = new InventoryItemFieldValidity(true, true, true, true, true, true, true, true);
+    var initial = api.StabilizeInventoryRead(
+        context,
+        new InventoryReadResult(
+            InventoryReadCompleteness.Complete,
+            new[]
+            {
+                new InventoryItemObservation(first, completeFields),
+                new InventoryItemObservation(temporarilyMissing, completeFields)
+            },
+            string.Empty),
+        startedAt);
+    AssertFalse(!initial.Success, "complete inventory snapshot should publish");
+
+    var observedFirst = first with
+    {
+        TemplateId = 101,
+        Name = "new-name",
+        Count = 0,
+        Slot = -1,
+        QualityRank = 3
+    };
+    var added = new InventoryItemSnapshot(300, 3, "new-item", 2, 6, false, 24, 2, 20);
+    var partial = api.StabilizeInventoryRead(
+        context,
+        new InventoryReadResult(
+            InventoryReadCompleteness.Partial,
+            new[]
+            {
+                new InventoryItemObservation(
+                    observedFirst,
+                    new InventoryItemFieldValidity(true, false, true, false, true, true, true, true)),
+                new InventoryItemObservation(added, completeFields)
+            },
+            "inventory item tree cycle detected"),
+        startedAt.AddMilliseconds(20));
+    AssertFalse(!partial.Success, "partial inventory read should merge into the current snapshot");
+    var mergedFirst = partial.Value!.Single(item => item.InstanceId == first.InstanceId);
+    AssertEqual(3, partial.Value!.Count, "partial traversal must retain unobserved items");
+    AssertEqual(101u, mergedFirst.TemplateId, "successful template id should update");
+    AssertEqual("new-name", mergedFirst.Name, "successful item name should update");
+    AssertEqual(7u, mergedFirst.Count, "failed count should retain last good value");
+    AssertEqual(4, mergedFirst.Slot, "failed slot should retain last good value");
+
+    var failed = api.StabilizeInventoryRead(
+        context,
+        new InventoryReadResult(
+            InventoryReadCompleteness.Failed,
+            Array.Empty<InventoryItemObservation>(),
+            "transient inventory root read failure"),
+        startedAt.AddSeconds(1));
+    AssertFalse(!failed.Success || failed.Value!.Count != 3, "failed inventory read should hold the merged snapshot");
+
+    var complete = api.StabilizeInventoryRead(
+        context,
+        new InventoryReadResult(
+            InventoryReadCompleteness.Complete,
+            new[]
+            {
+                new InventoryItemObservation(mergedFirst, completeFields),
+                new InventoryItemObservation(added, completeFields)
+            },
+            string.Empty),
+        startedAt.AddSeconds(2));
+    AssertFalse(!complete.Success, "next complete inventory snapshot should publish");
+    AssertFalse(
+        complete.Value!.Any(item => item.InstanceId == temporarilyMissing.InstanceId),
+        "only a complete traversal may prune an absent inventory item");
     return Task.CompletedTask;
 }
 
@@ -31776,6 +32002,10 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
 
     public IReadOnlyList<InventoryItemSnapshot> InventoryItems { get; set; } = Array.Empty<InventoryItemSnapshot>();
 
+    public Queue<OperationResult<IReadOnlyList<InventoryItemSnapshot>>> InventoryReadResults { get; } = new();
+
+    public int InventoryReadCount { get; private set; }
+
     public ulong InventoryMoney { get; set; }
 
     public int InventoryCapacity { get; set; }
@@ -32153,7 +32383,10 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
 
     public Task<OperationResult<IReadOnlyList<InventoryItemSnapshot>>> ReadInventoryAsync(CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Ok(InventoryItems));
+        InventoryReadCount++;
+        return Task.FromResult(InventoryReadResults.Count > 0
+            ? InventoryReadResults.Dequeue()
+            : OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Ok(InventoryItems));
     }
 
     public Task<OperationResult<IReadOnlyList<InventoryItemSnapshot>>> ReadInventoryAsync(

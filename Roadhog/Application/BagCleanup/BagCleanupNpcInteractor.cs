@@ -40,22 +40,21 @@ public sealed class BagCleanupNpcInteractor
             var selectDelayMs = ReadNpcSelectDelayMs();
             var selectDelay = TimeSpan.FromMilliseconds(selectDelayMs);
             await DelayAsync(selectDelay, context.StopToken).ConfigureAwait(false);
-            var locked = await BagCleanupGameApi.ReadLockedTargetAsync(context).ConfigureAwait(false);
-            var lockedName = locked.Success ? locked.Value?.Name ?? string.Empty : string.Empty;
+            var locked = await context.Snapshots.ReadLockedTargetAsync().ConfigureAwait(false);
+            var lockedName = locked.Value.Name ?? string.Empty;
             context.Logger.Info("bag_cleanup.npc.select.try", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
                 ["attempt"] = attempt,
                 ["npcName"] = npcName,
                 ["lockedName"] = lockedName,
-                ["lockedEntityId"] = locked.Value?.TargetEntityId ?? 0,
-                ["lockedServerObjectId"] = locked.Value?.ServerObjectId ?? 0,
+                ["lockedEntityId"] = locked.Value.TargetEntityId,
+                ["lockedServerObjectId"] = locked.Value.ServerObjectId,
                 ["selectDelayMs"] = selectDelayMs
             });
 
-            if (locked.Success &&
-                locked.Value is { HasTarget: true } target &&
-                string.Equals(target.Name.Trim(), npcName.Trim(), StringComparison.OrdinalIgnoreCase))
+            if (locked.Value is { HasTarget: true } target &&
+                string.Equals(target.Name?.Trim(), npcName.Trim(), StringComparison.OrdinalIgnoreCase))
             {
                 context.Logger.Info("bag_cleanup.npc.select.ok", new Dictionary<string, object?>
                 {
