@@ -379,6 +379,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat death recovery clicks revive and recovers before path", TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBeforePathAsync),
     ("stationary combat death recovery sits before mp maintenance rule", TestStationaryCombatDeathRecoverySitsBeforeMpMaintenanceRuleAsync),
     ("stationary combat death recovery summons spiritmaster pet before maintenance and revive path", TestStationaryCombatDeathRecoverySummonsSpiritmasterPetBeforeMaintenanceAndRevivePathAsync),
+    ("stationary combat death recovery maintenance defends before rest reenter", TestStationaryCombatDeathRecoveryMaintenanceDefendsBeforeRestReenterAsync),
+    ("stationary combat death recovery path defends before spiritmaster summon", TestStationaryCombatDeathRecoveryPathDefendsBeforeSpiritmasterSummonAsync),
     ("stationary combat death recovery path defends when targeted", TestStationaryCombatDeathRecoveryPathDefendsWhenTargetedAsync),
     ("stationary combat death recovery path clears nearby aggressive monsters", TestStationaryCombatDeathRecoveryPathClearsNearbyAggressiveMonstersAsync),
     ("stationary combat death recovery path postpones rest for nearby aggressive after loot", TestStationaryCombatDeathRecoveryPathPostponesRestForNearbyAggressiveAfterLootAsync),
@@ -15727,6 +15729,216 @@ static async Task TestStationaryCombatDeathRecoverySummonsSpiritmasterPetBeforeM
     AssertFalse(
         !logger.Entries.Any(entry => entry.EventName == "semi_auto.spiritmaster.summon_verified"),
         "revive path should log spiritmaster pet summon verification");
+}
+
+static async Task TestStationaryCombatDeathRecoveryMaintenanceDefendsBeforeRestReenterAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Maintenance.SitMaintenanceEnabled = true;
+    settings.Maintenance.SitHpRecoverToPercent = 85;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 20
+    };
+
+    const ushort targetEntityId = 200;
+    const uint targetServerObjectId = 2000;
+    const uint localServerObjectId = 1000;
+    var target = new WorldObjectSnapshot(
+        targetEntityId,
+        targetServerObjectId,
+        "attacker",
+        "monster",
+        new Vector3Snapshot(3, 0, 0),
+        3,
+        1000,
+        1000,
+        TargetServerObjectId: localServerObjectId,
+        IsTargetingLocalPlayer: true,
+        AggressiveKnown: true,
+        IsAggressiveToPlayer: true);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(
+            1,
+            targetEntityId,
+            "Fake",
+            40,
+            100,
+            100,
+            100,
+            0,
+            new Vector3Snapshot(0, 0, 0),
+            DateTimeOffset.Now,
+            0,
+            10,
+            0,
+            StanceFlags: 1,
+            MotionMode: 0),
+        TargetEntityId = targetEntityId,
+        TargetOwnServerObjectId = targetServerObjectId,
+        TargetObjectType = LockedTargetSnapshot.MonsterObjectType,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        TargetPosition = target.Position,
+        TargetServerObjectId = localServerObjectId,
+        LocalServerObjectId = localServerObjectId,
+        TargetIsTargetingLocalPlayer = true,
+        WorldObjects = new[] { target },
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var stationaryState = new StationaryCombatState();
+    var semiAutoState = new SemiAutoCombatState();
+    semiAutoState.StartMaintenanceRest(forHp: true, forMp: false);
+    stationaryState.EnterDeathRecovery(DateTimeOffset.Now);
+    for (var i = 0; i < 6; i++)
+    {
+        stationaryState.DeathRecovery.Advance(DateTimeOffset.Now);
+    }
+
+    AssertEqual(
+        StationaryCombatDeathRecoveryStep.PostReviveMaintenance,
+        stationaryState.DeathRecovery.Step,
+        "test should start at post-revive maintenance");
+
+    await controller
+        .TickAsync(
+            CreateContext(settings, gameApi, logger),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            semiAutoState,
+            stationaryState)
+        .ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Contains("OemComma"), "targeting monster should block revive rest re-enter");
+    AssertFalse(!stationaryState.Fighting, "targeting monster should be adopted before revive maintenance continues");
+    AssertFalse(semiAutoState.IsMaintenanceResting, "defense adoption should clear the maintenance rest lock");
+    AssertEqual(
+        StationaryCombatDeathRecoveryStep.PostReviveMaintenance,
+        stationaryState.DeathRecovery.Step,
+        "defense should keep the death recovery maintenance step active");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.maintenance_rest.defense_clear_without_x" &&
+            string.Equals(Convert.ToString(entry.Fields["reason"]), "death_recovery_defense_target_detected", StringComparison.Ordinal)),
+        "revive maintenance defense should clear rest without pressing the exit key when already standing");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.recovery_defense.target_selected" &&
+            string.Equals(Convert.ToString(entry.Fields["phase"]), "death_recovery", StringComparison.Ordinal)),
+        "revive maintenance defense target should be logged");
+}
+
+static async Task TestStationaryCombatDeathRecoveryPathDefendsBeforeSpiritmasterSummonAsync()
+{
+    var settings = CreateSpiritmasterScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Paths.RevivePathName = "revive-a";
+    settings.Skills.Spiritmaster.SummonSkills = new List<SpiritmasterSkillKeyRuleConfig>
+    {
+        new() { Key = "NumPad6" }
+    };
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 20
+    };
+
+    const ushort targetEntityId = 220;
+    const uint targetServerObjectId = 2200;
+    const uint localServerObjectId = 1000;
+    var target = new WorldObjectSnapshot(
+        targetEntityId,
+        targetServerObjectId,
+        "attacker",
+        "monster",
+        new Vector3Snapshot(4, 0, 0),
+        4,
+        1000,
+        1000,
+        TargetServerObjectId: localServerObjectId,
+        IsTargetingLocalPlayer: true,
+        AggressiveKnown: true,
+        IsAggressiveToPlayer: true);
+    var pathStore = new InMemorySharedPathStore(
+        CreatePath("revive-a",
+            new Vector3Snapshot(0, 0, 0),
+            new Vector3Snapshot(10, 0, 0)));
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = CreateSpiritmasterPlayer(currentHp: 40, maxHp: 100) with
+        {
+            TargetEntityId = targetEntityId
+        },
+        SummonedPetRoster = SummonedPetRosterSnapshot.Empty(localServerObjectId, DateTimeOffset.Now),
+        TargetEntityId = targetEntityId,
+        TargetOwnServerObjectId = targetServerObjectId,
+        TargetObjectType = LockedTargetSnapshot.MonsterObjectType,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        TargetPosition = target.Position,
+        TargetServerObjectId = localServerObjectId,
+        LocalServerObjectId = localServerObjectId,
+        TargetIsTargetingLocalPlayer = true,
+        WorldObjects = new[] { target },
+        Skills = CreateSpiritmasterSkillSnapshots()
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto, pathStore);
+    var stationaryState = new StationaryCombatState();
+    var semiAutoState = new SemiAutoCombatState();
+    stationaryState.EnterDeathRecovery(DateTimeOffset.Now);
+    for (var i = 0; i < 7; i++)
+    {
+        stationaryState.DeathRecovery.Advance(DateTimeOffset.Now);
+    }
+
+    AssertEqual(
+        StationaryCombatDeathRecoveryStep.FollowRevivePath,
+        stationaryState.DeathRecovery.Step,
+        "test should start at revive path follow");
+
+    await controller
+        .TickAsync(
+            CreateContext(settings, gameApi, logger),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            semiAutoState,
+            stationaryState)
+        .ConfigureAwait(false);
+
+    AssertFalse(
+        logger.Entries.Any(entry =>
+            entry.EventName == "semi_auto.spiritmaster.key_pressed" &&
+            Convert.ToString(entry.Fields["phase"])?.StartsWith("summon_", StringComparison.Ordinal) == true),
+        "targeting monster should preempt spiritmaster summon during revive path");
+    AssertFalse(
+        semiAutoState.HasPendingSpiritmasterSummonVerification,
+        "targeting monster should not start summon verification while defense is adopted");
+    AssertFalse(!stationaryState.Fighting, "targeting monster should be adopted before spiritmaster summon handling");
+    AssertEqual(
+        StationaryCombatDeathRecoveryStep.FollowRevivePath,
+        stationaryState.DeathRecovery.Step,
+        "defense should keep the revive path step active");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.recovery_defense.target_selected" &&
+            string.Equals(Convert.ToString(entry.Fields["phase"]), "death_recovery", StringComparison.Ordinal)),
+        "revive path defense target should be logged before summon handling");
 }
 
 static async Task TestStationaryCombatDeathRecoveryPathDefendsWhenTargetedAsync()

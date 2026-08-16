@@ -68,7 +68,8 @@ public sealed class SemiAutoCombatController
         SemiAutoCombatState state,
         bool requireCooldownCalibrationForMaintenance = false,
         CombatJumpAssistSession? jumpAssist = null,
-        Func<Task<bool>>? ensureHpMaintenanceTargetBeforeKeyPress = null)
+        Func<Task<bool>>? ensureHpMaintenanceTargetBeforeKeyPress = null,
+        bool suppressSpiritmasterPetSummon = false)
     {
         var settings = context.Config.ScriptSettings?.SemiAuto ?? new SemiAutoScriptSettings();
         var now = DateTimeOffset.Now;
@@ -303,7 +304,8 @@ public sealed class SemiAutoCombatController
                     settings,
                     skillSettings.Spiritmaster,
                     skills,
-                    spiritContext)
+                    spiritContext,
+                    suppressSpiritmasterPetSummon)
                 .ConfigureAwait(false))
         {
             jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
@@ -2216,7 +2218,8 @@ public sealed class SemiAutoCombatController
         SemiAutoScriptSettings settings,
         SpiritmasterSkillSettings spiritSettings,
         IReadOnlyList<SkillSnapshot> skills,
-        SpiritmasterCombatContext spiritContext)
+        SpiritmasterCombatContext spiritContext,
+        bool suppressPetSummon)
     {
         if (!spiritContext.CanUseSpiritmasterLogic)
         {
@@ -2232,6 +2235,11 @@ public sealed class SemiAutoCombatController
         if (!spiritContext.HasSummonedPet)
         {
             state.ClearSpiritmasterPetHpIncreaseConfirmation();
+            if (suppressPetSummon)
+            {
+                return false;
+            }
+
             return await TryPressSpiritmasterSummonAsync(context, state, settings, spiritSettings).ConfigureAwait(false);
         }
 

@@ -1365,14 +1365,18 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                         plan,
                         semiAutoState,
                         state,
-                        player)
+                        player,
+                        home,
+                        playerDistanceFromHome)
                     .ConfigureAwait(false),
                 StationaryCombatDeathRecoveryStep.PostReviveMaintenance => await TickDeathPostReviveMaintenanceNodeAsync(
                         context,
                         plan,
                         semiAutoState,
                         state,
-                        player)
+                        player,
+                        home,
+                        playerDistanceFromHome)
                     .ConfigureAwait(false),
                 StationaryCombatDeathRecoveryStep.FollowRevivePath => followRevivePath
                     ? await TickDeathFollowRevivePathNodeAsync(
@@ -1623,7 +1627,9 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         SemiAutoSkillPlan plan,
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state,
-        PlayerSnapshot player)
+        PlayerSnapshot player,
+        Vector3Snapshot home,
+        double playerDistanceFromHome)
     {
         if (player.IsDead)
         {
@@ -1632,6 +1638,19 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
 
         if (!player.IsAlive)
+        {
+            return StationaryCombatBehaviorStatus.Running;
+        }
+
+        if (await TryHandleDeathRecoveryLocalDefenseBeforeRecoveryWorkAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                player,
+                home,
+                playerDistanceFromHome)
+            .ConfigureAwait(false))
         {
             return StationaryCombatBehaviorStatus.Running;
         }
@@ -1659,7 +1678,9 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         SemiAutoSkillPlan plan,
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state,
-        PlayerSnapshot player)
+        PlayerSnapshot player,
+        Vector3Snapshot home,
+        double playerDistanceFromHome)
     {
         if (player.IsDead)
         {
@@ -1668,6 +1689,19 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
 
         if (!player.IsAlive)
+        {
+            return StationaryCombatBehaviorStatus.Running;
+        }
+
+        if (await TryHandleDeathRecoveryLocalDefenseBeforeRecoveryWorkAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                player,
+                home,
+                playerDistanceFromHome)
+            .ConfigureAwait(false))
         {
             return StationaryCombatBehaviorStatus.Running;
         }
@@ -1737,6 +1771,37 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         return StationaryCombatBehaviorStatus.Success;
     }
 
+    private async Task<bool> TryHandleDeathRecoveryLocalDefenseBeforeRecoveryWorkAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        PlayerSnapshot player,
+        Vector3Snapshot home,
+        double playerDistanceFromHome)
+    {
+        if (player.Position is null)
+        {
+            return false;
+        }
+
+        var radius = Math.Max(1.0D, context.Config.ScriptSettings?.Combat?.StationaryCombatRadius ?? 1.0D);
+        var defenseDelay = await TryHandleRecoveryDefenseTargetAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                player,
+                player.Position.Value,
+                home,
+                radius,
+                playerDistanceFromHome,
+                "death_recovery",
+                allowRevivePathClear: false)
+            .ConfigureAwait(false);
+        return defenseDelay is not null;
+    }
+
     private async Task<StationaryCombatBehaviorStatus> TickDeathFollowRevivePathNodeAsync(
         AccountWorkerContext context,
         SemiAutoSkillPlan plan,
@@ -1778,6 +1843,19 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         else if (leaderSiphon.Released)
         {
             semiAutoState.ResetAttackKeyPressThrottle();
+        }
+
+        if (await TryHandleDeathRecoveryLocalDefenseBeforeRecoveryWorkAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                player,
+                home,
+                playerDistanceFromHome)
+            .ConfigureAwait(false))
+        {
+            return StationaryCombatBehaviorStatus.Running;
         }
 
         if (await _semiAuto
@@ -3380,7 +3458,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         Vector3Snapshot home,
         double radius,
         double playerDistanceFromHome,
-        string recoveryPhase)
+        string recoveryPhase,
+        bool? allowRevivePathClear = null)
     {
         if (state.Fighting)
         {
@@ -3400,7 +3479,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 context,
                 state,
                 playerPosition,
-                allowRevivePathClear: IsRevivePathRecoveryPhase(recoveryPhase))
+                allowRevivePathClear: allowRevivePathClear ?? IsRevivePathRecoveryPhase(recoveryPhase))
             .ConfigureAwait(false);
         if (selection.HoldForSmartPreAimHandoff)
         {
@@ -3778,7 +3857,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 requireCooldownCalibrationForMaintenance: true,
                 jumpAssist: state.JumpAssist,
                 ensureHpMaintenanceTargetBeforeKeyPress: () =>
-                    EnsureOrdinaryFightTargetAfterOwnPetSelectionAsync(context, state))
+                    EnsureOrdinaryFightTargetAfterOwnPetSelectionAsync(context, state),
+                suppressSpiritmasterPetSummon: ShouldSuppressSpiritmasterPetSummonForDeathRecoveryDefense(state))
             .ConfigureAwait(false);
     }
 
@@ -6502,7 +6582,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 plan,
                 semiAutoState,
                 requireCooldownCalibrationForMaintenance: true,
-                jumpAssist: state.JumpAssist)
+                jumpAssist: state.JumpAssist,
+                suppressSpiritmasterPetSummon: ShouldSuppressSpiritmasterPetSummonForDeathRecoveryDefense(state))
             .ConfigureAwait(false);
     }
 
@@ -6812,7 +6893,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 plan,
                 semiAutoState,
                 requireCooldownCalibrationForMaintenance: true,
-                jumpAssist: state.JumpAssist)
+                jumpAssist: state.JumpAssist,
+                suppressSpiritmasterPetSummon: ShouldSuppressSpiritmasterPetSummonForDeathRecoveryDefense(state))
             .ConfigureAwait(false);
     }
 
@@ -9072,6 +9154,12 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     {
         return state.TopLevelState == StationaryCombatTopLevelState.DeathRecovery &&
                state.DeathRecovery.Step == StationaryCombatDeathRecoveryStep.FollowRevivePath;
+    }
+
+    private static bool ShouldSuppressSpiritmasterPetSummonForDeathRecoveryDefense(StationaryCombatState state)
+    {
+        return state.TopLevelState == StationaryCombatTopLevelState.DeathRecovery &&
+               state.CurrentTargetIsMaintenanceDefense;
     }
 
     private static IReadOnlyList<string> GetActiveMonsterNameFilters(AccountWorkerContext context)
