@@ -543,6 +543,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("support custom combat skips always self buff without blocking hp or attack", TestSupportCustomCombatSkipsAlwaysSelfBuffWithoutBlockingHpOrAttackAsync),
     ("support custom combat keeps explicit in-combat self buff", TestSupportCustomCombatKeepsExplicitInCombatSelfBuffAsync),
     ("status maintenance chant follows active status", TestStatusMaintenanceChantFollowsActiveStatusAsync),
+    ("status maintenance chant skips active xml aura effect", TestStatusMaintenanceChantSkipsActiveXmlAuraEffectAsync),
     ("status maintenance skips active category zero buff", TestStatusMaintenanceSkipsActiveCategoryZeroBuffAsync),
     ("status maintenance in-combat rule skips without target", TestStatusMaintenanceInCombatRuleSkipsWithoutTargetAsync),
     ("status maintenance cooldown does not recalibrate combat clock", TestStatusMaintenanceCooldownDoesNotRecalibrateCombatClockAsync),
@@ -4161,6 +4162,19 @@ static Task TestAbnormalStatusCatalogClassifiesChantEffectsAsPositiveAsync()
             catalog.IsHarmfulForRest(new AbnormalStatusEntrySnapshot(0, abnormalId, 2, 0, 1, 0)),
             "positive chant abnormal id " + abnormalId.ToString() + " must not block floor rest");
     }
+
+    AssertSequence(
+        new[] { 8396u },
+        catalog.GetChantAuraEffectAbnormalIds(1259).ToArray(),
+        "victory chant source skill should map to its aura abnormal status");
+    AssertSequence(
+        new[] { 8534u },
+        catalog.GetChantAuraEffectAbnormalIds(1349).ToArray(),
+        "accuracy chant source skill should map to its aura abnormal status");
+    AssertSequence(
+        new[] { 8398u },
+        catalog.GetChantAuraEffectAbnormalIds(1269).ToArray(),
+        "clever mind chant source skill should map to its aura abnormal status");
 
     return Task.CompletedTask;
 }
@@ -23198,7 +23212,9 @@ static async Task TestStationaryCombatRunsAfterCombatMaintenanceRoundAsync()
             .ConfigureAwait(false);
 
         AssertSequence(
-            new[] { "NumPadDecimal", "NumPad6", "NumPadAdd", "NumPad3" },
+            new[] { "NumPadDecimal" }
+                .Concat(RepeatedKey("NumPad6", 5))
+                .Concat(new[] { "NumPadAdd", "NumPad3" }),
             keyboard.Keys,
             "after-combat maintenance round should continue through status, potion, and skill");
         AssertEqual(
@@ -27684,7 +27700,7 @@ static async Task TestMaintenanceGlobalIntervalThrottlesDifferentSelectedSkillAs
     var state = new SemiAutoCombatState();
 
     await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
-    AssertSequence(new[] { "NumPad2" }, keyboard.Keys.ToArray(), "first maintenance tick should press status key");
+    AssertSequence(RepeatedKey("NumPad2", 5), keyboard.Keys.ToArray(), "first maintenance tick should press status key burst");
 
     state.MarkMaintenanceKeyAttempted("NumPad2", DateTimeOffset.Now);
     keyboard.Keys.Clear();
@@ -28301,16 +28317,18 @@ static async Task TestStatusMaintenancePressesMissingBuffAndLearnsAbnormalIdAsyn
 
     await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
 
-    AssertSequence(new[] { "NumPad2" }, keyboard.Keys.ToArray(), "missing status maintenance should press configured key");
+    AssertSequence(RepeatedKey("NumPad2", 5), keyboard.Keys.ToArray(), "missing status maintenance should press configured key burst");
     var entry = logger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.maintenance.status_key_pressed");
     AssertFalse(entry is null, "status maintenance should log confirmed status key press");
     AssertEqual(4001u, Convert.ToUInt32(entry!.Fields["abnormalStatusId"]), "learned status abnormal id");
     AssertEqual(1300L, Convert.ToInt64(entry.Fields["confirmWindowMs"]), "normal status maintenance confirm window");
     AssertEqual(false, Convert.ToBoolean(entry.Fields["chant"]), "normal status maintenance should not be logged as chant");
+    AssertEqual(5, Convert.ToInt32(entry.Fields["pressCount"]), "status maintenance key burst count");
+    AssertEqual(100L, Convert.ToInt64(entry.Fields["pressIntervalMs"]), "status maintenance key burst interval");
 
     await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
 
-    AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad2"), "learned active status should block repeat press");
+    AssertEqual(5, keyboard.Keys.Count(key => key == "NumPad2"), "learned active status should block repeat press");
 }
 
 static async Task TestSupportStatusMaintenanceSelectsSelfBeforeBuffAsync()
@@ -28370,7 +28388,10 @@ static async Task TestSupportStatusMaintenanceSelectsSelfBeforeBuffAsync()
         .TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player)
         .ConfigureAwait(false);
 
-    AssertSequence(new[] { "F1", "NumPad3" }, keyboard.Keys.ToArray(), "support status maintenance should select self before pressing the buff key");
+    AssertSequence(
+        new[] { "F1" }.Concat(RepeatedKey("NumPad3", 5)),
+        keyboard.Keys.ToArray(),
+        "support status maintenance should select self before pressing the buff key burst");
     AssertFalse(
         gameApi.LastLockedTargetContext?.BypassMemoryCache == true,
         "self-target confirmation must use the official target snapshot channel");
@@ -28557,7 +28578,7 @@ static async Task TestSupportCustomCombatKeepsExplicitInCombatSelfBuffAsync()
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
 
     AssertSequence(
-        new[] { "F1", "NumPad3" },
+        new[] { "F1" }.Concat(RepeatedKey("NumPad3", 5)),
         keyboard.Keys.ToArray(),
         "explicit in-combat status maintenance should keep its configured self-buff behavior");
     AssertFalse(
@@ -28613,12 +28634,14 @@ static async Task TestStatusMaintenanceChantFollowsActiveStatusAsync()
     var state = new SemiAutoCombatState();
 
     await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
-    AssertSequence(new[] { "NumPad2" }, keyboard.Keys.ToArray(), "chant status maintenance should press once");
+    AssertSequence(RepeatedKey("NumPad2", 5), keyboard.Keys.ToArray(), "chant status maintenance should press one key burst");
     var pressedEntry = logger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.maintenance.status_key_pressed");
     AssertFalse(pressedEntry is null, "chant status maintenance should log the first key press");
     AssertEqual(true, Convert.ToBoolean(pressedEntry!.Fields["oneShot"]), "chant maintenance should keep legacy one-shot log flag");
     AssertEqual(true, Convert.ToBoolean(pressedEntry!.Fields["chant"]), "chant maintenance should be logged as chant");
-    AssertEqual(6000L, Convert.ToInt64(pressedEntry.Fields["confirmWindowMs"]), "chant status maintenance confirm window");
+    AssertEqual(2000L, Convert.ToInt64(pressedEntry.Fields["confirmWindowMs"]), "chant status maintenance confirm window");
+    AssertEqual(5, Convert.ToInt32(pressedEntry.Fields["pressCount"]), "chant status maintenance key burst count");
+    AssertEqual(100L, Convert.ToInt64(pressedEntry.Fields["pressIntervalMs"]), "chant status maintenance key burst interval");
     keyboard.Keys.Clear();
     await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
 
@@ -28632,10 +28655,79 @@ static async Task TestStatusMaintenanceChantFollowsActiveStatusAsync()
 
     await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, retryLogger), retryState, gameApi.Player).ConfigureAwait(false);
 
-    AssertSequence(new[] { "NumPad2" }, keyboard.Keys.ToArray(), "trusted missing learned chant status should allow maintenance press immediately");
+    AssertSequence(RepeatedKey("NumPad2", 5), keyboard.Keys.ToArray(), "trusted missing learned chant status should allow maintenance key burst immediately");
     AssertFalse(
         retryLogger.Entries.Any(entry => entry.EventName.StartsWith("semi_auto.maintenance.chant_missing_", StringComparison.Ordinal)),
         "business maintenance must not emit missing-read state logs");
+}
+
+static async Task TestStatusMaintenanceChantSkipsActiveXmlAuraEffectAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.StatusMaintenanceRules.Add(new StatusMaintenanceRuleConfig
+    {
+        Key = "NumPad5",
+        SkillId = 1259,
+        SkillName = "\u80DC\u5229\u4E4B\u771F\u8A00 IV",
+        RunTiming = MaintenanceRuleRunTiming.Always
+    });
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var catalog = AbnormalStatusCatalog.LoadedFrom(
+        "test",
+        new Dictionary<uint, AbnormalStatusStaticInfo>
+        {
+            [8396] = new(
+                8396,
+                "CH_Chant_ImprovedAttack_G4_Effect",
+                "Chant",
+                "Friend",
+                string.Empty,
+                "StatUp",
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                AbnormalStatusCatalog.AbnormalKindPositive)
+        },
+        new Dictionary<uint, IReadOnlyList<uint>>
+        {
+            [1259] = new[] { 8396u }
+        });
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        PlayerAbnormalStatuses = new PlayerAbnormalStatusSnapshot(
+            1,
+            DateTimeOffset.Now,
+            1,
+            new[] { Abnormal(8396, PlayerAbnormalStatusSnapshot.BuffCategory) }),
+        Skills = new[]
+        {
+            new SkillSnapshot(
+                1259,
+                "\u80DC\u5229\u4E4B\u771F\u8A00 IV",
+                1,
+                4,
+                "\u80DC\u5229\u4E4B\u771F\u8A00",
+                4,
+                true,
+                0,
+                0,
+                XmlSkillCategory: "Chant",
+                XmlSubType: "Chant")
+        }
+    };
+
+    var controller = new SemiAutoCombatController(keyboard, catalog);
+    var state = new SemiAutoCombatState();
+
+    await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
+
+    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "active xml-mapped chant status should skip startup toggle press");
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.status_key_pressed"),
+        "active xml-mapped chant status should not log a maintenance key press");
 }
 
 static async Task TestStatusMaintenanceSkipsActiveCategoryZeroBuffAsync()
@@ -32046,6 +32138,11 @@ static string[] WithPreSkillAttackKey(params string[] keys)
 static string[] WithTriggerFallbackAttackKey(params string[] keys)
 {
     return keys.ToArray();
+}
+
+static string[] RepeatedKey(string key, int count)
+{
+    return Enumerable.Repeat(key, count).ToArray();
 }
 
 static string CreateTempDirectory(string prefix)

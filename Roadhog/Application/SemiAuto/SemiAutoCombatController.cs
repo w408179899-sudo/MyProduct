@@ -25,9 +25,12 @@ public sealed class SemiAutoCombatController
     private static readonly TimeSpan WarningLogInterval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan MaintenanceConfirmWindow = TimeSpan.FromSeconds(6);
     private static readonly TimeSpan NormalStatusMaintenanceConfirmWindow = TimeSpan.FromMilliseconds(1300);
+    private static readonly TimeSpan ChantStatusMaintenanceConfirmWindow = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan StatusMaintenancePressBurstInterval = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan MaintenanceConfirmPollInterval = TimeSpan.FromMilliseconds(300);
     private static readonly TimeSpan MaintenanceKeyRetryInterval = TimeSpan.FromSeconds(3);
     internal static readonly TimeSpan MaintenanceGlobalKeyInterval = TimeSpan.FromMilliseconds(600);
+    private const int StatusMaintenancePressBurstCount = 5;
     private static readonly TimeSpan MaintenanceRestExitBeforeKeyDelay = TimeSpan.FromMilliseconds(150);
     private static readonly TimeSpan SupportSelfSelectConfirmDelay = TimeSpan.FromMilliseconds(25);
     private static readonly TimeSpan SpiritmasterCooldownConfirmRetryInterval = TimeSpan.FromMilliseconds(50);
@@ -1670,12 +1673,8 @@ public sealed class SemiAutoCombatController
             .Where(id => id != 0)
             .ToHashSet();
         var startedAt = DateTimeOffset.Now;
-        var result = await _keyboard
-            .PressKeyAsync(rule.Key, Ms(settings.KeyHoldMs, 25), context.StopToken)
-            .ConfigureAwait(false);
-        if (!result.Success)
+        if (!await PressStatusMaintenanceKeyBurstAsync(context, state, settings, rule, resource).ConfigureAwait(false))
         {
-            LogMaintenanceKeyFailure(context, state, rule.Key, resource, result.Error);
             return false;
         }
 
@@ -1684,7 +1683,7 @@ public sealed class SemiAutoCombatController
         var skillName = maintenanceSkill?.Name ?? maintenanceSkill?.DisplayBaseName ?? rule.SkillName;
 
         var confirmWindow = ResolveStatusMaintenanceConfirmWindow(isChantStatusMaintenance);
-        var deadline = startedAt + confirmWindow;
+        var deadline = DateTimeOffset.Now + confirmWindow;
         var polls = 0;
 
         while (DateTimeOffset.Now <= deadline)
@@ -1715,6 +1714,8 @@ public sealed class SemiAutoCombatController
                     ["abnormalStatusId"] = confirmedAbnormalId,
                     ["oneShot"] = isChantStatusMaintenance,
                     ["chant"] = isChantStatusMaintenance,
+                    ["pressCount"] = StatusMaintenancePressBurstCount,
+                    ["pressIntervalMs"] = (long)StatusMaintenancePressBurstInterval.TotalMilliseconds,
                     ["polls"] = polls,
                     ["confirmWindowMs"] = (long)confirmWindow.TotalMilliseconds,
                     ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAt - startedAt).TotalMilliseconds)
@@ -1745,10 +1746,39 @@ public sealed class SemiAutoCombatController
             ["configuredAbnormalStatusId"] = rule.AbnormalStatusId,
             ["oneShot"] = isChantStatusMaintenance,
             ["chant"] = isChantStatusMaintenance,
+            ["pressCount"] = StatusMaintenancePressBurstCount,
+            ["pressIntervalMs"] = (long)StatusMaintenancePressBurstInterval.TotalMilliseconds,
             ["polls"] = polls,
             ["confirmWindowMs"] = (long)confirmWindow.TotalMilliseconds,
             ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAtUnconfirmed - startedAt).TotalMilliseconds)
         });
+        return true;
+    }
+
+    private async Task<bool> PressStatusMaintenanceKeyBurstAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        SemiAutoScriptSettings settings,
+        StatusMaintenanceRuleConfig rule,
+        string resource)
+    {
+        for (var pressIndex = 0; pressIndex < StatusMaintenancePressBurstCount; pressIndex++)
+        {
+            var result = await _keyboard
+                .PressKeyAsync(rule.Key, Ms(settings.KeyHoldMs, 25), context.StopToken)
+                .ConfigureAwait(false);
+            if (!result.Success)
+            {
+                LogMaintenanceKeyFailure(context, state, rule.Key, resource, result.Error);
+                return false;
+            }
+
+            if (pressIndex < StatusMaintenancePressBurstCount - 1)
+            {
+                await Task.Delay(StatusMaintenancePressBurstInterval, context.StopToken).ConfigureAwait(false);
+            }
+        }
+
         return true;
     }
 
@@ -3603,7 +3633,7 @@ public sealed class SemiAutoCombatController
     private static TimeSpan ResolveStatusMaintenanceConfirmWindow(bool isChantStatusMaintenance)
     {
         return isChantStatusMaintenance
-            ? MaintenanceConfirmWindow
+            ? ChantStatusMaintenanceConfirmWindow
             : NormalStatusMaintenanceConfirmWindow;
     }
 
@@ -3730,7 +3760,7 @@ public sealed class SemiAutoCombatController
         return rule.SkillId;
     }
 
-    private static bool IsStatusMaintenanceActive(
+    private bool IsStatusMaintenanceActive(
         StatusMaintenanceRuleConfig rule,
         uint skillId,
         SemiAutoCombatState state,
@@ -3739,7 +3769,7 @@ public sealed class SemiAutoCombatController
         return ResolveKnownStatusMaintenanceAbnormalId(rule, skillId, state, entries) != 0;
     }
 
-    private static uint ResolveConfirmedStatusMaintenanceAbnormalId(
+    private uint ResolveConfirmedStatusMaintenanceAbnormalId(
         StatusMaintenanceRuleConfig rule,
         uint skillId,
         SemiAutoCombatState state,
@@ -3761,7 +3791,7 @@ public sealed class SemiAutoCombatController
             .FirstOrDefault();
     }
 
-    private static uint ResolveKnownStatusMaintenanceAbnormalId(
+    private uint ResolveKnownStatusMaintenanceAbnormalId(
         StatusMaintenanceRuleConfig rule,
         uint skillId,
         SemiAutoCombatState state,
@@ -3771,6 +3801,15 @@ public sealed class SemiAutoCombatController
             entries.Any(entry => entry.AbnormalId == rule.AbnormalStatusId))
         {
             return rule.AbnormalStatusId;
+        }
+
+        if (skillId != 0)
+        {
+            var mappedAbnormalId = ResolveXmlMappedStatusMaintenanceAbnormalId(skillId, entries);
+            if (mappedAbnormalId != 0)
+            {
+                return mappedAbnormalId;
+            }
         }
 
         if (skillId != 0 &&
@@ -3784,6 +3823,21 @@ public sealed class SemiAutoCombatController
             entries.Any(entry => entry.AbnormalId == skillId))
         {
             return skillId;
+        }
+
+        return 0;
+    }
+
+    private uint ResolveXmlMappedStatusMaintenanceAbnormalId(
+        uint skillId,
+        IReadOnlyList<AbnormalStatusEntrySnapshot> entries)
+    {
+        foreach (var abnormalId in StatusCatalog.GetChantAuraEffectAbnormalIds(skillId))
+        {
+            if (entries.Any(entry => entry.AbnormalId == abnormalId))
+            {
+                return abnormalId;
+            }
         }
 
         return 0;

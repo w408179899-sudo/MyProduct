@@ -14,15 +14,18 @@ public sealed class AbnormalStatusCatalog
 
     private static readonly Lazy<AbnormalStatusCatalog> DefaultCatalog = new(Load);
     private readonly IReadOnlyDictionary<uint, AbnormalStatusStaticInfo> _byId;
+    private readonly IReadOnlyDictionary<uint, IReadOnlyList<uint>> _chantAuraEffectIdsBySourceSkillId;
 
     private AbnormalStatusCatalog(
         string sourcePath,
         string error,
-        IReadOnlyDictionary<uint, AbnormalStatusStaticInfo> byId)
+        IReadOnlyDictionary<uint, AbnormalStatusStaticInfo> byId,
+        IReadOnlyDictionary<uint, IReadOnlyList<uint>> chantAuraEffectIdsBySourceSkillId)
     {
         SourcePath = sourcePath;
         Error = error;
         _byId = byId;
+        _chantAuraEffectIdsBySourceSkillId = chantAuraEffectIdsBySourceSkillId;
     }
 
     public string SourcePath { get; }
@@ -46,6 +49,7 @@ public sealed class AbnormalStatusCatalog
         try
         {
             var entries = new Dictionary<uint, AbnormalStatusStaticInfo>();
+            var chantAuraEffectNamesBySkillId = new Dictionary<uint, List<string>>();
             var settings = new XmlReaderSettings
             {
                 DtdProcessing = DtdProcessing.Ignore,
@@ -63,6 +67,11 @@ public sealed class AbnormalStatusCatalog
                     if (TryReadEntry(element, out var info))
                     {
                         entries[info.Id] = info;
+                        var auraEffectNames = ReadAuraEffectNames(element);
+                        if (auraEffectNames.Count > 0)
+                        {
+                            chantAuraEffectNamesBySkillId[info.Id] = auraEffectNames;
+                        }
                     }
 
                     continue;
@@ -74,7 +83,7 @@ public sealed class AbnormalStatusCatalog
                 }
             }
 
-            return LoadedFrom(path, entries);
+            return LoadedFrom(path, entries, BuildChantAuraEffectMappings(entries, chantAuraEffectNamesBySkillId));
         }
         catch (Exception ex)
         {
@@ -86,12 +95,28 @@ public sealed class AbnormalStatusCatalog
         string sourcePath,
         IReadOnlyDictionary<uint, AbnormalStatusStaticInfo> byId)
     {
-        return new AbnormalStatusCatalog(sourcePath, string.Empty, byId);
+        return LoadedFrom(sourcePath, byId, new Dictionary<uint, IReadOnlyList<uint>>());
+    }
+
+    public static AbnormalStatusCatalog LoadedFrom(
+        string sourcePath,
+        IReadOnlyDictionary<uint, AbnormalStatusStaticInfo> byId,
+        IReadOnlyDictionary<uint, IReadOnlyList<uint>> chantAuraEffectIdsBySourceSkillId)
+    {
+        return new AbnormalStatusCatalog(
+            sourcePath,
+            string.Empty,
+            byId,
+            chantAuraEffectIdsBySourceSkillId);
     }
 
     public static AbnormalStatusCatalog Failed(string sourcePath, string error)
     {
-        return new AbnormalStatusCatalog(sourcePath, string.IsNullOrWhiteSpace(error) ? "client_skills.xml not found" : error, new Dictionary<uint, AbnormalStatusStaticInfo>());
+        return new AbnormalStatusCatalog(
+            sourcePath,
+            string.IsNullOrWhiteSpace(error) ? "client_skills.xml not found" : error,
+            new Dictionary<uint, AbnormalStatusStaticInfo>(),
+            new Dictionary<uint, IReadOnlyList<uint>>());
     }
 
     public bool TryGet(uint abnormalId, out AbnormalStatusStaticInfo info)
@@ -102,6 +127,17 @@ public sealed class AbnormalStatusCatalog
     public static bool IsIgnoredNegativeStatus(uint abnormalId)
     {
         return abnormalId == DeathWeaknessAbnormalId;
+    }
+
+    public IReadOnlyList<uint> GetChantAuraEffectAbnormalIds(uint sourceSkillId)
+    {
+        if (sourceSkillId == 0 ||
+            !_chantAuraEffectIdsBySourceSkillId.TryGetValue(sourceSkillId, out var abnormalIds))
+        {
+            return Array.Empty<uint>();
+        }
+
+        return abnormalIds;
     }
 
     public bool IsHarmfulForRest(AbnormalStatusEntrySnapshot entry)
@@ -222,6 +258,101 @@ public sealed class AbnormalStatusCatalog
                !string.IsNullOrWhiteSpace(info.Effect2Type) ||
                !string.IsNullOrWhiteSpace(info.Effect3Type) ||
                !string.IsNullOrWhiteSpace(info.Effect4Type);
+    }
+
+    private static List<string> ReadAuraEffectNames(XElement element)
+    {
+        var result = new List<string>();
+        for (var index = 1; index <= 4; index++)
+        {
+            var effectType = GetSkillXmlValue(
+                element,
+                "effect" + index.ToString(CultureInfo.InvariantCulture) + "_type",
+                "effect_" + index.ToString(CultureInfo.InvariantCulture) + "_type",
+                "effect" + index.ToString(CultureInfo.InvariantCulture) + "type");
+            if (!string.Equals(NormalizeSkillXmlToken(effectType), "aura", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var effectName = GetSkillXmlValue(
+                element,
+                "effect" + index.ToString(CultureInfo.InvariantCulture) + "_reserved1",
+                "effect_" + index.ToString(CultureInfo.InvariantCulture) + "_reserved1",
+                "effect" + index.ToString(CultureInfo.InvariantCulture) + "_reserved_1",
+                "effect" + index.ToString(CultureInfo.InvariantCulture) + "reserved1");
+            if (HasUsefulSkillXmlValue(effectName))
+            {
+                result.Add(effectName.Trim());
+            }
+        }
+
+        return result;
+    }
+
+    private static IReadOnlyDictionary<uint, IReadOnlyList<uint>> BuildChantAuraEffectMappings(
+        IReadOnlyDictionary<uint, AbnormalStatusStaticInfo> entries,
+        IReadOnlyDictionary<uint, List<string>> auraEffectNamesBySkillId)
+    {
+        if (entries.Count == 0 || auraEffectNamesBySkillId.Count == 0)
+        {
+            return new Dictionary<uint, IReadOnlyList<uint>>();
+        }
+
+        var entriesByName = new Dictionary<string, List<AbnormalStatusStaticInfo>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var info in entries.Values)
+        {
+            if (!HasUsefulSkillXmlValue(info.XmlName))
+            {
+                continue;
+            }
+
+            var name = info.XmlName.Trim();
+            if (!entriesByName.TryGetValue(name, out var matchingEntries))
+            {
+                matchingEntries = new List<AbnormalStatusStaticInfo>();
+                entriesByName[name] = matchingEntries;
+            }
+
+            matchingEntries.Add(info);
+        }
+
+        var result = new Dictionary<uint, IReadOnlyList<uint>>();
+        foreach (var pair in auraEffectNamesBySkillId)
+        {
+            var abnormalIds = new List<uint>();
+            foreach (var effectName in pair.Value)
+            {
+                if (!entriesByName.TryGetValue(effectName.Trim(), out var matchingEntries))
+                {
+                    continue;
+                }
+
+                foreach (var match in matchingEntries)
+                {
+                    if (!string.Equals(NormalizeSkillXmlToken(match.TargetSlot), "chant", StringComparison.Ordinal) ||
+                        abnormalIds.Contains(match.Id))
+                    {
+                        continue;
+                    }
+
+                    abnormalIds.Add(match.Id);
+                }
+            }
+
+            if (abnormalIds.Count > 0)
+            {
+                result[pair.Key] = abnormalIds.ToArray();
+            }
+        }
+
+        return result;
+    }
+
+    private static bool HasUsefulSkillXmlValue(string? value)
+    {
+        return !string.IsNullOrWhiteSpace(value) &&
+               !string.Equals(value.Trim(), "0", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ResolveClientSkillsXmlPath(out string error)
