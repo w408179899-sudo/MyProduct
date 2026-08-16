@@ -46,6 +46,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     private const double PreLockFaceYawToleranceDegrees = 30.0D;
     private const double SmartPreAimFaceYawToleranceDegrees = 10.0D;
     private const int SmartPreAimSwitchConfirmationThreshold = 3;
+    private const int SmartPreAimCandidateDiagnosticSampleCount = 8;
     private const double DefaultPathFollowReachDistance = 5.0D;
     private const double DefaultStartupTownReturnDistance = 500.0D;
     private const double DefaultStartupTownReturnMinDistance = 5.0D;
@@ -9979,6 +9980,9 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             fightTargetEntityId,
             fightTargetServerObjectId);
         var switchDistanceMargin = ReadSmartPreAimSwitchDistanceMargin();
+        var allowClaimedByOther = AllowsClaimedTargets(context);
+        var preferAggressiveMonsters = PrefersAggressiveMonsters(context);
+        var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
         var selection = NextTargetPreAimSelector.Select(
             objects,
             distanceOrigin,
@@ -9988,9 +9992,9 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             fightTargetServerObjectId,
             state.LocalCombatSideServerObjectId,
             state.LocalCombatSidePetServerObjectId,
-            AllowsClaimedTargets(context),
-            PrefersAggressiveMonsters(context),
-            GetActiveMonsterNameFilters(context),
+            allowClaimedByOther,
+            preferAggressiveMonsters,
+            activeMonsterNameFilters,
             currentSelection,
             now,
             TimeSpan.FromMilliseconds(ReadSmartPreAimMinimumHoldMs()),
@@ -10007,7 +10011,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             distanceOrigin,
             switchDistanceMargin);
 
-        StoreNextTargetPreAimSelection(
+        var selectionChanged = StoreNextTargetPreAimSelection(
             context,
             state,
             selection,
@@ -10017,6 +10021,28 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             fightTargetEntityId,
             fightTargetServerObjectId,
             sessionId);
+        var distanceOriginSource = ResolveSmartPreAimDistanceOriginSource(context, state);
+        LogSmartPreAimCandidateDiagnostics(
+            context,
+            state,
+            objects,
+            playerPosition,
+            home,
+            radius,
+            distanceOrigin,
+            distanceOriginSource,
+            fightTargetEntityId,
+            fightTargetServerObjectId,
+            state.LocalCombatSideServerObjectId,
+            state.LocalCombatSidePetServerObjectId,
+            allowClaimedByOther,
+            preferAggressiveMonsters,
+            activeMonsterNameFilters,
+            exclusions,
+            teamSideServerObjectIds,
+            currentSelection,
+            selection,
+            selectionChanged);
     }
 
     private static NextTargetPreAimSelection? KeepCommittedNextTargetPreAimSelectionStable(
@@ -10266,7 +10292,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
     }
 
-    private static void StoreNextTargetPreAimSelection(
+    private static bool StoreNextTargetPreAimSelection(
         AccountWorkerContext context,
         StationaryCombatState state,
         NextTargetPreAimSelection? selection,
@@ -10292,7 +10318,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     fightTargetEntityId,
                     fightTargetServerObjectId))
             {
-                return;
+                return false;
             }
 
             previousEntityId = preAim.TargetEntityId;
@@ -10359,12 +10385,12 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 });
             }
 
-            return;
+            return changed;
         }
 
         if (!changed)
         {
-            return;
+            return false;
         }
 
         context.Logger.Info(
@@ -10391,7 +10417,350 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 ["decisionReason"] = selection.DecisionReason,
                 ["worldObjectCount"] = worldObjectCount
             });
+        return true;
     }
+
+    private static void LogSmartPreAimCandidateDiagnostics(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        IReadOnlyList<WorldObjectSnapshot> objects,
+        Vector3Snapshot playerPosition,
+        Vector3Snapshot home,
+        double radius,
+        Vector3Snapshot distanceOrigin,
+        string distanceOriginSource,
+        ushort fightTargetEntityId,
+        uint fightTargetServerObjectId,
+        uint localSideServerObjectId,
+        uint localSidePetServerObjectId,
+        bool allowClaimedByOther,
+        bool preferAggressiveMonsters,
+        IReadOnlyList<string> activeMonsterNameFilters,
+        NextTargetPreAimExclusionSnapshot exclusions,
+        IReadOnlySet<uint> teamSideServerObjectIds,
+        NextTargetPreAimSelection? previousSelection,
+        NextTargetPreAimSelection? selection,
+        bool selectionChanged)
+    {
+        var diagnostics = objects
+            .Select(target => CreateSmartPreAimCandidateDiagnostic(
+                target,
+                playerPosition,
+                home,
+                radius,
+                distanceOrigin,
+                fightTargetEntityId,
+                fightTargetServerObjectId,
+                localSideServerObjectId,
+                localSidePetServerObjectId,
+                allowClaimedByOther,
+                preferAggressiveMonsters,
+                activeMonsterNameFilters,
+                exclusions,
+                teamSideServerObjectIds))
+            .ToArray();
+        var eligible = diagnostics
+            .Where(candidate => candidate.Eligible)
+            .OrderByDescending(candidate => candidate.PriorityTier)
+            .ThenBy(candidate => candidate.DistanceToOrigin)
+            .ThenBy(candidate => candidate.Target.ServerObjectId)
+            .ThenBy(candidate => candidate.Target.EntityId)
+            .ToArray();
+        var monstersWithPosition = diagnostics
+            .Where(candidate => candidate.IsMonster && candidate.HasPosition)
+            .ToArray();
+
+        var fields = new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["selectionChanged"] = selectionChanged,
+            ["selectedTargetEntityId"] = selection?.Target.EntityId ?? 0,
+            ["selectedTargetServerObjectId"] = selection?.Target.ServerObjectId ?? 0,
+            ["selectedTargetName"] = selection?.Target.Name ?? string.Empty,
+            ["selectedDecisionReason"] = selection?.DecisionReason ?? "no_candidate",
+            ["previousTargetEntityId"] = previousSelection?.Target.EntityId ?? 0,
+            ["previousTargetServerObjectId"] = previousSelection?.Target.ServerObjectId ?? 0,
+            ["fightTargetEntityId"] = fightTargetEntityId,
+            ["fightTargetServerObjectId"] = fightTargetServerObjectId,
+            ["distanceOriginX"] = Math.Round(distanceOrigin.X, 2),
+            ["distanceOriginY"] = Math.Round(distanceOrigin.Y, 2),
+            ["distanceOriginSource"] = distanceOriginSource,
+            ["playerX"] = Math.Round(playerPosition.X, 2),
+            ["playerY"] = Math.Round(playerPosition.Y, 2),
+            ["homeX"] = Math.Round(home.X, 2),
+            ["homeY"] = Math.Round(home.Y, 2),
+            ["radius"] = Math.Round(radius, 2),
+            ["worldObjectCount"] = objects.Count,
+            ["monsterWithPositionCount"] = monstersWithPosition.Length,
+            ["eligibleCandidateCount"] = eligible.Length,
+            ["allowClaimedByOther"] = allowClaimedByOther,
+            ["preferAggressiveMonsters"] = preferAggressiveMonsters,
+            ["activeMonsterFilters"] = string.Join(",", activeMonsterNameFilters),
+            ["reasonCounts"] = FormatSmartPreAimCandidateReasonCounts(diagnostics),
+            ["eligibleRanked"] = FormatSmartPreAimCandidateDiagnostics(eligible),
+            ["nearestToPlayer"] = FormatSmartPreAimCandidateDiagnostics(
+                monstersWithPosition
+                    .OrderBy(candidate => candidate.DistanceToPlayer)
+                    .ThenBy(candidate => candidate.Target.ServerObjectId)
+                    .ThenBy(candidate => candidate.Target.EntityId)),
+            ["nearestToOrigin"] = FormatSmartPreAimCandidateDiagnostics(
+                monstersWithPosition
+                    .OrderBy(candidate => candidate.DistanceToOrigin)
+                    .ThenBy(candidate => candidate.Target.ServerObjectId)
+                    .ThenBy(candidate => candidate.Target.EntityId))
+        };
+
+        if (selectionChanged)
+        {
+            context.Logger.Info("stationary_combat.smart_preaim.candidate_diagnostics", fields);
+            return;
+        }
+
+        var selectedActionKey = selection is null
+            ? "none"
+            : TargetActionKey(selection.Target.EntityId, selection.Target.ServerObjectId);
+        LogActionThrottled(
+            context,
+            state,
+            "stationary_combat.smart_preaim.candidate_diagnostics",
+            "fight:" + TargetActionKey(fightTargetEntityId, fightTargetServerObjectId) + ":selected:" + selectedActionKey,
+            fields,
+            TimeSpan.FromSeconds(2));
+    }
+
+    private static SmartPreAimCandidateDiagnostic CreateSmartPreAimCandidateDiagnostic(
+        WorldObjectSnapshot target,
+        Vector3Snapshot playerPosition,
+        Vector3Snapshot home,
+        double radius,
+        Vector3Snapshot distanceOrigin,
+        ushort fightTargetEntityId,
+        uint fightTargetServerObjectId,
+        uint localSideServerObjectId,
+        uint localSidePetServerObjectId,
+        bool allowClaimedByOther,
+        bool preferAggressiveMonsters,
+        IReadOnlyList<string> activeMonsterNameFilters,
+        NextTargetPreAimExclusionSnapshot exclusions,
+        IReadOnlySet<uint> teamSideServerObjectIds)
+    {
+        var isMonster = string.Equals(target.ObjectKind, "monster", StringComparison.OrdinalIgnoreCase);
+        var hasPosition = target.Position is not null;
+        var isAlive = target.IsAlive;
+        var selectableMonster = isMonster && isAlive && hasPosition;
+        var sameFightTarget = StationaryCombatState.IsSameTarget(
+            target.EntityId,
+            target.ServerObjectId,
+            fightTargetEntityId,
+            fightTargetServerObjectId);
+        var temporaryExcluded = exclusions.IsTemporarilyExcluded(target);
+        var targetingLocalSide = IsSmartPreAimDiagnosticTargetingLocalSide(
+            target,
+            localSideServerObjectId,
+            localSidePetServerObjectId);
+        var targetingTeamSide = !targetingLocalSide &&
+                                IsSmartPreAimDiagnosticTargetingTeamSide(target, teamSideServerObjectIds);
+        var ignored = exclusions.IsIgnored(target);
+        var nameFiltered = IsActiveMonsterFiltered(target, activeMonsterNameFilters);
+        var claimedByOther = IsSmartPreAimDiagnosticClaimedByOther(
+            target,
+            targetingLocalSide,
+            targetingTeamSide);
+        var homeDistance = hasPosition
+            ? StationaryCombatTargetSelector.HorizontalDistance(target.Position!.Value, home)
+            : double.NaN;
+        var playerDistance = hasPosition
+            ? StationaryCombatTargetSelector.HorizontalDistance(target.Position!.Value, playerPosition)
+            : double.NaN;
+        var originDistance = hasPosition
+            ? StationaryCombatTargetSelector.HorizontalDistance(target.Position!.Value, distanceOrigin)
+            : double.NaN;
+        var ordinaryOutsideHome = !targetingLocalSide &&
+                                  !targetingTeamSide &&
+                                  hasPosition &&
+                                  homeDistance > Math.Max(0.0D, radius);
+        var aggressivePriority = preferAggressiveMonsters && target.IsAggressiveToPlayer;
+        var priorityTier = targetingLocalSide
+            ? 4
+            : targetingTeamSide
+                ? 3
+                : aggressivePriority
+                    ? 2
+                    : 1;
+
+        var reasons = new List<string>();
+        if (!isMonster)
+        {
+            reasons.Add("not_monster");
+        }
+        else if (!isAlive)
+        {
+            reasons.Add("dead");
+        }
+
+        if (!hasPosition)
+        {
+            reasons.Add("missing_position");
+        }
+
+        if (sameFightTarget)
+        {
+            reasons.Add("current_target");
+        }
+
+        if (temporaryExcluded)
+        {
+            reasons.Add("temporary_excluded");
+        }
+
+        if (!targetingLocalSide && !targetingTeamSide)
+        {
+            if (ignored)
+            {
+                reasons.Add("ignored");
+            }
+
+            if (nameFiltered)
+            {
+                reasons.Add("name_filtered");
+            }
+
+            if (!allowClaimedByOther && claimedByOther)
+            {
+                reasons.Add("claimed");
+            }
+
+            if (ordinaryOutsideHome)
+            {
+                reasons.Add("outside_home");
+            }
+        }
+
+        var eligible = selectableMonster &&
+                       !sameFightTarget &&
+                       !temporaryExcluded &&
+                       (targetingLocalSide ||
+                        targetingTeamSide ||
+                        (!ignored &&
+                         !nameFiltered &&
+                         (allowClaimedByOther || !claimedByOther) &&
+                         !ordinaryOutsideHome));
+        if (eligible)
+        {
+            reasons.Add("eligible");
+        }
+
+        return new SmartPreAimCandidateDiagnostic(
+            target,
+            isMonster,
+            hasPosition,
+            eligible,
+            priorityTier,
+            playerDistance,
+            originDistance,
+            homeDistance,
+            targetingLocalSide,
+            targetingTeamSide,
+            aggressivePriority,
+            string.Join("+", reasons));
+    }
+
+    private static bool IsSmartPreAimDiagnosticTargetingLocalSide(
+        WorldObjectSnapshot target,
+        uint localSideServerObjectId,
+        uint localSidePetServerObjectId)
+    {
+        if (target.IsTargetingLocalPlayer)
+        {
+            return true;
+        }
+
+        return target.TargetServerObjectId != 0 &&
+               ((localSideServerObjectId != 0 && target.TargetServerObjectId == localSideServerObjectId) ||
+                (localSidePetServerObjectId != 0 && target.TargetServerObjectId == localSidePetServerObjectId));
+    }
+
+    private static bool IsSmartPreAimDiagnosticTargetingTeamSide(
+        WorldObjectSnapshot target,
+        IReadOnlySet<uint> teamSideServerObjectIds)
+    {
+        return target.TargetServerObjectId != 0 &&
+               teamSideServerObjectIds.Contains(target.TargetServerObjectId);
+    }
+
+    private static bool IsSmartPreAimDiagnosticClaimedByOther(
+        WorldObjectSnapshot target,
+        bool targetingLocalSide,
+        bool targetingTeamSide)
+    {
+        return target.TargetServerObjectId != 0 &&
+               target.TargetServerObjectId != target.ServerObjectId &&
+               !targetingLocalSide &&
+               !targetingTeamSide;
+    }
+
+    private static string FormatSmartPreAimCandidateDiagnostics(
+        IEnumerable<SmartPreAimCandidateDiagnostic> diagnostics)
+    {
+        return string.Join(
+            " | ",
+            diagnostics
+                .Take(SmartPreAimCandidateDiagnosticSampleCount)
+                .Select(FormatSmartPreAimCandidateDiagnostic));
+    }
+
+    private static string FormatSmartPreAimCandidateDiagnostic(SmartPreAimCandidateDiagnostic diagnostic)
+    {
+        var target = diagnostic.Target;
+        return string.Join(
+            ",",
+            target.Name,
+            "entity=" + target.EntityId,
+            "server=" + target.ServerObjectId,
+            "tier=" + diagnostic.PriorityTier,
+            "originDist=" + FormatSmartPreAimDistance(diagnostic.DistanceToOrigin),
+            "playerDist=" + FormatSmartPreAimDistance(diagnostic.DistanceToPlayer),
+            "homeDist=" + FormatSmartPreAimDistance(diagnostic.DistanceToHome),
+            "targetServer=" + target.TargetServerObjectId,
+            "hp=" + target.CurrentHp + "/" + target.MaxHp,
+            "local=" + diagnostic.TargetingLocalSide,
+            "team=" + diagnostic.TargetingTeamSide,
+            "aggressive=" + diagnostic.AggressivePriority,
+            "reason=" + diagnostic.Reasons);
+    }
+
+    private static string FormatSmartPreAimCandidateReasonCounts(
+        IEnumerable<SmartPreAimCandidateDiagnostic> diagnostics)
+    {
+        return string.Join(
+            ",",
+            diagnostics
+                .SelectMany(candidate => candidate.Reasons.Split('+', StringSplitOptions.RemoveEmptyEntries))
+                .GroupBy(reason => reason, StringComparer.Ordinal)
+                .OrderBy(group => group.Key, StringComparer.Ordinal)
+                .Select(group => group.Key + "=" + group.Count()));
+    }
+
+    private static string FormatSmartPreAimDistance(double distance)
+    {
+        return double.IsNaN(distance)
+            ? "na"
+            : Math.Round(distance, 2).ToString("0.##");
+    }
+
+    private sealed record SmartPreAimCandidateDiagnostic(
+        WorldObjectSnapshot Target,
+        bool IsMonster,
+        bool HasPosition,
+        bool Eligible,
+        int PriorityTier,
+        double DistanceToPlayer,
+        double DistanceToOrigin,
+        double DistanceToHome,
+        bool TargetingLocalSide,
+        bool TargetingTeamSide,
+        bool AggressivePriority,
+        string Reasons);
 
     private async Task AdjustNextTargetPreAimAsync(
         AccountWorkerContext context,

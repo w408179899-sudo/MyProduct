@@ -340,6 +340,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat target selector keeps monsters inside radius", TestStationaryTargetSelectorAsync),
     ("stationary combat smart pre-aim selector scores threats and aggressive setting", TestSmartPreAimSelectorScoresThreatsAndAggressiveSettingAsync),
     ("stationary combat smart pre-aim supports fight-target distance origin", TestSmartPreAimSupportsFightTargetDistanceOriginAsync),
+    ("stationary combat smart pre-aim logs candidate diagnostics", TestSmartPreAimLogsCandidateDiagnosticsAsync),
     ("stationary combat smart pre-aim selector keeps stable target", TestSmartPreAimSelectorKeepsStableTargetAsync),
     ("stationary combat smart pre-aim stabilizes aligned target switching", TestSmartPreAimStabilizesAlignedTargetSwitchingAsync),
     ("stationary combat smart pre-aim handoff keeps committed target", TestSmartPreAimHandoffKeepsCommittedTargetAsync),
@@ -12831,6 +12832,125 @@ static Task TestSmartPreAimSupportsFightTargetDistanceOriginAsync()
     AssertEqual(player.X, disabledOrigin.X, "disabled fight-target origin should preserve player-based selection");
     AssertEqual(player.Y, disabledOrigin.Y, "disabled fight-target origin should preserve player-based selection");
     return Task.CompletedTask;
+}
+
+static async Task TestSmartPreAimLogsCandidateDiagnosticsAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        SmartPreAimEnabled = true,
+        SmartPreAimUseFightTargetPosition = true,
+        HasStationaryCombatPosition = true,
+        StationaryCombatRadius = 30,
+        ReturnHomeWhenNoTarget = false,
+        SitWhenNoTargetAtHome = false
+    };
+
+    var playerPosition = new Vector3Snapshot(0, 0, 0);
+    var home = new Vector3Snapshot(0, 0, 0);
+    var currentTarget = new WorldObjectSnapshot(
+        50,
+        5050,
+        "current",
+        "monster",
+        new Vector3Snapshot(10, 0, 0),
+        10,
+        100,
+        100);
+    var claimedNear = new WorldObjectSnapshot(
+        51,
+        5051,
+        "claimed-near",
+        "monster",
+        new Vector3Snapshot(11, 0, 0),
+        11,
+        100,
+        100,
+        TargetServerObjectId: 9999);
+    var eligibleFar = new WorldObjectSnapshot(
+        52,
+        5052,
+        "eligible-far",
+        "monster",
+        new Vector3Snapshot(16, 0, 0),
+        16,
+        100,
+        100);
+    var gameApi = new FakeGameApi
+    {
+        WorldObjects = new[] { currentTarget, claimedNear, eligibleFar }
+    };
+    var logger = new InMemoryRoadhogLogger();
+    var controller = new StationaryCombatController(
+        new RecordingKeyboardInput(),
+        new SemiAutoCombatController(new RecordingKeyboardInput()));
+    var context = CreateContext(settings, gameApi, logger);
+    var state = new StationaryCombatState
+    {
+        LocalCombatSideServerObjectId = 7000,
+        Fighting = true,
+        CurrentTargetEntityId = currentTarget.EntityId,
+        CurrentTargetServerObjectId = currentTarget.ServerObjectId
+    };
+    state.NextTargetPreAim.SessionId = 11;
+    state.NextTargetPreAim.FightTargetEntityId = currentTarget.EntityId;
+    state.NextTargetPreAim.FightTargetServerObjectId = currentTarget.ServerObjectId;
+
+    var refreshMethod = typeof(StationaryCombatController).GetMethod(
+        "RefreshNextTargetPreAimSelectionAsync",
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+    AssertFalse(refreshMethod is null, "smart pre-aim refresh helper should exist");
+
+    async Task RefreshAsync()
+    {
+        var task = (Task)refreshMethod!.Invoke(
+            controller,
+            new object[]
+            {
+                context,
+                state,
+                playerPosition,
+                home,
+                30D,
+                currentTarget.EntityId,
+                currentTarget.ServerObjectId,
+                state.NextTargetPreAim.SessionId
+            })!;
+        await task.ConfigureAwait(false);
+    }
+
+    await RefreshAsync().ConfigureAwait(false);
+
+    AssertEqual(eligibleFar.EntityId, state.NextTargetPreAim.TargetEntityId, "diagnostics must not change smart pre-aim selection");
+    var diagnosticsEntry = logger.Entries.LastOrDefault(entry =>
+        entry.EventName == "stationary_combat.smart_preaim.candidate_diagnostics");
+    AssertFalse(diagnosticsEntry is null, "candidate diagnostics should be logged when the pre-aim target changes");
+    AssertEqual(true, Convert.ToBoolean(diagnosticsEntry!.Fields["selectionChanged"]), "diagnostic should mark changed selection");
+    AssertEqual(eligibleFar.EntityId, Convert.ToUInt16(diagnosticsEntry!.Fields["selectedTargetEntityId"]), "diagnostic selected id");
+    AssertEqual("fight_target", Convert.ToString(diagnosticsEntry.Fields["distanceOriginSource"]) ?? string.Empty, "diagnostic distance origin source");
+    var nearestToPlayer = Convert.ToString(diagnosticsEntry.Fields["nearestToPlayer"]) ?? string.Empty;
+    AssertFalse(!nearestToPlayer.Contains("current_target", StringComparison.Ordinal), "nearest samples should explain that the fight target is excluded");
+    AssertFalse(!nearestToPlayer.Contains("claimed-near", StringComparison.Ordinal), "nearest samples should include the closer claimed target");
+    AssertFalse(!nearestToPlayer.Contains("reason=claimed", StringComparison.Ordinal), "nearest samples should mark the closer target as claimed");
+    var eligibleRanked = Convert.ToString(diagnosticsEntry.Fields["eligibleRanked"]) ?? string.Empty;
+    AssertFalse(!eligibleRanked.Contains("eligible-far", StringComparison.Ordinal), "eligible ranked samples should include the selected target");
+    AssertFalse(eligibleRanked.Contains("claimed-near", StringComparison.Ordinal), "claimed target should not be listed as eligible");
+    var reasonCounts = Convert.ToString(diagnosticsEntry.Fields["reasonCounts"]) ?? string.Empty;
+    AssertFalse(!reasonCounts.Contains("current_target=1", StringComparison.Ordinal), "diagnostics should count current target exclusion");
+    AssertFalse(!reasonCounts.Contains("claimed=1", StringComparison.Ordinal), "diagnostics should count claimed exclusion");
+
+    var diagnosticsCount = logger.Entries.Count(entry =>
+        entry.EventName == "stationary_combat.smart_preaim.candidate_diagnostics");
+    await RefreshAsync().ConfigureAwait(false);
+    var unchangedDiagnostics = logger.Entries
+        .Where(entry => entry.EventName == "stationary_combat.smart_preaim.candidate_diagnostics")
+        .Skip(diagnosticsCount)
+        .LastOrDefault();
+    AssertFalse(unchangedDiagnostics is null, "candidate diagnostics should also be logged for unchanged pre-aim decisions");
+    AssertEqual(false, Convert.ToBoolean(unchangedDiagnostics!.Fields["selectionChanged"]), "diagnostic should mark unchanged selection");
 }
 
 static Task TestSmartPreAimSelectorKeepsStableTargetAsync()
