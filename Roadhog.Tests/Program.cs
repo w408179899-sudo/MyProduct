@@ -382,6 +382,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat death recovery maintenance defends before rest reenter", TestStationaryCombatDeathRecoveryMaintenanceDefendsBeforeRestReenterAsync),
     ("stationary combat death recovery path defends before spiritmaster summon", TestStationaryCombatDeathRecoveryPathDefendsBeforeSpiritmasterSummonAsync),
     ("stationary combat death recovery path defends when targeted", TestStationaryCombatDeathRecoveryPathDefendsWhenTargetedAsync),
+    ("stationary combat death recovery path loots before next defense target", TestStationaryCombatDeathRecoveryPathLootsBeforeNextDefenseTargetAsync),
     ("stationary combat death recovery path clears nearby aggressive monsters", TestStationaryCombatDeathRecoveryPathClearsNearbyAggressiveMonstersAsync),
     ("stationary combat death recovery path postpones rest for nearby aggressive after loot", TestStationaryCombatDeathRecoveryPathPostponesRestForNearbyAggressiveAfterLootAsync),
     ("stationary combat death recovery adopts pet fight pre-aim after loot", TestStationaryCombatDeathRecoveryAdoptsPetFightPreAimAfterLootAsync),
@@ -16068,6 +16069,131 @@ static async Task TestStationaryCombatDeathRecoveryPathDefendsWhenTargetedAsync(
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_RETRY_MS", previousRetry);
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_POST_REVIVE_SCROLL_INTERVAL_MS", previousScrollInterval);
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestStationaryCombatDeathRecoveryPathLootsBeforeNextDefenseTargetAsync()
+{
+    var previousAfterKillWait = Environment.GetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS");
+    var previousAfterPickWait = Environment.GetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS");
+    var previousPressCount = Environment.GetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT");
+    var previousPressInterval = Environment.GetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT", null);
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS", "0");
+    try
+    {
+        const ushort killedEntityId = 100;
+        const uint killedServerObjectId = 5000;
+        const ushort defenseEntityId = 210;
+        const uint defenseServerObjectId = 2100;
+
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Skills.ExecutionTree.Clear();
+        settings.Combat = new CombatScriptSettings
+        {
+            EnableLoot = true,
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 30
+        };
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(
+                1,
+                0,
+                "Fake",
+                100,
+                100,
+                100,
+                100,
+                0,
+                new Vector3Snapshot(0, 0, 0),
+                DateTimeOffset.Now),
+            TargetEntityId = killedEntityId,
+            TargetOwnServerObjectId = killedServerObjectId,
+            TargetName = "dead-target",
+            TargetCurrentHp = 0,
+            TargetMaxHp = 1000,
+            TargetPosition = new Vector3Snapshot(1, 0, 0),
+            TargetLootableRaw = 1,
+            TargetInteractionState = 37,
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>()),
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(
+                    defenseEntityId,
+                    defenseServerObjectId,
+                    "next-attacker",
+                    "monster",
+                    new Vector3Snapshot(4, 0, 0),
+                    4,
+                    1000,
+                    1000,
+                    IsTargetingLocalPlayer: true,
+                    AggressiveKnown: true,
+                    IsAggressiveToPlayer: true)
+            }
+        };
+
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var state = new StationaryCombatState();
+        state.EnterDeathRecovery(DateTimeOffset.Now);
+        for (var i = 0; i < 7; i++)
+        {
+            state.DeathRecovery.Advance(DateTimeOffset.Now);
+        }
+
+        state.StartLootAfterKill(
+            new LockedTargetSnapshot(
+                killedEntityId,
+                killedServerObjectId,
+                0,
+                LockedTargetSnapshot.MonsterObjectType,
+                "dead-target",
+                0,
+                1000,
+                new Vector3Snapshot(1, 0, 0),
+                1,
+                DateTimeOffset.Now,
+                LootableRaw: 1,
+                InteractionState: 37),
+            DateTimeOffset.Now);
+
+        await controller
+            .TickAsync(
+                CreateContext(settings, gameApi, logger),
+                SemiAutoSkillPlan.FromSettings(settings.Skills),
+                new SemiAutoCombatState(),
+                state)
+            .ConfigureAwait(false);
+
+        AssertSequence(new[] { "NumPadDecimal" }, keyboard.Keys, "death recovery loot should press before adopting next defense target");
+        AssertFalse(state.LootAfterKill.Active, "loot should finish before the next defense target is adopted");
+        AssertFalse(!state.Fighting, "next defense target should still be adopted after loot");
+        AssertEqual(defenseEntityId, state.CurrentTargetEntityId, "next defense target entity");
+        AssertEqual(defenseServerObjectId, state.CurrentTargetServerObjectId, "next defense target server object");
+        AssertFalse(!state.CurrentTargetIsMaintenanceDefense, "next attacker should be marked as local-side defense");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.loot.pick_pressed"),
+            "loot key press should be logged");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.loot.post_combat_maintenance_postponed"),
+            "defense handoff after loot should be logged");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", previousAfterKillWait);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS", previousAfterPickWait);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT", previousPressCount);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS", previousPressInterval);
     }
 }
 

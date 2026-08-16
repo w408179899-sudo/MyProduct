@@ -1845,6 +1845,12 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             semiAutoState.ResetAttackKeyPressThrottle();
         }
 
+        if (state.LootAfterKill.Active)
+        {
+            await TickLootAfterKillAsync(context, plan, semiAutoState, state, player).ConfigureAwait(false);
+            return StationaryCombatBehaviorStatus.Running;
+        }
+
         if (await TryHandleDeathRecoveryLocalDefenseBeforeRecoveryWorkAsync(
                 context,
                 plan,
@@ -1871,12 +1877,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     })
                 .ConfigureAwait(false))
         {
-            return StationaryCombatBehaviorStatus.Running;
-        }
-
-        if (state.LootAfterKill.Active)
-        {
-            await TickLootAfterKillAsync(context, plan, semiAutoState, state, player).ConfigureAwait(false);
             return StationaryCombatBehaviorStatus.Running;
         }
 
