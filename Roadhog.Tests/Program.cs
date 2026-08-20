@@ -99,7 +99,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("radar json store round trips and atomically replaces", RadarTests.JsonStoreRoundTripsAndAtomicallyReplacesAsync),
     ("radar navigator honors disabled switch and plans when enabled", RadarTests.NavigatorHonorsDisabledSwitchAndPlansWhenEnabledAsync),
     ("radar navigator allows script 4 near wall route", RadarTests.NavigatorAllowsScript4NearWallRouteAsync),
-    ("radar navigator does not skip waypoint across wall", RadarTests.NavigatorDoesNotSkipWaypointAcrossWallAsync),
+    ("radar navigator uses loose waypoint advance after hard reach", RadarTests.NavigatorUsesLooseWaypointAdvanceAfterHardReachAsync),
     ("radar navigator advances waypoint crossed between samples", RadarTests.NavigatorAdvancesWaypointCrossedBetweenSamplesAsync),
     ("radar navigator direct commitment stays on same target", RadarTests.NavigatorDirectCommitmentStaysOnSameTargetAsync),
     ("radar obstacle switch persists from stationary ui", TestRadarObstacleSwitchPersistsFromStationaryUiAsync),
@@ -340,6 +340,13 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat target selector keeps monsters inside radius", TestStationaryTargetSelectorAsync),
     ("stationary combat smart pre-aim selector scores threats and aggressive setting", TestSmartPreAimSelectorScoresThreatsAndAggressiveSettingAsync),
     ("stationary combat smart pre-aim supports fight-target distance origin", TestSmartPreAimSupportsFightTargetDistanceOriginAsync),
+    ("stationary combat route distance selects reachable farther target", TestStationaryCombatRouteDistanceSelectsReachableFartherTargetAsync),
+    ("stationary combat route distance falls back without radar map", TestStationaryCombatRouteDistanceFallsBackWithoutRadarMapAsync),
+    ("stationary combat route distance falls back when radar disabled", TestStationaryCombatRouteDistanceFallsBackWhenRadarDisabledAsync),
+    ("stationary combat route distance falls back on empty obstacle map", TestStationaryCombatRouteDistanceFallsBackOnEmptyObstacleMapAsync),
+    ("stationary combat route distance skips unreachable target", TestStationaryCombatRouteDistanceSkipsUnreachableTargetAsync),
+    ("stationary combat route distance scoring does not mutate navigation state", TestStationaryCombatRouteDistanceScoringDoesNotMutateNavigationStateAsync),
+    ("stationary combat smart pre-aim uses route distance", TestSmartPreAimUsesRouteDistanceAsync),
     ("stationary combat smart pre-aim logs candidate diagnostics", TestSmartPreAimLogsCandidateDiagnosticsAsync),
     ("stationary combat smart pre-aim selector keeps stable target", TestSmartPreAimSelectorKeepsStableTargetAsync),
     ("stationary combat smart pre-aim stabilizes aligned target switching", TestSmartPreAimStabilizesAlignedTargetSwitchingAsync),
@@ -12832,6 +12839,348 @@ static Task TestSmartPreAimSupportsFightTargetDistanceOriginAsync()
     AssertEqual(player.X, disabledOrigin.X, "disabled fight-target origin should preserve player-based selection");
     AssertEqual(player.Y, disabledOrigin.Y, "disabled fight-target origin should preserve player-based selection");
     return Task.CompletedTask;
+}
+
+static async Task TestStationaryCombatRouteDistanceSelectsReachableFartherTargetAsync()
+{
+    const uint mapId = 8701;
+    var nearBehindWall = RouteDistanceMonster(61, 6061, "near-behind-wall", 20, 0);
+    var directFarther = RouteDistanceMonster(62, 6062, "direct-farther", 0, 24);
+    var settings = CreateRouteDistanceStationarySettings(maximumDetourExtraMeters: 100.0D);
+    var gameApi = CreateRouteDistanceGameApi(mapId, nearBehindWall, directFarther);
+    var logger = new InMemoryRoadhogLogger();
+    var keyboard = new RecordingKeyboardInput();
+    var navigator = CreateRouteDistanceNavigator(mapId);
+    var controller = new StationaryCombatController(
+        keyboard,
+        new SemiAutoCombatController(keyboard),
+        obstacleNavigator: navigator);
+    var state = new StationaryCombatState();
+
+    await controller.TickAsync(
+            CreateContext(settings, gameApi, logger),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            state)
+        .ConfigureAwait(false);
+
+    AssertEqual(directFarther.EntityId, state.CandidateEntityId, "route distance should beat straight-line distance");
+    AssertEqual(0, state.ObstacleNavigation.Route.Count, "route scoring must not create a waypoint route before movement requires it");
+}
+
+static async Task TestStationaryCombatRouteDistanceFallsBackWithoutRadarMapAsync()
+{
+    const uint mapId = 8702;
+    var nearBehindWall = RouteDistanceMonster(63, 6063, "near-without-map", 20, 0);
+    var directFarther = RouteDistanceMonster(64, 6064, "direct-without-map", 0, 24);
+    var settings = CreateRouteDistanceStationarySettings(maximumDetourExtraMeters: 100.0D);
+    var gameApi = CreateRouteDistanceGameApi(mapId, nearBehindWall, directFarther);
+    var logger = new InMemoryRoadhogLogger();
+    var keyboard = new RecordingKeyboardInput();
+    var missingMapStore = new StaticRadarMapStore(CreateRouteDistanceMap(mapId + 100));
+    var navigator = new StationaryObstacleNavigator(
+        missingMapStore,
+        new RadarRoutePlanner(),
+        new RadarMapRevisionRegistry());
+    var controller = new StationaryCombatController(
+        keyboard,
+        new SemiAutoCombatController(keyboard),
+        obstacleNavigator: navigator);
+    var state = new StationaryCombatState();
+
+    await controller.TickAsync(
+            CreateContext(settings, gameApi, logger),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            state)
+        .ConfigureAwait(false);
+
+    AssertEqual(nearBehindWall.EntityId, state.CandidateEntityId, "missing radar map should preserve straight-line selection");
+}
+
+static async Task TestStationaryCombatRouteDistanceFallsBackWhenRadarDisabledAsync()
+{
+    const uint mapId = 8706;
+    var nearBehindWall = RouteDistanceMonster(73, 6073, "near-disabled", 20, 0);
+    var directFarther = RouteDistanceMonster(74, 6074, "direct-disabled", 0, 24);
+    var settings = CreateRouteDistanceStationarySettings(maximumDetourExtraMeters: 100.0D);
+    settings.Combat.RadarObstacleAvoidance.Enabled = false;
+    var gameApi = CreateRouteDistanceGameApi(mapId, nearBehindWall, directFarther);
+    var logger = new InMemoryRoadhogLogger();
+    var keyboard = new RecordingKeyboardInput();
+    var controller = new StationaryCombatController(
+        keyboard,
+        new SemiAutoCombatController(keyboard),
+        obstacleNavigator: CreateRouteDistanceNavigator(mapId));
+    var state = new StationaryCombatState();
+
+    await controller.TickAsync(
+            CreateContext(settings, gameApi, logger),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            state)
+        .ConfigureAwait(false);
+
+    AssertEqual(nearBehindWall.EntityId, state.CandidateEntityId, "disabled radar obstacle avoidance should preserve straight-line selection");
+}
+
+static async Task TestStationaryCombatRouteDistanceFallsBackOnEmptyObstacleMapAsync()
+{
+    const uint mapId = 8707;
+    var nearBehindWall = RouteDistanceMonster(75, 6075, "near-empty-map", 20, 0);
+    var directFarther = RouteDistanceMonster(76, 6076, "direct-empty-map", 0, 24);
+    var settings = CreateRouteDistanceStationarySettings(maximumDetourExtraMeters: 100.0D);
+    var gameApi = CreateRouteDistanceGameApi(mapId, nearBehindWall, directFarther);
+    var logger = new InMemoryRoadhogLogger();
+    var keyboard = new RecordingKeyboardInput();
+    var emptyMapStore = new StaticRadarMapStore(new RadarMapDocument { MapId = mapId });
+    var navigator = new StationaryObstacleNavigator(
+        emptyMapStore,
+        new RadarRoutePlanner(),
+        new RadarMapRevisionRegistry());
+    var controller = new StationaryCombatController(
+        keyboard,
+        new SemiAutoCombatController(keyboard),
+        obstacleNavigator: navigator);
+    var state = new StationaryCombatState();
+
+    await controller.TickAsync(
+            CreateContext(settings, gameApi, logger),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            state)
+        .ConfigureAwait(false);
+
+    AssertEqual(nearBehindWall.EntityId, state.CandidateEntityId, "empty obstacle map should preserve straight-line selection");
+}
+
+static async Task TestStationaryCombatRouteDistanceSkipsUnreachableTargetAsync()
+{
+    const uint mapId = 8703;
+    var nearUnreachable = RouteDistanceMonster(65, 6065, "near-unreachable", 20, 0);
+    var directFarther = RouteDistanceMonster(66, 6066, "direct-reachable", 0, 24);
+    var settings = CreateRouteDistanceStationarySettings(maximumDetourExtraMeters: 1.0D);
+    var gameApi = CreateRouteDistanceGameApi(mapId, nearUnreachable, directFarther);
+    var logger = new InMemoryRoadhogLogger();
+    var keyboard = new RecordingKeyboardInput();
+    var controller = new StationaryCombatController(
+        keyboard,
+        new SemiAutoCombatController(keyboard),
+        obstacleNavigator: CreateRouteDistanceNavigator(mapId));
+    var state = new StationaryCombatState();
+
+    await controller.TickAsync(
+            CreateContext(settings, gameApi, logger),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            state)
+        .ConfigureAwait(false);
+
+    AssertEqual(directFarther.EntityId, state.CandidateEntityId, "unreachable route-scored target should sort after reachable targets");
+}
+
+static async Task TestStationaryCombatRouteDistanceScoringDoesNotMutateNavigationStateAsync()
+{
+    const uint mapId = 8704;
+    var nearBehindWall = RouteDistanceMonster(67, 6067, "near-score-only", 20, 0);
+    var directFarther = RouteDistanceMonster(68, 6068, "direct-score-only", 0, 24);
+    var settings = CreateRouteDistanceStationarySettings(maximumDetourExtraMeters: 100.0D);
+    var gameApi = CreateRouteDistanceGameApi(mapId, nearBehindWall, directFarther);
+    var logger = new InMemoryRoadhogLogger();
+    var keyboard = new RecordingKeyboardInput();
+    var controller = new StationaryCombatController(
+        keyboard,
+        new SemiAutoCombatController(keyboard),
+        obstacleNavigator: CreateRouteDistanceNavigator(mapId));
+    var state = new StationaryCombatState();
+    var existingRoute = new[] { new RadarPoint(5, 5), new RadarPoint(6, 6) };
+    state.ObstacleNavigation.Purpose = RadarNavigationPurpose.ReturnHome;
+    state.ObstacleNavigation.TargetServerObjectId = 9999;
+    state.ObstacleNavigation.PlannedGoal = new RadarPoint(9, 9);
+    state.ObstacleNavigation.Route = existingRoute;
+    state.ObstacleNavigation.WaypointIndex = 1;
+    state.ObstacleNavigation.LastPlanAt = DateTimeOffset.Now;
+
+    var scoreMethod = typeof(StationaryCombatController).GetMethod(
+        "ScoreTargetRouteDistancesAsync",
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+    AssertFalse(scoreMethod is null, "route distance scoring helper should exist");
+    var task = (Task)scoreMethod!.Invoke(
+        controller,
+        new object[]
+        {
+            CreateContext(settings, gameApi, logger),
+            state,
+            new Vector3Snapshot(0, 0, 0),
+            new[] { nearBehindWall, directFarther }
+        })!;
+    await task.ConfigureAwait(false);
+
+    AssertEqual(9999u, state.ObstacleNavigation.TargetServerObjectId, "route scoring must not change active navigation target");
+    AssertEqual(1, state.ObstacleNavigation.WaypointIndex, "route scoring must not change active waypoint index");
+    AssertFalse(!ReferenceEquals(existingRoute, state.ObstacleNavigation.Route), "route scoring must not replace active waypoint route");
+}
+
+static async Task TestSmartPreAimUsesRouteDistanceAsync()
+{
+    const uint mapId = 8705;
+    var currentTarget = RouteDistanceMonster(70, 6070, "current", 2, 0);
+    var nearBehindWall = RouteDistanceMonster(71, 6071, "near-preaim-wall", 20, 0);
+    var directFarther = RouteDistanceMonster(72, 6072, "direct-preaim", 0, 24);
+    var settings = CreateRouteDistanceStationarySettings(
+        maximumDetourExtraMeters: 100.0D,
+        smartPreAimEnabled: true);
+    var gameApi = CreateRouteDistanceGameApi(mapId, currentTarget, nearBehindWall, directFarther);
+    var logger = new InMemoryRoadhogLogger();
+    var keyboard = new RecordingKeyboardInput();
+    var controller = new StationaryCombatController(
+        keyboard,
+        new SemiAutoCombatController(keyboard),
+        obstacleNavigator: CreateRouteDistanceNavigator(mapId));
+    var context = CreateContext(settings, gameApi, logger);
+    var state = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = currentTarget.EntityId,
+        CurrentTargetServerObjectId = currentTarget.ServerObjectId
+    };
+    state.NextTargetPreAim.SessionId = 3;
+    state.NextTargetPreAim.FightTargetEntityId = currentTarget.EntityId;
+    state.NextTargetPreAim.FightTargetServerObjectId = currentTarget.ServerObjectId;
+
+    var refreshMethod = typeof(StationaryCombatController).GetMethod(
+        "RefreshNextTargetPreAimSelectionAsync",
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+    AssertFalse(refreshMethod is null, "smart pre-aim refresh helper should exist");
+    var task = (Task)refreshMethod!.Invoke(
+        controller,
+        new object[]
+        {
+            context,
+            state,
+            new Vector3Snapshot(0, 0, 0),
+            new Vector3Snapshot(0, 0, 0),
+            60D,
+            currentTarget.EntityId,
+            currentTarget.ServerObjectId,
+            state.NextTargetPreAim.SessionId
+        })!;
+    await task.ConfigureAwait(false);
+
+    AssertEqual(directFarther.EntityId, state.NextTargetPreAim.TargetEntityId, "smart pre-aim should rank by route distance");
+    var selected = logger.Entries.LastOrDefault(entry =>
+        entry.EventName == "stationary_combat.smart_preaim.target_selected");
+    AssertFalse(selected is null, "smart pre-aim route-distance selection should be logged");
+    AssertEqual("direct", Convert.ToString(selected!.Fields["distanceMode"]) ?? string.Empty, "selected route distance mode");
+}
+
+static ScriptSettings CreateRouteDistanceStationarySettings(
+    double maximumDetourExtraMeters,
+    bool smartPreAimEnabled = false)
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 60,
+        ReturnHomeWhenNoTarget = false,
+        SitWhenNoTargetAtHome = false,
+        SmartPreAimEnabled = smartPreAimEnabled,
+        RadarObstacleAvoidance = new RadarObstacleScriptSettings
+        {
+            Enabled = true,
+            WaypointReachMeters = 1.5D,
+            MaximumDetourExtraMeters = maximumDetourExtraMeters
+        }
+    };
+    return settings;
+}
+
+static FakeGameApi CreateRouteDistanceGameApi(
+    uint mapId,
+    params WorldObjectSnapshot[] objects)
+{
+    return new FakeGameApi
+    {
+        Player = new PlayerSnapshot(
+            1,
+            0,
+            "Fake",
+            100,
+            100,
+            100,
+            100,
+            0,
+            new Vector3Snapshot(0, 0, 0),
+            DateTimeOffset.Now,
+            90,
+            10,
+            90),
+        TargetEntityId = 0,
+        TargetCurrentHp = 0,
+        TargetMaxHp = 0,
+        TargetPosition = null,
+        Channel = new ChannelSnapshot(0, 1, mapId, DateTimeOffset.Now),
+        WorldObjects = objects,
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0,
+            [7] = 0,
+            [8] = 0,
+            [9] = 0,
+            [10] = 0
+        })
+    };
+}
+
+static StationaryObstacleNavigator CreateRouteDistanceNavigator(uint mapId)
+{
+    return new StationaryObstacleNavigator(
+        new StaticRadarMapStore(CreateRouteDistanceMap(mapId)),
+        new RadarRoutePlanner(),
+        new RadarMapRevisionRegistry());
+}
+
+static RadarMapDocument CreateRouteDistanceMap(uint mapId)
+{
+    return new RadarMapDocument
+    {
+        MapId = mapId,
+        Segments = new List<RadarObstacleSegment>
+        {
+            new()
+            {
+                Start = new RadarPoint(10, -20),
+                End = new RadarPoint(10, 20)
+            }
+        }
+    };
+}
+
+static WorldObjectSnapshot RouteDistanceMonster(
+    ushort entityId,
+    uint serverObjectId,
+    string name,
+    float x,
+    float y)
+{
+    var position = new Vector3Snapshot(x, y, 0);
+    return new WorldObjectSnapshot(
+        entityId,
+        serverObjectId,
+        name,
+        "monster",
+        position,
+        StationaryCombatTargetSelector.HorizontalDistance(position, new Vector3Snapshot(0, 0, 0)),
+        1000,
+        1000);
 }
 
 static async Task TestSmartPreAimLogsCandidateDiagnosticsAsync()

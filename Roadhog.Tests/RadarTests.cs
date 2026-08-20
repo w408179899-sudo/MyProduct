@@ -479,7 +479,7 @@ internal static class RadarTests
         }
     }
 
-    public static async Task NavigatorDoesNotSkipWaypointAcrossWallAsync()
+    public static async Task NavigatorUsesLooseWaypointAdvanceAfterHardReachAsync()
     {
         var directory = CreateTemporaryDirectory();
         try
@@ -518,7 +518,7 @@ internal static class RadarTests
                 .ConfigureAwait(false);
             Require(first.Action == RadarNavigationAction.MoveToWaypoint, "wall should produce a waypoint");
             Require(first.Plan is { Success: true, Direct: false }, "wall route should be a successful detour");
-            RequireNear(1.5D, first.ReachDistanceMeters, "intermediate waypoint reach must be capped at 1.5 meters");
+            RequireNear(1.5D, first.ReachDistanceMeters, "intermediate waypoint movement should keep 1.5 meter precision");
 
             var waypoint = new RadarPoint(10.0D, 5.5D);
             var nearWaypoint = new RadarPoint(9.0D, 4.75D);
@@ -555,6 +555,7 @@ internal static class RadarTests
                 RadarGeometry.IsPathClear(nearWaypoint, second.Destination, new[] { wall }),
                 "retained waypoint leg must not intersect the wall");
 
+            settings.WaypointReachMeters = 1.5D;
             var guardedGoal = new RadarPoint(20.0D, -10.0D);
             var crossedFrom = new RadarPoint(12.0D, 3.5D);
             var crossedTo = new RadarPoint(8.0D, 7.5D);
@@ -575,7 +576,7 @@ internal static class RadarTests
             state.LastWaypointMovementSample = crossedFrom;
             state.LastWaypointMovementSampleIndex = 0;
 
-            var crossedButBlocked = await navigator.ResolveAsync(
+            var looseAdvance = await navigator.ResolveAsync(
                     state,
                     124,
                     crossedTo,
@@ -586,11 +587,11 @@ internal static class RadarTests
                     1.0D)
                 .ConfigureAwait(false);
 
-            Require(state.WaypointIndex == 0, "crossed waypoint must remain pending while the next leg crosses the wall");
-            RequireNear(waypoint.X, crossedButBlocked.Destination.X, "blocked crossed waypoint X");
-            RequireNear(waypoint.Y, crossedButBlocked.Destination.Y, "blocked crossed waypoint Y");
-            RequireNear(0.0D, crossedButBlocked.ReachDistanceMeters, "blocked crossed waypoint must retain precise movement");
-            Require(crossedButBlocked.Reason == "move_waypoint_precise", "blocked crossed waypoint should retain precise reason");
+            Require(state.WaypointIndex == 1, "loose waypoint advance should move past the current waypoint once inside 3 meters");
+            RequireNear(guardedGoal.X, looseAdvance.Destination.X, "loose advance next waypoint X");
+            RequireNear(guardedGoal.Y, looseAdvance.Destination.Y, "loose advance next waypoint Y");
+            RequireNear(1.0D, looseAdvance.ReachDistanceMeters, "loose advance should use the final reach distance");
+            Require(looseAdvance.Reason == "move_final", "loose advance should continue to the next point instead of precise correction");
         }
         finally
         {

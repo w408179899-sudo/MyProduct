@@ -9,9 +9,12 @@ public static class StationaryCombatTargetSelector
         Vector3Snapshot distanceOrigin,
         Vector3Snapshot stationaryPosition,
         double stationaryRadius,
-        bool preferAggressiveMonsters = false)
+        bool preferAggressiveMonsters = false,
+        Func<WorldObjectSnapshot, double>? distanceResolver = null)
     {
         var radius = Math.Max(0.0D, stationaryRadius);
+        var resolveDistance = distanceResolver ??
+                              (target => HorizontalDistance(target.Position!.Value, distanceOrigin));
         var candidates = objects
             .Where(IsSelectableMonster)
             .Where(target => target.Position is not null)
@@ -21,14 +24,14 @@ public static class StationaryCombatTargetSelector
         {
             return candidates
                 .OrderByDescending(target => target.IsAggressiveToPlayer)
-                .ThenBy(target => HorizontalDistance(target.Position!.Value, distanceOrigin))
+                .ThenBy(resolveDistance)
                 .ThenBy(target => target.ServerObjectId)
                 .ThenBy(target => target.EntityId)
                 .FirstOrDefault();
         }
 
         return candidates
-            .OrderBy(target => HorizontalDistance(target.Position!.Value, distanceOrigin))
+            .OrderBy(resolveDistance)
             .ThenBy(target => target.ServerObjectId)
             .ThenBy(target => target.EntityId)
             .FirstOrDefault();

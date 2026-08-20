@@ -26,6 +26,24 @@ public sealed record RadarNavigationDecision(
     int RelevantObstacleCount,
     string Reason);
 
+public sealed record RadarRouteDistanceRequest(string Key, RadarPoint Goal);
+
+public sealed record RadarRouteDistanceScore(
+    string Key,
+    double DirectDistance,
+    double EffectiveDistance,
+    bool Reachable,
+    bool UsesRouteDistance,
+    uint MapId,
+    int RelevantObstacleCount,
+    string Reason);
+
+public sealed record RadarRouteDistanceScoreBatch(
+    uint MapId,
+    bool UsesRouteScoring,
+    string Reason,
+    IReadOnlyDictionary<string, RadarRouteDistanceScore> Scores);
+
 public sealed class StationaryObstacleNavigationState
 {
     private uint _directCommittedTargetServerObjectId;
@@ -60,6 +78,10 @@ public sealed class StationaryObstacleNavigationState
 
     public bool CurrentWaypointReached { get; set; }
 
+    public bool CurrentWaypointReachedPrecisely { get; set; }
+
+    public int LooseAdvanceWaypointIndex { get; set; } = -1;
+
     public RadarRoutePlan? LastPlan { get; set; }
 
     public DateTimeOffset LastPlanAt { get; set; } = DateTimeOffset.MinValue;
@@ -89,6 +111,7 @@ public sealed class StationaryObstacleNavigationState
         if (WaypointIndex >= 0 && WaypointIndex < Route.Count)
         {
             CurrentWaypointReached = true;
+            CurrentWaypointReachedPrecisely = true;
         }
     }
 
@@ -108,6 +131,8 @@ public sealed class StationaryObstacleNavigationState
         LastWaypointMovementSample = default;
         LastWaypointMovementSampleIndex = -1;
         CurrentWaypointReached = false;
+        CurrentWaypointReachedPrecisely = false;
+        LooseAdvanceWaypointIndex = -1;
         LastPlan = null;
         LastPlanAt = DateTimeOffset.MinValue;
     }
@@ -132,14 +157,18 @@ public sealed class StationaryObstacleNavigationState
 public sealed class StationaryObstacleNavigator
 {
     private const double MinimumWaypointReachMeters = 0.25D;
-    private const double MaximumWaypointReachMeters = 1.5D;
+    private const double MaximumWaypointReachMeters = 3.0D;
+    private const double MaximumPrecisionCorrectionMeters = 1.5D;
+    private const double LooseWaypointAdvanceMeters = 3.0D;
 
     private readonly IRadarMapStore _mapStore;
     private readonly RadarRoutePlanner _planner;
     private readonly RadarMapRevisionRegistry _revisions;
     private readonly object _settingsSync = new();
+    private readonly object _scoreMapSync = new();
     private readonly Dictionary<string, RadarObstacleScriptSettings> _settingsOverrides =
         new(StringComparer.OrdinalIgnoreCase);
+    private RadarScoringMap? _scoreMapCache;
 
     public StationaryObstacleNavigator(
         IRadarMapStore mapStore,
@@ -179,6 +208,53 @@ public sealed class StationaryObstacleNavigator
     public void NotifyMapSaved(uint mapId)
     {
         _revisions.Increment(mapId);
+    }
+
+    public async Task<RadarRouteDistanceScoreBatch> ScoreRouteDistancesAsync(
+        uint mapId,
+        RadarPoint start,
+        IReadOnlyList<RadarRouteDistanceRequest> requests,
+        RadarObstacleScriptSettings settings,
+        CancellationToken cancellationToken = default)
+    {
+        if (requests.Count == 0)
+        {
+            return new RadarRouteDistanceScoreBatch(
+                mapId,
+                false,
+                "no_targets",
+                new Dictionary<string, RadarRouteDistanceScore>(StringComparer.Ordinal));
+        }
+
+        if (!settings.Enabled || mapId == 0)
+        {
+            return CreateDirectScoreBatch(mapId, start, requests, "disabled_or_map_unknown");
+        }
+
+        var loaded = await LoadScoringMapAsync(mapId, cancellationToken).ConfigureAwait(false);
+        if (loaded is null)
+        {
+            return CreateDirectScoreBatch(mapId, start, requests, "map_load_failed");
+        }
+
+        if (!loaded.Found || loaded.Document.Segments.Count == 0)
+        {
+            return CreateDirectScoreBatch(mapId, start, requests, "map_missing_or_empty");
+        }
+
+        var scores = new Dictionary<string, RadarRouteDistanceScore>(StringComparer.Ordinal);
+        foreach (var request in requests)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            scores[request.Key] = ScoreRouteDistance(
+                mapId,
+                start,
+                request,
+                loaded.Index,
+                settings);
+        }
+
+        return new RadarRouteDistanceScoreBatch(mapId, true, "route_scored", scores);
     }
 
     public async Task<RadarNavigationDecision> ResolveAsync(
@@ -254,6 +330,8 @@ public sealed class StationaryObstacleNavigator
         }
 
         var waypointReachDistance = ResolveWaypointReachDistance(settings);
+        var waypointPrecisionDistance = ResolveWaypointPrecisionDistance(waypointReachDistance);
+        var waypointAdvanceDistance = ResolveWaypointAdvanceDistance(waypointReachDistance);
         var goalMoved = state.PlannedGoal.DistanceTo(goal) > Math.Max(0.1D, settings.TargetReplanDistanceMeters);
         var hasCurrentWaypoint = state.WaypointIndex >= 0 && state.WaypointIndex < state.Route.Count;
         var routeIdentityMatches = state.Route.Count > 0 &&
@@ -263,14 +341,20 @@ public sealed class StationaryObstacleNavigator
                                    !goalMoved;
         if (routeIdentityMatches)
         {
-            ObserveWaypointMovement(state, start, waypointReachDistance);
-            AdvanceReachedWaypoints(state, index, start, waypointReachDistance);
+            ObserveWaypointMovement(state, start, waypointPrecisionDistance, waypointAdvanceDistance);
+            AdvanceReachedWaypoints(state, index, start, waypointPrecisionDistance, waypointAdvanceDistance);
             hasCurrentWaypoint = state.WaypointIndex >= 0 && state.WaypointIndex < state.Route.Count;
+        }
+
+        var routeLegClear = hasCurrentWaypoint && IsRouteLegClear(index, start, state.Route[state.WaypointIndex]);
+        if (routeLegClear && state.LooseAdvanceWaypointIndex == state.WaypointIndex)
+        {
+            state.LooseAdvanceWaypointIndex = -1;
         }
 
         var routeMatches = routeIdentityMatches &&
                            hasCurrentWaypoint &&
-                           IsRouteLegClear(index, start, state.Route[state.WaypointIndex]);
+                           (routeLegClear || state.LooseAdvanceWaypointIndex == state.WaypointIndex);
         if (state.LastPlan is { Success: false } failedPlan &&
             state.Purpose == purpose &&
             state.TargetServerObjectId == targetServerObjectId &&
@@ -311,6 +395,7 @@ public sealed class StationaryObstacleNavigator
             state.LastPlanAt = DateTimeOffset.Now;
             state.Route = plan.Success ? plan.Points.Skip(1).ToArray() : Array.Empty<RadarPoint>();
             state.WaypointIndex = 0;
+            state.LooseAdvanceWaypointIndex = -1;
             ResetWaypointMovementObservation(state, start);
             if (!plan.Success || state.Route.Count == 0)
             {
@@ -325,13 +410,13 @@ public sealed class StationaryObstacleNavigator
             }
         }
 
-        ObserveWaypointMovement(state, start, waypointReachDistance);
-        AdvanceReachedWaypoints(state, index, start, waypointReachDistance);
+        ObserveWaypointMovement(state, start, waypointPrecisionDistance, waypointAdvanceDistance);
+        AdvanceReachedWaypoints(state, index, start, waypointPrecisionDistance, waypointAdvanceDistance);
 
         var destination = state.Route[Math.Clamp(state.WaypointIndex, 0, state.Route.Count - 1)];
         var isFinal = state.WaypointIndex == state.Route.Count - 1;
         var nextLegBlockedInsideReach = !isFinal &&
-                                        state.CurrentWaypointReached &&
+                                        state.CurrentWaypointReachedPrecisely &&
                                         !IsRouteLegClear(index, start, state.Route[state.WaypointIndex + 1]);
         return new RadarNavigationDecision(
             RadarNavigationAction.MoveToWaypoint,
@@ -340,7 +425,7 @@ public sealed class StationaryObstacleNavigator
                 ? finalReachDistanceMeters
                 : nextLegBlockedInsideReach
                     ? 0.0D
-                    : waypointReachDistance,
+                    : waypointPrecisionDistance,
             state.LastPlan,
             mapId,
             state.LastPlan?.EvaluatedObstacleCount ?? directObstacles.Count,
@@ -359,10 +444,142 @@ public sealed class StationaryObstacleNavigator
             MaximumWaypointReachMeters);
     }
 
+    private static double ResolveWaypointPrecisionDistance(double waypointReachDistance)
+    {
+        return Math.Min(waypointReachDistance, MaximumPrecisionCorrectionMeters);
+    }
+
+    private static double ResolveWaypointAdvanceDistance(double waypointReachDistance)
+    {
+        return Math.Max(waypointReachDistance, LooseWaypointAdvanceMeters);
+    }
+
+    private async Task<RadarScoringMap?> LoadScoringMapAsync(
+        uint mapId,
+        CancellationToken cancellationToken)
+    {
+        var revision = _revisions.Get(mapId);
+        lock (_scoreMapSync)
+        {
+            if (_scoreMapCache is { } cached &&
+                cached.MapId == mapId &&
+                cached.Revision == revision)
+            {
+                return cached;
+            }
+        }
+
+        var load = await _mapStore.LoadAsync(mapId, cancellationToken).ConfigureAwait(false);
+        if (!load.Success || load.Value is null)
+        {
+            return null;
+        }
+
+        var loaded = new RadarScoringMap(
+            mapId,
+            revision,
+            load.Value.Found,
+            load.Value.Document,
+            new RadarObstacleSpatialIndex(load.Value.Document.Segments));
+        lock (_scoreMapSync)
+        {
+            _scoreMapCache = loaded;
+        }
+
+        return loaded;
+    }
+
+    private RadarRouteDistanceScore ScoreRouteDistance(
+        uint mapId,
+        RadarPoint start,
+        RadarRouteDistanceRequest request,
+        RadarObstacleSpatialIndex index,
+        RadarObstacleScriptSettings settings)
+    {
+        var directDistance = start.DistanceTo(request.Goal);
+        var directObstacles = index.QueryCorridor(start, request.Goal, 1.0D);
+        if (RadarGeometry.IsPathClear(start, request.Goal, directObstacles))
+        {
+            return new RadarRouteDistanceScore(
+                request.Key,
+                directDistance,
+                directDistance,
+                true,
+                false,
+                mapId,
+                directObstacles.Count,
+                "direct");
+        }
+
+        var margin = Math.Max(
+            10.0D,
+            settings.MaximumDetourExtraMeters + 2.0D);
+        var localObstacles = index.QueryCorridor(start, request.Goal, margin);
+        var plan = _planner.Plan(new RadarRouteRequest(
+            start,
+            request.Goal,
+            localObstacles,
+            settings.MaximumDetourExtraMeters));
+        if (!plan.Success && localObstacles.Count < index.All.Count)
+        {
+            plan = _planner.Plan(new RadarRouteRequest(
+                start,
+                request.Goal,
+                index.All,
+                settings.MaximumDetourExtraMeters));
+        }
+
+        return plan.Success
+            ? new RadarRouteDistanceScore(
+                request.Key,
+                directDistance,
+                plan.RouteDistance,
+                true,
+                true,
+                mapId,
+                plan.EvaluatedObstacleCount,
+                plan.Reason)
+            : new RadarRouteDistanceScore(
+                request.Key,
+                directDistance,
+                double.MaxValue,
+                false,
+                true,
+                mapId,
+                plan.EvaluatedObstacleCount,
+                plan.Reason);
+    }
+
+    private static RadarRouteDistanceScoreBatch CreateDirectScoreBatch(
+        uint mapId,
+        RadarPoint start,
+        IReadOnlyList<RadarRouteDistanceRequest> requests,
+        string reason)
+    {
+        var scores = requests.ToDictionary(
+            request => request.Key,
+            request =>
+            {
+                var directDistance = start.DistanceTo(request.Goal);
+                return new RadarRouteDistanceScore(
+                    request.Key,
+                    directDistance,
+                    directDistance,
+                    true,
+                    false,
+                    mapId,
+                    0,
+                    reason);
+            },
+            StringComparer.Ordinal);
+        return new RadarRouteDistanceScoreBatch(mapId, false, reason, scores);
+    }
+
     private static void ObserveWaypointMovement(
         StationaryObstacleNavigationState state,
         RadarPoint start,
-        double waypointReachDistance)
+        double waypointPrecisionDistance,
+        double waypointAdvanceDistance)
     {
         if (state.WaypointIndex < 0 || state.WaypointIndex >= state.Route.Count)
         {
@@ -376,32 +593,67 @@ public sealed class StationaryObstacleNavigator
         }
 
         var waypoint = state.Route[state.WaypointIndex];
-        var reachedByCurrentSample = start.DistanceTo(waypoint) <= waypointReachDistance;
-        var reachedBetweenSamples = state.HasWaypointMovementSample &&
-                                    RadarGeometry.PointToSegmentDistance(
-                                        waypoint,
-                                        state.LastWaypointMovementSample,
-                                        start) <= waypointReachDistance;
-        state.CurrentWaypointReached |= reachedByCurrentSample || reachedBetweenSamples;
+        var distanceToWaypoint = start.DistanceTo(waypoint);
+        var reachedPreciselyByCurrentSample = distanceToWaypoint <= waypointPrecisionDistance;
+        var reachedLooselyAfterHardReach = state.HasWaypointMovementSample &&
+                                           distanceToWaypoint > waypointPrecisionDistance &&
+                                           distanceToWaypoint <= waypointAdvanceDistance &&
+                                           MovedAcrossWaypointSide(
+                                               state.LastWaypointMovementSample,
+                                               start,
+                                               waypoint,
+                                               waypointAdvanceDistance);
+        if (reachedPreciselyByCurrentSample)
+        {
+            state.CurrentWaypointReached = true;
+            state.CurrentWaypointReachedPrecisely = true;
+        }
+        else if (reachedLooselyAfterHardReach)
+        {
+            state.CurrentWaypointReached = true;
+        }
+
         state.LastWaypointMovementSample = start;
         state.HasWaypointMovementSample = true;
         state.LastWaypointMovementSampleIndex = state.WaypointIndex;
+    }
+
+    private static bool MovedAcrossWaypointSide(
+        RadarPoint previous,
+        RadarPoint current,
+        RadarPoint waypoint,
+        double waypointAdvanceDistance)
+    {
+        var previousX = previous.X - waypoint.X;
+        var previousY = previous.Y - waypoint.Y;
+        var currentX = current.X - waypoint.X;
+        var currentY = current.Y - waypoint.Y;
+        var dot = previousX * currentX + previousY * currentY;
+        return dot <= 0.0D &&
+               RadarGeometry.PointToSegmentDistance(waypoint, previous, current) <= waypointAdvanceDistance;
     }
 
     private static void AdvanceReachedWaypoints(
         StationaryObstacleNavigationState state,
         RadarObstacleSpatialIndex index,
         RadarPoint start,
-        double waypointReachDistance)
+        double waypointPrecisionDistance,
+        double waypointAdvanceDistance)
     {
         while (state.CurrentWaypointReached &&
                state.WaypointIndex >= 0 &&
-               state.WaypointIndex < state.Route.Count - 1 &&
-               IsRouteLegClear(index, start, state.Route[state.WaypointIndex + 1]))
+               state.WaypointIndex < state.Route.Count - 1)
         {
+            var nextLegClear = IsRouteLegClear(index, start, state.Route[state.WaypointIndex + 1]);
+            if (state.CurrentWaypointReachedPrecisely && !nextLegClear)
+            {
+                break;
+            }
+
             state.WaypointIndex++;
+            state.LooseAdvanceWaypointIndex = nextLegClear ? -1 : state.WaypointIndex;
             ResetWaypointMovementObservation(state, start);
-            ObserveWaypointMovement(state, start, waypointReachDistance);
+            ObserveWaypointMovement(state, start, waypointPrecisionDistance, waypointAdvanceDistance);
         }
     }
 
@@ -413,6 +665,7 @@ public sealed class StationaryObstacleNavigator
         state.LastWaypointMovementSample = start;
         state.LastWaypointMovementSampleIndex = state.WaypointIndex;
         state.CurrentWaypointReached = false;
+        state.CurrentWaypointReachedPrecisely = false;
     }
 
     private static bool IsRouteLegClear(
@@ -440,4 +693,11 @@ public sealed class StationaryObstacleNavigator
             obstacleCount,
             reason);
     }
+
+    private sealed record RadarScoringMap(
+        uint MapId,
+        long Revision,
+        bool Found,
+        RadarMapDocument Document,
+        RadarObstacleSpatialIndex Index);
 }

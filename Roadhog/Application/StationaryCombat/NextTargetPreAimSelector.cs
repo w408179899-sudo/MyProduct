@@ -21,10 +21,15 @@ public static class NextTargetPreAimSelector
         TimeSpan? minimumHold = null,
         double switchDistanceMargin = 2.0D,
         NextTargetPreAimExclusionSnapshot? exclusions = null,
-        IReadOnlySet<uint>? teamSideServerObjectIds = null)
+        IReadOnlySet<uint>? teamSideServerObjectIds = null,
+        Func<WorldObjectSnapshot, double>? distanceResolver = null)
     {
         var effectiveNow = now ?? DateTimeOffset.Now;
         var effectiveExclusions = exclusions ?? NextTargetPreAimExclusionSnapshot.Empty;
+        var resolveDistance = distanceResolver ??
+                              (target => StationaryCombatTargetSelector.HorizontalDistance(
+                                  target.Position!.Value,
+                                  distanceOrigin));
         var candidates = objects
             .Where(StationaryCombatTargetSelector.IsSelectableMonster)
             .Where(target => !StationaryCombatState.IsSameTarget(
@@ -55,7 +60,8 @@ public static class NextTargetPreAimSelector
                 localSidePetServerObjectId,
                 teamSideServerObjectIds,
                 preferAggressiveMonsters,
-                effectiveNow))
+                effectiveNow,
+                resolveDistance))
             .Where(selection => selection is not null)
             .Cast<NextTargetPreAimSelection>()
             .OrderByDescending(selection => selection.PriorityTier)
@@ -145,7 +151,8 @@ public static class NextTargetPreAimSelector
         uint localSidePetServerObjectId,
         IReadOnlySet<uint>? teamSideServerObjectIds,
         bool preferAggressiveMonsters,
-        DateTimeOffset selectedAt)
+        DateTimeOffset selectedAt,
+        Func<WorldObjectSnapshot, double> distanceResolver)
     {
         if (target.Position is null)
         {
@@ -177,7 +184,7 @@ public static class NextTargetPreAimSelector
         return new NextTargetPreAimSelection(
             target,
             priorityTier,
-            StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, distanceOrigin),
+            distanceResolver(target),
             targetingLocalSide,
             targetingTeamSide,
             aggressivePriority,

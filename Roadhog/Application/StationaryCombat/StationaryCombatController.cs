@@ -7857,12 +7857,20 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             candidates = candidates.Where(target => !IsClaimedByOther(target, state));
         }
 
+        var candidateArray = candidates.ToArray();
+        var routeDistances = await ScoreTargetRouteDistancesAsync(
+                context,
+                state,
+                selectionOrigin,
+                candidateArray)
+            .ConfigureAwait(false);
         var selected = StationaryCombatTargetSelector.SelectNearest(
-            candidates,
+            candidateArray,
             selectionOrigin,
             home,
             radius,
-            preferAggressiveMonsters);
+            preferAggressiveMonsters,
+            target => ResolveTargetDistance(target, selectionOrigin, routeDistances));
         if (selected is null)
         {
             LogNoTargetScan(
@@ -8818,6 +8826,165 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         state.PruneIgnoredTargets(state.CachedWorldObjects);
         state.PruneTemporaryTargetExclusions(state.CachedWorldObjects, now);
         return state.CachedWorldObjects;
+    }
+
+    private async Task<IReadOnlyDictionary<string, TargetRouteDistanceSnapshot>> ScoreTargetRouteDistancesAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        Vector3Snapshot distanceOrigin,
+        IEnumerable<WorldObjectSnapshot> targets)
+    {
+        if (_obstacleNavigator is null)
+        {
+            return new Dictionary<string, TargetRouteDistanceSnapshot>(StringComparer.Ordinal);
+        }
+
+        var combat = context.Config.ScriptSettings?.Combat ?? new CombatScriptSettings();
+        var radarSettings = _obstacleNavigator.ResolveSettings(
+            context.Config.AccountName,
+            combat.RadarObstacleAvoidance);
+        if (!radarSettings.Enabled)
+        {
+            return new Dictionary<string, TargetRouteDistanceSnapshot>(StringComparer.Ordinal);
+        }
+
+        var requests = BuildTargetRouteDistanceRequests(targets);
+        if (requests.Count == 0)
+        {
+            return new Dictionary<string, TargetRouteDistanceSnapshot>(StringComparer.Ordinal);
+        }
+
+        var mapId = await ReadRadarMapIdAsync(context, state).ConfigureAwait(false);
+        if (mapId == 0)
+        {
+            return CreateDirectTargetRouteDistances(
+                ToRadarPoint(distanceOrigin),
+                requests,
+                mapId,
+                "map_id_unavailable");
+        }
+
+        var batch = await _obstacleNavigator
+            .ScoreRouteDistancesAsync(
+                mapId,
+                ToRadarPoint(distanceOrigin),
+                requests,
+                radarSettings,
+                context.StopToken)
+            .ConfigureAwait(false);
+        return batch.Scores.ToDictionary(
+            pair => pair.Key,
+            pair => new TargetRouteDistanceSnapshot(
+                pair.Value.DirectDistance,
+                pair.Value.EffectiveDistance,
+                pair.Value.UsesRouteDistance ? pair.Value.EffectiveDistance : null,
+                pair.Value.Reachable,
+                batch.UsesRouteScoring,
+                pair.Value.UsesRouteDistance,
+                pair.Value.MapId,
+                pair.Value.RelevantObstacleCount,
+                pair.Value.Reason),
+            StringComparer.Ordinal);
+    }
+
+    private static IReadOnlyList<RadarRouteDistanceRequest> BuildTargetRouteDistanceRequests(
+        IEnumerable<WorldObjectSnapshot> targets)
+    {
+        var requests = new List<RadarRouteDistanceRequest>();
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var target in targets)
+        {
+            if (!StationaryCombatTargetSelector.IsSelectableMonster(target) ||
+                target.Position is not { } position)
+            {
+                continue;
+            }
+
+            var key = TargetRouteScoreKey(target);
+            if (keys.Add(key))
+            {
+                requests.Add(new RadarRouteDistanceRequest(key, ToRadarPoint(position)));
+            }
+        }
+
+        return requests;
+    }
+
+    private static IReadOnlyDictionary<string, TargetRouteDistanceSnapshot> CreateDirectTargetRouteDistances(
+        RadarPoint distanceOrigin,
+        IReadOnlyList<RadarRouteDistanceRequest> requests,
+        uint mapId,
+        string reason)
+    {
+        return requests.ToDictionary(
+            request => request.Key,
+            request =>
+            {
+                var directDistance = distanceOrigin.DistanceTo(request.Goal);
+                return new TargetRouteDistanceSnapshot(
+                    directDistance,
+                    directDistance,
+                    null,
+                    true,
+                    false,
+                    false,
+                    mapId,
+                    0,
+                    reason);
+            },
+            StringComparer.Ordinal);
+    }
+
+    private static double ResolveTargetDistance(
+        WorldObjectSnapshot target,
+        Vector3Snapshot distanceOrigin,
+        IReadOnlyDictionary<string, TargetRouteDistanceSnapshot> routeDistances)
+    {
+        return TryGetTargetRouteDistance(target, routeDistances, out var routeDistance)
+            ? routeDistance.EffectiveDistance
+            : target.Position is { } position
+                ? StationaryCombatTargetSelector.HorizontalDistance(position, distanceOrigin)
+                : double.MaxValue;
+    }
+
+    private static bool TryGetTargetRouteDistance(
+        WorldObjectSnapshot target,
+        IReadOnlyDictionary<string, TargetRouteDistanceSnapshot> routeDistances,
+        out TargetRouteDistanceSnapshot routeDistance)
+    {
+        return routeDistances.TryGetValue(TargetRouteScoreKey(target), out routeDistance!);
+    }
+
+    private static string TargetRouteScoreKey(WorldObjectSnapshot target) =>
+        target.EntityId + ":" + target.ServerObjectId;
+
+    private static string FormatTargetRouteDistanceMode(TargetRouteDistanceSnapshot? routeDistance)
+    {
+        if (routeDistance is null)
+        {
+            return "direct";
+        }
+
+        if (!routeDistance.UsesRouteScoring)
+        {
+            return "fallback";
+        }
+
+        if (!routeDistance.Reachable)
+        {
+            return "unreachable";
+        }
+
+        return routeDistance.UsesRouteDistance
+            ? "route"
+            : "direct";
+    }
+
+    private static double? FormatNullableRouteDistance(double? distance)
+    {
+        return distance.HasValue
+            ? Math.Round(distance.Value, 2)
+            : null;
     }
 
     private async Task<RadarNavigationDecision?> ResolveObstacleNavigationAsync(
@@ -9983,6 +10150,14 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         var allowClaimedByOther = AllowsClaimedTargets(context);
         var preferAggressiveMonsters = PrefersAggressiveMonsters(context);
         var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
+        var routeDistances = await ScoreTargetRouteDistancesAsync(
+                context,
+                state,
+                distanceOrigin,
+                objects)
+            .ConfigureAwait(false);
+        Func<WorldObjectSnapshot, double> distanceResolver =
+            target => ResolveTargetDistance(target, distanceOrigin, routeDistances);
         var selection = NextTargetPreAimSelector.Select(
             objects,
             distanceOrigin,
@@ -10000,7 +10175,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             TimeSpan.FromMilliseconds(ReadSmartPreAimMinimumHoldMs()),
             switchDistanceMargin,
             exclusions,
-            teamSideServerObjectIds);
+            teamSideServerObjectIds,
+            distanceResolver);
         selection = KeepCommittedNextTargetPreAimSelectionStable(
             state,
             currentSelection,
@@ -10009,6 +10185,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             objects,
             playerPosition,
             distanceOrigin,
+            routeDistances,
             switchDistanceMargin);
 
         var selectionChanged = StoreNextTargetPreAimSelection(
@@ -10020,7 +10197,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             now,
             fightTargetEntityId,
             fightTargetServerObjectId,
-            sessionId);
+            sessionId,
+            routeDistances);
         var distanceOriginSource = ResolveSmartPreAimDistanceOriginSource(context, state);
         LogSmartPreAimCandidateDiagnostics(
             context,
@@ -10040,6 +10218,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             activeMonsterNameFilters,
             exclusions,
             teamSideServerObjectIds,
+            routeDistances,
             currentSelection,
             selection,
             selectionChanged);
@@ -10053,6 +10232,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         IReadOnlyList<WorldObjectSnapshot> objects,
         Vector3Snapshot playerPosition,
         Vector3Snapshot distanceOrigin,
+        IReadOnlyDictionary<string, TargetRouteDistanceSnapshot> routeDistances,
         double switchDistanceMargin)
     {
         var preAim = state.NextTargetPreAim;
@@ -10114,6 +10294,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     currentVisibleTarget,
                     playerPosition,
                     distanceOrigin,
+                    routeDistances,
                     switchDistanceMargin);
             }
 
@@ -10129,6 +10310,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         WorldObjectSnapshot currentVisibleTarget,
         Vector3Snapshot playerPosition,
         Vector3Snapshot distanceOrigin,
+        IReadOnlyDictionary<string, TargetRouteDistanceSnapshot> routeDistances,
         double switchDistanceMargin)
     {
         var currentPosition = currentVisibleTarget.Position;
@@ -10143,24 +10325,44 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             };
         }
 
-        var currentDistanceToPlayer = StationaryCombatTargetSelector.HorizontalDistance(
-            currentPosition.Value,
-            playerPosition);
-        var proposedDistanceToPlayer = StationaryCombatTargetSelector.HorizontalDistance(
-            proposedPosition.Value,
-            playerPosition);
         var currentDistanceToOrigin = StationaryCombatTargetSelector.HorizontalDistance(
             currentPosition.Value,
             distanceOrigin);
-        if (currentDistanceToPlayer - proposedDistanceToPlayer < Math.Max(0.0D, switchDistanceMargin))
+        if (TryGetTargetRouteDistance(currentVisibleTarget, routeDistances, out var currentRouteDistance) &&
+            currentRouteDistance.UsesRouteScoring &&
+            TryGetTargetRouteDistance(proposedSelection.Target, routeDistances, out var proposedRouteDistance) &&
+            proposedRouteDistance.UsesRouteScoring)
         {
-            preAim.ResetPendingSwitchConfirmation();
-            return currentSelection with
+            currentDistanceToOrigin = currentRouteDistance.EffectiveDistance;
+            if (currentDistanceToOrigin - proposedRouteDistance.EffectiveDistance < Math.Max(0.0D, switchDistanceMargin))
             {
-                Target = currentVisibleTarget,
-                DistanceToOrigin = currentDistanceToOrigin,
-                DecisionReason = "kept_player_distance_stability"
-            };
+                preAim.ResetPendingSwitchConfirmation();
+                return currentSelection with
+                {
+                    Target = currentVisibleTarget,
+                    DistanceToOrigin = currentDistanceToOrigin,
+                    DecisionReason = "kept_route_distance_stability"
+                };
+            }
+        }
+        else
+        {
+            var currentDistanceToPlayer = StationaryCombatTargetSelector.HorizontalDistance(
+                currentPosition.Value,
+                playerPosition);
+            var proposedDistanceToPlayer = StationaryCombatTargetSelector.HorizontalDistance(
+                proposedPosition.Value,
+                playerPosition);
+            if (currentDistanceToPlayer - proposedDistanceToPlayer < Math.Max(0.0D, switchDistanceMargin))
+            {
+                preAim.ResetPendingSwitchConfirmation();
+                return currentSelection with
+                {
+                    Target = currentVisibleTarget,
+                    DistanceToOrigin = currentDistanceToOrigin,
+                    DecisionReason = "kept_player_distance_stability"
+                };
+            }
         }
 
         if (!StationaryCombatState.IsSameTarget(
@@ -10301,7 +10503,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         DateTimeOffset now,
         ushort fightTargetEntityId,
         uint fightTargetServerObjectId,
-        long sessionId)
+        long sessionId,
+        IReadOnlyDictionary<string, TargetRouteDistanceSnapshot> routeDistances)
     {
         var preAim = state.NextTargetPreAim;
         ushort previousEntityId;
@@ -10393,6 +10596,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return false;
         }
 
+        TryGetTargetRouteDistance(selection.Target, routeDistances, out var routeDistance);
         context.Logger.Info(
             previousEntityId == 0 && previousServerObjectId == 0
                 ? "stationary_combat.smart_preaim.target_selected"
@@ -10411,6 +10615,11 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 ["targetingTeamSide"] = selection.IsTargetingTeamSide,
                 ["aggressivePriority"] = selection.IsAggressivePriority,
                 ["distanceToOrigin"] = Math.Round(selection.DistanceToOrigin, 2),
+                ["distanceMode"] = FormatTargetRouteDistanceMode(routeDistance),
+                ["directDistance"] = FormatNullableRouteDistance(routeDistance?.DirectDistance),
+                ["routeDistance"] = FormatNullableRouteDistance(routeDistance?.RouteDistance),
+                ["routeReachable"] = routeDistance?.Reachable,
+                ["routeReason"] = routeDistance?.Reason,
                 ["distanceOriginX"] = Math.Round(distanceOrigin.X, 2),
                 ["distanceOriginY"] = Math.Round(distanceOrigin.Y, 2),
                 ["distanceOriginSource"] = ResolveSmartPreAimDistanceOriginSource(context, state),
@@ -10438,6 +10647,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         IReadOnlyList<string> activeMonsterNameFilters,
         NextTargetPreAimExclusionSnapshot exclusions,
         IReadOnlySet<uint> teamSideServerObjectIds,
+        IReadOnlyDictionary<string, TargetRouteDistanceSnapshot> routeDistances,
         NextTargetPreAimSelection? previousSelection,
         NextTargetPreAimSelection? selection,
         bool selectionChanged)
@@ -10457,7 +10667,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 preferAggressiveMonsters,
                 activeMonsterNameFilters,
                 exclusions,
-                teamSideServerObjectIds))
+                teamSideServerObjectIds,
+                routeDistances))
             .ToArray();
         var eligible = diagnostics
             .Where(candidate => candidate.Eligible)
@@ -10542,7 +10753,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         bool preferAggressiveMonsters,
         IReadOnlyList<string> activeMonsterNameFilters,
         NextTargetPreAimExclusionSnapshot exclusions,
-        IReadOnlySet<uint> teamSideServerObjectIds)
+        IReadOnlySet<uint> teamSideServerObjectIds,
+        IReadOnlyDictionary<string, TargetRouteDistanceSnapshot> routeDistances)
     {
         var isMonster = string.Equals(target.ObjectKind, "monster", StringComparison.OrdinalIgnoreCase);
         var hasPosition = target.Position is not null;
@@ -10572,8 +10784,11 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         var playerDistance = hasPosition
             ? StationaryCombatTargetSelector.HorizontalDistance(target.Position!.Value, playerPosition)
             : double.NaN;
+        var routeDistance = TryGetTargetRouteDistance(target, routeDistances, out var resolvedRouteDistance)
+            ? resolvedRouteDistance
+            : null;
         var originDistance = hasPosition
-            ? StationaryCombatTargetSelector.HorizontalDistance(target.Position!.Value, distanceOrigin)
+            ? ResolveTargetDistance(target, distanceOrigin, routeDistances)
             : double.NaN;
         var ordinaryOutsideHome = !targetingLocalSide &&
                                   !targetingTeamSide &&
@@ -10659,6 +10874,11 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             playerDistance,
             originDistance,
             homeDistance,
+            routeDistance?.DirectDistance ?? originDistance,
+            routeDistance?.RouteDistance,
+            FormatTargetRouteDistanceMode(routeDistance),
+            routeDistance?.Reachable,
+            routeDistance?.Reason ?? string.Empty,
             targetingLocalSide,
             targetingTeamSide,
             aggressivePriority,
@@ -10721,6 +10941,11 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             "originDist=" + FormatSmartPreAimDistance(diagnostic.DistanceToOrigin),
             "playerDist=" + FormatSmartPreAimDistance(diagnostic.DistanceToPlayer),
             "homeDist=" + FormatSmartPreAimDistance(diagnostic.DistanceToHome),
+            "distanceMode=" + diagnostic.DistanceMode,
+            "directDist=" + FormatSmartPreAimDistance(diagnostic.DirectDistance),
+            "routeDist=" + FormatNullableSmartPreAimDistance(diagnostic.RouteDistance),
+            "routeReachable=" + FormatNullableSmartPreAimBool(diagnostic.RouteReachable),
+            "routeReason=" + diagnostic.RouteReason,
             "targetServer=" + target.TargetServerObjectId,
             "hp=" + target.CurrentHp + "/" + target.MaxHp,
             "local=" + diagnostic.TargetingLocalSide,
@@ -10748,6 +10973,31 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             : Math.Round(distance, 2).ToString("0.##");
     }
 
+    private static string FormatNullableSmartPreAimDistance(double? distance)
+    {
+        return distance.HasValue
+            ? FormatSmartPreAimDistance(distance.Value)
+            : "na";
+    }
+
+    private static string FormatNullableSmartPreAimBool(bool? value)
+    {
+        return value.HasValue
+            ? value.Value.ToString()
+            : "na";
+    }
+
+    private sealed record TargetRouteDistanceSnapshot(
+        double DirectDistance,
+        double EffectiveDistance,
+        double? RouteDistance,
+        bool Reachable,
+        bool UsesRouteScoring,
+        bool UsesRouteDistance,
+        uint MapId,
+        int RelevantObstacleCount,
+        string Reason);
+
     private sealed record SmartPreAimCandidateDiagnostic(
         WorldObjectSnapshot Target,
         bool IsMonster,
@@ -10757,6 +11007,11 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         double DistanceToPlayer,
         double DistanceToOrigin,
         double DistanceToHome,
+        double DirectDistance,
+        double? RouteDistance,
+        string DistanceMode,
+        bool? RouteReachable,
+        string RouteReason,
         bool TargetingLocalSide,
         bool TargetingTeamSide,
         bool AggressivePriority,
