@@ -3375,36 +3375,13 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return RecoveryDefenseSelection.None;
         }
 
-        var clearRadius = ResolveRevivePathAggressiveClearRadius(context.Config.ScriptSettings?.Paths);
-        var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
-        if (IsSmartPreAimEnabled(context) &&
-            TryResolveSmartPreAimHandoffTarget(
+        if (state.HasSmartPreAimHandoff)
+        {
+            ReleaseSmartPreAimHandoff(
                 context,
                 state,
-                objects,
-                DateTimeOffset.Now,
-                playerPosition,
-                clearRadius,
-                allowClaimedByOther: false,
-                activeMonsterNameFilters,
-                out var handoffTarget,
-                additionalEligibility: candidate =>
-                    IsRevivePathSmartPreAimHandoffEligible(
-                        candidate,
-                        state,
-                        playerPosition,
-                        clearRadius)))
-        {
-            if (handoffTarget?.Position is null)
-            {
-                return new RecoveryDefenseSelection(null, false, true, true);
-            }
-
-            return new RecoveryDefenseSelection(
-                handoffTarget,
-                !IsMaintenanceDefenseTarget(handoffTarget, state),
-                false,
-                true);
+                "handoff_disabled",
+                clearPreAimCandidate: false);
         }
 
         target = await SelectRevivePathAggressiveClearTargetAsync(
@@ -3416,37 +3393,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         return target?.Position is null
             ? RecoveryDefenseSelection.None
             : new RecoveryDefenseSelection(target, true, false, false);
-    }
-
-    private static bool IsRevivePathSmartPreAimHandoffEligible(
-        WorldObjectSnapshot target,
-        StationaryCombatState state,
-        Vector3Snapshot playerPosition,
-        double clearRadius)
-    {
-        if (IsTargetingLocalSide(target, state) || WasSmartPreAimTargetingLocalSide(target, state))
-        {
-            return true;
-        }
-
-        return target.IsAggressiveToPlayer &&
-               target.Position is { } position &&
-               StationaryCombatTargetSelector.HorizontalDistance(position, playerPosition) <= clearRadius;
-    }
-
-    private static bool WasSmartPreAimTargetingLocalSide(
-        WorldObjectSnapshot target,
-        StationaryCombatState state)
-    {
-        lock (state.NextTargetPreAim.SyncRoot)
-        {
-            return state.NextTargetPreAim.TargetingLocalSide &&
-                   StationaryCombatState.IsSameTarget(
-                       state.NextTargetPreAim.TargetEntityId,
-                       state.NextTargetPreAim.TargetServerObjectId,
-                       target.EntityId,
-                       target.ServerObjectId);
-        }
     }
 
     private async Task<TimeSpan?> TryHandleRecoveryDefenseTargetAsync(
@@ -7623,117 +7569,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         return nearestIndex;
     }
 
-    private bool TryResolveSmartPreAimHandoffTarget(
-        AccountWorkerContext context,
-        StationaryCombatState state,
-        IReadOnlyList<WorldObjectSnapshot> objects,
-        DateTimeOffset now,
-        Vector3Snapshot home,
-        double radius,
-        bool allowClaimedByOther,
-        IReadOnlyList<string> activeMonsterNameFilters,
-        out WorldObjectSnapshot? target,
-        Func<WorldObjectSnapshot, bool>? additionalEligibility = null)
-    {
-        target = null;
-        if (!state.HasSmartPreAimHandoff)
-        {
-            ushort preAimEntityId;
-            uint preAimServerObjectId;
-            DateTimeOffset alignedAt;
-            lock (state.NextTargetPreAim.SyncRoot)
-            {
-                if (!state.NextTargetPreAim.HasAlignedCandidate)
-                {
-                    return false;
-                }
-
-                preAimEntityId = state.NextTargetPreAim.TargetEntityId;
-                preAimServerObjectId = state.NextTargetPreAim.TargetServerObjectId;
-                alignedAt = state.NextTargetPreAim.LastAlignedAt;
-            }
-
-            if (alignedAt == DateTimeOffset.MinValue ||
-                now - alignedAt > ReadSmartPreAimResultTtl() ||
-                ((state.CandidateEntityId != 0 || state.CandidateServerObjectId != 0) &&
-                 !StationaryCombatState.IsSameTarget(
-                     state.CandidateEntityId,
-                     state.CandidateServerObjectId,
-                     preAimEntityId,
-                     preAimServerObjectId)))
-            {
-                return false;
-            }
-
-            state.StartSmartPreAimHandoff(preAimEntityId, preAimServerObjectId);
-            bool displacedTargetGuardActivated;
-            lock (state.NextTargetPreAim.SyncRoot)
-            {
-                displacedTargetGuardActivated = state.NextTargetPreAim.ActivateDisplacedTargetGuard(
-                    preAimEntityId,
-                    preAimServerObjectId);
-            }
-
-            context.Logger.Info("stationary_combat.smart_preaim.handoff_started", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["targetEntityId"] = preAimEntityId,
-                ["targetServerObjectId"] = preAimServerObjectId,
-                ["alignedAgeMs"] = (long)Math.Max(0.0D, (now - alignedAt).TotalMilliseconds),
-                ["displacedTargetGuardActivated"] = displacedTargetGuardActivated
-            });
-        }
-
-        var handoffTarget = objects.FirstOrDefault(candidate =>
-            state.IsSmartPreAimHandoffTarget(candidate.EntityId, candidate.ServerObjectId));
-        if (handoffTarget is null)
-        {
-            ReleaseSmartPreAimHandoff(
-                context,
-                state,
-                "missing",
-                clearPreAimCandidate: true);
-            return false;
-        }
-
-        if (!allowClaimedByOther && IsClaimedByOther(handoffTarget, state))
-        {
-            state.IgnoreTarget(handoffTarget);
-            ReleaseSmartPreAimHandoff(
-                context,
-                state,
-                "claimed_by_other",
-                clearPreAimCandidate: true);
-            return false;
-        }
-
-        var targetSelectable = additionalEligibility is null
-            ? IsCandidateStillSelectable(
-                handoffTarget,
-                home,
-                radius,
-                allowClaimedByOther,
-                state)
-            : handoffTarget.Position is not null &&
-              StationaryCombatTargetSelector.IsSelectableMonster(handoffTarget) &&
-              additionalEligibility(handoffTarget);
-        if (state.IsTargetIgnored(handoffTarget) ||
-            state.IsTargetTemporarilyExcluded(handoffTarget, now) ||
-            IsActiveMonsterFiltered(handoffTarget, activeMonsterNameFilters) ||
-            !targetSelectable)
-        {
-            ReleaseSmartPreAimHandoff(
-                context,
-                state,
-                "target_invalid",
-                clearPreAimCandidate: true);
-            return false;
-        }
-
-        target = handoffTarget;
-        return true;
-    }
-
     private static void CompleteSmartPreAimHandoff(
         AccountWorkerContext context,
         StationaryCombatState state,
@@ -7787,18 +7622,13 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
         var selectionOrigin = ResolvePendingNextTargetSelectionOrigin(context, state, playerPosition);
 
-        if (TryResolveSmartPreAimHandoffTarget(
+        if (state.HasSmartPreAimHandoff)
+        {
+            ReleaseSmartPreAimHandoff(
                 context,
                 state,
-                objects,
-                now,
-                home,
-                radius,
-                allowClaimedByOther,
-                activeMonsterNameFilters,
-                out var handoffTarget))
-        {
-            return handoffTarget;
+                "handoff_disabled",
+                clearPreAimCandidate: false);
         }
 
         if (state.CandidateEntityId != 0 || state.CandidateServerObjectId != 0)

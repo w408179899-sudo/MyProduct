@@ -350,9 +350,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat smart pre-aim logs candidate diagnostics", TestSmartPreAimLogsCandidateDiagnosticsAsync),
     ("stationary combat smart pre-aim selector keeps stable target", TestSmartPreAimSelectorKeepsStableTargetAsync),
     ("stationary combat smart pre-aim stabilizes aligned target switching", TestSmartPreAimStabilizesAlignedTargetSwitchingAsync),
-    ("stationary combat smart pre-aim handoff keeps committed target", TestSmartPreAimHandoffKeepsCommittedTargetAsync),
-    ("stationary combat smart pre-aim handoff confirms missing target", TestSmartPreAimHandoffConfirmsMissingTargetAsync),
-    ("stationary combat smart pre-aim handoff honors claim settings", TestSmartPreAimHandoffHonorsClaimSettingsAsync),
+    ("stationary combat smart pre-aim does not force committed target", TestSmartPreAimDoesNotForceCommittedTargetAsync),
+    ("stationary combat smart pre-aim missing aligned candidate does not block selection", TestSmartPreAimMissingAlignedCandidateDoesNotBlockSelectionAsync),
+    ("stationary combat smart pre-aim aligned claimed candidate follows claim settings", TestSmartPreAimAlignedClaimedCandidateFollowsClaimSettingsAsync),
     ("stationary combat smart pre-aim handoff yields to local defense", TestSmartPreAimHandoffYieldsToLocalDefenseAsync),
     ("stationary combat smart pre-aim handoff completes before next pre-aim", TestSmartPreAimHandoffCompletesBeforeNextPreAimAsync),
     ("stationary combat smart pre-aim prevents consumed target bounce", TestSmartPreAimPreventsConsumedTargetBounceAsync),
@@ -393,8 +393,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat death recovery path loots before next defense target", TestStationaryCombatDeathRecoveryPathLootsBeforeNextDefenseTargetAsync),
     ("stationary combat death recovery path clears nearby aggressive monsters", TestStationaryCombatDeathRecoveryPathClearsNearbyAggressiveMonstersAsync),
     ("stationary combat death recovery path postpones rest for nearby aggressive after loot", TestStationaryCombatDeathRecoveryPathPostponesRestForNearbyAggressiveAfterLootAsync),
-    ("stationary combat death recovery adopts pet fight pre-aim after loot", TestStationaryCombatDeathRecoveryAdoptsPetFightPreAimAfterLootAsync),
-    ("stationary combat death recovery holds path for missing pet fight pre-aim", TestStationaryCombatDeathRecoveryHoldsPathForMissingPetFightPreAimAsync),
+    ("stationary combat death recovery does not adopt pet fight pre-aim after loot", TestStationaryCombatDeathRecoveryDoesNotAdoptPetFightPreAimAfterLootAsync),
+    ("stationary combat death recovery ignores missing pet fight pre-aim", TestStationaryCombatDeathRecoveryIgnoresMissingPetFightPreAimAsync),
     ("stationary combat death recovery path interrupts rest for nearby aggressive", TestStationaryCombatDeathRecoveryPathInterruptsRestForNearbyAggressiveAsync),
     ("stationary combat death recovery path rests before continuing low hp", TestStationaryCombatDeathRecoveryPathRestsBeforeContinuingLowHpAsync),
     ("stationary combat death recovery path jumps when stuck", TestStationaryCombatDeathRecoveryPathJumpsWhenStuckAsync),
@@ -429,7 +429,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat preempts radar approach for locked local attacker", TestStationaryCombatPreemptsRadarApproachForLockedLocalAttackerAsync),
     ("stationary combat keeps radar approach for unrelated wrong lock", TestStationaryCombatKeepsRadarApproachForUnrelatedWrongLockAsync),
     ("stationary combat accepts closer aggressive wrong lock after tab", TestStationaryCombatAcceptsCloserAggressiveWrongLockAfterTabAsync),
-    ("stationary combat rejects ordinary aggressive wrong lock during smart pre-aim handoff", TestStationaryCombatRejectsOrdinaryAggressiveWrongLockDuringSmartPreAimHandoffAsync),
+    ("stationary combat aligned smart pre-aim allows ordinary aggressive wrong lock", TestStationaryCombatAlignedSmartPreAimAllowsOrdinaryAggressiveWrongLockAsync),
     ("stationary combat accepts protected-side wrong lock during smart pre-aim handoff", TestStationaryCombatAcceptsProtectedSideWrongLockDuringSmartPreAimHandoffAsync),
     ("stationary combat rejects closer passive wrong lock after tab", TestStationaryCombatRejectsCloserPassiveWrongLockAfterTabAsync),
     ("stationary combat leaves unrelated unchanged wrong lock alone", TestStationaryCombatLeavesUnrelatedUnchangedWrongLockAloneAsync),
@@ -13720,7 +13720,7 @@ static async Task TestSmartPreAimStabilizesAlignedTargetSwitchingAsync()
     AssertEqual(0u, preAim.PendingSwitchTargetServerObjectId, "clearing pre-aim state should reset pending switch identity");
 }
 
-static async Task TestSmartPreAimHandoffKeepsCommittedTargetAsync()
+static async Task TestSmartPreAimDoesNotForceCommittedTargetAsync()
 {
     var settings = CreateScriptSettings();
     settings.MainMode = AccountMainMode.CustomCombat;
@@ -13769,20 +13769,12 @@ static async Task TestSmartPreAimHandoffKeepsCommittedTargetAsync()
             allowClaimedByOther: false)
         .ConfigureAwait(false);
 
-    AssertEqual(committed.ServerObjectId, selected?.ServerObjectId ?? 0, "aligned B should become the committed handoff target even when aggressive C is closer");
-    AssertFalse(!state.IsSmartPreAimHandoffTarget(committed.EntityId, committed.ServerObjectId), "aligned B should start the handoff before movement or Tab");
-
-    state.MarkCandidate(committed, DateTimeOffset.Now);
-    selected = await SelectStationaryTargetForTestAsync(
-            controller,
-            CreateContext(settings, gameApi, new InMemoryRoadhogLogger()),
-            state,
-            allowClaimedByOther: false)
-        .ConfigureAwait(false);
-    AssertEqual(committed.ServerObjectId, selected?.ServerObjectId ?? 0, "ordinary closer aggressive C must not replace B during the handoff");
+    AssertEqual(closerAggressive.ServerObjectId, selected?.ServerObjectId ?? 0, "aligned B should not force selection over the normal closer aggressive target");
+    AssertFalse(state.HasSmartPreAimHandoff, "aligned B should not start a smart pre-aim handoff before movement or Tab");
+    AssertFalse(!state.NextTargetPreAim.HasCandidate, "the pre-aim candidate should remain available as a camera optimization only");
 }
 
-static async Task TestSmartPreAimHandoffConfirmsMissingTargetAsync()
+static async Task TestSmartPreAimMissingAlignedCandidateDoesNotBlockSelectionAsync()
 {
     var settings = CreateScriptSettings();
     settings.MainMode = AccountMainMode.CustomCombat;
@@ -13820,17 +13812,14 @@ static async Task TestSmartPreAimHandoffConfirmsMissingTargetAsync()
         new SemiAutoCombatController(new RecordingKeyboardInput()));
     var state = new StationaryCombatState();
     SeedAlignedSmartPreAimCandidate(state, committed);
-    state.StartSmartPreAimHandoff(committed.EntityId, committed.ServerObjectId);
-    state.MarkCandidate(committed, DateTimeOffset.Now);
     var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
 
     var first = await SelectStationaryTargetForTestAsync(controller, context, state, allowClaimedByOther: false).ConfigureAwait(false);
-    AssertEqual(fallback.ServerObjectId, first?.ServerObjectId ?? 0, "trusted missing B snapshot should release the handoff and select C immediately");
-    AssertFalse(state.HasSmartPreAimHandoff, "trusted missing B snapshot should clear the handoff");
-    AssertFalse(state.NextTargetPreAim.HasCandidate, "trusted missing B snapshot should clear the stale pre-aim result");
+    AssertEqual(fallback.ServerObjectId, first?.ServerObjectId ?? 0, "missing aligned B should not block normal selection of C");
+    AssertFalse(state.HasSmartPreAimHandoff, "missing aligned B should not create a handoff");
 }
 
-static async Task TestSmartPreAimHandoffHonorsClaimSettingsAsync()
+static async Task TestSmartPreAimAlignedClaimedCandidateFollowsClaimSettingsAsync()
 {
     var settings = CreateScriptSettings();
     settings.MainMode = AccountMainMode.CustomCombat;
@@ -13880,8 +13869,8 @@ static async Task TestSmartPreAimHandoffHonorsClaimSettingsAsync()
             noContestState,
             allowClaimedByOther: false)
         .ConfigureAwait(false);
-    AssertEqual(fallback.ServerObjectId, noContest?.ServerObjectId ?? 0, "claimed B should release the handoff when contest mode is disabled");
-    AssertFalse(noContestState.HasSmartPreAimHandoff, "claimed B should not leave a stale handoff");
+    AssertEqual(fallback.ServerObjectId, noContest?.ServerObjectId ?? 0, "claimed aligned B should follow normal claim filtering when contest mode is disabled");
+    AssertFalse(noContestState.HasSmartPreAimHandoff, "claimed aligned B should not create a handoff");
 
     var contestState = new StationaryCombatState
     {
@@ -13894,8 +13883,8 @@ static async Task TestSmartPreAimHandoffHonorsClaimSettingsAsync()
             contestState,
             allowClaimedByOther: true)
         .ConfigureAwait(false);
-    AssertEqual(claimed.ServerObjectId, contest?.ServerObjectId ?? 0, "contest mode should preserve its existing permission to commit claimed B");
-    AssertFalse(!contestState.HasSmartPreAimHandoff, "contest mode should keep the claimed B handoff active");
+    AssertEqual(claimed.ServerObjectId, contest?.ServerObjectId ?? 0, "contest mode should preserve its existing permission to select claimed B");
+    AssertFalse(contestState.HasSmartPreAimHandoff, "contest mode should not create a claimed B handoff");
 }
 
 static async Task TestSmartPreAimHandoffYieldsToLocalDefenseAsync()
@@ -16920,7 +16909,7 @@ static async Task TestStationaryCombatDeathRecoveryPathPostponesRestForNearbyAgg
         "death recovery post-loot rest postponement should identify revive path clear target");
 }
 
-static async Task TestStationaryCombatDeathRecoveryAdoptsPetFightPreAimAfterLootAsync()
+static async Task TestStationaryCombatDeathRecoveryDoesNotAdoptPetFightPreAimAfterLootAsync()
 {
     var settings = CreateScriptSettings();
     settings.MainMode = AccountMainMode.CustomCombat;
@@ -17012,27 +17001,25 @@ static async Task TestStationaryCombatDeathRecoveryAdoptsPetFightPreAimAfterLoot
             state)
         .ConfigureAwait(false);
 
-    AssertFalse(!state.Fighting, "the retained pet-fight pre-aim target should enter combat before revive-path maintenance or movement");
-    AssertEqual(targetEntityId, state.CurrentTargetEntityId, "post-loot pet-fight handoff entity");
-    AssertEqual(targetServerObjectId, state.CurrentTargetServerObjectId, "post-loot pet-fight handoff server identity");
-    AssertFalse(state.LootAfterKill.Active, "pet-fight handoff should finish the old corpse loot flow");
-    AssertFalse(!state.CurrentTargetIsRevivePathClear, "a retained pet-fight target without a current reverse target relation should remain a revive-path clear target");
-    AssertFalse(state.CurrentTargetIsMaintenanceDefense, "stale positive pet-fight evidence must not fabricate a current targeting relation");
-    AssertFalse(keyboard.Keys.Contains("OemComma"), "pet-fight handoff should preempt post-loot sitting");
+    AssertFalse(state.Fighting, "retained pet-fight pre-aim should not enter combat when smart pre-aim no longer forces handoff");
+    AssertEqual((ushort)0, state.CurrentTargetEntityId, "post-loot flow should not adopt the retained pre-aim entity");
+    AssertEqual(0u, state.CurrentTargetServerObjectId, "post-loot flow should not adopt the retained pre-aim server identity");
+    AssertFalse(state.HasSmartPreAimHandoff, "retained pet-fight pre-aim should not create a handoff");
+    AssertFalse(!keyboard.Keys.Contains("OemComma"), "without forced pre-aim handoff, post-loot sitting may proceed");
     AssertFalse(keyboard.KeyDowns.Contains("W"), "pet-fight handoff should not resume the revive path");
-    AssertFalse(!logger.Entries.Any(entry =>
+    AssertFalse(logger.Entries.Any(entry =>
             entry.EventName == "stationary_combat.loot.post_combat_maintenance_postponed" &&
             entry.Fields.TryGetValue("smartPreAimHandoff", out var value) &&
             value is true &&
             Convert.ToUInt32(entry.Fields["targetServerObjectId"]) == targetServerObjectId),
-        "post-loot handoff should log the retained smart pre-aim identity");
-    AssertFalse(!logger.Entries.Any(entry =>
+        "post-loot flow should not log a smart pre-aim handoff");
+    AssertFalse(logger.Entries.Any(entry =>
             entry.EventName == "stationary_combat.smart_preaim.handoff_completed" &&
             Convert.ToUInt32(entry.Fields["targetServerObjectId"]) == targetServerObjectId),
-        "direct post-loot adoption should complete and clear the smart pre-aim handoff");
+        "post-loot flow should not complete a smart pre-aim handoff");
 }
 
-static async Task TestStationaryCombatDeathRecoveryHoldsPathForMissingPetFightPreAimAsync()
+static async Task TestStationaryCombatDeathRecoveryIgnoresMissingPetFightPreAimAsync()
 {
     var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
     Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
@@ -17119,13 +17106,13 @@ static async Task TestStationaryCombatDeathRecoveryHoldsPathForMissingPetFightPr
 
         await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
 
-        AssertFalse(state.HasSmartPreAimHandoff, "trusted missing snapshot should release the recovery handoff immediately");
-        AssertFalse(state.NextTargetPreAim.HasCandidate, "trusted missing recovery target should clear the retained pre-aim result");
+        AssertFalse(state.HasSmartPreAimHandoff, "missing retained pre-aim should not create a recovery handoff");
+        AssertFalse(!state.NextTargetPreAim.HasCandidate, "missing retained pre-aim should remain a passive candidate until ordinary consume or refresh clears it");
         AssertFalse(
             logger.Entries.Count(entry => entry.EventName == "stationary_combat.death_recovery.path_follow") < pathFollowCount,
-            "released handoff may resume the revive path immediately");
-        AssertFalse(keyboard.Keys.Contains("Tab"), "a missing committed target must not Tab stale identity");
-        AssertFalse(keyboard.Keys.Any(key => key.StartsWith("D", StringComparison.OrdinalIgnoreCase)), "a missing committed target must not attack stale coordinates");
+            "missing retained pre-aim should not pause revive path movement");
+        AssertFalse(keyboard.Keys.Contains("Tab"), "a missing retained pre-aim target must not Tab stale identity");
+        AssertFalse(keyboard.Keys.Any(key => key.StartsWith("D", StringComparison.OrdinalIgnoreCase)), "a missing retained pre-aim target must not attack stale coordinates");
     }
     finally
     {
@@ -19942,7 +19929,7 @@ static async Task TestStationaryCombatAcceptsCloserAggressiveWrongLockAfterTabAs
     }
 }
 
-static async Task TestStationaryCombatRejectsOrdinaryAggressiveWrongLockDuringSmartPreAimHandoffAsync()
+static async Task TestStationaryCombatAlignedSmartPreAimAllowsOrdinaryAggressiveWrongLockAsync()
 {
     var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
     var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
@@ -20048,17 +20035,19 @@ static async Task TestStationaryCombatRejectsOrdinaryAggressiveWrongLockDuringSm
                 state)
             .ConfigureAwait(false);
 
-        AssertFalse(!keyboard.Keys.Contains("Tab"), "handoff acquire tick should still press Tab for committed B");
-        AssertFalse(keyboard.Keys.Contains("D2"), "ordinary aggressive wrong lock C must not enter skill release during B handoff");
-        AssertFalse(state.Fighting, "ordinary wrong lock C must not become the formal fight target");
-        AssertEqual(committed.ServerObjectId, state.CandidateServerObjectId, "wrong lock rejection should keep committed B as candidate");
-        AssertFalse(!state.IsSmartPreAimHandoffTarget(committed.EntityId, committed.ServerObjectId), "wrong lock rejection should preserve B handoff");
+        AssertFalse(!keyboard.Keys.Contains("Tab"), "aligned pre-aim acquire tick should still press Tab for the selected target");
+        AssertFalse(!keyboard.Keys.Contains("D2"), "ordinary aggressive wrong lock C should enter skill release when aligned pre-aim no longer forces B");
+        AssertFalse(!state.Fighting, "ordinary aggressive wrong lock C should become the formal fight target");
+        AssertEqual(ordinaryWrongLock.ServerObjectId, state.CurrentTargetServerObjectId, "current target should switch to ordinary aggressive wrong lock C");
+        AssertEqual(ordinaryWrongLock.ServerObjectId, state.CandidateServerObjectId, "candidate should switch to ordinary aggressive wrong lock C");
+        AssertFalse(state.HasSmartPreAimHandoff, "aligned pre-aim should not create or preserve a B handoff");
+        AssertFalse(logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.smart_preaim.handoff_wrong_lock_rejected"),
+            "ordinary aggressive wrong lock should no longer be rejected by a smart pre-aim handoff");
         AssertFalse(!logger.Entries.Any(entry =>
-            entry.EventName == "stationary_combat.smart_preaim.handoff_wrong_lock_rejected" &&
+            entry.EventName == "stationary_combat.target.accept_nearby_aggressive_lock" &&
             Equals(Convert.ToUInt16(entry.Fields["lockedEntityId"]), ordinaryWrongLock.EntityId)),
-            "ordinary aggressive wrong lock rejection should be logged");
-        AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.accept_nearby_aggressive_lock"),
-            "ordinary aggressive wrong lock must not use the legacy closer-target acceptance during B handoff");
+            "ordinary aggressive wrong lock should use the normal closer-target acceptance path");
     }
     finally
     {
