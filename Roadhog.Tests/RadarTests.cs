@@ -1,6 +1,7 @@
 using Roadhog.Application.Radar;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Common;
+using Roadhog.Core.Model;
 using Roadhog.Core.Radar;
 using Roadhog.Infrastructure.Radar;
 
@@ -211,6 +212,78 @@ internal static class RadarTests
                 Require(restarted is null, "the first click after cancellation should start a new independent chain");
                 Require((bool)cancelPending!.Invoke(canvas, null)!, "explicit cancellation should report the restarted chain");
                 Require(drawStart.GetValue(canvas) is null, "explicit cancellation should clear the restarted chain");
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+        if (failure is not null)
+        {
+            throw failure;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public static Task CanvasDrawClickUsesPlayerPositionAndDraftFollowsAsync()
+    {
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                var canvasType = typeof(Roadhog.AccountSettingsForm).Assembly.GetType("Roadhog.RadarCanvas");
+                Require(canvasType is not null, "radar canvas type should exist");
+                using var canvas = (System.Windows.Forms.Control)Activator.CreateInstance(canvasType!, nonPublic: true)!;
+                canvas.Size = new System.Drawing.Size(400, 300);
+
+                var snapshot = canvasType!.GetProperty("Snapshot");
+                var drawStart = canvasType.GetField(
+                    "_drawStart",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                var drawCurrent = canvasType.GetField(
+                    "_drawCurrent",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                var mouseDown = canvasType.GetMethod(
+                    "OnMouseDown",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                var mouseMove = canvasType.GetMethod(
+                    "OnMouseMove",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                Require(
+                    snapshot is not null && drawStart is not null && drawCurrent is not null &&
+                    mouseDown is not null && mouseMove is not null,
+                    "radar player-position drawing members should exist");
+
+                snapshot!.SetValue(canvas, CreateRadarSnapshot(47, 100.0D, 200.0D));
+                InvokeMouse(mouseDown!, canvas, System.Windows.Forms.MouseButtons.Left, 390, 10);
+
+                var firstStart = (RadarPoint)drawStart!.GetValue(canvas)!;
+                var firstCurrent = (RadarPoint)drawCurrent!.GetValue(canvas)!;
+                RequireNear(100.0D, firstStart.X, "first draw click should use player X instead of mouse X");
+                RequireNear(200.0D, firstStart.Y, "first draw click should use player Y instead of mouse Y");
+                RequireNear(100.0D, firstCurrent.X, "first draft endpoint should start at player X");
+                RequireNear(200.0D, firstCurrent.Y, "first draft endpoint should start at player Y");
+
+                snapshot.SetValue(canvas, CreateRadarSnapshot(47, 105.0D, 206.0D));
+                var refreshedCurrent = (RadarPoint)drawCurrent.GetValue(canvas)!;
+                RequireNear(105.0D, refreshedCurrent.X, "draft endpoint should follow refreshed player X");
+                RequireNear(206.0D, refreshedCurrent.Y, "draft endpoint should follow refreshed player Y");
+
+                InvokeMouse(mouseMove!, canvas, System.Windows.Forms.MouseButtons.None, 1, 299);
+                var movedCurrent = (RadarPoint)drawCurrent.GetValue(canvas)!;
+                RequireNear(105.0D, movedCurrent.X, "mouse movement should not change draft endpoint X");
+                RequireNear(206.0D, movedCurrent.Y, "mouse movement should not change draft endpoint Y");
+
+                snapshot.SetValue(canvas, CreateRadarSnapshot(47, 112.0D, 214.0D));
+                InvokeMouse(mouseDown!, canvas, System.Windows.Forms.MouseButtons.Left, 0, 0);
+                var secondStart = (RadarPoint)drawStart.GetValue(canvas)!;
+                RequireNear(112.0D, secondStart.X, "completed segment endpoint should become player X");
+                RequireNear(214.0D, secondStart.Y, "completed segment endpoint should become player Y");
             }
             catch (Exception ex)
             {
@@ -794,6 +867,48 @@ internal static class RadarTests
             Start = new RadarPoint(startX, startY),
             End = new RadarPoint(endX, endY)
         };
+    }
+
+    private static RadarLiveSnapshot CreateRadarSnapshot(uint mapId, double x, double y)
+    {
+        var capturedAt = DateTimeOffset.Now;
+        return new RadarLiveSnapshot(
+            mapId,
+            new PlayerSnapshot(
+                1,
+                0,
+                "tester",
+                100,
+                100,
+                50,
+                50,
+                0,
+                new Vector3Snapshot((float)x, (float)y, 0.0F),
+                capturedAt,
+                CurrentHpAvailable: true,
+                MaxHpAvailable: true),
+            Array.Empty<WorldObjectSnapshot>(),
+            capturedAt);
+    }
+
+    private static void InvokeMouse(
+        System.Reflection.MethodInfo method,
+        System.Windows.Forms.Control control,
+        System.Windows.Forms.MouseButtons button,
+        int x,
+        int y)
+    {
+        method.Invoke(
+            control,
+            new object[]
+            {
+                new System.Windows.Forms.MouseEventArgs(
+                    button,
+                    1,
+                    x,
+                    y,
+                    0)
+            });
     }
 
     private static string? ReadCompassLabel(Type canvasType, string fieldName)

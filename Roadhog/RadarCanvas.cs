@@ -102,6 +102,11 @@ internal sealed class RadarCanvas : Control
                 _hasFixedCenter = true;
             }
 
+            if (_drawStart is not null)
+            {
+                _drawCurrent = GetPlayerRadarPoint();
+            }
+
             if (SelectedMonster is not null)
             {
                 SelectedMonster = value?.WorldObjects.FirstOrDefault(item =>
@@ -202,7 +207,13 @@ internal sealed class RadarCanvas : Control
 
         if (Mode == RadarCanvasMode.DrawObstacle)
         {
-            var segment = RegisterDrawClick(ScreenToWorld(e.Location));
+            var point = GetPlayerRadarPoint();
+            if (point is null)
+            {
+                return;
+            }
+
+            var segment = RegisterDrawClick(point.Value);
             if (segment is not null)
             {
                 SegmentCreated?.Invoke(this, segment);
@@ -239,7 +250,7 @@ internal sealed class RadarCanvas : Control
 
         if (_drawStart is not null)
         {
-            _drawCurrent = ScreenToWorld(e.Location);
+            _drawCurrent = GetPlayerRadarPoint();
             Invalidate();
         }
     }
@@ -284,8 +295,8 @@ internal sealed class RadarCanvas : Control
         DrawObstacles(e.Graphics);
         DrawRoute(e.Graphics);
         DrawWorldObjects(e.Graphics);
-        DrawPlayer(e.Graphics);
         DrawDraft(e.Graphics);
+        DrawPlayer(e.Graphics);
         DrawCompassAndInfo(e.Graphics);
     }
 
@@ -485,6 +496,16 @@ internal sealed class RadarCanvas : Control
         }
 
         return _hasFixedCenter ? _fixedCenter : default;
+    }
+
+    private RadarPoint? GetPlayerRadarPoint()
+    {
+        if (_snapshot?.Player?.Position is not { } position)
+        {
+            return null;
+        }
+
+        return new RadarPoint(position.X, position.Y);
     }
 
     private PointF WorldToScreen(RadarPoint point)

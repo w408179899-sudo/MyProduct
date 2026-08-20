@@ -90,6 +90,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("radar canvas projection is north up", RadarTests.CanvasProjectionIsNorthUpAsync),
     ("radar canvas marker colors match disposition", RadarTests.CanvasMarkerColorsMatchDispositionAsync),
     ("radar canvas draws continuous obstacles until cancelled", RadarTests.CanvasDrawsContinuousObstaclesUntilCancelledAsync),
+    ("radar canvas draw click uses player position and draft follows", RadarTests.CanvasDrawClickUsesPlayerPositionAndDraftFollowsAsync),
     ("radar settings default disabled and clone", RadarTests.SettingsDefaultDisabledAndCloneAsync),
     ("radar geometry detects segment intersection", RadarTests.GeometryDetectsSegmentIntersectionAsync),
     ("radar planner keeps clear direct route", RadarTests.PlannerKeepsClearDirectRouteAsync),
