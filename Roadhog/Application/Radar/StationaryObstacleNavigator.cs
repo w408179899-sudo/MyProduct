@@ -157,9 +157,9 @@ public sealed class StationaryObstacleNavigationState
 public sealed class StationaryObstacleNavigator
 {
     private const double MinimumWaypointReachMeters = 0.25D;
-    private const double MaximumWaypointReachMeters = 3.0D;
+    private const double MaximumWaypointReachMeters = 5.0D;
     private const double MaximumPrecisionCorrectionMeters = 1.5D;
-    private const double LooseWaypointAdvanceMeters = 3.0D;
+    private const double LooseWaypointAdvanceMeters = 5.0D;
 
     private readonly IRadarMapStore _mapStore;
     private readonly RadarRoutePlanner _planner;

@@ -501,7 +501,7 @@ internal static class RadarTests
             var settings = new RadarObstacleScriptSettings
             {
                 Enabled = true,
-                WaypointReachMeters = 3.0D,
+                WaypointReachMeters = 5.0D,
                 MaximumDetourExtraMeters = 30.0D
             };
             var start = new RadarPoint(0.0D, 0.0D);
@@ -587,7 +587,7 @@ internal static class RadarTests
                     1.0D)
                 .ConfigureAwait(false);
 
-            Require(state.WaypointIndex == 1, "loose waypoint advance should move past the current waypoint once inside 3 meters");
+            Require(state.WaypointIndex == 1, "loose waypoint advance should move past the current waypoint once inside 5 meters");
             RequireNear(guardedGoal.X, looseAdvance.Destination.X, "loose advance next waypoint X");
             RequireNear(guardedGoal.Y, looseAdvance.Destination.Y, "loose advance next waypoint Y");
             RequireNear(1.0D, looseAdvance.ReachDistanceMeters, "loose advance should use the final reach distance");
