@@ -23013,7 +23013,9 @@ static async Task TestStationaryCombatKeepsRevivePathClearTargetClaimedByOtherAs
 static async Task TestStationaryCombatReacquiresRevivePathClearTargetClaimedByOtherAsync()
 {
     var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
     Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
     try
     {
         var settings = CreateScriptSettings();
@@ -23034,7 +23036,7 @@ static async Task TestStationaryCombatReacquiresRevivePathClearTargetClaimedByOt
         var logger = new InMemoryRoadhogLogger();
         var gameApi = new FakeGameApi
         {
-            Player = new PlayerSnapshot(1, 200, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            Player = new PlayerSnapshot(1, 200, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 0, 10, 0),
             TargetEntityId = 200,
             TargetOwnServerObjectId = 200,
             TargetCurrentHp = 1000,
@@ -23085,6 +23087,19 @@ static async Task TestStationaryCombatReacquiresRevivePathClearTargetClaimedByOt
             entry.EventName == "stationary_combat.target.reacquire" &&
             Equals(Convert.ToUInt16(entry.Fields["targetEntityId"]), (ushort)100)),
             "revive path clear target should log current target reacquire");
+        AssertFalse(
+            !keyboard.MouseCommands.Any(command => command.StartsWith("move:", StringComparison.Ordinal)),
+            "revive path clear reacquire should face before pressing Tab");
+        AssertFalse(keyboard.Keys.Contains("Tab"), "unfaced revive path clear reacquire should not Tab in the same tick");
+        var entries = logger.Entries.ToArray();
+        var faceIndex = Array.FindIndex(
+            entries,
+            entry => entry.EventName == "stationary_combat.face_target" &&
+                     Equals(Convert.ToUInt16(entry.Fields["targetEntityId"]), (ushort)100));
+        AssertFalse(faceIndex < 0, "revive path clear reacquire should log face target for the current target");
+        AssertFalse(
+            entries.Skip(faceIndex + 1).Any(entry => entry.EventName == "stationary_combat.tab.pressed"),
+            "revive path clear reacquire should wait for a completed face before Tab");
         AssertFalse(logger.Entries.Any(entry =>
             entry.EventName == "stationary_combat.target.ignored" &&
             string.Equals(Convert.ToString(entry.Fields["reason"]), "target_owned_by_other", StringComparison.Ordinal)),
@@ -23093,6 +23108,7 @@ static async Task TestStationaryCombatReacquiresRevivePathClearTargetClaimedByOt
     finally
     {
         Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
     }
 }
 

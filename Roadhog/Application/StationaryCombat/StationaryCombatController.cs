@@ -6072,7 +6072,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         if (!state.Fighting ||
             context.Config.ScriptSettings?.CombatMode != AccountCombatMode.Stationary ||
             state.CurrentTargetIsMaintenanceDefense ||
-            state.CurrentTargetIsRevivePathClear ||
             state.CurrentTargetIsGatherSafetyClear)
         {
             return true;
