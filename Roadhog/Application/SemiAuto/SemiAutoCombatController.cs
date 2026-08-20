@@ -30,7 +30,7 @@ public sealed class SemiAutoCombatController
     private static readonly TimeSpan MaintenanceConfirmPollInterval = TimeSpan.FromMilliseconds(300);
     private static readonly TimeSpan MaintenanceKeyRetryInterval = TimeSpan.FromSeconds(3);
     internal static readonly TimeSpan MaintenanceGlobalKeyInterval = TimeSpan.FromMilliseconds(600);
-    private const int StatusMaintenancePressBurstCount = 5;
+    private const int StatusMaintenancePressBurstCount = 3;
     private static readonly TimeSpan MaintenanceRestExitBeforeKeyDelay = TimeSpan.FromMilliseconds(150);
     private static readonly TimeSpan SupportSelfSelectConfirmDelay = TimeSpan.FromMilliseconds(25);
     private static readonly TimeSpan SpiritmasterCooldownConfirmRetryInterval = TimeSpan.FromMilliseconds(50);

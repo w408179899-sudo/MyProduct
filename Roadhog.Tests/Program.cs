@@ -28907,7 +28907,7 @@ static async Task TestStatusMaintenancePressesMissingBuffAndLearnsAbnormalIdAsyn
     AssertEqual(4001u, Convert.ToUInt32(entry!.Fields["abnormalStatusId"]), "learned status abnormal id");
     AssertEqual(1300L, Convert.ToInt64(entry.Fields["confirmWindowMs"]), "normal status maintenance confirm window");
     AssertEqual(false, Convert.ToBoolean(entry.Fields["chant"]), "normal status maintenance should not be logged as chant");
-    AssertEqual(5, Convert.ToInt32(entry.Fields["pressCount"]), "status maintenance key burst count");
+    AssertEqual(3, Convert.ToInt32(entry.Fields["pressCount"]), "status maintenance key burst count");
     AssertEqual(100L, Convert.ToInt64(entry.Fields["pressIntervalMs"]), "status maintenance key burst interval");
 
     await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
@@ -29224,7 +29224,7 @@ static async Task TestStatusMaintenanceChantFollowsActiveStatusAsync()
     AssertEqual(true, Convert.ToBoolean(pressedEntry!.Fields["oneShot"]), "chant maintenance should keep legacy one-shot log flag");
     AssertEqual(true, Convert.ToBoolean(pressedEntry!.Fields["chant"]), "chant maintenance should be logged as chant");
     AssertEqual(2000L, Convert.ToInt64(pressedEntry.Fields["confirmWindowMs"]), "chant status maintenance confirm window");
-    AssertEqual(5, Convert.ToInt32(pressedEntry.Fields["pressCount"]), "chant status maintenance key burst count");
+    AssertEqual(3, Convert.ToInt32(pressedEntry.Fields["pressCount"]), "chant status maintenance key burst count");
     AssertEqual(100L, Convert.ToInt64(pressedEntry.Fields["pressIntervalMs"]), "chant status maintenance key burst interval");
     keyboard.Keys.Clear();
     await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
