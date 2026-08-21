@@ -22,7 +22,8 @@ public static class NextTargetPreAimSelector
         double switchDistanceMargin = 2.0D,
         NextTargetPreAimExclusionSnapshot? exclusions = null,
         IReadOnlySet<uint>? teamSideServerObjectIds = null,
-        Func<WorldObjectSnapshot, double>? distanceResolver = null)
+        Func<WorldObjectSnapshot, double>? distanceResolver = null,
+        bool responsiveSwitching = false)
     {
         var effectiveNow = now ?? DateTimeOffset.Now;
         var effectiveExclusions = exclusions ?? NextTargetPreAimExclusionSnapshot.Empty;
@@ -117,6 +118,17 @@ public static class NextTargetPreAimSelector
                 SelectedAt = currentSelection.SelectedAt,
                 DecisionReason = "kept_higher_priority_current"
             };
+        }
+
+        if (responsiveSwitching)
+        {
+            return best.DistanceToOrigin < current.DistanceToOrigin
+                ? best with { DecisionReason = "closer_responsive" }
+                : current with
+                {
+                    SelectedAt = currentSelection.SelectedAt,
+                    DecisionReason = "kept_not_closer_responsive"
+                };
         }
 
         var hold = minimumHold ?? TimeSpan.FromSeconds(1);

@@ -9602,6 +9602,12 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                context.Config.ScriptSettings?.Combat?.SmartPreAimUseFightTargetPosition == true;
     }
 
+    private static bool UsesResponsiveSmartPreAimSwitching(AccountWorkerContext context)
+    {
+        return IsSmartPreAimEnabled(context) &&
+               context.Config.ScriptSettings?.Combat?.SmartPreAimResponsiveSwitching == true;
+    }
+
     private static Vector3Snapshot ResolvePendingNextTargetSelectionOrigin(
         AccountWorkerContext context,
         StationaryCombatState state,
@@ -9698,6 +9704,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             ["fightTargetServerObjectId"] = currentTarget.ServerObjectId,
             ["fightTargetName"] = currentTarget.Name,
             ["useFightTargetPosition"] = UsesFightTargetPositionForSmartPreAim(context),
+            ["responsiveSwitching"] = UsesResponsiveSmartPreAimSwitching(context),
             ["radius"] = Math.Round(radius, 2)
         });
     }
@@ -9976,6 +9983,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             fightTargetEntityId,
             fightTargetServerObjectId);
         var switchDistanceMargin = ReadSmartPreAimSwitchDistanceMargin();
+        var responsiveSwitching = UsesResponsiveSmartPreAimSwitching(context);
         var allowClaimedByOther = AllowsClaimedTargets(context);
         var preferAggressiveMonsters = PrefersAggressiveMonsters(context);
         var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
@@ -10005,17 +10013,21 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             switchDistanceMargin,
             exclusions,
             teamSideServerObjectIds,
-            distanceResolver);
-        selection = KeepCommittedNextTargetPreAimSelectionStable(
-            state,
-            currentSelection,
-            selection,
-            hasCommittedCandidate,
-            objects,
-            playerPosition,
-            distanceOrigin,
-            routeDistances,
-            switchDistanceMargin);
+            distanceResolver,
+            responsiveSwitching);
+        if (!responsiveSwitching)
+        {
+            selection = KeepCommittedNextTargetPreAimSelectionStable(
+                state,
+                currentSelection,
+                selection,
+                hasCommittedCandidate,
+                objects,
+                playerPosition,
+                distanceOrigin,
+                routeDistances,
+                switchDistanceMargin);
+        }
 
         var selectionChanged = StoreNextTargetPreAimSelection(
             context,
@@ -10452,6 +10464,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 ["distanceOriginX"] = Math.Round(distanceOrigin.X, 2),
                 ["distanceOriginY"] = Math.Round(distanceOrigin.Y, 2),
                 ["distanceOriginSource"] = ResolveSmartPreAimDistanceOriginSource(context, state),
+                ["responsiveSwitching"] = UsesResponsiveSmartPreAimSwitching(context),
                 ["decisionReason"] = selection.DecisionReason,
                 ["worldObjectCount"] = worldObjectCount
             });
@@ -10525,6 +10538,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             ["distanceOriginX"] = Math.Round(distanceOrigin.X, 2),
             ["distanceOriginY"] = Math.Round(distanceOrigin.Y, 2),
             ["distanceOriginSource"] = distanceOriginSource,
+            ["responsiveSwitching"] = UsesResponsiveSmartPreAimSwitching(context),
             ["playerX"] = Math.Round(playerPosition.X, 2),
             ["playerY"] = Math.Round(playerPosition.Y, 2),
             ["homeX"] = Math.Round(home.X, 2),

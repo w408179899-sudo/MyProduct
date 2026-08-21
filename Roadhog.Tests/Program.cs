@@ -351,6 +351,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat smart pre-aim logs candidate diagnostics", TestSmartPreAimLogsCandidateDiagnosticsAsync),
     ("stationary combat smart pre-aim selector keeps stable target", TestSmartPreAimSelectorKeepsStableTargetAsync),
     ("stationary combat smart pre-aim stabilizes aligned target switching", TestSmartPreAimStabilizesAlignedTargetSwitchingAsync),
+    ("stationary combat smart pre-aim responsive switching bypasses debounce", TestSmartPreAimResponsiveSwitchingBypassesDebounceAsync),
     ("stationary combat smart pre-aim does not force committed target", TestSmartPreAimDoesNotForceCommittedTargetAsync),
     ("stationary combat smart pre-aim missing aligned candidate does not block selection", TestSmartPreAimMissingAlignedCandidateDoesNotBlockSelectionAsync),
     ("stationary combat smart pre-aim aligned claimed candidate follows claim settings", TestSmartPreAimAlignedClaimedCandidateFollowsClaimSettingsAsync),
@@ -504,6 +505,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("condition skill preempt switch persists from skill UI", TestConditionSkillPreemptSwitchPersistsFromSkillUiAsync),
     ("return home when no target switch persists from summary UI", TestReturnHomeWhenNoTargetSwitchPersistsFromSummaryUiAsync),
     ("jump assist switch persists from summary UI", TestJumpAssistSwitchPersistsFromSummaryUiAsync),
+    ("smart pre-aim responsive switch persists from summary UI", TestSmartPreAimResponsiveSwitchPersistsFromSummaryUiAsync),
+    ("smart pre-aim dependent switches follow enabled state from summary UI", TestSmartPreAimDependentSwitchesFollowEnabledStateFromSummaryUiAsync),
     ("selected skill refresh removes unavailable current skills", TestSelectedSkillRefreshRemovesUnavailableCurrentSkillsAsync),
     ("skill tree maps at most configured roots across the 24 supported keys", TestConfiguredRootKeyBoundaryAsync),
     ("combat tick presses trigger prefix then first ready root", TestCombatTickPressesPrefixThenReadyRootAsync),
@@ -3505,14 +3508,17 @@ static Task TestJumpAssistSettingDefaultsAndCloneAsync()
     AssertFalse(defaults.JumpAssistEnabled, "jump assist must default disabled");
     AssertFalse(defaults.SmartPreAimEnabled, "smart pre-aim must default disabled");
     AssertFalse(defaults.SmartPreAimUseFightTargetPosition, "fight-target smart pre-aim origin must default disabled");
+    AssertFalse(defaults.SmartPreAimResponsiveSwitching, "responsive smart pre-aim switching must default disabled");
 
     defaults.JumpAssistEnabled = true;
     defaults.SmartPreAimEnabled = true;
     defaults.SmartPreAimUseFightTargetPosition = true;
+    defaults.SmartPreAimResponsiveSwitching = true;
     var clone = defaults.Clone();
     AssertFalse(!clone.JumpAssistEnabled, "combat settings clone should preserve jump assist");
     AssertFalse(!clone.SmartPreAimEnabled, "combat settings clone should preserve smart pre-aim");
     AssertFalse(!clone.SmartPreAimUseFightTargetPosition, "combat settings clone should preserve fight-target smart pre-aim origin");
+    AssertFalse(!clone.SmartPreAimResponsiveSwitching, "combat settings clone should preserve responsive smart pre-aim switching");
     return Task.CompletedTask;
 }
 
@@ -12521,6 +12527,7 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
                     PreferAggressiveMonsters = true,
                     SmartPreAimEnabled = true,
                     SmartPreAimUseFightTargetPosition = true,
+                    SmartPreAimResponsiveSwitching = true,
                     ReturnHomeWhenNoTarget = false,
                     SitWhenNoTargetAtHome = true,
                     HasStationaryCombatPosition = true,
@@ -12555,6 +12562,7 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
         AssertFalse(!combat.PreferAggressiveMonsters, "prefer aggressive monsters should persist");
         AssertFalse(!combat.SmartPreAimEnabled, "smart pre-aim should persist");
         AssertFalse(!combat.SmartPreAimUseFightTargetPosition, "fight-target smart pre-aim origin should persist");
+        AssertFalse(!combat.SmartPreAimResponsiveSwitching, "responsive smart pre-aim switching should persist");
         AssertFalse(combat.ReturnHomeWhenNoTarget, "return home when no target should persist");
         AssertFalse(!combat.SitWhenNoTargetAtHome, "sit when no target at home should persist");
 
@@ -12569,6 +12577,7 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
         AssertFalse(!clone.PreferAggressiveMonsters, "prefer aggressive monsters should clone");
         AssertFalse(!clone.SmartPreAimEnabled, "smart pre-aim should clone");
         AssertFalse(!clone.SmartPreAimUseFightTargetPosition, "fight-target smart pre-aim origin should clone");
+        AssertFalse(!clone.SmartPreAimResponsiveSwitching, "responsive smart pre-aim switching should clone");
         AssertFalse(clone.ReturnHomeWhenNoTarget, "return home when no target should clone");
         AssertFalse(!clone.SitWhenNoTargetAtHome, "sit when no target at home should clone");
     }
@@ -13719,6 +13728,108 @@ static async Task TestSmartPreAimStabilizesAlignedTargetSwitchingAsync()
     preAim.ClearCandidate();
     AssertEqual(0, preAim.ConsecutiveBetterTargetSnapshots, "clearing pre-aim state should reset pending switch confirmations");
     AssertEqual(0u, preAim.PendingSwitchTargetServerObjectId, "clearing pre-aim state should reset pending switch identity");
+}
+
+static async Task TestSmartPreAimResponsiveSwitchingBypassesDebounceAsync()
+{
+    var player = new Vector3Snapshot(0, 0, 0);
+    var home = new Vector3Snapshot(0, 0, 0);
+    var now = new DateTimeOffset(2026, 8, 20, 12, 0, 0, TimeSpan.Zero);
+    var currentTarget = new WorldObjectSnapshot(20, 2020, "stable", "monster", new Vector3Snapshot(7, 0, 0), 7, 100, 100);
+    var slightlyCloser = new WorldObjectSnapshot(21, 2021, "slightly-closer", "monster", new Vector3Snapshot(6, 0, 0), 6, 100, 100);
+    var currentSelection = new NextTargetPreAimSelection(
+        currentTarget,
+        1,
+        7,
+        IsTargetingLocalSide: false,
+        IsTargetingTeamSide: false,
+        IsAggressivePriority: false,
+        now,
+        "current");
+
+    var responsiveSelection = NextTargetPreAimSelector.Select(
+        new[] { currentTarget, slightlyCloser },
+        player,
+        home,
+        30,
+        currentTargetEntityId: 99,
+        currentTargetServerObjectId: 9999,
+        localSideServerObjectId: 0,
+        localSidePetServerObjectId: 0,
+        allowClaimedByOther: false,
+        preferAggressiveMonsters: false,
+        currentSelection: currentSelection,
+        now: now.AddMilliseconds(200),
+        minimumHold: TimeSpan.FromSeconds(1),
+        switchDistanceMargin: 2.0D,
+        responsiveSwitching: true);
+
+    AssertEqual(slightlyCloser.EntityId, responsiveSelection?.Target.EntityId ?? 0, "responsive selector should ignore the hold window and two meter margin");
+    AssertEqual("closer_responsive", responsiveSelection?.DecisionReason ?? string.Empty, "responsive selector should report a direct closer switch");
+
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        SmartPreAimEnabled = true,
+        SmartPreAimResponsiveSwitching = true,
+        HasStationaryCombatPosition = true,
+        StationaryCombatRadius = 30
+    };
+    var alignedTarget = new WorldObjectSnapshot(30, 3030, "aligned", "monster", new Vector3Snapshot(8, 0, 0), 8, 100, 100);
+    var closerTarget = new WorldObjectSnapshot(31, 3031, "closer", "monster", new Vector3Snapshot(7, 0, 0), 7, 100, 100);
+    var gameApi = new FakeGameApi
+    {
+        WorldObjects = new[] { alignedTarget, closerTarget }
+    };
+    var controller = new StationaryCombatController(
+        new RecordingKeyboardInput(),
+        new SemiAutoCombatController(new RecordingKeyboardInput()));
+    var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
+    var state = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CurrentTargetServerObjectId = 5000
+    };
+    var preAim = state.NextTargetPreAim;
+    preAim.TargetEntityId = alignedTarget.EntityId;
+    preAim.TargetServerObjectId = alignedTarget.ServerObjectId;
+    preAim.TargetName = alignedTarget.Name;
+    preAim.TargetPosition = alignedTarget.Position;
+    preAim.TargetPriorityTier = 1;
+    preAim.TargetDistanceToOrigin = 8;
+    preAim.TargetSelectedAt = DateTimeOffset.Now - TimeSpan.FromSeconds(2);
+    preAim.LastAlignedAt = DateTimeOffset.Now;
+    preAim.SessionId = 1;
+    preAim.FightTargetEntityId = 100;
+    preAim.FightTargetServerObjectId = 5000;
+
+    var refreshMethod = typeof(StationaryCombatController).GetMethod(
+        "RefreshNextTargetPreAimSelectionAsync",
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+    AssertFalse(refreshMethod is null, "smart pre-aim refresh helper should exist");
+
+    var task = (Task)refreshMethod!.Invoke(
+        controller,
+        new object[]
+        {
+            context,
+            state,
+            player,
+            home,
+            30D,
+            (ushort)100,
+            5000u,
+            state.NextTargetPreAim.SessionId
+        })!;
+    await task.ConfigureAwait(false);
+
+    AssertEqual(closerTarget.EntityId, preAim.TargetEntityId, "responsive mode should replace a camera-committed target on the first closer snapshot");
+    AssertEqual(0, preAim.ConsecutiveBetterTargetSnapshots, "responsive mode should not accumulate three-snapshot confirmation state");
+    AssertEqual(alignedTarget.ServerObjectId, preAim.DisplacedTargetServerObjectId, "responsive committed switch should still remember the displaced target");
+    AssertEqual(closerTarget.ServerObjectId, preAim.DisplacedTargetReplacementServerObjectId, "responsive committed switch should bind the displaced target to its replacement");
 }
 
 static async Task TestSmartPreAimDoesNotForceCommittedTargetAsync()
@@ -25889,6 +26000,131 @@ static Task TestJumpAssistSwitchPersistsFromSummaryUiAsync()
             AssertFalse(
                 savedCombat.JumpAssistEnabled,
                 "jump assist switch should persist disabled state");
+        }
+        catch (Exception ex)
+        {
+            failure = ex;
+        }
+    });
+
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    thread.Join();
+
+    if (failure is not null)
+    {
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    return Task.CompletedTask;
+}
+
+static Task TestSmartPreAimResponsiveSwitchPersistsFromSummaryUiAsync()
+{
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        try
+        {
+            var settings = CreateScriptSettings();
+            settings.MainMode = AccountMainMode.CustomCombat;
+            settings.CombatMode = AccountCombatMode.Stationary;
+            settings.Combat.SmartPreAimEnabled = true;
+            settings.Combat.SmartPreAimResponsiveSwitching = true;
+            var configStore = new InMemoryAccountConfigStore(new AccountConfig
+            {
+                AccountName = "account1",
+                ScriptSettings = settings
+            });
+
+            using var form = CreateAccountSettingsFormForTestsWithStore(configStore);
+            AssertFalse(
+                !GetCheckBoxCheckedForTest(form, "smartPreAimResponsiveSwitchingCheckBox"),
+                "responsive smart pre-aim switch should load enabled state");
+
+            SetCheckBoxCheckedForTest(form, "smartPreAimResponsiveSwitchingCheckBox", false);
+            var saved = InvokeSaveCurrentSettingsForTest(form, out var error);
+            AssertFalse(!saved, "responsive smart pre-aim switch save failed: " + error);
+
+            var load = configStore.LoadAllAsync().GetAwaiter().GetResult();
+            AssertFalse(!load.Success, "saved config should load");
+            var savedCombat = load.Value!
+                .Single(account => string.Equals(account.AccountName, "account1", StringComparison.OrdinalIgnoreCase))
+                .ScriptSettings!
+                .Combat;
+            AssertFalse(
+                savedCombat.SmartPreAimResponsiveSwitching,
+                "responsive smart pre-aim switch should persist disabled state");
+        }
+        catch (Exception ex)
+        {
+            failure = ex;
+        }
+    });
+
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    thread.Join();
+
+    if (failure is not null)
+    {
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    return Task.CompletedTask;
+}
+
+static Task TestSmartPreAimDependentSwitchesFollowEnabledStateFromSummaryUiAsync()
+{
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        try
+        {
+            var settings = CreateScriptSettings();
+            settings.MainMode = AccountMainMode.CustomCombat;
+            settings.CombatMode = AccountCombatMode.Stationary;
+            settings.Combat.SmartPreAimEnabled = false;
+            settings.Combat.SmartPreAimUseFightTargetPosition = true;
+            settings.Combat.SmartPreAimResponsiveSwitching = true;
+            var configStore = new InMemoryAccountConfigStore(new AccountConfig
+            {
+                AccountName = "account1",
+                ScriptSettings = settings
+            });
+
+            using var form = CreateAccountSettingsFormForTestsWithStore(configStore);
+            SetComboSelectedIndexForTest(form, "settingsTabs", 0);
+            form.Show();
+            System.Windows.Forms.Application.DoEvents();
+
+            AssertFalse(
+                !GetControlVisibleForTest(form, "smartPreAimEnabledCheckBox"),
+                "smart pre-aim switch should show for custom stationary combat");
+            AssertFalse(
+                GetControlVisibleForTest(form, "smartPreAimUseFightTargetPositionCheckBox"),
+                "fight-target smart pre-aim origin switch should hide while smart pre-aim is disabled");
+            AssertFalse(
+                GetControlVisibleForTest(form, "smartPreAimResponsiveSwitchingCheckBox"),
+                "responsive smart pre-aim switching should hide while smart pre-aim is disabled");
+
+            ClickControlForTest(form, "smartPreAimEnabledCheckBox");
+            System.Windows.Forms.Application.DoEvents();
+            AssertFalse(
+                !GetControlVisibleForTest(form, "smartPreAimUseFightTargetPositionCheckBox"),
+                "fight-target smart pre-aim origin switch should show after smart pre-aim is enabled");
+            AssertFalse(
+                !GetControlVisibleForTest(form, "smartPreAimResponsiveSwitchingCheckBox"),
+                "responsive smart pre-aim switching should show after smart pre-aim is enabled");
+
+            ClickControlForTest(form, "smartPreAimEnabledCheckBox");
+            System.Windows.Forms.Application.DoEvents();
+            AssertFalse(
+                GetControlVisibleForTest(form, "smartPreAimUseFightTargetPositionCheckBox"),
+                "fight-target smart pre-aim origin switch should hide again after smart pre-aim is disabled");
+            AssertFalse(
+                GetControlVisibleForTest(form, "smartPreAimResponsiveSwitchingCheckBox"),
+                "responsive smart pre-aim switching should hide again after smart pre-aim is disabled");
         }
         catch (Exception ex)
         {

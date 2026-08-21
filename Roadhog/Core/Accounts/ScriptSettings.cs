@@ -222,6 +222,8 @@ public sealed class CombatScriptSettings
 
     public bool SmartPreAimUseFightTargetPosition { get; set; }
 
+    public bool SmartPreAimResponsiveSwitching { get; set; }
+
     public bool ReturnHomeWhenNoTarget { get; set; } = true;
 
     public bool SitWhenNoTargetAtHome { get; set; }
@@ -261,6 +263,7 @@ public sealed class CombatScriptSettings
             PreferAggressiveMonsters = PreferAggressiveMonsters,
             SmartPreAimEnabled = SmartPreAimEnabled,
             SmartPreAimUseFightTargetPosition = SmartPreAimUseFightTargetPosition,
+            SmartPreAimResponsiveSwitching = SmartPreAimResponsiveSwitching,
             ReturnHomeWhenNoTarget = ReturnHomeWhenNoTarget,
             SitWhenNoTargetAtHome = SitWhenNoTargetAtHome,
             ActiveMonsterNameFilters = ActiveMonsterNameFilters?.ToList() ?? new List<string>(),

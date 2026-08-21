@@ -40,6 +40,7 @@
           "counterEnemyRace": false,
           "smartPreAimEnabled": false,
           "smartPreAimUseFightTargetPosition": false,
+          "smartPreAimResponsiveSwitching": false,
           "returnHomeWhenNoTarget": true,
           "sitWhenNoTargetAtHome": false,
           "stationaryCombatRadius": 30,

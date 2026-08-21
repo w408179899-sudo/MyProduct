@@ -81,6 +81,7 @@ namespace Roadhog
         private RoundedCheckBox? preferAggressiveMonsterCheckBox;
         private RoundedCheckBox? smartPreAimEnabledCheckBox;
         private RoundedCheckBox? smartPreAimUseFightTargetPositionCheckBox;
+        private RoundedCheckBox? smartPreAimResponsiveSwitchingCheckBox;
         private RoundedCheckBox? returnHomeWhenNoTargetCheckBox;
         private RoundedCheckBox? sitWhenNoTargetAtHomeCheckBox;
         private Button? radarEditorButton;
@@ -455,7 +456,8 @@ namespace Roadhog
             SetChecked(preferAggressiveMonsterCheckBox, settings.Combat.PreferAggressiveMonsters);
             SetChecked(smartPreAimEnabledCheckBox, settings.Combat.SmartPreAimEnabled);
             SetChecked(smartPreAimUseFightTargetPositionCheckBox, settings.Combat.SmartPreAimUseFightTargetPosition);
-            RefreshSmartPreAimOriginControlState();
+            SetChecked(smartPreAimResponsiveSwitchingCheckBox, settings.Combat.SmartPreAimResponsiveSwitching);
+            RefreshCombatModeVisibility();
             SetChecked(returnHomeWhenNoTargetCheckBox, settings.Combat.ReturnHomeWhenNoTarget);
             SetChecked(sitWhenNoTargetAtHomeCheckBox, settings.Combat.SitWhenNoTargetAtHome);
             PopulateActiveMonsterFilterList(settings.Combat.ActiveMonsterNameFilters);
@@ -772,6 +774,7 @@ namespace Roadhog
                     PreferAggressiveMonsters = preferAggressiveMonsterCheckBox?.Checked ?? false,
                     SmartPreAimEnabled = smartPreAimEnabledCheckBox?.Checked ?? false,
                     SmartPreAimUseFightTargetPosition = smartPreAimUseFightTargetPositionCheckBox?.Checked ?? false,
+                    SmartPreAimResponsiveSwitching = smartPreAimResponsiveSwitchingCheckBox?.Checked ?? false,
                     ReturnHomeWhenNoTarget = returnHomeWhenNoTargetCheckBox?.Checked ?? true,
                     SitWhenNoTargetAtHome = sitWhenNoTargetAtHomeCheckBox?.Checked ?? false,
                     ActiveMonsterNameFilters = CaptureActiveMonsterFilterList(),
@@ -1262,7 +1265,7 @@ namespace Roadhog
             jumpAssistEnabledCheckBox.Name = "jumpAssistEnabledCheckBox";
             smartPreAimEnabledCheckBox = AddCheckBox(page, "\u667a\u80fd\u9009\u602a", 4, 176, 110, false);
             smartPreAimEnabledCheckBox.Name = "smartPreAimEnabledCheckBox";
-            smartPreAimEnabledCheckBox.Click += (_, _) => RefreshSmartPreAimOriginControlState();
+            smartPreAimEnabledCheckBox.Click += (_, _) => RefreshCombatModeVisibility();
             smartPreAimUseFightTargetPositionCheckBox = AddCheckBox(
                 page,
                 "\u6309\u5f53\u524d\u602a\u4f4d\u7f6e\u9009\u602a",
@@ -1271,6 +1274,14 @@ namespace Roadhog
                 170,
                 false);
             smartPreAimUseFightTargetPositionCheckBox.Name = "smartPreAimUseFightTargetPositionCheckBox";
+            smartPreAimResponsiveSwitchingCheckBox = AddCheckBox(
+                page,
+                "\u7075\u654f\u5207\u6362",
+                4,
+                208,
+                110,
+                false);
+            smartPreAimResponsiveSwitchingCheckBox.Name = "smartPreAimResponsiveSwitchingCheckBox";
             radarEditorButton = AddButton(
                 page,
                 "\u7ed8\u5236\u96f7\u8fbe",
@@ -1391,6 +1402,7 @@ namespace Roadhog
             var combatMode = ParseCombatMode(combatModeCombo?.Text);
             var stationaryVisible = visible && combatMode == AccountCombatMode.Stationary;
             var pathVisible = visible && combatMode == AccountCombatMode.Path;
+            var smartPreAimOptionsVisible = stationaryVisible && smartPreAimEnabledCheckBox?.Checked == true;
             if (combatModeCombo is not null)
             {
                 combatModeCombo.Visible = visible;
@@ -1478,7 +1490,12 @@ namespace Roadhog
 
             if (smartPreAimUseFightTargetPositionCheckBox is not null)
             {
-                smartPreAimUseFightTargetPositionCheckBox.Visible = stationaryVisible;
+                smartPreAimUseFightTargetPositionCheckBox.Visible = smartPreAimOptionsVisible;
+            }
+
+            if (smartPreAimResponsiveSwitchingCheckBox is not null)
+            {
+                smartPreAimResponsiveSwitchingCheckBox.Visible = smartPreAimOptionsVisible;
             }
 
             if (radarEditorButton is not null)
@@ -1552,6 +1569,11 @@ namespace Roadhog
             if (smartPreAimUseFightTargetPositionCheckBox is not null)
             {
                 smartPreAimUseFightTargetPositionCheckBox.Enabled = smartPreAimEnabledCheckBox?.Checked == true;
+            }
+
+            if (smartPreAimResponsiveSwitchingCheckBox is not null)
+            {
+                smartPreAimResponsiveSwitchingCheckBox.Enabled = smartPreAimEnabledCheckBox?.Checked == true;
             }
         }
 
