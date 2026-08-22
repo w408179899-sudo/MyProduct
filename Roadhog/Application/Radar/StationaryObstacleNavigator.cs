@@ -266,7 +266,8 @@ public sealed class StationaryObstacleNavigator
         uint targetServerObjectId,
         RadarObstacleScriptSettings settings,
         double finalReachDistanceMeters,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool allowDirectCommitment = true)
     {
         if (!settings.Enabled || mapId == 0)
         {
@@ -298,7 +299,8 @@ public sealed class StationaryObstacleNavigator
             }
         }
 
-        if (purpose == RadarNavigationPurpose.ApproachTarget &&
+        if (allowDirectCommitment &&
+            purpose == RadarNavigationPurpose.ApproachTarget &&
             state.IsDirectApproachCommitted(targetServerObjectId))
         {
             return Direct(goal, finalReachDistanceMeters, mapId, "direct_committed");

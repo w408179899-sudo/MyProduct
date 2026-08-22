@@ -103,8 +103,11 @@ var tests = new (string Name, Func<Task> Run)[]
     ("radar navigator uses loose waypoint advance after hard reach", RadarTests.NavigatorUsesLooseWaypointAdvanceAfterHardReachAsync),
     ("radar navigator advances waypoint crossed between samples", RadarTests.NavigatorAdvancesWaypointCrossedBetweenSamplesAsync),
     ("radar navigator direct commitment stays on same target", RadarTests.NavigatorDirectCommitmentStaysOnSameTargetAsync),
+    ("radar navigator strict direct check ignores commitment", RadarTests.NavigatorStrictDirectCheckIgnoresCommitmentAsync),
     ("radar obstacle switch persists from stationary ui", TestRadarObstacleSwitchPersistsFromStationaryUiAsync),
     ("stationary combat locked target waits for clear radar route", TestStationaryCombatLockedTargetWaitsForClearRadarRouteAsync),
+    ("stationary combat allows tab when radar line is clear", TestStationaryCombatAllowsTabWhenRadarLineIsClearAsync),
+    ("stationary combat blocks tab when radar line intersects obstacle", TestStationaryCombatBlocksTabWhenRadarLineIntersectsObstacleAsync),
     ("stationary combat consumes waypoint arrival and commits clear target", TestStationaryCombatConsumesWaypointArrivalAndCommitsClearTargetAsync),
     ("path recorder enforces five meter minimum", TestPathRecorderMinimumDistanceAsync),
     ("shared path store saves loads and deletes path files", TestSharedPathStoreRoundTripAsync),
@@ -21873,6 +21876,157 @@ static async Task TestStationaryCombatLockedTargetWaitsForClearRadarRouteAsync()
                 entry.EventName == "stationary_combat.radar.navigation" &&
                 string.Equals(Convert.ToString(entry.Fields["phase"]), "locked_target_approach", StringComparison.Ordinal)),
             "locked target radar movement should be logged");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestStationaryCombatAllowsTabWhenRadarLineIsClearAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        const uint mapId = 776;
+        var settings = CreateStationarySoftRestartSettings();
+        settings.Combat.RadarObstacleAvoidance = new RadarObstacleScriptSettings
+        {
+            Enabled = true,
+            WaypointReachMeters = 1.5D,
+            MaximumDetourExtraMeters = 30.0D
+        };
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = CreateStationarySoftRestartGameApi(20);
+        gameApi.Channel = new ChannelSnapshot(0, 1, mapId, DateTimeOffset.Now);
+        gameApi.TargetEntityId = 0;
+        gameApi.TargetOwnServerObjectId = 0;
+        gameApi.TargetCurrentHp = 0;
+        gameApi.TargetMaxHp = 0;
+        gameApi.TargetPosition = null;
+        var mapStore = new StaticRadarMapStore(new RadarMapDocument
+        {
+            MapId = mapId,
+            Segments = new List<RadarObstacleSegment>
+            {
+                new()
+                {
+                    Start = new RadarPoint(10.0D, 8.0D),
+                    End = new RadarPoint(10.0D, 18.0D)
+                }
+            }
+        });
+        var controller = new StationaryCombatController(
+            keyboard,
+            new SemiAutoCombatController(keyboard),
+            obstacleNavigator: new StationaryObstacleNavigator(
+                mapStore,
+                new RadarRoutePlanner(),
+                new RadarMapRevisionRegistry()));
+        var state = new StationaryCombatState();
+        state.MarkCandidate(100, 9000, DateTimeOffset.Now);
+        state.FacedCandidateEntityId = 100;
+
+        await controller.TickAsync(
+                CreateContext(settings, gameApi, logger),
+                SemiAutoSkillPlan.FromSettings(settings.Skills),
+                new SemiAutoCombatState(),
+                state)
+            .ConfigureAwait(false);
+
+        AssertFalse(!keyboard.Keys.Contains("Tab"), "clear radar line should still allow Tab");
+        AssertFalse(
+            logger.Entries.Any(entry => entry.EventName == "stationary_combat.tab.blocked_by_obstacle"),
+            "clear radar line should not log a blocked Tab");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestStationaryCombatBlocksTabWhenRadarLineIntersectsObstacleAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        const uint mapId = 778;
+        const uint targetServerObjectId = 9000;
+        var settings = CreateStationarySoftRestartSettings();
+        settings.Combat.RadarObstacleAvoidance = new RadarObstacleScriptSettings
+        {
+            Enabled = true,
+            WaypointReachMeters = 1.5D,
+            MaximumDetourExtraMeters = 30.0D
+        };
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = CreateStationarySoftRestartGameApi(20);
+        gameApi.Channel = new ChannelSnapshot(0, 1, mapId, DateTimeOffset.Now);
+        gameApi.TargetEntityId = 0;
+        gameApi.TargetOwnServerObjectId = 0;
+        gameApi.TargetCurrentHp = 0;
+        gameApi.TargetMaxHp = 0;
+        gameApi.TargetPosition = null;
+        var mapStore = new StaticRadarMapStore(new RadarMapDocument
+        {
+            MapId = mapId,
+            Segments = new List<RadarObstacleSegment>
+            {
+                new()
+                {
+                    Start = new RadarPoint(10.0D, -8.0D),
+                    End = new RadarPoint(10.0D, 8.0D)
+                }
+            }
+        });
+        var navigator = new StationaryObstacleNavigator(
+            mapStore,
+            new RadarRoutePlanner(),
+            new RadarMapRevisionRegistry());
+        var controller = new StationaryCombatController(
+            keyboard,
+            new SemiAutoCombatController(keyboard),
+            obstacleNavigator: navigator);
+        var state = new StationaryCombatState();
+        state.MarkCandidate(100, targetServerObjectId, DateTimeOffset.Now);
+        state.FacedCandidateEntityId = 100;
+        var initialPlan = await navigator.ResolveAsync(
+                state.ObstacleNavigation,
+                mapId,
+                new RadarPoint(0.0D, 0.0D),
+                new RadarPoint(20.0D, 0.0D),
+                RadarNavigationPurpose.ApproachTarget,
+                targetServerObjectId,
+                settings.Combat.RadarObstacleAvoidance,
+                25.0D)
+            .ConfigureAwait(false);
+        AssertFalse(initialPlan.Action != RadarNavigationAction.MoveToWaypoint, "test setup should preload a non-direct radar route");
+        state.ObstacleNavigation.CommitDirectApproach(targetServerObjectId);
+
+        await controller.TickAsync(
+                CreateContext(settings, gameApi, logger),
+                SemiAutoSkillPlan.FromSettings(settings.Skills),
+                new SemiAutoCombatState(),
+                state)
+            .ConfigureAwait(false);
+
+        AssertFalse(keyboard.Keys.Contains("Tab"), "fresh radar obstacle check must block Tab when the current line crosses a drawn wall");
+        AssertFalse(keyboard.Keys.Contains("NumPad0"), "blocked Tab must also block the opening skill");
+        AssertFalse(
+            !logger.Entries.Any(entry =>
+                entry.EventName == "stationary_combat.tab.blocked_by_obstacle" &&
+                Equals(entry.Fields["targetServerObjectId"], targetServerObjectId)),
+            "blocked Tab should be logged with the target server object id");
+        AssertFalse(
+            state.ObstacleNavigation.IsDirectApproachCommitted(targetServerObjectId),
+            "fresh Tab check should clear the stale direct approach commitment");
+        AssertFalse(
+            state.ObstacleNavigation.LastPlan is not { Success: true, Direct: false },
+            "fresh Tab check should retain the non-direct obstacle route plan");
     }
     finally
     {

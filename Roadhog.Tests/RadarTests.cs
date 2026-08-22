@@ -848,6 +848,71 @@ internal static class RadarTests
         }
     }
 
+    public static async Task NavigatorStrictDirectCheckIgnoresCommitmentAsync()
+    {
+        var directory = CreateTemporaryDirectory();
+        try
+        {
+            var store = new JsonRadarMapStore(directory);
+            var save = await store.SaveAsync(new RadarMapDocument
+            {
+                MapId = 127,
+                Segments = new List<RadarObstacleSegment>
+                {
+                    Segment(10.0D, -5.0D, 10.0D, 5.0D)
+                }
+            }).ConfigureAwait(false);
+            Require(save.Success, "strict direct-check map should save");
+
+            var navigator = new StationaryObstacleNavigator(
+                store,
+                new RadarRoutePlanner(),
+                new RadarMapRevisionRegistry());
+            var state = new StationaryObstacleNavigationState();
+            var settings = new RadarObstacleScriptSettings
+            {
+                Enabled = true,
+                WaypointReachMeters = 1.5D,
+                MaximumDetourExtraMeters = 30.0D
+            };
+            var start = new RadarPoint(0.0D, 0.0D);
+            var goal = new RadarPoint(20.0D, 0.0D);
+
+            var preload = await navigator.ResolveAsync(
+                    state,
+                    127,
+                    start,
+                    goal,
+                    RadarNavigationPurpose.ApproachTarget,
+                    99,
+                    settings,
+                    25.0D)
+                .ConfigureAwait(false);
+            Require(preload.Action == RadarNavigationAction.MoveToWaypoint, "test setup should preload a non-direct route");
+
+            state.CommitDirectApproach(99);
+            var decision = await navigator.ResolveAsync(
+                    state,
+                    127,
+                    start,
+                    goal,
+                    RadarNavigationPurpose.ApproachTarget,
+                    99,
+                    settings,
+                    25.0D,
+                    allowDirectCommitment: false)
+                .ConfigureAwait(false);
+
+            Require(decision.Action == RadarNavigationAction.MoveToWaypoint, "strict direct check must not reuse a stale direct commitment");
+            Require(decision.Reason != "direct_committed", "strict direct check should expose the fresh route decision");
+            Require(!state.IsDirectApproachCommitted(99), "strict direct check should clear the stale direct commitment");
+        }
+        finally
+        {
+            DeleteVerifiedTemporaryDirectory(directory);
+        }
+    }
+
     private static void AssertEveryLegClear(
         RadarRoutePlan plan,
         IReadOnlyList<RadarObstacleSegment> obstacles)

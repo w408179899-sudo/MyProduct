@@ -5520,6 +5520,11 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return MoveTickDelay;
         }
 
+        if (!await EnsureRadarTabPathClearAsync(context, state, target).ConfigureAwait(false))
+        {
+            return MoveTickDelay;
+        }
+
         var now = DateTimeOffset.Now;
         state.LastTabAt = now;
         var verifyWindowMs = ReadTabVerifyWindowMs();
@@ -5566,6 +5571,141 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 home,
                 radius)
             .ConfigureAwait(false);
+    }
+
+    private async Task<bool> EnsureRadarTabPathClearAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        WorldObjectSnapshot target)
+    {
+        var radarSettings = context.Config.ScriptSettings?.Combat?.RadarObstacleAvoidance;
+        if (_obstacleNavigator is null || radarSettings is not { Enabled: true })
+        {
+            return true;
+        }
+
+        var playerSnapshot = await context.Snapshots.ReadPlayerAsync().ConfigureAwait(false);
+        if (playerSnapshot.Value?.Position is not { } playerPosition)
+        {
+            state.ClearPendingTabVerification();
+            LogRadarTabBlocked(
+                context,
+                state,
+                target,
+                null,
+                "player_position_unavailable",
+                null,
+                null,
+                targetPositionFromFreshWorld: false);
+            return false;
+        }
+
+        var targetPositionResult = await ReadFreshTabTargetPositionAsync(context, target).ConfigureAwait(false);
+        if (targetPositionResult.Position is not { } targetPosition)
+        {
+            state.ClearPendingTabVerification();
+            LogRadarTabBlocked(
+                context,
+                state,
+                target,
+                null,
+                "target_position_unavailable",
+                playerPosition,
+                null,
+                targetPositionFromFreshWorld: targetPositionResult.FromFreshWorld);
+            return false;
+        }
+
+        var navigation = await ResolveObstacleNavigationAsync(
+                context,
+                state,
+                playerPosition,
+                targetPosition,
+                RadarNavigationPurpose.ApproachTarget,
+                target.ServerObjectId,
+                radarSettings,
+                AcquireDistance,
+                allowDirectCommitment: false)
+            .ConfigureAwait(false);
+        if (navigation?.Action is RadarNavigationAction.Direct or RadarNavigationAction.Ready)
+        {
+            return true;
+        }
+
+        state.ClearPendingTabVerification();
+        LogRadarTabBlocked(
+            context,
+            state,
+            target,
+            navigation,
+            navigation?.Reason ?? "radar_map_unavailable",
+            playerPosition,
+            targetPosition,
+            targetPositionFromFreshWorld: targetPositionResult.FromFreshWorld);
+        return false;
+    }
+
+    private static async Task<(Vector3Snapshot? Position, bool FromFreshWorld)> ReadFreshTabTargetPositionAsync(
+        AccountWorkerContext context,
+        WorldObjectSnapshot target)
+    {
+        var worldSnapshot = await context.Snapshots.ReadWorldObjectsAsync().ConfigureAwait(false);
+        if (worldSnapshot.Value is not { } worldObjects)
+        {
+            return (null, false);
+        }
+
+        var refreshed = worldObjects.FirstOrDefault(candidate =>
+            StationaryCombatState.IsSameTarget(
+                candidate.EntityId,
+                candidate.ServerObjectId,
+                target.EntityId,
+                target.ServerObjectId) &&
+            candidate.IsAlive &&
+            candidate.Position is not null);
+        return refreshed?.Position is { } position
+            ? (position, true)
+            : (null, false);
+    }
+
+    private static void LogRadarTabBlocked(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        WorldObjectSnapshot target,
+        RadarNavigationDecision? navigation,
+        string reason,
+        Vector3Snapshot? playerPosition,
+        Vector3Snapshot? targetPosition,
+        bool targetPositionFromFreshWorld)
+    {
+        LogActionThrottled(
+            context,
+            state,
+            "stationary_combat.tab.blocked_by_obstacle",
+            "target:" + TargetActionKey(target.EntityId, target.ServerObjectId) + ":" + reason,
+            new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["targetEntityId"] = target.EntityId,
+                ["targetServerObjectId"] = target.ServerObjectId,
+                ["targetName"] = target.Name,
+                ["reason"] = reason,
+                ["action"] = navigation?.Action.ToString() ?? "Unavailable",
+                ["mapId"] = navigation?.MapId,
+                ["destinationX"] = navigation is null ? null : Math.Round(navigation.Destination.X, 2),
+                ["destinationY"] = navigation is null ? null : Math.Round(navigation.Destination.Y, 2),
+                ["reachDistance"] = navigation is null ? null : Math.Round(navigation.ReachDistanceMeters, 2),
+                ["waypointCount"] = navigation?.Plan?.WaypointCount ?? 0,
+                ["relevantObstacleCount"] = navigation?.RelevantObstacleCount,
+                ["routeDistance"] = navigation?.Plan is null ? null : Math.Round(navigation.Plan.RouteDistance, 2),
+                ["playerX"] = playerPosition.HasValue ? Math.Round(playerPosition.Value.X, 2) : null,
+                ["playerY"] = playerPosition.HasValue ? Math.Round(playerPosition.Value.Y, 2) : null,
+                ["targetX"] = targetPosition.HasValue ? Math.Round(targetPosition.Value.X, 2) : null,
+                ["targetY"] = targetPosition.HasValue ? Math.Round(targetPosition.Value.Y, 2) : null,
+                ["targetPositionFromFreshWorld"] = targetPositionFromFreshWorld,
+                ["directCommitBypassed"] = true
+            },
+            TimeSpan.FromMilliseconds(500));
     }
 
     private async Task<TimeSpan> PollTabVerifyAsync(
@@ -8824,7 +8964,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         RadarNavigationPurpose purpose,
         uint targetServerObjectId,
         RadarObstacleScriptSettings settings,
-        double finalReachDistanceMeters)
+        double finalReachDistanceMeters,
+        bool allowDirectCommitment = true)
     {
         if (!settings.Enabled || _obstacleNavigator is null)
         {
@@ -8857,7 +8998,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 targetServerObjectId,
                 settings,
                 finalReachDistanceMeters,
-                context.StopToken)
+                context.StopToken,
+                allowDirectCommitment)
             .ConfigureAwait(false);
     }
 
