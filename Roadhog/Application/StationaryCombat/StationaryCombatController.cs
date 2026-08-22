@@ -3795,7 +3795,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
 
         await StopMovementAsync(context, state).ConfigureAwait(false);
-        EnsureNextTargetPreAimRunning(context, state, target, player, home, radius);
+        EnsureNextTargetPreAimRunning(context, plan, state, target, player, home, radius);
         return await _semiAuto
             .TickAsync(
                 context,
@@ -9629,6 +9629,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 
     private void EnsureNextTargetPreAimRunning(
         AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
         StationaryCombatState state,
         LockedTargetSnapshot currentTarget,
         PlayerSnapshot player,
@@ -9681,6 +9682,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         var worker = Task.Run(
             () => RunNextTargetPreAimAsync(
                 context,
+                plan,
                 state,
                 currentTarget.TargetEntityId,
                 currentTarget.ServerObjectId,
@@ -9766,6 +9768,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 
     private async Task RunNextTargetPreAimAsync(
         AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
         StationaryCombatState state,
         ushort fightTargetEntityId,
         uint fightTargetServerObjectId,
@@ -9798,7 +9801,9 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 {
                     await RefreshNextTargetPreAimSelectionAsync(
                             context,
+                            plan,
                             state,
+                            player,
                             player.Position!.Value,
                             home,
                             radius,
@@ -9911,7 +9916,9 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 
     private async Task RefreshNextTargetPreAimSelectionAsync(
         AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
         StationaryCombatState state,
+        PlayerSnapshot player,
         Vector3Snapshot playerPosition,
         Vector3Snapshot home,
         double radius,
@@ -9920,6 +9927,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         long sessionId)
     {
         var objects = await ReadWorldObjectsAsync(context).ConfigureAwait(false);
+        await RefreshLocalCombatSideAsync(context, plan, state, player).ConfigureAwait(false);
 
         if (!IsSmartPreAimLoopStillValid(
                 context,
@@ -11990,19 +11998,31 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return;
         }
 
-        state.LocalCombatSideServerObjectId = 0;
-        state.LocalCombatSidePetServerObjectId = 0;
-
         var roster = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
+        if (roster.LocalServerObjectId == 0)
+        {
+            return;
+        }
+
         state.LocalCombatSideServerObjectId = roster.LocalServerObjectId;
-        var localPet = roster.LocalPlayerPet;
-        state.LocalCombatSidePetServerObjectId = localPet?.Pet is { IsSummoned: true, IsAlive: true } pet
-            ? pet.ServerObjectId
-            : 0;
+        state.LocalCombatSidePetServerObjectId = ResolveLocalCombatSidePetServerObjectId(roster);
     }
 
     private static async Task<SummonedPetRosterSnapshot> ReadSummonedPetRosterAsync(AccountWorkerContext context) =>
         (await context.Snapshots.ReadSummonedPetRosterAsync().ConfigureAwait(false)).Value;
+
+    private static uint ResolveLocalCombatSidePetServerObjectId(SummonedPetRosterSnapshot roster)
+    {
+        var pet = roster.LocalPlayerPet.Pet;
+        if (pet.IsSummoned)
+        {
+            return pet.IsAlive && pet.ServerObjectId != 0
+                ? pet.ServerObjectId
+                : 0;
+        }
+
+        return roster.LocalLinkedPetServerObjectId;
+    }
 
     private static async Task<LockedTargetSnapshot> ReadLockedTargetAsync(AccountWorkerContext context) =>
         (await context.Snapshots.ReadLockedTargetAsync().ConfigureAwait(false)).Value;

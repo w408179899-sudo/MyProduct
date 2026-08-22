@@ -359,6 +359,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat smart pre-aim handoff completes before next pre-aim", TestSmartPreAimHandoffCompletesBeforeNextPreAimAsync),
     ("stationary combat smart pre-aim prevents consumed target bounce", TestSmartPreAimPreventsConsumedTargetBounceAsync),
     ("stationary combat smart pre-aim selector applies normal filters", TestSmartPreAimSelectorAppliesNormalFiltersAsync),
+    ("stationary combat smart pre-aim refreshes spiritmaster pet side before selection", TestSmartPreAimRefreshesSpiritmasterPetSideBeforeSelectionAsync),
     ("stationary combat smart pre-aim lifecycle spans loot until finish", TestSmartPreAimLifecycleSpansLootUntilFinishAsync),
     ("stationary combat smart pre-aim pauses during cleanup mouse work", TestSmartPreAimPausesDuringCleanupMouseWorkAsync),
     ("stationary combat smart pre-aim uses ten degree yaw tolerance", TestSmartPreAimUsesTenDegreeYawToleranceAsync),
@@ -467,6 +468,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat keeps previously engaged target while it self targets", TestStationaryCombatKeepsPreviouslyEngagedTargetWhileSelfTargetingAsync),
     ("stationary combat keeps current target that previously targeted player", TestStationaryCombatKeepsCurrentTargetThatPreviouslyTargetedPlayerAsync),
     ("stationary combat keeps spiritmaster pet targeted fight", TestStationaryCombatKeepsSpiritmasterPetTargetedFightAsync),
+    ("stationary combat keeps spiritmaster linked-pet targeted fight", TestStationaryCombatKeepsSpiritmasterLinkedPetTargetedFightAsync),
     ("stationary combat keeps revive path clear target claimed by other", TestStationaryCombatKeepsRevivePathClearTargetClaimedByOtherAsync),
     ("stationary combat reacquires revive path clear target claimed by other", TestStationaryCombatReacquiresRevivePathClearTargetClaimedByOtherAsync),
     ("stationary combat treats locked zero hp target as combat", TestStationaryCombatTreatsLockedZeroHpTargetAsCombatAsync),
@@ -13067,7 +13069,9 @@ static async Task TestSmartPreAimUsesRouteDistanceAsync()
         new object[]
         {
             context,
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
             state,
+            gameApi.Player,
             new Vector3Snapshot(0, 0, 0),
             new Vector3Snapshot(0, 0, 0),
             60D,
@@ -13270,7 +13274,9 @@ static async Task TestSmartPreAimLogsCandidateDiagnosticsAsync()
             new object[]
             {
                 context,
+                SemiAutoSkillPlan.FromSettings(settings.Skills),
                 state,
+                gameApi.Player,
                 playerPosition,
                 home,
                 30D,
@@ -13310,6 +13316,101 @@ static async Task TestSmartPreAimLogsCandidateDiagnosticsAsync()
         .LastOrDefault();
     AssertFalse(unchangedDiagnostics is null, "candidate diagnostics should also be logged for unchanged pre-aim decisions");
     AssertEqual(false, Convert.ToBoolean(unchangedDiagnostics!.Fields["selectionChanged"]), "diagnostic should mark unchanged selection");
+}
+
+static async Task TestSmartPreAimRefreshesSpiritmasterPetSideBeforeSelectionAsync()
+{
+    var settings = CreateSpiritmasterScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        SmartPreAimEnabled = true,
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30,
+        ReturnHomeWhenNoTarget = false,
+        SitWhenNoTargetAtHome = false
+    };
+
+    const uint localServerObjectId = 1000;
+    const uint petServerObjectId = 2000;
+    var player = CreateSpiritmasterPlayer();
+    var currentTarget = new WorldObjectSnapshot(
+        60,
+        6060,
+        "current",
+        "monster",
+        new Vector3Snapshot(2, 0, 0),
+        2,
+        100,
+        100);
+    var petThreat = new WorldObjectSnapshot(
+        61,
+        6061,
+        "pet-threat",
+        "monster",
+        new Vector3Snapshot(40, 0, 0),
+        40,
+        100,
+        100,
+        TargetServerObjectId: petServerObjectId);
+    var gameApi = new FakeGameApi
+    {
+        Player = player,
+        SummonedPetRoster = CreateLocalPetRoster(
+            isSummoned: true,
+            petServerObjectId: petServerObjectId),
+        WorldObjects = new[] { currentTarget, petThreat },
+        Skills = CreateSpiritmasterSkillSnapshots()
+    };
+    var logger = new InMemoryRoadhogLogger();
+    var controller = new StationaryCombatController(
+        new RecordingKeyboardInput(),
+        new SemiAutoCombatController(new RecordingKeyboardInput()));
+    var context = CreateContext(settings, gameApi, logger);
+    var state = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = currentTarget.EntityId,
+        CurrentTargetServerObjectId = currentTarget.ServerObjectId,
+        LocalCombatSideServerObjectId = localServerObjectId,
+        LocalCombatSidePetServerObjectId = 0
+    };
+    state.NextTargetPreAim.SessionId = 13;
+    state.NextTargetPreAim.FightTargetEntityId = currentTarget.EntityId;
+    state.NextTargetPreAim.FightTargetServerObjectId = currentTarget.ServerObjectId;
+
+    var refreshMethod = typeof(StationaryCombatController).GetMethod(
+        "RefreshNextTargetPreAimSelectionAsync",
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+    AssertFalse(refreshMethod is null, "smart pre-aim refresh helper should exist");
+    var task = (Task)refreshMethod!.Invoke(
+        controller,
+        new object[]
+        {
+            context,
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            state,
+            player,
+            player.Position!.Value,
+            new Vector3Snapshot(0, 0, 0),
+            30D,
+            currentTarget.EntityId,
+            currentTarget.ServerObjectId,
+            state.NextTargetPreAim.SessionId
+        })!;
+    await task.ConfigureAwait(false);
+
+    AssertEqual(petServerObjectId, state.LocalCombatSidePetServerObjectId, "smart pre-aim refresh should update local pet side from the published roster");
+    AssertEqual(petThreat.EntityId, state.NextTargetPreAim.TargetEntityId, "pet-targeting monster outside home should be selected after pet side refresh");
+    AssertFalse(!state.NextTargetPreAim.TargetingLocalSide, "selected smart pre-aim target should be marked as local-side defense");
+    var selected = logger.Entries.LastOrDefault(entry =>
+        entry.EventName == "stationary_combat.smart_preaim.target_selected");
+    AssertFalse(selected is null, "refreshed pet-side pre-aim selection should be logged");
+    AssertEqual(true, Convert.ToBoolean(selected!.Fields["targetingLocalSide"]), "selection log should mark pet-side targeting");
 }
 
 static Task TestSmartPreAimSelectorKeepsStableTargetAsync()
@@ -13560,7 +13661,9 @@ static async Task TestSmartPreAimStabilizesAlignedTargetSwitchingAsync()
             new object[]
             {
                 context,
+                SemiAutoSkillPlan.FromSettings(settings.Skills),
                 state,
+                gameApi.Player,
                 new Vector3Snapshot(0, 0, 0),
                 new Vector3Snapshot(0, 0, 0),
                 30D,
@@ -13816,7 +13919,9 @@ static async Task TestSmartPreAimResponsiveSwitchingBypassesDebounceAsync()
         new object[]
         {
             context,
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
             state,
+            gameApi.Player,
             player,
             home,
             30D,
@@ -14296,7 +14401,9 @@ static async Task TestSmartPreAimPreventsConsumedTargetBounceAsync()
             new object[]
             {
                 context,
+                SemiAutoSkillPlan.FromSettings(settings.Skills),
                 state,
+                gameApi.Player,
                 new Vector3Snapshot(0, 0, 0),
                 new Vector3Snapshot(0, 0, 0),
                 30D,
@@ -23049,6 +23156,76 @@ static async Task TestStationaryCombatKeepsSpiritmasterPetTargetedFightAsync()
         "pet-targeted monster should not log claimed-target ignore");
 }
 
+static async Task TestStationaryCombatKeepsSpiritmasterLinkedPetTargetedFightAsync()
+{
+    var settings = CreateSpiritmasterScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 60
+    };
+    settings.SemiAuto.AttackKeyLoopEnabled = true;
+    settings.SemiAuto.AttackKeyLoopIntervalMs = 1;
+
+    const uint targetServerObjectId = 100;
+    const uint petServerObjectId = 2000;
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = CreateSpiritmasterPlayer(),
+        SummonedPetRoster = CreateLinkedOnlyLocalPetRoster(petServerObjectId),
+        TargetEntityId = 100,
+        TargetOwnServerObjectId = targetServerObjectId,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        TargetPosition = new Vector3Snapshot(8, 0, 0),
+        TargetServerObjectId = petServerObjectId,
+        LocalServerObjectId = 1000,
+        TargetIsTargetingLocalPlayer = false,
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(100, targetServerObjectId, "linked-pet-targeting", "monster", new Vector3Snapshot(8, 0, 0), 8, 1000, 1000, petServerObjectId, false),
+            new WorldObjectSnapshot(101, 101, "next", "monster", new Vector3Snapshot(12, 0, 0), 12, 1000, 1000)
+        },
+        Skills = CreateSpiritmasterSkillSnapshots()
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CurrentTargetServerObjectId = targetServerObjectId,
+        CandidateEntityId = 100,
+        CandidateServerObjectId = targetServerObjectId
+    };
+    state.MarkCandidate(100, targetServerObjectId, DateTimeOffset.Now);
+    var semiAutoState = new SemiAutoCombatState();
+    CalibrateCooldownClock(semiAutoState);
+    var context = CreateContext(settings, gameApi, logger);
+
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertFalse(!state.Fighting, "target that locked local linked pet should remain the current fight target");
+    AssertFalse(!state.CurrentTargetIsMaintenanceDefense, "linked-pet-targeted monster should be marked as local-side defense");
+    AssertEqual((ushort)100, state.CurrentTargetEntityId, "current fight target should stay on linked-pet-targeted monster");
+    AssertEqual(targetServerObjectId, state.CurrentTargetServerObjectId, "current fight target server id should stay on linked-pet-targeted monster");
+    AssertFalse(state.IsTargetIgnored(100, targetServerObjectId), "linked-pet-targeted monster should not be ignored as claimed");
+    AssertFalse(keyboard.Keys.Contains("C"), "linked-pet-targeted monster should not wait for player body targeting via C loop");
+    AssertFalse(!keyboard.Keys.Contains("D1"), "linked-pet-targeted monster should continue skill release");
+    AssertFalse(logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.target.ignored" &&
+        string.Equals(Convert.ToString(entry.Fields["reason"]), "target_owned_by_other", StringComparison.Ordinal)),
+        "linked-pet-targeted monster should not log claimed-target ignore");
+}
+
 static async Task TestStationaryCombatKeepsRevivePathClearTargetClaimedByOtherAsync()
 {
     var settings = CreateScriptSettings();
@@ -31085,6 +31262,30 @@ static SummonedPetRosterSnapshot CreateLocalPetRoster(
             pet,
             0,
             abnormalStatuses ?? Array.Empty<AbnormalStatusEntrySnapshot>(),
+            OwnerClassId: AionClassId.Spiritmaster,
+            OwnerClassName: AionClassCatalog.GetChineseName(AionClassId.Spiritmaster)),
+        Array.Empty<OwnedSummonedPetSnapshot>(),
+        Array.Empty<uint>());
+}
+
+static SummonedPetRosterSnapshot CreateLinkedOnlyLocalPetRoster(
+    uint petServerObjectId = 2000,
+    DateTimeOffset? capturedAt = null)
+{
+    var now = capturedAt ?? DateTimeOffset.Now;
+    const uint localServerObjectId = 1000;
+    return new SummonedPetRosterSnapshot(
+        localServerObjectId,
+        petServerObjectId,
+        now,
+        new OwnedSummonedPetSnapshot(
+            SummonedPetOwnerKind.LocalPlayer,
+            localServerObjectId,
+            "Spirit",
+            "Spirit",
+            SummonedPetSnapshot.NotSummoned(localServerObjectId, now),
+            0,
+            Array.Empty<AbnormalStatusEntrySnapshot>(),
             OwnerClassId: AionClassId.Spiritmaster,
             OwnerClassName: AionClassCatalog.GetChineseName(AionClassId.Spiritmaster)),
         Array.Empty<OwnedSummonedPetSnapshot>(),
