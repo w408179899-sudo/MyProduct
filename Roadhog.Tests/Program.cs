@@ -437,6 +437,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat accepts closer aggressive wrong lock after tab", TestStationaryCombatAcceptsCloserAggressiveWrongLockAfterTabAsync),
     ("stationary combat aligned smart pre-aim allows ordinary aggressive wrong lock", TestStationaryCombatAlignedSmartPreAimAllowsOrdinaryAggressiveWrongLockAsync),
     ("stationary combat accepts protected-side wrong lock during smart pre-aim handoff", TestStationaryCombatAcceptsProtectedSideWrongLockDuringSmartPreAimHandoffAsync),
+    ("stationary combat accepts locked local defense target before tab", TestStationaryCombatAcceptsLockedLocalDefenseTargetBeforeTabAsync),
     ("stationary combat rejects closer passive wrong lock after tab", TestStationaryCombatRejectsCloserPassiveWrongLockAfterTabAsync),
     ("stationary combat leaves unrelated unchanged wrong lock alone", TestStationaryCombatLeavesUnrelatedUnchangedWrongLockAloneAsync),
     ("stationary combat nudges forward when tab locks corpse", TestStationaryCombatNudgesForwardWhenTabLocksCorpseAsync),
@@ -20416,6 +20417,112 @@ static async Task TestStationaryCombatAcceptsProtectedSideWrongLockDuringSmartPr
             entry.EventName == "stationary_combat.smart_preaim.handoff_wrong_lock_rejected"),
             testCase.Name + " protected-side lock must not be rejected as an ordinary wrong lock");
     }
+}
+
+static async Task TestStationaryCombatAcceptsLockedLocalDefenseTargetBeforeTabAsync()
+{
+    const uint localServerObjectId = 7000;
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30
+    };
+
+    var candidate = new WorldObjectSnapshot(
+        100,
+        1000,
+        "selected-defense",
+        "monster",
+        new Vector3Snapshot(4, 0, 0),
+        4,
+        1000,
+        1000,
+        TargetServerObjectId: localServerObjectId,
+        IsTargetingLocalPlayer: true,
+        AggressiveKnown: true,
+        IsAggressiveToPlayer: true);
+    var lockedDefense = new WorldObjectSnapshot(
+        200,
+        2000,
+        "locked-defense",
+        "monster",
+        new Vector3Snapshot(3, 0, 0),
+        3,
+        1000,
+        1000,
+        TargetServerObjectId: localServerObjectId,
+        IsTargetingLocalPlayer: true,
+        AggressiveKnown: true,
+        IsAggressiveToPlayer: true);
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+        TargetEntityId = lockedDefense.EntityId,
+        TargetOwnServerObjectId = lockedDefense.ServerObjectId,
+        TargetCurrentHp = lockedDefense.CurrentHp,
+        TargetMaxHp = lockedDefense.MaxHp,
+        TargetName = lockedDefense.Name,
+        TargetPosition = lockedDefense.Position,
+        TargetServerObjectId = localServerObjectId,
+        TargetIsTargetingLocalPlayer = true,
+        LocalServerObjectId = localServerObjectId,
+        WorldObjects = new[] { candidate, lockedDefense },
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0,
+            [7] = 0,
+            [8] = 0,
+            [9] = 0,
+            [10] = 0
+        })
+    };
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    var state = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = candidate.EntityId,
+        CurrentTargetServerObjectId = candidate.ServerObjectId,
+        CandidateEntityId = candidate.EntityId,
+        CandidateServerObjectId = candidate.ServerObjectId,
+        CurrentTargetIsMaintenanceDefense = true,
+        LocalCombatSideServerObjectId = localServerObjectId,
+        FacedCandidateEntityId = candidate.EntityId
+    };
+
+    await controller
+        .TickAsync(
+            CreateContext(settings, gameApi, logger),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            state)
+        .ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Contains("Tab"), "locked local-side defense target should be accepted before pressing Tab for the selected candidate");
+    AssertFalse(!state.Fighting, "locked local-side defense target should keep the combat state active");
+    AssertEqual(lockedDefense.EntityId, state.CurrentTargetEntityId, "current target should switch to the locked local-side defense monster");
+    AssertEqual(lockedDefense.ServerObjectId, state.CurrentTargetServerObjectId, "current target server id should switch to the locked local-side defense monster");
+    AssertEqual(lockedDefense.EntityId, state.CandidateEntityId, "candidate should switch to the locked local-side defense monster");
+    AssertFalse(!state.CurrentTargetIsMaintenanceDefense, "accepted locked local-side target should retain maintenance-defense semantics");
+    AssertFalse(!logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.target.accept_locked_defense_target" &&
+        Equals(Convert.ToUInt16(entry.Fields["candidateEntityId"]), candidate.EntityId) &&
+        Equals(Convert.ToUInt16(entry.Fields["lockedEntityId"]), lockedDefense.EntityId)),
+        "locked local-side defense acceptance should be logged");
+    AssertFalse(!logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.target.acquired" &&
+        Equals(Convert.ToUInt16(entry.Fields["targetEntityId"]), lockedDefense.EntityId) &&
+        string.Equals(Convert.ToString(entry.Fields["phase"]), "defense_locked_before_tab", StringComparison.Ordinal)),
+        "locked local-side defense target should be acquired before Tab");
 }
 
 static async Task TestStationaryCombatRejectsCloserPassiveWrongLockAfterTabAsync()

@@ -5442,6 +5442,21 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return acquiredDelay.Value;
         }
 
+        var lockedDefenseDelay = await TryAcceptLocalSideLockedTargetDuringDefenseAcquireAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                target,
+                lockedResult,
+                home,
+                radius)
+            .ConfigureAwait(false);
+        if (lockedDefenseDelay is not null)
+        {
+            return lockedDefenseDelay.Value;
+        }
+
         semiAutoState.ResetAttackKeyPressThrottle();
         var now = DateTimeOffset.Now;
         if (now - state.LastTabAt >= TabInterval)
@@ -5463,6 +5478,83 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
 
         return MoveTickDelay;
+    }
+
+    private async Task<TimeSpan?> TryAcceptLocalSideLockedTargetDuringDefenseAcquireAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        WorldObjectSnapshot target,
+        LockedTargetSnapshot lockedResult,
+        Vector3Snapshot home,
+        double radius)
+    {
+        if (!state.CurrentTargetIsMaintenanceDefense ||
+            lockedResult is not { IsMonsterAlive: true } lockedTarget ||
+            StationaryCombatState.IsSameTarget(
+                target.EntityId,
+                target.ServerObjectId,
+                lockedTarget.TargetEntityId,
+                lockedTarget.ServerObjectId))
+        {
+            return null;
+        }
+
+        var lockedTargetsLocalSide = IsTargetingLocalSide(lockedTarget, state);
+        var lockedWorldTarget = await FindSelectableLockedWorldTargetAsync(
+                context,
+                state,
+                lockedTarget,
+                home,
+                radius)
+            .ConfigureAwait(false);
+        if (lockedWorldTarget is null)
+        {
+            return null;
+        }
+
+        var worldTargetsLocalSide = IsTargetingLocalSide(lockedWorldTarget, state) ||
+                                    state.IsTeamLeaderProtectionTarget(lockedWorldTarget);
+        if (!lockedTargetsLocalSide && !worldTargetsLocalSide)
+        {
+            return null;
+        }
+
+        context.Logger.Info("stationary_combat.target.accept_locked_defense_target", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["candidateEntityId"] = target.EntityId,
+            ["candidateServerObjectId"] = target.ServerObjectId,
+            ["candidateTargetServerObjectId"] = target.ServerObjectId,
+            ["candidateTargetingServerObjectId"] = target.TargetServerObjectId,
+            ["candidateName"] = target.Name,
+            ["lockedEntityId"] = lockedTarget.TargetEntityId,
+            ["lockedServerObjectId"] = lockedTarget.ServerObjectId,
+            ["lockedTargetServerObjectId"] = lockedTarget.ServerObjectId,
+            ["lockedTargetingServerObjectId"] = lockedTarget.TargetServerObjectId,
+            ["lockedName"] = lockedTarget.Name,
+            ["lockedTargetingLocalSide"] = lockedTargetsLocalSide,
+            ["worldTargetingLocalSide"] = worldTargetsLocalSide,
+            ["worldServerObjectId"] = lockedWorldTarget.ServerObjectId,
+            ["worldTargetServerObjectId"] = lockedWorldTarget.ServerObjectId,
+            ["worldTargetingServerObjectId"] = lockedWorldTarget.TargetServerObjectId,
+            ["worldAggressiveKnown"] = lockedWorldTarget.AggressiveKnown,
+            ["worldAggressiveToPlayer"] = lockedWorldTarget.IsAggressiveToPlayer
+        });
+
+        return await TryAcquireLockedTargetAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                lockedWorldTarget,
+                lockedResult,
+                home,
+                radius,
+                allowLockedFallback: false,
+                phase: "defense_locked_before_tab")
+            .ConfigureAwait(false);
     }
 
     private async Task<TimeSpan> TickPendingTabVerificationAsync(
