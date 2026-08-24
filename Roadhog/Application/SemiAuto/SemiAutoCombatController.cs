@@ -18,6 +18,13 @@ public sealed class SemiAutoCombatController
         AllowMaintenanceRules
     }
 
+    private readonly record struct StatusMaintenanceAbnormalMatch(uint AbnormalId, string Source)
+    {
+        public bool Found => AbnormalId != 0;
+
+        public static StatusMaintenanceAbnormalMatch None { get; } = new(0, string.Empty);
+    }
+
     private sealed record SpiritmasterElementalReplenishmentSafetySnapshot(
         PlayerSnapshot Player,
         SummonedPetSnapshot Pet);
@@ -26,11 +33,13 @@ public sealed class SemiAutoCombatController
     private static readonly TimeSpan MaintenanceConfirmWindow = TimeSpan.FromSeconds(6);
     private static readonly TimeSpan NormalStatusMaintenanceConfirmWindow = TimeSpan.FromMilliseconds(1300);
     private static readonly TimeSpan ChantStatusMaintenanceConfirmWindow = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan ChantStatusMaintenanceMissingMinimumDuration = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan StatusMaintenancePressBurstInterval = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan MaintenanceConfirmPollInterval = TimeSpan.FromMilliseconds(300);
     private static readonly TimeSpan MaintenanceKeyRetryInterval = TimeSpan.FromSeconds(3);
     internal static readonly TimeSpan MaintenanceGlobalKeyInterval = TimeSpan.FromMilliseconds(600);
     private const int StatusMaintenancePressBurstCount = 3;
+    private const int ChantStatusMaintenanceMissingRequiredCount = 3;
     private static readonly TimeSpan MaintenanceRestExitBeforeKeyDelay = TimeSpan.FromMilliseconds(150);
     private static readonly TimeSpan SupportSelfSelectConfirmDelay = TimeSpan.FromMilliseconds(25);
     private static readonly TimeSpan SpiritmasterCooldownConfirmRetryInterval = TimeSpan.FromMilliseconds(50);
@@ -1365,8 +1374,18 @@ public sealed class SemiAutoCombatController
         {
             var configuredSkillId = rule.SkillId;
             var now = DateTimeOffset.Now;
-            if (IsStatusMaintenanceActive(rule, configuredSkillId, state, abnormal.Entries))
+            var configuredActiveStatus = ResolveKnownStatusMaintenanceAbnormalId(
+                    rule,
+                    configuredSkillId,
+                    state,
+                    abnormal.Entries);
+            if (configuredActiveStatus.Found)
             {
+                if (IsChantStatusMaintenanceRule(rule, null, configuredSkillId))
+                {
+                    state.MarkChantStatusMaintenanceObserved(configuredSkillId, now);
+                }
+
                 continue;
             }
 
@@ -1398,14 +1417,32 @@ public sealed class SemiAutoCombatController
             }
 
             var skillId = ResolveStatusMaintenanceSkillId(rule, maintenanceSkill);
-            var isChantStatusMaintenance = IsChantStatusMaintenanceRule(rule, maintenanceSkill);
-            if (skillId != configuredSkillId &&
-                IsStatusMaintenanceActive(rule, skillId, state, abnormal.Entries))
+            var isChantStatusMaintenance = IsChantStatusMaintenanceRule(rule, maintenanceSkill, skillId);
+            var activeStatus = skillId != configuredSkillId
+                ? ResolveKnownStatusMaintenanceAbnormalId(
+                        rule,
+                        skillId,
+                        state,
+                        abnormal.Entries)
+                : configuredActiveStatus;
+            if (activeStatus.Found)
             {
+                if (isChantStatusMaintenance)
+                {
+                    state.MarkChantStatusMaintenanceObserved(skillId, now);
+                }
+
                 continue;
             }
 
-            if (IsStatusMaintenanceActive(rule, skillId, state, abnormal.Entries))
+            if (isChantStatusMaintenance &&
+                state.ShouldDeferChantStatusMaintenanceMissing(
+                    skillId,
+                    now,
+                    ChantStatusMaintenanceMissingRequiredCount,
+                    ChantStatusMaintenanceMissingMinimumDuration,
+                    out _,
+                    out _))
             {
                 continue;
             }
@@ -1685,25 +1722,31 @@ public sealed class SemiAutoCombatController
         var confirmWindow = ResolveStatusMaintenanceConfirmWindow(isChantStatusMaintenance);
         var deadline = DateTimeOffset.Now + confirmWindow;
         var polls = 0;
+        var rejectedCandidateAbnormalIds = new HashSet<uint>();
 
         while (DateTimeOffset.Now <= deadline)
         {
             polls++;
             var abnormal = await ReadPlayerAbnormalStatusesAsync(context).ConfigureAwait(false);
-            var confirmedAbnormalId = ResolveConfirmedStatusMaintenanceAbnormalId(
+            var confirmedAbnormal = ResolveConfirmedStatusMaintenanceAbnormalId(
                 rule,
                 skillId,
                 state,
                 beforeIds,
-                abnormal.Entries);
-            if (confirmedAbnormalId != 0)
+                abnormal.Entries,
+                rejectedCandidateAbnormalIds);
+            if (confirmedAbnormal.Found)
             {
+                var completedAt = DateTimeOffset.Now;
                 if (skillId != 0)
                 {
-                    state.RememberStatusMaintenanceAbnormalId(skillId, confirmedAbnormalId);
+                    state.RememberStatusMaintenanceAbnormalId(skillId, confirmedAbnormal.AbnormalId);
+                    if (isChantStatusMaintenance)
+                    {
+                        state.MarkChantStatusMaintenanceObserved(skillId, completedAt);
+                    }
                 }
 
-                var completedAt = DateTimeOffset.Now;
                 context.Logger.Info("semi_auto.maintenance.status_key_pressed", new Dictionary<string, object?>
                 {
                     ["account"] = context.Config.AccountName,
@@ -1711,7 +1754,8 @@ public sealed class SemiAutoCombatController
                     ["key"] = rule.Key,
                     ["skillId"] = skillId,
                     ["skillName"] = skillName,
-                    ["abnormalStatusId"] = confirmedAbnormalId,
+                    ["abnormalStatusId"] = confirmedAbnormal.AbnormalId,
+                    ["abnormalStatusSource"] = confirmedAbnormal.Source,
                     ["oneShot"] = isChantStatusMaintenance,
                     ["chant"] = isChantStatusMaintenance,
                     ["pressCount"] = StatusMaintenancePressBurstCount,
@@ -1748,6 +1792,8 @@ public sealed class SemiAutoCombatController
             ["chant"] = isChantStatusMaintenance,
             ["pressCount"] = StatusMaintenancePressBurstCount,
             ["pressIntervalMs"] = (long)StatusMaintenancePressBurstInterval.TotalMilliseconds,
+            ["rejectedCandidateAbnormalIds"] = FormatAbnormalIdList(rejectedCandidateAbnormalIds),
+            ["rejectedCandidateCount"] = rejectedCandidateAbnormalIds.Count,
             ["polls"] = polls,
             ["confirmWindowMs"] = (long)confirmWindow.TotalMilliseconds,
             ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAtUnconfirmed - startedAt).TotalMilliseconds)
@@ -2585,6 +2631,7 @@ public sealed class SemiAutoCombatController
             await TryLearnSpiritmasterPetBuffAfterPressAsync(
                     context,
                     state,
+                    rule,
                     skill,
                     beforeIds)
                 .ConfigureAwait(false);
@@ -2605,23 +2652,44 @@ public sealed class SemiAutoCombatController
     private async Task TryLearnSpiritmasterPetBuffAfterPressAsync(
         AccountWorkerContext context,
         SemiAutoCombatState state,
+        SpiritmasterPetBuffRuleConfig rule,
         SkillSnapshot skill,
         HashSet<uint> beforeIds)
     {
         var roster = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
         var afterEntries = roster.LocalPlayerPet.AbnormalStatuses;
-        var learned = afterEntries
-            .Where(entry => entry.AbnormalId != 0 && !beforeIds.Contains(entry.AbnormalId))
-            .OrderByDescending(entry => entry.IsBuffCategory)
-            .Select(entry => entry.AbnormalId)
-            .FirstOrDefault();
-        if (learned == 0 && afterEntries.Any(entry => entry.AbnormalId == skill.SkillId))
+        var rejectedCandidateAbnormalIds = new HashSet<uint>();
+        var learned = 0u;
+        foreach (var entry in afterEntries
+                     .Where(entry => entry.AbnormalId != 0 && !beforeIds.Contains(entry.AbnormalId))
+                     .OrderByDescending(entry => entry.AbnormalId == skill.SkillId)
+                     .ThenByDescending(entry => entry.IsBuffCategory))
         {
-            learned = skill.SkillId;
+            if (TryResolveTrustedSpiritmasterPetBuffAbnormalId(rule, skill, entry.AbnormalId))
+            {
+                learned = entry.AbnormalId;
+                break;
+            }
+
+            rejectedCandidateAbnormalIds.Add(entry.AbnormalId);
         }
 
         if (learned == 0)
         {
+            if (rejectedCandidateAbnormalIds.Count > 0)
+            {
+                context.Logger.Info("semi_auto.spiritmaster.pet_buff_learn_rejected", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["key"] = rule.Key,
+                    ["skillId"] = skill.SkillId,
+                    ["skillName"] = skill.Name,
+                    ["configuredAbnormalStatusId"] = rule.AbnormalStatusId,
+                    ["rejectedCandidateAbnormalIds"] = FormatAbnormalIdList(rejectedCandidateAbnormalIds),
+                    ["rejectedCandidateCount"] = rejectedCandidateAbnormalIds.Count
+                });
+            }
+
             return;
         }
 
@@ -2770,6 +2838,7 @@ public sealed class SemiAutoCombatController
         }
 
         if (state.TryGetSpiritmasterPetBuffAbnormalId(skill.SkillId, out var learnedAbnormalId) &&
+            TryResolveTrustedSpiritmasterPetBuffAbnormalId(rule, skill, learnedAbnormalId) &&
             abnormalStatuses.Any(entry => entry.AbnormalId == learnedAbnormalId))
         {
             return true;
@@ -2782,6 +2851,24 @@ public sealed class SemiAutoCombatController
         }
 
         return false;
+    }
+
+    private static bool TryResolveTrustedSpiritmasterPetBuffAbnormalId(
+        SpiritmasterPetBuffRuleConfig rule,
+        SkillSnapshot skill,
+        uint abnormalId)
+    {
+        if (abnormalId == 0)
+        {
+            return false;
+        }
+
+        if (rule.AbnormalStatusId != 0 && abnormalId == rule.AbnormalStatusId)
+        {
+            return true;
+        }
+
+        return abnormalId == skill.SkillId;
     }
 
     private static int ResolveRequiredDp(SkillSnapshot skill)
@@ -3623,6 +3710,15 @@ public sealed class SemiAutoCombatController
                ContainsChantToken(skill?.XmlTags);
     }
 
+    private bool IsChantStatusMaintenanceRule(
+        StatusMaintenanceRuleConfig rule,
+        SkillSnapshot? skill,
+        uint skillId)
+    {
+        return IsChantStatusMaintenanceRule(rule, skill) ||
+               (skillId != 0 && StatusCatalog.GetChantAuraEffectAbnormalIds(skillId).Any());
+    }
+
     private static bool ContainsChantToken(string? value)
     {
         return !string.IsNullOrWhiteSpace(value) &&
@@ -3760,38 +3856,42 @@ public sealed class SemiAutoCombatController
         return rule.SkillId;
     }
 
-    private bool IsStatusMaintenanceActive(
-        StatusMaintenanceRuleConfig rule,
-        uint skillId,
-        SemiAutoCombatState state,
-        IReadOnlyList<AbnormalStatusEntrySnapshot> entries)
-    {
-        return ResolveKnownStatusMaintenanceAbnormalId(rule, skillId, state, entries) != 0;
-    }
-
-    private uint ResolveConfirmedStatusMaintenanceAbnormalId(
+    private StatusMaintenanceAbnormalMatch ResolveConfirmedStatusMaintenanceAbnormalId(
         StatusMaintenanceRuleConfig rule,
         uint skillId,
         SemiAutoCombatState state,
         HashSet<uint> beforeIds,
-        IReadOnlyList<AbnormalStatusEntrySnapshot> entries)
+        IReadOnlyList<AbnormalStatusEntrySnapshot> entries,
+        ISet<uint> rejectedCandidateAbnormalIds)
     {
         var known = ResolveKnownStatusMaintenanceAbnormalId(rule, skillId, state, entries);
-        if (known != 0)
+        if (known.Found)
         {
             return known;
         }
 
-        return entries
-            .Where(entry => entry.AbnormalId != 0 && !beforeIds.Contains(entry.AbnormalId))
-            .OrderByDescending(entry => skillId != 0 && entry.AbnormalId == skillId)
-            .ThenByDescending(entry => entry.Category == 0)
-            .ThenByDescending(entry => entry.IsBuffCategory)
-            .Select(entry => entry.AbnormalId)
-            .FirstOrDefault();
+        foreach (var entry in entries
+                     .Where(entry => entry.AbnormalId != 0 && !beforeIds.Contains(entry.AbnormalId))
+                     .OrderByDescending(entry => skillId != 0 && entry.AbnormalId == skillId)
+                     .ThenByDescending(entry => entry.Category == 0)
+                     .ThenByDescending(entry => entry.IsBuffCategory))
+        {
+            if (TryResolveTrustedStatusMaintenanceAbnormalId(
+                    rule,
+                    skillId,
+                    entry.AbnormalId,
+                    out var source))
+            {
+                return new StatusMaintenanceAbnormalMatch(entry.AbnormalId, source);
+            }
+
+            rejectedCandidateAbnormalIds.Add(entry.AbnormalId);
+        }
+
+        return StatusMaintenanceAbnormalMatch.None;
     }
 
-    private uint ResolveKnownStatusMaintenanceAbnormalId(
+    private StatusMaintenanceAbnormalMatch ResolveKnownStatusMaintenanceAbnormalId(
         StatusMaintenanceRuleConfig rule,
         uint skillId,
         SemiAutoCombatState state,
@@ -3800,47 +3900,80 @@ public sealed class SemiAutoCombatController
         if (rule.AbnormalStatusId != 0 &&
             entries.Any(entry => entry.AbnormalId == rule.AbnormalStatusId))
         {
-            return rule.AbnormalStatusId;
+            return new StatusMaintenanceAbnormalMatch(rule.AbnormalStatusId, "configured");
         }
 
         if (skillId != 0)
         {
-            var mappedAbnormalId = ResolveXmlMappedStatusMaintenanceAbnormalId(skillId, entries);
-            if (mappedAbnormalId != 0)
+            foreach (var abnormalId in StatusCatalog.GetChantAuraEffectAbnormalIds(skillId))
             {
-                return mappedAbnormalId;
+                if (entries.Any(entry => entry.AbnormalId == abnormalId))
+                {
+                    return new StatusMaintenanceAbnormalMatch(abnormalId, "xml_mapped");
+                }
             }
         }
 
         if (skillId != 0 &&
             state.TryGetStatusMaintenanceAbnormalId(skillId, out var learnedAbnormalId) &&
-            entries.Any(entry => entry.AbnormalId == learnedAbnormalId))
+            entries.Any(entry => entry.AbnormalId == learnedAbnormalId) &&
+            TryResolveTrustedStatusMaintenanceAbnormalId(rule, skillId, learnedAbnormalId, out var learnedSource))
         {
-            return learnedAbnormalId;
+            return new StatusMaintenanceAbnormalMatch(learnedAbnormalId, $"learned_{learnedSource}");
         }
 
         if (skillId != 0 &&
             entries.Any(entry => entry.AbnormalId == skillId))
         {
-            return skillId;
+            return new StatusMaintenanceAbnormalMatch(skillId, "skill_id");
         }
 
-        return 0;
+        return StatusMaintenanceAbnormalMatch.None;
     }
 
-    private uint ResolveXmlMappedStatusMaintenanceAbnormalId(
+    private bool TryResolveTrustedStatusMaintenanceAbnormalId(
+        StatusMaintenanceRuleConfig rule,
         uint skillId,
-        IReadOnlyList<AbnormalStatusEntrySnapshot> entries)
+        uint abnormalId,
+        out string source)
     {
-        foreach (var abnormalId in StatusCatalog.GetChantAuraEffectAbnormalIds(skillId))
+        if (abnormalId == 0)
         {
-            if (entries.Any(entry => entry.AbnormalId == abnormalId))
+            source = string.Empty;
+            return false;
+        }
+
+        if (rule.AbnormalStatusId != 0 && abnormalId == rule.AbnormalStatusId)
+        {
+            source = "configured";
+            return true;
+        }
+
+        if (skillId != 0)
+        {
+            foreach (var mappedAbnormalId in StatusCatalog.GetChantAuraEffectAbnormalIds(skillId))
             {
-                return abnormalId;
+                if (abnormalId == mappedAbnormalId)
+                {
+                    source = "xml_mapped";
+                    return true;
+                }
+            }
+
+            if (abnormalId == skillId)
+            {
+                source = "skill_id";
+                return true;
             }
         }
 
-        return 0;
+        source = string.Empty;
+        return false;
+    }
+
+    private static string FormatAbnormalIdList(IEnumerable<uint> abnormalIds)
+    {
+        return string.Join(",", abnormalIds.Where(id => id != 0).Distinct().OrderBy(id => id));
     }
 
     private async Task<bool> TryContinueSpiritmasterElementalReplenishmentConfirmationAsync(

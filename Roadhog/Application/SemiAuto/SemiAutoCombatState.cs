@@ -4,6 +4,15 @@ namespace Roadhog.Application.SemiAuto;
 
 public sealed class SemiAutoCombatState
 {
+    private sealed class ChantStatusMaintenancePresence
+    {
+        public DateTimeOffset LastObservedAt { get; set; } = DateTimeOffset.MinValue;
+
+        public DateTimeOffset MissingStartedAt { get; set; } = DateTimeOffset.MinValue;
+
+        public int ConsecutiveMissingCount { get; set; }
+    }
+
     private const uint ShortCooldownCalibrationCheckDurationMs = 15_000;
     private const int ShortCooldownImpossibleExtraRemainingMs = 60_000;
     private const int CooldownImpossibleExtraRemainingMs = 10_000;
@@ -17,6 +26,7 @@ public sealed class SemiAutoCombatState
     private readonly Dictionary<string, DateTimeOffset> maintenanceKeyPressedAt = new(StringComparer.OrdinalIgnoreCase);
     private DateTimeOffset lastMaintenanceKeyPressedAt = DateTimeOffset.MinValue;
     private readonly Dictionary<uint, uint> statusMaintenanceAbnormalIds = new();
+    private readonly Dictionary<uint, ChantStatusMaintenancePresence> chantStatusMaintenancePresence = new();
     private readonly Dictionary<uint, uint> spiritmasterDotAbnormalIds = new();
     private readonly Dictionary<uint, uint> spiritmasterPetBuffAbnormalIds = new();
     private readonly Dictionary<uint, DateTimeOffset> spiritmasterPetHpCooldownUntil = new();
@@ -333,6 +343,67 @@ public sealed class SemiAutoCombatState
         if (skillId != 0 && abnormalId != 0)
         {
             statusMaintenanceAbnormalIds[skillId] = abnormalId;
+        }
+    }
+
+    public void MarkChantStatusMaintenanceObserved(uint skillId, DateTimeOffset now)
+    {
+        if (skillId == 0)
+        {
+            return;
+        }
+
+        if (!chantStatusMaintenancePresence.TryGetValue(skillId, out var presence))
+        {
+            presence = new ChantStatusMaintenancePresence();
+            chantStatusMaintenancePresence[skillId] = presence;
+        }
+
+        presence.LastObservedAt = now;
+        presence.MissingStartedAt = DateTimeOffset.MinValue;
+        presence.ConsecutiveMissingCount = 0;
+    }
+
+    public bool ShouldDeferChantStatusMaintenanceMissing(
+        uint skillId,
+        DateTimeOffset now,
+        int requiredMissingCount,
+        TimeSpan requiredMissingDuration,
+        out int consecutiveMissingCount,
+        out TimeSpan missingDuration)
+    {
+        consecutiveMissingCount = 0;
+        missingDuration = TimeSpan.Zero;
+
+        if (skillId == 0 ||
+            requiredMissingCount <= 0 ||
+            requiredMissingDuration < TimeSpan.Zero ||
+            !chantStatusMaintenancePresence.TryGetValue(skillId, out var presence) ||
+            presence.LastObservedAt == DateTimeOffset.MinValue)
+        {
+            return false;
+        }
+
+        if (presence.MissingStartedAt == DateTimeOffset.MinValue)
+        {
+            presence.MissingStartedAt = now;
+        }
+
+        presence.ConsecutiveMissingCount++;
+        consecutiveMissingCount = presence.ConsecutiveMissingCount;
+        missingDuration = now > presence.MissingStartedAt
+            ? now - presence.MissingStartedAt
+            : TimeSpan.Zero;
+
+        return consecutiveMissingCount < requiredMissingCount ||
+               missingDuration < requiredMissingDuration;
+    }
+
+    public void ClearChantStatusMaintenancePresence(uint skillId)
+    {
+        if (skillId != 0)
+        {
+            chantStatusMaintenancePresence.Remove(skillId);
         }
     }
 
