@@ -104,7 +104,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         semiAutoState.ResetAttackKeyPressThrottle();
         await StopSoloJumpAsync(state, "fixed_channel_correction").ConfigureAwait(false);
         StopNextTargetPreAim(context, state, "fixed_channel_correction", clearCandidate: true);
-        await StopMovementAsync(context, state).ConfigureAwait(false);
+        await StopMovementAsync(context, state, releaseRightMouse: true).ConfigureAwait(false);
         StopPathFollowPoller(state);
         state.ObstacleNavigation.Reset();
         await AbortDiscardForExternalInterruptionIfActiveAsync(
@@ -266,6 +266,11 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     playerDistanceFromHome,
                     followRevivePath: true)
                 .ConfigureAwait(false);
+        }
+
+        if (!state.StartupTownReturnPending && !state.BagCleanup.Active)
+        {
+            await EnsureRightMouseDownAsync(context, state).ConfigureAwait(false);
         }
 
         if (state.StartupTownReturnPending)
@@ -988,7 +993,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return MoveTickDelay;
         }
 
-        await StopMovementAsync(context, state).ConfigureAwait(false);
+        await StopMovementAsync(context, state, releaseRightMouse: false).ConfigureAwait(false);
         return await TickAcquireAsync(context, plan, semiAutoState, state, target, home, radius).ConfigureAwait(false);
     }
 
@@ -1041,6 +1046,11 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                     state,
                     followRevivePath: true)
                 .ConfigureAwait(false) ?? IdleDelay;
+        }
+
+        if (!state.StartupTownReturnPending && !state.BagCleanup.Active)
+        {
+            await EnsureRightMouseDownAsync(context, state).ConfigureAwait(false);
         }
 
         if (state.StartupTownReturnPending)
@@ -1418,7 +1428,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         state.ClearTarget();
         semiAutoState.ClearMaintenanceRest();
         semiAutoState.ResetAttackKeyPressThrottle();
-        await StopMovementAsync(context, state).ConfigureAwait(false);
+        await StopMovementAsync(context, state, releaseRightMouse: true).ConfigureAwait(false);
         StopPathFollowPoller(state);
         context.Logger.Info("stationary_combat.death_recovery.stop_input", new Dictionary<string, object?>
         {
@@ -1471,7 +1481,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
 
         var (x, y) = ReadDeathReviveClickPoint(context, state.DeathRecovery.ReviveClickCount);
-        var result = await ClickAbsoluteScreenPointAsync(context, x, y).ConfigureAwait(false);
+        var result = await ClickAbsoluteScreenPointAsync(context, state, x, y).ConfigureAwait(false);
         if (!result.Success)
         {
             context.Logger.Warn("stationary_combat.death_recovery.revive_click_failed", new Dictionary<string, object?>
@@ -1532,7 +1542,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
 
         var (x, y) = ReadDeathReviveClickPoint(context, state.DeathRecovery.ReviveClickCount);
-        var result = await ClickAbsoluteScreenPointAsync(context, x, y).ConfigureAwait(false);
+        var result = await ClickAbsoluteScreenPointAsync(context, state, x, y).ConfigureAwait(false);
         if (!result.Success)
         {
             context.Logger.Warn("stationary_combat.death_recovery.revive_retry_click_failed", new Dictionary<string, object?>
@@ -2297,9 +2307,11 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 
     private async Task<OperationResult> ClickAbsoluteScreenPointAsync(
         AccountWorkerContext context,
+        StationaryCombatState state,
         int x,
         int y)
     {
+        await StopMovementAsync(context, state, releaseRightMouse: true).ConfigureAwait(false);
         var move = await MoveMouseToAbsoluteScreenPointAsync(context, x, y).ConfigureAwait(false);
         if (!move.Success)
         {
@@ -2441,7 +2453,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             else
             {
                 semiAutoState.ResetAttackKeyPressThrottle();
-                await StopMovementAsync(context, state).ConfigureAwait(false);
+                await StopMovementAsync(context, state, releaseRightMouse: true).ConfigureAwait(false);
                 StopPathFollowPoller(state);
                 state.ReturningHome = false;
                 state.ClearTarget();
@@ -2835,7 +2847,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             !state.IsTeamLeaderProtectionTarget(target) &&
             targetDistanceFromAnchor > radius)
         {
-            await StopMovementAsync(context, state).ConfigureAwait(false);
+            await StopMovementAsync(context, state, releaseRightMouse: false).ConfigureAwait(false);
             state.ClearTarget();
             return IdleDelay;
         }
@@ -2922,7 +2934,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return MoveTickDelay;
         }
 
-        await StopMovementAsync(context, state).ConfigureAwait(false);
+        await StopMovementAsync(context, state, releaseRightMouse: false).ConfigureAwait(false);
         return await TickAcquireAsync(context, plan, semiAutoState, state, target, playerPosition, radius).ConfigureAwait(false);
     }
 
@@ -3465,7 +3477,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
 
         semiAutoState.ResetAttackKeyPressThrottle();
-        await StopMovementAsync(context, state).ConfigureAwait(false);
+        await StopMovementAsync(context, state, releaseRightMouse: false).ConfigureAwait(false);
         StopPathFollowPoller(state);
 
         var candidateChanged = state.MarkCandidate(target, DateTimeOffset.Now);
@@ -3577,7 +3589,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return MoveTickDelay;
         }
 
-        await StopMovementAsync(context, state).ConfigureAwait(false);
+        await StopMovementAsync(context, state, releaseRightMouse: false).ConfigureAwait(false);
         return await TickAcquireAsync(context, plan, semiAutoState, state, target, home, radius).ConfigureAwait(false);
     }
 
@@ -3794,7 +3806,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return openingDelay.Value;
         }
 
-        await StopMovementAsync(context, state).ConfigureAwait(false);
+        await StopMovementAsync(context, state, releaseRightMouse: false).ConfigureAwait(false);
+        await EnsureRightMouseDownAsync(context, state).ConfigureAwait(false);
         EnsureNextTargetPreAimRunning(context, plan, state, target, player, home, radius);
         return await _semiAuto
             .TickAsync(
@@ -4374,6 +4387,9 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             if (state.BagCleanup.Active)
             {
                 await WaitForNextTargetPreAimCameraIdleAsync(context, state).ConfigureAwait(false);
+                semiAutoState.ResetAttackKeyPressThrottle();
+                await StopMovementAsync(context, state, releaseRightMouse: true).ConfigureAwait(false);
+                StopPathFollowPoller(state);
             }
 
             var cleanupResult = await _bagCleanup
@@ -4382,7 +4398,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             if (cleanupResult.Status == BagCleanupTickStatus.Running)
             {
                 semiAutoState.ResetAttackKeyPressThrottle();
-                await StopMovementAsync(context, state).ConfigureAwait(false);
+                await StopMovementAsync(context, state, releaseRightMouse: true).ConfigureAwait(false);
                 StopPathFollowPoller(state);
                 return StationaryCombatBehaviorStatus.Running;
             }
@@ -4689,7 +4705,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             var startPosition = player.Position!.Value;
 
             semiAutoState.ResetAttackKeyPressThrottle();
-            await StopMovementAsync(context, state).ConfigureAwait(false);
+            await StopMovementAsync(context, state, releaseRightMouse: true).ConfigureAwait(false);
             StopPathFollowPoller(state);
             state.PathCombat.Reset();
             state.ClearStartupRecovery();
@@ -5322,7 +5338,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             }
         }
 
-        await StopMovementAsync(context, state).ConfigureAwait(false);
+        await StopMovementAsync(context, state, releaseRightMouse: false).ConfigureAwait(false);
         return await TickAcquireAsync(context, plan, semiAutoState, state, target, home, radius).ConfigureAwait(false);
     }
 
@@ -5379,7 +5395,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         state.SetCurrentTarget(targetEntityId, targetServerObjectId);
         state.MarkCandidate(targetEntityId, targetServerObjectId, DateTimeOffset.Now);
         semiAutoState.ResetAttackKeyPressThrottle();
-        await StopMovementAsync(context, state).ConfigureAwait(false);
+        await StopMovementAsync(context, state, releaseRightMouse: false).ConfigureAwait(false);
         LogActionThrottled(context, state, "stationary_combat.target.reacquire_wait", reason + ":" + TargetActionKey(targetEntityId, targetServerObjectId), new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
@@ -6671,7 +6687,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                                                   isTeamLeaderProtectionTarget;
         state.MarkCandidate(acquiredTarget, DateTimeOffset.Now);
         state.ClearPendingTabVerification();
-        await StopMovementAsync(context, state).ConfigureAwait(false);
+        await StopMovementAsync(context, state, releaseRightMouse: false).ConfigureAwait(false);
         StopPathFollowPoller(state);
         var effectiveTargetingServerObjectId = lockedTarget.TargetServerObjectId != 0
             ? lockedTarget.TargetServerObjectId
@@ -6754,6 +6770,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return openingDelay.Value;
         }
 
+        await EnsureRightMouseDownAsync(context, state).ConfigureAwait(false);
         return await _semiAuto
             .TickAsync(
                 context,
@@ -7050,7 +7067,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             }
         }
 
-        await StopMovementAsync(context, state).ConfigureAwait(false);
+        await StopMovementAsync(context, state, releaseRightMouse: false).ConfigureAwait(false);
         StopPathFollowPoller(state);
         state.CompleteCurrentTargetSoftRestart(target, now);
         state.ResetCurrentTargetDamageObservation();
@@ -7065,6 +7082,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             ["distance"] = double.IsNaN(distance) ? null : Math.Round(distance, 2)
         });
 
+        await EnsureRightMouseDownAsync(context, state).ConfigureAwait(false);
         return await _semiAuto
             .TickAsync(
                 context,
@@ -7215,8 +7233,9 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             return null;
         }
 
-        await StopMovementAsync(context, state).ConfigureAwait(false);
+        await StopMovementAsync(context, state, releaseRightMouse: false).ConfigureAwait(false);
         StopPathFollowPoller(state);
+        await EnsureRightMouseDownAsync(context, state).ConfigureAwait(false);
         LogActionThrottled(context, state, "stationary_combat.opening_attack.wait_targeting", "target:" + target.TargetEntityId, new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
@@ -9530,6 +9549,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
     {
         var actionPlayer = await ReadPlayerForActionAsync(context).ConfigureAwait(false);
         player = actionPlayer;
+        await EnsureRightMouseDownAsync(context, state).ConfigureAwait(false);
 
         var options = ReadPathFollowTurnOptions(context.Config.ScriptSettings?.Combat);
         var poller = EnsurePathFollowPoller(context, state, player, options);
@@ -9537,7 +9557,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         if (TryConsumePathFollowArrival(poller, out var arrivedSnapshot))
         {
             var stoppedForward = state.IsMovingForward;
-            await StopMovementAsync(context, state).ConfigureAwait(false);
+            await StopMovementAsync(context, state, releaseRightMouse: false).ConfigureAwait(false);
             LogPathAction(context, state, "arrived_latched", arrivedSnapshot, 0, 0);
             if (afterWaypointStopAsync is not null)
             {
@@ -9571,7 +9591,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             {
                 TryMarkPathFollowArrivedNow(poller, out _, out _);
                 var stoppedForward = state.IsMovingForward;
-                await StopMovementAsync(context, state).ConfigureAwait(false);
+                await StopMovementAsync(context, state, releaseRightMouse: false).ConfigureAwait(false);
                 LogPathAction(context, state, "arrived", snapshot, 0, 0);
                 if (afterWaypointStopAsync is not null)
                 {
@@ -9591,7 +9611,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             if (restartMoveForLargeYaw)
             {
                 var stoppedForward = state.IsMovingForward;
-                await StopMovementAsync(context, state).ConfigureAwait(false);
+                await StopMovementAsync(context, state, releaseRightMouse: false).ConfigureAwait(false);
                 LogPathAction(context, state, "move_restart_yaw", snapshot, 0, 0);
                 if (afterWaypointStopAsync is not null &&
                     await afterWaypointStopAsync(
@@ -9632,7 +9652,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                             state,
                             target,
                             options,
-                            keepRightDown: false,
+                            keepRightDown: true,
                             useFaceTargetMouseMove: false,
                             leaveRightDown: true)
                         .ConfigureAwait(false);
@@ -9660,7 +9680,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                                 state,
                                 target,
                                 options,
-                                keepRightDown: false,
+                                keepRightDown: true,
                                 useFaceTargetMouseMove: false,
                                 leaveRightDown: true)
                             .ConfigureAwait(false);
@@ -9677,7 +9697,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                             state,
                             target,
                             options,
-                            keepRightDown: false,
+                            keepRightDown: true,
                             useFaceTargetMouseMove: true,
                             leaveRightDown: true)
                         .ConfigureAwait(false);
@@ -10085,7 +10105,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
         finally
         {
-            await ReleaseNextTargetPreAimRightMouseAsync(context, state).ConfigureAwait(false);
             lock (state.NextTargetPreAim.SyncRoot)
             {
                 if (ReferenceEquals(state.NextTargetPreAim.Cancellation, linkedCancellation))
@@ -11151,14 +11170,15 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             state.NextTargetPreAim.LastAdjustedAt = DateTimeOffset.Now;
         }
 
+        var reuseHeldRightMouse = state.IsRightMouseDown;
         var turn = await DragCameraCombinedTwoPassFixedYawPitchAsync(
                 context,
                 state,
                 targetPosition,
                 options,
-                keepRightDown: false,
+                keepRightDown: reuseHeldRightMouse,
                 useFaceTargetMouseMove: true,
-                leaveRightDown: false,
+                leaveRightDown: reuseHeldRightMouse,
                 cancellationToken: cancellationToken,
                 publishRightMouseState: false)
             .ConfigureAwait(false);
@@ -11248,27 +11268,6 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 
         await _cameraTurnInputSync.WaitAsync(context.StopToken).ConfigureAwait(false);
         _cameraTurnInputSync.Release();
-    }
-
-    private async Task ReleaseNextTargetPreAimRightMouseAsync(
-        AccountWorkerContext context,
-        StationaryCombatState state)
-    {
-        if (!state.IsRightMouseDown)
-        {
-            return;
-        }
-
-        var result = await _input.MouseUpAsync(RoadhogMouseButton.Right, CancellationToken.None).ConfigureAwait(false);
-        state.IsRightMouseDown = false;
-        if (!result.Success)
-        {
-            context.Logger.Warn("stationary_combat.smart_preaim.mouse_up_failed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["error"] = result.Error
-            });
-        }
     }
 
     private static bool TryGetNextTargetPreAimCandidate(
@@ -11440,6 +11439,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         }
 
         await StopMoveForwardAsync(context, state).ConfigureAwait(false);
+        await EnsureRightMouseDownAsync(context, state).ConfigureAwait(false);
         var needsTurn = ShouldTurn(
             restartMoveForLargeYaw: false,
             moveAdjustDisabledByDistance: false,
@@ -11473,7 +11473,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
                 state,
                 targetPosition,
                 options,
-                keepRightDown: false,
+                keepRightDown: true,
                 useFaceTargetMouseMove: true,
                 leaveRightDown: true)
             .ConfigureAwait(false);
@@ -11606,7 +11606,8 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 
     private async Task StopMovementAsync(
         AccountWorkerContext context,
-        StationaryCombatState state)
+        StationaryCombatState state,
+        bool releaseRightMouse = false)
     {
         if (state.IsMovingForward)
         {
@@ -11621,7 +11622,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             });
         }
 
-        if (state.IsRightMouseDown)
+        if (releaseRightMouse && state.IsRightMouseDown)
         {
             await _input.MouseUpAsync(RoadhogMouseButton.Right, context.StopToken).ConfigureAwait(false);
             state.IsRightMouseDown = false;
@@ -11729,20 +11730,14 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         var result = new CombinedTurnResult();
         var lockTaken = false;
         var mouseDownStartedHere = false;
+        var shouldKeepRightDown = keepRightDown || state.IsRightMouseDown;
         try
         {
             await _cameraTurnInputSync.WaitAsync(operationToken).ConfigureAwait(false);
             lockTaken = true;
 
-            if (!keepRightDown)
+            if (!shouldKeepRightDown)
             {
-                await _input.MouseUpAsync(RoadhogMouseButton.Right, operationToken).ConfigureAwait(false);
-                if (publishRightMouseState)
-                {
-                    state.IsRightMouseDown = false;
-                }
-
-                await DelayAsync(TimeSpan.FromMilliseconds(8), operationToken).ConfigureAwait(false);
                 var down = await _input.MouseDownAsync(RoadhogMouseButton.Right, operationToken).ConfigureAwait(false);
                 if (publishRightMouseState)
                 {
@@ -11948,7 +11943,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             {
                 try
                 {
-                    if (mouseDownStartedHere && !keepRightDown && !leaveRightDown)
+                    if (mouseDownStartedHere && !shouldKeepRightDown && !leaveRightDown)
                     {
                         await _input.MouseUpAsync(RoadhogMouseButton.Right, CancellationToken.None).ConfigureAwait(false);
                         if (publishRightMouseState)
@@ -11994,7 +11989,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         if (ShouldRestartMoveForYaw(true, snapshot.YawError, options.RestartYawThresholdDegrees))
         {
             result.RestartMove = true;
-            await StopMovementAsync(context, state).ConfigureAwait(false);
+            await StopMovementAsync(context, state, releaseRightMouse: false).ConfigureAwait(false);
             return result;
         }
 
@@ -12045,7 +12040,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             if (ShouldRestartMoveForYaw(true, snapshot.YawError, options.RestartYawThresholdDegrees))
             {
                 result.RestartMove = true;
-                await StopMovementAsync(context, state).ConfigureAwait(false);
+                await StopMovementAsync(context, state, releaseRightMouse: false).ConfigureAwait(false);
                 break;
             }
 
@@ -12085,7 +12080,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             if (ShouldRestartMoveForYaw(true, snapshot.YawError, options.RestartYawThresholdDegrees))
             {
                 result.RestartMove = true;
-                await StopMovementAsync(context, state).ConfigureAwait(false);
+                await StopMovementAsync(context, state, releaseRightMouse: false).ConfigureAwait(false);
                 break;
             }
 

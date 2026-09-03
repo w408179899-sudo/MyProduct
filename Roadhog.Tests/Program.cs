@@ -365,6 +365,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat smart pre-aim refreshes spiritmaster pet side before selection", TestSmartPreAimRefreshesSpiritmasterPetSideBeforeSelectionAsync),
     ("stationary combat smart pre-aim lifecycle spans loot until finish", TestSmartPreAimLifecycleSpansLootUntilFinishAsync),
     ("stationary combat smart pre-aim pauses during cleanup mouse work", TestSmartPreAimPausesDuringCleanupMouseWorkAsync),
+    ("stationary combat smart pre-aim keeps held right mouse", TestSmartPreAimKeepsHeldRightMouseAsync),
     ("stationary combat smart pre-aim uses ten degree yaw tolerance", TestSmartPreAimUsesTenDegreeYawToleranceAsync),
     ("stationary combat derives home from revive path endpoint", TestStationaryCombatDerivesHomeFromRevivePathEndpointAsync),
     ("stationary combat returns home when no target is available", TestStationaryCombatReturnsHomeWhenNoTargetAvailableAsync),
@@ -414,6 +415,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("path combat starts combat path after access path completes", TestPathCombatStartsCombatPathAfterAccessPathCompletesAsync),
     ("path combat uses configured path radius before clearing monsters", TestPathCombatUsesConfiguredRadiusBeforeClearingMonstersAsync),
     ("path combat uses configured path follow precision", TestPathCombatUsesConfiguredPathFollowPrecisionAsync),
+    ("path combat starts right mouse without release", TestPathCombatStartsRightMouseWithoutReleaseAsync),
+    ("path combat keeps right mouse during path yaw restart", TestPathCombatKeepsRightMouseDuringPathYawRestartAsync),
     ("path combat returns after twenty minutes without a kill", TestPathCombatNoKillReturnStartsRevivePathAtFirstPointAsync),
     ("path combat recent kill prevents no kill return", TestPathCombatRecentKillPreventsNoKillReturnAsync),
     ("path combat failed no kill return waits before retry", TestPathCombatFailedNoKillReturnWaitsBeforeRetryAsync),
@@ -426,6 +429,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("worker ensures spiritmaster pet before normal work", TestWorkerEnsuresSpiritmasterPetBeforeNormalWorkAsync),
     ("worker waits for spiritmaster pet summon verification", TestWorkerWaitsForSpiritmasterPetSummonVerificationAsync),
     ("stationary combat faces selected target before tab", TestStationaryCombatFacesTargetBeforeTabAsync),
+    ("stationary combat reuses held right mouse while facing target", TestStationaryCombatReusesHeldRightMouseWhileFacingTargetAsync),
     ("stationary combat jump assist starts after facing and stops on damage", TestStationaryCombatJumpAssistStartsAfterFacingAndStopsOnDamageAsync),
     ("stationary combat resets cursor to revive point after two failed turns", TestStationaryCombatResetsCursorToRevivePointAfterTwoFailedTurnsAsync),
     ("stationary combat target pitch follows target height", TestStationaryCombatTargetPitchFollowsTargetHeightAsync),
@@ -444,7 +448,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat nudges forward when tab stays on attempted corpse", TestStationaryCombatNudgesForwardWhenTabStaysOnAttemptedCorpseAsync),
     ("stationary combat nudges forward when tab lock is empty", TestStationaryCombatNudgesForwardWhenTabLockIsEmptyAsync),
     ("stationary combat pending tab verify blocks pre-acquire", TestStationaryCombatPendingTabVerifyBlocksPreAcquireAsync),
-    ("stationary combat releases path follow movement after target is verified", TestStationaryCombatReleasesMovementAfterAcquireAsync),
+    ("stationary combat keeps right mouse after target is verified", TestStationaryCombatKeepsRightMouseAfterAcquireAsync),
     ("stationary combat does not pulse W while approaching same target", TestStationaryCombatDoesNotPulseWWhileApproachingAsync),
     ("stationary combat jumps while stuck approaching target", TestStationaryCombatJumpsWhileStuckApproachingTargetAsync),
     ("stationary combat ignores target when lock times out", TestStationaryCombatIgnoresTargetWhenLockTimesOutAsync),
@@ -484,6 +488,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat runs after-combat maintenance after loot", TestStationaryCombatRunsAfterCombatMaintenanceAfterLootAsync),
     ("stationary combat runs after-combat maintenance without loot", TestStationaryCombatRunsAfterCombatMaintenanceWithoutLootAsync),
     ("stationary combat runs after-combat maintenance round", TestStationaryCombatRunsAfterCombatMaintenanceRoundAsync),
+    ("stationary combat releases right mouse when bag cleanup starts", TestStationaryCombatReleasesRightMouseWhenBagCleanupStartsAsync),
     ("stationary combat returns from bag cleanup through revive path before finishing loot", TestStationaryCombatReturnsFromBagCleanupThroughRevivePathBeforeFinishingLootAsync),
     ("stationary combat refreshes position after bag cleanup return", TestStationaryCombatRefreshesPositionAfterBagCleanupReturnAsync),
     ("stationary combat postpones after-combat maintenance while pet is targeted", TestStationaryCombatPostponesAfterCombatMaintenanceWhilePetIsTargetedAsync),
@@ -14848,6 +14853,102 @@ static async Task TestSmartPreAimPausesDuringCleanupMouseWorkAsync()
     AssertEqual(0, keyboard.MouseCommands.Count, "smart pre-aim should not move mouse during cleanup return path");
 }
 
+static async Task TestSmartPreAimKeepsHeldRightMouseAsync()
+{
+    var environment = new Dictionary<string, string?>
+    {
+        ["AION_FACE_TARGET_BEARING_MODE"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE"),
+        ["AION_FACE_TARGET_SETTLE_MS"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_SETTLE_MS"),
+        ["AION_FACE_TARGET_MOUSE_DOWN_WARMUP_MS"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_MOUSE_DOWN_WARMUP_MS"),
+        ["AION_FACE_TARGET_ADAPTIVE_READ_SETTLE_MS"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_ADAPTIVE_READ_SETTLE_MS"),
+        ["AION_FACE_TARGET_ADAPTIVE_READ_TIMEOUT_MS"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_ADAPTIVE_READ_TIMEOUT_MS"),
+        ["AION_FACE_TARGET_DRAG_STEP_DELAY_MS"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_DRAG_STEP_DELAY_MS"),
+        ["AION_FACE_TARGET_TWO_PASS_MAX_PASSES"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_TWO_PASS_MAX_PASSES")
+    };
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_SETTLE_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_MOUSE_DOWN_WARMUP_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_ADAPTIVE_READ_SETTLE_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_ADAPTIVE_READ_TIMEOUT_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_DRAG_STEP_DELAY_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_TWO_PASS_MAX_PASSES", "1");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            SmartPreAimEnabled = true,
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 30
+        };
+
+        var player = new PlayerSnapshot(
+            1,
+            100,
+            "Fake",
+            100,
+            100,
+            100,
+            100,
+            0,
+            new Vector3Snapshot(0, 0, 0),
+            DateTimeOffset.Now,
+            0,
+            10,
+            0);
+        var gameApi = new FakeGameApi { Player = player };
+        var keyboard = new RecordingKeyboardInput();
+        keyboard.AfterMove = (_, _) =>
+        {
+            gameApi.Player = gameApi.Player with { CameraYawDegrees = 90, ActorYawDegrees = 90 };
+        };
+        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+        var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
+        var state = new StationaryCombatState
+        {
+            IsRightMouseDown = true
+        };
+        var method = typeof(StationaryCombatController).GetMethod(
+            "AdjustNextTargetPreAimAsync",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        AssertFalse(method is null, "smart pre-aim adjust helper should exist");
+
+        var task = (Task)method!.Invoke(
+            controller,
+            new object[]
+            {
+                context,
+                state,
+                player,
+                (ushort)200,
+                6000u,
+                "next",
+                new Vector3Snapshot(8, 0, 0),
+                CancellationToken.None
+            })!;
+        await task.ConfigureAwait(false);
+
+        AssertFalse(keyboard.MouseCommands.Contains("up:Right"), "smart pre-aim must not release held automation right mouse");
+        AssertFalse(keyboard.MouseCommands.Contains("down:Right"), "smart pre-aim must not press right mouse again when it is already held");
+        AssertFalse(
+            !keyboard.MouseCommands.Any(command => command.StartsWith("move:", StringComparison.Ordinal)),
+            "smart pre-aim should still adjust the camera");
+        AssertFalse(!state.IsRightMouseDown, "smart pre-aim should preserve held right mouse state");
+    }
+    finally
+    {
+        foreach (var pair in environment)
+        {
+            Environment.SetEnvironmentVariable(pair.Key, pair.Value);
+        }
+    }
+}
+
 static async Task TestStationaryCombatDerivesHomeFromRevivePathEndpointAsync()
 {
     var settings = CreateScriptSettings();
@@ -16264,7 +16365,11 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
         };
         var semiAuto = new SemiAutoCombatController(keyboard);
         var controller = new StationaryCombatController(keyboard, semiAuto, pathStore);
-        var stationaryState = new StationaryCombatState();
+        var stationaryState = new StationaryCombatState
+        {
+            IsMovingForward = true,
+            IsRightMouseDown = true
+        };
         var semiAutoState = new SemiAutoCombatState();
         var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
         var context = CreateContext(settings, gameApi, logger);
@@ -16273,9 +16378,11 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
 
         AssertEqual(StationaryCombatTopLevelState.DeathRecovery, stationaryState.TopLevelState, "dead player should enter death recovery");
         AssertSequence(
-            new[] { "move:-2000,-2000", "move:-2000,-2000", "move:612,345", "down:Left", "up:Left" },
+            new[] { "up:Right", "move:-2000,-2000", "move:-2000,-2000", "move:612,345", "down:Left", "up:Left" },
             keyboard.MouseCommands.ToArray(),
-            "death recovery should absolute-click configured revive button");
+            "death recovery should release right mouse before absolute-clicking configured revive button");
+        AssertSequence(new[] { "W" }, keyboard.KeyUps.ToArray(), "death recovery should release W before revive click");
+        AssertFalse(stationaryState.IsRightMouseDown, "death recovery should keep right mouse released while dead");
         AssertFalse(keyboard.Keys.Contains("Tab"), "death recovery must not enter target acquisition");
         AssertFalse(keyboard.Keys.Any(key => key.StartsWith("D", StringComparison.OrdinalIgnoreCase)), "death recovery must not release combat skills");
 
@@ -16289,7 +16396,7 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
                 "down:Left",
                 "up:Left"
             },
-            keyboard.MouseCommands.Skip(5).Take(5).ToArray(),
+            keyboard.MouseCommands.Skip(6).Take(5).ToArray(),
             "death recovery should retry configured revive click when player is still dead after retry delay");
         AssertEqual(2, stationaryState.DeathRecovery.ReviveClickCount, "death recovery should record retry revive click count");
 
@@ -16303,7 +16410,7 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
                 "down:Left",
                 "up:Left"
             },
-            keyboard.MouseCommands.Skip(10).Take(5).ToArray(),
+            keyboard.MouseCommands.Skip(11).Take(5).ToArray(),
             "death recovery should keep using configured revive click when player is still dead after second retry");
         AssertEqual(3, stationaryState.DeathRecovery.ReviveClickCount, "death recovery should record third revive click count");
 
@@ -16317,7 +16424,7 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
                 "down:Left",
                 "up:Left"
             },
-            keyboard.MouseCommands.Skip(15).Take(5).ToArray(),
+            keyboard.MouseCommands.Skip(16).Take(5).ToArray(),
             "death recovery should keep using configured revive click on later retries");
         AssertEqual(4, stationaryState.DeathRecovery.ReviveClickCount, "death recovery should record rotated revive click count");
 
@@ -16325,7 +16432,7 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
         await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
         AssertSequence(
             Enumerable.Repeat("wheel:-1", 30).ToArray(),
-            keyboard.MouseCommands.Skip(20).Take(30).ToArray(),
+            keyboard.MouseCommands.Skip(21).Take(30).ToArray(),
             "revived player should scroll wheel down thirty times before maintenance");
         AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "revived low hp should sit for recovery");
         AssertFalse(!semiAutoState.IsMaintenanceResting, "revive recovery should track resting state");
@@ -18549,6 +18656,179 @@ static async Task TestPathCombatUsesConfiguredPathFollowPrecisionAsync()
     }
 }
 
+static async Task TestPathCombatStartsRightMouseWithoutReleaseAsync()
+{
+    var environment = new Dictionary<string, string?>
+    {
+        ["AION_FACE_TARGET_BEARING_MODE"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE"),
+        ["AION_FACE_TARGET_SETTLE_MS"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_SETTLE_MS"),
+        ["AION_FACE_TARGET_MOUSE_DOWN_WARMUP_MS"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_MOUSE_DOWN_WARMUP_MS"),
+        ["AION_FACE_TARGET_ADAPTIVE_READ_SETTLE_MS"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_ADAPTIVE_READ_SETTLE_MS"),
+        ["AION_FACE_TARGET_ADAPTIVE_READ_TIMEOUT_MS"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_ADAPTIVE_READ_TIMEOUT_MS"),
+        ["AION_FACE_TARGET_DRAG_STEP_DELAY_MS"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_DRAG_STEP_DELAY_MS"),
+        ["AION_FACE_TARGET_TWO_PASS_MAX_PASSES"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_TWO_PASS_MAX_PASSES")
+    };
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_SETTLE_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_MOUSE_DOWN_WARMUP_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_ADAPTIVE_READ_SETTLE_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_ADAPTIVE_READ_TIMEOUT_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_DRAG_STEP_DELAY_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_TWO_PASS_MAX_PASSES", "1");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Path;
+        settings.Paths.CombatPathName = "combat-a";
+        settings.Combat.PathFollowReachDistance = 5;
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 0, 10, 0),
+            TargetEntityId = 0,
+            TargetCurrentHp = 0,
+            TargetPosition = null,
+            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+        };
+        keyboard.AfterMove = (_, _) =>
+        {
+            gameApi.Player = gameApi.Player with { CameraYawDegrees = 90, ActorYawDegrees = 90 };
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var state = new StationaryCombatState();
+        state.PathCombat.Start(
+            "combat-a",
+            new[]
+            {
+                new Vector3Snapshot(20, 0, 0),
+                new Vector3Snapshot(40, 0, 0)
+            },
+            0);
+        using var cts = new CancellationTokenSource();
+        var context = CreateContext(settings, gameApi, logger, stopToken: cts.Token);
+
+        try
+        {
+            await controller
+                .TickPathAsync(context, SemiAutoSkillPlan.FromSettings(settings.Skills), new SemiAutoCombatState(), state)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            cts.Cancel();
+        }
+
+        AssertEqual(1, keyboard.MouseCommands.Count(command => command == "down:Right"), "path start should press right mouse once");
+        AssertFalse(keyboard.MouseCommands.Contains("up:Right"), "path start must not release right mouse");
+        AssertFalse(!keyboard.KeyDowns.Contains("W"), "path start should hold W after turning");
+        AssertFalse(
+            !keyboard.MouseCommands.Any(command => command.StartsWith("move:", StringComparison.Ordinal)),
+            "path start should adjust the camera");
+        AssertFalse(!state.IsRightMouseDown, "path start should keep right mouse state held");
+    }
+    finally
+    {
+        foreach (var pair in environment)
+        {
+            Environment.SetEnvironmentVariable(pair.Key, pair.Value);
+        }
+    }
+}
+
+static async Task TestPathCombatKeepsRightMouseDuringPathYawRestartAsync()
+{
+    var environment = new Dictionary<string, string?>
+    {
+        ["AION_FACE_TARGET_BEARING_MODE"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE"),
+        ["AION_FACE_TARGET_SETTLE_MS"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_SETTLE_MS"),
+        ["AION_FACE_TARGET_MOUSE_DOWN_WARMUP_MS"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_MOUSE_DOWN_WARMUP_MS"),
+        ["AION_FACE_TARGET_ADAPTIVE_READ_SETTLE_MS"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_ADAPTIVE_READ_SETTLE_MS"),
+        ["AION_FACE_TARGET_ADAPTIVE_READ_TIMEOUT_MS"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_ADAPTIVE_READ_TIMEOUT_MS"),
+        ["AION_FACE_TARGET_DRAG_STEP_DELAY_MS"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_DRAG_STEP_DELAY_MS"),
+        ["AION_FACE_TARGET_TWO_PASS_MAX_PASSES"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_TWO_PASS_MAX_PASSES")
+    };
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_SETTLE_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_MOUSE_DOWN_WARMUP_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_ADAPTIVE_READ_SETTLE_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_ADAPTIVE_READ_TIMEOUT_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_DRAG_STEP_DELAY_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_TWO_PASS_MAX_PASSES", "1");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Path;
+        settings.Paths.CombatPathName = "combat-a";
+        settings.Combat.PathFollowReachDistance = 5;
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 0, 10, 0),
+            TargetEntityId = 0,
+            TargetCurrentHp = 0,
+            TargetPosition = null,
+            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+        };
+        keyboard.AfterMove = (_, _) =>
+        {
+            gameApi.Player = gameApi.Player with { CameraYawDegrees = 90, ActorYawDegrees = 90 };
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var state = new StationaryCombatState
+        {
+            IsMovingForward = true,
+            IsRightMouseDown = true
+        };
+        state.PathCombat.Start(
+            "combat-a",
+            new[]
+            {
+                new Vector3Snapshot(20, 0, 0),
+                new Vector3Snapshot(40, 0, 0)
+            },
+            0);
+        using var cts = new CancellationTokenSource();
+        var context = CreateContext(settings, gameApi, logger, stopToken: cts.Token);
+
+        try
+        {
+            await controller
+                .TickPathAsync(context, SemiAutoSkillPlan.FromSettings(settings.Skills), new SemiAutoCombatState(), state)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            cts.Cancel();
+        }
+
+        AssertFalse(!keyboard.KeyUps.Contains("W"), "path yaw restart should release W before turning");
+        AssertFalse(!keyboard.KeyDowns.Contains("W"), "path yaw restart should resume W after turning");
+        AssertFalse(keyboard.MouseCommands.Contains("up:Right"), "path yaw restart must not release right mouse");
+        AssertFalse(keyboard.MouseCommands.Contains("down:Right"), "path yaw restart must not press right mouse again");
+        AssertFalse(
+            !keyboard.MouseCommands.Any(command => command.StartsWith("move:", StringComparison.Ordinal)),
+            "path yaw restart should adjust the camera");
+        AssertFalse(!state.IsRightMouseDown, "path yaw restart should keep right mouse state held");
+    }
+    finally
+    {
+        foreach (var pair in environment)
+        {
+            Environment.SetEnvironmentVariable(pair.Key, pair.Value);
+        }
+    }
+}
+
 static async Task TestPathCombatNoKillReturnStartsRevivePathAtFirstPointAsync()
 {
     var previousTimeout = Environment.GetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_TIMEOUT_MS");
@@ -19370,6 +19650,7 @@ static async Task TestStationaryCombatFacesTargetBeforeTabAsync()
             .ConfigureAwait(false);
 
         AssertFalse(!keyboard.MouseCommands.Contains("down:Right"), "unfaced target should hold right mouse");
+        AssertFalse(keyboard.MouseCommands.Contains("up:Right"), "unfaced target must not release right mouse");
         AssertFalse(!keyboard.MouseCommands.Any(command => command.StartsWith("move:", StringComparison.Ordinal)), "unfaced target should move mouse");
         AssertFalse(keyboard.Keys.Contains("Tab"), "unfaced target should not Tab yet");
         AssertFalse(keyboard.Keys.Contains("D2"), "unfaced target should not release skills yet");
@@ -19378,6 +19659,89 @@ static async Task TestStationaryCombatFacesTargetBeforeTabAsync()
     finally
     {
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestStationaryCombatReusesHeldRightMouseWhileFacingTargetAsync()
+{
+    var environment = new Dictionary<string, string?>
+    {
+        ["AION_FACE_TARGET_BEARING_MODE"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE"),
+        ["AION_FACE_TARGET_SETTLE_MS"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_SETTLE_MS"),
+        ["AION_FACE_TARGET_MOUSE_DOWN_WARMUP_MS"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_MOUSE_DOWN_WARMUP_MS"),
+        ["AION_FACE_TARGET_ADAPTIVE_READ_SETTLE_MS"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_ADAPTIVE_READ_SETTLE_MS"),
+        ["AION_FACE_TARGET_ADAPTIVE_READ_TIMEOUT_MS"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_ADAPTIVE_READ_TIMEOUT_MS"),
+        ["AION_FACE_TARGET_DRAG_STEP_DELAY_MS"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_DRAG_STEP_DELAY_MS"),
+        ["AION_FACE_TARGET_TWO_PASS_MAX_PASSES"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_TWO_PASS_MAX_PASSES")
+    };
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_SETTLE_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_MOUSE_DOWN_WARMUP_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_ADAPTIVE_READ_SETTLE_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_ADAPTIVE_READ_TIMEOUT_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_DRAG_STEP_DELAY_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_TWO_PASS_MAX_PASSES", "1");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 30
+        };
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 0, 10, 0),
+            TargetEntityId = 0,
+            TargetCurrentHp = 1000,
+            TargetPosition = new Vector3Snapshot(5, 0, 0),
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(100, 100, "target", "monster", new Vector3Snapshot(5, 0, 0), 5, 1000, 1000)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState
+        {
+            IsRightMouseDown = true
+        };
+
+        await controller
+            .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertFalse(keyboard.MouseCommands.Contains("up:Right"), "held right mouse face turn must not release right mouse");
+        AssertFalse(keyboard.MouseCommands.Contains("down:Right"), "held right mouse face turn must not press right mouse again");
+        AssertFalse(!keyboard.MouseCommands.Any(command => command.StartsWith("move:", StringComparison.Ordinal)), "held right mouse face turn should move mouse");
+        AssertFalse(!state.IsRightMouseDown, "held right mouse face turn should keep right mouse state held");
+        AssertFalse(keyboard.Keys.Contains("Tab"), "unfaced target should still wait to Tab");
+    }
+    finally
+    {
+        foreach (var pair in environment)
+        {
+            Environment.SetEnvironmentVariable(pair.Key, pair.Value);
+        }
     }
 }
 
@@ -21000,7 +21364,7 @@ static async Task TestStationaryCombatPendingTabVerifyBlocksPreAcquireAsync()
     }
 }
 
-static async Task TestStationaryCombatReleasesMovementAfterAcquireAsync()
+static async Task TestStationaryCombatKeepsRightMouseAfterAcquireAsync()
 {
     var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
     Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
@@ -21053,15 +21417,19 @@ static async Task TestStationaryCombatReleasesMovementAfterAcquireAsync()
         AssertFalse(!state.IsMovingForward, "approach should hold W while outside acquire distance");
         AssertFalse(!state.IsRightMouseDown, "approach should hold right mouse while outside acquire distance");
         AssertFalse(!keyboard.KeyDowns.Contains("W"), "approach should send W down");
+        var rightMouseUpCountAfterApproach = keyboard.MouseCommands.Count(command => command == "up:Right");
 
         gameApi.TargetEntityId = 100;
         gameApi.Player = gameApi.Player with { Position = new Vector3Snapshot(20, 0, 0), TargetEntityId = 100 };
         await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
 
         AssertFalse(state.IsMovingForward, "verified target should release W");
-        AssertFalse(state.IsRightMouseDown, "verified target should release right mouse");
+        AssertFalse(!state.IsRightMouseDown, "verified target should keep right mouse down");
         AssertFalse(!keyboard.KeyUps.Contains("W"), "verified target should send W up");
-        AssertFalse(!keyboard.MouseCommands.Contains("up:Right"), "verified target should send right mouse up");
+        AssertEqual(
+            rightMouseUpCountAfterApproach,
+            keyboard.MouseCommands.Count(command => command == "up:Right"),
+            "verified target should not send another right mouse up");
         AssertFalse(!keyboard.Keys.Contains("D2"), "verified target should enter semi-auto skill release");
     }
     finally
@@ -24472,6 +24840,102 @@ static async Task TestStationaryCombatRunsAfterCombatMaintenanceRoundAsync()
     }
 }
 
+static async Task TestStationaryCombatReleasesRightMouseWhenBagCleanupStartsAsync()
+{
+    var settings = CreateDiscardScriptSettings(BagCleanupRuleCatalog.GreenManastone, threshold: 2);
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        EnableLoot = true,
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30
+    };
+    var discardTarget = new InventoryItemSnapshot(
+        167000450,
+        61,
+        "green-manastone",
+        1,
+        0,
+        false,
+        24,
+        2);
+    var keptItem = new InventoryItemSnapshot(
+        1001,
+        62,
+        "kept",
+        1,
+        1,
+        false,
+        1,
+        4);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = CreateSafeDiscardGameApi(capacity: 3, discardTarget, keptItem);
+    gameApi.Player = new PlayerSnapshot(
+        1,
+        100,
+        "Fake",
+        100,
+        100,
+        100,
+        100,
+        0,
+        new Vector3Snapshot(0, 0, 0),
+        DateTimeOffset.Now,
+        90,
+        10,
+        90);
+    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>());
+    var controller = new StationaryCombatController(
+        keyboard,
+        new SemiAutoCombatController(keyboard),
+        new InMemorySharedPathStore());
+    var state = new StationaryCombatState
+    {
+        IsMovingForward = true,
+        IsRightMouseDown = true
+    };
+    state.StartLootAfterKill(
+        new LockedTargetSnapshot(
+            100,
+            5000,
+            0,
+            LockedTargetSnapshot.MonsterObjectType,
+            "dead-target",
+            0,
+            100,
+            new Vector3Snapshot(0, 0, 0),
+            0,
+            DateTimeOffset.Now),
+        DateTimeOffset.Now);
+    for (var i = 0; i < 5; i++)
+    {
+        state.LootAfterKill.Advance(DateTimeOffset.Now);
+    }
+
+    await controller
+        .TickAsync(
+            CreateContext(settings, gameApi, logger),
+            SemiAutoSkillPlan.FromSettings(settings.Skills),
+            new SemiAutoCombatState(),
+            state)
+        .ConfigureAwait(false);
+
+    AssertFalse(!state.BagCleanup.Active, "bag cleanup should start when free slots fall below threshold");
+    AssertEqual(BagCleanupStep.PrepareDiscardInventory, state.BagCleanup.Step, "discard cleanup should wait for the next tick before UI mouse work");
+    AssertSequence(new[] { "W" }, keyboard.KeyUps.ToArray(), "bag cleanup start should stop forward movement");
+    AssertSequence(new[] { "up:Right" }, keyboard.MouseCommands.ToArray(), "bag cleanup start should release right mouse before later UI work");
+    AssertFalse(state.IsMovingForward, "bag cleanup start should clear moving state");
+    AssertFalse(state.IsRightMouseDown, "bag cleanup start should clear right mouse state");
+    AssertFalse(
+        keyboard.MouseCommands.Any(command => command is "down:Left" or "up:Left"),
+        "bag cleanup start should not left-click in the same tick that releases right mouse");
+}
+
 static async Task TestStationaryCombatReturnsFromBagCleanupThroughRevivePathBeforeFinishingLootAsync()
 {
     var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
@@ -25832,10 +26296,10 @@ static async Task TestStationaryCombatStopsMovementBeforeHpMaintenanceAsync()
         .ConfigureAwait(false);
 
     AssertSequence(new[] { "W" }, keyboard.KeyUps.ToArray(), "hp maintenance should release W before pressing key");
-    AssertSequence(new[] { "up:Right" }, keyboard.MouseCommands.ToArray(), "hp maintenance should release right mouse before pressing key");
+    AssertFalse(keyboard.MouseCommands.Contains("up:Right"), "hp maintenance must not release right mouse");
     AssertSequence(new[] { "D8" }, keyboard.Keys.ToArray(), "hp maintenance key");
     AssertFalse(stationaryState.IsMovingForward, "hp maintenance should clear moving state");
-    AssertFalse(stationaryState.IsRightMouseDown, "hp maintenance should clear right mouse state");
+    AssertFalse(!stationaryState.IsRightMouseDown, "hp maintenance should preserve right mouse state");
 }
 
 static async Task TestStationaryCombatMpSitMaintenanceRunsWithoutDefenseTargetAsync()
