@@ -143,7 +143,8 @@ namespace Roadhog
         private RoundedTextBox? bagCleanupSellItemClickPointTextBox;
         private RoundedTextBox? bagCleanupSellButtonClickPointTextBox;
         private RoundedComboBox? bagCleanupItemCoordinateModeCombo;
-        private RoundedComboBox? bagCleanupInventoryCombo;
+        private RoundedTextBox? bagCleanupManualNameTextBox;
+        private CheckedListBox? bagCleanupInventoryCheckedListBox;
         private ListBox? bagCleanupExcludedItemListBox;
         private Label? bagCleanupInventoryStatusLabel;
         private Label? bagCleanupNameListTitleLabel;
@@ -1259,9 +1260,9 @@ namespace Roadhog
                 await RunApiProbeAsync(apiProbeButton).ConfigureAwait(true);
 #endif
 
-            returnHomeWhenNoTargetCheckBox = AddCheckBox(page, "\u6ca1\u602a\u56de\u4e2d\u5fc3", 470, 142, 118, true);
-            sitWhenNoTargetAtHomeCheckBox = AddCheckBox(page, "\u6ca1\u602a\u5750\u5730\u677f", 594, 142, 118, false);
-            jumpAssistEnabledCheckBox = AddCheckBox(page, "\u6253\u602a\u8df3\u8dc3", 716, 142, 110, false);
+            returnHomeWhenNoTargetCheckBox = AddCheckBox(page, "\u6ca1\u602a\u56de\u4e2d\u5fc3", 302, 176, 118, true);
+            sitWhenNoTargetAtHomeCheckBox = AddCheckBox(page, "\u6ca1\u602a\u5750\u5730\u677f", 426, 176, 118, false);
+            jumpAssistEnabledCheckBox = AddCheckBox(page, "\u6253\u602a\u8df3\u8dc3", 302, 208, 110, false);
             jumpAssistEnabledCheckBox.Name = "jumpAssistEnabledCheckBox";
             smartPreAimEnabledCheckBox = AddCheckBox(page, "\u667a\u80fd\u9009\u602a", 4, 176, 110, false);
             smartPreAimEnabledCheckBox.Name = "smartPreAimEnabledCheckBox";
@@ -1301,11 +1302,11 @@ namespace Roadhog
                 _textGreen,
                 FontStyle.Regular);
             radarStatusLabel.Name = "radarStatusLabel";
-            AddLabel(page, "\u56fa\u5b9a\u9891\u9053", 306, 180, 76, 22);
+            AddLabel(page, "\u56fa\u5b9a\u9891\u9053", 552, 150, 76, 22);
             fixedChannelCombo = AddCombo(
                 page,
-                386,
-                176,
+                632,
+                146,
                 120,
                 28,
                 new[] { "\u4e0d\u56fa\u5b9a" }
@@ -1325,7 +1326,7 @@ namespace Roadhog
             {
                 BackColor = _pageBackground,
                 BorderStyle = BorderStyle.FixedSingle,
-                Location = new Point(552, 154),
+                Location = new Point(552, 184),
                 Name = "fixedChannelMousePanel",
                 Size = new Size(294, 254)
             };
@@ -3129,6 +3130,8 @@ namespace Roadhog
         {
             var tab = CreateBaseTab("清包");
             var page = CreatePagePanel();
+            page.AutoScroll = true;
+            page.AutoScrollMinSize = new Size(0, 620);
             tab.Controls.Add(page);
             bagCleanupRuleControls.Clear();
 
@@ -3228,30 +3231,31 @@ namespace Roadhog
             var refreshInventoryButton = AddButton(page, "刷新背包", 738, 50, 96, 30);
             refreshInventoryButton.Click += async (_, _) =>
                 await RefreshBagCleanupInventoryAsync(refreshInventoryButton).ConfigureAwait(true);
-            var testInventoryWindowButton = AddButton(page, "测试背包归位", 688, 330, 146, 30);
+            var testInventoryWindowButton = AddButton(page, "测试背包归位", 688, 446, 146, 30);
             testInventoryWindowButton.Click += async (_, _) =>
                 await TestBagCleanupInventoryWindowNormalizeAsync(testInventoryWindowButton).ConfigureAwait(true);
-            var testSellRegisterButton = AddButton(page, "测试登记出售", 688, 368, 146, 30);
+            var testSellRegisterButton = AddButton(page, "测试登记出售", 688, 484, 146, 30);
             testSellRegisterButton.Click += async (_, _) =>
                 await TestBagCleanupSellRegisterAsync(testSellRegisterButton).ConfigureAwait(true);
 
             AddLabel(page, "物品/关键字", 430, 92, 96, 24, _textGreen, FontStyle.Bold);
-            bagCleanupInventoryCombo = AddCombo(page, 430, 118, 248, 28);
-            bagCleanupInventoryCombo.DropDownStyle = ComboBoxStyle.DropDown;
-            bagCleanupInventoryCombo.Name = "bagCleanupInventoryCombo";
+            bagCleanupManualNameTextBox = AddTextBox(page, string.Empty, 430, 118, 248, 28);
+            bagCleanupManualNameTextBox.Name = "bagCleanupManualNameTextBox";
             bagCleanupAddNameButton = AddButton(page, "加入不处理", 688, 118, 120, 30);
             bagCleanupAddNameButton.Name = "bagCleanupAddNameButton";
             bagCleanupAddNameButton.Click += async (_, _) =>
                 await AddSelectedBagCleanupNameAsync().ConfigureAwait(true);
 
-            bagCleanupInventoryStatusLabel = AddLabel(page, "等待刷新背包", 430, 154, 404, 24);
+            bagCleanupInventoryCheckedListBox = CreateBagCleanupInventoryCheckedListBox(page, 430, 154, 248, 128);
+            bagCleanupInventoryCheckedListBox.Name = "bagCleanupInventoryCheckedListBox";
+            bagCleanupInventoryStatusLabel = AddLabel(page, "等待刷新背包", 430, 286, 404, 24);
 
-            bagCleanupNameListTitleLabel = AddLabel(page, "白名单：以下物品不处理", 430, 190, 248, 24, _textGreen, FontStyle.Bold);
-            bagCleanupExcludedItemListBox = CreateFilterListBox(page, 430, 216, 248, 280);
-            bagCleanupRemoveNameButton = AddButton(page, "移除", 688, 216, 80, 30);
+            bagCleanupNameListTitleLabel = AddLabel(page, "白名单：以下物品不处理", 430, 318, 248, 24, _textGreen, FontStyle.Bold);
+            bagCleanupExcludedItemListBox = CreateFilterListBox(page, 430, 344, 248, 170);
+            bagCleanupRemoveNameButton = AddButton(page, "移除", 688, 344, 80, 30);
             bagCleanupRemoveNameButton.Click += async (_, _) =>
                 await RemoveSelectedBagCleanupNameAsync().ConfigureAwait(true);
-            bagCleanupClearNamesButton = AddButton(page, "清空", 688, 254, 80, 30);
+            bagCleanupClearNamesButton = AddButton(page, "清空", 688, 382, 80, 30);
             bagCleanupClearNamesButton.Click += async (_, _) =>
                 await ClearSelectedBagCleanupNameListAsync().ConfigureAwait(true);
 
@@ -3879,7 +3883,7 @@ namespace Roadhog
             try
             {
                 var inventory = await _runtime.RefreshInventoryAsync(_account).ConfigureAwait(true);
-                var count = PopulateBagCleanupInventoryCombo(inventory);
+                var count = PopulateBagCleanupInventoryCandidates(inventory);
                 SetBagCleanupInventoryStatus(
                     count == 0
                         ? "背包为空或当前接口未返回物品"
@@ -4088,14 +4092,15 @@ namespace Roadhog
             }
         }
 
-        private int PopulateBagCleanupInventoryCombo(IEnumerable<InventoryItemSnapshot> items)
+        private int PopulateBagCleanupInventoryCandidates(IEnumerable<InventoryItemSnapshot> items)
         {
-            if (bagCleanupInventoryCombo is null)
+            if (bagCleanupInventoryCheckedListBox is null)
             {
                 return 0;
             }
 
-            var previousName = GetSelectedBagCleanupInventoryItemName();
+            var previousCheckedNames = GetCheckedBagCleanupInventoryItemNames()
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
             var comboItems = items
                 .Where(IsBagCleanupInventoryCandidate)
                 .GroupBy(item => item.Name.Trim(), StringComparer.OrdinalIgnoreCase)
@@ -4106,22 +4111,21 @@ namespace Roadhog
                 .OrderBy(item => item.Name, StringComparer.CurrentCulture)
                 .ToArray();
 
-            bagCleanupInventoryCombo.Items.Clear();
+            bagCleanupInventoryCheckedListBox.Items.Clear();
             foreach (var item in comboItems)
             {
-                bagCleanupInventoryCombo.Items.Add(item);
+                var index = bagCleanupInventoryCheckedListBox.Items.Add(item);
+                if (previousCheckedNames.Contains(item.Name))
+                {
+                    bagCleanupInventoryCheckedListBox.SetItemChecked(index, true);
+                }
             }
 
             if (comboItems.Length == 0)
             {
-                bagCleanupInventoryCombo.Text = string.Empty;
                 return 0;
             }
 
-            var selectedIndex = Array.FindIndex(
-                comboItems,
-                item => string.Equals(item.Name, previousName, StringComparison.OrdinalIgnoreCase));
-            bagCleanupInventoryCombo.SelectedIndex = selectedIndex >= 0 ? selectedIndex : 0;
             return comboItems.Length;
         }
 
@@ -4132,23 +4136,36 @@ namespace Roadhog
                    !string.IsNullOrWhiteSpace(item.Name);
         }
 
-        private string GetSelectedBagCleanupInventoryItemName()
+        private List<string> GetSelectedBagCleanupInventoryItemNames()
         {
-            if (bagCleanupInventoryCombo is null || bagCleanupInventoryCombo.SelectedIndex < 0)
+            var names = new List<string>();
+            var manualName = bagCleanupManualNameTextBox?.Text?.Trim() ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(manualName))
             {
-                return bagCleanupInventoryCombo?.Text.Trim() ?? string.Empty;
+                names.Add(manualName);
             }
 
-            var text = bagCleanupInventoryCombo.Text.Trim();
-            if (bagCleanupInventoryCombo.Items[bagCleanupInventoryCombo.SelectedIndex] is BagCleanupInventoryComboItem item)
+            names.AddRange(GetCheckedBagCleanupInventoryItemNames());
+            return BagCleanupNameListsDocument.NormalizeKeywords(names);
+        }
+
+        private IEnumerable<string> GetCheckedBagCleanupInventoryItemNames()
+        {
+            if (bagCleanupInventoryCheckedListBox is null)
             {
-                return string.Equals(text, item.ToString(), StringComparison.Ordinal) ||
-                       string.Equals(text, item.Name, StringComparison.OrdinalIgnoreCase)
+                yield break;
+            }
+
+            foreach (var checkedItem in bagCleanupInventoryCheckedListBox.CheckedItems.Cast<object>())
+            {
+                var name = checkedItem is BagCleanupInventoryComboItem item
                     ? item.Name
-                    : text;
+                    : Convert.ToString(checkedItem)?.Trim() ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    yield return name;
+                }
             }
-
-            return text;
         }
 
         private Task AddSelectedBagCleanupNameAsync()
@@ -4158,41 +4175,126 @@ namespace Roadhog
 
         private async Task AddSelectedBagCleanupNameCoreAsync()
         {
-            var name = GetSelectedBagCleanupInventoryItemName();
-            if (string.IsNullOrWhiteSpace(name))
+            var selectedNames = GetSelectedBagCleanupInventoryItemNames();
+            if (selectedNames.Count == 0)
             {
                 SetBagCleanupInventoryStatus("请选择物品或输入关键字", true);
                 return;
             }
 
-            var trimmed = name.Trim();
             var target = GetActiveBagCleanupNameList();
-            var existingIndex = target.FindIndex(value =>
-                string.Equals(value, trimmed, StringComparison.OrdinalIgnoreCase));
-            if (existingIndex >= 0)
+            var whitelistBefore = CaptureBagCleanupExcludedItemList();
+            var blacklistBefore = CaptureBagCleanupDiscardItemList();
+            var addedNames = new List<string>();
+            var existingNames = new List<string>();
+            foreach (var name in selectedNames)
             {
-                if (bagCleanupExcludedItemListBox is not null)
+                var existingIndex = target.FindIndex(value =>
+                    string.Equals(value, name, StringComparison.OrdinalIgnoreCase));
+                if (existingIndex >= 0)
                 {
-                    bagCleanupExcludedItemListBox.SelectedIndex = existingIndex;
+                    existingNames.Add(target[existingIndex]);
+                    continue;
                 }
 
-                SetBagCleanupInventoryStatus("该关键字已在当前名单中: " + target[existingIndex], false);
+                target.Add(name);
+                addedNames.Add(name);
+            }
+
+            if (addedNames.Count == 0)
+            {
+                if (existingNames.Count > 0)
+                {
+                    SelectBagCleanupNameInActiveList(existingNames[0]);
+                }
+
+                SetBagCleanupInventoryStatus(
+                    existingNames.Count <= 1
+                        ? "该关键字已在当前名单中: " + (existingNames.FirstOrDefault() ?? selectedNames[0])
+                        : "这些关键字已在当前名单中，未新增: " + FormatBagCleanupNameSummary(existingNames),
+                    false);
                 return;
             }
 
-            var whitelistBefore = CaptureBagCleanupExcludedItemList();
-            var blacklistBefore = CaptureBagCleanupDiscardItemList();
-            target.Add(trimmed);
             NormalizeBagCleanupNameLists();
-            RefreshBagCleanupNameListEditor(trimmed);
+            RefreshBagCleanupNameListEditor(addedNames[0]);
             var actionText = IsEditingBagCleanupBlacklist
-                ? "已自动保存黑名单，将走丢弃逻辑: "
-                : "已自动保存白名单，不会处理: ";
-            await SaveBagCleanupNameListsOrRollbackAsync(
-                    whitelistBefore,
-                    blacklistBefore,
-                    actionText + trimmed)
-                .ConfigureAwait(true);
+                ? "已自动保存黑名单，将走丢弃逻辑"
+                : "已自动保存白名单，不会处理";
+            if (await SaveBagCleanupNameListsOrRollbackAsync(
+                        whitelistBefore,
+                        blacklistBefore,
+                        FormatBagCleanupNameListAddSuccess(actionText, addedNames, existingNames.Count))
+                    .ConfigureAwait(true))
+            {
+                ClearBagCleanupInventoryInputSelection();
+            }
+        }
+
+        private void ClearBagCleanupInventoryInputSelection()
+        {
+            if (bagCleanupManualNameTextBox is not null)
+            {
+                bagCleanupManualNameTextBox.Text = string.Empty;
+            }
+
+            if (bagCleanupInventoryCheckedListBox is null)
+            {
+                return;
+            }
+
+            for (var i = 0; i < bagCleanupInventoryCheckedListBox.Items.Count; i++)
+            {
+                bagCleanupInventoryCheckedListBox.SetItemChecked(i, false);
+            }
+        }
+
+        private void SelectBagCleanupNameInActiveList(string name)
+        {
+            if (bagCleanupExcludedItemListBox is null || string.IsNullOrWhiteSpace(name))
+            {
+                return;
+            }
+
+            var values = GetActiveBagCleanupNameList();
+            var existingIndex = values.FindIndex(value =>
+                string.Equals(value, name, StringComparison.OrdinalIgnoreCase));
+            if (existingIndex >= 0)
+            {
+                bagCleanupExcludedItemListBox.SelectedIndex = existingIndex;
+            }
+        }
+
+        private static string FormatBagCleanupNameListAddSuccess(
+            string actionText,
+            IReadOnlyList<string> addedNames,
+            int skippedExistingCount)
+        {
+            var text = addedNames.Count == 1
+                ? actionText + ": " + addedNames[0]
+                : actionText + "，新增 " + addedNames.Count.ToString(CultureInfo.InvariantCulture) +
+                  " 个: " + FormatBagCleanupNameSummary(addedNames);
+            if (skippedExistingCount > 0)
+            {
+                text += "，跳过已存在 " + skippedExistingCount.ToString(CultureInfo.InvariantCulture) + " 个";
+            }
+
+            return text;
+        }
+
+        private static string FormatBagCleanupNameSummary(IReadOnlyList<string> names)
+        {
+            const int maxNames = 3;
+            var shown = names
+                .Take(maxNames)
+                .ToArray();
+            var text = string.Join(", ", shown);
+            if (names.Count > shown.Length)
+            {
+                text += " 等";
+            }
+
+            return text;
         }
 
         private Task RemoveSelectedBagCleanupNameAsync()
@@ -4297,9 +4399,19 @@ namespace Roadhog
             {
                 bagCleanupBlacklistRadio.Enabled = enabled;
             }
+
+            if (bagCleanupManualNameTextBox is not null)
+            {
+                bagCleanupManualNameTextBox.Enabled = enabled;
+            }
+
+            if (bagCleanupInventoryCheckedListBox is not null)
+            {
+                bagCleanupInventoryCheckedListBox.Enabled = enabled;
+            }
         }
 
-        private async Task SaveBagCleanupNameListsOrRollbackAsync(
+        private async Task<bool> SaveBagCleanupNameListsOrRollbackAsync(
             IReadOnlyList<string> whitelistBefore,
             IReadOnlyList<string> blacklistBefore,
             string successText)
@@ -4307,7 +4419,7 @@ namespace Roadhog
             if (_bagCleanupNameListStore is null)
             {
                 SetBagCleanupInventoryStatus(successText, false);
-                return;
+                return true;
             }
 
             var document = new BagCleanupNameListsDocument
@@ -4319,13 +4431,14 @@ namespace Roadhog
             if (save.Success)
             {
                 SetBagCleanupInventoryStatus(successText, false);
-                return;
+                return true;
             }
 
             PopulateBagCleanupNameLists(whitelistBefore, blacklistBefore);
             SetBagCleanupInventoryStatus(
                 "黑白名单保存失败，界面已恢复: " + (save.Error ?? "未知保存错误"),
                 true);
+            return false;
         }
 
         private void PopulateBagCleanupNameLists(
@@ -5734,6 +5847,24 @@ namespace Roadhog
                 IntegralHeight = false,
                 Location = new Point(x, y),
                 SelectionMode = SelectionMode.MultiExtended,
+                Size = new Size(width, height)
+            };
+
+            parent.Controls.Add(listBox);
+            return listBox;
+        }
+
+        private CheckedListBox CreateBagCleanupInventoryCheckedListBox(Control parent, int x, int y, int width, int height)
+        {
+            var listBox = new CheckedListBox
+            {
+                BackColor = _inputBackground,
+                BorderStyle = BorderStyle.FixedSingle,
+                CheckOnClick = true,
+                Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold),
+                ForeColor = _textGreen,
+                IntegralHeight = false,
+                Location = new Point(x, y),
                 Size = new Size(width, height)
             };
 

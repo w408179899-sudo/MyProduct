@@ -2957,6 +2957,28 @@ static async Task TestFixedChannelDefaultsCloneJsonAndUiAsync()
             AssertFalse(!GetControlVisibleForTest(form, "fixedChannelMousePanel"), "six-point panel should show when fixed channel is enabled");
             AssertEqual("101,201", GetTextBoxTextForTest(form, "fixedChannelMenuPointTextBox"), "menu point should load into home page");
             AssertEqual("106,206", GetTextBoxTextForTest(form, "fixedChannelMovePointTextBox"), "move point should load into home page");
+            var fixedChannelCombo = (System.Windows.Forms.Control)GetPrivateFieldForTest(form, "fixedChannelCombo");
+            var fixedChannelPanel = FindNamedControlForTest(form, "fixedChannelMousePanel");
+            AssertFalse(
+                fixedChannelCombo.Left < fixedChannelPanel.Left ||
+                fixedChannelCombo.Right > fixedChannelPanel.Right ||
+                fixedChannelCombo.Bottom > fixedChannelPanel.Top,
+                "fixed channel combo should sit with the channel coordinate panel");
+            foreach (var fieldName in new[]
+            {
+                "returnHomeWhenNoTargetCheckBox",
+                "sitWhenNoTargetAtHomeCheckBox",
+                "jumpAssistEnabledCheckBox",
+                "smartPreAimEnabledCheckBox",
+                "smartPreAimUseFightTargetPositionCheckBox",
+                "smartPreAimResponsiveSwitchingCheckBox"
+            })
+            {
+                var nearbyControl = (System.Windows.Forms.Control)GetPrivateFieldForTest(form, fieldName);
+                AssertFalse(
+                    nearbyControl.Visible && nearbyControl.Bounds.IntersectsWith(fixedChannelPanel.Bounds),
+                    fieldName + " should not overlap fixed channel coordinate panel");
+            }
 
             var buttonNames = new[]
             {
@@ -12243,38 +12265,96 @@ static Task TestBagCleanupNameListUiAutoSavesAndRollsBackAsync()
     using var form = CreateAccountSettingsFormForTestsWithStore(
         configStore,
         bagCleanupNameListStore: nameListStore);
-    var combo = (System.Windows.Forms.Control)GetPrivateFieldForTest(form, "bagCleanupInventoryCombo");
+    var manualNameTextBox = (System.Windows.Forms.Control)GetPrivateFieldForTest(form, "bagCleanupManualNameTextBox");
+    var inventoryList = (System.Windows.Forms.CheckedListBox)GetPrivateFieldForTest(form, "bagCleanupInventoryCheckedListBox");
     var listBox = (System.Windows.Forms.ListBox)GetPrivateFieldForTest(form, "bagCleanupExcludedItemListBox");
     var blacklistRadio = (System.Windows.Forms.RadioButton)GetPrivateFieldForTest(form, "bagCleanupBlacklistRadio");
     var addButton = (System.Windows.Forms.Button)GetPrivateFieldForTest(form, "bagCleanupAddNameButton");
 
     AssertSequence(new[] { "shared-keep" }, listBox.Items.Cast<string>().ToArray(), "shared whitelist should override profile list in ui");
-    combo.Text = "new-keep";
+    manualNameTextBox.Text = "new-keep";
     InvokePrivateTaskForTest(form, "AddSelectedBagCleanupNameAsync");
     AssertEqual(1, nameListStore.SaveCount, "adding whitelist should auto-save once");
     AssertSequence(new[] { "shared-keep", "new-keep" }, nameListStore.Document.Whitelist.ToArray(), "whitelist add should persist");
     AssertSequence(new[] { "shared-discard" }, nameListStore.Document.Blacklist.ToArray(), "whitelist add must preserve blacklist");
+    AssertEqual(string.Empty, manualNameTextBox.Text, "successful manual add should clear keyword input");
+
+    InvokePrivateMethodForTest(
+        form,
+        "PopulateBagCleanupInventoryCandidates",
+        (object)new[]
+        {
+            new InventoryItemSnapshot(1001, 11, "batch-keep-a", 1, 0, false),
+            new InventoryItemSnapshot(1002, 12, "batch-keep-b", 1, 1, false),
+            new InventoryItemSnapshot(1003, 13, "batch-keep-a", 3, 2, false),
+            new InventoryItemSnapshot(1004, 14, "equipped-keep", 1, 3, true)
+        });
+    AssertEqual(2, inventoryList.Items.Count, "inventory candidates should group names and skip equipped items");
+    inventoryList.SetItemChecked(0, true);
+    inventoryList.SetItemChecked(1, true);
+    InvokePrivateTaskForTest(form, "AddSelectedBagCleanupNameAsync");
+    AssertEqual(2, nameListStore.SaveCount, "adding checked whitelist items should auto-save once");
+    AssertSequence(
+        new[] { "shared-keep", "new-keep", "batch-keep-a", "batch-keep-b" },
+        nameListStore.Document.Whitelist.ToArray(),
+        "checked whitelist items should persist as one batch");
+    AssertEqual(0, inventoryList.CheckedItems.Count, "successful checked add should clear inventory checks");
 
     blacklistRadio.Checked = true;
     AssertEqual("加入处理（丢弃）", addButton.Text, "blacklist radio should change add action text");
     AssertSequence(new[] { "shared-discard" }, listBox.Items.Cast<string>().ToArray(), "blacklist radio should show blacklist");
-    combo.Text = "new-discard";
+    InvokePrivateMethodForTest(
+        form,
+        "PopulateBagCleanupInventoryCandidates",
+        (object)new[]
+        {
+            new InventoryItemSnapshot(2001, 21, "batch-discard-a", 1, 0, false),
+            new InventoryItemSnapshot(2002, 22, "batch-discard-b", 2, 1, false),
+            new InventoryItemSnapshot(2003, 23, "shared-discard", 1, 2, false)
+        });
+    inventoryList.SetItemChecked(0, true);
+    inventoryList.SetItemChecked(1, true);
+    inventoryList.SetItemChecked(2, true);
     InvokePrivateTaskForTest(form, "AddSelectedBagCleanupNameAsync");
-    AssertEqual(2, nameListStore.SaveCount, "adding blacklist should auto-save once");
-    AssertSequence(new[] { "shared-discard", "new-discard" }, nameListStore.Document.Blacklist.ToArray(), "blacklist add should persist");
-    AssertSequence(new[] { "shared-keep", "new-keep" }, nameListStore.Document.Whitelist.ToArray(), "blacklist add must preserve whitelist");
+    AssertEqual(3, nameListStore.SaveCount, "adding checked blacklist items should auto-save once");
+    AssertSequence(
+        new[] { "shared-discard", "batch-discard-a", "batch-discard-b" },
+        nameListStore.Document.Blacklist.ToArray(),
+        "checked blacklist items should persist and skip existing names");
+    AssertSequence(
+        new[] { "shared-keep", "new-keep", "batch-keep-a", "batch-keep-b" },
+        nameListStore.Document.Whitelist.ToArray(),
+        "blacklist batch add must preserve whitelist");
+
+    manualNameTextBox.Text = "new-discard";
+    InvokePrivateTaskForTest(form, "AddSelectedBagCleanupNameAsync");
+    AssertEqual(4, nameListStore.SaveCount, "adding blacklist should auto-save once");
+    AssertSequence(
+        new[] { "shared-discard", "batch-discard-a", "batch-discard-b", "new-discard" },
+        nameListStore.Document.Blacklist.ToArray(),
+        "blacklist add should persist");
+    AssertSequence(
+        new[] { "shared-keep", "new-keep", "batch-keep-a", "batch-keep-b" },
+        nameListStore.Document.Whitelist.ToArray(),
+        "blacklist add must preserve whitelist");
 
     InvokePrivateTaskForTest(form, "RemoveSelectedBagCleanupNameAsync");
-    AssertEqual(3, nameListStore.SaveCount, "removing blacklist should auto-save");
-    AssertSequence(new[] { "shared-discard" }, nameListStore.Document.Blacklist.ToArray(), "selected blacklist entry should be removed");
+    AssertEqual(5, nameListStore.SaveCount, "removing blacklist should auto-save");
+    AssertSequence(
+        new[] { "shared-discard", "batch-discard-a", "batch-discard-b" },
+        nameListStore.Document.Blacklist.ToArray(),
+        "selected blacklist entry should be removed");
 
     InvokePrivateTaskForTest(form, "ClearSelectedBagCleanupNameListAsync");
-    AssertEqual(4, nameListStore.SaveCount, "clearing blacklist should auto-save");
+    AssertEqual(6, nameListStore.SaveCount, "clearing blacklist should auto-save");
     AssertEqual(0, nameListStore.Document.Blacklist.Count, "blacklist clear should persist empty array");
-    AssertSequence(new[] { "shared-keep", "new-keep" }, nameListStore.Document.Whitelist.ToArray(), "blacklist clear must preserve whitelist");
+    AssertSequence(
+        new[] { "shared-keep", "new-keep", "batch-keep-a", "batch-keep-b" },
+        nameListStore.Document.Whitelist.ToArray(),
+        "blacklist clear must preserve whitelist");
 
     nameListStore.FailSaves = true;
-    combo.Text = "must-roll-back";
+    manualNameTextBox.Text = "must-roll-back";
     InvokePrivateTaskForTest(form, "AddSelectedBagCleanupNameAsync");
     var capturedBlacklist = (List<string>)(InvokePrivateMethodForTest(form, "CaptureBagCleanupDiscardItemList") ?? new List<string>());
     AssertEqual(0, capturedBlacklist.Count, "failed save should roll back blacklist editor");
@@ -12282,7 +12362,7 @@ static Task TestBagCleanupNameListUiAutoSavesAndRollsBackAsync()
 
     nameListStore.FailSaves = false;
     nameListStore.BlockSaves = true;
-    combo.Text = "slow-discard";
+    manualNameTextBox.Text = "slow-discard";
     var slowSaveTask = InvokePrivateMethodForTest(form, "AddSelectedBagCleanupNameAsync") as Task;
     AssertFalse(slowSaveTask is null || slowSaveTask.IsCompleted, "delayed save should keep the first mutation in flight");
     var removeButton = (System.Windows.Forms.Button)GetPrivateFieldForTest(form, "bagCleanupRemoveNameButton");
@@ -12291,16 +12371,20 @@ static Task TestBagCleanupNameListUiAutoSavesAndRollsBackAsync()
     AssertFalse(removeButton.Enabled, "remove should be disabled while a name-list save is in flight");
     AssertFalse(clearButton.Enabled, "clear should be disabled while a name-list save is in flight");
     AssertFalse(blacklistRadio.Enabled, "list switching should be disabled while a name-list save is in flight");
+    AssertFalse(manualNameTextBox.Enabled, "keyword input should be disabled while a name-list save is in flight");
+    AssertFalse(inventoryList.Enabled, "inventory checks should be disabled while a name-list save is in flight");
 
-    combo.Text = "must-not-overlap";
+    manualNameTextBox.Text = "must-not-overlap";
     var overlappingTask = InvokePrivateMethodForTest(form, "AddSelectedBagCleanupNameAsync") as Task;
     AssertFalse(overlappingTask is null || !overlappingTask.IsCompleted, "overlapping mutation should be ignored immediately");
-    AssertEqual(6, nameListStore.SaveCount, "overlapping mutation must not start another save");
+    AssertEqual(8, nameListStore.SaveCount, "overlapping mutation must not start another save");
 
     nameListStore.CompletePendingSave();
     slowSaveTask!.GetAwaiter().GetResult();
     AssertFalse(!addButton.Enabled || !removeButton.Enabled || !clearButton.Enabled, "mutation buttons should be restored after save");
     AssertFalse(!blacklistRadio.Enabled, "list switching should be restored after save");
+    AssertFalse(!manualNameTextBox.Enabled, "keyword input should be restored after save");
+    AssertFalse(!inventoryList.Enabled, "inventory checks should be restored after save");
     AssertSequence(new[] { "slow-discard" }, nameListStore.Document.Blacklist.ToArray(), "only the first in-flight mutation should persist");
     return Task.CompletedTask;
 }
