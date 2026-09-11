@@ -8,15 +8,15 @@ using Vmmsharp;
 
 internal static class PartyMemberLiveProbe
 {
-    private const ulong PartyIdRva = 0xD66930;
-    private const ulong PartyFlagsRva = 0xD66934;
-    private const ulong PartyLeaderServerObjectIdRva = 0xD66938;
-    private const ulong PrimaryPartyListRva = 0xD66960;
-    private const ulong PrimaryPartyCountRva = 0xD66968;
-    private const ulong SecondaryPartyListRva = 0xD669C8;
+    private const ulong PartyIdRva = 0xD66920;
+    private const ulong PartyFlagsRva = 0xD66924;
+    private const ulong PartyLeaderServerObjectIdRva = 0xD66928;
+    private const ulong PrimaryPartyListRva = 0xD66950;
+    private const ulong PrimaryPartyCountRva = 0xD66958;
+    private const ulong SecondaryPartyListRva = 0xD669B8;
     private const ulong EntitySystemPointerRva = 0x94C7B0;
-    private const ulong ServerObjectTreeRva = 0xD6CAC0;
-    private const ulong LocalEntityIdRva = 0xD6CB18;
+    private const ulong ServerObjectTreeRva = 0xD6CAB0;
+    private const ulong LocalEntityIdRva = 0xD6CB08;
 
     private const ulong NodeLeftOffset = 0x00;
     private const ulong NodeParentOffset = 0x08;

@@ -34,33 +34,33 @@ internal sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPart
     private const ulong FallbackVmmTickPeriodMs = 100UL;
 
     private const ulong EntitySystemPointerRva = 0x94C7B0;
-    private const ulong ServerObjectTreeRva = 0xD6CAC0;
-    private const ulong PartyIdRva = 0xD66930;
-    private const ulong PartyFlagsRva = 0xD66934;
-    private const ulong PartyLeaderServerObjectIdRva = 0xD66938;
-    private const ulong PrimaryPartyListRva = 0xD66960;
-    private const ulong PrimaryPartyCountRva = 0xD66968;
-    private const ulong SecondaryPartyListRva = 0xD669C8;
-    private const ulong TacticsSignTableRva = 0xD668E0;
+    private const ulong ServerObjectTreeRva = 0xD6CAB0;
+    private const ulong PartyIdRva = 0xD66920;
+    private const ulong PartyFlagsRva = 0xD66924;
+    private const ulong PartyLeaderServerObjectIdRva = 0xD66928;
+    private const ulong PrimaryPartyListRva = 0xD66950;
+    private const ulong PrimaryPartyCountRva = 0xD66958;
+    private const ulong SecondaryPartyListRva = 0xD669B8;
+    private const ulong TacticsSignTableRva = 0xD668D0;
     private const int TacticsSignCount = 16;
-    private const ulong CurrentMapContextPointerRva = 0xD647D0;
+    private const ulong CurrentMapContextRva = 0xD647C0;
     private const ulong CurrentMapIdOffset = 0x20DC;
-    private const ulong CurrentChannelIndexRva = 0xD71CC0;
-    private const ulong CurrentChannelCountRva = 0xD71CC4;
-    private const ulong LocalEntityIdRva = 0xD6CB18;
-    private const ulong LocalMaxHpRva = 0xD71BC4;
-    private const ulong LocalCurrentHpRva = 0xD71BC8;
-    private const ulong LocalMaxMpRva = 0xD71BCC;
-    private const ulong LocalCurrentMpRva = 0xD71BD0;
-    private const ulong LocalCurrentDpRva = 0xD71BD6;
-    private const ulong CameraPitchRva = 0xD65B84;
-    private const ulong CameraRollRva = 0xD65B88;
-    private const ulong CameraYawRva = 0xD65B8C;
-    private const ulong SpecialCameraModeRva = 0xD6CC48;
-    private const ulong SpecialCameraPitchRva = 0xD6CC58;
-    private const ulong SpecialCameraRollRva = 0xD6CC5C;
-    private const ulong SpecialCameraYawRva = 0xD6CC60;
-    private const ulong SkillManagerGlobalRva = 0xD4B020;
+    private const ulong CurrentChannelIndexRva = 0xD71CB0;
+    private const ulong CurrentChannelCountRva = 0xD71CB4;
+    private const ulong LocalEntityIdRva = 0xD6CB08;
+    private const ulong LocalMaxHpRva = 0xD71BB4;
+    private const ulong LocalCurrentHpRva = 0xD71BB8;
+    private const ulong LocalMaxMpRva = 0xD71BBC;
+    private const ulong LocalCurrentMpRva = 0xD71BC0;
+    private const ulong LocalCurrentDpRva = 0xD71BC6;
+    private const ulong CameraPitchRva = 0xD65B74;
+    private const ulong CameraRollRva = 0xD65B78;
+    private const ulong CameraYawRva = 0xD65B7C;
+    private const ulong SpecialCameraModeRva = 0xD6CC38;
+    private const ulong SpecialCameraPitchRva = 0xD6CC48;
+    private const ulong SpecialCameraRollRva = 0xD6CC4C;
+    private const ulong SpecialCameraYawRva = 0xD6CC50;
+    private const ulong SkillManagerGlobalRva = 0xD4B010;
     private const ulong LearnedSkillTreeOffset = 0x830;
     private const ulong LearnedSkillOuterSkillIdOffset = 0x20;
     private const ulong LearnedSkillOuterLevelTreeHeaderOffset = 0x28;
@@ -112,10 +112,10 @@ internal sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPart
     private const ulong ActorGatherSourceIdCandidateOffset = 0x500;
     private const ulong ActorGatherActionStateOffset = 0xAB0;
     private const ulong ActorGatherActionIdOffset = 0xAB4;
-    private const ulong CurrentGatherSourceIdRva = 0xD68CE8;
-    private const ulong CurrentGatherTargetEntityRva = 0xD68CF0;
-    private const ulong CurrentGatherSkillIdRva = 0xD68CF8;
-    private const ulong DlgGatheringPointerRva = 0xD63E38;
+    private const ulong CurrentGatherSourceIdRva = 0xD68CD8;
+    private const ulong CurrentGatherTargetEntityRva = 0xD68CE0;
+    private const ulong CurrentGatherSkillIdRva = 0xD68CE8;
+    private const ulong DlgGatheringPointerRva = 0xD63E28;
     private const ulong DlgGatheringFlagsOffset = 0x28;
     private const ulong DlgGatheringVisibleMask = 0x01;
     private const ulong DlgGatheringSuccessGaugeOffset = 0x4E8;
@@ -192,8 +192,8 @@ internal sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPart
     private const ulong InventoryItemEquipmentMaskOffset = 0x74;
     private const ulong InventoryItemVendorSellUnitPriceOffset = 0x80;
     private const ulong InventoryItemSlotOffset = 0x4F6;
-    private const ulong ItemStaticIndexRva = 0xD75428;
-    private const ulong StaticResolverChunkListRva = 0xD4E500;
+    private const ulong ItemStaticIndexRva = 0xD75418;
+    private const ulong StaticResolverChunkListRva = 0xD4E4F0;
     private const ulong ItemStaticRecordIdOffset = 0x000;
     private const int ItemStaticRecordQualityRankOffset = 0x1E1;
     private const int StaticResolverEntrySize = 0x10;
@@ -204,9 +204,9 @@ internal sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPart
     private const uint MaxStaticChunkCompressedBytes = 4 * 1024 * 1024;
     private const uint MaxStaticChunkUncompressedBytes = 16 * 1024 * 1024;
 
-    private const ulong DlgInventoryDialog27MethodRva = 0x1C66F0;
-    private const ulong DlgInventoryDialog28MethodRva = 0x1CBFB0;
-    private const ulong DlgInventoryDialogTableRva = 0xD639A0;
+    private const ulong DlgInventoryDialog27MethodRva = 0x1C6820;
+    private const ulong DlgInventoryDialog28MethodRva = 0x1CC0E0;
+    private const ulong DlgInventoryDialogTableRva = 0xD63990;
     private const ulong DlgInventoryDialog27PointerRva = DlgInventoryDialogTableRva + (27UL * 8UL);
     private const ulong DlgInventoryDialog28PointerRva = DlgInventoryDialogTableRva + (28UL * 8UL);
     private const ulong DlgInventoryWidgetFlagsOffset = 0x28;
@@ -1332,6 +1332,9 @@ internal sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPart
                     ProbeUInt32Address(process, "Address.LocalMaxMp", gameBase, LocalMaxMpRva),
                     ProbeUInt32Address(process, "Address.LocalCurrentMp", gameBase, LocalCurrentMpRva),
                     ProbeUInt16Address(process, "Address.LocalCurrentDp", gameBase, LocalCurrentDpRva),
+                    ProbeUInt32Address(process, "Address.CurrentMapId", gameBase, CurrentMapContextRva + CurrentMapIdOffset),
+                    ProbeUInt32Address(process, "Address.CurrentChannelIndex", gameBase, CurrentChannelIndexRva),
+                    ProbeUInt32Address(process, "Address.CurrentChannelCount", gameBase, CurrentChannelCountRva),
                     ProbeSingleAddress(process, "Address.CameraPitch", gameBase, GetCameraPitchRva()),
                     ProbeSingleAddress(process, "Address.CameraRoll", gameBase, GetCameraRollRva()),
                     ProbeSingleAddress(process, "Address.CameraYaw", gameBase, GetCameraYawRva()),
@@ -2677,18 +2680,9 @@ internal sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPart
                         CurrentChannelIndexRva.ToString("X", CultureInfo.InvariantCulture));
                 }
 
-                if (!TryReadPointer(
-                        process,
-                        gameBase + CurrentMapContextPointerRva,
-                        out var mapContext,
-                        context.BypassMemoryCache) ||
-                    mapContext == 0)
-                {
-                    return OperationResult<ChannelSnapshot>.Fail(
-                        "failed to read current map context at Game.dll+0x" +
-                        CurrentMapContextPointerRva.ToString("X", CultureInfo.InvariantCulture));
-                }
-
+                // The map context is embedded in Game.dll. Its first qword is
+                // a vtable, not a pointer to another context object.
+                var mapContext = gameBase + CurrentMapContextRva;
                 if (!TryReadUInt32(
                         process,
                         mapContext + CurrentMapIdOffset,

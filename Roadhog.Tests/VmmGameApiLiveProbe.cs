@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using Roadhog.Core.Api;
 using Roadhog.Core.Diagnostics;
 using Roadhog.Infrastructure.Vmm;
@@ -19,6 +20,7 @@ internal static class VmmGameApiLiveProbe
         var processName = ReadOption(args, "--process=", "Aion.bin");
         var moduleName = ReadOption(args, "--module=", "Game.dll");
         var processId = ReadIntOption(args, "--pid=");
+        var verbose = args.Any(arg => string.Equals(arg, "--verbose", StringComparison.OrdinalIgnoreCase));
 
         Console.WriteLine(
             "Roadhog VMM game API live probe. Device=" + device +
@@ -34,7 +36,7 @@ internal static class VmmGameApiLiveProbe
             MemProcFsHome = AppContext.BaseDirectory
         };
         var context = new GameApiReadContext("live-probe", processId, processName, device, true);
-        var api = new AionVmmGameApi(options, new SnapshotProbeLogger());
+        var api = new AionVmmGameApi(options, new SnapshotProbeLogger(verbose));
         var requiredReadsPassed = true;
         var snapshotRepeat = Math.Max(1, ReadIntOption(args, "--snapshot-repeat="));
 
@@ -286,9 +288,9 @@ internal static class VmmGameApiLiveProbe
                   "/" + addresses.Value.Count.ToString(CultureInfo.InvariantCulture));
         if (addresses.Value is not null)
         {
-            foreach (var failed in addresses.Value.Where(check => !check.Success))
+            foreach (var check in addresses.Value.Where(check => verbose || !check.Success))
             {
-                Console.WriteLine("  FAIL " + failed.Name + ": " + failed.Detail);
+                Console.WriteLine("  " + (check.Success ? "PASS " : "FAIL ") + check.Name + ": " + check.Detail);
             }
         }
 #endif
@@ -330,14 +332,22 @@ internal static class VmmGameApiLiveProbe
             : 0;
     }
 
-    private sealed class SnapshotProbeLogger : IRoadhogLogger
+    private sealed class SnapshotProbeLogger(bool verbose) : IRoadhogLogger
     {
         public void Info(string eventName, IReadOnlyDictionary<string, object?>? fields = null)
         {
+            if (verbose)
+            {
+                Console.WriteLine("INFO " + eventName + " " + JsonSerializer.Serialize(fields));
+            }
         }
 
         public void Warn(string eventName, IReadOnlyDictionary<string, object?>? fields = null)
         {
+            if (verbose)
+            {
+                Console.WriteLine("WARN " + eventName + " " + JsonSerializer.Serialize(fields));
+            }
             if (!string.Equals(eventName, "vmm.snapshot.fallback", StringComparison.Ordinal))
             {
                 return;
@@ -355,6 +365,10 @@ internal static class VmmGameApiLiveProbe
             Exception exception,
             IReadOnlyDictionary<string, object?>? fields = null)
         {
+            if (verbose)
+            {
+                Console.WriteLine("ERROR " + eventName + ": " + exception.Message + " " + JsonSerializer.Serialize(fields));
+            }
         }
 
         private static string ReadField(IReadOnlyDictionary<string, object?>? fields, string key)

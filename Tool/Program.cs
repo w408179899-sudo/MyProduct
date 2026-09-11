@@ -1101,29 +1101,29 @@ namespace Tool
             return false;
         }
 
-        private const ulong EntitySystemPointerRva = 0x904690;
-        private const ulong ServerObjectTreeRva = 0xD21740;
-        private const ulong LocalEntityIdRva = 0xD21798;
-        private const ulong CurrentMaxHpRva = 0xD267DC;
-        private const ulong CurrentHpRva = 0xD267E0;
-        private const ulong CurrentMaxMpRva = 0xD267E4;
-        private const ulong CurrentMpRva = 0xD267E8;
-        private const ulong CurrentDpRva = 0xD267EE;
-        private const ulong CameraPitchRva = 0xD1AD14;
-        private const ulong CameraRollRva = 0xD1AD18;
-        private const ulong CameraYawRva = 0xD1AD1C;
-        private const ulong SpecialCameraModeRva = 0xD218C8;
-        private const ulong SpecialCameraPitchRva = 0xD218D8;
-        private const ulong SpecialCameraRollRva = 0xD218DC;
-        private const ulong SpecialCameraYawRva = 0xD218E0;
+        private const ulong EntitySystemPointerRva = 0x94C7B0;
+        private const ulong ServerObjectTreeRva = 0xD6CAB0;
+        private const ulong LocalEntityIdRva = 0xD6CB08;
+        private const ulong CurrentMaxHpRva = 0xD71BB4;
+        private const ulong CurrentHpRva = 0xD71BB8;
+        private const ulong CurrentMaxMpRva = 0xD71BBC;
+        private const ulong CurrentMpRva = 0xD71BC0;
+        private const ulong CurrentDpRva = 0xD71BC6;
+        private const ulong CameraPitchRva = 0xD65B74;
+        private const ulong CameraRollRva = 0xD65B78;
+        private const ulong CameraYawRva = 0xD65B7C;
+        private const ulong SpecialCameraModeRva = 0xD6CC38;
+        private const ulong SpecialCameraPitchRva = 0xD6CC48;
+        private const ulong SpecialCameraRollRva = 0xD6CC4C;
+        private const ulong SpecialCameraYawRva = 0xD6CC50;
         private const ulong SpecialCameraDistanceRva = 0xD218E4;
-        private const ulong PrimaryPartyListRva = 0xD1BAE8;
-        private const ulong SecondaryPartyListRva = 0xD1BB50;
-        private const ulong SkillManagerGlobalRva = 0xD004A0;
-        private const ulong InventoryManagerGlobalRva = 0xD004A0;
-        private const ulong PartyRollManagerGlobalRva = 0xD4B020;
-        private const ulong RollDialogTableRva = 0xD639A0;
-        private const ulong PartyRollDialogSlot0PointerRva = 0xD64110;
+        private const ulong PrimaryPartyListRva = 0xD66950;
+        private const ulong SecondaryPartyListRva = 0xD669B8;
+        private const ulong SkillManagerGlobalRva = 0xD4B010;
+        private const ulong InventoryManagerGlobalRva = 0xD4B010;
+        private const ulong PartyRollManagerGlobalRva = 0xD4B010;
+        private const ulong RollDialogTableRva = 0xD63990;
+        private const ulong PartyRollDialogSlot0PointerRva = RollDialogTableRva + (PartyRollDialogFirstId * 8UL);
         private const ulong SkillStaticByIdMapRva = 0x912658;
 
         private const ulong EntityTreeOffset = 0x58;
@@ -1133,12 +1133,12 @@ namespace Tool
         private const ulong NodeIsNilOffset = 0x19;
         private const ulong NodeIdOffset = 0x20;
         private const ulong NodeEntityOffset = 0x28;
-        private const ulong EntityTypeOffset = 0xF2;
-        private const ulong EntityPositionFlagsOffset = 0xC0;
+        private const ulong EntityTypeOffset = 0x122;
+        private const ulong EntityPositionFlagsOffset = 0xF0;
         private const uint EntityUseAlternatePositionFlag = 0x400;
-        private const ulong EntityWorldPositionOffset = 0x4B4;
-        private const ulong EntityWorldAnglesOffset = 0x4E8;
-        private const ulong EntityLocalPositionOffset = 0x4F4;
+        private const ulong EntityWorldPositionOffset = 0x4E4;
+        private const ulong EntityWorldAnglesOffset = 0x518;
+        private const ulong EntityLocalPositionOffset = 0x524;
         private const ulong EntityLocalAnglesOffset = 0x500;
         private const ulong ServerNodeServerObjectIdOffset = 0x1C;
         private const ulong ServerNodeEntityIdOffset = 0x20;
@@ -1221,7 +1221,7 @@ namespace Tool
         private const ulong PartyMemberUpdateTimeOffset = 0x859;
         private const int PartyMemberMaxAbnormalCount = 112;
 
-        private const ulong LearnedSkillTreeOffset = 0x828;
+        private const ulong LearnedSkillTreeOffset = 0x830;
         private const ulong LearnedSkillOuterSkillIdOffset = 0x20;
         private const ulong LearnedSkillOuterLevelTreeHeaderOffset = 0x28;
         private const ulong LearnedSkillOuterLevelTreeSizeOffset = 0x30;
@@ -1300,10 +1300,10 @@ namespace Tool
         [DllImport("kernel32.dll")]
         private static extern uint GetTickCount();
 
-        private const ulong InventoryCapacityOffset = 0x774;
-        private const ulong InventoryItemTreeHeaderOffset = 0x778;
-        private const ulong InventoryItemTreeCountOffset = 0x780;
-        private const ulong InventoryEquipmentIdsOffset = 0x788;
+        private const ulong InventoryCapacityOffset = 0x77C;
+        private const ulong InventoryItemTreeHeaderOffset = 0x780;
+        private const ulong InventoryItemTreeCountOffset = 0x788;
+        private const ulong InventoryEquipmentIdsOffset = 0x790;
         private const int InventoryEquipmentIdCount = 32;
         private const int InventorySlotsPerPage = 27;
 
@@ -1317,7 +1317,7 @@ namespace Tool
         private const ulong InventoryItemEquipmentMaskOffset = 0x74;
         private const ulong InventoryItemFlagsOffset = 0x78;
         private const ulong InventoryItemValueOffset = 0x80;
-        private const ulong InventoryItemSlotOffset = 0x4EE;
+        private const ulong InventoryItemSlotOffset = 0x4F6;
         private const ulong InventoryItemCustomNameOffset = 0x4F4;
         private const ulong InventoryItemExpiryOffset = 0x530;
         private const ulong InventoryItemDurationOffset = 0x548;

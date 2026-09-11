@@ -3066,10 +3066,10 @@ static Task TestVmmChannelReaderImplementsScopedProductionOffsetsAsync()
         return Convert.ToUInt64(field!.GetRawConstantValue());
     }
 
-    AssertEqual(0xD647D0UL, ReadConstant(apiType, "CurrentMapContextPointerRva"), "current map context pointer RVA");
+    AssertEqual(0xD647C0UL, ReadConstant(apiType, "CurrentMapContextRva"), "embedded current map context RVA");
     AssertEqual(0x20DCUL, ReadConstant(apiType, "CurrentMapIdOffset"), "current map id offset");
-    AssertEqual(0xD71CC0UL, ReadConstant(apiType, "CurrentChannelIndexRva"), "current channel index RVA");
-    AssertEqual(0xD71CC4UL, ReadConstant(apiType, "CurrentChannelCountRva"), "current channel count RVA");
+    AssertEqual(0xD71CB0UL, ReadConstant(apiType, "CurrentChannelIndexRva"), "current channel index RVA");
+    AssertEqual(0xD71CB4UL, ReadConstant(apiType, "CurrentChannelCountRva"), "current channel count RVA");
     return Task.CompletedTask;
 }
 
