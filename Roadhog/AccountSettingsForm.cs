@@ -1928,6 +1928,21 @@ namespace Roadhog
                 30,
                 (_, _) => OpenPathLibraryFolder(editor));
             openPathFolderButton.Name = "openPathLibraryFolderButton";
+            if (kind is SharedPathKind.Combat or SharedPathKind.Revive)
+            {
+                editor.BindStationaryRadiusCheckBox = AddCheckBox(page, "绑定原地打半径", 366, 76, 150, false);
+                editor.BindStationaryRadiusCheckBox.Name = kind == SharedPathKind.Revive
+                    ? "bindRevivePathStationaryRadiusCheckBox" : "bindPathStationaryRadiusCheckBox";
+                editor.StationaryRadiusTextBox = AddTextBox(page, "30.0", 520, 74, 76, 28);
+                editor.StationaryRadiusTextBox.Name = kind == SharedPathKind.Revive
+                    ? "revivePathBoundStationaryRadiusTextBox" : "pathBoundStationaryRadiusTextBox";
+                editor.StationaryRadiusTextBox.Enabled = false;
+                editor.BindStationaryRadiusCheckBox.Click += (_, _) =>
+                    editor.StationaryRadiusTextBox.Enabled = editor.BindStationaryRadiusCheckBox.Checked;
+                AddLabel(page, "米", 602, 78, 24, 22);
+                AddLabel(page, "同时绑定时优先使用复活路径", 366, 8, 300, 22);
+            }
+
             if (kind == SharedPathKind.Maintenance)
             {
                 bagCleanupReturnByReversePathCheckBox = AddCheckBox(
@@ -2470,7 +2485,27 @@ namespace Roadhog
 
         private void SelectConfiguredPath(SharedPathKind kind, string? pathName)
         {
-            if (!pathEditors.TryGetValue(kind, out var editor) || string.IsNullOrWhiteSpace(pathName))
+            if (!pathEditors.TryGetValue(kind, out var editor))
+            {
+                return;
+            }
+
+            editor.LoadedDocument = null;
+            ApplyPathRadiusBindingToEditor(editor, null);
+            if (editor.SavedPathCombo is not null)
+            {
+                var wasLoading = loadingPathCombos;
+                loadingPathCombos = true;
+                try
+                {
+                    editor.SavedPathCombo.SelectedIndex = -1;
+                }
+                finally
+                {
+                    loadingPathCombos = wasLoading;
+                }
+            }
+            if (string.IsNullOrWhiteSpace(pathName))
             {
                 RefreshPathOverviews();
                 return;
@@ -2542,6 +2577,8 @@ namespace Roadhog
             }
 
             editor.Buffer.Load(result.Value.Points);
+            editor.LoadedDocument = result.Value.Clone();
+            ApplyPathRadiusBindingToEditor(editor, result.Value);
             editor.SkippedCount = 0;
             SetText(editor.PathNameTextBox, result.Value.Name);
             SetCleanupNpcSelection(editor, result.Value.CleanupNpcName);
@@ -2557,6 +2594,34 @@ namespace Roadhog
 
         private async void SavePath(PathEditorControls editor)
         {
+            await SavePathAsync(editor).ConfigureAwait(true);
+        }
+
+        private void ApplyPathRadiusBindingToEditor(PathEditorControls editor, SharedPathDocument? document)
+        {
+            if (editor.BindStationaryRadiusCheckBox is null)
+            {
+                return;
+            }
+
+            var bound = document?.BoundStationaryCombatRadius;
+            SetChecked(editor.BindStationaryRadiusCheckBox, bound.HasValue);
+            if (editor.StationaryRadiusTextBox is not null)
+            {
+                editor.StationaryRadiusTextBox.Enabled = bound.HasValue;
+            }
+            SetText(editor.StationaryRadiusTextBox,
+                (bound ?? ReadDouble(stationaryCombatRadiusTextBox, 30.0D, 1.0D, 500.0D))
+                .ToString("G", CultureInfo.InvariantCulture));
+        }
+
+        private async Task SavePathAsync(PathEditorControls editor)
+        {
+            if (editor.SavingPath)
+            {
+                return;
+            }
+
             var name = GetText(editor.PathNameTextBox, string.Empty);
             if (string.IsNullOrWhiteSpace(name))
             {
@@ -2565,23 +2630,95 @@ namespace Roadhog
             }
 
             var document = editor.Buffer.ToDocument(name);
+            var bindingChecked = editor.BindStationaryRadiusCheckBox?.Checked == true;
+            var bindingText = GetText(editor.StationaryRadiusTextBox, string.Empty);
+            if (bindingChecked)
+            {
+                if (!double.TryParse(bindingText, NumberStyles.Float, CultureInfo.InvariantCulture, out var radius) &&
+                    !double.TryParse(bindingText, NumberStyles.Float, CultureInfo.CurrentCulture, out radius))
+                {
+                    SetPathStatus(editor, "原地打半径请输入 1–500 米的有效数值", true);
+                    return;
+                }
+
+                document.BoundStationaryCombatRadius = radius;
+                if (!document.TryGetBoundStationaryCombatRadius(out _))
+                {
+                    SetPathStatus(editor, "原地打半径请输入 1–500 米的有效数值", true);
+                    return;
+                }
+            }
+
             if (editor.Kind == SharedPathKind.Maintenance)
             {
                 document.CleanupNpcName = GetSelectedCleanupNpcName(editor);
                 CopyBagCleanupClickPointsToPath(document);
             }
 
-            var result = await _pathStore.SaveAsync(document).ConfigureAwait(true);
-            if (!result.Success)
+            var loadedDocument = editor.LoadedDocument?.Clone();
+            editor.SavingPath = true;
+            try
             {
-                SetPathStatus(editor, result.Error ?? "保存路径失败", true);
-                return;
-            }
+                // A shared file may also be edited from another path tab. Preserve its latest
+                // metadata, and replace only the fields owned by this editor.
+                var existing = await _pathStore.LoadAsync(name).ConfigureAwait(true);
+                if (!existing.Success && currentPathSummaries.Any(path =>
+                    string.Equals(path.Name, name, StringComparison.OrdinalIgnoreCase)))
+                {
+                    SetPathStatus(editor, existing.Error ?? "读取原路径失败，未覆盖保存", true);
+                    return;
+                }
 
-            RefreshPathLibrary();
-            SelectPathComboItem(editor, name, loadPath: false);
-            RefreshPathOverviews();
-            SetPathStatus(editor, "已保存共享路径: " + name, false);
+                var merged = (existing.Value ?? loadedDocument)?.Clone() ?? new SharedPathDocument();
+                if (existing.Value is null)
+                {
+                    merged.CreatedAt = document.CreatedAt;
+                }
+                merged.Name = document.Name;
+                merged.Points = document.Points;
+                // Both revive and combat editors can own this field. An unchanged draft must
+                // not overwrite a newer binding saved through the other editor.
+                if (editor.BindStationaryRadiusCheckBox is not null &&
+                    (existing.Value is null || loadedDocument is null ||
+                     !string.Equals(loadedDocument.Name, name, StringComparison.OrdinalIgnoreCase) ||
+                     document.BoundStationaryCombatRadius != loadedDocument.BoundStationaryCombatRadius))
+                {
+                    merged.BoundStationaryCombatRadius = document.BoundStationaryCombatRadius;
+                }
+                if (editor.Kind == SharedPathKind.Maintenance)
+                {
+                    merged.CleanupNpcName = document.CleanupNpcName;
+                    merged.BagCleanupSellItemClickX = document.BagCleanupSellItemClickX;
+                    merged.BagCleanupSellItemClickY = document.BagCleanupSellItemClickY;
+                    merged.BagCleanupSellButtonClickX = document.BagCleanupSellButtonClickX;
+                    merged.BagCleanupSellButtonClickY = document.BagCleanupSellButtonClickY;
+                }
+
+                var result = await _pathStore.SaveAsync(merged).ConfigureAwait(true);
+                if (!result.Success)
+                {
+                    SetPathStatus(editor, result.Error ?? "保存路径失败", true);
+                    return;
+                }
+
+                RefreshPathLibrary();
+                if (string.Equals(GetText(editor.PathNameTextBox, string.Empty), name, StringComparison.Ordinal))
+                {
+                    editor.LoadedDocument = merged.Clone();
+                    if ((editor.BindStationaryRadiusCheckBox?.Checked == true) == bindingChecked &&
+                        GetText(editor.StationaryRadiusTextBox, string.Empty) == bindingText)
+                    {
+                        ApplyPathRadiusBindingToEditor(editor, merged);
+                    }
+                    SelectPathComboItem(editor, name, loadPath: false);
+                    SetPathStatus(editor, "已保存共享路径: " + name, false);
+                }
+                RefreshPathOverviews();
+            }
+            finally
+            {
+                editor.SavingPath = false;
+            }
         }
 
         private void OpenPathLibraryFolder(PathEditorControls editor)
@@ -8895,6 +9032,14 @@ namespace Roadhog
             public RoundedTextBox? PathNameTextBox { get; set; }
 
             public RoundedComboBox? SavedPathCombo { get; set; }
+
+            public RoundedCheckBox? BindStationaryRadiusCheckBox { get; set; }
+
+            public RoundedTextBox? StationaryRadiusTextBox { get; set; }
+
+            public SharedPathDocument? LoadedDocument { get; set; }
+
+            public bool SavingPath { get; set; }
 
             public Label? SummaryLabel { get; set; }
 

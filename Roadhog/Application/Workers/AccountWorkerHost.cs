@@ -2,6 +2,8 @@ using Roadhog.Core.Accounts;
 using Roadhog.Core.Api;
 using Roadhog.Core.Common;
 using Roadhog.Core.Diagnostics;
+using Roadhog.Core.Paths;
+using Roadhog.Application.StationaryCombat;
 
 namespace Roadhog.Application.Workers;
 
@@ -12,6 +14,7 @@ public sealed class AccountWorkerHost
     private readonly AccountRuntimeManager _runtimeStates;
     private readonly IAccountWorkerLoop _workerLoop;
     private readonly AccountWorkerOptions _options;
+    private readonly ISharedPathStore? _pathStore;
     private readonly object _syncRoot = new();
     private CancellationTokenSource? _stopSource;
     private Task? _task;
@@ -21,13 +24,15 @@ public sealed class AccountWorkerHost
         IRoadhogLogger logger,
         AccountRuntimeManager runtimeStates,
         IAccountWorkerLoop workerLoop,
-        AccountWorkerOptions options)
+        AccountWorkerOptions options,
+        ISharedPathStore? pathStore = null)
     {
         _snapshotReaders = snapshotReaders;
         _logger = logger;
         _runtimeStates = runtimeStates;
         _workerLoop = workerLoop;
         _options = options;
+        _pathStore = pathStore;
     }
 
     public string? AccountName { get; private set; }
@@ -121,6 +126,11 @@ public sealed class AccountWorkerHost
 
         try
         {
+            if (_pathStore is not null)
+            {
+                await CombatPathRadiusBinding.ApplyAsync(config, _pathStore, _logger, stopToken).ConfigureAwait(false);
+            }
+
             var context = new AccountWorkerContext(config, _snapshotReaders, _logger, _runtimeStates, _options, stopToken);
             await _workerLoop.RunAsync(context).ConfigureAwait(false);
             _runtimeStates.MarkStopped(config.AccountName);

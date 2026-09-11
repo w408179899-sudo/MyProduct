@@ -14,6 +14,10 @@ public sealed class SharedPathDocument
 
     public string CleanupNpcName { get; set; } = string.Empty;
 
+    // Null means this path does not override the account/profile radius.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? BoundStationaryCombatRadius { get; set; }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? BagCleanupSellItemClickX { get; set; }
 
@@ -43,12 +47,19 @@ public sealed class SharedPathDocument
             CreatedAt = CreatedAt,
             UpdatedAt = UpdatedAt,
             CleanupNpcName = CleanupNpcName,
+            BoundStationaryCombatRadius = BoundStationaryCombatRadius,
             BagCleanupSellItemClickX = BagCleanupSellItemClickX,
             BagCleanupSellItemClickY = BagCleanupSellItemClickY,
             BagCleanupSellButtonClickX = BagCleanupSellButtonClickX,
             BagCleanupSellButtonClickY = BagCleanupSellButtonClickY,
             Points = Points?.Select(point => point.Clone()).ToList() ?? new List<SharedPathPoint>()
         };
+    }
+
+    public bool TryGetBoundStationaryCombatRadius(out double radius)
+    {
+        radius = BoundStationaryCombatRadius.GetValueOrDefault();
+        return BoundStationaryCombatRadius.HasValue && double.IsFinite(radius) && radius is >= 1.0D and <= 500.0D;
     }
 
     public bool TryGetBagCleanupClickPoints(

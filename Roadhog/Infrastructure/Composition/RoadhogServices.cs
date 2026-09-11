@@ -245,7 +245,8 @@ public sealed class RoadhogServices : IDisposable
                 teamOutputController,
                 fixedChannelController),
             workerOptions,
-            licenseCoordinator);
+            licenseCoordinator,
+            sharedPathStore);
         var runtime = new RoadhogRuntime(
             snapshotReaders,
             logger,

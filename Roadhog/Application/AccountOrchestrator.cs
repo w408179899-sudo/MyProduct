@@ -6,6 +6,7 @@ using Roadhog.Core.Diagnostics;
 using Roadhog.Core.Hardware;
 using Roadhog.Core.Licensing;
 using Roadhog.Core.Processes;
+using Roadhog.Core.Paths;
 
 namespace Roadhog.Application;
 
@@ -20,6 +21,7 @@ public sealed class AccountOrchestrator
     private readonly IAccountWorkerLoop _workerLoop;
     private readonly AccountWorkerOptions _workerOptions;
     private readonly ILicenseRuntimeGate? _licenseRuntimeGate;
+    private readonly ISharedPathStore? _pathStore;
     private readonly Dictionary<string, string> _hardwareOwners = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _syncRoot = new();
 
@@ -31,7 +33,8 @@ public sealed class AccountOrchestrator
         ITargetProcessResolver processResolver,
         IAccountWorkerLoop workerLoop,
         AccountWorkerOptions workerOptions,
-        ILicenseRuntimeGate? licenseRuntimeGate = null)
+        ILicenseRuntimeGate? licenseRuntimeGate = null,
+        ISharedPathStore? pathStore = null)
     {
         _snapshotReaders = snapshotReaders;
         _logger = logger;
@@ -41,6 +44,7 @@ public sealed class AccountOrchestrator
         _workerLoop = workerLoop;
         _workerOptions = workerOptions;
         _licenseRuntimeGate = licenseRuntimeGate;
+        _pathStore = pathStore;
     }
 
     public OperationResult Start(AccountConfig config)
@@ -141,7 +145,7 @@ public sealed class AccountOrchestrator
         {
             if (!_workers.TryGetValue(accountName, out var worker))
             {
-                worker = new AccountWorkerHost(_snapshotReaders, _logger, _runtimeStates, _workerLoop, _workerOptions);
+                worker = new AccountWorkerHost(_snapshotReaders, _logger, _runtimeStates, _workerLoop, _workerOptions, _pathStore);
                 _workers[accountName] = worker;
             }
 
