@@ -11815,7 +11815,10 @@ static Task TestWindowTitleFormatsCharacterIdentityAsync()
         "192.168.2.188:4967/5BF7E466");
 
     AssertEqual("GreenPlayer", title, "base title");
-    AssertEqual("GreenPlayer 路哥", RoadhogWindowTitleFormatter.Build("GreenPlayer", "port:Port_#0004.Hub_#000", "192.168.2.188:4967/5BF7E466", "路哥"), "title with character name");
+    AssertEqual("路哥", RoadhogWindowTitleFormatter.Build("GreenPlayer", "port:Port_#0004.Hub_#000", "192.168.2.188:4967/5BF7E466", "路哥"), "title with character name");
+    AssertEqual("路哥", RoadhogWindowTitleFormatter.Build("Custom title", "", "", "  路哥  "), "character name replaces base title and trims whitespace");
+    AssertEqual("GreenPlayer", RoadhogWindowTitleFormatter.Build("", "", "", "  "), "blank character name uses default title");
+    AssertEqual("Custom title", RoadhogWindowTitleFormatter.Build("  Custom title  ", "", "", null), "missing character name preserves custom base title");
     AssertEqual("GreenPlayer", RoadhogWindowTitleFormatter.Build("", "(unconfigured)"), "unconfigured title");
 
     return Task.CompletedTask;

@@ -24,7 +24,7 @@ public static class RoadhogWindowTitleFormatter
         var role = characterName?.Trim() ?? string.Empty;
         if (!string.IsNullOrWhiteSpace(role))
         {
-            title += " " + role;
+            title = role;
         }
 
         return title;
