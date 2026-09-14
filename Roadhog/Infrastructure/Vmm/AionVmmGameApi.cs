@@ -15,7 +15,7 @@ using Vmmsharp;
 
 namespace Roadhog.Infrastructure.Vmm;
 
-internal sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IRoadhogScopedWorldObjectReadQualityGameApi, IRoadhogScopedSummonedPetRosterReadQualityGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi
+internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IRoadhogScopedWorldObjectReadQualityGameApi, IRoadhogScopedSummonedPetRosterReadQualityGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi, IChannelSwitchUiGameApi
 #if DEBUG
     , IRoadhogApiAddressProbe
 #endif
@@ -243,6 +243,7 @@ internal sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPart
     private readonly IRoadhogLogger _logger;
     private readonly DmaStableSnapshotStore _stableSnapshots;
     private readonly Dictionary<string, VmmConnection> _connections = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _connectionsRetiring = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTimeOffset> _connectionRetryNotBefore = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> _resolvedProcessIdsBySnapshotIdentity = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> _playerReadFailureCounts = new(StringComparer.OrdinalIgnoreCase);
@@ -2167,6 +2168,7 @@ internal sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPart
 
             if (!ShouldReconnectAfterPlayerReadFailure(first.Error))
             {
+                if (first.Error == "local player is not present in scene") ClearPlayerReadFailure(context);
                 return first;
             }
 
@@ -2225,6 +2227,10 @@ internal sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPart
 
             if (!TryReadLocalPlayer(process, gameBase, context.BypassMemoryCache, out var snapshot, out var readError))
             {
+                if (ShouldReconnectAfterPlayerReadFailure(readError) &&
+                    TryReadUInt32(process, gameBase + ChannelTransitionDecoder.StateRva, out var sceneState, true) &&
+                    sceneState == 20)
+                    readError = "local player is not present in scene";
                 return OperationResult<PlayerSnapshot>.Fail(readError);
             }
 
@@ -3325,12 +3331,24 @@ internal sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPart
                 return existing;
             }
 
+            // Every read channel must observe the reconnect delay, not just player reads.
+            if (_connectionsRetiring.Contains(key))
+                throw new InvalidOperationException("VMM connection retirement is still in progress.");
+            if (TryGetConnectionRetryDelay(contextVmmDeviceName, out var retryAfterMs))
+                throw new InvalidOperationException("VMM reconnect cooling down for " + retryAfterMs + "ms");
+
             LoadNativeLibrariesOnce();
             var args = string.IsNullOrWhiteSpace(remote)
                 ? new[] { "-device", deviceName }
                 : new[] { "-device", deviceName, "-remote", remote };
 
-            var vmm = new MemProcVmm(args);
+            SafeMemProcVmm vmm;
+            try { vmm = new SafeMemProcVmm(args); }
+            catch
+            {
+                _connectionRetryNotBefore[key] = DateTimeOffset.Now + VmmReconnectDelay;
+                throw;
+            }
             ConfigureVmmReadCache(vmm, deviceName, remote);
 
             var created = new VmmConnection(deviceName, remote, vmm);
@@ -3620,6 +3638,7 @@ internal sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPart
             if (_connections.TryGetValue(key, out removed))
             {
                 _connections.Remove(key);
+                _connectionsRetiring.Add(key);
             }
 
             _connectionRetryNotBefore[key] = DateTimeOffset.Now + VmmReconnectDelay;
@@ -3634,15 +3653,23 @@ internal sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPart
 
         _stableSnapshots.ClearConnection(key);
 
-        if (removed?.Vmm is IDisposable disposable)
+        if (removed is not null)
         {
             try
             {
-                disposable.Dispose();
+                removed.Dispose();
             }
             catch
             {
                 // Reconnect best-effort; disposing an already unhealthy VMM handle must not hide the original read failure.
+            }
+            finally
+            {
+                lock (_connectionSync)
+                {
+                    _connectionsRetiring.Remove(key);
+                    _connectionRetryNotBefore[key] = DateTimeOffset.Now + VmmReconnectDelay;
+                }
             }
         }
 
@@ -5739,9 +5766,15 @@ internal sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPart
         snapshot = new PlayerSnapshot(0, 0, string.Empty, 0, 0, 0, 0, 0, null, DateTimeOffset.Now);
         error = string.Empty;
 
-        if (!TryReadUInt16(process, gameBase + LocalEntityIdRva, out var localEntityId, bypassMemoryCache) || localEntityId == 0)
+        if (!TryReadUInt16(process, gameBase + LocalEntityIdRva, out var localEntityId, bypassMemoryCache))
         {
             error = "failed to read local entity id at Game.dll+0x" + LocalEntityIdRva.ToString("X");
+            return false;
+        }
+
+        if (localEntityId == 0)
+        {
+            error = "local player is not present in scene";
             return false;
         }
 
@@ -8170,12 +8203,11 @@ internal sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPart
             SetFirstWorldObjectReadIssue(ref firstIssue, "world_target_server_object_id_read_failed");
         }
 
-        var targetServerObjectIdReliable =
-            actor.TargetServerObjectIdAvailable &&
-            (actor.TargetServerObjectId == 0 || actor.TargetServerObjectId != serverObjectId);
-        if (actor.TargetServerObjectIdAvailable &&
-            actor.TargetServerObjectId != 0 &&
-            actor.TargetServerObjectId == serverObjectId)
+        var suspiciousSelfTarget = IsSuspiciousWorldSelfTarget(
+            serverObjectId, actor.TargetServerObjectId, actor.CurrentHp, actor.MaxHp,
+            actor.CurrentHpAvailable && actor.MaxHpAvailable);
+        var targetServerObjectIdReliable = actor.TargetServerObjectIdAvailable && !suspiciousSelfTarget;
+        if (actor.TargetServerObjectIdAvailable && suspiciousSelfTarget)
         {
             // A monster briefly reading itself as its target was observed in
             // the same incident where a locked read later showed the pet as the
@@ -8243,6 +8275,15 @@ internal sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPart
                 actor.LootableRawAvailable,
                 actor.InteractionStateAvailable));
         return true;
+    }
+
+    internal static bool IsSuspiciousWorldSelfTarget(
+        uint serverObjectId, uint targetServerObjectId, uint currentHp, uint maxHp, bool healthAvailable)
+    {
+        // Live account 4: a dead stoneback turtle retained its own ID as target (HP 0/13315).
+        // Death must be positively established; an unread/default zero must not release a live threat.
+        var confirmedDead = healthAvailable && currentHp == 0 && maxHp > 0;
+        return targetServerObjectId != 0 && targetServerObjectId == serverObjectId && !confirmedDead;
     }
 
     private static WorldEntityLookupStatus FindWorldEntityById(
@@ -10805,11 +10846,6 @@ internal sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPart
         public AionClassId? OwnerClassId { get; set; }
 
         public string OwnerClassName { get; set; }
-    }
-
-    private sealed record VmmConnection(string DeviceName, string Remote, MemProcVmm Vmm)
-    {
-        public object SyncRoot { get; } = new();
     }
 
     private sealed record SkillXmlCatalog(

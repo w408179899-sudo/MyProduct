@@ -1,516 +1,100 @@
 using Roadhog.Application.StationaryCombat;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
-using Roadhog.Core.Api;
 using Roadhog.Core.Common;
-using Roadhog.Core.Input;
-using Roadhog.Core.Model;
-using Roadhog.Core.Paths;
 
 namespace Roadhog.Application.Channels;
 
-public sealed class FixedChannelController
+public sealed class FixedChannelController(IFixedChannelSwitchExecutor switchExecutor, TimeProvider? timeProvider = null)
 {
-    public const double RevivalPointRadiusMeters = 20.0D;
+    public static readonly TimeSpan RequiredPeaceDuration = TimeSpan.FromSeconds(15);
+    public static readonly TimeSpan RetryInterval = TimeSpan.FromMinutes(1);
+    private readonly TimeProvider _clock = timeProvider ?? TimeProvider.System;
 
-    public static readonly TimeSpan InitialSwitchWait = TimeSpan.FromMinutes(5) + TimeSpan.FromSeconds(10);
-
-    public static readonly TimeSpan SwitchVerificationWindow = TimeSpan.FromSeconds(30);
-
-    private static readonly TimeSpan ActivePollInterval = TimeSpan.FromMilliseconds(250);
-    private static readonly TimeSpan NormalPollInterval = TimeSpan.FromSeconds(1);
-    private static readonly TimeSpan ReturnRetryInterval = TimeSpan.FromSeconds(30);
-    private static readonly TimeSpan ReturnKeyHoldDuration = TimeSpan.FromMilliseconds(35);
-    private readonly IKeyboardInput _input;
-    private readonly ISharedPathStore _pathStore;
-    private readonly IFixedChannelSwitchExecutor _switchExecutor;
-    private readonly TimeProvider _timeProvider;
-
-    public FixedChannelController(
-        IKeyboardInput input,
-        ISharedPathStore pathStore,
-        IFixedChannelSwitchExecutor? switchExecutor = null,
-        TimeProvider? timeProvider = null)
+    // Null returns control to normal life guard, combat, loot and path work.
+    public async Task<TimeSpan?> TickAsync(AccountWorkerContext context, ScriptSettings settings,
+        FixedChannelState state, StationaryCombatState combatState, Func<Task> prepareMouseAsync)
     {
-        _input = input;
-        _pathStore = pathStore;
-        _switchExecutor = switchExecutor ?? new PendingFixedChannelSwitchExecutor();
-        _timeProvider = timeProvider ?? TimeProvider.System;
-    }
-
-    public async Task<TimeSpan?> TickAsync(
-        AccountWorkerContext context,
-        ScriptSettings settings,
-        FixedChannelState state,
-        StationaryCombatState combatState,
-        Func<Task> suspendNormalWorkAsync)
-    {
-        var now = _timeProvider.GetUtcNow();
-        var targetChannelNumber = settings.FixedChannelNumber;
-        if (targetChannelNumber == 0)
+        var target = settings.FixedChannelNumber;
+        if (target is < ScriptSettings.MinimumFixedChannelNumber or > ScriptSettings.MaximumFixedChannelNumber || target == 0)
         {
-            if (state.CorrectionActive || state.NormalWorkSuspended)
-            {
-                state.Reset(DateTimeOffset.MinValue);
-            }
-
+            state.Reset();
             return null;
         }
-
-        if (targetChannelNumber is < ScriptSettings.MinimumFixedChannelNumber or > ScriptSettings.MaximumFixedChannelNumber)
+        if (target != state.TargetChannelNumber) state.Reset();
+        if (state.Completed) return null;
+        var now = _clock.GetUtcNow();
+        if (ChannelSwitchSafety.IsWorkingOnCombat(combatState)) state.BreakPeace();
+        if (now < state.NextChannelReadAt) return null;
+        // Channel location is inspected at startup and once per retry interval only.
+        // Combat observation retains its existing cadence while the task is pending.
+        if (!state.LocationObserved || now >= state.NextLocationReadAt)
         {
-            await EnsureNormalWorkSuspendedAsync(state, suspendNormalWorkAsync).ConfigureAwait(false);
-            LogOnce(context, state, "invalid_config", "fixed_channel.config.invalid", new Dictionary<string, object?>
+            var channel = (await context.Snapshots.ReadChannelAsync().ConfigureAwait(false)).Value;
+            now = _clock.GetUtcNow();
+            state.ObserveLocation(target, channel.MapId, channel.Number);
+            state.NextLocationReadAt = now + RetryInterval;
+            if (channel.Number == target)
             {
-                ["account"] = context.Config.AccountName,
-                ["targetChannelNumber"] = targetChannelNumber,
-                ["minimum"] = ScriptSettings.MinimumFixedChannelNumber,
-                ["maximum"] = ScriptSettings.MaximumFixedChannelNumber
-            });
-            return ActivePollInterval;
-        }
-
-        if (now < state.NextChannelReadAt)
-        {
-            return state.CorrectionActive || state.NormalWorkSuspended
-                ? ActivePollInterval
-                : null;
-        }
-
-        var channel = await ReadChannelAsync(context).ConfigureAwait(false);
-        state.NextChannelReadAt = now + (state.CorrectionActive ? ActivePollInterval : NormalPollInterval);
-
-        if (channel.Number == targetChannelNumber &&
-            (state.Step != FixedChannelCorrectionStep.VerifyingSwitch ||
-             (channel.MapId == state.SwitchAttemptMapId && channel.CapturedAt >= state.SwitchAttemptStartedAt)))
-        {
-            CompleteCorrection(context, settings, state, combatState, channel, now);
-            return null;
-        }
-
-        if (!state.CorrectionActive)
-        {
-            var player = await ReadPlayerAsync(context).ConfigureAwait(false);
-            if (player.IsDead)
-            {
+                state.Complete();
+                context.Logger.Info("fixed_channel.target_confirmed", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName, ["channelNumber"] = channel.Number,
+                    ["mapId"] = channel.MapId, ["attemptCount"] = state.SwitchAttemptCount,
+                    ["stopChannelReads"] = true
+                });
                 return null;
             }
-
-            var revivePathName = settings.Paths?.RevivePathName?.Trim() ?? string.Empty;
-            state.BeginCorrection(revivePathName, Array.Empty<Vector3Snapshot>());
-            state.NextChannelReadAt = now + ActivePollInterval;
-            await EnsureNormalWorkSuspendedAsync(state, suspendNormalWorkAsync).ConfigureAwait(false);
-            context.Logger.Warn("fixed_channel.correction.started", new Dictionary<string, object?>
+            if (target > channel.Count)
             {
-                ["account"] = context.Config.AccountName,
-                ["currentChannelNumber"] = channel.Number,
-                ["targetChannelNumber"] = targetChannelNumber,
-                ["channelCount"] = channel.Count,
-                ["mapId"] = channel.MapId,
-                ["revivalPointRadiusMeters"] = RevivalPointRadiusMeters
-            });
-        }
-
-        if (!await EnsureRevivePathAsync(context, state).ConfigureAwait(false))
-        {
-            return ActivePollInterval;
-        }
-
-        return state.Step switch
-        {
-            FixedChannelCorrectionStep.ReturningToRevivalPoint => await TickReturnToRevivalPointAsync(
-                    context,
-                    settings,
-                    state,
-                    channel,
-                    now)
-                .ConfigureAwait(false),
-            FixedChannelCorrectionStep.WaitingBeforeSwitch => await TickInitialWaitAsync(
-                    context,
-                    settings,
-                    state,
-                    channel,
-                    now)
-                .ConfigureAwait(false),
-            FixedChannelCorrectionStep.VerifyingSwitch => await TickSwitchVerificationAsync(
-                    context,
-                    settings,
-                    state,
-                    channel,
-                    now)
-                .ConfigureAwait(false),
-            _ => ActivePollInterval
-        };
-    }
-
-    private async Task<TimeSpan?> TickReturnToRevivalPointAsync(
-        AccountWorkerContext context,
-        ScriptSettings settings,
-        FixedChannelState state,
-        ChannelSnapshot channel,
-        DateTimeOffset now)
-    {
-        var player = await ReadPlayerAsync(context).ConfigureAwait(false);
-        if (player.IsDead)
-        {
-            LogOnce(context, state, "return_player_dead", "fixed_channel.return.deferred_for_death", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName
-            });
-            return null;
-        }
-
-        var distance = HorizontalDistance(player.Position!.Value, state.RevivePoints[0]);
-        if (distance <= RevivalPointRadiusMeters)
-        {
-            state.EnterInitialWait(now, InitialSwitchWait, channel.MapId);
-            context.Logger.Info("fixed_channel.wait.started", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["targetChannelNumber"] = settings.FixedChannelNumber,
-                ["distanceToRevivalPoint"] = Math.Round(distance, 2),
-                ["revivalPointRadiusMeters"] = RevivalPointRadiusMeters,
-                ["waitSeconds"] = InitialSwitchWait.TotalSeconds,
-                ["mapId"] = channel.MapId,
-                ["initialWaitCompleted"] = state.InitialWaitCompleted
-            });
-            return ActivePollInterval;
-        }
-
-        if (now < state.NextReturnAttemptAt)
-        {
-            return ActivePollInterval;
-        }
-
-        var returnKey = settings.Paths?.TownReturnKey?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(returnKey))
-        {
-            LogOnce(context, state, "return_key_missing", "fixed_channel.return.blocked", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["reason"] = "town_return_key_missing",
-                ["distanceToRevivalPoint"] = Math.Round(distance, 2),
-                ["revivalPointRadiusMeters"] = RevivalPointRadiusMeters
-            });
-            return ActivePollInterval;
-        }
-
-        var press = await _input
-            .PressKeyAsync(returnKey, ReturnKeyHoldDuration, context.StopToken)
-            .ConfigureAwait(false);
-        state.MarkReturnAttempt(now + ReturnRetryInterval);
-        var fields = new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["key"] = returnKey,
-            ["distanceToRevivalPoint"] = Math.Round(distance, 2),
-            ["revivalPointRadiusMeters"] = RevivalPointRadiusMeters,
-            ["retrySeconds"] = ReturnRetryInterval.TotalSeconds
-        };
-        if (press.Success)
-        {
-            context.Logger.Warn("fixed_channel.return.pressed", fields);
-        }
-        else
-        {
-            fields["error"] = press.Error;
-            context.Logger.Warn("fixed_channel.return.press_failed", fields);
-        }
-
-        return ActivePollInterval;
-    }
-
-    private async Task<TimeSpan?> TickInitialWaitAsync(
-        AccountWorkerContext context,
-        ScriptSettings settings,
-        FixedChannelState state,
-        ChannelSnapshot channel,
-        DateTimeOffset now)
-    {
-        var player = await ReadPlayerAsync(context).ConfigureAwait(false);
-        if (player.IsDead)
-        {
-            state.LeaveRevivalPoint();
-            return null;
-        }
-
-        var distance = HorizontalDistance(player.Position!.Value, state.RevivePoints[0]);
-        if (distance > RevivalPointRadiusMeters)
-        {
-            state.LeaveRevivalPoint();
-            context.Logger.Warn("fixed_channel.wait.left_revival_point", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["distanceToRevivalPoint"] = Math.Round(distance, 2),
-                ["revivalPointRadiusMeters"] = RevivalPointRadiusMeters
-            });
-            return ActivePollInterval;
-        }
-
-        if (channel.MapId != state.WaitingMapId)
-        {
-            var previousMapId = state.WaitingMapId;
-            state.RestartInitialWait(now, InitialSwitchWait, channel.MapId);
-            context.Logger.Warn("fixed_channel.wait.map_changed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["previousMapId"] = previousMapId,
-                ["currentMapId"] = channel.MapId,
-                ["waitSeconds"] = InitialSwitchWait.TotalSeconds
-            });
-            return ActivePollInterval;
-        }
-
-        if (settings.FixedChannelNumber > channel.Count)
-        {
-            LogTargetUnavailable(context, state, settings.FixedChannelNumber, channel);
-            return ActivePollInterval;
-        }
-
-        if (now < state.InitialWaitUntil)
-        {
-            return ActivePollInterval;
-        }
-
-        return await ExecuteSwitchAttemptAsync(context, settings, state, channel).ConfigureAwait(false);
-    }
-
-    private async Task<TimeSpan?> TickSwitchVerificationAsync(
-        AccountWorkerContext context,
-        ScriptSettings settings,
-        FixedChannelState state,
-        ChannelSnapshot channel,
-        DateTimeOffset now)
-    {
-        var player = await ReadPlayerAsync(context).ConfigureAwait(false);
-        if (player.IsDead)
-        {
-            state.LeaveRevivalPoint();
-            return null;
-        }
-        else
-        {
-            var distance = HorizontalDistance(player.Position!.Value, state.RevivePoints[0]);
-            if (distance > RevivalPointRadiusMeters)
-            {
-                state.LeaveRevivalPoint();
-                return ActivePollInterval;
+                state.CancelWaitingForPeace();
+                state.NextChannelReadAt = now + RetryInterval;
+                return null;
             }
         }
+        if (now >= state.NextAttemptAt && state.BeginWaitingForPeace())
+            context.Logger.Info("fixed_channel.wait.begin", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName, ["target"] = target,
+                ["reason"] = "finish_current_combat_then_hold_for_peace", ["requiredPeaceSeconds"] = 15
+            });
+        var activity = await ChannelSwitchSafety.ReadAsync(context.Snapshots, combatState).ConfigureAwait(false);
+        now = _clock.GetUtcNow();
+        state.ObserveActivity(activity.Hp, activity.Busy, now);
+        state.NextChannelReadAt = now + TimeSpan.FromSeconds(1);
+        if (now < state.NextAttemptAt || !state.IsPeaceful(now) ||
+            ChannelSwitchSafety.HasExclusiveWork(combatState)) return null;
 
-        if (now < state.SwitchVerificationDeadline)
-        {
-            return ActivePollInterval;
-        }
-
-        context.Logger.Warn("fixed_channel.switch.verify_timeout", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["attemptNumber"] = state.SwitchAttemptCount,
-            ["currentChannelNumber"] = channel.Number,
-            ["targetChannelNumber"] = settings.FixedChannelNumber,
-            ["attemptMapId"] = state.SwitchAttemptMapId,
-            ["currentMapId"] = channel.MapId,
-            ["verificationSeconds"] = SwitchVerificationWindow.TotalSeconds
-        });
-
-        if (settings.FixedChannelNumber > channel.Count)
-        {
-            LogTargetUnavailable(context, state, settings.FixedChannelNumber, channel);
-            return ActivePollInterval;
-        }
-
-        return await ExecuteSwitchAttemptAsync(context, settings, state, channel).ConfigureAwait(false);
-    }
-
-    private async Task<TimeSpan> ExecuteSwitchAttemptAsync(
-        AccountWorkerContext context,
-        ScriptSettings settings,
-        FixedChannelState state,
-        ChannelSnapshot channel)
-    {
-        var attemptNumber = state.SwitchAttemptCount + 1;
+        state.StartAttempt(now);
+        state.NextLocationReadAt = state.NextAttemptAt;
         OperationResult result;
         try
         {
-            result = await _switchExecutor
-                .ExecuteAsync(
-                    new FixedChannelSwitchRequest(
-                        context.Config.AccountName,
-                        settings.FixedChannelNumber,
-                        channel.MapId,
-                        attemptNumber,
-                        FixedChannelClickPlan.FromSettings(settings.FixedChannelMouse)),
-                    context.StopToken)
-                .ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (context.StopToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            result = OperationResult.Fail("Fixed-channel switch action threw: " + ex.Message);
-        }
-
-        var verificationStartedAt = _timeProvider.GetUtcNow();
-        state.StartSwitchAttempt(verificationStartedAt, SwitchVerificationWindow, channel.MapId);
-
-        var fields = new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["attemptNumber"] = attemptNumber,
-            ["currentChannelNumber"] = channel.Number,
-            ["targetChannelNumber"] = settings.FixedChannelNumber,
-            ["channelCount"] = channel.Count,
-            ["mapId"] = channel.MapId,
-            ["clickCount"] = FixedChannelClickPlan.OrderedSteps.Count,
-            ["verificationStartedAt"] = verificationStartedAt,
-            ["verificationSeconds"] = SwitchVerificationWindow.TotalSeconds
-        };
-        if (result.Success)
-        {
-            context.Logger.Warn("fixed_channel.switch.executed", fields);
-        }
-        else
-        {
-            fields["error"] = result.Error;
-            context.Logger.Warn("fixed_channel.switch.execute_failed", fields);
-        }
-
-        return ActivePollInterval;
-    }
-
-    private async Task<bool> EnsureRevivePathAsync(AccountWorkerContext context, FixedChannelState state)
-    {
-        if (state.RevivePoints.Count >= 2)
-        {
-            return true;
-        }
-
-        if (string.IsNullOrWhiteSpace(state.RevivePathName))
-        {
-            LogOnce(context, state, "revive_path_name_missing", "fixed_channel.path.blocked", new Dictionary<string, object?>
+            await prepareMouseAsync().ConfigureAwait(false);
+            result = await switchExecutor.ExecuteAsync(new FixedChannelSwitchRequest(
+                context.Config.AccountName, target, state.MapId, state.SwitchAttemptCount,
+                Array.Empty<FixedChannelClickPoint>())
             {
-                ["account"] = context.Config.AccountName,
-                ["reason"] = "revive_path_name_missing"
-            });
-            return false;
+                Config = context.Config,
+                CanUseMouseAsync = async snapshots =>
+                {
+                    var latest = await ChannelSwitchSafety.ReadAsync(snapshots, combatState).ConfigureAwait(false);
+                    state.ObserveActivity(latest.Hp, latest.Busy, _clock.GetUtcNow());
+                    return state.IsPeaceful(_clock.GetUtcNow()) && !ChannelSwitchSafety.HasExclusiveWork(combatState);
+                }
+            }, context.StopToken).ConfigureAwait(false);
         }
-
-        var pathResult = await _pathStore
-            .LoadAsync(state.RevivePathName, context.StopToken)
-            .ConfigureAwait(false);
-        if (!pathResult.Success || pathResult.Value?.Points is not { Count: >= 2 } points)
+        catch (OperationCanceledException) when (context.StopToken.IsCancellationRequested) { throw; }
+        catch (Exception ex) { result = OperationResult.Fail(ex.Message); }
+        if (result.Success) state.Complete();
+        else state.AwaitingConfirmation = false;
+        context.Logger.Info("fixed_channel.switch.attempt", new Dictionary<string, object?>
         {
-            LogOnce(context, state, "revive_path_unavailable:" + pathResult.Error, "fixed_channel.path.blocked", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["reason"] = "revive_path_unavailable",
-                ["pathName"] = state.RevivePathName,
-                ["pointCount"] = pathResult.Value?.PointCount ?? 0,
-                ["error"] = pathResult.Error
-            });
-            return false;
-        }
-
-        state.SetRevivePath(
-            state.RevivePathName,
-            points.Select(point => point.ToVector3()).ToArray());
-        return true;
-    }
-
-    private static void CompleteCorrection(
-        AccountWorkerContext context,
-        ScriptSettings settings,
-        FixedChannelState state,
-        StationaryCombatState combatState,
-        ChannelSnapshot channel,
-        DateTimeOffset now)
-    {
-        var wasActive = state.CorrectionActive;
-        var reachedRevivalPoint = state.ReachedRevivalPoint;
-        var revivePathName = state.RevivePathName;
-        var revivePoints = state.RevivePoints;
-        var attemptCount = state.SwitchAttemptCount;
-        state.Reset(now + NormalPollInterval);
-
-        if (!wasActive)
-        {
-            return;
-        }
-
-        if (reachedRevivalPoint &&
-            combatState.TopLevelState != StationaryCombatTopLevelState.DeathRecovery &&
-            settings.MainMode == AccountMainMode.CustomCombat &&
-            settings.CombatMode is AccountCombatMode.Stationary or AccountCombatMode.Path &&
-            revivePoints.Count >= 2)
-        {
-            combatState.StartStartupRecovery(revivePathName, revivePoints, 0);
-            combatState.ReturningHome = false;
-            combatState.ClearTarget();
-        }
-
-        context.Logger.Info("fixed_channel.switch.verify_ok", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["channelNumber"] = channel.Number,
-            ["channelIndex"] = channel.Index,
-            ["channelCount"] = channel.Count,
-            ["mapId"] = channel.MapId,
-            ["attemptCount"] = attemptCount,
-            ["resumeFromRevivalPath"] = reachedRevivalPoint && revivePoints.Count >= 2
+            ["account"] = context.Config.AccountName, ["targetChannelNumber"] = target,
+            ["currentChannelNumber"] = state.ObservedChannelNumber, ["attemptNumber"] = state.SwitchAttemptCount,
+            ["success"] = result.Success, ["error"] = result.Error,
+            ["nextAttemptAt"] = state.NextAttemptAt, ["resumeNormalWork"] = true
         });
-    }
-
-    private static void LogTargetUnavailable(
-        AccountWorkerContext context,
-        FixedChannelState state,
-        int targetChannelNumber,
-        ChannelSnapshot channel)
-    {
-        LogOnce(context, state, "target_unavailable:" + targetChannelNumber + ":" + channel.Count + ":" + channel.MapId, "fixed_channel.target_unavailable", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["targetChannelNumber"] = targetChannelNumber,
-            ["channelCount"] = channel.Count,
-            ["mapId"] = channel.MapId
-        });
-    }
-
-    private static async Task EnsureNormalWorkSuspendedAsync(
-        FixedChannelState state,
-        Func<Task> suspendNormalWorkAsync)
-    {
-        if (state.MarkNormalWorkSuspended())
-        {
-            await suspendNormalWorkAsync().ConfigureAwait(false);
-        }
-    }
-
-    private static void LogOnce(
-        AccountWorkerContext context,
-        FixedChannelState state,
-        string diagnosticKey,
-        string eventName,
-        IReadOnlyDictionary<string, object?> fields)
-    {
-        if (state.ShouldLog(diagnosticKey))
-        {
-            context.Logger.Warn(eventName, fields);
-        }
-    }
-
-    private static async Task<ChannelSnapshot> ReadChannelAsync(AccountWorkerContext context) =>
-        (await context.Snapshots.ReadChannelAsync().ConfigureAwait(false)).Value;
-
-    private static async Task<PlayerSnapshot> ReadPlayerAsync(AccountWorkerContext context) =>
-        (await context.Snapshots.ReadPlayerAsync().ConfigureAwait(false)).Value;
-
-    private static double HorizontalDistance(Vector3Snapshot left, Vector3Snapshot right)
-    {
-        var dx = left.X - right.X;
-        var dy = left.Y - right.Y;
-        return Math.Sqrt((dx * dx) + (dy * dy));
+        return null;
     }
 }

@@ -1,4 +1,5 @@
 using Roadhog.Application.Input;
+using Roadhog.Application.Channels;
 using Roadhog.Application.BagCleanup;
 using Roadhog.Application.StationaryCombat;
 using Roadhog.Application.Radar;
@@ -465,6 +466,20 @@ public sealed class RoadhogRuntime
         }
 
         return result;
+    }
+
+    public Task<OperationResult> TestSwitchChannelAsync(string accountName, int targetChannelNumber, CancellationToken cancellationToken = default)
+    {
+        if (_keyboardInput is null) return Task.FromResult(OperationResult.Fail("鼠标输入不可用。"));
+        if (targetChannelNumber < 1) return Task.FromResult(OperationResult.Fail("请先选择要切换的频道。"));
+        async Task<OperationResult> Execute()
+        {
+            var config = ResolveSnapshotConfig(accountName);
+            return await new DataDrivenChannelSwitchExecutor(_keyboardInput, _snapshotReaders, _logger)
+                .ExecuteAsync(new FixedChannelSwitchRequest(accountName, targetChannelNumber, 0, 1,
+                    Array.Empty<FixedChannelClickPoint>()) { Config = config }, cancellationToken).ConfigureAwait(false);
+        }
+        return Orchestrator is null ? Execute() : Orchestrator.RunManualInputAsync(Execute);
     }
 
     public async Task<OperationResult> NormalizeInventoryWindowToTopLeftAndCloseAsync(

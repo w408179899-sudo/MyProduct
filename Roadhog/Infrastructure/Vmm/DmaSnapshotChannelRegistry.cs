@@ -258,6 +258,12 @@ internal static class AionVmmSnapshotChannels
     public static readonly DmaSnapshotChannel<ChannelSnapshot> Channel =
         ChannelRegistry.Register<ChannelSnapshot>("channel");
 
+    public static readonly DmaSnapshotChannel<ChannelSwitchUiSnapshot> ChannelSwitchUi =
+        ChannelRegistry.Register<ChannelSwitchUiSnapshot>("channel_switch_ui");
+
+    public static readonly DmaSnapshotChannel<ChannelTransitionSnapshot> ChannelTransition =
+        ChannelRegistry.Register<ChannelTransitionSnapshot>("channel_transition");
+
     public static readonly DmaSnapshotChannel<LockedTargetSnapshot> LockedTarget =
         ChannelRegistry.Register<LockedTargetSnapshot>("locked_target");
 

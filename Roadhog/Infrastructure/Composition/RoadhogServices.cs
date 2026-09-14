@@ -214,10 +214,8 @@ public sealed class RoadhogServices : IDisposable
             sharedPathStore,
             stationaryObstacleNavigator,
             radarSnapshots);
-        var fixedChannelSwitchExecutor = new FixedChannelMouseSwitchExecutor(keyboardInput, logger);
+        var fixedChannelSwitchExecutor = new DataDrivenChannelSwitchExecutor(keyboardInput, snapshotReaders, logger);
         var fixedChannelController = new FixedChannelController(
-            keyboardInput,
-            sharedPathStore,
             fixedChannelSwitchExecutor);
         var teamSupportController = new TeamSupportController(
             keyboardInput,

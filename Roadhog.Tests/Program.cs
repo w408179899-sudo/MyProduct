@@ -1,4 +1,4 @@
-using Roadhog;
+﻿using Roadhog;
 using Roadhog.Application;
 using Roadhog.Application.AbnormalStatuses;
 using Roadhog.Application.BagCleanup;
@@ -31,6 +31,38 @@ using Roadhog.Infrastructure.Gathering;
 using Roadhog.Infrastructure.Paths;
 using Roadhog.Infrastructure.Profiles;
 using Roadhog.Infrastructure.Vmm;
+
+if (args.Contains("--vmm-lifetime-finalizer-probe"))
+{
+    VmmConnectionLifetimeTests.RunFinalizerProbe();
+    return;
+}
+
+if (args.Contains("--channel-ui-probe"))
+{
+    Environment.ExitCode = ChannelSwitchTests.ProbeAsync(args).GetAwaiter().GetResult();
+    return;
+}
+
+if (args.Contains("--channel-ui-preview"))
+{
+    var thread = new Thread(() =>
+    {
+        using var form = CreateAccountSettingsFormForTestsWithStore(new InMemoryAccountConfigStore(new AccountConfig
+        {
+            AccountName = "account1", ScriptSettings = new ScriptSettings { FixedChannelNumber = 2 }
+        }));
+        form.Show();
+        System.Windows.Forms.Application.DoEvents();
+        using var bitmap = new System.Drawing.Bitmap(form.Width, form.Height);
+        form.DrawToBitmap(bitmap, form.ClientRectangle);
+        bitmap.Save(args.Single(arg => arg.StartsWith("--output="))[9..]);
+    });
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    thread.Join();
+    return;
+}
 
 if (LicenseLiveProbe.ShouldRun(args))
 {
@@ -70,6 +102,39 @@ if (KmboxKeyPressProbe.ShouldRun(args))
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("channel peace finishes current monster without acquiring next and retries", ChannelPeaceTests.FinishCurrentThenReservePeaceAsync),
+    ("channel peace incoming defense restarts fifteen seconds", ChannelPeaceTests.IncomingDefenseRestartsPeaceAsync),
+    ("channel peace release preserves route and exclusive work", ChannelPeaceTests.ReleaseAndExclusiveWorkAsync),
+    ("channel peace actual worker holds and cancels without new target", ChannelPeaceTests.WorkerActuallyHoldsAsync),
+    ("channel peace actual worker handles death before holding", ChannelPeaceTests.WorkerDeathStillWinsAsync),
+    ("fixed channel completion marker stops reads and resets by target or run", FixedChannelSchedulingTests.CompletionMarkerAsync),
+    ("channel transition delayed and slow loading awaits recovered character", ChannelTransitionTests.DelayedAndSlowLoadingAsync),
+    ("channel transition no loading and wrong destination remain retryable", ChannelTransitionTests.NoLoadingAndWrongDestinationAsync),
+    ("channel transition stop cancels even after slow loading warning", ChannelTransitionTests.StopDuringLoadingAsync),
+    ("channel transition stop cancels pending provider read without duplication", ChannelTransitionTests.StopDuringPendingReadAsync),
+    ("channel transition loading outlives navigation deadline", ChannelSwitchTests.LoadingOutlivesNavigationDeadlineAsync),
+    ("channel transition decoder rejects old player cache and partial captures", ChannelTransitionTests.DecoderAndCachedPlayerAsync),
+    ("channel transition distinguishes absent player from transport failure", ChannelTransitionTests.ReconnectClassificationAsync),
+    ("fixed channel startup peace and sixty second nonblocking retries", FixedChannelSchedulingTests.StartupAndRetryAsync),
+    ("fixed channel combat resets continuous peace timer", FixedChannelSchedulingTests.CombatResetsPeaceAsync),
+    ("fixed channel incoming attacks and damage reset peace", FixedChannelSchedulingTests.IncomingAttackAndDamageAsync),
+    ("fixed channel dead self target permits startup and live attack still interrupts", FixedChannelSchedulingTests.DeadSelfTargetAsync),
+    ("fixed channel disabled unavailable and death allow normal work", FixedChannelSchedulingTests.DisabledUnavailableAndDeathAsync),
+    ("fixed channel map change and input failure remain retryable", FixedChannelSchedulingTests.MapAndFailureAsync),
+    ("channel ui sequence selects and verifies using cursor feedback", ChannelSwitchTests.SequenceAsync),
+    ("vmm lifetime failed initialization disposes without null reference", VmmConnectionLifetimeTests.PartialDisposeAsync),
+    ("vmm lifetime failed initialization survives finalizer in child process", VmmConnectionLifetimeTests.FinalizerProcessAsync),
+    ("vmm lifetime retirement waits for reads and rejects queued readers", VmmConnectionLifetimeTests.RetirementAsync),
+    ("vmm lifetime all channels honor reconnect and retirement", VmmConnectionLifetimeTests.AllChannelsRespectReconnectAsync),
+    ("channel ui slow automatic attempt reaches move beyond fifteen seconds", ChannelSwitchTests.SlowAutomaticAttemptAsync),
+    ("channel ui sequence resumes open dropdown", ChannelSwitchTests.OpenDropdownAsync),
+    ("channel ui automatic retries reuse selected dialog without waiting", ChannelSwitchTests.AutomaticReusesDialogAsync),
+    ("channel ui automatic attempt aborts when combat resumes", ChannelSwitchTests.AutomaticStopsForCombatAsync),
+    ("channel ui sequence rejects unavailable and skips current target", ChannelSwitchTests.NoInputAsync),
+    ("channel ui sequence does not equate selection with actual channel", ChannelSwitchTests.UnconfirmedAsync),
+    ("channel ui snapshot retains last good and isolates session", ChannelSwitchTests.StableSnapshotAsync),
+    ("channel ui decoder rejects partial fields and changing roots", ChannelSwitchTests.DecoderFaultsAsync),
+    ("channel ui sequence releases mouse on cancellation", ChannelSwitchTests.CancellationAsync),
     ("dma stable snapshot falls back to last good", TestDmaStableSnapshotFallsBackToLastGoodAsync),
     ("dma stable snapshot preserves valid zero and false", TestDmaStableSnapshotPreservesValidZeroAndFalseAsync),
     ("dma stable snapshot retains last good until lifecycle reset", TestDmaStableSnapshotRetainsLastGoodUntilLifecycleResetAsync),
@@ -81,6 +146,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("dma business reader accepts stable world publication", TestDmaBusinessReaderAcceptsStableWorldPublicationAsync),
     ("dma business reader retries cold start below boundary", TestDmaBusinessReaderRetriesColdStartBelowBoundaryAsync),
     ("dma world snapshot updates good fields and holds failed fields", TestDmaWorldSnapshotMergesFieldFailuresAsync),
+    ("dma world dead self target publishes on cold start without weakening live threat protection", TestDmaWorldDeadSelfTargetColdStartAsync),
     ("dma world partial snapshot is published and failed read holds it", TestDmaWorldPartialSnapshotIsPublishedAndFailedReadHoldsItAsync),
     ("dma inventory partial snapshot merges fields and complete traversal prunes", TestDmaInventorySnapshotMergesFieldsAndPrunesAsync),
     ("dma pet snapshot updates good health fields and holds failed fields", TestDmaPetSnapshotMergesHealthFailuresAsync),
@@ -158,15 +224,6 @@ var tests = new (string Name, Func<Task> Run)[]
     ("vmm channel reader implements scoped production offsets", TestVmmChannelReaderImplementsScopedProductionOffsetsAsync),
     ("fixed channel mouse executor clicks exactly six points in order", TestFixedChannelMouseExecutorClicksExactlySixPointsInOrderAsync),
     ("fixed channel mouse executor rejects incomplete points before input", TestFixedChannelMouseExecutorRejectsIncompletePointsBeforeInputAsync),
-    ("fixed channel disabled performs no runtime reads", TestFixedChannelDisabledPerformsNoRuntimeReadsAsync),
-    ("fixed channel revival radius is twenty meters", TestFixedChannelUsesTwentyMeterRevivalRadiusAsync),
-    ("fixed channel waits once then retries every thirty seconds", TestFixedChannelWaitsOnceThenRetriesEveryThirtySecondsAsync),
-    ("fixed channel read failure retries at verification deadline", TestFixedChannelReadFailureRetriesAtVerificationDeadlineAsync),
-    ("fixed channel initial read fault is hidden before correction", TestFixedChannelInitialReadFaultIsHiddenBeforeCorrectionAsync),
-    ("fixed channel target unavailable blocks switch attempts", TestFixedChannelTargetUnavailableBlocksSwitchAttemptsAsync),
-    ("fixed channel map change cannot verify previous attempt", TestFixedChannelMapChangeCannotVerifyPreviousAttemptAsync),
-    ("fixed channel death yields to life guard", TestFixedChannelDeathYieldsToLifeGuardAsync),
-    ("fixed channel switch exception remains retryable", TestFixedChannelSwitchExceptionRemainsRetryableAsync),
     ("jump assist defaults disabled and clone preserves setting", TestJumpAssistSettingDefaultsAndCloneAsync),
     ("jump assist solo repeats and stops on target damage", TestJumpAssistSoloRepeatsAndStopsOnDamageAsync),
     ("jump assist target switch replaces solo session", TestJumpAssistTargetSwitchReplacesSoloSessionAsync),
@@ -502,7 +559,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat postpones after-combat maintenance while pet is targeted", TestStationaryCombatPostponesAfterCombatMaintenanceWhilePetIsTargetedAsync),
     ("stationary combat abandons discard before adopting defense target", TestStationaryCombatAbandonsDiscardBeforeAdoptingDefenseTargetAsync),
     ("stationary combat closes discard before death recovery", TestStationaryCombatClosesDiscardBeforeDeathRecoveryAsync),
-    ("stationary combat closes discard before fixed channel correction", TestStationaryCombatClosesDiscardBeforeFixedChannelCorrectionAsync),
+    ("fixed channel preparation preserves route progress", FixedChannelSchedulingTests.PreservesWorkAsync),
     ("stationary combat finishes current fight before returning home", TestStationaryCombatFinishesFightBeforeReturningHomeAsync),
     ("stationary combat reacquires adopted defense target when locked on party member", TestStationaryCombatReacquiresAdoptedDefenseTargetWhenLockedOnPartyMemberAsync),
     ("stationary combat faces adopted defense target before reacquire tab", TestStationaryCombatFacesAdoptedDefenseTargetBeforeReacquireTabAsync),
@@ -2967,61 +3024,16 @@ static async Task TestFixedChannelDefaultsCloneJsonAndUiAsync()
             form.Show();
             System.Windows.Forms.Application.DoEvents();
             AssertEqual(3, GetComboSelectedIndexForTest(form, "fixedChannelCombo"), "fixed channel should load into home combo");
-            AssertFalse(!GetControlVisibleForTest(form, "fixedChannelMousePanel"), "six-point panel should show when fixed channel is enabled");
-            AssertEqual("101,201", GetTextBoxTextForTest(form, "fixedChannelMenuPointTextBox"), "menu point should load into home page");
-            AssertEqual("106,206", GetTextBoxTextForTest(form, "fixedChannelMovePointTextBox"), "move point should load into home page");
-            var fixedChannelCombo = (System.Windows.Forms.Control)GetPrivateFieldForTest(form, "fixedChannelCombo");
-            var fixedChannelPanel = FindNamedControlForTest(form, "fixedChannelMousePanel");
-            AssertFalse(
-                fixedChannelCombo.Left < fixedChannelPanel.Left ||
-                fixedChannelCombo.Right > fixedChannelPanel.Right ||
-                fixedChannelCombo.Bottom > fixedChannelPanel.Top,
-                "fixed channel combo should sit with the channel coordinate panel");
-            foreach (var fieldName in new[]
-            {
-                "returnHomeWhenNoTargetCheckBox",
-                "sitWhenNoTargetAtHomeCheckBox",
-                "jumpAssistEnabledCheckBox",
-                "smartPreAimEnabledCheckBox",
-                "smartPreAimUseFightTargetPositionCheckBox",
-                "smartPreAimResponsiveSwitchingCheckBox"
-            })
-            {
-                var nearbyControl = (System.Windows.Forms.Control)GetPrivateFieldForTest(form, fieldName);
-                AssertFalse(
-                    nearbyControl.Visible && nearbyControl.Bounds.IntersectsWith(fixedChannelPanel.Bounds),
-                    fieldName + " should not overlap fixed channel coordinate panel");
-            }
-
-            var buttonNames = new[]
-            {
-                "fixedChannelMenuTestMoveButton",
-                "fixedChannelServiceTestMoveButton",
-                "fixedChannelSwitchChannelTestMoveButton",
-                "fixedChannelChannelMoveTestMoveButton",
-                "fixedChannelSelectChannelTestMoveButton",
-                "fixedChannelMoveTestMoveButton"
-            };
-            foreach (var buttonName in buttonNames)
-            {
-                var button = FindNamedControlForTest(form, buttonName);
-                AssertEqual("移动测试", button.Text, buttonName + " should be an independent move test");
-            }
-
+            AssertEqual(0, form.Controls.Find("fixedChannelMousePanel", true).Length, "old coordinate panel must be removed");
+            var combo = FindNamedControlForTest(form, "fixedChannelCombo");
+            var button = FindNamedControlForTest(form, "fixedChannelTestButton");
+            AssertEqual("切换测试", button.Text, "manual channel button label");
+            AssertFalse(combo.Bounds.IntersectsWith(button.Bounds), "combo and test button must not overlap");
+            AssertFalse(combo.Top != button.Top || button.Right > button.Parent!.ClientSize.Width, "manual button must fit alongside combo");
             SetComboSelectedIndexForTest(form, "fixedChannelCombo", 0);
-            System.Windows.Forms.Application.DoEvents();
-            AssertFalse(!GetControlVisibleForTest(form, "fixedChannelMousePanel"), "six-point panel should remain visible while fixed channel is disabled");
-
+            AssertFalse(button.Enabled, "no target must disable manual test");
             SetComboSelectedIndexForTest(form, "fixedChannelCombo", 5);
-            System.Windows.Forms.Application.DoEvents();
-            AssertFalse(!GetControlVisibleForTest(form, "fixedChannelMousePanel"), "six-point panel should remain visible when fixed channel is enabled");
-            AssertEqual("101,201", GetTextBoxTextForTest(form, "fixedChannelMenuPointTextBox"), "coordinates should be retained while changing fixed channel");
-            SetTextBoxTextForTest(form, "fixedChannelMenuPointTextBox", "301,401");
-            SetTextBoxTextForTest(form, "fixedChannelServicePointTextBox", "302,402");
-            SetTextBoxTextForTest(form, "fixedChannelSwitchChannelPointTextBox", "303,403");
-            SetTextBoxTextForTest(form, "fixedChannelChannelMovePointTextBox", "304,404");
-            SetTextBoxTextForTest(form, "fixedChannelSelectChannelPointTextBox", "305,405");
-            SetTextBoxTextForTest(form, "fixedChannelMovePointTextBox", "306,406");
+            AssertFalse(!button.Enabled, "selected target must enable manual test");
             var saved = InvokeSaveCurrentSettingsForTest(form, out var error);
             AssertFalse(!saved, "fixed channel ui save failed: " + error);
             var savedSettings = configStore
@@ -3032,8 +3044,8 @@ static async Task TestFixedChannelDefaultsCloneJsonAndUiAsync()
                 .Single()
                 .ScriptSettings;
             AssertEqual(5, savedSettings?.FixedChannelNumber ?? 0, "fixed channel should persist from home combo");
-            AssertEqual(301, savedSettings?.FixedChannelMouse?.Menu.X ?? 0, "menu point should persist from home page");
-            AssertEqual(406, savedSettings?.FixedChannelMouse?.Move.Y ?? 0, "all six points should persist from home page");
+            AssertEqual(101, savedSettings?.FixedChannelMouse?.Menu.X ?? 0, "legacy config should survive UI migration");
+            AssertEqual(206, savedSettings?.FixedChannelMouse?.Move.Y ?? 0, "legacy config should remain compatible");
         }
         catch (Exception ex)
         {
@@ -3145,351 +3157,6 @@ static async Task TestFixedChannelMouseExecutorRejectsIncompletePointsBeforeInpu
     AssertEqual(0, keyboard.MouseCommands.Count, "validation must finish before any mouse input is sent");
 }
 
-static async Task TestFixedChannelUsesTwentyMeterRevivalRadiusAsync()
-{
-    var exactKeyboard = new RecordingKeyboardInput();
-    var exactClock = new ManualTimeProvider();
-    var exactGameApi = CreateFixedChannelGameApi(new Vector3Snapshot(12, 16, 500));
-    var exactSettings = CreateFixedChannelSettings();
-    var exactController = new FixedChannelController(
-        exactKeyboard,
-        CreateFixedChannelPathStore(),
-        new RecordingFixedChannelSwitchExecutor(),
-        exactClock);
-    var exactState = new FixedChannelState();
-    await ConfirmFixedChannelMismatchAsync(
-        exactController,
-        CreateContext(exactSettings, exactGameApi, new InMemoryRoadhogLogger()),
-        exactSettings,
-        exactState,
-        new StationaryCombatState(),
-        exactClock).ConfigureAwait(false);
-
-    AssertEqual(FixedChannelCorrectionStep.WaitingBeforeSwitch, exactState.Step, "twenty meter boundary should count as revival point nearby");
-    AssertEqual(0, exactKeyboard.Keys.Count, "twenty meter boundary should not press town return");
-
-    var outsideKeyboard = new RecordingKeyboardInput();
-    var outsideClock = new ManualTimeProvider();
-    var outsideGameApi = CreateFixedChannelGameApi(new Vector3Snapshot(20.01F, 0, 0));
-    var outsideSettings = CreateFixedChannelSettings();
-    var outsideController = new FixedChannelController(
-        outsideKeyboard,
-        CreateFixedChannelPathStore(),
-        new RecordingFixedChannelSwitchExecutor(),
-        outsideClock);
-    var outsideState = new FixedChannelState();
-    await ConfirmFixedChannelMismatchAsync(
-        outsideController,
-        CreateContext(outsideSettings, outsideGameApi, new InMemoryRoadhogLogger()),
-        outsideSettings,
-        outsideState,
-        new StationaryCombatState(),
-        outsideClock).ConfigureAwait(false);
-
-    AssertEqual(FixedChannelCorrectionStep.ReturningToRevivalPoint, outsideState.Step, "outside twenty meters should require town return");
-    AssertSequence(new[] { "NumPad7" }, outsideKeyboard.Keys.ToArray(), "outside twenty meters should press town return once");
-}
-
-static async Task TestFixedChannelDisabledPerformsNoRuntimeReadsAsync()
-{
-    var clock = new ManualTimeProvider();
-    var gameApi = CreateFixedChannelGameApi(new Vector3Snapshot(0, 0, 0));
-    var settings = CreateFixedChannelSettings();
-    settings.FixedChannelNumber = 0;
-    var controller = new FixedChannelController(
-        new RecordingKeyboardInput(),
-        CreateFixedChannelPathStore(),
-        new RecordingFixedChannelSwitchExecutor(),
-        clock);
-    var state = new FixedChannelState();
-    var suspendCount = 0;
-
-    var result = await controller
-        .TickAsync(
-            CreateContext(settings, gameApi, new InMemoryRoadhogLogger()),
-            settings,
-            state,
-            new StationaryCombatState(),
-            () =>
-            {
-                suspendCount++;
-                return Task.CompletedTask;
-            })
-        .ConfigureAwait(false);
-
-    AssertFalse(result.HasValue, "disabled fixed channel should not block ordinary work");
-    AssertEqual(0, gameApi.ChannelReadCount, "disabled fixed channel should not read channel snapshots");
-    AssertEqual(0, gameApi.PlayerReadCount, "disabled fixed channel should not add player reads");
-    AssertEqual(0, suspendCount, "disabled fixed channel should not suspend existing behavior");
-}
-
-static async Task TestFixedChannelWaitsOnceThenRetriesEveryThirtySecondsAsync()
-{
-    var keyboard = new RecordingKeyboardInput();
-    var clock = new ManualTimeProvider();
-    var switchExecutor = new RecordingFixedChannelSwitchExecutor();
-    var gameApi = CreateFixedChannelGameApi(new Vector3Snapshot(0, 0, 0));
-    var settings = CreateFixedChannelSettings();
-    var controller = new FixedChannelController(keyboard, CreateFixedChannelPathStore(), switchExecutor, clock);
-    var state = new FixedChannelState();
-    var combatState = new StationaryCombatState();
-    var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
-    var suspendCount = 0;
-    Func<Task> suspend = () =>
-    {
-        suspendCount++;
-        return Task.CompletedTask;
-    };
-    switchExecutor.BeforeReturn = request =>
-    {
-        if (request.AttemptNumber == 1)
-        {
-            clock.Advance(TimeSpan.FromSeconds(12));
-        }
-    };
-
-    await ConfirmFixedChannelMismatchAsync(
-        controller,
-        context,
-        settings,
-        state,
-        combatState,
-        clock,
-        suspend).ConfigureAwait(false);
-    AssertEqual(FixedChannelCorrectionStep.WaitingBeforeSwitch, state.Step, "nearby mismatch should enter initial wait");
-    AssertEqual(0, switchExecutor.Requests.Count, "initial wait should not switch immediately");
-
-    clock.Advance(FixedChannelController.InitialSwitchWait);
-    await controller.TickAsync(context, settings, state, combatState, suspend).ConfigureAwait(false);
-    AssertEqual(1, switchExecutor.Requests.Count, "initial wait completion should execute first switch");
-    AssertEqual(clock.GetUtcNow(), state.SwitchAttemptStartedAt, "thirty-second verification must begin after the complete mouse operation returns");
-
-    clock.Advance(TimeSpan.FromSeconds(29));
-    await controller.TickAsync(context, settings, state, combatState, suspend).ConfigureAwait(false);
-    AssertEqual(1, switchExecutor.Requests.Count, "switch should not retry before thirty second verification deadline");
-
-    clock.Advance(TimeSpan.FromSeconds(1));
-    await controller.TickAsync(context, settings, state, combatState, suspend).ConfigureAwait(false);
-    AssertEqual(2, switchExecutor.Requests.Count, "thirty second timeout should execute the full switch again");
-    AssertEqual(2, switchExecutor.Requests[1].AttemptNumber, "second switch attempt number");
-
-    gameApi.Channel = gameApi.Channel with { Index = 2, CapturedAt = clock.GetUtcNow() };
-    clock.Advance(TimeSpan.FromMilliseconds(250));
-    var completed = await controller.TickAsync(context, settings, state, combatState, suspend).ConfigureAwait(false);
-
-    AssertFalse(completed.HasValue, "verified target channel should release hard gate");
-    AssertEqual(FixedChannelCorrectionStep.Monitoring, state.Step, "verified target channel should reset correction state");
-    AssertFalse(!combatState.StartupRecoveryActive, "verified switch at revival point should resume through revive path");
-    AssertEqual(0, combatState.StartupRecoveryPointIndex, "verified switch should resume from revive path point zero");
-    AssertEqual(1, suspendCount, "one correction session should suspend ordinary work once");
-}
-
-static async Task TestFixedChannelReadFailureRetriesAtVerificationDeadlineAsync()
-{
-    var clock = new ManualTimeProvider();
-    var switchExecutor = new RecordingFixedChannelSwitchExecutor();
-    var gameApi = CreateFixedChannelGameApi(new Vector3Snapshot(0, 0, 0));
-    var settings = CreateFixedChannelSettings();
-    var controller = new FixedChannelController(
-        new RecordingKeyboardInput(),
-        CreateFixedChannelPathStore(),
-        switchExecutor,
-        clock);
-    var state = new FixedChannelState();
-    var combatState = new StationaryCombatState();
-    var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
-
-    await ConfirmFixedChannelMismatchAsync(controller, context, settings, state, combatState, clock).ConfigureAwait(false);
-    clock.Advance(FixedChannelController.InitialSwitchWait);
-    await controller.TickAsync(context, settings, state, combatState, clock.NoOpAsync).ConfigureAwait(false);
-    AssertEqual(1, switchExecutor.Requests.Count, "first complete switch operation should run");
-
-    clock.Advance(FixedChannelController.SwitchVerificationWindow);
-    gameApi.ChannelReadResults.Enqueue(OperationResult<ChannelSnapshot>.Fail("temporary channel read failure"));
-    await controller.TickAsync(context, settings, state, combatState, clock.NoOpAsync).ConfigureAwait(false);
-
-    AssertEqual(2, switchExecutor.Requests.Count, "a missing snapshot at the deadline must execute all six clicks again");
-    AssertEqual(6, switchExecutor.Requests[1].ClickPoints.Count, "retry request must contain all six click points");
-}
-
-static async Task TestFixedChannelInitialReadFaultIsHiddenBeforeCorrectionAsync()
-{
-    var clock = new ManualTimeProvider();
-    var gameApi = CreateFixedChannelGameApi(new Vector3Snapshot(0, 0, 0));
-    gameApi.ChannelReadResults.Enqueue(OperationResult<ChannelSnapshot>.Fail("temporary channel read failure"));
-    var settings = CreateFixedChannelSettings();
-    var controller = new FixedChannelController(
-        new RecordingKeyboardInput(),
-        CreateFixedChannelPathStore(),
-        new RecordingFixedChannelSwitchExecutor(),
-        clock);
-    var state = new FixedChannelState();
-    var suspendCount = 0;
-
-    var result = await controller
-        .TickAsync(
-            CreateContext(settings, gameApi, new InMemoryRoadhogLogger()),
-            settings,
-            state,
-            new StationaryCombatState(),
-            () =>
-            {
-                suspendCount++;
-                return Task.CompletedTask;
-            })
-        .ConfigureAwait(false);
-
-    AssertFalse(!result.HasValue, "published mismatch must enter the correction gate");
-    AssertEqual(1, suspendCount, "published mismatch should suspend active ordinary work once");
-    AssertFalse(!state.NormalWorkSuspended, "business should receive the valid retry and start correction in the same tick");
-    AssertEqual(0, gameApi.ChannelReadResults.Count, "snapshot reader should consume the initial fault below business logic");
-}
-
-static async Task TestFixedChannelTargetUnavailableBlocksSwitchAttemptsAsync()
-{
-    var clock = new ManualTimeProvider();
-    var switchExecutor = new RecordingFixedChannelSwitchExecutor();
-    var gameApi = CreateFixedChannelGameApi(new Vector3Snapshot(0, 0, 0));
-    gameApi.Channel = gameApi.Channel with { Count = 2 };
-    var settings = CreateFixedChannelSettings();
-    var controller = new FixedChannelController(
-        new RecordingKeyboardInput(),
-        CreateFixedChannelPathStore(),
-        switchExecutor,
-        clock);
-    var state = new FixedChannelState();
-    var combatState = new StationaryCombatState();
-    var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
-
-    await ConfirmFixedChannelMismatchAsync(controller, context, settings, state, combatState, clock).ConfigureAwait(false);
-    clock.Advance(FixedChannelController.InitialSwitchWait);
-    await controller.TickAsync(context, settings, state, combatState, clock.NoOpAsync).ConfigureAwait(false);
-    AssertEqual(0, switchExecutor.Requests.Count, "unavailable target channel should not click");
-    AssertEqual(FixedChannelCorrectionStep.WaitingBeforeSwitch, state.Step, "unavailable target channel should stay hard blocked");
-
-    gameApi.Channel = gameApi.Channel with { Count = 5 };
-    clock.Advance(TimeSpan.FromMilliseconds(250));
-    await controller.TickAsync(context, settings, state, combatState, clock.NoOpAsync).ConfigureAwait(false);
-    AssertEqual(1, switchExecutor.Requests.Count, "switch should begin when target channel becomes available");
-}
-
-static async Task TestFixedChannelMapChangeCannotVerifyPreviousAttemptAsync()
-{
-    var clock = new ManualTimeProvider();
-    var switchExecutor = new RecordingFixedChannelSwitchExecutor();
-    var gameApi = CreateFixedChannelGameApi(new Vector3Snapshot(0, 0, 0));
-    var settings = CreateFixedChannelSettings();
-    var controller = new FixedChannelController(
-        new RecordingKeyboardInput(),
-        CreateFixedChannelPathStore(),
-        switchExecutor,
-        clock);
-    var state = new FixedChannelState();
-    var combatState = new StationaryCombatState();
-    var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
-
-    await ConfirmFixedChannelMismatchAsync(controller, context, settings, state, combatState, clock).ConfigureAwait(false);
-    clock.Advance(FixedChannelController.InitialSwitchWait);
-    await controller.TickAsync(context, settings, state, combatState, clock.NoOpAsync).ConfigureAwait(false);
-    AssertEqual(1, switchExecutor.Requests.Count, "first map should execute first switch attempt");
-
-    gameApi.Channel = gameApi.Channel with { Index = 2, MapId = 200 };
-    clock.Advance(TimeSpan.FromMilliseconds(250));
-    var wrongMap = await controller.TickAsync(context, settings, state, combatState, clock.NoOpAsync).ConfigureAwait(false);
-    AssertFalse(!wrongMap.HasValue, "target channel on another map must remain blocked");
-    AssertEqual(FixedChannelCorrectionStep.VerifyingSwitch, state.Step, "wrong-map target channel must not verify previous attempt");
-
-    clock.Advance(FixedChannelController.SwitchVerificationWindow);
-    await controller.TickAsync(context, settings, state, combatState, clock.NoOpAsync).ConfigureAwait(false);
-    AssertEqual(2, switchExecutor.Requests.Count, "wrong-map timeout should execute another full switch");
-    AssertEqual(200u, switchExecutor.Requests[1].MapId, "retry should bind verification to current map");
-
-    clock.Advance(TimeSpan.FromMilliseconds(250));
-    var verified = await controller.TickAsync(context, settings, state, combatState, clock.NoOpAsync).ConfigureAwait(false);
-    AssertFalse(verified.HasValue, "target channel on retry map should verify new attempt");
-    AssertEqual(FixedChannelCorrectionStep.Monitoring, state.Step, "new attempt map should become valid baseline");
-}
-
-static async Task TestFixedChannelDeathYieldsToLifeGuardAsync()
-{
-    var clock = new ManualTimeProvider();
-    var gameApi = CreateFixedChannelGameApi(new Vector3Snapshot(0, 0, 0));
-    gameApi.Player = gameApi.Player with { CurrentHp = 0 };
-    var settings = CreateFixedChannelSettings();
-    var controller = new FixedChannelController(
-        new RecordingKeyboardInput(),
-        CreateFixedChannelPathStore(),
-        new RecordingFixedChannelSwitchExecutor(),
-        clock);
-    var state = new FixedChannelState();
-    var suspendCount = 0;
-    Func<Task> suspend = () =>
-    {
-        suspendCount++;
-        return Task.CompletedTask;
-    };
-    var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
-    var combatState = new StationaryCombatState();
-
-    var first = await controller.TickAsync(context, settings, state, combatState, suspend).ConfigureAwait(false);
-    AssertFalse(first.HasValue, "dead player should yield to the existing life guard on the first mismatch read");
-    clock.Advance(TimeSpan.FromMilliseconds(250));
-    var second = await controller.TickAsync(context, settings, state, combatState, suspend).ConfigureAwait(false);
-
-    AssertFalse(second.HasValue, "dead player should yield to existing life guard");
-    AssertFalse(state.CorrectionActive, "dead player should not start channel correction before revive");
-    AssertEqual(0, suspendCount, "dead player should not suspend death recovery state");
-}
-
-static async Task TestFixedChannelSwitchExceptionRemainsRetryableAsync()
-{
-    var clock = new ManualTimeProvider();
-    var switchExecutor = new RecordingFixedChannelSwitchExecutor
-    {
-        ExceptionToThrow = new InvalidOperationException("mouse adapter failure")
-    };
-    var gameApi = CreateFixedChannelGameApi(new Vector3Snapshot(0, 0, 0));
-    var settings = CreateFixedChannelSettings();
-    var controller = new FixedChannelController(
-        new RecordingKeyboardInput(),
-        CreateFixedChannelPathStore(),
-        switchExecutor,
-        clock);
-    var state = new FixedChannelState();
-    var combatState = new StationaryCombatState();
-    var logger = new InMemoryRoadhogLogger();
-    var context = CreateContext(settings, gameApi, logger);
-
-    await ConfirmFixedChannelMismatchAsync(controller, context, settings, state, combatState, clock).ConfigureAwait(false);
-    clock.Advance(FixedChannelController.InitialSwitchWait);
-    await controller.TickAsync(context, settings, state, combatState, clock.NoOpAsync).ConfigureAwait(false);
-
-    AssertEqual(1, switchExecutor.Requests.Count, "throwing switch adapter should still record first attempt");
-    AssertEqual(FixedChannelCorrectionStep.VerifyingSwitch, state.Step, "throwing switch adapter should remain in verification gate");
-    AssertFalse(
-        !logger.Entries.Any(entry =>
-            entry.EventName == "fixed_channel.switch.execute_failed" &&
-            (Convert.ToString(entry.Fields["error"]) ?? string.Empty).Contains("mouse adapter failure", StringComparison.Ordinal)),
-        "throwing switch adapter should log a structured failure");
-
-    switchExecutor.ExceptionToThrow = null;
-    clock.Advance(FixedChannelController.SwitchVerificationWindow);
-    await controller.TickAsync(context, settings, state, combatState, clock.NoOpAsync).ConfigureAwait(false);
-    AssertEqual(2, switchExecutor.Requests.Count, "throwing switch adapter should retry after thirty seconds");
-}
-
-static ScriptSettings CreateFixedChannelSettings()
-{
-    var settings = CreateScriptSettings();
-    settings.MainMode = AccountMainMode.CustomCombat;
-    settings.CombatMode = AccountCombatMode.Stationary;
-    settings.FixedChannelNumber = 3;
-    settings.FixedChannelMouse = CreateFixedChannelMouseSettings();
-    settings.Paths.RevivePathName = "fixed-channel-revive";
-    settings.Paths.TownReturnKey = "NumPad7";
-    return settings;
-}
-
 static FixedChannelMouseScriptSettings CreateFixedChannelMouseSettings()
 {
     return new FixedChannelMouseScriptSettings
@@ -3501,50 +3168,6 @@ static FixedChannelMouseScriptSettings CreateFixedChannelMouseSettings()
         SelectChannel = new ScreenPointScriptSettings { X = 105, Y = 205 },
         Move = new ScreenPointScriptSettings { X = 106, Y = 206 }
     };
-}
-
-static FakeGameApi CreateFixedChannelGameApi(Vector3Snapshot position)
-{
-    return new FakeGameApi
-    {
-        Player = new PlayerSnapshot(
-            1,
-            0,
-            "FixedChannel",
-            100,
-            100,
-            100,
-            100,
-            0,
-            position,
-            DateTimeOffset.Now),
-        Channel = new ChannelSnapshot(0, 5, 100, DateTimeOffset.Now)
-    };
-}
-
-static InMemorySharedPathStore CreateFixedChannelPathStore()
-{
-    return new InMemorySharedPathStore(CreatePath(
-        "fixed-channel-revive",
-        new Vector3Snapshot(0, 0, 0),
-        new Vector3Snapshot(100, 0, 0)));
-}
-
-static async Task ConfirmFixedChannelMismatchAsync(
-    FixedChannelController controller,
-    AccountWorkerContext context,
-    ScriptSettings settings,
-    FixedChannelState state,
-    StationaryCombatState combatState,
-    ManualTimeProvider clock,
-    Func<Task>? suspend = null)
-{
-    var suspendWork = suspend ?? clock.NoOpAsync;
-    var first = await controller
-        .TickAsync(context, settings, state, combatState, suspendWork)
-        .ConfigureAwait(false);
-    AssertFalse(!first.HasValue, "first published channel mismatch should enter correction immediately");
-    AssertFalse(!state.CorrectionActive, "fixed channel must not require a second data confirmation read");
 }
 
 static Task TestJumpAssistSettingDefaultsAndCloneAsync()
@@ -11464,6 +11087,8 @@ static Task TestBagCleanupBusinessReadBoundaryAsync()
              {
                  "IRoadhogGameApi",
                  "IRoadhogScopedGameApi",
+                 "IChannelSwitchUiGameApi",
+                 "IChannelTransitionGameApi",
                  "GameApiReadContext",
                  "AionVmmGameApi",
                  "MockRoadhogGameApi",
@@ -25486,70 +25111,6 @@ static async Task TestStationaryCombatClosesDiscardBeforeDeathRecoveryAsync()
         "death discard shutdown should be logged");
 }
 
-static async Task TestStationaryCombatClosesDiscardBeforeFixedChannelCorrectionAsync()
-{
-    var settings = CreateDiscardScriptSettings(BagCleanupRuleCatalog.GreenManastone, threshold: 2);
-    const uint discardInstanceId = 45;
-    var discardTarget = new InventoryItemSnapshot(
-        167000450,
-        discardInstanceId,
-        "discard-target",
-        1,
-        0,
-        false,
-        24,
-        2);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = CreateSafeDiscardGameApi(capacity: 3, discardTarget);
-    gameApi.InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0);
-    gameApi.InventoryDiscardConfirm = new InventoryDiscardConfirmSnapshot(
-        false,
-        discardInstanceId,
-        InventoryDiscardConfirmKind.PendingWithoutVisibleDialog,
-        0,
-        0,
-        DateTimeOffset.Now);
-    keyboard.AfterPress = key =>
-    {
-        if (key == "Escape")
-        {
-            gameApi.InventoryDiscardConfirm = InventoryDiscardConfirmSnapshot.Closed(DateTimeOffset.Now);
-        }
-        else if (key == "I")
-        {
-            gameApi.InventoryWindow = CreateInventoryWindow(false, 0.0, 0.0);
-        }
-    };
-    var controller = new StationaryCombatController(
-        keyboard,
-        new SemiAutoCombatController(keyboard),
-        new InMemorySharedPathStore());
-    var state = new StationaryCombatState();
-    state.BagCleanup.StartDiscard(1, 2, 1);
-    state.BagCleanup.SetDiscardWindow(gameApi.InventoryWindow);
-    state.BagCleanup.SetDiscardTarget(discardTarget);
-    state.BagCleanup.Advance(BagCleanupStep.WaitDiscardConfirm);
-
-    await controller
-        .SuspendForFixedChannelCorrectionAsync(
-            CreateContext(settings, gameApi, logger),
-            new SemiAutoCombatState(),
-            state)
-        .ConfigureAwait(false);
-
-    AssertFalse(state.BagCleanup.Active, "fixed channel correction should not preserve a resumable discard session");
-    AssertFalse(gameApi.InventoryWindow.IsOpen, "fixed channel correction should close inventory first");
-    AssertFalse(!gameApi.InventoryItems.Any(item => item.InstanceId == discardInstanceId), "pre-confirm fixed channel interruption must keep the item");
-    AssertFalse(!keyboard.Keys.Contains("Escape"), "fixed channel correction should cancel a pending pre-confirm drag");
-    AssertFalse(!keyboard.Keys.Contains("I"), "fixed channel correction should close inventory before resetting combat state");
-    AssertFalse(
-        !logger.Entries.Any(entry =>
-            entry.EventName == "bag_cleanup.discard.interrupted" &&
-            string.Equals(Convert.ToString(entry.Fields["interruptionReason"]), "fixed_channel_correction", StringComparison.Ordinal)),
-        "fixed channel discard shutdown should be logged");
-}
-
 static async Task TestStationaryCombatFinishesFightBeforeReturningHomeAsync()
 {
     var settings = CreateScriptSettings();
@@ -33433,6 +32994,8 @@ static Task TestDmaSnapshotCatalogRegistersEveryBusinessChannelAsync()
     var expected = new[]
     {
         "channel",
+        "channel_switch_ui",
+        "channel_transition",
         "gather",
         "inventory",
         "inventory_capacity",
@@ -33734,6 +33297,50 @@ static async Task TestDmaBusinessReaderRetriesColdStartBelowBoundaryAsync()
             method.Name.Contains("Fresh", StringComparison.OrdinalIgnoreCase) ||
             method.Name.Contains("Current", StringComparison.OrdinalIgnoreCase)),
         "business snapshot API must not expose freshness escape hatches");
+}
+
+static Task TestDmaWorldDeadSelfTargetColdStartAsync()
+{
+    const uint id = 2235040718;
+    AssertFalse(AionVmmGameApi.IsSuspiciousWorldSelfTarget(id, id, 0, 13315, true), "confirmed corpse self target must be valid");
+    AssertFalse(!AionVmmGameApi.IsSuspiciousWorldSelfTarget(id, id, 1, 13315, true), "living self target remains suspicious");
+    AssertFalse(!AionVmmGameApi.IsSuspiciousWorldSelfTarget(id, id, 0, 13315, false), "unread hp must not imply death");
+    AssertFalse(!AionVmmGameApi.IsSuspiciousWorldSelfTarget(id, id, 0, 0, true), "unknown health must not imply death");
+
+    var api = new AionVmmGameApi(new AionVmmGameApiOptions(), NoOpRoadhogLogger.Instance);
+    var context = CreateDmaSnapshotContext();
+    var now = DateTimeOffset.Now;
+    var corpse = new WorldObjectSnapshot(65526, id, "stoneback turtle", "monster", new(1519, 309, 222), 81,
+        CurrentHp: 0, MaxHp: 13315, TargetServerObjectId: id, InteractionState: 38);
+    var attacker = new WorldObjectSnapshot(10, 1234, "attacker", "monster", new(0, 0, 0), 2,
+        CurrentHp: 100, MaxHp: 100, TargetServerObjectId: 7000, IsTargetingLocalPlayer: true);
+    var completeFields = new WorldObjectFieldValidity(true, true, true, true, true, true);
+    WorldObjectReadResult Capture(WorldObjectSnapshot target, bool hpAvailable = true)
+    {
+        var reliable = !AionVmmGameApi.IsSuspiciousWorldSelfTarget(
+            target.ServerObjectId, target.TargetServerObjectId, target.CurrentHp, target.MaxHp, hpAvailable);
+        return new(WorldObjectReadCompleteness.Complete,
+            new[] { new WorldObjectObservation(target, new(hpAvailable, true, reliable, reliable, true, true)),
+                    new WorldObjectObservation(attacker, completeFields) }, CreateDmaWorldReadDiagnostics(now));
+    }
+    AssertFalse(api.StabilizeWorldObjectRead(context, Capture(corpse, false), now).Success,
+        "cold start must not fabricate a corpse from missing health");
+    AssertFalse(api.StabilizeWorldObjectRead(context, Capture(corpse with { CurrentHp = 1 }), now).Success,
+        "cold start must still hold suspicious living self targets");
+    var published = api.StabilizeWorldObjectRead(context, Capture(corpse), now);
+    AssertFalse(!published.Success, "dead self target must allow the first official world snapshot");
+    AssertEqual(2, published.Value!.Count, "corpse and live attacker must both remain in the publication");
+    AssertFalse(published.Value.Single(o => o.ServerObjectId == id).IsAlive, "corpse must remain dead");
+    AssertFalse(!published.Value.Single(o => o.ServerObjectId == 1234).IsTargetingLocalPlayer,
+        "nearby live threat must remain visible to channel safety");
+
+    var liveBefore = corpse with { CurrentHp = 200, TargetServerObjectId = 7000, IsTargetingLocalPlayer = true };
+    api.StabilizeWorldObjectRead(context, Capture(liveBefore), now);
+    var held = api.StabilizeWorldObjectRead(context, Capture(liveBefore with { TargetServerObjectId = id, IsTargetingLocalPlayer = false }), now);
+    var heldTarget = held.Value!.Single(o => o.ServerObjectId == id);
+    AssertEqual(7000u, heldTarget.TargetServerObjectId, "living self reference must hold last good target");
+    AssertFalse(!heldTarget.IsTargetingLocalPlayer, "living self reference must not clear incoming attack");
+    return Task.CompletedTask;
 }
 
 static Task TestDmaWorldSnapshotMergesFieldFailuresAsync()
@@ -34765,7 +34372,7 @@ sealed class InMemoryScriptProfileStore : IScriptProfileStore
     }
 }
 
-sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi
+sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi, IChannelSwitchUiGameApi, IChannelTransitionGameApi
 #if DEBUG
     , IRoadhogApiAddressProbe
     , IRoadhogSnapshotDiagnostics
@@ -34846,6 +34453,22 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
         new(0, 1, 1, DateTimeOffset.Now);
 
     public Queue<OperationResult<ChannelSnapshot>> ChannelReadResults { get; } = new();
+
+    public Func<ChannelTransitionSnapshot>? TransitionRead { get; set; }
+    public Func<CancellationToken, Task<ChannelTransitionSnapshot>>? TransitionReadAsync { get; set; }
+    public int TransitionReadCount { get; private set; }
+    public async Task<OperationResult<ChannelTransitionSnapshot>> ReadChannelTransitionAsync(GameApiReadContext context, CancellationToken cancellationToken = default)
+    {
+        TransitionReadCount++;
+        return OperationResult<ChannelTransitionSnapshot>.Ok(TransitionReadAsync is not null
+            ? await TransitionReadAsync(cancellationToken)
+            : TransitionRead?.Invoke() ?? new(true, Player, Channel, DateTimeOffset.UtcNow));
+    }
+
+    public Func<ChannelSwitchUiSnapshot>? ChannelUiRead { get; set; }
+
+    public Task<OperationResult<ChannelSwitchUiSnapshot>> ReadChannelSwitchUiAsync(GameApiReadContext context, CancellationToken cancellationToken = default) =>
+        Task.FromResult(OperationResult<ChannelSwitchUiSnapshot>.Ok(ChannelUiRead!()));
 
     public int ChannelReadCount { get; private set; }
 

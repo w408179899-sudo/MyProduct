@@ -109,11 +109,13 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                             scriptSettings,
                             fixedChannelState,
                             stationaryCombatState,
-                            () => _stationaryCombat.SuspendForFixedChannelCorrectionAsync(
+                            () => _stationaryCombat.PrepareForChannelSwitchAttemptAsync(
                                 context,
                                 semiAutoState,
                                 stationaryCombatState))
                         .ConfigureAwait(false);
+                await _stationaryCombat.SetChannelSwitchPendingAsync(
+                    context, stationaryCombatState, fixedChannelState.WaitingForPeace).ConfigureAwait(false);
                 if (fixedChannelDelay.HasValue)
                 {
                     if (jumpAssist is not null)
@@ -186,6 +188,13 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                                     .ConfigureAwait(false);
                             }
                         }
+                    }
+                    else if (await _stationaryCombat.TryTickChannelSwitchWaitAsync(
+                                 context, semiAutoPlan, semiAutoState, stationaryCombatState).ConfigureAwait(false) is { } channelWaitDelay)
+                    {
+                        if (jumpAssist is not null && !stationaryCombatState.Fighting)
+                            await jumpAssist.StopAsync("fixed_channel_wait").ConfigureAwait(false);
+                        delay = channelWaitDelay;
                     }
                     else if (await _semiAuto
                                  .EnsureSpiritmasterPetAsync(

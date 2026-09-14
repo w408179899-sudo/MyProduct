@@ -1,160 +1,87 @@
-using Roadhog.Core.Model;
-
 namespace Roadhog.Application.Channels;
 
 public sealed class FixedChannelState
 {
-    public FixedChannelCorrectionStep Step { get; private set; } = FixedChannelCorrectionStep.Monitoring;
-
-    public bool CorrectionActive => Step != FixedChannelCorrectionStep.Monitoring;
-
-    public bool NormalWorkSuspended { get; private set; }
-
+    public int TargetChannelNumber { get; private set; }
+    public uint MapId { get; private set; }
+    public int ObservedChannelNumber { get; private set; }
+    public bool Completed { get; private set; }
+    public bool WaitingForPeace { get; private set; }
+    public bool LocationObserved { get; private set; }
+    public DateTimeOffset NextLocationReadAt { get; set; } = DateTimeOffset.MinValue;
+    public DateTimeOffset? PeaceSince { get; private set; }
+    public DateTimeOffset NextAttemptAt { get; private set; } = DateTimeOffset.MinValue;
     public DateTimeOffset NextChannelReadAt { get; set; } = DateTimeOffset.MinValue;
-
-    public string RevivePathName { get; private set; } = string.Empty;
-
-    public IReadOnlyList<Vector3Snapshot> RevivePoints { get; private set; } = Array.Empty<Vector3Snapshot>();
-
-    public DateTimeOffset NextReturnAttemptAt { get; private set; } = DateTimeOffset.MinValue;
-
-    public DateTimeOffset InitialWaitUntil { get; private set; } = DateTimeOffset.MinValue;
-
-    public bool InitialWaitCompleted { get; private set; }
-
-    public bool ReachedRevivalPoint { get; private set; }
-
-    public uint WaitingMapId { get; private set; }
-
-    public uint SwitchAttemptMapId { get; private set; }
-
-    public DateTimeOffset SwitchVerificationDeadline { get; private set; } = DateTimeOffset.MinValue;
-
     public int SwitchAttemptCount { get; private set; }
+    public bool AwaitingConfirmation { get; set; }
+    public uint AttemptMapId { get; private set; }
+    private uint? _lastHp;
 
-    public DateTimeOffset SwitchAttemptStartedAt { get; private set; } = DateTimeOffset.MinValue;
-
-    public string LastDiagnosticKey { get; private set; } = string.Empty;
-
-    public bool MarkNormalWorkSuspended()
+    public void ObserveLocation(int target, uint map, int channel)
     {
-        if (NormalWorkSuspended)
+        if (TargetChannelNumber != target) { Reset(); TargetChannelNumber = target; }
+        LocationObserved = true;
+        if (MapId != map || ObservedChannelNumber != channel)
         {
-            return false;
+            PeaceSince = null;
+            _lastHp = null;
+            MapId = map;
+            ObservedChannelNumber = channel;
         }
+    }
 
-        NormalWorkSuspended = true;
+    public void BreakPeace() => PeaceSince = null;
+
+    public void Complete()
+    {
+        Completed = true;
+        WaitingForPeace = false;
+        AwaitingConfirmation = false;
+    }
+
+    public bool BeginWaitingForPeace()
+    {
+        if (WaitingForPeace) return false;
+        WaitingForPeace = true;
+        BreakPeace();
         return true;
     }
 
-    public void BeginCorrection(string pathName, IReadOnlyList<Vector3Snapshot> revivePoints)
+    public void CancelWaitingForPeace() => WaitingForPeace = false;
+
+    public void ObserveActivity(uint hp, bool busy, DateTimeOffset now)
     {
-        Step = FixedChannelCorrectionStep.ReturningToRevivalPoint;
-        RevivePathName = pathName;
-        RevivePoints = revivePoints;
-        NextReturnAttemptAt = DateTimeOffset.MinValue;
-        InitialWaitUntil = DateTimeOffset.MinValue;
-        InitialWaitCompleted = false;
-        ReachedRevivalPoint = false;
-        WaitingMapId = 0;
-        SwitchAttemptMapId = 0;
-        SwitchAttemptStartedAt = DateTimeOffset.MinValue;
-        SwitchVerificationDeadline = DateTimeOffset.MinValue;
-        SwitchAttemptCount = 0;
-        LastDiagnosticKey = string.Empty;
+        if (busy || (_lastHp.HasValue && hp < _lastHp.Value)) PeaceSince = null;
+        else PeaceSince ??= now;
+        _lastHp = hp;
     }
 
-    public void SetRevivePath(string pathName, IReadOnlyList<Vector3Snapshot> revivePoints)
-    {
-        RevivePathName = pathName;
-        RevivePoints = revivePoints;
-        LastDiagnosticKey = string.Empty;
-    }
+    public bool IsPeaceful(DateTimeOffset now) => PeaceSince.HasValue && now - PeaceSince.Value >= FixedChannelController.RequiredPeaceDuration;
 
-    public void MarkReturnAttempt(DateTimeOffset retryAt)
+    public void StartAttempt(DateTimeOffset now)
     {
-        NextReturnAttemptAt = retryAt;
-    }
-
-    public void EnterInitialWait(DateTimeOffset now, TimeSpan wait, uint mapId)
-    {
-        Step = FixedChannelCorrectionStep.WaitingBeforeSwitch;
-        ReachedRevivalPoint = true;
-        WaitingMapId = mapId;
-        InitialWaitUntil = InitialWaitCompleted ? now : now + wait;
-        LastDiagnosticKey = string.Empty;
-    }
-
-    public void RestartInitialWait(DateTimeOffset now, TimeSpan wait, uint mapId)
-    {
-        Step = FixedChannelCorrectionStep.WaitingBeforeSwitch;
-        ReachedRevivalPoint = true;
-        WaitingMapId = mapId;
-        InitialWaitUntil = now + wait;
-        InitialWaitCompleted = false;
-        LastDiagnosticKey = string.Empty;
-    }
-
-    public void LeaveRevivalPoint()
-    {
-        Step = FixedChannelCorrectionStep.ReturningToRevivalPoint;
-        ReachedRevivalPoint = false;
-        NextReturnAttemptAt = DateTimeOffset.MinValue;
-        if (!InitialWaitCompleted)
-        {
-            InitialWaitUntil = DateTimeOffset.MinValue;
-        }
-
-        LastDiagnosticKey = string.Empty;
-    }
-
-    public int StartSwitchAttempt(DateTimeOffset now, TimeSpan verificationWindow, uint mapId)
-    {
-        InitialWaitCompleted = true;
-        Step = FixedChannelCorrectionStep.VerifyingSwitch;
-        SwitchAttemptMapId = mapId;
-        SwitchAttemptStartedAt = now;
-        SwitchVerificationDeadline = now + verificationWindow;
         SwitchAttemptCount++;
-        LastDiagnosticKey = string.Empty;
-        return SwitchAttemptCount;
+        WaitingForPeace = false;
+        AttemptMapId = MapId;
+        AwaitingConfirmation = true;
+        NextAttemptAt = now + FixedChannelController.RetryInterval;
     }
 
-    public bool ShouldLog(string diagnosticKey)
+    public void Reset()
     {
-        if (string.Equals(LastDiagnosticKey, diagnosticKey, StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        LastDiagnosticKey = diagnosticKey;
-        return true;
-    }
-
-    public void Reset(DateTimeOffset nextReadAt)
-    {
-        Step = FixedChannelCorrectionStep.Monitoring;
-        NormalWorkSuspended = false;
-        NextChannelReadAt = nextReadAt;
-        RevivePathName = string.Empty;
-        RevivePoints = Array.Empty<Vector3Snapshot>();
-        NextReturnAttemptAt = DateTimeOffset.MinValue;
-        InitialWaitUntil = DateTimeOffset.MinValue;
-        InitialWaitCompleted = false;
-        ReachedRevivalPoint = false;
-        WaitingMapId = 0;
-        SwitchAttemptMapId = 0;
-        SwitchAttemptStartedAt = DateTimeOffset.MinValue;
-        SwitchVerificationDeadline = DateTimeOffset.MinValue;
+        TargetChannelNumber = 0;
+        MapId = 0;
+        ObservedChannelNumber = 0;
+        Completed = false;
+        WaitingForPeace = false;
+        LocationObserved = false;
+        NextLocationReadAt = DateTimeOffset.MinValue;
+        PeaceSince = null;
+        _lastHp = null;
+        NextAttemptAt = DateTimeOffset.MinValue;
+        NextChannelReadAt = DateTimeOffset.MinValue;
         SwitchAttemptCount = 0;
-        LastDiagnosticKey = string.Empty;
+        AwaitingConfirmation = false;
+        AttemptMapId = 0;
     }
-}
-
-public enum FixedChannelCorrectionStep
-{
-    Monitoring,
-    ReturningToRevivalPoint,
-    WaitingBeforeSwitch,
-    VerifyingSwitch
 }

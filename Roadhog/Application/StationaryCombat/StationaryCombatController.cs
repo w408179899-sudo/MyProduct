@@ -1,4 +1,4 @@
-using Roadhog.Application.Input;
+﻿using Roadhog.Application.Input;
 using Roadhog.Application.BagCleanup;
 using Roadhog.Application.SemiAuto;
 using Roadhog.Application.Radar;
@@ -14,7 +14,7 @@ using Roadhog.Core.Radar;
 
 namespace Roadhog.Application.StationaryCombat;
 
-public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
+public sealed partial class StationaryCombatController : ITeamTacticalTargetRangePolicy
 {
     private static readonly TimeSpan TabInterval = TimeSpan.FromMilliseconds(180);
     private static readonly TimeSpan MoveTickDelay = TimeSpan.FromMilliseconds(80);
@@ -96,26 +96,17 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
             : new BagCleanupController(input, pathStore, ExecutePathOnceAsync);
     }
 
-    public async Task SuspendForFixedChannelCorrectionAsync(
+    public async Task PrepareForChannelSwitchAttemptAsync(
         AccountWorkerContext context,
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state)
     {
         semiAutoState.ResetAttackKeyPressThrottle();
-        await StopSoloJumpAsync(state, "fixed_channel_correction").ConfigureAwait(false);
-        StopNextTargetPreAim(context, state, "fixed_channel_correction", clearCandidate: true);
+        if (state.JumpAssist is not null)
+            await state.JumpAssist.StopAsync("fixed_channel_attempt").ConfigureAwait(false);
+        StopNextTargetPreAim(context, state, "fixed_channel_attempt", clearCandidate: true);
         await StopMovementAsync(context, state, releaseRightMouse: true).ConfigureAwait(false);
         StopPathFollowPoller(state);
-        state.ObstacleNavigation.Reset();
-        await AbortDiscardForExternalInterruptionIfActiveAsync(
-                context,
-                state,
-                "fixed_channel_correction")
-            .ConfigureAwait(false);
-        if (state.TopLevelState != StationaryCombatTopLevelState.DeathRecovery)
-        {
-            state.PrepareForFixedChannelCorrection(DateTimeOffset.Now);
-        }
     }
 
     public async Task<TeamTacticalTargetRangeDecision> EvaluateNewTargetAsync(
@@ -9890,7 +9881,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
         Vector3Snapshot home,
         double radius)
     {
-        if (!IsSmartPreAimEnabled(context) ||
+        if (state.ChannelSwitchPending || !IsSmartPreAimEnabled(context) ||
             !state.Fighting ||
             !currentTarget.IsMonsterAlive)
         {
@@ -11245,7 +11236,7 @@ public sealed class StationaryCombatController : ITeamTacticalTargetRangePolicy
 
     private static bool ShouldPauseNextTargetPreAimCameraAdjustment(StationaryCombatState state)
     {
-        return state.BagCleanup.Active ||
+        return state.ChannelSwitchPending || state.BagCleanup.Active ||
                state.CleanupReturnToCombatActive;
     }
 

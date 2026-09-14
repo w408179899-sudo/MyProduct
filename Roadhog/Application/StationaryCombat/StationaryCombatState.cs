@@ -1,4 +1,4 @@
-using Roadhog.Application.BagCleanup;
+﻿using Roadhog.Application.BagCleanup;
 using Roadhog.Application.JumpAssist;
 using Roadhog.Application.Team;
 using Roadhog.Core.Model;
@@ -9,6 +9,7 @@ namespace Roadhog.Application.StationaryCombat;
 
 public sealed class StationaryCombatState
 {
+    public bool ChannelSwitchPending { get; internal set; }
     public StationaryObstacleNavigationState ObstacleNavigation { get; } = new();
     public CombatJumpAssistSession? JumpAssist { get; set; }
 
@@ -253,32 +254,6 @@ public sealed class StationaryCombatState
         ResetCurrentTargetStallObservation();
         ClearPendingTabVerification();
         LeaderTacticalMark.Reset();
-    }
-
-    public void PrepareForFixedChannelCorrection(DateTimeOffset now)
-    {
-        ObstacleNavigation.Reset();
-        ReturningHome = false;
-        LootAfterKill.Reset();
-        BagCleanup.Reset();
-        NoKillRecovery.ResetWatch(now);
-        CleanupReturnToCombatActive = false;
-        PathCombat.Reset();
-        Gather.Reset();
-        CachedGatherSnapshot = null;
-        CachedWorldObjects = Array.Empty<WorldObjectSnapshot>();
-        LastGatherScanAt = DateTimeOffset.MinValue;
-        LastWorldScanAt = DateTimeOffset.MinValue;
-        ClearNoTargetRest();
-        ClearStartupRecovery();
-        ClearTarget();
-        ResetReturnHomeStuckTracking();
-        IgnoredTargetEntityIds.Clear();
-        IgnoredTargetServerObjectIds.Clear();
-        lock (_targetSelectionFilterSync)
-        {
-            _temporaryTargetExclusions.Clear();
-        }
     }
 
     public void EnterDeathRecovery(DateTimeOffset now)

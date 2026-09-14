@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Drawing.Drawing2D;
 using Roadhog.Application;
 using Roadhog.Application.Shell;
@@ -53,13 +53,9 @@ namespace Roadhog
         private Label? combatModeLabel;
         private RoundedComboBox? combatModeCombo;
         private RoundedComboBox? fixedChannelCombo;
-        private Panel? fixedChannelMousePanel;
-        private RoundedTextBox? fixedChannelMenuPointTextBox;
-        private RoundedTextBox? fixedChannelServicePointTextBox;
-        private RoundedTextBox? fixedChannelSwitchChannelPointTextBox;
-        private RoundedTextBox? fixedChannelChannelMovePointTextBox;
-        private RoundedTextBox? fixedChannelSelectChannelPointTextBox;
-        private RoundedTextBox? fixedChannelMovePointTextBox;
+        private Button? fixedChannelTestButton;
+        private CancellationTokenSource? _channelTestCancellation;
+        private FixedChannelMouseScriptSettings _legacyChannelMouse = new();
         private Label? stationaryCombatRadiusLabel;
         private RoundedTextBox? stationaryCombatRadiusTextBox;
         private Label? stationaryCombatRadiusUnitLabel;
@@ -246,6 +242,7 @@ namespace Roadhog
 
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
+            _channelTestCancellation?.Cancel();
             pathRecordTimer.Stop();
             pathRecordTimer.Dispose();
             base.OnFormClosed(e);
@@ -440,7 +437,7 @@ namespace Roadhog
                     ? settings.FixedChannelNumber
                     : 0;
             }
-            ApplyFixedChannelMouseSettings(settings.FixedChannelMouse ?? new FixedChannelMouseScriptSettings());
+            _legacyChannelMouse = (settings.FixedChannelMouse ?? new FixedChannelMouseScriptSettings()).Clone();
             SetStationaryCombatRadius(settings.Combat);
             SetStalledTargetExclusionSeconds(settings.Combat);
             SetPathCombatRadius(settings.Combat);
@@ -553,44 +550,6 @@ namespace Roadhog
                     AddManualSkillMappingRow(manualSkillMappingList, mapping.SkillType, mapping.SkillName, mapping.Key);
                 }
             }
-        }
-
-        private void ApplyFixedChannelMouseSettings(FixedChannelMouseScriptSettings settings)
-        {
-            SetText(fixedChannelMenuPointTextBox, FormatFixedChannelPoint(settings.Menu));
-            SetText(fixedChannelServicePointTextBox, FormatFixedChannelPoint(settings.Service));
-            SetText(fixedChannelSwitchChannelPointTextBox, FormatFixedChannelPoint(settings.SwitchChannel));
-            SetText(fixedChannelChannelMovePointTextBox, FormatFixedChannelPoint(settings.ChannelMove));
-            SetText(fixedChannelSelectChannelPointTextBox, FormatFixedChannelPoint(settings.SelectChannel));
-            SetText(fixedChannelMovePointTextBox, FormatFixedChannelPoint(settings.Move));
-        }
-
-        private FixedChannelMouseScriptSettings CaptureFixedChannelMouseSettings()
-        {
-            return new FixedChannelMouseScriptSettings
-            {
-                Menu = ReadFixedChannelPoint(fixedChannelMenuPointTextBox),
-                Service = ReadFixedChannelPoint(fixedChannelServicePointTextBox),
-                SwitchChannel = ReadFixedChannelPoint(fixedChannelSwitchChannelPointTextBox),
-                ChannelMove = ReadFixedChannelPoint(fixedChannelChannelMovePointTextBox),
-                SelectChannel = ReadFixedChannelPoint(fixedChannelSelectChannelPointTextBox),
-                Move = ReadFixedChannelPoint(fixedChannelMovePointTextBox)
-            };
-        }
-
-        private static string FormatFixedChannelPoint(ScreenPointScriptSettings? point)
-        {
-            return FormatScreenPoint(point?.X ?? 0, point?.Y ?? 0);
-        }
-
-        private static ScreenPointScriptSettings ReadFixedChannelPoint(RoundedTextBox? textBox)
-        {
-            var point = ReadScreenPoint(textBox, 0, 0);
-            return new ScreenPointScriptSettings
-            {
-                X = point.X,
-                Y = point.Y
-            };
         }
 
         private bool SaveCurrentSettings(out string error)
@@ -765,7 +724,7 @@ namespace Roadhog
                 FixedChannelNumber = fixedChannelCombo?.SelectedIndex is >= ScriptSettings.MinimumFixedChannelNumber and <= ScriptSettings.MaximumFixedChannelNumber
                     ? fixedChannelCombo.SelectedIndex
                     : 0,
-                FixedChannelMouse = CaptureFixedChannelMouseSettings(),
+                FixedChannelMouse = _legacyChannelMouse.Clone(),
                 Combat = new CombatScriptSettings
                 {
                     EnableLoot = enableLootCheckBox?.Checked ?? true,
@@ -1313,88 +1272,50 @@ namespace Roadhog
                     .Concat(Enumerable.Range(1, ScriptSettings.MaximumFixedChannelNumber).Select(number => number + "\u9891\u9053"))
                     .ToArray());
             fixedChannelCombo.Name = "fixedChannelCombo";
-            CreateFixedChannelMousePanel(page);
+            fixedChannelTestButton = AddButton(page, "切换测试", 758, 146, 86, 28);
+            fixedChannelTestButton.Name = "fixedChannelTestButton";
+            fixedChannelTestButton.Enabled = fixedChannelCombo.SelectedIndex > 0;
+            fixedChannelCombo.SelectedIndexChanged += (_, _) =>
+                fixedChannelTestButton.Enabled = _channelTestCancellation is null && fixedChannelCombo.SelectedIndex > 0;
+            fixedChannelTestButton.Click += TestFixedChannelButton_Click;
             RefreshSmartPreAimOriginControlState();
             RefreshCombatModeVisibility();
 
             return tab;
         }
 
-        private void CreateFixedChannelMousePanel(Control page)
+        private async void TestFixedChannelButton_Click(object? sender, EventArgs e)
         {
-            fixedChannelMousePanel = new Panel
+            if (_channelTestCancellation is not null || fixedChannelCombo is null || fixedChannelTestButton is null) return;
+            var target = fixedChannelCombo.SelectedIndex;
+            if (target < 1) return;
+            using var cancellation = new CancellationTokenSource();
+            _channelTestCancellation = cancellation;
+            fixedChannelTestButton.Enabled = false;
+            fixedChannelCombo.Enabled = false;
+            fixedChannelTestButton.Text = "切换中…";
+            try
             {
-                BackColor = _pageBackground,
-                BorderStyle = BorderStyle.FixedSingle,
-                Location = new Point(552, 184),
-                Name = "fixedChannelMousePanel",
-                Size = new Size(294, 254)
-            };
-            page.Controls.Add(fixedChannelMousePanel);
-
-            AddLabel(
-                fixedChannelMousePanel,
-                "\u9891\u9053\u5207\u6362\u5750\u6807",
-                8,
-                6,
-                120,
-                24,
-                _textGreen,
-                FontStyle.Bold);
-
-            fixedChannelMenuPointTextBox = AddFixedChannelPointEditor(
-                fixedChannelMousePanel,
-                "\u83dc\u5355",
-                34,
-                "fixedChannelMenuPointTextBox",
-                "fixedChannelMenuTestMoveButton");
-            fixedChannelServicePointTextBox = AddFixedChannelPointEditor(
-                fixedChannelMousePanel,
-                "\u670d\u52a1",
-                68,
-                "fixedChannelServicePointTextBox",
-                "fixedChannelServiceTestMoveButton");
-            fixedChannelSwitchChannelPointTextBox = AddFixedChannelPointEditor(
-                fixedChannelMousePanel,
-                "\u5207\u6362\u9891\u9053",
-                102,
-                "fixedChannelSwitchChannelPointTextBox",
-                "fixedChannelSwitchChannelTestMoveButton");
-            fixedChannelChannelMovePointTextBox = AddFixedChannelPointEditor(
-                fixedChannelMousePanel,
-                "\u9891\u9053\u79fb\u52a8",
-                136,
-                "fixedChannelChannelMovePointTextBox",
-                "fixedChannelChannelMoveTestMoveButton");
-            fixedChannelSelectChannelPointTextBox = AddFixedChannelPointEditor(
-                fixedChannelMousePanel,
-                "\u9009\u62e9\u9891\u9053",
-                170,
-                "fixedChannelSelectChannelPointTextBox",
-                "fixedChannelSelectChannelTestMoveButton");
-            fixedChannelMovePointTextBox = AddFixedChannelPointEditor(
-                fixedChannelMousePanel,
-                "\u79fb\u52a8",
-                204,
-                "fixedChannelMovePointTextBox",
-                "fixedChannelMoveTestMoveButton");
-        }
-
-        private RoundedTextBox AddFixedChannelPointEditor(
-            Control parent,
-            string label,
-            int y,
-            string textBoxName,
-            string buttonName)
-        {
-            AddLabel(parent, label, 8, y + 2, 76, 24, _textGreen, FontStyle.Bold);
-            var textBox = AddTextBox(parent, "0,0", 86, y, 96, 28);
-            textBox.Name = textBoxName;
-            var testButton = AddButton(parent, "\u79fb\u52a8\u6d4b\u8bd5", 190, y, 92, 28);
-            testButton.Name = buttonName;
-            testButton.Click += async (_, _) =>
-                await TestScreenPointMoveAsync(textBox, testButton, 0, 0, label).ConfigureAwait(true);
-            return textBox;
+                var result = await _runtime.TestSwitchChannelAsync(_account, target, cancellation.Token);
+                if (!IsDisposed && !Disposing && !cancellation.IsCancellationRequested)
+                    MessageBox.Show(this, result.Success ? $"已确认当前为 {target} 频道。" : result.Error,
+                        "频道切换测试", MessageBoxButtons.OK, result.Success ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+            }
+            catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+            catch (Exception ex)
+            {
+                if (!IsDisposed && !Disposing) MessageBox.Show(this, ex.Message, "频道切换测试", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            finally
+            {
+                _channelTestCancellation = null;
+                if (!IsDisposed && !Disposing)
+                {
+                    fixedChannelCombo.Enabled = true;
+                    fixedChannelTestButton.Enabled = fixedChannelCombo.SelectedIndex > 0;
+                    fixedChannelTestButton.Text = "切换测试";
+                }
+            }
         }
 
         private void RefreshCombatModeVisibility()

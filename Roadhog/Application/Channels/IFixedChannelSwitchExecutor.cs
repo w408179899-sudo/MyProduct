@@ -7,7 +7,11 @@ public sealed record FixedChannelSwitchRequest(
     int TargetChannelNumber,
     uint MapId,
     int AttemptNumber,
-    IReadOnlyList<FixedChannelClickPoint> ClickPoints);
+    IReadOnlyList<FixedChannelClickPoint> ClickPoints)
+{
+    public Roadhog.Core.Accounts.AccountConfig? Config { get; init; }
+    public Func<Roadhog.Core.Api.IRoadhogSnapshotReader, Task<bool>>? CanUseMouseAsync { get; init; }
+}
 
 public sealed record FixedChannelClickPoint(
     FixedChannelClickStep Step,

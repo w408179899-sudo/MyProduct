@@ -123,6 +123,22 @@ internal sealed class RoadhogSnapshotReader : IRoadhogSnapshotReader
     public Task<PublishedGameSnapshot<ChannelSnapshot>> ReadChannelAsync(long afterVersion = 0) =>
         ReadChannelAsync(_readContext, afterVersion);
 
+    public Task<PublishedGameSnapshot<ChannelSwitchUiSnapshot>> ReadChannelSwitchUiAsync(long afterVersion = 0) =>
+        ReadUntilPublishedAsync(
+            "channel_switch_ui",
+            () => _gameApi is IChannelSwitchUiGameApi api
+                ? api.ReadChannelSwitchUiAsync(_readContext, _stopToken)
+                : Missing<ChannelSwitchUiSnapshot>("Channel UI snapshot channel is unavailable."),
+            afterVersion);
+
+    public Task<PublishedGameSnapshot<ChannelTransitionSnapshot>> ReadChannelTransitionAsync(long afterVersion = 0) =>
+        ReadUntilPublishedAsync(
+            "channel_transition",
+            () => _gameApi is IChannelTransitionGameApi api
+                ? api.ReadChannelTransitionAsync(_readContext, _stopToken)
+                : Missing<ChannelTransitionSnapshot>("Channel transition snapshot channel is unavailable."),
+            afterVersion);
+
     private Task<PublishedGameSnapshot<ChannelSnapshot>> ReadChannelAsync(
         GameApiReadContext readContext,
         long afterVersion) =>

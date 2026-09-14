@@ -24,6 +24,7 @@ public sealed class AccountOrchestrator
     private readonly ISharedPathStore? _pathStore;
     private readonly Dictionary<string, string> _hardwareOwners = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _syncRoot = new();
+    private bool _manualInputActive;
 
     public AccountOrchestrator(
         IRoadhogSnapshotReaderFactory snapshotReaders,
@@ -48,6 +49,27 @@ public sealed class AccountOrchestrator
     }
 
     public OperationResult Start(AccountConfig config)
+    {
+        lock (_syncRoot)
+        {
+            if (_manualInputActive) return OperationResult.Fail("手动鼠标测试正在执行，请等待测试完成。");
+            return StartCore(config);
+        }
+    }
+
+    public async Task<OperationResult> RunManualInputAsync(Func<Task<OperationResult>> action)
+    {
+        lock (_syncRoot)
+        {
+            if (_manualInputActive || _workers.Values.Any(worker => worker.IsRunning))
+                return OperationResult.Fail("请先停止本程序中的脚本和其他鼠标测试，再执行频道切换测试。");
+            _manualInputActive = true;
+        }
+        try { return await action().ConfigureAwait(false); }
+        finally { lock (_syncRoot) _manualInputActive = false; }
+    }
+
+    private OperationResult StartCore(AccountConfig config)
     {
         if (_licenseRuntimeGate is not null && !_licenseRuntimeGate.IsAuthorized)
         {
