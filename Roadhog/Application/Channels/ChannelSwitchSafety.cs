@@ -17,13 +17,17 @@ internal static class ChannelSwitchSafety
         var player = (await snapshots.ReadPlayerAsync().ConfigureAwait(false)).Value;
         if (player.IsDead || IsWorkingOnCombat(state)) return (player.CurrentHp, true);
         var target = (await snapshots.ReadLockedTargetAsync().ConfigureAwait(false)).Value;
-        if (target.IsMonsterAlive || (target.HasTarget && target.IsAlive && target.IsTargetingLocalPlayer)) return (player.CurrentHp, true);
         var petId = state.LocalCombatSidePetServerObjectId;
         if (player.IsSpiritmaster)
         {
             var pet = (await snapshots.ReadSummonedPetAsync().ConfigureAwait(false)).Value;
             petId = pet.IsSummoned ? pet.ServerObjectId : 0;
         }
+        // A selected live object may be idle or already abandoned by combat.
+        // Only an actual local-side threat should keep resetting the peace timer.
+        if (target.HasTarget && target.IsAlive &&
+            (target.IsTargetingLocalPlayer || target.TargetServerObjectIdMatchesLocal ||
+             (petId != 0 && target.TargetServerObjectId == petId))) return (player.CurrentHp, true);
         var world = (await snapshots.ReadWorldObjectsAsync().ConfigureAwait(false)).Value;
         return (player.CurrentHp, world.Any(item => item.IsAlive &&
             (item.IsTargetingLocalPlayer || (petId != 0 && item.TargetServerObjectId == petId))));

@@ -10,11 +10,75 @@ using Roadhog.Core.Model;
 
 internal static class ChannelPeaceTests
 {
+    public static async Task SelectedTargetIsNotCombatAsync()
+    {
+        var h = new Harness();
+        h.Api.TargetEntityId = 807;
+        h.Api.TargetOwnServerObjectId = 2147529918;
+        h.Api.TargetCurrentHp = h.Api.TargetMaxHp = 172;
+        await h.Tick();
+        Require(!h.Combat.Fighting && h.Combat.CurrentTargetEntityId == 0,
+            "startup selection alone must not become a fight");
+        await h.Tick(14);
+        Require(h.Executor.Requests.Count == 0, "selected idle target still requires fifteen seconds of peace");
+        await h.Tick(1);
+        Require(h.Executor.Requests.Count == 1, "selected non-attacking live target must not starve channel correction");
+        Require(h.Input.Keys.IsEmpty, "idle selection must not trigger attacks or target-changing keys");
+    }
+
+    public static async Task AbandonedSelectedTargetAllowsPeaceAsync()
+    {
+        var h = new Harness();
+        h.Api.TargetEntityId = 807;
+        h.Api.TargetOwnServerObjectId = 2147529918;
+        h.Api.TargetCurrentHp = h.Api.TargetMaxHp = 172;
+        h.Combat.Fighting = true;
+        h.Combat.SetCurrentTarget(807, 2147529918);
+        h.Combat.MarkCandidate(807, 2147529918, DateTimeOffset.Now);
+        await h.Tick();
+        Require(h.Combat.Fighting && h.Executor.Requests.Count == 0, "active script fight must still block switching");
+        // Match the existing stalled-target exclusion transition; the game keeps its selection.
+        h.Combat.TemporarilyExcludeTarget(807, 2147529918, DateTimeOffset.Now.AddMinutes(1), DateTimeOffset.Now.AddMinutes(1).AddSeconds(1));
+        h.Combat.ClearTarget();
+        await h.Tick(1);
+        await h.Tick(14);
+        Require(h.Executor.Requests.Count == 0, "abandonment must start a new full peace observation");
+        await h.Tick(1);
+        Require(h.Executor.Requests.Count == 1 && h.Api.TargetEntityId == 807 && h.Api.TargetCurrentHp == 172,
+            "abandoned target remaining selected must not reset peace forever");
+    }
+
+    public static async Task SelectedTargetThreatGuardsAsync()
+    {
+        var h = new Harness();
+        h.Api.TargetEntityId = 807;
+        h.Api.TargetOwnServerObjectId = 2147529918;
+        h.Api.TargetIsTargetingLocalPlayer = true;
+        Require((await ChannelSwitchSafety.ReadAsync(h.Context.Snapshots, h.Combat)).Busy,
+            "selected attacker must block even when absent from the world list");
+        h.Api.TargetIsTargetingLocalPlayer = false;
+        h.Api.LocalServerObjectId = 1234;
+        h.Api.TargetServerObjectId = 1234;
+        Require((await ChannelSwitchSafety.ReadAsync(h.Context.Snapshots, h.Combat)).Busy,
+            "explicit local server-object targeting must block without the convenience flag");
+        h.Api.LocalServerObjectId = 0;
+        h.Api.TargetServerObjectId = 5678;
+        h.Combat.LocalCombatSidePetServerObjectId = 5678;
+        Require((await ChannelSwitchSafety.ReadAsync(h.Context.Snapshots, h.Combat)).Busy,
+            "selected pet attacker must still block channel input");
+        h.Api.TargetServerObjectId = 0;
+        Require(!(await ChannelSwitchSafety.ReadAsync(h.Context.Snapshots, h.Combat)).Busy,
+            "selection with no attack evidence must allow peace observation");
+    }
+
     public static async Task FinishCurrentThenReservePeaceAsync()
     {
         var h = new Harness();
         h.Api.TargetEntityId = 100;
         h.Api.TargetOwnServerObjectId = 100;
+        h.Combat.Fighting = true;
+        h.Combat.SetCurrentTarget(100, 100);
+        h.Combat.MarkCandidate(100, 100, DateTimeOffset.Now);
         await h.Tick();
         Require(h.Combat.Fighting && h.Combat.CurrentTargetEntityId == 100, "deadline must preserve current locked fight");
         Require(h.Channel.WaitingForPeace && h.Executor.Requests.Count == 0, "must wait for current fight before switching");
@@ -98,6 +162,9 @@ internal static class ChannelPeaceTests
     public static async Task WorkerActuallyHoldsAsync()
     {
         var h = new Harness();
+        h.Api.TargetEntityId = 807;
+        h.Api.TargetOwnServerObjectId = 2147529918;
+        h.Api.TargetCurrentHp = h.Api.TargetMaxHp = 172;
         using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(8));
         var context = new AccountWorkerContext(h.Context.Config, h.Api, h.Logger, new AccountRuntimeManager(h.Logger),
             new AccountWorkerOptions { TickInterval = TimeSpan.FromMilliseconds(10) }, stop.Token);

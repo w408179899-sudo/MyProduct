@@ -18,16 +18,9 @@ public sealed partial class StationaryCombatController
         await WaitForNextTargetPreAimCameraIdleAsync(context, state).ConfigureAwait(false);
         if (state.Fighting || ChannelSwitchSafety.HasExclusiveWork(state)) return;
 
-        // Finish the monster already locked at the deadline, including semi-auto/team combat.
-        // A merely planned next candidate must not keep the account busy forever.
-        var locked = await ReadLockedTargetAsync(context).ConfigureAwait(false);
-        if (locked.IsMonsterAlive)
-        {
-            state.SetCurrentTarget(locked);
-            state.MarkCandidate(locked.TargetEntityId, locked.ServerObjectId, DateTimeOffset.Now);
-            state.Fighting = true;
-        }
-        else state.ClearTarget();
+        // Preserve an established fight above; selecting a living object does not
+        // establish combat. The defense branch can still acquire incoming attackers.
+        state.ClearTarget();
     }
 
     // Called after the life guard and before team target acquisition or normal work.
