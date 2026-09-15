@@ -1,4 +1,6 @@
 using System.Text;
+using System.Globalization;
+using System.Text.Json;
 using Roadhog.Core.Model;
 
 namespace Roadhog.Infrastructure.Vmm;
@@ -8,6 +10,7 @@ internal sealed class ChannelSwitchUiDecoder(Func<ulong, int, byte[]> read)
 {
     private readonly List<(ulong Address, byte[] Value)> _guards = new();
     private int _width, _height;
+    private ulong _dialogAddress;
 
     public ChannelSwitchUiSnapshot Read(ulong gameBase)
     {
@@ -21,7 +24,7 @@ internal sealed class ChannelSwitchUiDecoder(Func<ulong, int, byte[]> read)
         var start = Slot(17);
         var main = Slot(376);
         var sub = Slot(377);
-        var dialog = Slot(227);
+        var dialog = _dialogAddress = Slot(227);
         ChannelUiPoint? menu = null, service = null, switchItem = null, drop = null, move = null;
         var options = new List<ChannelUiOption>();
         var open = false;
@@ -63,17 +66,26 @@ internal sealed class ChannelSwitchUiDecoder(Func<ulong, int, byte[]> read)
                 Require(end >= begin && (end - begin) % 96 == 0 && (end - begin) / 96 <= 100, "Invalid channel entries.");
                 var count = (int)((end - begin) / 96);
                 Require(count > 0 && selected >= 0 && selected <= count, "Invalid channel selection.");
-                var rect = Rect(list, 0x58);
-                var client = Rect(list, 0x78);
-                var padding = D(list + 0x350);
-                var border = D(list + 0x258);
-                var scroll = D(list + 0x360);
-                var maxRows = I(combo + 0x308);
-                // Full visible lists expose their exact scaled row height, including font scaling.
-                // Do not guess coordinates for a clipped/scrolling list.
-                var rowHeight = (rect.H - 2 * padding - 2 * border) / count;
-                var canLocateRows = expanded && count <= maxRows && Math.Abs(scroll) < 0.01 &&
-                    rowHeight >= D(list + 0x308) - 0.01 && rowHeight is >= 4 and <= 100;
+                (double X, double Y, double W, double H) rect = default, client = default;
+                var rowHeight = 0d;
+                var canLocateRows = false;
+                if (expanded)
+                {
+                    // A collapsed list may have zero outer height and negative client height.
+                    // Publish the dialog/buttons first; row geometry is only needed after expansion.
+                    Require(Visible(list), "Expanded channel list is not visible.");
+                    rect = Rect(list, 0x58, "channel_list.bounds");
+                    client = Rect(list, 0x78, "channel_list.client");
+                    var padding = D(list + 0x350);
+                    var border = D(list + 0x258);
+                    var scroll = D(list + 0x360);
+                    var maxRows = I(combo + 0x308);
+                    // Full visible lists expose their exact scaled row height, including font scaling.
+                    // Do not guess coordinates for a clipped/scrolling list.
+                    rowHeight = (rect.H - 2 * padding - 2 * border) / count;
+                    canLocateRows = count <= maxRows && Math.Abs(scroll) < 0.01 &&
+                        rowHeight >= D(list + 0x308) - 0.01 && rowHeight is >= 4 and <= 100;
+                }
                 for (var i = 0; i < count; i++)
                 {
                     var entry = begin + (ulong)i * 96;
@@ -97,14 +109,14 @@ internal sealed class ChannelSwitchUiDecoder(Func<ulong, int, byte[]> read)
 
     private ChannelUiPoint? FindPoint(ulong parent, string name)
     {
-        var origin = Rect(parent, 0x58);
+        var origin = Rect(parent, 0x58, name + ".root_bounds");
         return Find(parent, name, origin.X, origin.Y, new HashSet<ulong>(), 0);
     }
 
     private ChannelUiPoint? Find(ulong parent, string name, double x, double y, HashSet<ulong> seen, int depth)
     {
         Require(depth <= 8 && seen.Count <= 256 && seen.Add(parent), "Invalid channel UI tree.");
-        var client = Rect(parent, 0x78);
+        var client = Rect(parent, 0x78, name + ".ancestor_client");
         var head = GuardU(parent + 0x238);
         if (head == 0) return null;
         var node = GuardU(head);
@@ -114,11 +126,11 @@ internal sealed class ChannelSwitchUiDecoder(Func<ulong, int, byte[]> read)
             Require(node != 0 && nodes.Count < 128 && nodes.Add(node), "Invalid UI child list.");
             var child = GuardU(node + 0x10);
             Require(child != 0, "Missing UI child.");
-            var rect = Rect(child, 0x58);
-            var cx = x + client.X + rect.X;
-            var cy = y + client.Y + rect.Y;
             if (Visible(child))
             {
+                var rect = Rect(child, 0x58, name + ".child_bounds");
+                var cx = x + client.X + rect.X;
+                var cy = y + client.Y + rect.Y;
                 if (Name(child) == name) return Enabled(child) ? Point(cx + rect.W / 2, cy + rect.H / 2) : null;
                 var result = Find(child, name, cx, cy, seen, depth + 1);
                 if (result != null) return result;
@@ -131,27 +143,77 @@ internal sealed class ChannelSwitchUiDecoder(Func<ulong, int, byte[]> read)
     private ChannelUiPoint? ChildPoint(ulong parent, ulong child)
     {
         if (!Visible(child) || !Enabled(child)) return null;
-        var p = Rect(parent, 0x58);
-        var c = Rect(parent, 0x78);
-        var r = Rect(child, 0x58);
+        var p = Rect(parent, 0x58, "start_menu.parent_bounds");
+        var c = Rect(parent, 0x78, "start_menu.parent_client");
+        var r = Rect(child, 0x58, "start_menu.button_bounds");
         return Point(p.X + c.X + r.X + r.W / 2, p.Y + c.Y + r.Y + r.H / 2);
     }
 
     private ChannelUiPoint? Point(double x, double y) =>
         x >= 0 && y >= 0 && x < _width && y < _height ? new((int)Math.Round(x), (int)Math.Round(y)) : null;
 
-    private (double X, double Y, double W, double H) Rect(ulong widget, ulong offset)
+    private (double X, double Y, double W, double H) Rect(ulong widget, ulong offset, string context)
     {
         var bytes = Bytes(widget + offset, 32);
         var x = BitConverter.ToDouble(bytes, 0);
         var y = BitConverter.ToDouble(bytes, 8);
         var w = BitConverter.ToDouble(bytes, 16);
         var h = BitConverter.ToDouble(bytes, 24);
-        Require(double.IsFinite(x) && double.IsFinite(y) && double.IsFinite(w) && double.IsFinite(h) &&
-            Math.Abs(x) <= 32768 && Math.Abs(y) <= 32768 && w is >= 0 and <= 32768 && h is >= 0 and <= 32768, "Invalid UI rectangle.");
+        if (!(double.IsFinite(x) && double.IsFinite(y) && double.IsFinite(w) && double.IsFinite(h) &&
+            Math.Abs(x) <= 32768 && Math.Abs(y) <= 32768 && w is >= 0 and <= 32768 && h is >= 0 and <= 32768))
+            throw RectangleError(widget, offset, context, bytes, x, y, w, h);
         _guards.Add((widget + offset, bytes));
         return (x, y, w, h);
     }
+
+    private InvalidDataException RectangleError(ulong widget, ulong offset, string context, byte[] bytes,
+        double x, double y, double width, double height)
+    {
+        // Preserve the rejected capture exactly. Extra metadata is best-effort and is never
+        // used for publication or action decisions. The existing provider log throttles this error.
+        var details = new
+        {
+            diagnosticVersion = 1,
+            context,
+            widgetAddress = $"0x{widget:X}",
+            widgetName = Diagnostic(() => Name(widget)),
+            rectOffset = $"0x{offset:X}",
+            rectAddress = $"0x{widget + offset:X}",
+            x = x.ToString("R", CultureInfo.InvariantCulture),
+            y = y.ToString("R", CultureInfo.InvariantCulture),
+            width = width.ToString("R", CultureInfo.InvariantCulture),
+            height = height.ToString("R", CultureInfo.InvariantCulture),
+            rawHex = Convert.ToHexString(bytes),
+            viewportWidth = _width,
+            viewportHeight = _height,
+            metadataSource = "best_effort_after_rectangle_failure",
+            widgetState = Diagnostic(() => WidgetState(widget)),
+            dialogAddress = $"0x{_dialogAddress:X}",
+            dialogState = Diagnostic(() => _dialogAddress == 0 ? null : WidgetState(_dialogAddress)),
+            dropdownState = Diagnostic(() =>
+            {
+                if (_dialogAddress == 0) return null;
+                var combo = U(_dialogAddress + 0x4D8);
+                if (combo == 0) return null;
+                var expanded = I(combo + 0x30);
+                return new { address = $"0x{combo:X}", expandedRaw = expanded, expanded = expanded == 1 };
+            })
+        };
+        return new InvalidDataException("Invalid UI rectangle. " + JsonSerializer.Serialize(details));
+    }
+
+    private object WidgetState(ulong widget)
+    {
+        var flags = U(widget + 0x28);
+        return new { flags = $"0x{flags:X}", visible = (flags & 1) != 0, enabled = (flags & 2) != 0 };
+    }
+
+    private static object? Diagnostic(Func<object?> capture)
+    {
+        try { return capture(); }
+        catch (Exception ex) { return new { error = ex.Message }; }
+    }
+
     private string Name(ulong widget)
     {
         var length = U(widget + 0x18);

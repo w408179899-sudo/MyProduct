@@ -50,10 +50,13 @@ internal sealed class ChannelSwitchSequence(IKeyboardInput input, IRoadhogLogger
             if (target < 1 || target > channel.Count) return OperationResult.Fail($"当前地图只有 {channel.Count} 个频道，请选择有效频道。");
             if (channel.Number == target) return OperationResult.Ok();
             var mapId = channel.MapId;
+            stage = "检查脱战条件";
             await Guard();
+            stage = "释放移动按键和右键";
             foreach (var key in new[] { "W", "A", "S", "D" })
                 Check(await input.KeyUpAsync(key, token).ConfigureAwait(false));
             Check(await input.MouseUpAsync(RoadhogMouseButton.Right, token).ConfigureAwait(false));
+            stage = "读取频道界面";
             var ui = await Ui();
             if (!ui.DialogOpen)
             {

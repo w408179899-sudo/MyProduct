@@ -74,6 +74,19 @@ internal static class ChannelSwitchTests
         Require(game.Input.MouseCommands.Count(c => c == "down:Left") == 2, "open dropdown needs only row and move clicks");
     }
 
+    public static async Task CollapsedDecoderSequenceAsync()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var game = new SimulatedUi { DecodeDialogMemory = true };
+        var result = await game.Run(3, deadline.Token);
+        Require(result.Success && game.Api.Channel.Number == 3 && game.Submits == 1,
+            result.Error ?? "closed-menu flow must survive real collapsed-list decoding and confirm channel 3");
+        Require(game.Input.MouseCommands.Count(command => command == "down:Left") == 5,
+            "flow must click menu, channel window, dropdown, target row and move exactly once each");
+        Require(game.DecodedCollapsedReads > 0 && game.DecodedExpandedReads > 0 && game.DecodedSelectedReads > 0,
+            "flow must decode before expansion, after expansion and after selecting the target");
+    }
+
     public static async Task AutomaticReusesDialogAsync()
     {
         var game = new SimulatedUi { Dialog = true, Selected = 3, AcceptSubmit = false };
@@ -145,6 +158,28 @@ internal static class ChannelSwitchTests
         Require(game.Input.MouseCommands.Last() == "up:Left" && game.Submits == 0, "cancelled press must release left mouse without submitting");
     }
 
+    public static async Task InitialUiReadStageAsync()
+    {
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var game = new SimulatedUi();
+        var logger = new InMemoryRoadhogLogger();
+        game.Api.ChannelUiRead = () =>
+        {
+            cancellation.Cancel();
+            throw new InvalidDataException("Invalid UI rectangle.");
+        };
+        try
+        {
+            await new ChannelSwitchSequence(game.Input, logger).RunAsync(
+                game.Api.Create(new AccountConfig(), logger, cancellation.Token), "test", 3, cancellation.Token);
+            throw new InvalidOperationException("cancelled UI read must stop the sequence");
+        }
+        catch (OperationCanceledException) { }
+        var interrupted = logger.Entries.Single(entry => entry.EventName == "channel_switch.interrupted");
+        Require((string?)interrupted.Fields["stage"] == "读取频道界面", "initial UI failure must report its actual stage");
+        Require(!game.Input.MouseCommands.Contains("down:Left") && game.Submits == 0, "UI read failure must not issue a click");
+    }
+
     public static async Task<int> ProbeAsync(string[] args)
     {
         string Option(string key) => args.Single(a => a.StartsWith(key, StringComparison.Ordinal))[key.Length..];
@@ -196,6 +231,8 @@ internal static class ChannelSwitchTests
         internal FakeGameApi Api = new() { Channel = new ChannelSnapshot(0, 3, 100, DateTimeOffset.Now) };
         internal RecordingKeyboardInput Input = new();
         internal bool Menu, Service, Dialog, Expanded, AcceptSubmit = true;
+        internal bool DecodeDialogMemory;
+        internal int DecodedCollapsedReads, DecodedExpandedReads, DecodedSelectedReads;
         internal int Selected = 1, Submits;
         private int _loadingReads;
         private ChannelUiPoint _cursor = new(500, 300);
@@ -235,10 +272,20 @@ internal static class ChannelSwitchTests
                 else if (At(Start)) Menu = !Menu;
             };
         }
-        internal ChannelSwitchUiSnapshot Snapshot() => new(1024, 768, _cursor, Start,
-            Menu ? ServicePoint : null, Service ? Switch : null, Dialog, Expanded, Selected,
-            Dialog ? Drop : null, Dialog ? Submit : null,
-            Enumerable.Range(1, 3).Select(n => new ChannelUiOption(n, true, Expanded ? Row(n) : null)).ToArray(), DateTimeOffset.Now);
+        internal ChannelSwitchUiSnapshot Snapshot()
+        {
+            if (DecodeDialogMemory && Dialog)
+            {
+                if (Expanded) DecodedExpandedReads++;
+                else if (Selected == 3) DecodedSelectedReads++;
+                else DecodedCollapsedReads++;
+                return new ChannelDialogMemory { Cursor = _cursor, Expanded = Expanded, Selected = Selected }.Decode();
+            }
+            return new(1024, 768, _cursor, Start,
+                Menu ? ServicePoint : null, Service ? Switch : null, Dialog, Expanded, Selected,
+                Dialog ? Drop : null, Dialog ? Submit : null,
+                Enumerable.Range(1, 3).Select(n => new ChannelUiOption(n, true, Expanded ? Row(n) : null)).ToArray(), DateTimeOffset.Now);
+        }
         internal Task<OperationResult> Run(int target, CancellationToken token = default)
         {
             var logger = new InMemoryRoadhogLogger();
