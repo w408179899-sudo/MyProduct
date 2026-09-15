@@ -4,6 +4,17 @@ namespace Roadhog.Application.SemiAuto;
 
 public sealed class SemiAutoCombatState
 {
+    public AttackWeaveState AttackWeave { get; } = new();
+
+    public void FinishAttackWeavePause(DateTimeOffset now)
+    {
+        var pause = AttackWeave.FinishPair(now);
+        if (HasPendingChainWindowStarted && pause > TimeSpan.Zero)
+        {
+            PendingChainExpiresAt += pause;
+        }
+    }
+
     private sealed class ChantStatusMaintenancePresence
     {
         public DateTimeOffset LastObservedAt { get; set; } = DateTimeOffset.MinValue;
@@ -815,7 +826,8 @@ public sealed class SemiAutoCombatState
             lastPressedCooldownRetryKey,
             lastPressedCooldownRetrySkillName,
             lastPressedCooldownRetrySkillType,
-            lastPressedCooldownRetryPhase);
+            lastPressedCooldownRetryPhase,
+            lastPressedSkillId.Value);
         return true;
     }
 
@@ -1202,7 +1214,8 @@ public readonly record struct SemiAutoPendingSkillCooldownRetry(
     string Key,
     string SkillName,
     string SkillType,
-    string Phase);
+    string Phase,
+    uint SkillId = 0);
 
 public sealed record SpiritmasterPetHpIncreaseConfirmation(
     uint SkillId,

@@ -243,6 +243,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         }
         finally
         {
+            semiAutoState.AttackWeave.Reset();
             semiAutoState.ResetAttackKeyPressThrottle();
             if (jumpAssist is not null)
             {

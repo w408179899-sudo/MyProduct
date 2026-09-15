@@ -100,6 +100,8 @@ namespace Roadhog
         private double gatherOccupiedCheckRadiusMeters = 5.0D;
         private RoundedCheckBox? openingAttackKeyCheckBox;
         private RoundedCheckBox? conditionSkillPreemptsChainCheckBox;
+        private RoundedCheckBox? attackWeaveCheckBox;
+        private RoundedTextBox? attackWeaveDelayTextBox;
         private RoundedTextBox? chainWindowPerLinkTextBox;
         private RoundedCheckBox? spiritmasterAutoSkillCheckBox;
         private Button? spiritmasterSettingsButton;
@@ -519,6 +521,12 @@ namespace Roadhog
             ApplyTeamSettings(settings.Team ?? new TeamScriptSettings());
             SetChecked(openingAttackKeyCheckBox, settings.SemiAuto.AttackKeyLoopEnabled);
             SetChecked(conditionSkillPreemptsChainCheckBox, settings.SemiAuto.ConditionSkillPreemptsChain);
+            SetChecked(attackWeaveCheckBox, settings.SemiAuto.AttackWeaveEnabled);
+            SetText(attackWeaveDelayTextBox, settings.SemiAuto.AttackWeaveDelayMs.ToString());
+            if (attackWeaveDelayTextBox is not null)
+            {
+                attackWeaveDelayTextBox.Enabled = settings.SemiAuto.AttackWeaveEnabled;
+            }
             SetText(chainWindowPerLinkTextBox, settings.SemiAuto.ChainWindowPerLinkMs.ToString());
             SetChecked(spiritmasterAutoSkillCheckBox, settings.Skills.SpiritmasterAutoSkillLogicEnabled);
             ApplyOpeningSkillSettings(settings.Skills.OpeningSkill);
@@ -564,6 +572,12 @@ namespace Roadhog
                 openingAttackKeyCheckBox?.Checked ?? capturedSettings.SemiAuto.AttackKeyLoopEnabled;
             capturedSettings.SemiAuto.ConditionSkillPreemptsChain =
                 conditionSkillPreemptsChainCheckBox?.Checked ?? capturedSettings.SemiAuto.ConditionSkillPreemptsChain;
+            capturedSettings.SemiAuto.AttackWeaveEnabled =
+                attackWeaveCheckBox?.Checked ?? capturedSettings.SemiAuto.AttackWeaveEnabled;
+            capturedSettings.SemiAuto.AttackWeaveDelayMs = Math.Clamp(
+                ReadInt(attackWeaveDelayTextBox, capturedSettings.SemiAuto.AttackWeaveDelayMs),
+                0,
+                SemiAutoScriptSettings.MaximumAttackWeaveDelayMs);
             capturedSettings.SemiAuto.ChainWindowPerLinkMs =
                 Math.Clamp(
                     ReadInt(chainWindowPerLinkTextBox, capturedSettings.SemiAuto.ChainWindowPerLinkMs),
@@ -5412,6 +5426,16 @@ namespace Roadhog
                 28);
             AddLabel(page, "连招段ms", 766, 44, 76, 24);
 
+            attackWeaveCheckBox = AddCheckBox(page, "卡刀（每2技能）", 548, 74, 148, false);
+            attackWeaveCheckBox.Name = "attackWeaveCheckBox";
+            attackWeaveDelayTextBox = AddTextBox(
+                page, SemiAutoScriptSettings.DefaultAttackWeaveDelayMs.ToString(), 700, 74, 58, 28);
+            attackWeaveDelayTextBox.Name = "attackWeaveDelayTextBox";
+            attackWeaveDelayTextBox.Enabled = false;
+            attackWeaveCheckBox.Click += (_, _) =>
+                attackWeaveDelayTextBox.Enabled = attackWeaveCheckBox.Checked;
+            AddLabel(page, "等待ms", 766, 76, 76, 24);
+
             var autoPanel = CreateSkillModePanel(page, "autoSkillPanel", true);
             autoSkillPanel = autoPanel;
             var manualPanel = CreateSkillModePanel(page, "manualSkillPanel", false);
@@ -5447,12 +5471,12 @@ namespace Roadhog
             AddButton(autoPanel, "下移", 696, 178, 70, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Down));
             AddButton(autoPanel, "置底", 696, 216, 70, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Bottom));
 
-            openingSkillEnabledCheckBox = AddCheckBox(autoPanel, "启用起手技能", 20, 468, 118, false);
-            AddLabel(autoPanel, "起手技能", 148, 468, 70, 24, _textGreen, FontStyle.Bold);
-            openingSkillCombo = AddCombo(autoPanel, 220, 466, 260, 28);
+            openingSkillEnabledCheckBox = AddCheckBox(autoPanel, "启用起手技能", 20, 432, 118, false);
+            AddLabel(autoPanel, "起手技能", 148, 432, 70, 24, _textGreen, FontStyle.Bold);
+            openingSkillCombo = AddCombo(autoPanel, 220, 430, 260, 28);
             openingSkillCombo.Name = "openingSkillCombo";
             PopulateOpeningSkillCombo(openingSkillCombo, 0, string.Empty);
-            openingSkillKeyButton = AddButton(autoPanel, "选择按键", 492, 465, 104, 30);
+            openingSkillKeyButton = AddButton(autoPanel, "选择按键", 492, 429, 104, 30);
             openingSkillKeyButton.Name = "openingSkillKeyButton";
             openingSkillKeyButton.Click += (_, _) =>
             {
@@ -6270,9 +6294,9 @@ namespace Roadhog
             {
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
                 BackColor = _pageBackground,
-                Location = new Point(0, 74),
+                Location = new Point(0, 110),
                 Name = name,
-                Size = new Size(850, 502),
+                Size = new Size(850, 466),
                 Visible = visible
             };
 

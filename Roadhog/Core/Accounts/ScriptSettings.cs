@@ -178,6 +178,13 @@ public sealed class SemiAutoScriptSettings
 
     public bool ConditionSkillPreemptsChain { get; set; } = true;
 
+    public bool AttackWeaveEnabled { get; set; }
+
+    public const int DefaultAttackWeaveDelayMs = 600;
+    public const int MaximumAttackWeaveDelayMs = 10000;
+
+    public int AttackWeaveDelayMs { get; set; } = DefaultAttackWeaveDelayMs;
+
     public SemiAutoScriptSettings Clone()
     {
         return new SemiAutoScriptSettings
@@ -195,7 +202,9 @@ public sealed class SemiAutoScriptSettings
             ConfirmTimeoutMs = ConfirmTimeoutMs,
             ConfirmPollMs = ConfirmPollMs,
             DefaultChainTimeMs = DefaultChainTimeMs,
-            ConditionSkillPreemptsChain = ConditionSkillPreemptsChain
+            ConditionSkillPreemptsChain = ConditionSkillPreemptsChain,
+            AttackWeaveEnabled = AttackWeaveEnabled,
+            AttackWeaveDelayMs = AttackWeaveDelayMs
         };
     }
 }
