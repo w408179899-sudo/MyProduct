@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Smart.Adapters.Dma/Smart.Adapters.Dma.csproj" />
+    <ProjectReference Include="../../src/Smart.Data/Smart.Data.csproj" />
+    <ProjectReference Include="../../src/Smart.Hosting/Smart.Hosting.csproj" />
+  </ItemGroup>
+</Project>

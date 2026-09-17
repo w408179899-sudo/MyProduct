@@ -1,0 +1,10 @@
+<Solution>
+  <Project Path="../src/Smart.Contracts/Smart.Contracts.csproj" />
+  <Project Path="../src/Smart.Data/Smart.Data.csproj" />
+  <Project Path="../src/Smart.Runtime/Smart.Runtime.csproj" />
+  <Project Path="../src/Smart.Adapters.Dma/Smart.Adapters.Dma.csproj" />
+  <Project Path="../src/Smart.Dma.Worker/Smart.Dma.Worker.csproj" />
+  <Project Path="Smart.ProbeProtocol/Smart.ProbeProtocol.csproj" />
+  <Project Path="Smart.HardwareProbe/Smart.HardwareProbe.csproj" />
+  <Project Path="../tests/Smart.HardwareProbe.Tests/Smart.HardwareProbe.Tests.csproj" />
+</Solution>

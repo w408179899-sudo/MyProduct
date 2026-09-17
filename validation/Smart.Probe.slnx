@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="Smart.ProbeProtocol/Smart.ProbeProtocol.csproj" />
+  <Project Path="Smart.ProbeTarget/Smart.ProbeTarget.csproj" />
+  <Project Path="../tests/Smart.Probe.Tests/Smart.Probe.Tests.csproj" />
+</Solution>

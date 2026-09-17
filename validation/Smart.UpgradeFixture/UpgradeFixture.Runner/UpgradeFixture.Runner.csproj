@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWindowsForms>true</UseWindowsForms></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../UpgradeFixture.Application/UpgradeFixture.Application.csproj" />
+    <PackageReference Include="Smart.Contracts" Version="[$(FrameworkVersion)]" />
+    <PackageReference Include="Smart.Data" Version="[$(FrameworkVersion)]" />
+    <PackageReference Include="Smart.Runtime" Version="[$(FrameworkVersion)]" />
+    <PackageReference Include="Smart.Hosting" Version="[$(FrameworkVersion)]" />
+    <PackageReference Include="Smart.Hosting.Windows" Version="[$(FrameworkVersion)]" />
+    <PackageReference Include="Smart.Adapters.Dma" Version="[$(FrameworkVersion)]" />
+    <PackageReference Include="Smart.Adapters.KmBox" Version="[$(FrameworkVersion)]" />
+    <None Include="fixture.settings.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

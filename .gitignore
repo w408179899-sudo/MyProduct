@@ -1,0 +1,13 @@
+**/bin/
+**/obj/
+.vs/
+.tools/
+artifacts/
+TestResults/
+logs/
+*.user
+*.suo
+config.local.json
+external/
+**/data/
+**/smoke-*/

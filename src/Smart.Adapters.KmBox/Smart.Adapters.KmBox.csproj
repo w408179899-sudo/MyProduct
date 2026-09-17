@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0-windows</TargetFramework><UseWindowsForms>true</UseWindowsForms></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Smart.Contracts/Smart.Contracts.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,4 @@
+{
+  "SchemaVersion": 1,
+  "Settings": { "Enabled": true, "IntervalMilliseconds": 25, "Threshold": 0 }
+}

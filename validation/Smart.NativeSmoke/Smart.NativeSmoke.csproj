@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><PlatformTarget>x64</PlatformTarget><IsPackable>false</IsPackable></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Smart.Adapters.Dma/Smart.Adapters.Dma.csproj" />
+    <ProjectReference Include="../../src/Smart.Runtime/Smart.Runtime.csproj" />
+  </ItemGroup>
+</Project>

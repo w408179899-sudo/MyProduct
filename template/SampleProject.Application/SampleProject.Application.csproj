@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../SampleProject.Domain/SampleProject.Domain.csproj" />
+    <ProjectReference Include="../../src/Smart.Contracts/Smart.Contracts.csproj" />
+  </ItemGroup>
+</Project>

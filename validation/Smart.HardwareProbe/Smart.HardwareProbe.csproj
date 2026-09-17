@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><IsPackable>false</IsPackable></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Smart.Adapters.Dma/Smart.Adapters.Dma.csproj" />
+    <ProjectReference Include="../../src/Smart.Data/Smart.Data.csproj" />
+    <ProjectReference Include="../../src/Smart.Runtime/Smart.Runtime.csproj" />
+    <ProjectReference Include="../Smart.ProbeProtocol/Smart.ProbeProtocol.csproj" />
+  </ItemGroup>
+</Project>

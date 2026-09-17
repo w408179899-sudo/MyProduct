@@ -1,0 +1,50 @@
+name: verify
+on: [push, pull_request]
+jobs:
+  foundation:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Build and fault tests
+        shell: pwsh
+        run: ./scripts/Build.ps1 Test
+      - name: Generated template
+        shell: pwsh
+        run: ./scripts/Build.ps1 TemplateSmoke
+      - name: Package consumers
+        shell: pwsh
+        run: ./scripts/Test-Packages.ps1
+      - name: Native worker package delivery
+        shell: pwsh
+        run: ./scripts/Test-PackageWorker.ps1 -PackageFeed artifacts/packages
+      - name: Frozen baseline upgrade
+        shell: pwsh
+        run: ./scripts/Test-Upgrade.ps1 -PackageFeed artifacts/packages -ArtifactsPath artifacts/upgrade-ci
+      - name: Published Windows applications and worker
+        shell: pwsh
+        run: |
+          ./scripts/Test-Publish.ps1
+          ./scripts/Test-Publish.ps1 -SelfContained
+      - name: Controlled probe target
+        shell: pwsh
+        run: ./scripts/Test-Probe.ps1
+      - name: Offline probe adapter faults
+        shell: pwsh
+        run: ./scripts/Test-ProbeAdapter.ps1
+      - name: Offline diagnostics and Release dependency closure
+        shell: pwsh
+        run: ./scripts/Test-Diagnostics.ps1
+      - name: Synthetic shared-device soak
+        shell: pwsh
+        run: ./scripts/Test-Soak.ps1 -DurationSeconds 60 -Accounts 8
+      - name: Synthetic performance
+        shell: pwsh
+        run: ./scripts/Test-Performance.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: validation
+          path: artifacts/

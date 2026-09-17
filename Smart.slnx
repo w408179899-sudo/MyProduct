@@ -1,0 +1,31 @@
+<Solution>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/Smart.Benchmarks/Smart.Benchmarks.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Smart.Adapters.Dma/Smart.Adapters.Dma.csproj" />
+    <Project Path="src/Smart.Dma.Worker/Smart.Dma.Worker.csproj" />
+    <Project Path="src/Smart.Adapters.KmBox/Smart.Adapters.KmBox.csproj" />
+    <Project Path="src/Smart.Contracts/Smart.Contracts.csproj" />
+    <Project Path="src/Smart.Data/Smart.Data.csproj" />
+    <Project Path="src/Smart.Hosting/Smart.Hosting.csproj" />
+    <Project Path="src/Smart.Hosting.Windows/Smart.Hosting.Windows.csproj" />
+    <Project Path="src/Smart.Runtime/Smart.Runtime.csproj" />
+  </Folder>
+  <Folder Name="/template/">
+    <Project Path="template/SampleProject.Application/SampleProject.Application.csproj" />
+    <Project Path="template/SampleProject.Bootstrap/SampleProject.Bootstrap.csproj" />
+    <Project Path="template/SampleProject.Console/SampleProject.Console.csproj" />
+    <Project Path="template/SampleProject.Desktop/SampleProject.Desktop.csproj" />
+    <Project Path="template/SampleProject.Domain/SampleProject.Domain.csproj" />
+    <Project Path="template/SampleProject.Infrastructure/SampleProject.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SampleProject.Tests/SampleProject.Tests.csproj" />
+    <Project Path="tests/Smart.Architecture.Tests/Smart.Architecture.Tests.csproj" />
+    <Project Path="tests/Smart.Data.Tests/Smart.Data.Tests.csproj" />
+    <Project Path="tests/Smart.Dma.Worker.Fake/Smart.Dma.Worker.Fake.csproj" />
+    <Project Path="tests/Smart.Isolation.Tests/Smart.Isolation.Tests.csproj" />
+    <Project Path="tests/Smart.Runtime.Tests/Smart.Runtime.Tests.csproj" />
+  </Folder>
+</Solution>

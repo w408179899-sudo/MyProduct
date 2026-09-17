@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><PlatformTarget>x64</PlatformTarget><IsPackable>false</IsPackable></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../Smart.NativeSmoke/Smart.NativeSmoke.csproj" /></ItemGroup>
+</Project>

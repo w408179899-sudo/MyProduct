@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0-windows</TargetFramework><IsTestProject>true</IsTestProject><IsPackable>false</IsPackable></PropertyGroup>
+  <ItemGroup>
+    <None Include="../../scenarios/*.json" Link="scenarios/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <ProjectReference Include="../../template/SampleProject.Bootstrap/SampleProject.Bootstrap.csproj" />
+    <ProjectReference Include="../../template/SampleProject.Console/SampleProject.Console.csproj" />
+    <ProjectReference Include="../../template/SampleProject.Desktop/SampleProject.Desktop.csproj" />
+  </ItemGroup>
+</Project>

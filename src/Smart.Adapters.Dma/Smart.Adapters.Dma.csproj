@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Smart.Data/Smart.Data.csproj" />
+    <ProjectReference Include="../Smart.Dma.Worker/Smart.Dma.Worker.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" Targets="Build;GetSmartWorkerFiles" OutputItemType="Content" />
+    <None Include="Smart.Adapters.Dma.targets" Pack="true" PackagePath="buildTransitive/Smart.Adapters.Dma.targets" />
+  </ItemGroup>
+  <Target Name="PackSmartWorker" BeforeTargets="_GetPackageFiles" DependsOnTargets="ResolveProjectReferences">
+    <ItemGroup>
+      <!-- Worker content defaults to Pack=false for downstream applications. Only this adapter
+           owns its package payload; replace duplicate project-reference items before NuGet's
+           exclusion list is computed, or the inherited Pack=false excludes explicit files too. -->
+      <_SmartPackageWorkerFiles Include="@(Content)" Condition="'%(Content.SmartWorkerPayload)' == 'true'" />
+      <Content Remove="@(_SmartPackageWorkerFiles)" />
+      <Content Include="@(_SmartPackageWorkerFiles)">
+        <Pack>true</Pack><PackagePath>tools/native-worker/%(_SmartPackageWorkerFiles.Filename)%(_SmartPackageWorkerFiles.Extension)</PackagePath><BuildAction>None</BuildAction>
+      </Content>
+    </ItemGroup>
+  </Target>
+</Project>

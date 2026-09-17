@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Smart.Contracts" Version="[$(FrameworkVersion)]" />
+    <ProjectReference Include="../UpgradeFixture.Domain/UpgradeFixture.Domain.csproj" />
+  </ItemGroup>
+</Project>

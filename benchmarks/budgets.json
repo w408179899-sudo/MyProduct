@@ -1,0 +1,8 @@
+{
+  "MaximumCachedP99Microseconds": 2000,
+  "MaximumCachedAllocatedBytes": 131072,
+  "MaximumCaptureP99Microseconds": 10000,
+  "MaximumCollectionMilliseconds": 10000,
+  "MaximumCpuMillisecondsPerAccount": 500,
+  "MinimumTicksPerAccount": 30
+}

@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><PlatformTarget>x64</PlatformTarget><IsPackable>false</IsPackable></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/Smart.Dma.Worker/WorkerServer.cs" Link="Worker/WorkerServer.cs" />
+    <Compile Include="../../src/Smart.Dma.Worker/NativeConnection.cs" Link="Worker/NativeConnection.cs" />
+    <Compile Include="../../src/Smart.Adapters.Dma/MemoryTransport.cs" Link="Shared/MemoryTransport.cs" />
+    <Compile Include="../../src/Smart.Adapters.Dma/VmmTransport.cs" Link="Shared/VmmTransport.cs" />
+    <Compile Include="../../src/Smart.Adapters.Dma/VmmTransport.Inspection.cs" Link="Shared/VmmTransport.Inspection.cs" />
+    <Compile Include="../../src/Smart.Adapters.Dma/WorkerProtocol.cs" Link="Shared/WorkerProtocol.cs" />
+    <Compile Include="../../src/Smart.Runtime/InputLeaseRegistry.cs" Link="Shared/InputLeaseRegistry.cs" />
+    <Compile Include="../../src/Smart.Hosting/DmaSettings.cs" Link="Shared/DmaSettings.cs" />
+    <Compile Include="../../src/Smart.Hosting/DmaWorkerSettings.cs" Link="Shared/DmaWorkerSettings.cs" />
+    <Compile Include="../../src/Smart.Hosting.Windows/DmaDeviceBinding.cs" Link="Shared/DmaDeviceBinding.cs" />
+    <Compile Include="../../src/Smart.Hosting.Windows/D3xxDeviceInventory.cs" Link="Shared/D3xxDeviceInventory.cs" />
+    <!-- Parent-death fixture uses the exact production client/job without an adapter dependency cycle. -->
+    <Compile Include="../../src/Smart.Adapters.Dma/IsolatedVmmTransport.cs" Link="Parent/IsolatedVmmTransport.cs" />
+    <Compile Include="../../src/Smart.Adapters.Dma/WorkerJob.cs" Link="Parent/WorkerJob.cs" />
+  </ItemGroup>
+  <Target Name="GetFakeWorkerFiles" Returns="@(_FakeWorkerFiles)">
+    <ItemGroup>
+      <_FakeWorkerFiles Include="$(TargetDir)$(AssemblyName).dll;$(TargetDir)$(AssemblyName).deps.json;$(TargetDir)$(AssemblyName).runtimeconfig.json;$(TargetDir)$(AssemblyName).exe" />
+      <_FakeWorkerFiles Update="@(_FakeWorkerFiles)">
+        <TargetPath>fake-worker/%(_FakeWorkerFiles.Filename)%(_FakeWorkerFiles.Extension)</TargetPath>
+        <Link>fake-worker/%(_FakeWorkerFiles.Filename)%(_FakeWorkerFiles.Extension)</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>Never</CopyToPublishDirectory><Pack>false</Pack>
+      </_FakeWorkerFiles>
+    </ItemGroup>
+  </Target>
+</Project>

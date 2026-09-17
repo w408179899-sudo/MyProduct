@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><PlatformTarget>x64</PlatformTarget><IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- One native implementation, compiled here without depending on the adapter that deploys us. -->
+    <Compile Include="../Smart.Adapters.Dma/MemoryTransport.cs" Link="Shared/MemoryTransport.cs" />
+    <Compile Include="../Smart.Adapters.Dma/VmmTransport.cs" Link="Shared/VmmTransport.cs" />
+    <Compile Include="../Smart.Adapters.Dma/VmmTransport.Inspection.cs" Link="Shared/VmmTransport.Inspection.cs" />
+    <Compile Include="../Smart.Adapters.Dma/WorkerProtocol.cs" Link="Shared/WorkerProtocol.cs" />
+    <Compile Include="../Smart.Runtime/InputLeaseRegistry.cs" Link="Shared/InputLeaseRegistry.cs" />
+    <Compile Include="../Smart.Hosting/DmaSettings.cs" Link="Shared/DmaSettings.cs" />
+    <Compile Include="../Smart.Hosting/DmaWorkerSettings.cs" Link="Shared/DmaWorkerSettings.cs" />
+    <Compile Include="../Smart.Hosting.Windows/DmaDeviceBinding.cs" Link="Shared/DmaDeviceBinding.cs" />
+    <Compile Include="../Smart.Hosting.Windows/D3xxDeviceInventory.cs" Link="Shared/D3xxDeviceInventory.cs" />
+  </ItemGroup>
+  <Target Name="GetSmartWorkerFiles" Returns="@(_SmartWorkerFiles)">
+    <ItemGroup>
+      <_SmartWorkerFiles Include="$(TargetDir)$(AssemblyName).dll;$(TargetDir)$(AssemblyName).deps.json;$(TargetDir)$(AssemblyName).runtimeconfig.json;$(TargetDir)$(AssemblyName).exe" />
+      <_SmartWorkerFiles Update="@(_SmartWorkerFiles)">
+        <TargetPath>native-worker/%(_SmartWorkerFiles.Filename)%(_SmartWorkerFiles.Extension)</TargetPath><Link>native-worker/%(_SmartWorkerFiles.Filename)%(_SmartWorkerFiles.Extension)</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <SmartWorkerPayload>true</SmartWorkerPayload><Pack>false</Pack>
+      </_SmartWorkerFiles>
+    </ItemGroup>
+  </Target>
+</Project>

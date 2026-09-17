@@ -1,0 +1,41 @@
+{
+    "Version":  "0.4.1",
+    "Provenance":  "Original seven 0.4.1 release archives; SHA256 checked against the completed 179-test package-consumer verification. Never rebuilt for upgrade tests.",
+    "Packages":  [
+                     {
+                         "File":  "Smart.Contracts.0.4.1.nupkg",
+                         "Sha256":  "876C79E778ED173F0BC2987923C5233B8681F0E7932D21D394B2D03E958E72FD",
+                         "Bytes":  18369
+                     },
+                     {
+                         "File":  "Smart.Data.0.4.1.nupkg",
+                         "Sha256":  "E13D6458A666E378A5D3F3A98A23AC3577B92EA4D535E924CCC919971610DAFC",
+                         "Bytes":  27136
+                     },
+                     {
+                         "File":  "Smart.Runtime.0.4.1.nupkg",
+                         "Sha256":  "3811C973026BCFDD27194A4D8353F80C6A8695F25DD2D4EA6C8D1B1BD664BD28",
+                         "Bytes":  31764
+                     },
+                     {
+                         "File":  "Smart.Hosting.0.4.1.nupkg",
+                         "Sha256":  "D7C03563C0CDDC30E55BCC61D4B1ED8F4CA987E761E89158D885344C5CE1527C",
+                         "Bytes":  44574
+                     },
+                     {
+                         "File":  "Smart.Hosting.Windows.0.4.1.nupkg",
+                         "Sha256":  "0E10960A3E836D0784D060B9324298C32CCFE6C709CC23813A230E5F0ACE4442",
+                         "Bytes":  18156
+                     },
+                     {
+                         "File":  "Smart.Adapters.Dma.0.4.1.nupkg",
+                         "Sha256":  "46A7CC5F9C3B37057D481C8F0933C94B33AD88B934BC0F57D1517941FAC33CDC",
+                         "Bytes":  21713
+                     },
+                     {
+                         "File":  "Smart.Adapters.KmBox.0.4.1.nupkg",
+                         "Sha256":  "73BEE5983A3741A22BCE7C6CE2D739A550E11071F8A20EA939EEA46E941BC78A",
+                         "Bytes":  31181
+                     }
+                 ]
+}

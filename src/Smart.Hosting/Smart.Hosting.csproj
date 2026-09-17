@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Smart.Contracts/Smart.Contracts.csproj" />
+    <ProjectReference Include="../Smart.Data/Smart.Data.csproj" />
+    <ProjectReference Include="../Smart.Runtime/Smart.Runtime.csproj" />
+  </ItemGroup>
+</Project>

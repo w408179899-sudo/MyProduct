@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../SampleProject.Domain/SampleProject.Domain.csproj" />
+    <ProjectReference Include="../SampleProject.Application/SampleProject.Application.csproj" />
+    <ProjectReference Include="../../src/Smart.Data/Smart.Data.csproj" />
+    <ProjectReference Include="../../src/Smart.Adapters.Dma/Smart.Adapters.Dma.csproj" />
+  </ItemGroup>
+</Project>

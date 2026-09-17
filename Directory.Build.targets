@@ -1,0 +1,17 @@
+<Project>
+  <!-- Opt-in binary reuse: consumers pin one common version; framework projects keep source references. -->
+  <ItemGroup Condition="'$(SmartUsePackages)' == 'true' and '$(SmartFrameworkProject)' != 'True'">
+    <_SmartReference Include="@(ProjectReference->WithMetadataValue('Filename', 'Smart.Contracts'));@(ProjectReference->WithMetadataValue('Filename', 'Smart.Data'));@(ProjectReference->WithMetadataValue('Filename', 'Smart.Runtime'));@(ProjectReference->WithMetadataValue('Filename', 'Smart.Hosting'));@(ProjectReference->WithMetadataValue('Filename', 'Smart.Hosting.Windows'));@(ProjectReference->WithMetadataValue('Filename', 'Smart.Adapters.Dma'));@(ProjectReference->WithMetadataValue('Filename', 'Smart.Adapters.KmBox'))" />
+    <ProjectReference Remove="@(_SmartReference)" />
+    <PackageReference Include="@(_SmartReference->'%(Filename)')" VersionOverride="$(SmartFrameworkVersion)" />
+  </ItemGroup>
+  <PropertyGroup Condition="'$(SmartUsePackages)' == 'true'">
+    <RestoreAdditionalProjectSources>$(MSBuildThisFileDirectory)artifacts/packages;$(SmartPackageFeed);$(RestoreAdditionalProjectSources)</RestoreAdditionalProjectSources>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(SmartFrameworkProject)' == 'True'">
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(SmartFrameworkProject)' == 'True'">
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>
