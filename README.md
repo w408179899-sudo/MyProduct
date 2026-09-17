@@ -6,6 +6,10 @@ C# / .NET 10，面向 DMA/VMM 读取与 KMBox 输入。当前公共版本为 0.5
 
 ## 启动与验证
 
+在 Visual Studio 中开发需要 **Visual Studio 2026（18.0 或以上）**、“.NET 桌面开发”工作负载，以及系统安装的 **.NET SDK 10.0.401**（或同一 10.0.4xx 功能带的更新补丁）。打开 `Smart.slnx`，运行桌面端时将 `SampleProject.Desktop` 设为启动项目。
+
+`Install-Sdk.ps1` 仅安装供构建脚本使用的 `.tools/dotnet`，不会升级 Visual Studio 或安装系统 SDK；VS 2022 无法构建本项目的 .NET 10 目标。
+
 仓库中的模板位于 `Smart` 分支。首次获取并安装本项目固定的 SDK：
 
 ```powershell

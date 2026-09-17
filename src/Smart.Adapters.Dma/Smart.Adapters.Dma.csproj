@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="../Smart.Data/Smart.Data.csproj" />
-    <ProjectReference Include="../Smart.Dma.Worker/Smart.Dma.Worker.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" Targets="Build;GetSmartWorkerFiles" OutputItemType="Content" />
+    <ProjectReference Include="../Smart.Dma.Worker/Smart.Dma.Worker.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" Targets="Build;GetSmartWorkerFiles" OutputItemType="Content" SmartWorkerFilesTarget="GetSmartWorkerFiles" />
     <None Include="Smart.Adapters.Dma.targets" Pack="true" PackagePath="buildTransitive/Smart.Adapters.Dma.targets" />
   </ItemGroup>
   <Target Name="PackSmartWorker" BeforeTargets="_GetPackageFiles" DependsOnTargets="ResolveProjectReferences">

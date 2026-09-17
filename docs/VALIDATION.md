@@ -3,6 +3,15 @@
 日期：2026-09-17。目标仍是无游戏业务、无卡密的公共 C# 模板。本轮增加原生进程隔离、可选 DMA 设备身份绑定、固定旧包升级验收和完整应用发布。
 原 [0.4.1 实机记录](VALIDATION-0.4.1.md) 已归档，保留首轮 DMA/KMBox 通信证据。
 
+## Visual Studio 构建补验（2026-09-17）
+
+- 安装 Visual Studio Community 2026 18.10.1、.NET 桌面开发工作负载和系统 SDK 10.0.401；安装器退出码 0，无需重启。VS 2022 17.14 不支持本项目的 net10.0，仓库内私有 SDK 不能替代 IDE 升级。
+- 使用新版 `devenv.com /Rebuild` 构建独立源码副本，21 个项目全部成功。实际复现 IDE 会跳过 ProjectReference 的自定义 worker 输出目标，导致 17 项隔离测试缺少 fake-worker 而失败。
+- 补齐 IDE 对已构建 worker 的内容收集，Console/Desktop 收到完整四文件，隔离测试收到完整 fake-worker；修正 SampleProject.Tests 的 x64 目标以匹配引用的宿主。
+- 修复后 IDE 构建产物测试 224/224、原 Release 命令行测试 224/224、重新生成模板测试 225/225，均通过。
+- 另通过 VS 2026 自动化打开实际 Smart.slnx，等待项目加载后执行 IDE Build：失败项目数 0，错误列表为空。没有连接 DMA/KMBox 或部署现有脚本。
+- 本机证据：`artifacts/vs2026-install/result.json`、`ide-build-fixed.log`、`ide-tests-fixed.log`、`ide-dte-result.json`、`cli-tests.log`、`template-smoke.log`。本次源码修复未重新打包旧的交付产物。
+
 ## 最终软件门槛
 
 | 检查 | 最终结果 | 证据 |
