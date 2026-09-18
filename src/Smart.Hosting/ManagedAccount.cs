@@ -31,9 +31,15 @@ public sealed class ManagedAccount(AccountProfile profile, IRuntimeSessionFactor
     private bool _configurationHold;
     private SessionStatus _status = new(SessionState.Stopped);
     private long _generation;
+    private long _startedUtcTicks;
+    public DateTimeOffset? StartedAt
+    {
+        get { var ticks = Interlocked.Read(ref _startedUtcTicks); return ticks == 0 ? null : new(ticks, TimeSpan.Zero); }
+    }
     public AccountProfile Profile => profile;
     public SessionStatus Status => Volatile.Read(ref _status);
     public WorkerMetrics? Metrics => Volatile.Read(ref _session)?.Worker.Metrics;
+    public SessionTarget? Target => (Volatile.Read(ref _session) as IRuntimeSessionInfo)?.Target;
     public void Start()
     {
         lock (_sync)
@@ -44,6 +50,7 @@ public sealed class ManagedAccount(AccountProfile profile, IRuntimeSessionFactor
             if (_task is { IsCompleted: false }) return;
             if (_session is not null) throw new InvalidOperationException("Previous session cleanup must complete before restart.");
             profile.Validate();
+            Interlocked.Exchange(ref _startedUtcTicks, _time.GetUtcNow().UtcTicks);
             _stop?.Dispose(); _stop = new();
             SetStatus(SessionState.Connecting);
             _task = Task.Run(() => RunAsync(_stop.Token));

@@ -9,9 +9,14 @@ public sealed record AccountProfile(string Id, RuntimeMode Mode = RuntimeMode.Mo
     InputSettings? Input = null, int ProbeIntervalMs = 1000, int RetryDelayMs = 1000,
     ImmutableDictionary<string, JsonElement>? ModuleSettings = null, bool RecordSnapshots = false)
 {
+    // Display evidence from the last explicit configuration test, not a live character snapshot.
+    public VerifiedCharacter? TestedCharacter { get; init; }
     public void Validate()
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(Id);
+        if (TestedCharacter is { } tested && (string.IsNullOrWhiteSpace(tested.Id) || tested.Id.Length > 256 ||
+            string.IsNullOrWhiteSpace(tested.Name) || tested.Name.Length > 256))
+            throw new ArgumentException("Invalid tested character identity.");
         if (Id.Length > 128 || ModuleSettings is { Count: > 64 } ||
             ModuleSettings?.Any(x => string.IsNullOrWhiteSpace(x.Key) || x.Key.Length > 128 || x.Value.ValueKind == JsonValueKind.Undefined || x.Value.GetRawText().Length > 65536) == true)
             throw new ArgumentException("Account/module configuration size budget exceeded.");

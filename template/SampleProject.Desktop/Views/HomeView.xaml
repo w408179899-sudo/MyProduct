@@ -1,0 +1,41 @@
+<UserControl x:Class="SampleProject.Desktop.Views.HomeView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+ <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel DataContext="{Binding Shell}">
+  <DockPanel Margin="0,0,0,16"><StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button Content="新增账号" Command="{Binding NewCommand}" /><Button Content="导入" Command="{Binding ImportCommand}" /><Button Content="导出" Command="{Binding ExportCommand}" /></StackPanel><TextBlock Text="脚本主页" FontSize="23" FontWeight="SemiBold" /></DockPanel>
+  <Border Style="{StaticResource Card}"><StackPanel>
+   <Grid IsEnabled="{Binding CanEdit}" Margin="0,0,0,14"><Grid.ColumnDefinitions><ColumnDefinition Width="70" /><ColumnDefinition Width="*" /><ColumnDefinition Width="60" /><ColumnDefinition Width="150" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+    <TextBlock Text="账号名称" /><TextBox Grid.Column="1" Text="{Binding Editor.Id, UpdateSourceTrigger=PropertyChanged}" /><TextBlock Grid.Column="2" Text="运行模式" /><ComboBox Grid.Column="3" ItemsSource="{Binding Modes}" SelectedItem="{Binding Editor.Mode}" /><Button Grid.Column="4" Style="{StaticResource Primary}" Content="保存账号配置" Command="{Binding SaveCommand}" />
+   </Grid>
+   <DockPanel Margin="0,0,0,12"><Button DockPanel.Dock="Right" Content="测试读角色 / 验证配置" Command="{Binding VerifyCommand}" /><TextBlock Text="{Binding VerificationResult}" Style="{StaticResource Hint}" TextWrapping="Wrap" /></DockPanel>
+   <Border Background="#EFF6F2" CornerRadius="5" Padding="10" Margin="0,0,0,14"><TextBlock Text="硬件配置须读取到角色并完成 KMBox 握手后才能保存。下方单项测试仅用于排查连接；Mock 验证不代表真实角色验证。" Style="{StaticResource Hint}" TextWrapping="Wrap" /></Border>
+   <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="245" /></Grid.ColumnDefinitions>
+   <Grid IsEnabled="{Binding CanUseHardware}" Margin="0,0,18,0">
+    <Grid.ColumnDefinitions><ColumnDefinition Width="76" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+    <Grid.RowDefinitions><RowDefinition Height="40" /><RowDefinition Height="42" /><RowDefinition Height="Auto" /><RowDefinition Height="42" /><RowDefinition Height="42" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+    <TextBlock Text="VMM 库" /><TextBox Grid.Column="1" Text="{Binding Editor.LibraryPath, UpdateSourceTrigger=PropertyChanged}" ToolTip="选择与 DMA 驱动配套的 vmm.dll" /><Button Grid.Column="2" Content="浏览文件" Command="{Binding BrowseLibraryCommand}" />
+    <TextBlock Grid.Row="1" Text="DMA 设备" /><ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding Devices}" SelectedItem="{Binding SelectedDevice}" DisplayMemberPath="Label" /><Button Grid.Row="1" Grid.Column="2" Content="刷新设备" Command="{Binding DiscoverCommand}" />
+    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Editor.BindingStatus}" Style="{StaticResource Hint}" Margin="0,4,0,10" />
+    <TextBlock Grid.Row="3" Text="目标进程" /><ComboBox Grid.Row="3" Grid.Column="1" ItemsSource="{Binding Processes}" SelectedItem="{Binding SelectedProcess}" DisplayMemberPath="Label" /><Button Grid.Row="3" Grid.Column="2" Content="刷新进程" Command="{Binding ListProcessesCommand}" />
+    <TextBlock Grid.Row="4" Text="目标模块" /><TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Editor.ModuleName, UpdateSourceTrigger=PropertyChanged}" ToolTip="填写主程序或需要读取的模块文件名" /><Button Grid.Row="4" Grid.Column="2" Content="模块诊断" Command="{Binding ProbeCommand}" />
+    <TextBlock Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding DmaResult}" Style="{StaticResource Hint}" Margin="0,8,0,0" />
+   </Grid>
+   <Border Grid.Column="1" BorderBrush="#E4EBE7" BorderThickness="1,0,0,0" Padding="18,0,0,0"><StackPanel>
+    <TextBlock Text="KMBox 输入设备" FontWeight="SemiBold" Margin="0,4,0,12" />
+    <Grid IsEnabled="{Binding CanUseHardware}"><Grid.ColumnDefinitions><ColumnDefinition Width="40" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="42" /><RowDefinition Height="42" /><RowDefinition Height="42" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+     <TextBlock Text="IP" /><TextBox Grid.Column="1" Text="{Binding Editor.Address, UpdateSourceTrigger=PropertyChanged}" />
+     <TextBlock Grid.Row="1" Text="Port" /><TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Editor.Port, UpdateSourceTrigger=PropertyChanged}" />
+     <TextBlock Grid.Row="2" Text="MAC" /><TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Editor.Mac, UpdateSourceTrigger=PropertyChanged}" MaxLength="8" />
+     <Button Grid.Row="3" Grid.Column="1" Content="测试连接" Command="{Binding TestInputCommand}" Margin="0,8,8,0" />
+    </Grid>
+    <TextBlock Text="{Binding InputResult}" Style="{StaticResource Hint}" Margin="0,10,0,0" />
+   </StackPanel></Border>
+   </Grid>
+  </StackPanel></Border>
+  <Border Style="{StaticResource Card}"><StackPanel>
+   <DockPanel Margin="0,0,0,14"><StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button Content="启动选中" Style="{StaticResource Primary}" Command="{Binding StartCommand}" /><Button Content="暂停" Command="{Binding PauseCommand}" /><Button Content="停止" Command="{Binding StopCommand}" /><Button Content="启动全部" Command="{Binding StartAllCommand}" Margin="18,0,4,0" /><Button Content="停止全部" Command="{Binding StopAllCommand}" /></StackPanel><TextBlock Text="账号运行" FontSize="16" FontWeight="SemiBold" /></DockPanel>
+   <DataGrid ItemsSource="{Binding Accounts}" SelectedItem="{Binding SelectedAccount}" Height="132" IsEnabled="{Binding CanEdit}">
+    <DataGrid.Columns><DataGridTextColumn Header="账号" Binding="{Binding Id}" Width="*" /><DataGridTextColumn Header="已确认角色" Binding="{Binding TestedCharacter}" Width="140" /><DataGridTextColumn Header="模式" Binding="{Binding Mode}" Width="65" /><DataGridTextColumn Header="状态" Binding="{Binding State}" Width="85" /><DataGridTextColumn Header="实际 PID" Binding="{Binding Pid}" Width="90" /><DataGridTextColumn Header="运行时长" Binding="{Binding Elapsed}" Width="100" /><DataGridTextColumn Header="循环" Binding="{Binding Ticks}" Width="70" /><DataGridTextColumn Header="动作" Binding="{Binding Actions}" Width="65" /></DataGrid.Columns>
+   </DataGrid>
+   <TextBlock Text="{Binding SelectedAccount.Error}" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,8,0,0" />
+  </StackPanel></Border>
+ </StackPanel></ScrollViewer>
+</UserControl>

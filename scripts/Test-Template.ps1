@@ -6,10 +6,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $smartRoot '.template.config\templat
     exit 0
 }
 $destination = Join-Path $smartRoot ('artifacts\template-smoke\' + [Guid]::NewGuid().ToString('N'))
-$hive = Join-Path $smartRoot '.tools\template-hive'
-& $DotNet new install $smartRoot --force --debug:custom-hive $hive
-if ($LASTEXITCODE -ne 0) { throw 'Template installation failed.' }
-& $DotNet new smart-script -n SmokeProject -o $destination --debug:custom-hive $hive
+& (Join-Path $PSScriptRoot 'New-Project.ps1') -Name SmokeProject -OutputPath $destination -DotNet $DotNet
 if ($LASTEXITCODE -ne 0) { throw 'Template generation failed.' }
 if (Test-Path -LiteralPath (Join-Path $destination '.template.config\template.json')) {
     throw 'A generated consumer must not retain the source-template marker.'

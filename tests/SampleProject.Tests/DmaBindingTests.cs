@@ -1,5 +1,5 @@
 using System.Text.Json;
-using SampleProject.Desktop;
+using SampleProject.Desktop.ViewModels;
 using Smart.Hosting;
 using Smart.Hosting.Windows;
 using Xunit;

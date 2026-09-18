@@ -77,7 +77,8 @@ public sealed class HardwareSessionFactory(InputLeaseRegistry leases,
                     throw;
                 }
             }
-            return new RuntimeSession(worker, snapshots, Probe, connectionLifetime);
+            return new RuntimeSession(worker, snapshots, Probe, connectionLifetime)
+            { Target = new(binding.ProcessId, binding.Name, binding.ModuleBase) };
         }
         catch
         {

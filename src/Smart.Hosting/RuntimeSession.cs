@@ -2,9 +2,13 @@ using Smart.Data;
 using Smart.Runtime;
 namespace Smart.Hosting;
 
+public sealed record SessionTarget(int ProcessId, string ProcessName, ulong ModuleBase);
+public interface IRuntimeSessionInfo { SessionTarget? Target { get; } }
+
 public sealed class RuntimeSession(AccountWorker worker, SnapshotSession snapshots,
-    Func<CancellationToken, ValueTask<bool>>? probe = null, IAsyncDisposable? connection = null, IDisposable? deviceLease = null) : IRuntimeSession
+    Func<CancellationToken, ValueTask<bool>>? probe = null, IAsyncDisposable? connection = null, IDisposable? deviceLease = null) : IRuntimeSession, IRuntimeSessionInfo
 {
+    public SessionTarget? Target { get; init; }
     private readonly SemaphoreSlim _cleanup = new(1, 1);
     private bool _disposed;
     public AccountWorker Worker => worker;

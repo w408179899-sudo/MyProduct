@@ -10,6 +10,16 @@ internal static class Program
 {
     private static Task<int> Main(string[] args)
     {
+        if (args is ["--inventory"])
+        {
+            Console.InputEncoding = new System.Text.UTF8Encoding(false); Console.OutputEncoding = new System.Text.UTF8Encoding(false);
+            var request = System.Text.Json.JsonSerializer.Deserialize<InventoryRequest>(Console.ReadLine()!)!;
+            File.WriteAllText(request.ReadyFile, Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
+            if (request.Mode == "hang") Thread.Sleep(Timeout.Infinite);
+            if (request.Mode == "overflow") Console.Write(new string('X', 140000));
+            else Console.Write("{\"Devices\":[]}");
+            return Task.FromResult(0);
+        }
         if (args is ["--parent-death-host", var leaseDirectory, var readyFile, var device])
         {
             // No native factory is reachable: this client launches the same fake executable below.
@@ -34,6 +44,7 @@ internal static class Program
             return new FakeTransport(startup.DeviceId, startup.LeaseDirectory, mode);
         });
     }
+    private sealed record InventoryRequest(string Mode, string ReadyFile);
     private sealed class FakeTransport(string device, string leaseDirectory, string mode) : IProcessMemoryTransport
     {
         private int _reads;

@@ -6,7 +6,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Deterministic>true</Deterministic>
     <AnalysisLevel>latest</AnalysisLevel>
-    <SmartFrameworkVersion>0.5.0</SmartFrameworkVersion>
+    <SmartFrameworkVersion>0.6.0</SmartFrameworkVersion>
     <Version>$(SmartFrameworkVersion)</Version>
     <SmartFrameworkProject>$([System.Text.RegularExpressions.Regex]::IsMatch('$(MSBuildProjectName)', '^Smart\.(Contracts|Data|Runtime|Hosting(\.Windows)?|Adapters\.(Dma|KmBox))$'))</SmartFrameworkProject>
     <Description>Business-free DMA/VMM and KMBox runtime foundation.</Description>
