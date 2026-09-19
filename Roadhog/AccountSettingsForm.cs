@@ -245,8 +245,11 @@ namespace Roadhog
             InitializeSettingsForm();
         }
 
+        private CancellationTokenSource? _personalShopTestCts;
+
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
+            _personalShopTestCts?.Cancel();
             pathRecordTimer.Stop();
             pathRecordTimer.Dispose();
             base.OnFormClosed(e);
@@ -3447,6 +3450,9 @@ namespace Roadhog
             }
 
             AddLabel(rulesPanel, "清理物品类型", 0, 0, 160, 26, _textGreen, FontStyle.Bold);
+            var testPersonalShopButton = AddButton(rulesPanel, "测试摆摊", 136, 0, 140, 28);
+            testPersonalShopButton.Name = "testPersonalShopButton";
+            testPersonalShopButton.Click += async (_, _) => await TestPersonalShopAsync(testPersonalShopButton).ConfigureAwait(true);
 
             void AddCategory(string title, int top)
             {
@@ -4140,6 +4146,42 @@ namespace Roadhog
                     button.Text = originalText;
                     button.Enabled = true;
                 }
+            }
+        }
+
+        private async Task TestPersonalShopAsync(Button button)
+        {
+            if (_personalShopTestCts != null) return;
+            using var cancellation = new CancellationTokenSource();
+            _personalShopTestCts = cancellation;
+            button.Enabled = false;
+            button.Text = "摆摊中...";
+            SetBagCleanupInventoryStatus("正在测试摆摊：按当前出售规则，整叠登记，每件 1 金币。", false);
+            try
+            {
+                var settings = new MaintenanceScriptSettings
+                {
+                    BagCleanupRules = CaptureBagCleanupRules(),
+                    BagCleanupExcludedItemNames = CaptureBagCleanupExcludedItemList(),
+                    BagCleanupDiscardItemNameKeywords = CaptureBagCleanupDiscardItemList()
+                };
+                var progress = new Progress<string>(text =>
+                {
+                    if (!IsDisposed && _personalShopTestCts == cancellation && !cancellation.IsCancellationRequested) SetBagCleanupInventoryStatus(text, false);
+                });
+                var result = await _runtime.TestPersonalShopAsync(_account, settings, progress, cancellation.Token).ConfigureAwait(true);
+                if (IsDisposed) return;
+                if (!result.Success || result.Value == null) SetBagCleanupInventoryStatus("测试摆摊失败：" + result.Error, true);
+                else if (result.Value.AlreadySelling) SetBagCleanupInventoryStatus("角色已在摆摊，保持当前出售状态。", false);
+                else if (result.Value.RegisteredCount == 0) SetBagCleanupInventoryStatus("没有匹配当前启用出售规则的背包物品。", false);
+                else SetBagCleanupInventoryStatus($"已开始摆摊：{result.Value.RegisteredCount} 项，单价 1 金币。" +
+                    (result.Value.RemainingCount > 0 ? $"摊位已满，剩余 {result.Value.RemainingCount} 项未登记。" : ""), false);
+            }
+            catch (Exception ex) { if (!IsDisposed) SetBagCleanupInventoryStatus("测试摆摊失败：" + ex.Message, true); }
+            finally
+            {
+                _personalShopTestCts = null;
+                if (!button.IsDisposed) { button.Text = "测试摆摊"; button.Enabled = true; }
             }
         }
 

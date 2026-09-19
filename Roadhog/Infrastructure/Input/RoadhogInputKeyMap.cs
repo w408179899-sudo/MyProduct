@@ -32,6 +32,7 @@ public static class RoadhogInputKeyMap
             ["Y"] = 0x1C,
             ["Z"] = 0x1D,
             ["Space"] = 0x2C,
+            ["ControlKey"] = 0xE0,
             ["D1"] = 0x1E,
             ["D2"] = 0x1F,
             ["D3"] = 0x20,

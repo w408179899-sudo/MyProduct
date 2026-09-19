@@ -18,7 +18,7 @@ using System.Globalization;
 
 namespace Roadhog.Application;
 
-public sealed class RoadhogRuntime
+public sealed partial class RoadhogRuntime
 {
     private readonly IRoadhogSnapshotReaderFactory _snapshotReaders;
     private readonly IRoadhogLogger _logger;
@@ -428,7 +428,14 @@ public sealed class RoadhogRuntime
     }
 #endif
 
-    public async Task<OperationResult> TestMoveMouseToScreenPointAsync(
+    public Task<OperationResult> TestMoveMouseToScreenPointAsync(
+        int x, int y, CancellationToken cancellationToken = default)
+    {
+        Task<OperationResult> Execute() => TestMoveMouseToScreenPointCoreAsync(x, y, cancellationToken);
+        return Orchestrator is null ? Execute() : Orchestrator.RunManualInputAsync(Execute);
+    }
+
+    private async Task<OperationResult> TestMoveMouseToScreenPointCoreAsync(
         int x,
         int y,
         CancellationToken cancellationToken = default)

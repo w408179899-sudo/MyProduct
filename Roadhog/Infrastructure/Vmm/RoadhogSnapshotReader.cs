@@ -131,6 +131,16 @@ internal sealed class RoadhogSnapshotReader : IRoadhogSnapshotReader
                 : Missing<ChannelSwitchUiSnapshot>("Channel UI snapshot channel is unavailable."),
             afterVersion);
 
+    public Task<PublishedGameSnapshot<PersonalShopSnapshot>> ReadPersonalShopAsync(long afterVersion = 0) =>
+        ReadUntilPublishedAsync("personal_shop",
+            () => _gameApi is IPersonalShopGameApi api ? api.ReadPersonalShopAsync(_readContext, _stopToken)
+                : Missing<PersonalShopSnapshot>("Personal shop channel is unavailable."), afterVersion);
+
+    public Task<PublishedGameSnapshot<PersonalShopCursorSnapshot>> ReadPersonalShopCursorAsync(long afterVersion = 0) =>
+        ReadUntilPublishedAsync("personal_shop_cursor",
+            () => _gameApi is IPersonalShopGameApi api ? api.ReadPersonalShopCursorAsync(_readContext, _stopToken)
+                : Missing<PersonalShopCursorSnapshot>("Personal shop cursor channel is unavailable."), afterVersion);
+
     public Task<PublishedGameSnapshot<ChannelTransitionSnapshot>> ReadChannelTransitionAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync(
             "channel_transition",

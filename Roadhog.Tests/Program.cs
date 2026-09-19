@@ -32,6 +32,12 @@ using Roadhog.Infrastructure.Paths;
 using Roadhog.Infrastructure.Profiles;
 using Roadhog.Infrastructure.Vmm;
 
+if (args.Contains("--personal-shop-probe"))
+{
+    Environment.ExitCode = PersonalShopLiveProbe.RunAsync(args).GetAwaiter().GetResult();
+    return;
+}
+
 if (args.Contains("--vmm-lifetime-finalizer-probe"))
 {
     VmmConnectionLifetimeTests.RunFinalizerProbe();
@@ -115,6 +121,18 @@ if (KmboxKeyPressProbe.ShouldRun(args))
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("personal shop UI button uses unsaved rules and blocks double click", TestPersonalShopButtonAsync),
+    ("personal shop production decoder field faults", PersonalShopDecoderTests.DecodeAndFaultsAsync),
+    ("personal shop production batch guards and valid absence", PersonalShopDecoderTests.BatchesAndClosedStateAsync),
+    ("personal shop full production sequence and stack quantities", PersonalShopTests.FullSequenceAsync),
+    ("personal shop filtering and ten-slot capacity", PersonalShopTests.FilteringAndCapacityAsync),
+    ("personal shop hover and existing shop guards", PersonalShopTests.WrongHoverAndExistingShopAsync),
+    ("personal shop editor mismatch and cancellation", PersonalShopTests.BadEditorAndCancellationAsync),
+    ("personal shop start rejection never toggles again", PersonalShopTests.RejectedStartAsync),
+    ("personal shop official snapshot lifecycle", PersonalShopTests.StablePublicationAsync),
+    ("personal shop probe registration and read faults", PersonalShopProbeTests.RegistrationAndFaultsAsync),
+    ("personal shop probe parent geometry and hover identity", PersonalShopProbeTests.GeometryAndHoverAsync),
+    ("personal shop probe authorized price and complete plan", PersonalShopProbeTests.AuthorizedPriceAndPlanAsync),
     ("channel peace finishes current monster without acquiring next and retries", ChannelPeaceTests.FinishCurrentThenReservePeaceAsync),
     ("channel selected target alone does not start combat or block peace", ChannelPeaceTests.SelectedTargetIsNotCombatAsync),
     ("channel selected target after abandonment cannot starve switching", ChannelPeaceTests.AbandonedSelectedTargetAllowsPeaceAsync),
@@ -12330,6 +12348,58 @@ static Task TestBagCleanupTradingNameListsAsync()
     var sharedCaptured = (BagCleanupNameListsDocument)InvokePrivateMethodForTest(sharedReopened, "CaptureBagCleanupNameLists")!;
     AssertSequence(captured.Stall.Select(item => item.Name).ToArray(), sharedCaptured.Stall.Select(item => item.Name).ToArray(), "reopening should retain shared stall list");
     AssertSequence(captured.AuctionHouse.Select(item => item.Name).ToArray(), sharedCaptured.AuctionHouse.Select(item => item.Name).ToArray(), "reopening should retain shared auction list");
+    return Task.CompletedTask;
+}
+
+static Task TestPersonalShopButtonAsync()
+{
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        try
+        {
+            var game = new PersonalShopTests.Simulation(1);
+            var config = new AccountConfig { AccountName = "account1", ScriptSettings = new ScriptSettings() };
+            config.ScriptSettings.Maintenance.BagCleanupRules.Clear();
+            var store = new InMemoryAccountConfigStore(config);
+            var logger = new InMemoryRoadhogLogger();
+            var runtime = new RoadhogRuntime(game.Api, logger, new AccountRuntimeManager(logger), null!, store, keyboardInput: game.Input);
+            using var form = new AccountSettingsForm("account1", runtime, store, new InMemorySharedPathStore(),
+                new InMemoryScriptProfileStore(), new RecordingFolderLauncher(), "test-paths");
+            var tabs = (System.Windows.Forms.TabControl)GetPrivateFieldForTest(form, "settingsTabs");
+            tabs.SelectedTab = tabs.TabPages.Cast<System.Windows.Forms.TabPage>().Single(t => t.Text == "清包");
+            form.ShowInTaskbar = false;
+            form.StartPosition = System.Windows.Forms.FormStartPosition.Manual;
+            form.Location = new System.Drawing.Point(-32000, -32000);
+            form.Show();
+            System.Windows.Forms.Application.DoEvents();
+            InvokePrivateMethodForTest(form, "ApplyBagCleanupRules", game.Settings.BagCleanupRules);
+            var button = (System.Windows.Forms.Button)form.Controls.Find("testPersonalShopButton", true).Single();
+            AssertFalse(!button.Visible || button.Top != 0 || button.Right > button.Parent!.Width, "button fits requested rule-header location");
+            button.PerformClick();
+            AssertFalse(button.Enabled, "button disables during sequence");
+            button.PerformClick();
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            while (!button.Enabled && timer.Elapsed < TimeSpan.FromSeconds(15))
+            {
+                System.Windows.Forms.Application.DoEvents();
+                Thread.Sleep(10);
+            }
+            AssertFalse(!button.Enabled || !game.Selling || game.Starts != 1 || game.Confirms != 1, "real button invokes complete runtime once using unsaved sell selection");
+            AssertEqual("测试摆摊", button.Text, "button restores after completion");
+            var before = game.Input.MouseCommands.Count;
+            button.PerformClick();
+            System.Windows.Forms.Application.DoEvents();
+            AssertEqual(before, game.Input.MouseCommands.Count, "already-selling button does not stop the shop");
+            var saved = store.LoadAllAsync().GetAwaiter().GetResult().Value!.Single();
+            AssertFalse(saved.ScriptSettings!.Maintenance.BagCleanupRules.Any(r => r.Enabled), "test does not implicitly save rule edits");
+            form.Close();
+        }
+        catch (Exception ex) { failure = ex; }
+    });
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start(); thread.Join();
+    if (failure != null) throw failure;
     return Task.CompletedTask;
 }
 
@@ -33479,6 +33549,8 @@ static Task TestDmaSnapshotCatalogRegistersEveryBusinessChannelAsync()
         "locked_target_abnormal_statuses",
         "loot_corpses",
         "party",
+        "personal_shop",
+        "personal_shop_cursor",
         "player",
         "player_abnormal_statuses",
         "skills",
@@ -34845,7 +34917,7 @@ sealed class InMemoryScriptProfileStore : IScriptProfileStore
     }
 }
 
-sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi, IChannelSwitchUiGameApi, IChannelTransitionGameApi
+sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi, IChannelSwitchUiGameApi, IChannelTransitionGameApi, IPersonalShopGameApi
 #if DEBUG
     , IRoadhogApiAddressProbe
     , IRoadhogSnapshotDiagnostics
@@ -34937,6 +35009,13 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
             ? await TransitionReadAsync(cancellationToken)
             : TransitionRead?.Invoke() ?? new(true, Player, Channel, DateTimeOffset.UtcNow));
     }
+
+    public Func<PersonalShopSnapshot>? PersonalShopRead { get; set; }
+    public Func<PersonalShopCursorSnapshot>? PersonalShopCursorRead { get; set; }
+    public Task<OperationResult<PersonalShopSnapshot>> ReadPersonalShopAsync(GameApiReadContext context, CancellationToken cancellationToken = default) =>
+        Task.FromResult(OperationResult<PersonalShopSnapshot>.Ok(PersonalShopRead!()));
+    public Task<OperationResult<PersonalShopCursorSnapshot>> ReadPersonalShopCursorAsync(GameApiReadContext context, CancellationToken cancellationToken = default) =>
+        Task.FromResult(OperationResult<PersonalShopCursorSnapshot>.Ok(PersonalShopCursorRead!()));
 
     public Func<ChannelSwitchUiSnapshot>? ChannelUiRead { get; set; }
 

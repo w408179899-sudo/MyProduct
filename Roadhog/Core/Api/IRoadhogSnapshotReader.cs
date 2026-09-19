@@ -20,6 +20,10 @@ public interface IRoadhogSnapshotReader
 
     Task<PublishedGameSnapshot<ChannelSwitchUiSnapshot>> ReadChannelSwitchUiAsync(long afterVersion = 0);
 
+    Task<PublishedGameSnapshot<PersonalShopSnapshot>> ReadPersonalShopAsync(long afterVersion = 0);
+
+    Task<PublishedGameSnapshot<PersonalShopCursorSnapshot>> ReadPersonalShopCursorAsync(long afterVersion = 0);
+
     Task<PublishedGameSnapshot<ChannelTransitionSnapshot>> ReadChannelTransitionAsync(long afterVersion = 0);
 
     Task<PublishedGameSnapshot<LockedTargetSnapshot>> ReadLockedTargetAsync(long afterVersion = 0);

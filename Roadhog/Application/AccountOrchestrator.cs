@@ -62,7 +62,7 @@ public sealed class AccountOrchestrator
         lock (_syncRoot)
         {
             if (_manualInputActive || _workers.Values.Any(worker => worker.IsRunning))
-                return OperationResult.Fail("请先停止本程序中的脚本和其他鼠标测试，再执行频道切换测试。");
+                return OperationResult.Fail("请先停止本程序中的脚本和其他鼠标测试，再执行手动测试。");
             _manualInputActive = true;
         }
         try { return await action().ConfigureAwait(false); }
