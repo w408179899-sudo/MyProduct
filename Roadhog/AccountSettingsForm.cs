@@ -140,7 +140,7 @@ namespace Roadhog
         private RoundedTextBox? bagCleanupDiscardConfirmPointTextBox;
         private RoundedTextBox? bagCleanupSellItemClickPointTextBox;
         private RoundedTextBox? bagCleanupSellButtonClickPointTextBox;
-        private RoundedComboBox? bagCleanupItemCoordinateModeCombo;
+        private BagCleanupItemCoordinateMode _bagCleanupItemCoordinateMode;
         private RoundedTextBox? bagCleanupManualNameTextBox;
         private CheckedListBox? bagCleanupInventoryCheckedListBox;
         private ListBox? bagCleanupExcludedItemListBox;
@@ -511,9 +511,7 @@ namespace Roadhog
             SetText(
                 bagCleanupSellButtonClickPointTextBox,
                 FormatScreenPoint(settings.Maintenance.BagCleanupSellButtonClickX, settings.Maintenance.BagCleanupSellButtonClickY));
-            SetComboText(
-                bagCleanupItemCoordinateModeCombo,
-                FormatBagCleanupItemCoordinateMode(settings.Maintenance.BagCleanupItemCoordinateMode));
+            _bagCleanupItemCoordinateMode = settings.Maintenance.BagCleanupItemCoordinateMode;
             ApplyBagCleanupRules(settings.Maintenance.BagCleanupRules);
             PopulateBagCleanupNameLists(
                 settings.Maintenance.BagCleanupExcludedItemNames,
@@ -893,7 +891,7 @@ namespace Roadhog
                     BagCleanupSellButtonClickY = bagCleanupSellButtonClickPoint.Y,
                     BagCleanupDiscardConfirmClickX = bagCleanupDiscardConfirmPoint.X,
                     BagCleanupDiscardConfirmClickY = bagCleanupDiscardConfirmPoint.Y,
-                    BagCleanupItemCoordinateMode = CaptureBagCleanupItemCoordinateMode(),
+                    BagCleanupItemCoordinateMode = _bagCleanupItemCoordinateMode,
                     BagCleanupRules = CaptureBagCleanupRules(),
                     BagCleanupExcludedItemNames = CaptureBagCleanupExcludedItemList(),
                     BagCleanupDiscardItemNameKeywords = CaptureBagCleanupDiscardItemList()
@@ -1263,47 +1261,69 @@ namespace Roadhog
         {
             var tab = CreateBaseTab("总览");
             var page = CreatePagePanel();
+            page.AutoScroll = true;
+            page.AutoScrollMinSize = new Size(852, 538);
             tab.Controls.Add(page);
 
-            AddLabel(page, "方案", 4, 8, 80, 22);
-            currentProfileLabel = AddLabel(page, "当前方案: default_profile", 84, 8, 220, 22, _textGreen, FontStyle.Bold);
-            AddLabel(page, "已保存方案", 306, 8, 100, 22);
-            profileStatusLabel = AddLabel(page, string.Empty, 648, 8, 190, 22);
-            profileNameTextBox = AddTextBox(page, "default_profile", 4, 32, 220, 26);
-            savedProfileCombo = AddCombo(page, 306, 32, 254, 28);
+            Panel AddSection(string title, int top, int height)
+            {
+                var section = new Panel
+                {
+                    Location = new Point(12, top),
+                    Size = new Size(828, height),
+                    BackColor = _pageBackground
+                };
+                page.Controls.Add(section);
+                var heading = AddLabel(section, "  " + title, 0, 0, 828, 28, _textGreen, FontStyle.Bold);
+                heading.BackColor = _inputBackground;
+                return section;
+            }
+
+            var profilePanel = AddSection("方案管理", 10, 80);
+            var modePanel = AddSection("运行模式与范围", 102, 126);
+            var behaviorPanel = AddSection("选怪与拾取", 240, 148);
+            var environmentPanel = AddSection("镜头与频道", 400, 126);
+
+            currentProfileLabel = AddLabel(profilePanel, "当前方案: default_profile", 124, 2, 304, 24, _textGreen, FontStyle.Bold);
+            currentProfileLabel.BackColor = _inputBackground;
+            AddLabel(profilePanel, "方案名", 12, 44, 64, 24);
+            profileNameTextBox = AddTextBox(profilePanel, "default_profile", 80, 42, 236, 28);
+            AddLabel(profilePanel, "已保存方案", 340, 44, 92, 24);
+            profileStatusLabel = AddLabel(profilePanel, string.Empty, 436, 2, 380, 24);
+            profileStatusLabel.BackColor = _inputBackground;
+            savedProfileCombo = AddCombo(profilePanel, 436, 42, 272, 28);
             savedProfileCombo.SelectedIndexChanged += (_, _) => LoadSelectedProfile();
-            AddButton(page, "删除", 568, 31, 72, 30, (_, _) => DeleteSavedProfile());
-            AddLabel(page, "方案名", 230, 36, 80, 22);
-            AddLabel(page, "水平", 306, 76, 38, 22);
-            cameraYawPixelsPerDegreeTextBox = AddTextBox(page, "11.0", 346, 72, 70, 28);
-            AddLabel(page, "俯仰", 482, 76, 38, 22);
-            cameraPitchPixelsPerDegreeTextBox = AddTextBox(page, "13.0", 522, 72, 70, 28);
+            AddButton(profilePanel, "删除", 724, 41, 92, 30, (_, _) => DeleteSavedProfile());
+            AddLabel(environmentPanel, "水平", 12, 44, 46, 24);
+            cameraYawPixelsPerDegreeTextBox = AddTextBox(environmentPanel, "11.0", 64, 42, 80, 28);
+            AddLabel(environmentPanel, "俯仰", 164, 44, 48, 24);
+            cameraPitchPixelsPerDegreeTextBox = AddTextBox(environmentPanel, "13.0", 220, 42, 80, 28);
 
-            mainModeCombo = AddCombo(page, 4, 72, 220, 28, "自定义打怪", "路径采集", "半自动");
+            mainModeCombo = AddCombo(modePanel, 88, 42, 236, 28, "自定义打怪", "路径采集", "半自动");
             mainModeCombo.SelectedIndexChanged += (_, _) => RefreshCombatModeVisibility();
-            AddLabel(page, "主模式", 230, 76, 80, 22, Color.FromArgb(220, 38, 38), FontStyle.Bold);
+            AddLabel(modePanel, "主模式", 12, 44, 72, 24, _textGreen, FontStyle.Bold);
 
-            combatModeCombo = AddCombo(page, 4, 104, 220, 28, "原地打怪", "路径打怪");
+            combatModeCombo = AddCombo(modePanel, 464, 42, 260, 28, "原地打怪", "路径打怪");
             combatModeCombo.SelectedIndexChanged += (_, _) => RefreshCombatModeVisibility();
-            combatModeLabel = AddLabel(page, "打怪模式", 230, 108, 80, 22);
-            stationaryCombatRadiusLabel = AddLabel(page, "半径", 306, 108, 38, 22);
-            stationaryCombatRadiusTextBox = AddTextBox(page, "30.0", 346, 104, 70, 28);
-            stationaryCombatRadiusUnitLabel = AddLabel(page, "m", 422, 108, 20, 22);
-            stalledTargetExclusionSecondsLabel = AddLabel(page, "卡怪排除", 482, 108, 70, 22);
-            stalledTargetExclusionSecondsTextBox = AddTextBox(page, "60", 554, 104, 70, 28);
+            combatModeLabel = AddLabel(modePanel, "打怪模式", 380, 44, 80, 24);
+            stationaryCombatRadiusLabel = AddLabel(modePanel, "半径", 12, 84, 72, 24);
+            stationaryCombatRadiusTextBox = AddTextBox(modePanel, "30.0", 88, 82, 100, 28);
+            stationaryCombatRadiusUnitLabel = AddLabel(modePanel, "m", 196, 84, 24, 24);
+            stalledTargetExclusionSecondsLabel = AddLabel(modePanel, "卡怪排除", 380, 84, 80, 24);
+            stalledTargetExclusionSecondsTextBox = AddTextBox(modePanel, "60", 464, 82, 100, 28);
             stalledTargetExclusionSecondsTextBox.Name = "stalledTargetExclusionSecondsTextBox";
-            stalledTargetExclusionSecondsUnitLabel = AddLabel(page, "秒", 630, 108, 24, 22);
-            pathCombatRadiusLabel = AddLabel(page, "半径", 306, 108, 38, 22);
-            pathCombatRadiusTextBox = AddTextBox(page, "30.0", 346, 104, 70, 28);
-            pathCombatRadiusUnitLabel = AddLabel(page, "m", 422, 108, 20, 22);
-            pathFollowReachDistanceLabel = AddLabel(page, "精度", 482, 108, 38, 22);
-            pathFollowReachDistanceTextBox = AddTextBox(page, "5.0", 522, 104, 70, 28);
-            pathFollowReachDistanceUnitLabel = AddLabel(page, "m", 598, 108, 20, 22);
+            stalledTargetExclusionSecondsUnitLabel = AddLabel(modePanel, "秒", 576, 84, 24, 24);
+            pathCombatRadiusLabel = AddLabel(modePanel, "半径", 12, 84, 72, 24);
+            pathCombatRadiusTextBox = AddTextBox(modePanel, "30.0", 88, 82, 100, 28);
+            pathCombatRadiusUnitLabel = AddLabel(modePanel, "m", 196, 84, 24, 24);
+            pathFollowReachDistanceLabel = AddLabel(modePanel, "精度", 380, 84, 80, 24);
+            pathFollowReachDistanceTextBox = AddTextBox(modePanel, "5.0", 464, 82, 100, 28);
+            pathFollowReachDistanceUnitLabel = AddLabel(modePanel, "m", 576, 84, 24, 24);
 
-            enableLootCheckBox = AddCheckBox(page, "启用拾取", 4, 142, 88, true);
-            contestMonsterCheckBox = AddCheckBox(page, "抢怪", 96, 142, 64, false);
-            counterEnemyRaceCheckBox = AddCheckBox(page, "反击敌对种族", 160, 142, 140, false);
-            preferAggressiveMonsterCheckBox = AddCheckBox(page, "优先攻击主动怪", 302, 142, 142, false);
+            enableLootCheckBox = AddCheckBox(behaviorPanel, "启用拾取", 12, 42, 120, true);
+            contestMonsterCheckBox = AddCheckBox(behaviorPanel, "抢怪", 164, 42, 100, false);
+            counterEnemyRaceCheckBox = AddCheckBox(behaviorPanel, "反击敌对种族", 312, 42, 180, false);
+            preferAggressiveMonsterCheckBox = AddCheckBox(behaviorPanel, "优先攻击主动怪", 520, 42, 190, false);
 
 #if DEBUG
             var apiProbeButton = AddButton(page, "API探针", 702, 32, 134, 30);
@@ -1312,60 +1332,60 @@ namespace Roadhog
                 await RunApiProbeAsync(apiProbeButton).ConfigureAwait(true);
 #endif
 
-            returnHomeWhenNoTargetCheckBox = AddCheckBox(page, "\u6ca1\u602a\u56de\u4e2d\u5fc3", 302, 176, 118, true);
-            sitWhenNoTargetAtHomeCheckBox = AddCheckBox(page, "\u6ca1\u602a\u5750\u5730\u677f", 426, 176, 118, false);
-            jumpAssistEnabledCheckBox = AddCheckBox(page, "\u6253\u602a\u8df3\u8dc3", 302, 208, 110, false);
+            returnHomeWhenNoTargetCheckBox = AddCheckBox(behaviorPanel, "\u6ca1\u602a\u56de\u4e2d\u5fc3", 12, 114, 140, true);
+            sitWhenNoTargetAtHomeCheckBox = AddCheckBox(behaviorPanel, "\u6ca1\u602a\u5750\u5730\u677f", 184, 114, 140, false);
+            jumpAssistEnabledCheckBox = AddCheckBox(behaviorPanel, "\u6253\u602a\u8df3\u8dc3", 356, 114, 120, false);
             jumpAssistEnabledCheckBox.Name = "jumpAssistEnabledCheckBox";
-            smartPreAimEnabledCheckBox = AddCheckBox(page, "\u667a\u80fd\u9009\u602a", 4, 176, 110, false);
+            smartPreAimEnabledCheckBox = AddCheckBox(behaviorPanel, "\u667a\u80fd\u9009\u602a", 12, 78, 120, false);
             smartPreAimEnabledCheckBox.Name = "smartPreAimEnabledCheckBox";
             smartPreAimEnabledCheckBox.Click += (_, _) => RefreshCombatModeVisibility();
             smartPreAimUseFightTargetPositionCheckBox = AddCheckBox(
-                page,
+                behaviorPanel,
                 "\u6309\u5f53\u524d\u602a\u4f4d\u7f6e\u9009\u602a",
-                120,
-                176,
-                170,
+                164,
+                78,
+                186,
                 false);
             smartPreAimUseFightTargetPositionCheckBox.Name = "smartPreAimUseFightTargetPositionCheckBox";
             smartPreAimResponsiveSwitchingCheckBox = AddCheckBox(
-                page,
+                behaviorPanel,
                 "\u7075\u654f\u5207\u6362",
-                4,
-                208,
-                110,
+                380,
+                78,
+                120,
                 false);
             smartPreAimResponsiveSwitchingCheckBox.Name = "smartPreAimResponsiveSwitchingCheckBox";
             radarEditorButton = AddButton(
-                page,
+                environmentPanel,
                 "\u7ed8\u5236\u96f7\u8fbe",
-                680,
-                72,
+                12,
+                82,
                 156,
                 34,
                 (_, _) => OpenRadarEditor());
             radarEditorButton.Name = "radarEditorButton";
             radarStatusLabel = AddLabel(
-                page,
+                environmentPanel,
                 string.Empty,
-                680,
-                108,
-                156,
+                184,
+                84,
+                620,
                 30,
                 _textGreen,
                 FontStyle.Regular);
             radarStatusLabel.Name = "radarStatusLabel";
-            AddLabel(page, "\u56fa\u5b9a\u9891\u9053", 552, 150, 76, 22);
+            AddLabel(environmentPanel, "\u56fa\u5b9a\u9891\u9053", 380, 44, 80, 24);
             fixedChannelCombo = AddCombo(
-                page,
-                632,
-                146,
-                120,
+                environmentPanel,
+                468,
+                42,
+                152,
                 28,
                 new[] { "\u4e0d\u56fa\u5b9a" }
                     .Concat(Enumerable.Range(1, ScriptSettings.MaximumFixedChannelNumber).Select(number => number + "\u9891\u9053"))
                     .ToArray());
             fixedChannelCombo.Name = "fixedChannelCombo";
-            fixedChannelTestButton = AddButton(page, "切换测试", 758, 146, 86, 28);
+            fixedChannelTestButton = AddButton(environmentPanel, "切换测试", 632, 42, 116, 28);
             fixedChannelTestButton.Name = "fixedChannelTestButton";
             fixedChannelTestButton.Enabled = fixedChannelCombo.SelectedIndex > 0;
             fixedChannelCombo.SelectedIndexChanged += (_, _) =>
@@ -3293,25 +3313,38 @@ namespace Roadhog
             var tab = CreateBaseTab("清包");
             var page = CreatePagePanel();
             page.AutoScroll = true;
-            page.AutoScrollMinSize = new Size(0, 620);
+            page.AutoScrollMinSize = new Size(852, 556);
             tab.Controls.Add(page);
             bagCleanupRuleControls.Clear();
 
-            bagCleanupEnabledCheckBox = AddCheckBox(page, "自动清包", 4, 16, 100, false);
-            AddLabel(page, "剩余格低于", 100, 16, 82, 26, _textGreen, FontStyle.Bold);
-            bagCleanupThresholdTextBox = AddTextBox(page, "5", 184, 14, 72, 28);
-            AddLabel(page, "丢弃确认", 278, 16, 72, 24, _textGreen, FontStyle.Bold);
+            var optionsPanel = new Panel
+            {
+                BackColor = _inputBackground,
+                Location = new Point(12, 10),
+                Size = new Size(828, 64)
+            };
+            page.Controls.Add(optionsPanel);
+            var rulesPanel = new Panel { Location = new Point(12, 90), Size = new Size(404, 460) };
+            var namesPanel = new Panel { Location = new Point(432, 90), Size = new Size(408, 460) };
+            page.Controls.Add(rulesPanel);
+            page.Controls.Add(namesPanel);
+
+            bagCleanupEnabledCheckBox = AddCheckBox(optionsPanel, "自动清包", 12, 20, 112, false);
+            bagCleanupEnabledCheckBox.BackColor = optionsPanel.BackColor;
+            AddLabel(optionsPanel, "剩余格低于", 148, 20, 92, 26, _textGreen, FontStyle.Bold);
+            bagCleanupThresholdTextBox = AddTextBox(optionsPanel, "5", 244, 18, 72, 28);
+            AddLabel(optionsPanel, "丢弃确认", 400, 20, 80, 24, _textGreen, FontStyle.Bold);
             bagCleanupDiscardConfirmPointTextBox = AddTextBox(
-                page,
+                optionsPanel,
                 FormatScreenPoint(
                     MaintenanceScriptSettings.DefaultBagCleanupDiscardConfirmClickX,
                     MaintenanceScriptSettings.DefaultBagCleanupDiscardConfirmClickY),
-                350,
-                14,
-                90,
+                484,
+                18,
+                116,
                 28);
             bagCleanupDiscardConfirmPointTextBox.Name = "bagCleanupDiscardConfirmPointTextBox";
-            var testDiscardConfirmMoveButton = AddButton(page, "测试移动", 448, 14, 92, 28);
+            var testDiscardConfirmMoveButton = AddButton(optionsPanel, "测试移动", 620, 17, 112, 30);
             testDiscardConfirmMoveButton.Name = "bagCleanupDiscardConfirmTestMoveButton";
             testDiscardConfirmMoveButton.Click += async (_, _) =>
                 await TestScreenPointMoveAsync(
@@ -3321,103 +3354,87 @@ namespace Roadhog
                     MaintenanceScriptSettings.DefaultBagCleanupDiscardConfirmClickY,
                     "丢弃确认").ConfigureAwait(true);
 
-            const int leftOptionX = 24;
-            const int leftComboX = 144;
-            const int rightOptionX = 218;
-            const int rightComboX = 346;
+            const int leftOptionX = 8;
+            const int leftComboX = 130;
+            const int rightOptionX = 210;
+            const int rightComboX = 334;
             const int cleanupOptionWidth = 118;
 
             void AddCleanupOption(BagCleanupRuleConfig rule, int optionX, int comboX, int y)
             {
-                var checkBox = AddCheckBox(page, rule.DisplayName, optionX, y, cleanupOptionWidth, false);
+                var checkBox = AddCheckBox(rulesPanel, rule.DisplayName, optionX, y, cleanupOptionWidth, false);
                 checkBox.Font = new Font("Microsoft YaHei UI", 8.25F);
                 checkBox.Size = new Size(cleanupOptionWidth, 22);
 
-                var combo = AddCombo(page, comboX, y - 1, 62, 24, "出售", "丢弃");
+                var combo = AddCombo(rulesPanel, comboX, y - 1, 62, 24, "出售", "丢弃");
                 combo.Font = new Font("Microsoft YaHei UI", 8.25F, FontStyle.Bold);
                 SetComboText(combo, FormatBagCleanupAction(rule.Action));
                 bagCleanupRuleControls[rule.Key] = new BagCleanupRuleControls(checkBox, combo);
             }
 
-            AddLabel(page, "清理物品类型", 4, 54, 120, 24, _textGreen, FontStyle.Bold);
+            AddLabel(rulesPanel, "清理物品类型", 0, 0, 160, 26, _textGreen, FontStyle.Bold);
 
-            AddLabel(page, "装备品质", 18, 76, 80, 22, _textGreen, FontStyle.Bold);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenEquipment), leftOptionX, leftComboX, 98);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.BlueEquipment), rightOptionX, rightComboX, 98);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteEquipment), leftOptionX, leftComboX, 122);
+            void AddCategory(string title, int top)
+            {
+                var heading = AddLabel(rulesPanel, "  " + title, 0, top, 404, 24, _textGreen, FontStyle.Bold);
+                heading.BackColor = _inputBackground;
+            }
 
-            AddLabel(page, "魔石", 18, 152, 80, 22, _textGreen, FontStyle.Bold);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteManastone), leftOptionX, leftComboX, 174);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenManastone), rightOptionX, rightComboX, 174);
+            AddCategory("装备品质", 36);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenEquipment), leftOptionX, leftComboX, 68);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.BlueEquipment), rightOptionX, rightComboX, 68);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteEquipment), leftOptionX, leftComboX, 98);
 
-            AddLabel(page, "书卷", 18, 202, 80, 22, _textGreen, FontStyle.Bold);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.Stigma), leftOptionX, leftComboX, 224);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.RecipeScroll), rightOptionX, rightComboX, 224);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.SkillBook), leftOptionX, leftComboX, 248);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.SpellBook), rightOptionX, rightComboX, 248);
+            AddCategory("魔石", 134);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteManastone), leftOptionX, leftComboX, 166);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenManastone), rightOptionX, rightComboX, 166);
 
-            AddLabel(page, "提炼石", 18, 278, 80, 22, _textGreen, FontStyle.Bold);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteExtractionStone), leftOptionX, leftComboX, 300);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenExtractionStone), rightOptionX, rightComboX, 300);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.BlueExtractionStone), leftOptionX, leftComboX, 324);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GoldExtractionStone), rightOptionX, rightComboX, 324);
+            AddCategory("书卷", 202);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.Stigma), leftOptionX, leftComboX, 234);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.RecipeScroll), rightOptionX, rightComboX, 234);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.SkillBook), leftOptionX, leftComboX, 264);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.SpellBook), rightOptionX, rightComboX, 264);
 
-            AddLabel(page, "药品", 18, 354, 80, 22, _textGreen, FontStyle.Bold);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.Medicine), leftOptionX, leftComboX, 376);
+            AddCategory("提炼石", 300);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteExtractionStone), leftOptionX, leftComboX, 332);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenExtractionStone), rightOptionX, rightComboX, 332);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.BlueExtractionStone), leftOptionX, leftComboX, 362);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GoldExtractionStone), rightOptionX, rightComboX, 362);
 
-            var testCleanupButton = AddButton(page, "测试清包", 38, 442, 166, 36);
-            testCleanupButton.Click += async (_, _) =>
-                await TestBagCleanupFromNpcAsync(testCleanupButton).ConfigureAwait(true);
+            AddCategory("药品", 398);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.Medicine), leftOptionX, leftComboX, 430);
 
-            AddLabel(page, "物品坐标", 18, 500, 68, 24, _textGreen, FontStyle.Bold);
-            bagCleanupItemCoordinateModeCombo = AddCombo(
-                page,
-                86,
-                498,
-                180,
-                28,
-                "固定左上角（当前）",
-                "窗口 Rect（实验）");
-            SetComboText(
-                bagCleanupItemCoordinateModeCombo,
-                FormatBagCleanupItemCoordinateMode(BagCleanupItemCoordinateMode.LegacyNormalizedTopLeft));
-
-            AddLabel(page, "名单", 430, 54, 46, 24, _textGreen, FontStyle.Bold);
-            bagCleanupWhitelistRadio = AddRadioButton(page, "白名单（不处理）", 480, 50, 126, true);
+            bagCleanupWhitelistRadio = AddRadioButton(namesPanel, "白名单（不处理）", 0, 0, 164, true);
             bagCleanupWhitelistRadio.Name = "bagCleanupWhitelistRadio";
-            bagCleanupBlacklistRadio = AddRadioButton(page, "黑名单（丢弃）", 608, 50, 126, false);
+            bagCleanupBlacklistRadio = AddRadioButton(namesPanel, "黑名单（丢弃）", 180, 0, 164, false);
             bagCleanupBlacklistRadio.Name = "bagCleanupBlacklistRadio";
             bagCleanupWhitelistRadio.CheckedChanged += (_, _) => RefreshBagCleanupNameListEditor();
             bagCleanupBlacklistRadio.CheckedChanged += (_, _) => RefreshBagCleanupNameListEditor();
 
-            var refreshInventoryButton = AddButton(page, "刷新背包", 738, 50, 96, 30);
+            var refreshInventoryButton = AddButton(namesPanel, "刷新背包", 300, 36, 108, 30);
             refreshInventoryButton.Click += async (_, _) =>
                 await RefreshBagCleanupInventoryAsync(refreshInventoryButton).ConfigureAwait(true);
-            var testInventoryWindowButton = AddButton(page, "测试背包归位", 688, 446, 146, 30);
-            testInventoryWindowButton.Click += async (_, _) =>
-                await TestBagCleanupInventoryWindowNormalizeAsync(testInventoryWindowButton).ConfigureAwait(true);
-            var testSellRegisterButton = AddButton(page, "测试登记出售", 688, 484, 146, 30);
-            testSellRegisterButton.Click += async (_, _) =>
-                await TestBagCleanupSellRegisterAsync(testSellRegisterButton).ConfigureAwait(true);
 
-            AddLabel(page, "物品/关键字", 430, 92, 96, 24, _textGreen, FontStyle.Bold);
-            bagCleanupManualNameTextBox = AddTextBox(page, string.Empty, 430, 118, 248, 28);
+            AddLabel(namesPanel, "背包物品 / 关键字", 0, 40, 200, 24, _textGreen, FontStyle.Bold);
+            bagCleanupManualNameTextBox = AddTextBox(namesPanel, string.Empty, 0, 76, 280, 28);
             bagCleanupManualNameTextBox.Name = "bagCleanupManualNameTextBox";
-            bagCleanupAddNameButton = AddButton(page, "加入不处理", 688, 118, 120, 30);
+            bagCleanupAddNameButton = AddButton(namesPanel, "加入不处理", 292, 75, 116, 30);
             bagCleanupAddNameButton.Name = "bagCleanupAddNameButton";
             bagCleanupAddNameButton.Click += async (_, _) =>
                 await AddSelectedBagCleanupNameAsync().ConfigureAwait(true);
 
-            bagCleanupInventoryCheckedListBox = CreateBagCleanupInventoryCheckedListBox(page, 430, 154, 248, 128);
+            bagCleanupInventoryCheckedListBox = CreateBagCleanupInventoryCheckedListBox(namesPanel, 0, 114, 408, 126);
+            bagCleanupInventoryCheckedListBox.BackColor = Color.White;
             bagCleanupInventoryCheckedListBox.Name = "bagCleanupInventoryCheckedListBox";
-            bagCleanupInventoryStatusLabel = AddLabel(page, "等待刷新背包", 430, 286, 404, 24);
+            bagCleanupInventoryStatusLabel = AddLabel(namesPanel, "等待刷新背包", 0, 244, 408, 24);
 
-            bagCleanupNameListTitleLabel = AddLabel(page, "白名单：以下物品不处理", 430, 318, 248, 24, _textGreen, FontStyle.Bold);
-            bagCleanupExcludedItemListBox = CreateFilterListBox(page, 430, 344, 248, 170);
-            bagCleanupRemoveNameButton = AddButton(page, "移除", 688, 344, 80, 30);
+            bagCleanupNameListTitleLabel = AddLabel(namesPanel, "白名单：以下物品不处理", 0, 280, 236, 24, _textGreen, FontStyle.Bold);
+            bagCleanupExcludedItemListBox = CreateFilterListBox(namesPanel, 0, 316, 408, 138);
+            bagCleanupExcludedItemListBox.BackColor = Color.White;
+            bagCleanupRemoveNameButton = AddButton(namesPanel, "移除", 248, 276, 72, 30);
             bagCleanupRemoveNameButton.Click += async (_, _) =>
                 await RemoveSelectedBagCleanupNameAsync().ConfigureAwait(true);
-            bagCleanupClearNamesButton = AddButton(page, "清空", 688, 382, 80, 30);
+            bagCleanupClearNamesButton = AddButton(namesPanel, "清空", 336, 276, 72, 30);
             bagCleanupClearNamesButton.Click += async (_, _) =>
                 await ClearSelectedBagCleanupNameListAsync().ConfigureAwait(true);
 
@@ -4019,23 +4036,6 @@ namespace Roadhog
                 : BagCleanupAction.Sell;
         }
 
-        private static string FormatBagCleanupItemCoordinateMode(BagCleanupItemCoordinateMode mode)
-        {
-            return mode == BagCleanupItemCoordinateMode.WindowRectRelativeExperimental
-                ? "窗口 Rect（实验）"
-                : "固定左上角（当前）";
-        }
-
-        private BagCleanupItemCoordinateMode CaptureBagCleanupItemCoordinateMode()
-        {
-            return string.Equals(
-                bagCleanupItemCoordinateModeCombo?.Text?.Trim(),
-                "窗口 Rect（实验）",
-                StringComparison.OrdinalIgnoreCase)
-                ? BagCleanupItemCoordinateMode.WindowRectRelativeExperimental
-                : BagCleanupItemCoordinateMode.LegacyNormalizedTopLeft;
-        }
-
         private async Task RefreshBagCleanupInventoryAsync(Button button)
         {
             var originalText = button.Text;
@@ -4101,7 +4101,7 @@ namespace Roadhog
             {
                 var settings = new MaintenanceScriptSettings
                 {
-                    BagCleanupItemCoordinateMode = CaptureBagCleanupItemCoordinateMode(),
+                    BagCleanupItemCoordinateMode = _bagCleanupItemCoordinateMode,
                     BagCleanupRules = CaptureBagCleanupRules(),
                     BagCleanupExcludedItemNames = CaptureBagCleanupExcludedItemList(),
                     BagCleanupDiscardItemNameKeywords = CaptureBagCleanupDiscardItemList()
@@ -5496,35 +5496,52 @@ namespace Roadhog
         {
             var tab = CreateBaseTab("技能");
             var page = CreatePagePanel();
+            page.AutoScroll = true;
+            page.AutoScrollMinSize = new Size(852, 556);
             tab.Controls.Add(page);
 
-            AddLabel(page, "技能配置", 4, 16, 90, 24, _textGreen, FontStyle.Bold);
-            var autoMode = AddRadioButton(page, "自动技能", 92, 14, 90, true);
+            var optionsPanel = new Panel
+            {
+                Name = "skillOptionsPanel",
+                BackColor = _inputBackground,
+                Location = new Point(12, 10),
+                Size = new Size(828, 112)
+            };
+            page.Controls.Add(optionsPanel);
+            AddLabel(optionsPanel, "技能配置", 12, 4, 90, 24, _textGreen, FontStyle.Bold);
+            var autoMode = AddRadioButton(optionsPanel, "自动技能", 12, 32, 120, true);
+            autoMode.BackColor = optionsPanel.BackColor;
             skillAutoModeRadio = autoMode;
-            openingAttackKeyCheckBox = AddCheckBox(page, "开怪按C", 548, 14, 92, true);
-            spiritmasterAutoSkillCheckBox = AddCheckBox(page, "精灵专用", 648, 14, 110, false);
+            openingAttackKeyCheckBox = AddCheckBox(optionsPanel, "开怪按C", 168, 32, 120, true);
+            spiritmasterAutoSkillCheckBox = AddCheckBox(optionsPanel, "精灵专用", 324, 32, 120, false);
             spiritmasterAutoSkillCheckBox.Click += (_, _) => RefreshSpiritmasterAutoSkillCheckBoxState();
-            spiritmasterSettingsButton = AddButton(page, "精灵设置", 740, 10, 96, 30, (_, _) => ShowSpiritmasterSettingsDialog());
+            spiritmasterSettingsButton = AddButton(optionsPanel, "精灵设置", 456, 29, 112, 30, (_, _) => ShowSpiritmasterSettingsDialog());
             spiritmasterSettingsButton.Visible = false;
-            conditionSkillPreemptsChainCheckBox = AddCheckBox(page, "条件抢连招", 548, 42, 126, true);
+            conditionSkillPreemptsChainCheckBox = AddCheckBox(optionsPanel, "条件抢连招", 12, 74, 126, true);
+            AddLabel(optionsPanel, "连招段", 148, 74, 60, 24);
             chainWindowPerLinkTextBox = AddTextBox(
-                page,
+                optionsPanel,
                 SemiAutoScriptSettings.DefaultChainWindowPerLinkMs.ToString(),
-                700,
-                42,
-                58,
+                212,
+                72,
+                64,
                 28);
-            AddLabel(page, "连招段ms", 766, 44, 76, 24);
+            AddLabel(optionsPanel, "ms", 284, 74, 32, 24);
 
-            attackWeaveCheckBox = AddCheckBox(page, "卡刀（每2技能）", 548, 74, 148, false);
+            attackWeaveCheckBox = AddCheckBox(optionsPanel, "卡刀（每2技能）", 416, 74, 148, false);
             attackWeaveCheckBox.Name = "attackWeaveCheckBox";
+            AddLabel(optionsPanel, "等待", 576, 74, 40, 24);
             attackWeaveDelayTextBox = AddTextBox(
-                page, SemiAutoScriptSettings.DefaultAttackWeaveDelayMs.ToString(), 700, 74, 58, 28);
+                optionsPanel, SemiAutoScriptSettings.DefaultAttackWeaveDelayMs.ToString(), 620, 72, 64, 28);
             attackWeaveDelayTextBox.Name = "attackWeaveDelayTextBox";
             attackWeaveDelayTextBox.Enabled = false;
             attackWeaveCheckBox.Click += (_, _) =>
                 attackWeaveDelayTextBox.Enabled = attackWeaveCheckBox.Checked;
-            AddLabel(page, "等待ms", 766, 76, 76, 24);
+            AddLabel(optionsPanel, "ms", 692, 74, 32, 24);
+            foreach (var option in optionsPanel.Controls.OfType<RoundedCheckBox>())
+            {
+                option.BackColor = optionsPanel.BackColor;
+            }
 
             var autoPanel = CreateSkillModePanel(page, "autoSkillPanel", true);
             autoSkillPanel = autoPanel;
@@ -5532,41 +5549,57 @@ namespace Roadhog
             manualSkillPanel = manualPanel;
             var systemPanel = CreateSkillModePanel(page, "systemSkillPanel", false);
             systemSkillPanel = systemPanel;
+            foreach (var panel in new[] { autoPanel, manualPanel, systemPanel })
+            {
+                panel.Anchor = AnchorStyles.Top | AnchorStyles.Left;
+                panel.Location = new Point(12, 136);
+                panel.Size = new Size(828, 420);
+            }
 
-            AddLabel(autoPanel, "可用技能", 8, 6, 120, 24, _textGreen, FontStyle.Bold);
-            AddLabel(autoPanel, "技能执行顺序", 378, 6, 140, 24, _textGreen, FontStyle.Bold);
+            AddLabel(autoPanel, "可用技能", 0, 2, 120, 24, _textGreen, FontStyle.Bold);
+            AddLabel(autoPanel, "技能执行顺序", 416, 2, 160, 24, _textGreen, FontStyle.Bold);
 
-            var availableTree = CreateSkillTree(autoPanel, "availableSkillTree", 8, 34, 260, 260);
+            var availableTree = CreateSkillTree(autoPanel, "availableSkillTree", 0, 38, 316, 292);
             availableSkillTree = availableTree;
-            var selectedTree = CreateSkillTree(autoPanel, "selectedSkillTree", 378, 34, 300, 260);
+            var selectedTree = CreateSkillTree(autoPanel, "selectedSkillTree", 416, 38, 316, 292);
             selectedSkillTree = selectedTree;
             PopulateAvailableSkillTree(availableTree);
             PopulateSelectedSkillTree(selectedTree);
 
-            var refreshSkillsButton = AddButton(page, "刷新当前技能", 390, 10, 150, 30);
+            var refreshSkillsButton = AddButton(autoPanel, "刷新当前技能", 182, 0, 134, 30);
             refreshSkillsButton.Click += async (_, _) =>
                 await RefreshCurrentSkillsAsync(refreshSkillsButton, availableTree, systemSkillTree).ConfigureAwait(true);
 
-            AddButton(autoPanel, "添加 >", 288, 102, 70, 30, (_, _) => AddSkillSelection(availableTree, selectedTree));
-            AddButton(autoPanel, "< 移除", 288, 140, 70, 30, (_, _) => RemoveSelectedSkill(selectedTree));
-            AddButton(autoPanel, "全部 >>", 288, 178, 70, 30, (_, _) => AddAllAvailableSkills(availableTree, selectedTree));
-            AddButton(autoPanel, "清空", 288, 216, 70, 30, (_, _) => selectedTree.Nodes.Clear());
+            AddButton(autoPanel, "添加 >", 328, 110, 76, 30, (_, _) => AddSkillSelection(availableTree, selectedTree));
+            AddButton(autoPanel, "< 移除", 328, 150, 76, 30, (_, _) => RemoveSelectedSkill(selectedTree));
+            AddButton(autoPanel, "全部 >>", 328, 190, 76, 30, (_, _) => AddAllAvailableSkills(availableTree, selectedTree));
+            AddButton(autoPanel, "清空", 328, 230, 76, 30, (_, _) => selectedTree.Nodes.Clear());
 
-            var refreshSelectedSkillsButton = AddButton(autoPanel, "刷新当前已选技能", 696, 62, 132, 30);
+            var refreshSelectedSkillsButton = AddButton(autoPanel, "刷新当前已选技能", 588, 0, 144, 30);
             refreshSelectedSkillsButton.Click += async (_, _) =>
                 await RefreshSelectedSkillTreeAsync(refreshSelectedSkillsButton, selectedTree).ConfigureAwait(true);
 
-            AddButton(autoPanel, "置顶", 696, 102, 70, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Top));
-            AddButton(autoPanel, "上移", 696, 140, 70, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Up));
-            AddButton(autoPanel, "下移", 696, 178, 70, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Down));
-            AddButton(autoPanel, "置底", 696, 216, 70, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Bottom));
+            AddButton(autoPanel, "置顶", 744, 110, 84, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Top));
+            AddButton(autoPanel, "上移", 744, 150, 84, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Up));
+            AddButton(autoPanel, "下移", 744, 190, 84, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Down));
+            AddButton(autoPanel, "置底", 744, 230, 84, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Bottom));
 
-            openingSkillEnabledCheckBox = AddCheckBox(autoPanel, "启用起手技能", 20, 432, 118, false);
-            AddLabel(autoPanel, "起手技能", 148, 432, 70, 24, _textGreen, FontStyle.Bold);
-            openingSkillCombo = AddCombo(autoPanel, 220, 430, 260, 28);
+            var openingPanel = new Panel
+            {
+                Name = "openingSkillPanel",
+                BackColor = _inputBackground,
+                Location = new Point(0, 346),
+                Size = new Size(828, 60)
+            };
+            autoPanel.Controls.Add(openingPanel);
+            openingSkillEnabledCheckBox = AddCheckBox(openingPanel, "启用起手技能", 12, 18, 128, false);
+            openingSkillEnabledCheckBox.BackColor = openingPanel.BackColor;
+            AddLabel(openingPanel, "技能", 148, 18, 40, 24, _textGreen, FontStyle.Bold);
+            openingSkillCombo = AddCombo(openingPanel, 192, 16, 430, 28);
             openingSkillCombo.Name = "openingSkillCombo";
             PopulateOpeningSkillCombo(openingSkillCombo, 0, string.Empty);
-            openingSkillKeyButton = AddButton(autoPanel, "选择按键", 492, 429, 104, 30);
+            AddLabel(openingPanel, "按键", 634, 18, 40, 24, _textGreen, FontStyle.Bold);
+            openingSkillKeyButton = AddButton(openingPanel, "选择按键", 676, 15, 136, 30);
             openingSkillKeyButton.Name = "openingSkillKeyButton";
             openingSkillKeyButton.Click += (_, _) =>
             {
@@ -5691,70 +5724,80 @@ namespace Roadhog
         {
             var tab = CreateBaseTab("怪物过滤");
             var page = CreatePagePanel();
+            page.AutoScroll = true;
+            page.AutoScrollMinSize = new Size(836, 514);
             tab.Controls.Add(page);
 
-            AddLabel(page, "怪物过滤", 4, 16, 90, 24, _textGreen, FontStyle.Bold);
-            var refreshMonstersButton = AddButton(page, "刷新当前怪物", 96, 12, 132, 30);
+            var selectionPanel = CreateFilterSelectionPanel(page, 12);
+            AddLabel(selectionPanel, "当前怪物", 12, 10, 120, 24, _textGreen, FontStyle.Bold);
+            var refreshMonstersButton = AddButton(selectionPanel, "刷新当前怪物", 656, 8, 144, 30);
             refreshMonstersButton.Click += async (_, _) =>
                 await RefreshCurrentMonstersAsync(refreshMonstersButton).ConfigureAwait(true);
 
-            AddLabel(page, "当前怪物", 4, 58, 100, 24, _textGreen, FontStyle.Bold);
-            activeMonsterFilterCombo = AddCombo(page, 4, 84, 280, 30);
+            activeMonsterFilterCombo = AddCombo(selectionPanel, 12, 46, 632, 30);
             activeMonsterFilterCombo.Name = "activeMonsterFilterCombo";
-            AddButton(page, "添加 >", 302, 84, 80, 30, (_, _) => AddSelectedActiveMonsterFilter());
+            AddButton(selectionPanel, "添加到过滤", 656, 46, 144, 30, (_, _) => AddSelectedActiveMonsterFilter());
 
-            activeMonsterFilterStatusLabel = AddLabel(page, "等待刷新", 4, 124, 360, 24);
+            activeMonsterFilterStatusLabel = AddLabel(selectionPanel, "等待刷新", 12, 82, 788, 24);
 
-            AddLabel(page, "已过滤怪物", 404, 58, 120, 24, _textGreen, FontStyle.Bold);
-            activeMonsterFilterListBox = CreateFilterListBox(page, 404, 84, 260, 420);
-            AddButton(page, "移除", 684, 84, 80, 30, (_, _) => RemoveSelectedActiveMonsterFilter());
-            AddButton(page, "清空", 684, 122, 80, 30, (_, _) => ClearActiveMonsterFilterList());
+            AddLabel(page, "已过滤怪物", 12, 142, 200, 24, _textGreen, FontStyle.Bold);
+            activeMonsterFilterListBox = CreateFilterListBox(page, 12, 180, 812, 318);
+            activeMonsterFilterListBox.BackColor = Color.White;
+            AddButton(page, "移除", 632, 138, 88, 30, (_, _) => RemoveSelectedActiveMonsterFilter());
+            AddButton(page, "清空", 736, 138, 88, 30, (_, _) => ClearActiveMonsterFilterList());
 
             return tab;
+        }
+
+        private Panel CreateFilterSelectionPanel(Control page, int top)
+        {
+            var panel = new Panel
+            {
+                BackColor = _inputBackground,
+                Location = new Point(12, top),
+                Size = new Size(812, 114)
+            };
+            page.Controls.Add(panel);
+            return panel;
         }
 
         private TabPage CreateGatherFilterPreviewTab()
         {
             var tab = CreateBaseTab("采集物过滤");
             var page = CreatePagePanel();
+            page.AutoScroll = true;
+            page.AutoScrollMinSize = new Size(836, 514);
             tab.Controls.Add(page);
 
-            stationaryGatherEnabledCheckBox = AddCheckBox(page, "先采集后打怪", 4, 12, 156, false);
+            stationaryGatherEnabledCheckBox = AddCheckBox(page, "先采集后打怪", 24, 18, 176, false);
             stationaryGatherEnabledCheckBox.Name = "stationaryGatherEnabledCheckBox";
 
-            AddLabel(page, "安全清怪", 184, 14, 70, 24, _textGreen, FontStyle.Bold);
-            gatherThreatRadiusTextBox = AddTextBox(page, "7", 256, 12, 58, 28);
+            AddLabel(page, "安全清怪", 228, 18, 80, 24, _textGreen, FontStyle.Bold);
+            gatherThreatRadiusTextBox = AddTextBox(page, "7", 312, 16, 72, 28);
             gatherThreatRadiusTextBox.Name = "gatherThreatRadiusTextBox";
-            AddLabel(page, "米", 320, 14, 28, 24);
+            AddLabel(page, "米", 396, 18, 28, 24);
 
+            var selectionPanel = CreateFilterSelectionPanel(page, 60);
             gatherFilterStatusLabel = AddLabel(
-                page,
+                selectionPanel,
                 "等待读取附近采集物",
-                382,
-                14,
-                438,
+                12,
+                82,
+                788,
                 24,
                 Color.FromArgb(166, 80, 24),
                 FontStyle.Bold);
             gatherFilterStatusLabel.Name = "gatherFilterStatusLabel";
 
-            var divider = new Label
-            {
-                BackColor = Color.FromArgb(187, 247, 208),
-                Location = new Point(4, 50),
-                Size = new Size(816, 1)
-            };
-            page.Controls.Add(divider);
-
-            AddLabel(page, "附近采集物", 4, 66, 100, 24, _textGreen, FontStyle.Bold);
-            readNearbyGatherFilterButton = AddButton(page, "读取附近", 106, 62, 104, 30);
+            AddLabel(selectionPanel, "附近采集物", 12, 10, 160, 24, _textGreen, FontStyle.Bold);
+            readNearbyGatherFilterButton = AddButton(selectionPanel, "读取附近", 656, 8, 144, 30);
             readNearbyGatherFilterButton.Name = "readNearbyGatherFilterButton";
             readNearbyGatherFilterButton.Click += async (_, _) =>
                 await RefreshNearbyGatherFiltersAsync(readNearbyGatherFilterButton).ConfigureAwait(true);
 
-            nearbyGatherFilterCombo = AddCombo(page, 4, 104, 280, 30);
+            nearbyGatherFilterCombo = AddCombo(selectionPanel, 12, 46, 632, 30);
             nearbyGatherFilterCombo.Name = "nearbyGatherFilterCombo";
-            nearbyGatherFilterCombo.DropDownWidth = 440;
+            nearbyGatherFilterCombo.DropDownWidth = 632;
             nearbyGatherFilterCombo.SelectedIndexChanged += (_, _) =>
             {
                 if (gatherFilterListView is not null)
@@ -5762,13 +5805,13 @@ namespace Roadhog
                     gatherFilterListView.SelectedItems.Clear();
                 }
             };
-            addGatherFilterButton = AddButton(page, "加入采集 >", 294, 104, 104, 30, (_, _) => AddSelectedGatherFilter());
+            addGatherFilterButton = AddButton(selectionPanel, "加入采集", 656, 46, 144, 30, (_, _) => AddSelectedGatherFilter());
             addGatherFilterButton.Name = "addGatherFilterButton";
 
-            AddLabel(page, "要采集的采集物", 426, 66, 150, 24, _textGreen, FontStyle.Bold);
+            AddLabel(page, "要采集的采集物", 12, 190, 200, 24, _textGreen, FontStyle.Bold);
             gatherFilterListView = new ListView
             {
-                BackColor = _inputBackground,
+                BackColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle,
                 CheckBoxes = true,
                 Font = new Font("Microsoft YaHei UI", 8.5F),
@@ -5776,16 +5819,16 @@ namespace Roadhog
                 FullRowSelect = true,
                 HeaderStyle = ColumnHeaderStyle.Nonclickable,
                 HideSelection = false,
-                Location = new Point(426, 104),
+                Location = new Point(12, 228),
                 MultiSelect = true,
                 Name = "gatherFilterListView",
-                Size = new Size(394, 346),
+                Size = new Size(812, 270),
                 UseCompatibleStateImageBehavior = false,
                 View = View.Details
             };
-            gatherFilterListView.Columns.Add("启用", 54, HorizontalAlignment.Center);
-            gatherFilterListView.Columns.Add("名称", 238, HorizontalAlignment.Left);
-            gatherFilterListView.Columns.Add("按键", 94, HorizontalAlignment.Center);
+            gatherFilterListView.Columns.Add("启用", 64, HorizontalAlignment.Center);
+            gatherFilterListView.Columns.Add("名称", 572, HorizontalAlignment.Left);
+            gatherFilterListView.Columns.Add("按键", 150, HorizontalAlignment.Center);
             gatherFilterListView.ItemSelectionChanged += (_, _) =>
             {
                 var rule = GetSelectedGatherFilterRule();
@@ -5793,12 +5836,12 @@ namespace Roadhog
             };
             page.Controls.Add(gatherFilterListView);
 
-            gatherFilterKeyButton = AddButton(page, "设置按键", 426, 464, 104, 30, (_, _) => SetSelectedGatherFilterKey());
+            gatherFilterKeyButton = AddButton(page, "设置按键", 504, 186, 112, 30, (_, _) => SetSelectedGatherFilterKey());
             gatherFilterKeyButton.Name = "gatherFilterKeyButton";
             gatherFilterKeyButton.Enabled = false;
-            removeGatherFilterButton = AddButton(page, "移除", 540, 464, 80, 30, (_, _) => RemoveSelectedGatherFilters());
+            removeGatherFilterButton = AddButton(page, "移除", 632, 186, 88, 30, (_, _) => RemoveSelectedGatherFilters());
             removeGatherFilterButton.Name = "removeGatherFilterButton";
-            clearGatherFilterButton = AddButton(page, "清空", 630, 464, 80, 30, (_, _) => ClearGatherFilters());
+            clearGatherFilterButton = AddButton(page, "清空", 736, 186, 88, 30, (_, _) => ClearGatherFilters());
             clearGatherFilterButton.Name = "clearGatherFilterButton";
 
             return tab;

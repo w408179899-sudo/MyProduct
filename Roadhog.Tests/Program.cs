@@ -50,12 +50,25 @@ if (args.Contains("--channel-ui-preview"))
     {
         using var form = CreateAccountSettingsFormForTestsWithStore(new InMemoryAccountConfigStore(new AccountConfig
         {
-            AccountName = "account1", ScriptSettings = new ScriptSettings { FixedChannelNumber = 2 }
-        }));
+            AccountName = "account1", ScriptSettings = new ScriptSettings
+            {
+                FixedChannelNumber = 2,
+                Combat = new CombatScriptSettings { SmartPreAimEnabled = true }
+            }
+        }), radarMapStore: new StaticRadarMapStore(new RadarMapDocument { MapId = 777 }));
+        form.ShowInTaskbar = false;
+        form.StartPosition = System.Windows.Forms.FormStartPosition.Manual;
+        form.Location = new System.Drawing.Point(-32000, -32000);
         form.Show();
         System.Windows.Forms.Application.DoEvents();
         using var bitmap = new System.Drawing.Bitmap(form.Width, form.Height);
-        form.DrawToBitmap(bitmap, form.ClientRectangle);
+        form.DrawToBitmap(bitmap, new System.Drawing.Rectangle(System.Drawing.Point.Empty, form.Size));
+        foreach (var button in form.Controls.OfType<System.Windows.Forms.Button>())
+        {
+            var origin = button.PointToScreen(System.Drawing.Point.Empty);
+            button.DrawToBitmap(bitmap, new System.Drawing.Rectangle(
+                origin.X - form.Left, origin.Y - form.Top, button.Width, button.Height));
+        }
         bitmap.Save(args.Single(arg => arg.StartsWith("--output="))[9..]);
     });
     thread.SetApartmentState(ApartmentState.STA);
@@ -1528,6 +1541,34 @@ static Task TestGatherFilterTabReadsAndAddsNearbySourcesAsync()
 
             InvokePrivateMethodForTest(form, "AddSelectedGatherFilter");
             AssertEqual(1, list.Items.Count, "duplicate SourceId should not be added twice");
+
+            var previewDirectory = Environment.GetEnvironmentVariable("ROADHOG_FILTER_PREVIEW_DIRECTORY");
+            if (!string.IsNullOrWhiteSpace(previewDirectory))
+            {
+                Directory.CreateDirectory(previewDirectory);
+                var settingsTabs = (System.Windows.Forms.TabControl)GetPrivateFieldForTest(form, "settingsTabs");
+                settingsTabs.SelectedTab = settingsTabs.TabPages.Cast<System.Windows.Forms.TabPage>().Single(tab => tab.Text == "过滤");
+                var filterTabs = (System.Windows.Forms.TabControl)form.Controls.Find("filterTabs", true).Single();
+                form.ShowInTaskbar = false;
+                form.StartPosition = System.Windows.Forms.FormStartPosition.Manual;
+                form.Location = new System.Drawing.Point(-32000, -32000);
+                form.Show();
+                for (var index = 0; index < filterTabs.TabPages.Count; index++)
+                {
+                    filterTabs.SelectedIndex = index;
+                    System.Windows.Forms.Application.DoEvents();
+                    using var bitmap = new System.Drawing.Bitmap(form.Width, form.Height);
+                    form.DrawToBitmap(bitmap, new System.Drawing.Rectangle(System.Drawing.Point.Empty, form.Size));
+                    foreach (var button in form.Controls.OfType<System.Windows.Forms.Button>())
+                    {
+                        var origin = button.PointToScreen(System.Drawing.Point.Empty);
+                        button.DrawToBitmap(bitmap, new System.Drawing.Rectangle(
+                            origin.X - form.Left, origin.Y - form.Top, button.Width, button.Height));
+                    }
+                    bitmap.Save(Path.Combine(previewDirectory, index == 0 ? "monster-filter-layout.png" : "gather-filter-layout.png"));
+                }
+                form.Hide();
+            }
         }
         catch (Exception ex)
         {
@@ -12067,6 +12108,34 @@ static Task TestBagCleanupNameListUiAutoSavesAndRollsBackAsync()
     AssertFalse(!manualNameTextBox.Enabled, "keyword input should be restored after save");
     AssertFalse(!inventoryList.Enabled, "inventory checks should be restored after save");
     AssertSequence(new[] { "slow-discard" }, nameListStore.Document.Blacklist.ToArray(), "only the first in-flight mutation should persist");
+    var previewDirectory = Environment.GetEnvironmentVariable("ROADHOG_BAG_PREVIEW_DIRECTORY");
+    if (!string.IsNullOrWhiteSpace(previewDirectory))
+    {
+        Directory.CreateDirectory(previewDirectory);
+        var tabs = (System.Windows.Forms.TabControl)GetPrivateFieldForTest(form, "settingsTabs");
+        tabs.SelectedTab = tabs.TabPages.Cast<System.Windows.Forms.TabPage>().Single(tab => tab.Text == "清包");
+        form.ShowInTaskbar = false;
+        form.StartPosition = System.Windows.Forms.FormStartPosition.Manual;
+        form.Location = new System.Drawing.Point(-32000, -32000);
+        form.Show();
+        foreach (var isBlacklist in new[] { false, true })
+        {
+            var radio = (System.Windows.Forms.RadioButton)GetPrivateFieldForTest(form,
+                isBlacklist ? "bagCleanupBlacklistRadio" : "bagCleanupWhitelistRadio");
+            radio.Checked = true;
+            System.Windows.Forms.Application.DoEvents();
+            using var bitmap = new System.Drawing.Bitmap(form.Width, form.Height);
+            form.DrawToBitmap(bitmap, new System.Drawing.Rectangle(System.Drawing.Point.Empty, form.Size));
+            foreach (var button in form.Controls.OfType<System.Windows.Forms.Button>())
+            {
+                var origin = button.PointToScreen(System.Drawing.Point.Empty);
+                button.DrawToBitmap(bitmap, new System.Drawing.Rectangle(
+                    origin.X - form.Left, origin.Y - form.Top, button.Width, button.Height));
+            }
+            bitmap.Save(Path.Combine(previewDirectory, isBlacklist ? "bag-blacklist-layout.png" : "bag-whitelist-layout.png"));
+        }
+        form.Hide();
+    }
     return Task.CompletedTask;
 }
 

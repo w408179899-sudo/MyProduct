@@ -654,6 +654,11 @@ internal static class AttackWeaveTests
                 var settings = new ScriptSettings();
                 settings.SemiAuto.AttackWeaveEnabled = true;
                 settings.SemiAuto.AttackWeaveDelayMs = 725;
+                settings.Skills.SpiritmasterAutoSkillLogicEnabled = true;
+                settings.Skills.OpeningSkill = new OpeningSkillConfig
+                {
+                    Enabled = true, SkillId = 1671, SkillName = "命令:威胁的气势 I", Key = "NumPad1"
+                };
                 var configStore = new InMemoryAccountConfigStore(new AccountConfig { AccountName = "account1", ScriptSettings = settings });
                 var logger = new InMemoryRoadhogLogger();
                 var runtime = new RoadhogRuntime(new FakeGameApi(), logger, new AccountRuntimeManager(logger), null!);
@@ -666,10 +671,23 @@ internal static class AttackWeaveTests
                 Check((bool)check.GetType().GetProperty("Checked")!.GetValue(check)!, "UI loads enabled setting");
                 Equal("725", input.Text, "UI loads saved delay");
                 Check(input.Enabled, "enabled switch enables delay field");
-                Equal(condition.Left, check.Left, "checkbox aligned under condition switch");
-                Equal(Field<Control>(form, "chainWindowPerLinkTextBox").Left, input.Left, "delay columns aligned");
-                Check(check.Top > condition.Bottom && panel.Top > input.Bottom, "new row fits above skill region");
-                Check(Field<Control>(form, "openingSkillKeyButton").Bottom <= panel.Height, "opening skill stays visible");
+                Equal(condition.Top, check.Top, "timing switches share one row");
+                var chainInput = Field<Control>(form, "chainWindowPerLinkTextBox");
+                Equal(chainInput.Top, input.Top, "timing inputs align");
+                Check(condition.Right < chainInput.Left && chainInput.Right < check.Left && check.Right < input.Left,
+                    "timing controls do not overlap");
+                Check(panel.Top > input.Parent!.Bottom, "skill lists sit below options");
+                var available = Field<TreeView>(form, "availableSkillTree");
+                var selected = Field<TreeView>(form, "selectedSkillTree");
+                Equal(available.Size, selected.Size, "skill lists have equal sizes");
+                Equal(available.Top, selected.Top, "skill lists align");
+                var opener = Field<Control>(form, "openingSkillKeyButton").Parent!;
+                Check(opener.Top > selected.Bottom && opener.Top - selected.Bottom <= 24,
+                    "opening skill follows lists without a large empty gap");
+                Check(opener.Bottom <= panel.Height, "opening skill stays inside skill panel");
+                var spiritSwitch = Field<Control>(form, "spiritmasterAutoSkillCheckBox");
+                var spiritButton = Field<Control>(form, "spiritmasterSettingsButton");
+                Check(spiritSwitch.Right < spiritButton.Left, "spirit settings button does not overlap switch");
 
                 var tabs = Find<TabControl>(form).First();
                 tabs.SelectedTab = tabs.TabPages.Cast<TabPage>().Single(tab => tab.Text == "技能");
@@ -685,7 +703,23 @@ internal static class AttackWeaveTests
                     Application.DoEvents();
                     using var bitmap = new Bitmap(form.Width, form.Height);
                     form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
+                    // DrawToBitmap lets the docked tab cover sibling buttons; render the
+                    // form's overlay buttons last to match their actual screen z-order.
+                    foreach (var button in form.Controls.OfType<Button>())
+                    {
+                        var origin = button.PointToScreen(Point.Empty);
+                        button.DrawToBitmap(bitmap, new Rectangle(
+                            origin.X - form.Left, origin.Y - form.Top, button.Width, button.Height));
+                    }
                     bitmap.Save(preview);
+                    form.Size = form.MinimumSize;
+                    Application.DoEvents();
+                    var scrollPage = (Panel)panel.Parent!;
+                    Check(scrollPage.HorizontalScroll.Visible && scrollPage.VerticalScroll.Visible,
+                        "small windows can scroll to all skill settings");
+                    using var smallBitmap = new Bitmap(form.Width, form.Height);
+                    form.DrawToBitmap(smallBitmap, new Rectangle(Point.Empty, form.Size));
+                    smallBitmap.Save(Path.ChangeExtension(preview, ".small.png"));
                     form.Hide();
                 }
 
@@ -694,6 +728,10 @@ internal static class AttackWeaveTests
                 var saved = configStore.LoadAllAsync().GetAwaiter().GetResult().Value!.Single().ScriptSettings!;
                 Equal(875, saved.SemiAuto.AttackWeaveDelayMs, "UI save persists delay");
                 Check(saved.SemiAuto.AttackWeaveEnabled, "UI save persists checkbox");
+                Equal(1671u, saved.Skills.OpeningSkill.SkillId, "rearranged opening skill retains selection");
+                Equal("NumPad1", saved.Skills.OpeningSkill.Key, "rearranged opening skill retains key");
+                Check(saved.Skills.OpeningSkill.Enabled && saved.Skills.SpiritmasterAutoSkillLogicEnabled,
+                    "rearranged skill options retain enabled settings");
                 var copy = JsonSerializer.Deserialize<ScriptSettings>(JsonSerializer.Serialize(saved.Clone()))!;
                 Equal(875, copy.SemiAuto.AttackWeaveDelayMs, "clone and JSON retain delay");
                 Check(copy.SemiAuto.AttackWeaveEnabled, "clone and JSON retain switch");
