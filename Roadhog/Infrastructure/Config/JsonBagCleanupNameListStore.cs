@@ -64,7 +64,9 @@ public sealed class JsonBagCleanupNameListStore : IBagCleanupNameListStore
                 var document = new BagCleanupNameListsDocument
                 {
                     Whitelist = BagCleanupNameListsDocument.NormalizeKeywords(fileDocument!.Whitelist),
-                    Blacklist = BagCleanupNameListsDocument.NormalizeKeywords(fileDocument.Blacklist)
+                    Blacklist = BagCleanupNameListsDocument.NormalizeKeywords(fileDocument.Blacklist),
+                    Stall = BagCleanupTradeItemConfig.Normalize(fileDocument.Stall),
+                    AuctionHouse = BagCleanupTradeItemConfig.Normalize(fileDocument.AuctionHouse)
                 };
                 LogLoaded(document, BagCleanupNameListsSource.Json, FilePath);
                 return OperationResult<BagCleanupNameListsLoadResult>.Ok(
@@ -121,7 +123,9 @@ public sealed class JsonBagCleanupNameListStore : IBagCleanupNameListStore
             {
                 Version = BagCleanupNameListsDocument.CurrentVersion,
                 Whitelist = normalized.Whitelist,
-                Blacklist = normalized.Blacklist
+                Blacklist = normalized.Blacklist,
+                Stall = normalized.Stall,
+                AuctionHouse = normalized.AuctionHouse
             };
             await using (var stream = new FileStream(
                              temporaryPath,
@@ -143,7 +147,9 @@ public sealed class JsonBagCleanupNameListStore : IBagCleanupNameListStore
             {
                 ["path"] = FilePath,
                 ["whitelistCount"] = normalized.Whitelist.Count,
-                ["blacklistCount"] = normalized.Blacklist.Count
+                ["blacklistCount"] = normalized.Blacklist.Count,
+                ["stallCount"] = normalized.Stall.Count,
+                ["auctionHouseCount"] = normalized.AuctionHouse.Count
             });
             return OperationResult.Ok();
         }
@@ -180,7 +186,7 @@ public sealed class JsonBagCleanupNameListStore : IBagCleanupNameListStore
             return "Bag cleanup name-list file is empty or invalid.";
         }
 
-        if (document.Version != BagCleanupNameListsDocument.CurrentVersion)
+        if (document.Version != 1 && document.Version != BagCleanupNameListsDocument.CurrentVersion)
         {
             return "Unsupported bag cleanup name-list version: " + document.Version;
         }
@@ -203,7 +209,9 @@ public sealed class JsonBagCleanupNameListStore : IBagCleanupNameListStore
             ["path"] = path,
             ["source"] = source.ToString(),
             ["whitelistCount"] = document.Whitelist.Count,
-            ["blacklistCount"] = document.Blacklist.Count
+            ["blacklistCount"] = document.Blacklist.Count,
+            ["stallCount"] = document.Stall.Count,
+            ["auctionHouseCount"] = document.AuctionHouse.Count
         });
     }
 
@@ -214,5 +222,9 @@ public sealed class JsonBagCleanupNameListStore : IBagCleanupNameListStore
         public List<string>? Whitelist { get; set; }
 
         public List<string>? Blacklist { get; set; }
+
+        public List<BagCleanupTradeItemConfig>? Stall { get; set; }
+
+        public List<BagCleanupTradeItemConfig>? AuctionHouse { get; set; }
     }
 }

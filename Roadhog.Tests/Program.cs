@@ -431,6 +431,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("bag cleanup discard confirm point loads and saves from ui", TestBagCleanupDiscardConfirmPointUiAsync),
     ("maintenance foldouts show all rows and preserve settings", TestMaintenanceFoldoutsAsync),
     ("bag cleanup name-list ui auto saves both lists and rolls back failures", TestBagCleanupNameListUiAutoSavesAndRollsBackAsync),
+    ("bag cleanup name-list stall and auction configuration stays independent and persists", TestBagCleanupTradingNameListsAsync),
+    ("bag cleanup name-list prices validate auto save and roll back in the grid", TestBagCleanupTradePricesAsync),
     ("account config persists stationary combat position", TestAccountConfigPersistsStationaryCombatPositionAsync),
     ("revive path aggressive clear radius defaults persists and saves from ui", TestRevivePathAggressiveClearRadiusDefaultsCloneJsonAndUiAsync),
     ("stalled target exclusion defaults persists and saves from ui", TestStalledTargetExclusionSecondsDefaultsCloneJsonAndUiAsync),
@@ -10421,12 +10423,14 @@ static async Task TestBagCleanupNameListStoreRoundTripAndLegacyAsync()
         var save = await store.SaveAsync(new BagCleanupNameListsDocument
         {
             Whitelist = new List<string> { " 保留 ", "保留", "闪光" },
-            Blacklist = new List<string> { " 丢弃 ", "丢弃" }
+            Blacklist = new List<string> { " 丢弃 ", "丢弃" },
+            Stall = new() { new() { Name = " 摆摊 ", UnitPrice = null }, new() { Name = "摆摊", UnitPrice = 1200 }, new() { Name = "Stall" }, new() { Name = "stall" } },
+            AuctionHouse = new() { new() { Name = " 拍卖 ", UnitPrice = 9876543210 }, new() { Name = "拍卖" } }
         }).ConfigureAwait(false);
         AssertFalse(!save.Success, "name-list json should save");
 
         var text = await File.ReadAllTextAsync(jsonPath).ConfigureAwait(false);
-        AssertFalse(!text.Contains("\"version\": 1", StringComparison.Ordinal), "name-list json should persist version");
+        AssertFalse(!text.Contains("\"version\": 2", StringComparison.Ordinal), "name-list json should persist version");
         AssertFalse(!text.Contains("\"whitelist\"", StringComparison.Ordinal), "name-list json should persist whitelist");
         AssertFalse(!text.Contains("\"blacklist\"", StringComparison.Ordinal), "name-list json should persist blacklist");
 
@@ -10435,6 +10439,42 @@ static async Task TestBagCleanupNameListStoreRoundTripAndLegacyAsync()
         AssertEqual(BagCleanupNameListsSource.Json, load.Value!.Source, "json should be the primary source");
         AssertSequence(new[] { "保留", "闪光" }, load.Value.Document!.Whitelist.ToArray(), "whitelist should trim and deduplicate");
         AssertSequence(new[] { "丢弃" }, load.Value.Document.Blacklist.ToArray(), "blacklist should trim and deduplicate");
+        AssertSequence(new[] { "摆摊", "Stall" }, load.Value.Document.Stall.Select(item => item.Name).ToArray(), "stall should trim and deduplicate");
+        AssertSequence(new[] { "拍卖" }, load.Value.Document.AuctionHouse.Select(item => item.Name).ToArray(), "auction should trim and deduplicate");
+        AssertEqual(1200L, load.Value.Document.Stall[0].UnitPrice ?? 0, "deduplication should retain configured price");
+        AssertEqual(9876543210L, load.Value.Document.AuctionHouse[0].UnitPrice ?? 0, "prices above Int32 should round trip");
+        AssertEqual(1L, load.Value.Document.Stall[1].UnitPrice ?? 0, "new item should default to price one");
+
+        var settings = new MaintenanceScriptSettings();
+        load.Value.Document.ApplyTo(settings);
+        var clonedSettings = settings.Clone();
+        settings.BagCleanupStallItems[0].UnitPrice = 999;
+        AssertEqual(1200L, clonedSettings.BagCleanupStallItems[0].UnitPrice ?? 0, "cloning should isolate price edits");
+        settings.BagCleanupStallItems.Clear();
+        settings.BagCleanupAuctionHouseItems.Clear();
+        var fromSettings = BagCleanupNameListsDocument.FromSettings(clonedSettings);
+        AssertSequence(new[] { "摆摊", "Stall" }, fromSettings.Stall.Select(item => item.Name).ToArray(), "settings clone should independently retain stall list");
+        AssertSequence(new[] { "拍卖" }, fromSettings.AuctionHouse.Select(item => item.Name).ToArray(), "settings clone should independently retain auction list");
+
+        var accountStore = new JsonAccountConfigStore(Path.Combine(directory, "accounts.json"));
+        var accountSave = await accountStore.UpsertAsync(new AccountConfig
+        {
+            AccountName = "trading-config",
+            ScriptSettings = new ScriptSettings { Maintenance = clonedSettings }
+        });
+        AssertFalse(!accountSave.Success, "account config should save new lists");
+        var accountLoad = await accountStore.LoadAllAsync();
+        AssertFalse(!accountLoad.Success, "account config should reload new lists");
+        var accountMaintenance = accountLoad.Value!.Single().ScriptSettings!.Maintenance;
+        AssertSequence(fromSettings.Stall.Select(item => item.Name).ToArray(), accountMaintenance.BagCleanupStallItems.Select(item => item.Name).ToArray(), "account JSON should preserve stall");
+        AssertSequence(fromSettings.AuctionHouse.Select(item => item.Name).ToArray(), accountMaintenance.BagCleanupAuctionHouseItems.Select(item => item.Name).ToArray(), "account JSON should preserve auction");
+        AssertEqual(1200L, accountMaintenance.BagCleanupStallItems[0].UnitPrice ?? 0, "account JSON should preserve stall price");
+        AssertEqual(9876543210L, accountMaintenance.BagCleanupAuctionHouseItems[0].UnitPrice ?? 0, "account JSON should preserve auction price");
+        var legacyAccount = System.Text.Json.JsonSerializer.Deserialize<MaintenanceScriptSettings>(
+            "{\"BagCleanupStallItemNameKeywords\":[\"old-stall\"],\"BagCleanupAuctionHouseItemNameKeywords\":[\"old-auction\"]}")!;
+        AssertEqual("old-stall", legacyAccount.BagCleanupStallItems[0].Name, "old account field should migrate");
+        AssertEqual(1L, legacyAccount.BagCleanupStallItems[0].UnitPrice ?? 0, "old account price defaults to one");
+        AssertEqual("old-auction", legacyAccount.BagCleanupAuctionHouseItems[0].Name, "old auction field should migrate");
 
         var copiedDirectory = Path.Combine(directory, "copied-client", "config");
         Directory.CreateDirectory(copiedDirectory);
@@ -10444,6 +10484,29 @@ static async Task TestBagCleanupNameListStoreRoundTripAndLegacyAsync()
         AssertFalse(!copiedLoad.Success || copiedLoad.Value is not { Found: true, Document: { } }, "copied client should load the same single file");
         AssertSequence(new[] { "保留", "闪光" }, copiedLoad.Value!.Document!.Whitelist.ToArray(), "copied whitelist should remain reusable");
         AssertSequence(new[] { "丢弃" }, copiedLoad.Value.Document.Blacklist.ToArray(), "copied blacklist should remain reusable");
+        AssertSequence(new[] { "摆摊", "Stall" }, copiedLoad.Value.Document.Stall.Select(item => item.Name).ToArray(), "copied stall should remain reusable");
+        AssertSequence(new[] { "拍卖" }, copiedLoad.Value.Document.AuctionHouse.Select(item => item.Name).ToArray(), "copied auction should remain reusable");
+
+        await File.WriteAllTextAsync(jsonPath, "{\"version\":1,\"whitelist\":[],\"blacklist\":[]}");
+        var oldLoad = await store.LoadAsync();
+        AssertFalse(!oldLoad.Success || oldLoad.Value?.Document is null, "old two-list JSON should remain readable");
+        AssertEqual(0, oldLoad.Value!.Document!.Stall.Count, "old JSON defaults stall empty");
+        AssertEqual(0, oldLoad.Value.Document.AuctionHouse.Count, "old JSON defaults auction empty");
+        await File.WriteAllTextAsync(jsonPath, "{\"version\":1,\"whitelist\":[],\"blacklist\":[],\"stall\":[\"old-stall\"],\"auctionHouse\":[\"old-auction\"]}");
+        var migrated = await store.LoadAsync();
+        AssertFalse(!migrated.Success, "old string trading lists should migrate");
+        AssertEqual("old-stall", migrated.Value!.Document!.Stall[0].Name, "old shared item name should survive migration");
+        AssertEqual(1L, migrated.Value.Document.Stall[0].UnitPrice ?? 0, "old shared item price defaults to one");
+        AssertEqual(1L, migrated.Value.Document.AuctionHouse[0].UnitPrice ?? 0, "old shared auction price defaults to one");
+        var missingPrice = System.Text.Json.JsonSerializer.Deserialize<BagCleanupTradeItemConfig>("{\"name\":\"item\"}")!;
+        AssertEqual(1L, missingPrice.UnitPrice ?? 0, "missing price field should default to one");
+        var clearedPrice = System.Text.Json.JsonSerializer.Deserialize<BagCleanupTradeItemConfig>("{\"name\":\"item\",\"unitPrice\":null}")!;
+        AssertFalse(clearedPrice.UnitPrice.HasValue, "explicitly cleared price should remain unset");
+        foreach (var invalidPrice in new[] { "0", "-1", "1.5", "9223372036854775808" })
+        {
+            await File.WriteAllTextAsync(jsonPath, "{\"version\":2,\"whitelist\":[],\"blacklist\":[],\"stall\":[{\"name\":\"bad\",\"unitPrice\":" + invalidPrice + "}]}");
+            AssertFalse((await store.LoadAsync()).Success, "invalid persisted price must not silently become usable");
+        }
 
         File.Delete(jsonPath);
         await File.WriteAllLinesAsync(legacyPath, new[] { " 旧保留 ", "旧保留", "旧闪光" }).ConfigureAwait(false);
@@ -12050,6 +12113,223 @@ static Task TestBagCleanupDiscardConfirmPointUiAsync()
         .Maintenance;
     AssertEqual(777, persisted?.BagCleanupDiscardConfirmClickX ?? 0, "saved discard confirm click x");
     AssertEqual(888, persisted?.BagCleanupDiscardConfirmClickY ?? 0, "saved discard confirm click y");
+    return Task.CompletedTask;
+}
+
+static Task TestBagCleanupTradePricesAsync()
+{
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        try
+        {
+            foreach (var invalid in new[] { "0", "-1", "1.5", "abc", "1,2", "1e3", "9223372036854775808" })
+                AssertFalse(BagCleanupTradeItemConfig.TryParseUnitPrice(invalid, out _), "invalid price: " + invalid);
+            AssertFalse(!BagCleanupTradeItemConfig.TryParseUnitPrice("9,876,543,210", out var parsed), "formatted price should parse");
+            AssertEqual(9876543210L, parsed ?? 0, "formatted price value");
+            AssertFalse(!BagCleanupTradeItemConfig.TryParseUnitPrice(" ", out var empty) || empty.HasValue, "blank price should be null");
+
+            var configStore = new InMemoryAccountConfigStore(new AccountConfig
+            {
+                AccountName = "account1", ScriptSettings = CreateScriptSettings()
+            });
+            var store = new InMemoryBagCleanupNameListStore(new BagCleanupNameListsDocument
+            {
+                Whitelist = new() { "keep" }, Blacklist = new() { "discard" },
+                Stall = new() { new() { Name = "恢复药水" }, new() { Name = "魔石", UnitPrice = 5000 } },
+                AuctionHouse = new() { new() { Name = "恢复药水", UnitPrice = 2000 } }
+            });
+            using var form = CreateAccountSettingsFormForTestsWithStore(configStore, bagCleanupNameListStore: store);
+            var tabs = (System.Windows.Forms.TabControl)GetPrivateFieldForTest(form, "settingsTabs");
+            tabs.SelectedTab = tabs.TabPages.Cast<System.Windows.Forms.TabPage>().Single(tab => tab.Text == "清包");
+            var stall = (System.Windows.Forms.RadioButton)GetPrivateFieldForTest(form, "bagCleanupStallRadio");
+            var auction = (System.Windows.Forms.RadioButton)GetPrivateFieldForTest(form, "bagCleanupAuctionHouseRadio");
+            var white = (System.Windows.Forms.RadioButton)GetPrivateFieldForTest(form, "bagCleanupWhitelistRadio");
+            var grid = (System.Windows.Forms.DataGridView)GetPrivateFieldForTest(form, "bagCleanupTradeItemGrid");
+            var list = (System.Windows.Forms.ListBox)GetPrivateFieldForTest(form, "bagCleanupExcludedItemListBox");
+            form.ShowInTaskbar = false;
+            form.StartPosition = System.Windows.Forms.FormStartPosition.Manual;
+            form.Location = new System.Drawing.Point(-32000, -32000);
+            stall.Checked = true;
+            form.Show();
+            System.Windows.Forms.Application.DoEvents();
+            AssertFalse(!grid.Visible || list.Visible, "trading mode should show only price grid");
+            AssertEqual("1", Convert.ToString(grid.Rows[0].Cells[1].FormattedValue) ?? "", "new item should show default price one");
+
+            void BeginPrice(string text)
+            {
+                grid.CurrentCell = grid.Rows[0].Cells[1];
+                grid.BeginEdit(true);
+                ((System.Windows.Forms.TextBox)grid.EditingControl!).Text = text;
+                grid.NotifyCurrentCellDirty(true);
+            }
+            void EditPrice(string text)
+            {
+                BeginPrice(text);
+                AssertFalse(!grid.EndEdit(), "valid grid edit should commit: " + text);
+                grid.CurrentCell = grid.Rows[0].Cells[0];
+                System.Windows.Forms.Application.DoEvents();
+            }
+
+            BeginPrice("0");
+            AssertFalse(form.ValidateChildren(), "zero price should prevent leaving the editor");
+            AssertEqual(0, store.SaveCount, "invalid cell must not save");
+            AssertFalse(InvokeSaveCurrentSettingsForTest(form, out _), "account save must reject invalid active price");
+            grid.CancelEdit();
+            AssertFalse((bool)GetPrivateFieldForTest(form, "loadingBagCleanupNameListEditor"), "editor must not remain in loading state");
+            AssertFalse((bool)GetPrivateFieldForTest(form, "bagCleanupNameListMutationInFlight"), "editor must not remain in saving state");
+            AssertFalse(!((List<BagCleanupTradeItemConfig>)InvokePrivateMethodForTest(form, "GetActiveBagCleanupTradeItems")!).Contains((BagCleanupTradeItemConfig)grid.Rows[0].Tag!), "row tag must refer to live config item");
+            EditPrice("1,234");
+            AssertEqual(1234L, store.Document.Stall[0].UnitPrice ?? 0, "cell edit should auto-save stall price");
+            AssertEqual("1,234", Convert.ToString(grid.Rows[0].Cells[1].Value) ?? "", "price should display thousands separators");
+            AssertEqual(2000L, store.Document.AuctionHouse[0].UnitPrice ?? 0, "same item auction price must remain independent");
+
+            var input = (System.Windows.Forms.Control)GetPrivateFieldForTest(form, "bagCleanupManualNameTextBox");
+            input.Text = "恢复药水";
+            InvokePrivateTaskForTest(form, "AddSelectedBagCleanupNameAsync");
+            AssertEqual(1234L, store.Document.Stall[0].UnitPrice ?? 0, "duplicate addition must preserve configured price");
+
+            store.FailSaves = true;
+            EditPrice("999");
+            AssertEqual(1234L, store.Document.Stall[0].UnitPrice ?? 0, "failed price save should preserve disk state");
+            AssertEqual("1,234", Convert.ToString(grid.Rows[0].Cells[1].Value) ?? "", "failed save should restore visible price");
+            store.FailSaves = false;
+            EditPrice("");
+            AssertFalse(store.Document.Stall[0].UnitPrice.HasValue, "clearing price should persist null");
+            AssertEqual("未设置", Convert.ToString(grid.Rows[0].Cells[1].FormattedValue) ?? "", "cleared price should show placeholder");
+            EditPrice("1500");
+
+            store.BlockSaves = true;
+            var rowItem = (BagCleanupTradeItemConfig)grid.Rows[0].Tag!;
+            var pending = (Task)InvokePrivateMethodForTest(form, "SaveBagCleanupTradePriceAsync", rowItem, "1700")!;
+            AssertFalse(pending.IsCompleted || grid.Enabled || auction.Enabled, "price save must block edits and list switching");
+            AssertFalse(InvokeSaveCurrentSettingsForTest(form, out _), "account save should wait for pending list save");
+            store.CompletePendingSave();
+            while (!pending.IsCompleted) System.Windows.Forms.Application.DoEvents();
+            pending.GetAwaiter().GetResult();
+            AssertFalse(!grid.Enabled || !auction.Enabled, "price save should restore controls");
+            BeginPrice("1800");
+            auction.Focus();
+            auction.Checked = true;
+            System.Windows.Forms.Application.DoEvents();
+            AssertEqual(1800L, store.Document.Stall[0].UnitPrice ?? 0, "leaving grid for another list must commit price");
+            EditPrice("3000");
+            AssertEqual(1800L, store.Document.Stall[0].UnitPrice ?? 0, "auction price edit must preserve stall price");
+            AssertEqual(3000L, store.Document.AuctionHouse[0].UnitPrice ?? 0, "auction grid edit should save independently");
+            AssertSequence(new[] { "keep" }, store.Document.Whitelist.ToArray(), "price editing preserves whitelist");
+            AssertSequence(new[] { "discard" }, store.Document.Blacklist.ToArray(), "price editing preserves blacklist");
+            BeginPrice("3500");
+            AssertFalse(!InvokeSaveCurrentSettingsForTest(form, out var error), "account price save: " + error);
+            AssertEqual(3500L, store.Document.AuctionHouse[0].UnitPrice ?? 0, "saving account should commit active price editor");
+            using var reopened = CreateAccountSettingsFormForTestsWithStore(configStore);
+            var captured = (BagCleanupNameListsDocument)InvokePrivateMethodForTest(reopened, "CaptureBagCleanupNameLists")!;
+            AssertEqual(1800L, captured.Stall[0].UnitPrice ?? 0, "account reopening preserves stall price");
+            AssertEqual(3500L, captured.AuctionHouse[0].UnitPrice ?? 0, "account reopening preserves auction price");
+
+            var preview = Environment.GetEnvironmentVariable("ROADHOG_BAG_PREVIEW_DIRECTORY");
+            if (!string.IsNullOrWhiteSpace(preview))
+            {
+                Directory.CreateDirectory(preview);
+                foreach (var (radio, file) in new[] { (stall, "stall-prices.png"), (auction, "auction-prices.png") })
+                {
+                    radio.Checked = true;
+                    System.Windows.Forms.Application.DoEvents();
+                    using var bitmap = new System.Drawing.Bitmap(form.Width, form.Height);
+                    form.DrawToBitmap(bitmap, new System.Drawing.Rectangle(System.Drawing.Point.Empty, form.Size));
+                    bitmap.Save(Path.Combine(preview, file));
+                }
+            }
+            white.Checked = true;
+            AssertFalse(grid.Visible || !list.Visible, "whitelist should retain original editor");
+            form.Hide();
+        }
+        catch (Exception ex) { failure = ex; }
+    });
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    thread.Join();
+    if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    return Task.CompletedTask;
+}
+
+static Task TestBagCleanupTradingNameListsAsync()
+{
+    var configStore = new InMemoryAccountConfigStore(new AccountConfig
+    {
+        AccountName = "account1", ScriptSettings = CreateScriptSettings()
+    });
+    var store = new InMemoryBagCleanupNameListStore(new BagCleanupNameListsDocument
+    {
+        Whitelist = new() { "keep" }, Blacklist = new() { "discard" },
+        Stall = new() { new() { Name = "stall-old" } }, AuctionHouse = new() { new() { Name = "auction-old" } }
+    });
+    using var form = CreateAccountSettingsFormForTestsWithStore(configStore, bagCleanupNameListStore: store);
+    var input = (System.Windows.Forms.Control)GetPrivateFieldForTest(form, "bagCleanupManualNameTextBox");
+    var list = (System.Windows.Forms.ListBox)GetPrivateFieldForTest(form, "bagCleanupExcludedItemListBox");
+    var add = (System.Windows.Forms.Button)GetPrivateFieldForTest(form, "bagCleanupAddNameButton");
+    var radios = new[] { "Whitelist", "Blacklist", "Stall", "AuctionHouse" }
+        .Select(kind => (System.Windows.Forms.RadioButton)GetPrivateFieldForTest(form, "bagCleanup" + kind + "Radio"))
+        .ToArray();
+
+    foreach (var (radioIndex, prefix, addText) in new[] { (2, "stall", "加入摆摊"), (3, "auction", "加入拍卖行") })
+    {
+        radios[radioIndex].Checked = true;
+        AssertEqual(1, radios.Count(radio => radio.Checked), "four list editors should remain mutually exclusive");
+        AssertEqual(addText, add.Text, "new list should expose its own add action");
+        AssertSequence(new[] { prefix + "-old" }, list.Items.Cast<string>().ToArray(), "new list should load shared values");
+
+        input.Text = " " + prefix + "-new ";
+        InvokePrivateTaskForTest(form, "AddSelectedBagCleanupNameAsync");
+        var saves = store.SaveCount;
+        input.Text = (prefix + "-NEW");
+        InvokePrivateTaskForTest(form, "AddSelectedBagCleanupNameAsync");
+        AssertEqual(saves, store.SaveCount, "duplicate should not save again");
+        AssertSequence(new[] { prefix + "-old", prefix + "-new" }, list.Items.Cast<string>().ToArray(), "new list should trim and deduplicate");
+
+        store.FailSaves = true;
+        input.Text = "failed-add";
+        InvokePrivateTaskForTest(form, "AddSelectedBagCleanupNameAsync");
+        AssertSequence(new[] { prefix + "-old", prefix + "-new" }, list.Items.Cast<string>().ToArray(), "failed add should roll back");
+        InvokePrivateMethodForTest(form, "SelectBagCleanupTradeItem", prefix + "-old");
+        InvokePrivateTaskForTest(form, "RemoveSelectedBagCleanupNameAsync");
+        AssertEqual(2, list.Items.Count, "failed remove should roll back");
+        InvokePrivateTaskForTest(form, "ClearSelectedBagCleanupNameListAsync");
+        AssertEqual(2, list.Items.Count, "failed clear should roll back");
+        AssertFalse(!radios[radioIndex].Checked, "rollback should preserve selected list");
+        store.FailSaves = false;
+
+        InvokePrivateMethodForTest(form, "SelectBagCleanupTradeItem", prefix + "-old");
+        InvokePrivateTaskForTest(form, "RemoveSelectedBagCleanupNameAsync");
+        AssertSequence(new[] { prefix + "-new" }, list.Items.Cast<string>().ToArray(), "remove should affect active list only");
+        InvokePrivateTaskForTest(form, "ClearSelectedBagCleanupNameListAsync");
+        AssertEqual(0, list.Items.Count, "clear should empty active list");
+
+        store.BlockSaves = true;
+        input.Text = prefix + "-final";
+        var pending = (Task)InvokePrivateMethodForTest(form, "AddSelectedBagCleanupNameAsync")!;
+        AssertFalse(pending.IsCompleted, "save should remain in flight");
+        AssertFalse(radios.Any(radio => radio.Enabled), "all list radios should be disabled during save");
+        var saveCount = store.SaveCount;
+        InvokePrivateTaskForTest(form, "ClearSelectedBagCleanupNameListAsync");
+        AssertEqual(saveCount, store.SaveCount, "overlapping mutation should be ignored");
+        store.CompletePendingSave();
+        pending.GetAwaiter().GetResult();
+        AssertFalse(radios.Any(radio => !radio.Enabled), "all radios should recover after save");
+    }
+
+    AssertSequence(new[] { "keep" }, store.Document.Whitelist.ToArray(), "trading edits should preserve whitelist");
+    AssertSequence(new[] { "discard" }, store.Document.Blacklist.ToArray(), "trading edits should preserve blacklist");
+    AssertSequence(new[] { "stall-final" }, store.Document.Stall.Select(item => item.Name).ToArray(), "auction edits should preserve stall");
+    AssertSequence(new[] { "auction-final" }, store.Document.AuctionHouse.Select(item => item.Name).ToArray(), "auction should persist independently");
+    AssertFalse(!InvokeSaveCurrentSettingsForTest(form, out var error), "account save should succeed: " + error);
+    using var reopened = CreateAccountSettingsFormForTestsWithStore(configStore);
+    var captured = (BagCleanupNameListsDocument)InvokePrivateMethodForTest(reopened, "CaptureBagCleanupNameLists")!;
+    AssertSequence(new[] { "stall-final" }, captured.Stall.Select(item => item.Name).ToArray(), "account settings should retain stall without shared store");
+    AssertSequence(new[] { "auction-final" }, captured.AuctionHouse.Select(item => item.Name).ToArray(), "account settings should retain auction without shared store");
+    using var sharedReopened = CreateAccountSettingsFormForTestsWithStore(configStore, bagCleanupNameListStore: store);
+    var sharedCaptured = (BagCleanupNameListsDocument)InvokePrivateMethodForTest(sharedReopened, "CaptureBagCleanupNameLists")!;
+    AssertSequence(captured.Stall.Select(item => item.Name).ToArray(), sharedCaptured.Stall.Select(item => item.Name).ToArray(), "reopening should retain shared stall list");
+    AssertSequence(captured.AuctionHouse.Select(item => item.Name).ToArray(), sharedCaptured.AuctionHouse.Select(item => item.Name).ToArray(), "reopening should retain shared auction list");
     return Task.CompletedTask;
 }
 

@@ -4,7 +4,7 @@ namespace Roadhog.Core.Accounts;
 
 public sealed class BagCleanupNameListsDocument
 {
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
 
     public int Version { get; set; } = CurrentVersion;
 
@@ -12,13 +12,19 @@ public sealed class BagCleanupNameListsDocument
 
     public List<string> Blacklist { get; set; } = new();
 
+    public List<BagCleanupTradeItemConfig> Stall { get; set; } = new();
+
+    public List<BagCleanupTradeItemConfig> AuctionHouse { get; set; } = new();
+
     public BagCleanupNameListsDocument Clone()
     {
         return new BagCleanupNameListsDocument
         {
             Version = CurrentVersion,
             Whitelist = NormalizeKeywords(Whitelist),
-            Blacklist = NormalizeKeywords(Blacklist)
+            Blacklist = NormalizeKeywords(Blacklist),
+            Stall = BagCleanupTradeItemConfig.Normalize(Stall),
+            AuctionHouse = BagCleanupTradeItemConfig.Normalize(AuctionHouse)
         };
     }
 
@@ -27,6 +33,8 @@ public sealed class BagCleanupNameListsDocument
         ArgumentNullException.ThrowIfNull(settings);
         settings.BagCleanupExcludedItemNames = NormalizeKeywords(Whitelist);
         settings.BagCleanupDiscardItemNameKeywords = NormalizeKeywords(Blacklist);
+        settings.BagCleanupStallItems = BagCleanupTradeItemConfig.Normalize(Stall);
+        settings.BagCleanupAuctionHouseItems = BagCleanupTradeItemConfig.Normalize(AuctionHouse);
     }
 
     public static BagCleanupNameListsDocument FromSettings(MaintenanceScriptSettings settings)
@@ -35,7 +43,9 @@ public sealed class BagCleanupNameListsDocument
         return new BagCleanupNameListsDocument
         {
             Whitelist = NormalizeKeywords(settings.BagCleanupExcludedItemNames),
-            Blacklist = NormalizeKeywords(settings.BagCleanupDiscardItemNameKeywords)
+            Blacklist = NormalizeKeywords(settings.BagCleanupDiscardItemNameKeywords),
+            Stall = BagCleanupTradeItemConfig.Normalize(settings.BagCleanupStallItems),
+            AuctionHouse = BagCleanupTradeItemConfig.Normalize(settings.BagCleanupAuctionHouseItems)
         };
     }
 
