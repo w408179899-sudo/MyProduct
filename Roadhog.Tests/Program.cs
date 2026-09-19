@@ -3107,15 +3107,9 @@ static async Task TestFixedChannelDefaultsCloneJsonAndUiAsync()
             System.Windows.Forms.Application.DoEvents();
             AssertEqual(3, GetComboSelectedIndexForTest(form, "fixedChannelCombo"), "fixed channel should load into home combo");
             AssertEqual(0, form.Controls.Find("fixedChannelMousePanel", true).Length, "old coordinate panel must be removed");
-            var combo = FindNamedControlForTest(form, "fixedChannelCombo");
-            var button = FindNamedControlForTest(form, "fixedChannelTestButton");
-            AssertEqual("切换测试", button.Text, "manual channel button label");
-            AssertFalse(combo.Bounds.IntersectsWith(button.Bounds), "combo and test button must not overlap");
-            AssertFalse(combo.Top != button.Top || button.Right > button.Parent!.ClientSize.Width, "manual button must fit alongside combo");
+            AssertEqual(0, form.Controls.Find("fixedChannelTestButton", true).Length, "manual channel test button is removed");
             SetComboSelectedIndexForTest(form, "fixedChannelCombo", 0);
-            AssertFalse(button.Enabled, "no target must disable manual test");
             SetComboSelectedIndexForTest(form, "fixedChannelCombo", 5);
-            AssertFalse(!button.Enabled, "selected target must enable manual test");
             var saved = InvokeSaveCurrentSettingsForTest(form, out var error);
             AssertFalse(!saved, "fixed channel ui save failed: " + error);
             var savedSettings = configStore

@@ -53,8 +53,6 @@ namespace Roadhog
         private Label? combatModeLabel;
         private RoundedComboBox? combatModeCombo;
         private RoundedComboBox? fixedChannelCombo;
-        private Button? fixedChannelTestButton;
-        private CancellationTokenSource? _channelTestCancellation;
         private FixedChannelMouseScriptSettings _legacyChannelMouse = new();
         private Label? stationaryCombatRadiusLabel;
         private RoundedTextBox? stationaryCombatRadiusTextBox;
@@ -244,7 +242,6 @@ namespace Roadhog
 
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
-            _channelTestCancellation?.Cancel();
             pathRecordTimer.Stop();
             pathRecordTimer.Dispose();
             base.OnFormClosed(e);
@@ -1385,50 +1382,10 @@ namespace Roadhog
                     .Concat(Enumerable.Range(1, ScriptSettings.MaximumFixedChannelNumber).Select(number => number + "\u9891\u9053"))
                     .ToArray());
             fixedChannelCombo.Name = "fixedChannelCombo";
-            fixedChannelTestButton = AddButton(environmentPanel, "切换测试", 632, 42, 116, 28);
-            fixedChannelTestButton.Name = "fixedChannelTestButton";
-            fixedChannelTestButton.Enabled = fixedChannelCombo.SelectedIndex > 0;
-            fixedChannelCombo.SelectedIndexChanged += (_, _) =>
-                fixedChannelTestButton.Enabled = _channelTestCancellation is null && fixedChannelCombo.SelectedIndex > 0;
-            fixedChannelTestButton.Click += TestFixedChannelButton_Click;
             RefreshSmartPreAimOriginControlState();
             RefreshCombatModeVisibility();
 
             return tab;
-        }
-
-        private async void TestFixedChannelButton_Click(object? sender, EventArgs e)
-        {
-            if (_channelTestCancellation is not null || fixedChannelCombo is null || fixedChannelTestButton is null) return;
-            var target = fixedChannelCombo.SelectedIndex;
-            if (target < 1) return;
-            using var cancellation = new CancellationTokenSource();
-            _channelTestCancellation = cancellation;
-            fixedChannelTestButton.Enabled = false;
-            fixedChannelCombo.Enabled = false;
-            fixedChannelTestButton.Text = "切换中…";
-            try
-            {
-                var result = await _runtime.TestSwitchChannelAsync(_account, target, cancellation.Token);
-                if (!IsDisposed && !Disposing && !cancellation.IsCancellationRequested)
-                    MessageBox.Show(this, result.Success ? $"已确认当前为 {target} 频道。" : result.Error,
-                        "频道切换测试", MessageBoxButtons.OK, result.Success ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
-            }
-            catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
-            catch (Exception ex)
-            {
-                if (!IsDisposed && !Disposing) MessageBox.Show(this, ex.Message, "频道切换测试", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
-            finally
-            {
-                _channelTestCancellation = null;
-                if (!IsDisposed && !Disposing)
-                {
-                    fixedChannelCombo.Enabled = true;
-                    fixedChannelTestButton.Enabled = fixedChannelCombo.SelectedIndex > 0;
-                    fixedChannelTestButton.Text = "切换测试";
-                }
-            }
         }
 
         private void RefreshCombatModeVisibility()
