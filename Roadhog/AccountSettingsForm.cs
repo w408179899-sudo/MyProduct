@@ -3261,6 +3261,8 @@ namespace Roadhog
         {
             var tab = CreateBaseTab("维护");
             var page = CreatePagePanel();
+            page.AutoScroll = true;
+            page.AutoScrollMinSize = new Size(748, 0);
             tab.Controls.Add(page);
 
             AddLabel(page, "坐地板维护", 4, 8, 82, 24, _textGreen, FontStyle.Bold);
@@ -3278,35 +3280,125 @@ namespace Roadhog
             sitMpRecoverToTextBox = AddTextBox(page, "90", 272, 76, 70, 28);
             AddLabel(page, "%  起来继续打怪", 348, 78, 160, 24);
 
-            AddLabel(page, "血量维护", 4, 120, 66, 24, _textGreen, FontStyle.Bold);
-            AddButton(page, "新增血量维护", 68, 116, 120, 30, (_, _) => AddMaintenanceKeyRuleRow(hpMaintenanceRuleList, hpMaintenanceEmptyLabel));
-            var refreshMaintenanceSkillsButton = AddButton(page, "刷新技能", 196, 116, 90, 30);
+            var refreshMaintenanceSkillsButton = AddButton(page, "刷新技能", 720, 6, 120, 30);
             refreshMaintenanceSkillsButton.Click += async (_, _) =>
                 await RefreshCurrentSkillsAsync(refreshMaintenanceSkillsButton, availableTree: null, systemTree: null).ConfigureAwait(true);
-            hpMaintenanceRuleList = CreateMaintenanceRuleList(page, 4, 154, 830, 82);
-            hpMaintenanceEmptyLabel = AddLabel(page, "暂无血量维护", 4, 154, 140, 24);
-            hpMaintenanceEmptyLabel.BringToFront();
 
-            AddLabel(page, "蓝量维护", 4, 246, 66, 24, _textGreen, FontStyle.Bold);
-            AddButton(page, "新增蓝量维护", 68, 242, 120, 30, (_, _) => AddMaintenanceKeyRuleRow(mpMaintenanceRuleList, mpMaintenanceEmptyLabel));
-            mpMaintenanceRuleList = CreateMaintenanceRuleList(page, 4, 280, 830, 82);
-            mpMaintenanceEmptyLabel = AddLabel(page, "暂无蓝量维护", 4, 280, 140, 24);
-            mpMaintenanceEmptyLabel.BringToFront();
+            var sections = new FlowLayoutPanel
+            {
+                Name = "maintenanceSections",
+                Location = new Point(12, 128),
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                MinimumSize = new Size(828, 0),
+                FlowDirection = FlowDirection.TopDown,
+                WrapContents = false,
+                Margin = Padding.Empty
+            };
+            page.Controls.Add(sections);
+            var hpSection = CreateMaintenanceRuleSection(sections, "血量维护", "hpMaintenance");
+            hpMaintenanceRuleList = hpSection.List;
+            hpMaintenanceEmptyLabel = hpSection.EmptyLabel;
+            AddButton(hpSection.Content, "新增血量维护", 12, 4, 132, 30,
+                (_, _) => AddMaintenanceKeyRuleRow(hpMaintenanceRuleList, hpMaintenanceEmptyLabel));
 
-            AddLabel(page, "状态维护", 4, 372, 66, 24, _textGreen, FontStyle.Bold);
-            AddButton(page, "新增状态维护", 68, 368, 120, 30, (_, _) => AddStatusMaintenanceRuleRow(statusMaintenanceRuleList, statusMaintenanceEmptyLabel));
-            statusMaintenanceRuleList = CreateMaintenanceRuleList(page, 4, 406, 830, 66);
-            statusMaintenanceEmptyLabel = AddLabel(page, "暂无状态维护", 4, 406, 140, 24);
-            statusMaintenanceEmptyLabel.BringToFront();
+            var mpSection = CreateMaintenanceRuleSection(sections, "蓝量维护", "mpMaintenance");
+            mpMaintenanceRuleList = mpSection.List;
+            mpMaintenanceEmptyLabel = mpSection.EmptyLabel;
+            AddButton(mpSection.Content, "新增蓝量维护", 12, 4, 132, 30,
+                (_, _) => AddMaintenanceKeyRuleRow(mpMaintenanceRuleList, mpMaintenanceEmptyLabel));
 
-            AddLabel(page, "DP维护", 4, 498, 66, 24, _textGreen, FontStyle.Bold);
-            AddButton(page, "新增DP维护", 68, 494, 120, 30, (_, _) => AddDpMaintenanceRuleRow(dpMaintenanceRuleList, dpMaintenanceEmptyLabel));
-            dpMaintenanceRuleList = CreateMaintenanceRuleList(page, 4, 532, 830, 66);
-            dpMaintenanceEmptyLabel = AddLabel(page, "暂无DP维护", 4, 532, 140, 24);
-            dpMaintenanceEmptyLabel.BringToFront();
+            var statusSection = CreateMaintenanceRuleSection(sections, "状态维护", "statusMaintenance");
+            statusMaintenanceRuleList = statusSection.List;
+            statusMaintenanceEmptyLabel = statusSection.EmptyLabel;
+            AddButton(statusSection.Content, "新增状态维护", 12, 4, 132, 30,
+                (_, _) => AddStatusMaintenanceRuleRow(statusMaintenanceRuleList, statusMaintenanceEmptyLabel));
+
+            var dpSection = CreateMaintenanceRuleSection(sections, "DP维护", "dpMaintenance");
+            dpMaintenanceRuleList = dpSection.List;
+            dpMaintenanceEmptyLabel = dpSection.EmptyLabel;
+            AddButton(dpSection.Content, "新增DP维护", 12, 4, 132, 30,
+                (_, _) => AddDpMaintenanceRuleRow(dpMaintenanceRuleList, dpMaintenanceEmptyLabel));
+
+            void ResizeSections()
+            {
+                var width = Math.Max(724, page.ClientSize.Width - 24);
+                refreshMaintenanceSkillsButton.Left = width - refreshMaintenanceSkillsButton.Width + 12;
+                sections.MaximumSize = new Size(width, 0);
+                sections.MinimumSize = new Size(width, 0);
+                foreach (Control section in sections.Controls)
+                {
+                    section.Width = width;
+                }
+            }
+            page.ClientSizeChanged += (_, _) => ResizeSections();
+            ResizeSections();
 
             return tab;
         }
+
+        private MaintenanceRuleSection CreateMaintenanceRuleSection(FlowLayoutPanel parent, string title, string name)
+        {
+            var section = new Panel
+            {
+                Name = name + "Section",
+                Size = new Size(828, 36),
+                Margin = new Padding(0, 0, 0, 12)
+            };
+            parent.Controls.Add(section);
+            var header = new Button
+            {
+                Name = name + "FoldoutButton",
+                Size = new Size(828, 36),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                BackColor = _inputBackground,
+                ForeColor = _textGreen,
+                Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold),
+                FlatStyle = FlatStyle.Flat,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(12, 0, 0, 0),
+                Cursor = Cursors.Hand
+            };
+            header.FlatAppearance.BorderSize = 0;
+            section.Controls.Add(header);
+            var content = new Panel
+            {
+                Location = new Point(0, 44),
+                Width = 828,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                Visible = false
+            };
+            section.Controls.Add(content);
+            var list = CreateMaintenanceRuleList(content, 12, 42, 804, 28);
+            list.AutoScroll = false;
+            list.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            var emptyLabel = AddLabel(content, "暂无" + title, 12, 42, 300, 24);
+            emptyLabel.BringToFront();
+            var expanded = false;
+
+            void RefreshSection()
+            {
+                var rows = list.Controls.OfType<Panel>().ToArray();
+                list.Height = Math.Max(28, rows.Sum(row => row.Height + row.Margin.Vertical));
+                content.Height = list.Bottom + 8;
+                section.Height = expanded ? content.Bottom : header.Height;
+                header.Text = $"{(expanded ? "▼" : "▶")}  {title}（{rows.Length} 项）";
+                RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
+            }
+
+            header.Click += (_, _) =>
+            {
+                expanded = !expanded;
+                content.Visible = expanded;
+                RefreshSection();
+            };
+            list.ControlAdded += (_, _) => RefreshSection();
+            list.ControlRemoved += (_, _) => RefreshSection();
+            RefreshSection();
+            return new MaintenanceRuleSection(content, list, emptyLabel);
+        }
+
+        private sealed record MaintenanceRuleSection(Panel Content, FlowLayoutPanel List, Label EmptyLabel);
 
         private TabPage CreateBagCleanupTab()
         {

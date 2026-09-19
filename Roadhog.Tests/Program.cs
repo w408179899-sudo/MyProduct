@@ -429,6 +429,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("account config stores shared path names only", TestAccountConfigStoresSharedPathNamesOnlyAsync),
     ("account config persists bag cleanup rules", TestAccountConfigPersistsBagCleanupRulesAsync),
     ("bag cleanup discard confirm point loads and saves from ui", TestBagCleanupDiscardConfirmPointUiAsync),
+    ("maintenance foldouts show all rows and preserve settings", TestMaintenanceFoldoutsAsync),
     ("bag cleanup name-list ui auto saves both lists and rolls back failures", TestBagCleanupNameListUiAutoSavesAndRollsBackAsync),
     ("account config persists stationary combat position", TestAccountConfigPersistsStationaryCombatPositionAsync),
     ("revive path aggressive clear radius defaults persists and saves from ui", TestRevivePathAggressiveClearRadiusDefaultsCloneJsonAndUiAsync),
@@ -11918,6 +11919,95 @@ static async Task TestAccountConfigPersistsBagCleanupRulesAsync()
     {
         DeleteDirectoryIfExists(directory);
     }
+}
+
+static Task TestMaintenanceFoldoutsAsync()
+{
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        try
+        {
+            var settings = new ScriptSettings();
+            settings.Maintenance.HpMaintenanceRules = Enumerable.Range(1, 6).Select(i => new MaintenanceKeyRuleConfig
+            {
+                BelowPercent = 20 + i, Key = "NumPad1", SkillId = (uint)(100 + i), SkillName = "血量维护技能 " + i
+            }).ToList();
+            settings.Maintenance.MpMaintenanceRules = settings.Maintenance.HpMaintenanceRules.Select(rule => rule.Clone()).ToList();
+            settings.Maintenance.StatusMaintenanceRules = Enumerable.Range(1, 6).Select(i => new StatusMaintenanceRuleConfig
+            {
+                Key = "NumPad2", SkillId = (uint)(200 + i), SkillName = "状态维护技能 " + i
+            }).ToList();
+            settings.Maintenance.DpMaintenanceRules = Enumerable.Range(1, 6).Select(i => new DpMaintenanceRuleConfig
+            {
+                RequiredDp = 2000, Key = "NumPad3", SkillId = (uint)(300 + i), SkillName = "DP维护技能 " + i
+            }).ToList();
+            var configStore = new InMemoryAccountConfigStore(new AccountConfig { AccountName = "account1", ScriptSettings = settings });
+            using var form = CreateAccountSettingsFormForTestsWithStore(configStore);
+            var tabs = (System.Windows.Forms.TabControl)GetPrivateFieldForTest(form, "settingsTabs");
+            tabs.SelectedTab = tabs.TabPages.Cast<System.Windows.Forms.TabPage>().Single(tab => tab.Text == "维护");
+            form.ShowInTaskbar = false;
+            form.StartPosition = System.Windows.Forms.FormStartPosition.Manual;
+            form.Location = new System.Drawing.Point(-32000, -32000);
+            form.Show();
+            System.Windows.Forms.Application.DoEvents();
+            var before = System.Text.Json.JsonSerializer.Serialize(
+                ((ScriptSettings)InvokePrivateMethodForTest(form, "CaptureScriptSettings")!).Maintenance);
+            foreach (var prefix in new[] { "hpMaintenance", "mpMaintenance", "statusMaintenance", "dpMaintenance" })
+            {
+                var header = (System.Windows.Forms.Button)form.Controls.Find(prefix + "FoldoutButton", true).Single();
+                var list = (System.Windows.Forms.FlowLayoutPanel)GetPrivateFieldForTest(form, prefix + "RuleList");
+                AssertFalse(list.Visible, "maintenance category starts collapsed");
+                AssertFalse(!header.Text.Contains("6 项"), "collapsed header reports saved rule count");
+                header.PerformClick();
+                System.Windows.Forms.Application.DoEvents();
+                AssertFalse(!list.Visible || list.AutoScroll, "expanded category shows rows without inner scrolling");
+                AssertFalse(list.Controls.Cast<System.Windows.Forms.Control>().Any(row => row.Bottom > list.ClientSize.Height),
+                    "all maintenance rows fit expanded category");
+                var add = list.Parent!.Controls.OfType<System.Windows.Forms.Button>().Single(button => button.Text.StartsWith("新增"));
+                var previousHeight = list.Height;
+                add.PerformClick();
+                AssertEqual(7, list.Controls.Count, "add rule inside expanded category");
+                AssertFalse(list.Height <= previousHeight, "adding a rule grows expanded category");
+                list.Controls.Cast<System.Windows.Forms.Panel>().Last().Controls.OfType<System.Windows.Forms.Button>()
+                    .Single(button => button.Text == "删除").PerformClick();
+                AssertEqual(6, list.Controls.Count, "remove rule inside expanded category");
+                AssertEqual(previousHeight, list.Height, "removing a rule shrinks category");
+                header.PerformClick();
+                AssertFalse(list.Visible, "second click collapses category");
+            }
+            var after = System.Text.Json.JsonSerializer.Serialize(
+                ((ScriptSettings)InvokePrivateMethodForTest(form, "CaptureScriptSettings")!).Maintenance);
+            AssertEqual(before, after, "folding and unfolding preserves all maintenance settings");
+            AssertFalse(!InvokeSaveCurrentSettingsForTest(form, out var error), "collapsed maintenance settings save: " + error);
+            var saved = configStore.LoadAllAsync().Result.Value!.Single().ScriptSettings!.Maintenance;
+            AssertEqual(6, saved.HpMaintenanceRules.Count, "collapsed HP rules persist");
+            AssertEqual(6, saved.MpMaintenanceRules.Count, "collapsed MP rules persist");
+            AssertEqual(6, saved.StatusMaintenanceRules.Count, "collapsed status rules persist");
+            AssertEqual(6, saved.DpMaintenanceRules.Count, "collapsed DP rules persist");
+
+            var preview = Environment.GetEnvironmentVariable("ROADHOG_MAINTENANCE_PREVIEW");
+            if (!string.IsNullOrWhiteSpace(preview))
+            {
+                ((System.Windows.Forms.Button)form.Controls.Find("mpMaintenanceFoldoutButton", true).Single()).PerformClick();
+                System.Windows.Forms.Application.DoEvents();
+                using var bitmap = new System.Drawing.Bitmap(form.Width, form.Height);
+                form.DrawToBitmap(bitmap, new System.Drawing.Rectangle(System.Drawing.Point.Empty, form.Size));
+                foreach (var button in form.Controls.OfType<System.Windows.Forms.Button>())
+                {
+                    var origin = button.PointToScreen(System.Drawing.Point.Empty);
+                    button.DrawToBitmap(bitmap, new System.Drawing.Rectangle(origin.X - form.Left, origin.Y - form.Top, button.Width, button.Height));
+                }
+                bitmap.Save(preview);
+            }
+        }
+        catch (Exception ex) { failure = ex; }
+    });
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    thread.Join();
+    if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    return Task.CompletedTask;
 }
 
 static Task TestBagCleanupDiscardConfirmPointUiAsync()
