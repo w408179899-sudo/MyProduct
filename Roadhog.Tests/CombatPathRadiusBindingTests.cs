@@ -443,6 +443,134 @@ internal static class CombatPathRadiusBindingTests
             "failed metadata read must prevent destructive overwrite");
     });
 
+    public static Task SaveConfigurationPersistsBindingsAsync() => RunSta(() =>
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "roadhog-radius-settings-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var store = new JsonSharedPathStore(directory);
+            foreach (var name in new[] { "revive", "combat" })
+                Check(store.SaveAsync(new SharedPathDocument { Name = name }).Result.Success, "create path");
+            var configs = new InMemoryAccountConfigStore(Config());
+            var profiles = new InMemoryScriptProfileStore();
+            using (var form = CreateForm(configs, store, profiles))
+            {
+                SetChecked(Find(form, "bindRevivePathStationaryRadiusCheckBox"), true);
+                Find(form, "revivePathBoundStationaryRadiusTextBox").Text = "17.55555";
+                SetChecked(Find(form, "bindPathStationaryRadiusCheckBox"), true);
+                Find(form, "pathBoundStationaryRadiusTextBox").Text = "24.5";
+                SaveConfiguration(form);
+            }
+
+            Equal(17.55555, store.LoadAsync("revive").Result.Value!.BoundStationaryCombatRadius!.Value, "save configuration persists revive binding");
+            Equal(24.5, store.LoadAsync("combat").Result.Value!.BoundStationaryCombatRadius!.Value, "save configuration persists combat binding");
+            using var reopened = CreateForm(configs, store, profiles);
+            Check(Checked(Find(reopened, "bindRevivePathStationaryRadiusCheckBox")), "reopened revive binding checked");
+            Equal("17.55555", Find(reopened, "revivePathBoundStationaryRadiusTextBox").Text, "reopened radius retains precision");
+            void AssertRuntimeRadius(double expected)
+            {
+                var config = configs.LoadAllAsync().Result.Value!.Single().Clone();
+                Equal(33.5, config.ScriptSettings!.Combat.StationaryCombatRadius, "saved profile fallback unchanged");
+                CombatPathRadiusBinding.ApplyAsync(config, store, new InMemoryRoadhogLogger(), CancellationToken.None).GetAwaiter().GetResult();
+                Equal(expected, config.ScriptSettings.Combat.StationaryCombatRadius, "startup reads saved binding");
+                AssertOtherRadii(config);
+            }
+            AssertRuntimeRadius(17.55555);
+            SetChecked(Find(reopened, "bindRevivePathStationaryRadiusCheckBox"), false);
+            SaveConfiguration(reopened);
+            Check(store.LoadAsync("revive").Result.Value!.BoundStationaryCombatRadius is null, "save configuration persists revive unbind");
+            AssertRuntimeRadius(24.5);
+            SetChecked(Find(reopened, "bindPathStationaryRadiusCheckBox"), false);
+            SaveConfiguration(reopened);
+            AssertRuntimeRadius(33.5);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    });
+
+    public static Task SaveConfigurationValidatesBindingsAsync() => RunSta(() =>
+    {
+        var store = new ObservedPathStore(
+            new SharedPathDocument { Name = "revive", BoundStationaryCombatRadius = 7.5 },
+            new SharedPathDocument { Name = "combat", BoundStationaryCombatRadius = 12.5 });
+        using var form = CreateForm(new InMemoryAccountConfigStore(Config()), store, new InMemoryScriptProfileStore());
+        var reviveInput = Find(form, "revivePathBoundStationaryRadiusTextBox");
+        var combatInput = Find(form, "pathBoundStationaryRadiusTextBox");
+        reviveInput.Text = "19.5";
+        foreach (var invalid in new[] { "", "abc", "NaN", "Infinity", "0", "501" })
+        {
+            combatInput.Text = invalid;
+            SaveConfiguration(form, "1–500");
+            Equal(7.5, store.LoadAsync("revive").Result.Value!.BoundStationaryCombatRadius!.Value, "validate all bindings before writing any");
+        }
+        combatInput.Text = "25";
+        store.FailLoads = true;
+        SaveConfiguration(form, "injected read failure");
+        store.FailLoads = false;
+        store.FailSaves = true;
+        SaveConfiguration(form, "injected write failure");
+        store.FailSaves = false;
+        Equal(7.5, store.LoadAsync("revive").Result.Value!.BoundStationaryCombatRadius!.Value, "failed write preserves prior binding");
+        SaveConfiguration(form);
+        Equal(19.5, store.LoadAsync("revive").Result.Value!.BoundStationaryCombatRadius!.Value, "retry saves draft after failure");
+
+        ((Control)Editor(form, SharedPathKind.Revive).GetType().GetProperty("PathNameTextBox")!
+            .GetValue(Editor(form, SharedPathKind.Revive))!).Text = "unsaved-path";
+        SaveConfiguration(form, "保存到列表");
+        Check(!store.LoadAsync("unsaved-path").Result.Success, "must not create an empty path from global save");
+    });
+
+    public static Task SaveConfigurationPreservesSharedPathsAsync() => RunSta(() =>
+    {
+        var path = new SharedPathDocument
+        {
+            Name = "combat", BoundStationaryCombatRadius = 12.5, CleanupNpcName = "merchant",
+            BagCleanupSellItemClickX = 123, BagCleanupSellItemClickY = 456,
+            Points = new() { new SharedPathPoint { X = 10, Y = 20, Z = 30 } }
+        };
+        var store = new ObservedPathStore(path);
+        using var form = CreateForm(new InMemoryAccountConfigStore(Config()), store, new InMemoryScriptProfileStore());
+        var revive = Editor(form, SharedPathKind.Revive);
+        var combat = Editor(form, SharedPathKind.Combat);
+        Invoke(form, "LoadPathByName", revive, "combat");
+        // Unsaved recording edits must not be included by the global configuration save.
+        ((PathRecordingBuffer)combat.GetType().GetProperty("Buffer")!.GetValue(combat)!).Load(Array.Empty<SharedPathPoint>());
+        Find(form, "revivePathBoundStationaryRadiusTextBox").Text = "28";
+        SaveConfiguration(form);
+        var saved = store.LoadAsync("combat").Result.Value!;
+        Equal(28.0, saved.BoundStationaryCombatRadius!.Value, "unchanged combat draft does not undo revive edit on same file");
+        Equal(1, saved.PointCount, "global save preserves saved route points");
+        Equal("merchant", saved.CleanupNpcName, "global save preserves NPC");
+        Equal(123, saved.BagCleanupSellItemClickX!.Value, "global save preserves click coordinates");
+        SaveConfiguration(form);
+        Equal(28.0, store.LoadAsync("combat").Result.Value!.BoundStationaryCombatRadius!.Value, "repeated save retains binding");
+
+        Find(form, "revivePathBoundStationaryRadiusTextBox").Text = "29";
+        Find(form, "pathBoundStationaryRadiusTextBox").Text = "31";
+        SaveConfiguration(form, "同一路径");
+        Equal(28.0, store.LoadAsync("combat").Result.Value!.BoundStationaryCombatRadius!.Value, "conflicting shared drafts must not silently overwrite");
+        Find(form, "pathBoundStationaryRadiusTextBox").Text = "29";
+        SaveConfiguration(form);
+        saved = store.LoadAsync("combat").Result.Value!;
+        saved.BoundStationaryCombatRadius = 40;
+        Check(store.SaveAsync(saved).Result.Success, "external editor saves newer binding");
+        SaveConfiguration(form);
+        Equal(40.0, store.LoadAsync("combat").Result.Value!.BoundStationaryCombatRadius!.Value, "unchanged form preserves external update");
+    });
+
+    private static void SaveConfiguration(AccountSettingsForm form, string? expectedError = null)
+    {
+        object?[] arguments = { "" };
+        var saved = (bool)Invoke(form, "SaveCurrentSettings", arguments)!;
+        if (expectedError is null)
+            Check(saved, "save configuration: " + arguments[0]);
+        else
+            Check(!saved && arguments[0] is string error && error.Contains(expectedError),
+                "save must report " + expectedError + ": " + arguments[0]);
+    }
+
     private static AccountSettingsForm CreateForm(InMemoryAccountConfigStore configs, ISharedPathStore paths, InMemoryScriptProfileStore profiles)
     {
         var logger = new InMemoryRoadhogLogger();
@@ -551,6 +679,7 @@ internal static class CombatPathRadiusBindingTests
         private readonly InMemorySharedPathStore _inner;
         public int LoadCount { get; private set; }
         public bool FailLoads { get; set; }
+        public bool FailSaves { get; set; }
         public ObservedPathStore(params SharedPathDocument[] paths) => _inner = new(paths);
         public Task<OperationResult<SharedPathDocument>> LoadAsync(string name, CancellationToken cancellationToken = default)
         {
@@ -559,7 +688,8 @@ internal static class CombatPathRadiusBindingTests
                 : _inner.LoadAsync(name, cancellationToken);
         }
         public Task<OperationResult<IReadOnlyList<SharedPathSummary>>> LoadSummariesAsync(CancellationToken cancellationToken = default) => _inner.LoadSummariesAsync(cancellationToken);
-        public Task<OperationResult> SaveAsync(SharedPathDocument path, CancellationToken cancellationToken = default) => _inner.SaveAsync(path, cancellationToken);
+        public Task<OperationResult> SaveAsync(SharedPathDocument path, CancellationToken cancellationToken = default) => FailSaves
+            ? Task.FromResult(OperationResult.Fail("injected write failure")) : _inner.SaveAsync(path, cancellationToken);
         public Task<OperationResult> DeleteAsync(string name, CancellationToken cancellationToken = default) => _inner.DeleteAsync(name, cancellationToken);
     }
 }

@@ -583,6 +583,10 @@ namespace Roadhog
                     ReadInt(chainWindowPerLinkTextBox, capturedSettings.SemiAuto.ChainWindowPerLinkMs),
                     SemiAutoScriptSettings.MinimumChainWindowPerLinkMs,
                     SemiAutoScriptSettings.MaximumChainWindowPerLinkMs);
+            if (!SaveSelectedPathRadiusBindings(out error))
+            {
+                return false;
+            }
             if (!SaveSelectedCleanupNpcBinding(out var cleanupBindingError))
             {
                 error = cleanupBindingError;
@@ -629,6 +633,81 @@ namespace Roadhog
             currentRadarSettings = capturedSettings.Combat.RadarObstacleAvoidance.Clone();
             RefreshRadarStatus();
             SetProfileStatus("已保存方案: " + profileName, false);
+            return true;
+        }
+
+        private bool SaveSelectedPathRadiusBindings(out string error)
+        {
+            error = string.Empty;
+            var changes = new Dictionary<string, double?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var editor in pathEditors.Values.Where(editor => editor.BindStationaryRadiusCheckBox is not null))
+            {
+                if (editor.SavingPath)
+                {
+                    error = "路径正在保存，请稍后再保存配置。";
+                    return false;
+                }
+                if (!TryReadPathRadiusBinding(editor, out var radius, out error))
+                {
+                    SetPathStatus(editor, error, true);
+                    return false;
+                }
+
+                var name = GetText(editor.PathNameTextBox, string.Empty);
+                var loaded = editor.LoadedDocument;
+                // Leave unchanged drafts alone so another tab/account's newer binding survives.
+                if (radius == loaded?.BoundStationaryCombatRadius &&
+                    (radius is null || string.Equals(name, loaded?.Name, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    error = "绑定原地打半径前，请选择路径；新路径请先点击“保存到列表”。";
+                    return false;
+                }
+                if (changes.TryGetValue(name, out var otherRadius) && otherRadius != radius)
+                {
+                    error = "复活和打怪页对同一路径的半径设置不一致，请统一后保存: " + name;
+                    return false;
+                }
+                changes[name] = radius;
+            }
+
+            // Validate and load all changes before writing. Only radius metadata is saved here;
+            // route-point drafts still belong to the explicit save-to-list action.
+            var documents = new List<SharedPathDocument>();
+            foreach (var change in changes)
+            {
+                var load = _pathStore.LoadAsync(change.Key).GetAwaiter().GetResult();
+                if (!load.Success || load.Value is null)
+                {
+                    error = "读取路径失败，无法保存原地打半径；新路径请先点击“保存到列表”: " +
+                        change.Key + "。" + load.Error;
+                    return false;
+                }
+                var document = load.Value.Clone();
+                document.BoundStationaryCombatRadius = change.Value;
+                documents.Add(document);
+            }
+
+            foreach (var document in documents)
+            {
+                var save = _pathStore.SaveAsync(document).GetAwaiter().GetResult();
+                if (!save.Success)
+                {
+                    error = "保存路径原地打半径失败: " + document.Name + "。" + save.Error;
+                    return false;
+                }
+                foreach (var editor in pathEditors.Values.Where(editor =>
+                    editor.BindStationaryRadiusCheckBox is not null &&
+                    string.Equals(GetText(editor.PathNameTextBox, string.Empty), document.Name, StringComparison.OrdinalIgnoreCase)))
+                {
+                    editor.LoadedDocument = document.Clone();
+                    ApplyPathRadiusBindingToEditor(editor, document);
+                    SetPathStatus(editor, "已保存路径半径设置: " + document.Name, false);
+                }
+            }
             return true;
         }
 
@@ -2550,6 +2629,27 @@ namespace Roadhog
                 .ToString("G", CultureInfo.InvariantCulture));
         }
 
+        private static bool TryReadPathRadiusBinding(PathEditorControls editor, out double? radius, out string error)
+        {
+            radius = null;
+            error = string.Empty;
+            if (editor.BindStationaryRadiusCheckBox?.Checked != true)
+            {
+                return true;
+            }
+
+            var text = GetText(editor.StationaryRadiusTextBox, string.Empty);
+            if ((!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) &&
+                 !double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out value)) ||
+                !double.IsFinite(value) || value is < 1.0D or > 500.0D)
+            {
+                error = "原地打半径请输入 1–500 米的有效数值";
+                return false;
+            }
+            radius = value;
+            return true;
+        }
+
         private async Task SavePathAsync(PathEditorControls editor)
         {
             if (editor.SavingPath)
@@ -2567,22 +2667,12 @@ namespace Roadhog
             var document = editor.Buffer.ToDocument(name);
             var bindingChecked = editor.BindStationaryRadiusCheckBox?.Checked == true;
             var bindingText = GetText(editor.StationaryRadiusTextBox, string.Empty);
-            if (bindingChecked)
+            if (!TryReadPathRadiusBinding(editor, out var radius, out var bindingError))
             {
-                if (!double.TryParse(bindingText, NumberStyles.Float, CultureInfo.InvariantCulture, out var radius) &&
-                    !double.TryParse(bindingText, NumberStyles.Float, CultureInfo.CurrentCulture, out radius))
-                {
-                    SetPathStatus(editor, "原地打半径请输入 1–500 米的有效数值", true);
-                    return;
-                }
-
-                document.BoundStationaryCombatRadius = radius;
-                if (!document.TryGetBoundStationaryCombatRadius(out _))
-                {
-                    SetPathStatus(editor, "原地打半径请输入 1–500 米的有效数值", true);
-                    return;
-                }
+                SetPathStatus(editor, bindingError, true);
+                return;
             }
+            document.BoundStationaryCombatRadius = radius;
 
             if (editor.Kind == SharedPathKind.Maintenance)
             {
