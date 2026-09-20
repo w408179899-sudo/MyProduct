@@ -8,6 +8,11 @@ public sealed class CleanupCombatInterruptionException : Exception
     public CleanupCombatInterruptionException() : base("清包被攻击打断，先处理战斗。") { }
 }
 
+public sealed class CleanupDeathInterruptionException : Exception
+{
+    public CleanupDeathInterruptionException() : base("清包期间角色死亡，先复活再继续。") { }
+}
+
 public sealed partial class BagCleanupController
 {
     public static TimeSpan FullCleanupCooldown => ReadCleanupCooldown();
@@ -25,7 +30,7 @@ public sealed partial class BagCleanupController
             {
                 context.StopToken.ThrowIfCancellationRequested();
                 report("正在按配置丢弃背包物品");
-                var result = await TickAfterLootAsync(context, state);
+                var result = await TickWorkflowAsync(context, state);
                 if (result.Reason == "discard_interrupted_by_attack")
                 {
                     var ui = (await context.Snapshots.ReadInventoryInteractionAsync().WaitAsync(context.StopToken)).Value;
@@ -48,7 +53,7 @@ public sealed partial class BagCleanupController
             context.StopToken.ThrowIfCancellationRequested();
             report(state.Step is BagCleanupStep.LoadCleanupPath or BagCleanupStep.FollowCleanupPath ? "沿清包路径前往商人" :
                 state.Step is BagCleanupStep.ReturnByReversePath or BagCleanupStep.PostCleanupJump ? "出售完成，沿清包路径返回" : "正在向商人出售背包物品");
-            var result = await TickAfterLootAsync(context, state);
+            var result = await TickWorkflowAsync(context, state);
             EnsureRunning(result);
             if (result.Status == BagCleanupTickStatus.Completed) return;
             await Task.Delay(100, context.StopToken);
@@ -61,4 +66,31 @@ public sealed partial class BagCleanupController
             throw new InvalidOperationException(result.Error ?? result.Reason);
     }
 
+    private async Task<BagCleanupTickResult> TickWorkflowAsync(AccountWorkerContext context, BagCleanupState state)
+    {
+        async Task CheckLifeAsync()
+        {
+            context.StopToken.ThrowIfCancellationRequested();
+            if ((await context.Snapshots.ReadPlayerAsync().WaitAsync(context.StopToken)).Value.IsDead)
+            {
+                if (state.DiscardActive)
+                {
+                    var cancel = await _discarder.CancelPendingDiscardAsync(context);
+                    var close = await _discarder.CloseInventoryWindowIfOpenAsync(context);
+                    context.Logger.Warn("bag_cleanup.discard.death_interrupted", new Dictionary<string, object?>
+                    {
+                        ["account"] = context.Config.AccountName,
+                        ["cancelSuccess"] = cancel.Success, ["cancelError"] = cancel.Error,
+                        ["inventoryCloseSuccess"] = close.Success, ["inventoryCloseError"] = close.Error
+                    });
+                }
+                throw new CleanupDeathInterruptionException();
+            }
+        }
+        await CheckLifeAsync();
+        var result = await TickAfterLootAsync(context, state);
+        // Path execution can observe a death during the tick. Hand off before return/jump actions.
+        await CheckLifeAsync();
+        return result;
+    }
 }

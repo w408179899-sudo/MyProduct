@@ -129,23 +129,58 @@ public sealed class AccountWorkerHost
 
     private async Task RunWorkerAsync(AccountConfig config, CancellationToken stopToken)
     {
-        _runtimeStates.MarkRunning(config.AccountName, Environment.CurrentManagedThreadId);
+        AccountWorkerContext? context = null;
+        var failures = 0;
         try
         {
-            if (_pathStore is not null)
-                await CombatPathRadiusBinding.ApplyAsync(config, _pathStore, _logger, stopToken).ConfigureAwait(false);
-            var context = new AccountWorkerContext(config, _snapshotReaders, _logger, _runtimeStates, _options, stopToken, _cleanupRequests);
-            await _workerLoop.RunAsync(context).ConfigureAwait(false);
-            _runtimeStates.MarkStopped(config.AccountName);
+            while (!stopToken.IsCancellationRequested)
+            {
+                var started = System.Diagnostics.Stopwatch.StartNew();
+                try
+                {
+                    _runtimeStates.MarkRunning(config.AccountName, Environment.CurrentManagedThreadId);
+                    if (context is null)
+                    {
+                        if (_pathStore is not null)
+                            await CombatPathRadiusBinding.ApplyAsync(config, _pathStore, _logger, stopToken).ConfigureAwait(false);
+                        context = new AccountWorkerContext(config, _snapshotReaders, _logger, _runtimeStates, _options, stopToken, _cleanupRequests);
+                    }
+
+                    // Keep the same provider session. Only controller state is rebuilt after an exception.
+                    await _workerLoop.RunAsync(context).ConfigureAwait(false);
+                    stopToken.ThrowIfCancellationRequested();
+                    throw new InvalidOperationException("账号主循环意外返回，自动恢复运行。");
+                }
+                catch (Exception ex) when (!stopToken.IsCancellationRequested)
+                {
+                    failures = started.Elapsed >= TimeSpan.FromMinutes(1) ? 1 : Math.Min(failures + 1, 16);
+                    var initialMs = Math.Max(1, _options.RecoveryDelay.TotalMilliseconds);
+                    var maxMs = Math.Max(initialMs, _options.MaxRecoveryDelay.TotalMilliseconds);
+                    var delay = TimeSpan.FromMilliseconds(Math.Min(maxMs, initialMs * Math.Pow(2, failures - 1)));
+                    _logger.Error("worker.loop.exception", ex, new Dictionary<string, object?>
+                    {
+                        ["account"] = config.AccountName, ["recovering"] = true,
+                        ["attempt"] = failures, ["retryAfterMs"] = delay.TotalMilliseconds
+                    });
+                    _runtimeStates.MarkWarning(config.AccountName, "运行异常，自动恢复：" + ex.Message);
+                    // No retry limit: a failed tick must not terminate an enabled account.
+                    while (delay > TimeSpan.Zero)
+                    {
+                        _runtimeStates.MarkHeartbeat(config.AccountName);
+                        var slice = delay > TimeSpan.FromSeconds(1) ? TimeSpan.FromSeconds(1) : delay;
+                        await Task.Delay(slice, stopToken).ConfigureAwait(false);
+                        delay -= slice;
+                    }
+                }
+            }
         }
-        catch (OperationCanceledException) when (stopToken.IsCancellationRequested)
+        catch (Exception) when (stopToken.IsCancellationRequested)
+        {
+            // Cancellation belongs to StopAsync, including errors from input release during shutdown.
+        }
+        finally
         {
             _runtimeStates.MarkStopped(config.AccountName);
-        }
-        catch (Exception ex)
-        {
-            _logger.Error("worker.loop.exception", ex, new Dictionary<string, object?> { ["account"] = config.AccountName });
-            _runtimeStates.MarkFailed(config.AccountName, ex.Message);
         }
     }
 

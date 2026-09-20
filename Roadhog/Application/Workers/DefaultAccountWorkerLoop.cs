@@ -51,6 +51,11 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
             ["hardwareKey"] = context.Config.HardwareKey,
             ["vmmDevice"] = context.Config.VmmDeviceName
         });
+        if (_keyboard is IInputStateReset inputReset)
+        {
+            var reset = await inputReset.ReleaseAllAsync(context.StopToken).ConfigureAwait(false);
+            if (!reset.Success) throw new InvalidOperationException("运行前释放输入失败：" + reset.Error);
+        }
         await ScrollStartupMouseAsync(context).ConfigureAwait(false);
         await ReleaseStartupMovementAsync(context).ConfigureAwait(false);
 
@@ -130,27 +135,41 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                     }
                     if (context.CleanupRequests.Current is { } cleanup)
                     {
-                        if (await _stationaryCombat.PrepareCleanupTickAsync(context, semiAutoPlan, semiAutoState, stationaryCombatState))
+                        try
                         {
-                            try
+                            if (await _stationaryCombat.PrepareCleanupTickAsync(context, semiAutoPlan, semiAutoState, stationaryCombatState))
                             {
                                 await _cleanupWorkflow.RunAsync(context, cleanup, c => _stationaryCombat.ReturnAfterCleanupAsync(
                                     c, semiAutoPlan, semiAutoState, stationaryCombatState));
+                                context.StopToken.ThrowIfCancellationRequested();
+                                context.CleanupRequests.Complete();
+                                context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, string.Empty);
+                                if (cleanup.ResetsCooldown) lastCleanup = DateTimeOffset.UtcNow;
+                                stationaryCombatState.PathCombat.Reset();
+                                await _stationaryCombat.SetChannelSwitchPendingAsync(context, stationaryCombatState, false);
                             }
-                            catch (CleanupCombatInterruptionException)
-                            {
-                                context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, "清包被攻击打断，处理战斗后继续");
-                                await Task.Delay(context.Options.TickInterval, context.StopToken);
-                                continue;
-                            }
-                            context.StopToken.ThrowIfCancellationRequested();
+                            else context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, "清包已排队，先处理当前战斗 / 复活");
+                        }
+                        catch (Exception ex) when (!context.StopToken.IsCancellationRequested &&
+                            ex is CleanupCombatInterruptionException or CleanupDeathInterruptionException)
+                        {
+                            context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, ex.Message);
+                        }
+                        catch (Exception ex) when (!context.StopToken.IsCancellationRequested)
+                        {
+                            // Drop this execution, not the worker. Never immediately replay uncertain trade actions.
                             context.CleanupRequests.Complete();
+                            nextCleanupCheck = DateTimeOffset.UtcNow.AddSeconds(30);
+                            lastCleanup = DateTimeOffset.UtcNow;
+                            context.Logger.Error("cleanup_workflow.failed_continuing", ex, new Dictionary<string, object?>
+                            {
+                                ["account"] = context.Config.AccountName, ["automaticRetryAfterMs"] = 30000
+                            });
+                            context.RuntimeStates.MarkWarning(context.Config.AccountName, "本次清包失败，继续挂机：" + ex.Message);
                             context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, string.Empty);
-                            if (cleanup.ResetsCooldown) lastCleanup = DateTimeOffset.UtcNow;
                             stationaryCombatState.PathCombat.Reset();
                             await _stationaryCombat.SetChannelSwitchPendingAsync(context, stationaryCombatState, false);
                         }
-                        else context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, "清包已排队，先处理当前战斗 / 复活");
                         await Task.Delay(context.Options.TickInterval, context.StopToken);
                         continue;
                     }
@@ -310,12 +329,19 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         {
             semiAutoState.AttackWeave.Reset();
             semiAutoState.ResetAttackKeyPressThrottle();
-            if (jumpAssist is not null)
+            try
             {
-                await jumpAssist.DisposeAsync().ConfigureAwait(false);
+                try { _stationaryCombat.StopWorkerBackgroundWork(context, stationaryCombatState); }
+                finally
+                {
+                    if (jumpAssist is not null)
+                        await jumpAssist.DisposeAsync().ConfigureAwait(false);
+                }
             }
-
-            await ReleaseActiveInputAsync(context, stationaryCombatState).ConfigureAwait(false);
+            finally
+            {
+                await ReleaseActiveInputAsync(context, stationaryCombatState).ConfigureAwait(false);
+            }
         }
     }
 

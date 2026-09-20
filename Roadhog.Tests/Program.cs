@@ -1,4 +1,4 @@
-using Roadhog;
+﻿using Roadhog;
 using Roadhog.Application;
 using Roadhog.Application.AbnormalStatuses;
 using Roadhog.Application.BagCleanup;
@@ -795,6 +795,9 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("auction path NPC selection save reload and shared metadata", CleanupWorkflowTests.AuctionNpcSettingsAsync)
     ,("auction path NPC identity selection retry and cancellation", CleanupWorkflowTests.AuctionNpcSelectionAsync)
     ,("auction path NPC flows use saved name and diagnostic remains noncommitting", CleanupWorkflowTests.AuctionNpcFlowsAsync)
+    ,("worker recovery initialization exceptions cancellation return and manual stop", WorkerRecoveryTests.HostRecoveryAsync)
+    ,("worker recovery cleanup failure continues and accepts next request", CleanupWorkflowTests.WorkerFailureRecoveryAsync)
+    ,("worker recovery cleanup death hands off to revival", CleanupWorkflowTests.WorkerCleanupDeathRecoveryAsync)
 }).ToArray();
 
 var testFilter = args
