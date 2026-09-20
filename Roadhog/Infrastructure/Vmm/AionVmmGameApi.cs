@@ -4400,6 +4400,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         detail.UiType = GetSkillXmlValue(element, "ui_type", "uitype");
         detail.CursorType = GetSkillXmlValue(element, "cursor_type", "cursortype");
         detail.NpcType = GetSkillXmlValue(element, "npc_type", "npctype");
+        detail.TitleKey = GetSkillXmlValue(element, "npc_title");
         detail.Tribe = GetSkillXmlValue(element, "tribe");
 
         var aggressive = GetSkillXmlValue(element, "aggressive");
@@ -10869,6 +10870,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         public string UiType;
         public string CursorType;
         public string NpcType;
+        public string TitleKey;
         public string Tribe;
         public bool HasDirectAggressive;
         public bool DirectAggressive;

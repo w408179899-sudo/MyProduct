@@ -248,11 +248,13 @@ namespace Roadhog
         }
 
         private CancellationTokenSource? _personalShopTestCts;
+        private CancellationTokenSource? _auctionTestCts;
         private CancellationTokenSource? _inventoryDiscardTestCts;
 
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             _personalShopTestCts?.Cancel();
+            _auctionTestCts?.Cancel();
             _inventoryDiscardTestCts?.Cancel();
             pathRecordTimer.Stop();
             pathRecordTimer.Dispose();
@@ -565,7 +567,7 @@ namespace Roadhog
 
         private bool SaveCurrentSettings(out string error)
         {
-            if (bagCleanupTradeItemGrid?.IsCurrentCellInEditMode == true &&
+            if (bagCleanupTradeItemGrid?.IsCurrentCellInEditMode == true && bagCleanupTradeItemGrid.CurrentCell is { ColumnIndex: 1, ReadOnly: false } &&
                 !BagCleanupTradeItemConfig.TryParseUnitPrice(bagCleanupTradeItemGrid.EditingControl?.Text, out _))
             {
                 error = "请先修正物品单价：输入大于 0 的整数，或留空。";
@@ -3437,11 +3439,14 @@ namespace Roadhog
                 bagCleanupRuleControls[rule.Key] = new BagCleanupRuleControls(checkBox, combo);
             }
 
-            AddLabel(rulesPanel, "清理物品类型", 0, 0, 160, 26, _textGreen, FontStyle.Bold);
-            var testPersonalShopButton = AddButton(rulesPanel, "测试摆摊", 136, 0, 120, 28);
+            AddLabel(rulesPanel, "清理物品类型", 0, 0, 96, 26, _textGreen, FontStyle.Bold);
+            var testAuctionButton = AddButton(rulesPanel, "测试拍卖行", 96, 0, 104, 28);
+            testAuctionButton.Name = "testAuctionHouseButton";
+            testAuctionButton.Click += async (_, _) => await TestAuctionHouseAsync(testAuctionButton).ConfigureAwait(true);
+            var testPersonalShopButton = AddButton(rulesPanel, "测试摆摊", 204, 0, 96, 28);
             testPersonalShopButton.Name = "testPersonalShopButton";
             testPersonalShopButton.Click += async (_, _) => await TestPersonalShopAsync(testPersonalShopButton).ConfigureAwait(true);
-            var testDiscardButton = AddButton(rulesPanel, "测试丢弃", 264, 0, 140, 28);
+            var testDiscardButton = AddButton(rulesPanel, "测试丢弃", 308, 0, 96, 28);
             testDiscardButton.Name = "testInventoryDiscardButton";
             testDiscardButton.Click += async (_, _) => await TestInventoryDiscardAsync(testDiscardButton).ConfigureAwait(true);
 
@@ -4142,7 +4147,7 @@ namespace Roadhog
 
         private async Task TestPersonalShopAsync(Button button)
         {
-            if (_personalShopTestCts != null || _inventoryDiscardTestCts != null) return;
+            if (_personalShopTestCts != null || _inventoryDiscardTestCts != null || _auctionTestCts != null) return;
             using var cancellation = new CancellationTokenSource();
             _personalShopTestCts = cancellation;
             button.Enabled = false;
@@ -4178,7 +4183,7 @@ namespace Roadhog
 
         private async Task TestInventoryDiscardAsync(Button button)
         {
-            if (_inventoryDiscardTestCts != null || _personalShopTestCts != null) return;
+            if (_inventoryDiscardTestCts != null || _personalShopTestCts != null || _auctionTestCts != null) return;
             using var cancellation = new CancellationTokenSource();
             _inventoryDiscardTestCts = cancellation;
             button.Enabled = false;
@@ -4809,12 +4814,14 @@ namespace Roadhog
                 {
                     bagCleanupTradeItemGrid.Visible = tradeItems is not null;
                     bagCleanupTradeItemGrid.Rows.Clear();
+                    bagCleanupTradeItemGrid.Columns["PriceLookupMethod"].Visible = bagCleanupAuctionHouseRadio?.Checked == true;
                     if (tradeItems is not null)
                     {
                         foreach (var item in tradeItems)
                         {
-                            var index = bagCleanupTradeItemGrid.Rows.Add(item.Name, FormatBagCleanupUnitPrice(item.UnitPrice));
+                            var index = bagCleanupTradeItemGrid.Rows.Add(item.Name, FormatBagCleanupUnitPrice(item.UnitPrice), FormatAuctionLookupMethod(item.PriceLookupMethod));
                             bagCleanupTradeItemGrid.Rows[index].Tag = item;
+                            RefreshTradePriceCell(bagCleanupTradeItemGrid.Rows[index]);
                         }
                     }
                     bagCleanupTradeItemGrid.ClearSelection();
@@ -4871,7 +4878,7 @@ namespace Roadhog
                 if (bagCleanupAuctionHouseRadio?.Checked == true)
                 {
                     return ("拍卖行名单", "加入拍卖行",
-                        "拍卖行：单价留空则跳过", "已自动保存拍卖行名单，执行逻辑待接入");
+                        "拍卖行：选择查价方式；测试不提交出售", "已自动保存拍卖行名单");
                 }
 
                 return ("白名单", "加入不处理",

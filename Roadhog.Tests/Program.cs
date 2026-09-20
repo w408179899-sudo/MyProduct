@@ -518,6 +518,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("revive UI geometry and traversal guards", ReviveConfirmationTests.GeometryAsync),
     ("revive UI click rechecks and cancellation", ReviveConfirmationTests.ActionsAsync),
     ("revive UI provider publication and isolation", ReviveConfirmationTests.PublicationAsync),
+    ("auction lookup migration and snapshot publication", AuctionHouseTests.ConfigAndPublicationAsync),
+    ("auction test verifies actions without selling or collecting", AuctionHouseTests.ActionsAsync),
     ("stationary combat death recovery clicks revive and recovers before path", TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBeforePathAsync),
     ("stationary combat death recovery sits before mp maintenance rule", TestStationaryCombatDeathRecoverySitsBeforeMpMaintenanceRuleAsync),
     ("stationary combat death recovery summons spiritmaster pet before maintenance and revive path", TestStationaryCombatDeathRecoverySummonsSpiritmasterPetBeforeMaintenanceAndRevivePathAsync),
@@ -12282,15 +12284,49 @@ static Task TestBagCleanupTradePricesAsync()
             EditPrice("3000");
             AssertEqual(1800L, store.Document.Stall[0].UnitPrice ?? 0, "auction price edit must preserve stall price");
             AssertEqual(3000L, store.Document.AuctionHouse[0].UnitPrice ?? 0, "auction grid edit should save independently");
+            AssertFalse(!grid.Columns["PriceLookupMethod"].Visible, "auction shows lookup column");
+            AssertEqual(1, grid.Columns["PriceLookupMethod"].DisplayIndex, "lookup sits between item and price");
+            grid.Rows[0].Cells["PriceLookupMethod"].Value = "弹窗最低价";
+            System.Windows.Forms.Application.DoEvents();
+            AssertEqual(AuctionPriceLookupMethod.DialogMinimum, store.Document.AuctionHouse[0].PriceLookupMethod, "lookup auto-save");
+            AssertEqual(AuctionPriceLookupMethod.Manual, store.Document.Stall[0].PriceLookupMethod, "stall unaffected");
+            AssertFalse(!grid.Rows[0].Cells[1].ReadOnly, "automatic lookup disables price editing");
+            AssertEqual("—", Convert.ToString(grid.Rows[0].Cells[1].FormattedValue)!, "automatic price is visually inactive");
+            grid.CurrentCell = grid.Rows[0].Cells[1];
+            AssertFalse(grid.BeginEdit(true), "automatic price cannot enter edit mode");
+            var automaticSaveCount = store.SaveCount;
+            InvokePrivateTaskForTest(form, "SaveBagCleanupTradePriceAsync", (BagCleanupTradeItemConfig)grid.Rows[0].Tag!, "invalid price");
+            AssertEqual(automaticSaveCount, store.SaveCount, "automatic mode ignores manual price saves");
+            AssertEqual(3000L, store.Document.AuctionHouse[0].UnitPrice ?? 0, "dormant manual price remains intact");
+            grid.CurrentCell = grid.Rows[0].Cells[0];
+            grid.Rows[0].Cells["PriceLookupMethod"].Value = "搜索后计算";
+            System.Windows.Forms.Application.DoEvents();
+            AssertFalse(!grid.Rows[0].Cells[1].ReadOnly, "search lookup also disables price");
+            grid.Rows[0].Cells["PriceLookupMethod"].Value = "弹窗最低价";
+            System.Windows.Forms.Application.DoEvents();
+            store.FailSaves = true;
+            grid.Rows[0].Cells["PriceLookupMethod"].Value = "手动单价";
+            System.Windows.Forms.Application.DoEvents();
+            AssertEqual("弹窗最低价", Convert.ToString(grid.Rows[0].Cells["PriceLookupMethod"].Value)!, "lookup rollback restores visible value");
+            AssertFalse(!grid.Rows[0].Cells[1].ReadOnly, "failed switch restores disabled price");
+            store.FailSaves = false;
+            grid.Rows[0].Cells["PriceLookupMethod"].Value = "手动单价";
+            System.Windows.Forms.Application.DoEvents();
+            AssertFalse(grid.Rows[0].Cells[1].ReadOnly, "manual lookup restores price editor");
+            AssertEqual("3,000", Convert.ToString(grid.Rows[0].Cells[1].Value)!, "manual lookup restores retained price");
             AssertSequence(new[] { "keep" }, store.Document.Whitelist.ToArray(), "price editing preserves whitelist");
             AssertSequence(new[] { "discard" }, store.Document.Blacklist.ToArray(), "price editing preserves blacklist");
             BeginPrice("3500");
             AssertFalse(!InvokeSaveCurrentSettingsForTest(form, out var error), "account price save: " + error);
             AssertEqual(3500L, store.Document.AuctionHouse[0].UnitPrice ?? 0, "saving account should commit active price editor");
+            grid.Rows[0].Cells["PriceLookupMethod"].Value = "弹窗最低价";
+            System.Windows.Forms.Application.DoEvents();
+            AssertFalse(!InvokeSaveCurrentSettingsForTest(form, out error), "automatic mode account save: " + error);
             using var reopened = CreateAccountSettingsFormForTestsWithStore(configStore);
             var captured = (BagCleanupNameListsDocument)InvokePrivateMethodForTest(reopened, "CaptureBagCleanupNameLists")!;
             AssertEqual(1800L, captured.Stall[0].UnitPrice ?? 0, "account reopening preserves stall price");
             AssertEqual(3500L, captured.AuctionHouse[0].UnitPrice ?? 0, "account reopening preserves auction price");
+            AssertEqual(AuctionPriceLookupMethod.DialogMinimum, captured.AuctionHouse[0].PriceLookupMethod, "account reopening preserves lookup");
 
             var preview = Environment.GetEnvironmentVariable("ROADHOG_BAG_PREVIEW_DIRECTORY");
             if (!string.IsNullOrWhiteSpace(preview))
@@ -33602,6 +33638,7 @@ static Task TestDmaSnapshotCatalogRegistersEveryBusinessChannelAsync()
 {
     var expected = new[]
     {
+        "auction_house",
         "channel",
         "channel_switch_ui",
         "channel_transition",
@@ -34985,7 +35022,7 @@ sealed class InMemoryScriptProfileStore : IScriptProfileStore
     }
 }
 
-sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi, IChannelSwitchUiGameApi, IChannelTransitionGameApi, IInventoryInteractionGameApi, IReviveUiGameApi
+sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi, IChannelSwitchUiGameApi, IChannelTransitionGameApi, IInventoryInteractionGameApi, IReviveUiGameApi, IAuctionHouseGameApi
 #if DEBUG
     , IRoadhogApiAddressProbe
     , IRoadhogSnapshotDiagnostics
@@ -35085,6 +35122,9 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
             (Player.IsDead ? new ReviveUiSnapshot(true, 209, InventoryUiCursor) : ReviveUiSnapshot.Closed)));
 
     public Func<PersonalShopSnapshot>? PersonalShopRead { get; set; }
+    public Func<AuctionHouseSnapshot>? AuctionRead { get; set; }
+    public Task<OperationResult<AuctionHouseSnapshot>> ReadAuctionHouseAsync(GameApiReadContext context, CancellationToken cancellationToken = default) =>
+        Task.FromResult(OperationResult<AuctionHouseSnapshot>.Ok(AuctionRead!()));
     public Func<InventoryInteractionSnapshot>? InventoryInteractionRead { get; set; }
     public Queue<OperationResult<InventoryInteractionSnapshot>> InventoryInteractionReadResults { get; } = new();
     public Task<OperationResult<InventoryInteractionSnapshot>> ReadInventoryInteractionAsync(GameApiReadContext context, CancellationToken cancellationToken = default) =>

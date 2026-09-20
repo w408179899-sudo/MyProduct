@@ -264,6 +264,9 @@ internal static class AionVmmSnapshotChannels
     public static readonly DmaSnapshotChannel<PersonalShopSnapshot> PersonalShop =
         ChannelRegistry.Register<PersonalShopSnapshot>("personal_shop");
 
+    public static readonly DmaSnapshotChannel<AuctionHouseSnapshot> AuctionHouse =
+        ChannelRegistry.Register<AuctionHouseSnapshot>("auction_house");
+
     public static readonly DmaSnapshotChannel<InventoryInteractionSnapshot> InventoryInteraction =
         ChannelRegistry.Register<InventoryInteractionSnapshot>("inventory_interaction");
 

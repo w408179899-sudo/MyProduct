@@ -22,6 +22,8 @@ public interface IRoadhogSnapshotReader
 
     Task<PublishedGameSnapshot<PersonalShopSnapshot>> ReadPersonalShopAsync(long afterVersion = 0);
 
+    Task<PublishedGameSnapshot<AuctionHouseSnapshot>> ReadAuctionHouseAsync(long afterVersion = 0);
+
     Task<PublishedGameSnapshot<InventoryInteractionSnapshot>> ReadInventoryInteractionAsync(long afterVersion = 0);
 
     Task<PublishedGameSnapshot<GameUiCursorSnapshot>> ReadUiCursorAsync(long afterVersion = 0);
