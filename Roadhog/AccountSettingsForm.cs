@@ -1848,29 +1848,29 @@ namespace Roadhog
             var page = CreatePagePanel();
             tab.Controls.Add(page);
 
-            AddLabel(page, "挂机路径选择:", 4, 8, 130, 22, _textGreen, FontStyle.Bold);
-            pathOverviewLabels[SharedPathKind.Revive] = AddLabel(page, "复活路径:  未选（0点）", 24, 34, 320, 22);
-            pathOverviewLabels[SharedPathKind.Combat] = AddLabel(page, "打怪路径:  未选（0点）", 24, 60, 260, 22);
-            pathOverviewLabels[SharedPathKind.Maintenance] = AddLabel(page, "清包路径:  未选（0点）", 24, 86, 260, 22);
-            pathOverviewLabels[SharedPathKind.Gather] = AddLabel(page, "采集路径:  未选（0点）", 600, 60, 240, 22);
-            AddLabel(page, "录制最小距离:", 350, 34, 104, 22, _textGreen, FontStyle.Bold);
+            AddLabel(page, "当前使用路径", 12, 4, 130, 22, _textGreen, FontStyle.Bold);
+            pathOverviewLabels[SharedPathKind.Revive] = AddLabel(page, "复活路径:  未选（0点）", 12, 28, 394, 22);
+            pathOverviewLabels[SharedPathKind.Combat] = AddLabel(page, "打怪路径:  未选（0点）", 430, 28, 394, 22);
+            pathOverviewLabels[SharedPathKind.Maintenance] = AddLabel(page, "清包路径:  未选（0点）", 12, 52, 394, 22);
+            pathOverviewLabels[SharedPathKind.Gather] = AddLabel(page, "采集路径:  未选（0点）", 430, 52, 394, 22);
+            AddLabel(page, "录制最小距离", 12, 82, 104, 22, _textGreen, FontStyle.Bold);
             pathRecordingMinimumDistanceTextBox = AddTextBox(
                 page,
                 PathScriptSettings.DefaultRecordingMinimumDistance.ToString("0.###", CultureInfo.InvariantCulture),
-                458,
-                30,
+                124,
+                78,
                 80,
                 28);
-            AddLabel(page, "米", 544, 34, 28, 22);
-            AddLabel(page, "转向重置坐标:", 310, 86, 104, 22, _textGreen, FontStyle.Bold);
+            AddLabel(page, "米", 212, 82, 28, 22);
+            AddLabel(page, "转向重置坐标", 430, 82, 104, 22, _textGreen, FontStyle.Bold);
             deathReviveClickPointTextBox = AddTextBox(
                 page,
                 FormatScreenPoint(PathScriptSettings.DefaultDeathReviveClickX, PathScriptSettings.DefaultDeathReviveClickY),
-                420,
-                82,
+                540,
+                78,
                 150,
                 28);
-            deathReviveTestMoveButton = AddButton(page, "测试移动", 586, 82, 96, 28, TestDeathReviveMoveButton_Click);
+            deathReviveTestMoveButton = AddButton(page, "测试移动", 702, 78, 110, 28, TestDeathReviveMoveButton_Click);
 
             var pathTabs = new TabControl
             {
@@ -1890,6 +1890,10 @@ namespace Roadhog
             pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Maintenance, "清包路径", "清包路径", false));
             pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Gather, "采集路径", "采集路线点配置", false));
             page.Controls.Add(pathTabs);
+            page.AutoScroll = true;
+            page.AutoScrollMinSize = new Size(836, 520);
+            page.SizeChanged += (_, _) => pathTabs.Size = new Size(Math.Max(836, page.ClientSize.Width), Math.Max(400, page.ClientSize.Height - pathTabs.Top));
+            foreach (var label in pathOverviewLabels.Values) label.AutoEllipsis = true;
 
             return tab;
         }
@@ -1906,11 +1910,14 @@ namespace Roadhog
             var page = CreatePagePanel();
             tab.Controls.Add(page);
 
+            page.AutoScroll = true;
+            page.AutoScrollMinSize = new Size(824, kind == SharedPathKind.Maintenance ? 488 : 430);
+            var contentOffset = kind == SharedPathKind.Maintenance ? 72 : 0;
             var editor = new PathEditorControls(kind);
             pathEditors[kind] = editor;
 
-            AddLabel(page, caption, 4, 8, 220, 22, _textGreen, FontStyle.Bold);
-            var pathNameTextBox = AddTextBox(page, includeSamplePoint ? "穆尔海姆00133" : string.Empty, 4, 38, 242, 28);
+            AddLabel(page, caption, 12, 6, 330, 22, _textGreen, FontStyle.Bold);
+            var pathNameTextBox = AddTextBox(page, includeSamplePoint ? "穆尔海姆00133" : string.Empty, 80, 38, 270, 28);
             editor.PathNameTextBox = pathNameTextBox;
             if (kind == SharedPathKind.Revive)
             {
@@ -1929,17 +1936,17 @@ namespace Roadhog
                 gatherPathNameTextBox = pathNameTextBox;
             }
 
-            AddLabel(page, "路径名", 252, 42, 54, 22);
-            editor.SavedPathCombo = AddCombo(page, 306, 38, 254, 28);
+            AddLabel(page, "路径名称", 12, 42, 64, 22);
+            editor.SavedPathCombo = AddCombo(page, 452, 38, 360, 28);
             editor.SavedPathCombo.SelectedIndexChanged += (_, _) => LoadSelectedPath(editor);
-            AddLabel(page, "已保存路径", 566, 42, 76, 22);
+            AddLabel(page, "已存路径", 376, 42, 72, 22);
 
-            AddButton(page, "保存到列表", 6, 74, 100, 30, (_, _) => SavePath(editor));
-            AddButton(page, "删除保存", 114, 74, 92, 30, (_, _) => DeleteSavedPath(editor));
+            AddButton(page, "保存到列表", 12, 74, 100, 30, (_, _) => SavePath(editor));
+            AddButton(page, "删除保存", 120, 74, 92, 30, (_, _) => DeleteSavedPath(editor));
             var openPathFolderButton = AddButton(
                 page,
                 "打开路径文件夹",
-                kind == SharedPathKind.Maintenance ? 660 : 214,
+                220,
                 74,
                 128,
                 30,
@@ -1947,30 +1954,32 @@ namespace Roadhog
             openPathFolderButton.Name = "openPathLibraryFolderButton";
             if (kind is SharedPathKind.Combat or SharedPathKind.Revive)
             {
-                editor.BindStationaryRadiusCheckBox = AddCheckBox(page, "绑定原地打半径", 366, 76, 150, false);
+                editor.BindStationaryRadiusCheckBox = AddCheckBox(page, "绑定原地打半径", 452, 76, 150, false);
                 editor.BindStationaryRadiusCheckBox.Name = kind == SharedPathKind.Revive
                     ? "bindRevivePathStationaryRadiusCheckBox" : "bindPathStationaryRadiusCheckBox";
-                editor.StationaryRadiusTextBox = AddTextBox(page, "30.0", 520, 74, 76, 28);
+                editor.StationaryRadiusTextBox = AddTextBox(page, "30.0", 608, 74, 76, 28);
                 editor.StationaryRadiusTextBox.Name = kind == SharedPathKind.Revive
                     ? "revivePathBoundStationaryRadiusTextBox" : "pathBoundStationaryRadiusTextBox";
                 editor.StationaryRadiusTextBox.Enabled = false;
                 editor.BindStationaryRadiusCheckBox.Click += (_, _) =>
                     editor.StationaryRadiusTextBox.Enabled = editor.BindStationaryRadiusCheckBox.Checked;
-                AddLabel(page, "米", 602, 78, 24, 22);
-                AddLabel(page, "同时绑定时优先使用复活路径", 366, 8, 300, 22);
+                AddLabel(page, "米", 692, 78, 24, 22);
+                AddLabel(page, "半径同时绑定时，优先使用复活路径", 452, 6, 360, 22);
             }
 
             if (kind == SharedPathKind.Maintenance)
             {
+                var maintenanceOptions = new Panel { Location = new Point(12, 110), Size = new Size(800, 68), BackColor = _softGreen };
+                page.Controls.Add(maintenanceOptions);
                 bagCleanupReturnByReversePathCheckBox = AddCheckBox(
-                    page,
+                    maintenanceOptions,
                     "清完包原路返回复活点",
-                    230,
-                    6,
+                    8,
+                    2,
                     194,
                     true);
-                AddLabel(page, "清包返程按键", 430, 10, 96, 22, _textGreen, FontStyle.Bold);
-                bagCleanupTownReturnKeyButton = AddButton(page, "选择按键", 528, 6, 106, 30);
+                AddLabel(maintenanceOptions, "清包返程按键", 230, 4, 96, 22, _textGreen, FontStyle.Bold);
+                bagCleanupTownReturnKeyButton = AddButton(maintenanceOptions, "选择按键", 330, 2, 106, 28);
                 bagCleanupTownReturnKeyButton.Click += (_, _) =>
                 {
                     var selectedKey = ShowKeyboardPicker(bagCleanupTownReturnKeyButton.Tag as string);
@@ -1980,8 +1989,8 @@ namespace Roadhog
                     }
                 };
 
-                AddLabel(page, "回程按键", 648, 42, 70, 22, _textGreen, FontStyle.Bold);
-                townReturnKeyButton = AddButton(page, "选择按键", 718, 38, 104, 30);
+                AddLabel(maintenanceOptions, "回程按键", 490, 4, 70, 22, _textGreen, FontStyle.Bold);
+                townReturnKeyButton = AddButton(maintenanceOptions, "选择按键", 566, 2, 104, 28);
                 townReturnKeyButton.Click += (_, _) =>
                 {
                     var selectedKey = ShowKeyboardPicker(townReturnKeyButton.Tag as string);
@@ -1991,37 +2000,37 @@ namespace Roadhog
                     }
                 };
 
-                AddLabel(page, "清包NPC", 222, 78, 72, 24, _textGreen, FontStyle.Bold);
-                editor.CleanupNpcRefreshButton = AddButton(page, "刷新附近NPC", 300, 74, 104, 30);
+                AddLabel(maintenanceOptions, "清包NPC", 8, 38, 72, 24, _textGreen, FontStyle.Bold);
+                editor.CleanupNpcRefreshButton = AddButton(maintenanceOptions, "刷新附近NPC", 330, 36, 106, 28);
                 editor.CleanupNpcRefreshButton.Click += async (_, _) =>
                     await RefreshCleanupNpcsAsync(editor).ConfigureAwait(true);
-                editor.CleanupNpcCombo = AddCombo(page, 414, 74, 238, 28);
+                editor.CleanupNpcCombo = AddCombo(maintenanceOptions, 82, 36, 238, 28);
 
-                AddBagCleanupPathClickPointControls(page, 596, 184);
+                AddBagCleanupPathClickPointControls(page, 584, 184 + contentOffset);
             }
 
-            editor.SummaryLabel = AddLabel(page, "点数  0  |  总距  0.0  |  跳过  0", 6, 112, 300, 24, _textGreen, FontStyle.Bold);
-            editor.StatusLabel = AddLabel(page, "等待读取坐标", 316, 112, 420, 24);
+            editor.SummaryLabel = AddLabel(page, "点数  0  |  总距  0.0  |  跳过  0", 12, 112 + contentOffset, 300, 24, _textGreen, FontStyle.Bold);
+            editor.StatusLabel = AddLabel(page, "等待读取坐标", 350, 112 + contentOffset, 462, 24);
 
-            editor.ManualButton = AddButton(page, "添加当前位置", 6, 144, 92, 30, (_, _) => AddManualPathPoint(editor));
+            editor.ManualButton = AddButton(page, "添加当前位置", 12, 144 + contentOffset, 98, 30, (_, _) => AddManualPathPoint(editor));
             if (kind != SharedPathKind.Gather)
             {
-                editor.StartButton = AddButton(page, "开始录制", 106, 144, 92, 30, (_, _) => StartPathRecording(editor));
-                editor.StopButton = AddButton(page, "停止录制", 206, 144, 92, 30, (_, _) => StopPathRecording(editor));
+                editor.StartButton = AddButton(page, "开始录制", 118, 144 + contentOffset, 98, 30, (_, _) => StartPathRecording(editor));
+                editor.StopButton = AddButton(page, "停止录制", 224, 144 + contentOffset, 98, 30, (_, _) => StopPathRecording(editor));
             }
 
-            var deleteLastPointX = kind == SharedPathKind.Gather ? 106 : 306;
-            var clearPointsX = kind == SharedPathKind.Gather ? 196 : 396;
-            var copyPathX = kind == SharedPathKind.Gather ? 266 : 466;
-            var executePathX = kind == SharedPathKind.Gather ? 362 : 564;
-            AddButton(page, "删除末点", deleteLastPointX, 144, 82, 30, (_, _) => RemoveLastPathPoint(editor));
-            AddButton(page, "清空", clearPointsX, 144, 62, 30, (_, _) => ClearPathPoints(editor));
-            AddButton(page, "复制路径", copyPathX, 144, 88, 30, (_, _) => CopyPath(editor));
+            var deleteLastPointX = kind == SharedPathKind.Gather ? 118 : 338;
+            var clearPointsX = kind == SharedPathKind.Gather ? 216 : 436;
+            var copyPathX = kind == SharedPathKind.Gather ? 294 : 514;
+            var executePathX = kind == SharedPathKind.Gather ? 398 : 720;
+            AddButton(page, "删除末点", deleteLastPointX, 144 + contentOffset, 82, 30, (_, _) => RemoveLastPathPoint(editor));
+            AddButton(page, "清空", clearPointsX, 144 + contentOffset, 62, 30, (_, _) => ClearPathPoints(editor));
+            AddButton(page, "复制路径", copyPathX, 144 + contentOffset, 88, 30, (_, _) => CopyPath(editor));
             editor.ExecutePathButton = AddButton(
                 page,
                 kind == SharedPathKind.Gather ? "执行采集" : "执行路径",
                 executePathX,
-                144,
+                144 + contentOffset,
                 92,
                 30);
             if (kind == SharedPathKind.Gather)
@@ -2046,11 +2055,11 @@ namespace Roadhog
                     CornerRadius = 9,
                     Font = new Font("Consolas", 10F, FontStyle.Bold),
                     ForeColor = _textGreen,
-                    Location = new Point(6, 184),
+                    Location = new Point(12, 184 + contentOffset),
                     Multiline = true,
                     ReadOnly = true,
                     ScrollBars = ScrollBars.Vertical,
-                    Size = new Size(562, 106),
+                    Size = new Size(kind == SharedPathKind.Maintenance ? 548 : 800, kind == SharedPathKind.Maintenance ? 106 : 130),
                     Text = string.Empty
                 };
                 editor.PointsTextBox = pointsBox;
@@ -2060,10 +2069,11 @@ namespace Roadhog
             var pathAdvanced = CreateFoldout(
                 page,
                 "高级路径设置",
-                kind == SharedPathKind.Gather ? 342 : 302,
-                850,
+                kind == SharedPathKind.Gather ? 350 : kind == SharedPathKind.Maintenance ? 302 + contentOffset : 326,
+                824,
                 true);
-            pathAdvanced.Content.Height = 68;
+            pathAdvanced.Content.Height = kind == SharedPathKind.Revive ? 68 : 40;
+            editor.StatusLabel.AutoEllipsis = true;
             var loopCheckBox = AddCheckBox(pathAdvanced.Content, "循环路径", 6, 12, 92, true);
             var reverseCheckBox = AddCheckBox(pathAdvanced.Content, "到终点反向", 102, 12, 106, false);
             var deathStopCheckBox = AddCheckBox(pathAdvanced.Content, "死亡停止路径", 206, 12, 130, true);
