@@ -135,7 +135,9 @@ namespace Roadhog
         private Label? dpMaintenanceEmptyLabel;
         private RoundedTextBox? bagCleanupThresholdTextBox;
         private RoundedCheckBox? bagCleanupEnabledCheckBox;
-        private RoundedTextBox? bagCleanupDiscardConfirmPointTextBox;
+        private (int X, int Y) _bagCleanupDiscardConfirmPoint = (
+            MaintenanceScriptSettings.DefaultBagCleanupDiscardConfirmClickX,
+            MaintenanceScriptSettings.DefaultBagCleanupDiscardConfirmClickY);
         private RoundedTextBox? bagCleanupSellItemClickPointTextBox;
         private RoundedTextBox? bagCleanupSellButtonClickPointTextBox;
         private BagCleanupItemCoordinateMode _bagCleanupItemCoordinateMode;
@@ -507,11 +509,9 @@ namespace Roadhog
             PopulateDpMaintenanceRules(dpMaintenanceRuleList, dpMaintenanceEmptyLabel, settings.Maintenance.DpMaintenanceRules);
             SetChecked(bagCleanupEnabledCheckBox, settings.Maintenance.BagCleanupEnabled);
             SetText(bagCleanupThresholdTextBox, settings.Maintenance.BagCleanupThreshold.ToString());
-            SetText(
-                bagCleanupDiscardConfirmPointTextBox,
-                FormatScreenPoint(
-                    settings.Maintenance.BagCleanupDiscardConfirmClickX,
-                    settings.Maintenance.BagCleanupDiscardConfirmClickY));
+            _bagCleanupDiscardConfirmPoint = (
+                settings.Maintenance.BagCleanupDiscardConfirmClickX,
+                settings.Maintenance.BagCleanupDiscardConfirmClickY);
             SetText(
                 bagCleanupSellItemClickPointTextBox,
                 FormatScreenPoint(settings.Maintenance.BagCleanupSellItemClickX, settings.Maintenance.BagCleanupSellItemClickY));
@@ -827,10 +827,6 @@ namespace Roadhog
                 PathScriptSettings.DefaultDeathReviveClickY);
             var bagCleanupSellItemClickPoint = ReadScreenPoint(bagCleanupSellItemClickPointTextBox, 0, 0);
             var bagCleanupSellButtonClickPoint = ReadScreenPoint(bagCleanupSellButtonClickPointTextBox, 0, 0);
-            var bagCleanupDiscardConfirmPoint = ReadScreenPoint(
-                bagCleanupDiscardConfirmPointTextBox,
-                MaintenanceScriptSettings.DefaultBagCleanupDiscardConfirmClickX,
-                MaintenanceScriptSettings.DefaultBagCleanupDiscardConfirmClickY);
 
             var settings = new ScriptSettings
             {
@@ -914,8 +910,8 @@ namespace Roadhog
                     BagCleanupSellItemClickY = bagCleanupSellItemClickPoint.Y,
                     BagCleanupSellButtonClickX = bagCleanupSellButtonClickPoint.X,
                     BagCleanupSellButtonClickY = bagCleanupSellButtonClickPoint.Y,
-                    BagCleanupDiscardConfirmClickX = bagCleanupDiscardConfirmPoint.X,
-                    BagCleanupDiscardConfirmClickY = bagCleanupDiscardConfirmPoint.Y,
+                    BagCleanupDiscardConfirmClickX = _bagCleanupDiscardConfirmPoint.X,
+                    BagCleanupDiscardConfirmClickY = _bagCleanupDiscardConfirmPoint.Y,
                     BagCleanupItemCoordinateMode = _bagCleanupItemCoordinateMode,
                     BagCleanupRules = CaptureBagCleanupRules(),
                     BagCleanupExcludedItemNames = CaptureBagCleanupExcludedItemList(),
@@ -3412,26 +3408,6 @@ namespace Roadhog
             bagCleanupEnabledCheckBox.BackColor = optionsPanel.BackColor;
             AddLabel(optionsPanel, "剩余格低于", 148, 20, 92, 26, _textGreen, FontStyle.Bold);
             bagCleanupThresholdTextBox = AddTextBox(optionsPanel, "5", 244, 18, 72, 28);
-            AddLabel(optionsPanel, "丢弃确认", 400, 20, 80, 24, _textGreen, FontStyle.Bold);
-            bagCleanupDiscardConfirmPointTextBox = AddTextBox(
-                optionsPanel,
-                FormatScreenPoint(
-                    MaintenanceScriptSettings.DefaultBagCleanupDiscardConfirmClickX,
-                    MaintenanceScriptSettings.DefaultBagCleanupDiscardConfirmClickY),
-                484,
-                18,
-                116,
-                28);
-            bagCleanupDiscardConfirmPointTextBox.Name = "bagCleanupDiscardConfirmPointTextBox";
-            var testDiscardConfirmMoveButton = AddButton(optionsPanel, "测试移动", 620, 17, 112, 30);
-            testDiscardConfirmMoveButton.Name = "bagCleanupDiscardConfirmTestMoveButton";
-            testDiscardConfirmMoveButton.Click += async (_, _) =>
-                await TestScreenPointMoveAsync(
-                    bagCleanupDiscardConfirmPointTextBox,
-                    testDiscardConfirmMoveButton,
-                    MaintenanceScriptSettings.DefaultBagCleanupDiscardConfirmClickX,
-                    MaintenanceScriptSettings.DefaultBagCleanupDiscardConfirmClickY,
-                    "丢弃确认").ConfigureAwait(true);
 
             const int leftOptionX = 8;
             const int leftComboX = 130;

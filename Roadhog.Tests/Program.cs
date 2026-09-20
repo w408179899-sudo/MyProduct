@@ -457,7 +457,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("services load kmbox net config before input creation", TestRoadhogServicesLoadsKmBoxNetConfigAsync),
     ("account config stores shared path names only", TestAccountConfigStoresSharedPathNamesOnlyAsync),
     ("account config persists bag cleanup rules", TestAccountConfigPersistsBagCleanupRulesAsync),
-    ("bag cleanup discard confirm point loads and saves from ui", TestBagCleanupDiscardConfirmPointUiAsync),
+    ("bag cleanup removes obsolete discard coordinates and preserves saved values", TestBagCleanupDiscardConfirmPointUiAsync),
     ("maintenance foldouts show all rows and preserve settings", TestMaintenanceFoldoutsAsync),
     ("bag cleanup name-list ui auto saves both lists and rolls back failures", TestBagCleanupNameListUiAutoSavesAndRollsBackAsync),
     ("bag cleanup name-list stall and auction configuration stays independent and persists", TestBagCleanupTradingNameListsAsync),
@@ -12159,23 +12159,10 @@ static Task TestBagCleanupDiscardConfirmPointUiAsync()
     form.Show();
     System.Windows.Forms.Application.DoEvents();
 
-    AssertEqual(
-        "555,666",
-        GetTextBoxTextForTest(form, "bagCleanupDiscardConfirmPointTextBox"),
-        "configured discard confirm point should load into cleanup ui");
-    var moveButton = FindNamedControlForTest(form, "bagCleanupDiscardConfirmTestMoveButton");
-    AssertEqual("测试移动", moveButton.Text, "discard confirm point should expose a move-only test button");
-    AssertFalse(!moveButton.Visible, "discard confirm move test button should be visible on cleanup tab");
-
-    System.Windows.Forms.Control? ancestor = moveButton.Parent;
-    while (ancestor is not null && ancestor is not System.Windows.Forms.TabPage)
-    {
-        ancestor = ancestor.Parent;
-    }
-
-    AssertEqual("清包", ancestor?.Text ?? string.Empty, "discard confirm controls should belong to cleanup tab");
-
-    SetTextBoxTextForTest(form, "bagCleanupDiscardConfirmPointTextBox", "777,888");
+    AssertEqual(0, form.Controls.Find("bagCleanupDiscardConfirmPointTextBox", true).Length, "obsolete coordinate input must be removed");
+    AssertEqual(0, form.Controls.Find("bagCleanupDiscardConfirmTestMoveButton", true).Length, "obsolete move button must be removed");
+    AssertEqual(1, form.Controls.Find("testPersonalShopButton", true).Length, "shop test button remains");
+    AssertEqual(1, form.Controls.Find("testInventoryDiscardButton", true).Length, "discard test button remains");
     var saved = InvokeSaveCurrentSettingsForTest(form, out var error);
     AssertFalse(!saved, "discard confirm point ui save failed: " + error);
 
@@ -12187,8 +12174,8 @@ static Task TestBagCleanupDiscardConfirmPointUiAsync()
         .Single()
         .ScriptSettings?
         .Maintenance;
-    AssertEqual(777, persisted?.BagCleanupDiscardConfirmClickX ?? 0, "saved discard confirm click x");
-    AssertEqual(888, persisted?.BagCleanupDiscardConfirmClickY ?? 0, "saved discard confirm click y");
+    AssertEqual(555, persisted?.BagCleanupDiscardConfirmClickX ?? 0, "saving other settings must preserve legacy x");
+    AssertEqual(666, persisted?.BagCleanupDiscardConfirmClickY ?? 0, "saving other settings must preserve legacy y");
     return Task.CompletedTask;
 }
 
