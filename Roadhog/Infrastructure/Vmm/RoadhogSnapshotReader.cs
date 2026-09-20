@@ -146,6 +146,11 @@ internal sealed class RoadhogSnapshotReader : IRoadhogSnapshotReader
             () => _gameApi is IInventoryInteractionGameApi api ? api.ReadUiCursorAsync(_readContext, _stopToken)
                 : Missing<GameUiCursorSnapshot>("Personal shop cursor channel is unavailable."), afterVersion);
 
+    public Task<PublishedGameSnapshot<ReviveUiSnapshot>> ReadReviveUiAsync(long afterVersion = 0) =>
+        ReadUntilPublishedAsync("revive_ui",
+            () => _gameApi is IReviveUiGameApi api ? api.ReadReviveUiAsync(_readContext, _stopToken)
+                : Missing<ReviveUiSnapshot>("Revive UI channel is unavailable."), afterVersion);
+
     public Task<PublishedGameSnapshot<ChannelTransitionSnapshot>> ReadChannelTransitionAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync(
             "channel_transition",

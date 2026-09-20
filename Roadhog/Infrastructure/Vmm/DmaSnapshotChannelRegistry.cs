@@ -270,6 +270,9 @@ internal static class AionVmmSnapshotChannels
     public static readonly DmaSnapshotChannel<GameUiCursorSnapshot> UiCursor =
         ChannelRegistry.Register<GameUiCursorSnapshot>("ui_cursor");
 
+    public static readonly DmaSnapshotChannel<ReviveUiSnapshot> ReviveUi =
+        ChannelRegistry.Register<ReviveUiSnapshot>("revive_ui");
+
     public static readonly DmaSnapshotChannel<ChannelTransitionSnapshot> ChannelTransition =
         ChannelRegistry.Register<ChannelTransitionSnapshot>("channel_transition");
 

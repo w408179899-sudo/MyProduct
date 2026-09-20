@@ -515,6 +515,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat startup recovery skips revive path when home is nearest", TestStationaryCombatStartupRecoverySkipsWhenHomeNearestAsync),
     ("stationary combat startup recovery defends when targeted", TestStationaryCombatStartupRecoveryDefendsWhenTargetedAsync),
     ("stationary combat startup recovery path clears nearby aggressive monsters", TestStationaryCombatStartupRecoveryPathClearsNearbyAggressiveMonstersAsync),
+    ("revive UI geometry and traversal guards", ReviveConfirmationTests.GeometryAsync),
+    ("revive UI click rechecks and cancellation", ReviveConfirmationTests.ActionsAsync),
+    ("revive UI provider publication and isolation", ReviveConfirmationTests.PublicationAsync),
     ("stationary combat death recovery clicks revive and recovers before path", TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBeforePathAsync),
     ("stationary combat death recovery sits before mp maintenance rule", TestStationaryCombatDeathRecoverySitsBeforeMpMaintenanceRuleAsync),
     ("stationary combat death recovery summons spiritmaster pet before maintenance and revive path", TestStationaryCombatDeathRecoverySummonsSpiritmasterPetBeforeMaintenanceAndRevivePathAsync),
@@ -16635,6 +16638,9 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
             WorldObjects = Array.Empty<WorldObjectSnapshot>(),
             Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
         };
+        GameUiPoint? revivePoint = new(617, 411);
+        gameApi.ReviveUiRead = () => new(true, 209, revivePoint);
+        WireDiscardCursorFeedback(keyboard, gameApi);
         var semiAuto = new SemiAutoCombatController(keyboard);
         var controller = new StationaryCombatController(keyboard, semiAuto, pathStore);
         var stationaryState = new StationaryCombatState
@@ -16649,62 +16655,27 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
         await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
 
         AssertEqual(StationaryCombatTopLevelState.DeathRecovery, stationaryState.TopLevelState, "dead player should enter death recovery");
-        AssertSequence(
-            new[] { "up:Right", "move:-2000,-2000", "move:-2000,-2000", "move:612,345", "down:Left", "up:Left" },
-            keyboard.MouseCommands.ToArray(),
-            "death recovery should release right mouse before absolute-clicking configured revive button");
-        AssertSequence(new[] { "W" }, keyboard.KeyUps.ToArray(), "death recovery should release W before revive click");
-        AssertFalse(stationaryState.IsRightMouseDown, "death recovery should keep right mouse released while dead");
-        AssertFalse(keyboard.Keys.Contains("Tab"), "death recovery must not enter target acquisition");
-        AssertFalse(keyboard.Keys.Any(key => key.StartsWith("D", StringComparison.OrdinalIgnoreCase)), "death recovery must not release combat skills");
-
+        AssertEqual(new GameUiPoint(617, 411), gameApi.InventoryUiCursor, "first click uses dynamic button, not saved point");
+        AssertEqual("up:Right", keyboard.MouseCommands.First(), "release right before UI movement");
+        AssertFalse(keyboard.MouseCommands.Any(c => c == "move:-2000,-2000" || c == "move:612,345"), "no fixed-coordinate reset");
+        AssertSequence(new[] { "W" }, keyboard.KeyUps.ToArray(), "stop path movement first");
+        AssertFalse(stationaryState.IsRightMouseDown, "keep right mouse released");
+        AssertEqual(1, stationaryState.DeathRecovery.ReviveClickCount, "first click");
+        revivePoint = null;
         await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
-        AssertSequence(
-            new[]
-            {
-                "move:-2000,-2000",
-                "move:-2000,-2000",
-                "move:612,345",
-                "down:Left",
-                "up:Left"
-            },
-            keyboard.MouseCommands.Skip(6).Take(5).ToArray(),
-            "death recovery should retry configured revive click when player is still dead after retry delay");
-        AssertEqual(2, stationaryState.DeathRecovery.ReviveClickCount, "death recovery should record retry revive click count");
-
+        AssertEqual(1, stationaryState.DeathRecovery.ReviveClickCount, "missing button does not count a retry");
+        revivePoint = new(700, 450);
         await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
-        AssertSequence(
-            new[]
-            {
-                "move:-2000,-2000",
-                "move:-2000,-2000",
-                "move:612,345",
-                "down:Left",
-                "up:Left"
-            },
-            keyboard.MouseCommands.Skip(11).Take(5).ToArray(),
-            "death recovery should keep using configured revive click when player is still dead after second retry");
-        AssertEqual(3, stationaryState.DeathRecovery.ReviveClickCount, "death recovery should record third revive click count");
-
-        await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
-        AssertSequence(
-            new[]
-            {
-                "move:-2000,-2000",
-                "move:-2000,-2000",
-                "move:612,345",
-                "down:Left",
-                "up:Left"
-            },
-            keyboard.MouseCommands.Skip(16).Take(5).ToArray(),
-            "death recovery should keep using configured revive click on later retries");
-        AssertEqual(4, stationaryState.DeathRecovery.ReviveClickCount, "death recovery should record rotated revive click count");
+        AssertEqual(new GameUiPoint(700, 450), gameApi.InventoryUiCursor, "retry follows moved dialog");
+        AssertEqual(2, stationaryState.DeathRecovery.ReviveClickCount, "retry clicked");
+        AssertEqual(2, keyboard.MouseCommands.Count(c => c == "down:Left"), "exactly two confirmations");
+        var beforeScroll = keyboard.MouseCommands.Count;
 
         gameApi.Player = gameApi.Player with { CurrentHp = 10 };
         await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
         AssertSequence(
             Enumerable.Repeat("wheel:-1", 30).ToArray(),
-            keyboard.MouseCommands.Skip(21).Take(30).ToArray(),
+            keyboard.MouseCommands.Skip(beforeScroll).Take(30).ToArray(),
             "revived player should scroll wheel down thirty times before maintenance");
         AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "revived low hp should sit for recovery");
         AssertFalse(!semiAutoState.IsMaintenanceResting, "revive recovery should track resting state");
@@ -19551,9 +19522,10 @@ static async Task TestWorkerLifeGuardRevivesBeforeSemiAutoAsync()
         await IgnoreCancellationAsync(runTask).ConfigureAwait(false);
 
         AssertSequence(
-            new[] { "move:-2000,-2000", "move:-2000,-2000", "move:701,402", "down:Left", "up:Left" },
-            keyboard.MouseCommands.Skip(10).Take(5).ToArray(),
-            "semi-auto death guard should absolute-click configured revive button");
+            new[] { "down:Left", "up:Left" },
+            keyboard.MouseCommands.Skip(10).Take(2).ToArray(),
+            "semi-auto death guard should click the current UI button already under the cursor");
+        AssertFalse(keyboard.MouseCommands.Contains("move:701,402"), "semi-auto revive ignores configured fixed coordinates");
         AssertFalse(keyboard.Keys.Any(key => key.StartsWith("D", StringComparison.OrdinalIgnoreCase)), "semi-auto combat keys must not run while dead");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "player_life.death.detected"), "worker life guard should log death detection");
     }
@@ -33647,6 +33619,7 @@ static Task TestDmaSnapshotCatalogRegistersEveryBusinessChannelAsync()
         "personal_shop",
         "player",
         "player_abnormal_statuses",
+        "revive_ui",
         "skills",
         "summoned_pet",
         "summoned_pet_roster",
@@ -35012,7 +34985,7 @@ sealed class InMemoryScriptProfileStore : IScriptProfileStore
     }
 }
 
-sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi, IChannelSwitchUiGameApi, IChannelTransitionGameApi, IInventoryInteractionGameApi
+sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi, IChannelSwitchUiGameApi, IChannelTransitionGameApi, IInventoryInteractionGameApi, IReviveUiGameApi
 #if DEBUG
     , IRoadhogApiAddressProbe
     , IRoadhogSnapshotDiagnostics
@@ -35104,6 +35077,12 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
             ? await TransitionReadAsync(cancellationToken)
             : TransitionRead?.Invoke() ?? new(true, Player, Channel, DateTimeOffset.UtcNow));
     }
+
+    public Func<ReviveUiSnapshot>? ReviveUiRead { get; set; }
+    public Queue<OperationResult<ReviveUiSnapshot>> ReviveUiReadResults { get; } = new();
+    public Task<OperationResult<ReviveUiSnapshot>> ReadReviveUiAsync(GameApiReadContext context, CancellationToken cancellationToken = default) =>
+        Task.FromResult(ReviveUiReadResults.Count > 0 ? ReviveUiReadResults.Dequeue() : OperationResult<ReviveUiSnapshot>.Ok(ReviveUiRead?.Invoke() ??
+            (Player.IsDead ? new ReviveUiSnapshot(true, 209, InventoryUiCursor) : ReviveUiSnapshot.Closed)));
 
     public Func<PersonalShopSnapshot>? PersonalShopRead { get; set; }
     public Func<InventoryInteractionSnapshot>? InventoryInteractionRead { get; set; }

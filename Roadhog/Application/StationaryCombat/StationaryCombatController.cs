@@ -19,7 +19,6 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
     private static readonly TimeSpan TabInterval = TimeSpan.FromMilliseconds(180);
     private static readonly TimeSpan MoveTickDelay = TimeSpan.FromMilliseconds(80);
     private static readonly TimeSpan IdleDelay = TimeSpan.FromMilliseconds(200);
-    private static readonly TimeSpan DeathRevivePreClickPause = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan TargetTimeout = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan NoTargetRestKeyRetryInterval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan PostLootNoTargetActionDelay = TimeSpan.FromMilliseconds(500);
@@ -55,10 +54,6 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
     private const double DefaultSmartPreAimSwitchDistanceMargin = 2.0D;
     private const int DefaultReviveClickX = PathScriptSettings.DefaultDeathReviveClickX;
     private const int DefaultReviveClickY = PathScriptSettings.DefaultDeathReviveClickY;
-    private const int DefaultReviveFallbackClickX = 550;
-    private const int DefaultReviveFallbackClickY = 375;
-    private const int DefaultReviveThirdClickX = 690;
-    private const int DefaultReviveThirdClickY = 468;
     private const int DefaultPostReviveScrollCount = 30;
     private const int DefaultPostReviveScrollDelta = -1;
     private const int DefaultPostCombatMaintenanceRoundLimit = 8;
@@ -1477,29 +1472,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             return StationaryCombatBehaviorStatus.Success;
         }
 
-        var (x, y) = ReadDeathReviveClickPoint(context, state.DeathRecovery.ReviveClickCount);
-        var result = await ClickAbsoluteScreenPointAsync(context, state, x, y).ConfigureAwait(false);
-        if (!result.Success)
-        {
-            context.Logger.Warn("stationary_combat.death_recovery.revive_click_failed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["x"] = x,
-                ["y"] = y,
-                ["error"] = result.Error
-            });
-            return StationaryCombatBehaviorStatus.Running;
-        }
-
-        state.DeathRecovery.MarkReviveClicked(DateTimeOffset.Now);
-        context.Logger.Info("stationary_combat.death_recovery.revive_clicked", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["x"] = x,
-            ["y"] = y,
-            ["clickCount"] = state.DeathRecovery.ReviveClickCount
-        });
-        return StationaryCombatBehaviorStatus.Running;
+        return await ClickReviveButtonAsync(context, state, player, retry: false).ConfigureAwait(false);
     }
 
     private async Task<StationaryCombatBehaviorStatus> TickDeathWaitAliveNodeAsync(
@@ -1538,34 +1511,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             return StationaryCombatBehaviorStatus.Running;
         }
 
-        var (x, y) = ReadDeathReviveClickPoint(context, state.DeathRecovery.ReviveClickCount);
-        var result = await ClickAbsoluteScreenPointAsync(context, state, x, y).ConfigureAwait(false);
-        if (!result.Success)
-        {
-            context.Logger.Warn("stationary_combat.death_recovery.revive_retry_click_failed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["x"] = x,
-                ["y"] = y,
-                ["fallback"] = true,
-                ["clickCount"] = state.DeathRecovery.ReviveClickCount,
-                ["retryWaitMs"] = (long)retryDelay.TotalMilliseconds,
-                ["error"] = result.Error
-            });
-            return StationaryCombatBehaviorStatus.Running;
-        }
-
-        state.DeathRecovery.MarkReviveClicked(DateTimeOffset.Now);
-        context.Logger.Info("stationary_combat.death_recovery.revive_retry_clicked", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["x"] = x,
-            ["y"] = y,
-            ["fallback"] = true,
-            ["clickCount"] = state.DeathRecovery.ReviveClickCount,
-            ["retryWaitMs"] = (long)retryDelay.TotalMilliseconds
-        });
-        return StationaryCombatBehaviorStatus.Running;
+        return await ClickReviveButtonAsync(context, state, player, retry: true).ConfigureAwait(false);
     }
 
     private async Task<StationaryCombatBehaviorStatus> TickDeathPostReviveScrollNodeAsync(
@@ -2302,31 +2248,41 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         return true;
     }
 
-    private async Task<OperationResult> ClickAbsoluteScreenPointAsync(
+    private async Task<StationaryCombatBehaviorStatus> ClickReviveButtonAsync(
         AccountWorkerContext context,
         StationaryCombatState state,
-        int x,
-        int y)
+        PlayerSnapshot player,
+        bool retry)
     {
         await StopMovementAsync(context, state, releaseRightMouse: true).ConfigureAwait(false);
-        var move = await MoveMouseToAbsoluteScreenPointAsync(context, x, y).ConfigureAwait(false);
-        if (!move.Success)
+        try
         {
-            return move;
+            var point = await new ReviveConfirmation(_input, context.Snapshots)
+                .TryClickAsync(player, ReadDeathReviveClickHoldMs(), context.StopToken).ConfigureAwait(false);
+            if (point is null)
+            {
+                LogActionThrottled(context, state, "stationary_combat.death_recovery.wait_button", "wait_button",
+                    new Dictionary<string, object?> { ["account"] = context.Config.AccountName }, TimeSpan.FromSeconds(2));
+                return StationaryCombatBehaviorStatus.Running;
+            }
+            state.DeathRecovery.MarkReviveClicked(DateTimeOffset.Now);
+            context.Logger.Info(retry ? "stationary_combat.death_recovery.revive_retry_clicked" : "stationary_combat.death_recovery.revive_clicked",
+                new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["x"] = point.X,
+                    ["y"] = point.Y,
+                    ["source"] = "revive_ui",
+                    ["clickCount"] = state.DeathRecovery.ReviveClickCount
+                });
         }
-
-        await DelayAsync(DeathRevivePreClickPause, context).ConfigureAwait(false);
-        var down = await _input.MouseDownAsync(RoadhogMouseButton.Left, context.StopToken).ConfigureAwait(false);
-        if (!down.Success)
+        catch (OperationCanceledException) when (context.StopToken.IsCancellationRequested) { throw; }
+        catch (Exception ex)
         {
-            return OperationResult.Fail("Revive left mouse down failed. " + down.Error);
+            context.Logger.Warn(retry ? "stationary_combat.death_recovery.revive_retry_click_failed" : "stationary_combat.death_recovery.revive_click_failed",
+                new Dictionary<string, object?> { ["account"] = context.Config.AccountName, ["error"] = ex.Message });
         }
-
-        await DelayAsync(TimeSpan.FromMilliseconds(ReadDeathReviveClickHoldMs()), context).ConfigureAwait(false);
-        var up = await _input.MouseUpAsync(RoadhogMouseButton.Left, context.StopToken).ConfigureAwait(false);
-        return up.Success
-            ? OperationResult.Ok()
-            : OperationResult.Fail("Revive left mouse up failed. " + up.Error);
+        return StationaryCombatBehaviorStatus.Running;
     }
 
     private async Task<OperationResult> MoveMouseToAbsoluteScreenPointAsync(
@@ -11638,7 +11594,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         state.IsRightMouseDown = false;
         await DelayAsync(TimeSpan.FromMilliseconds(CameraTurnRecoveryReleaseMs), context).ConfigureAwait(false);
 
-        var (cursorResetX, cursorResetY) = ReadDeathReviveClickPoint(context, reviveClickCount: 0);
+        var (cursorResetX, cursorResetY) = ReadCameraRecoveryMousePoint(context);
         var cursorReset = up.Success
             ? await MoveMouseToAbsoluteScreenPointAsync(context, cursorResetX, cursorResetY).ConfigureAwait(false)
             : OperationResult.Fail("Right mouse release failed; cursor reset skipped.");
@@ -13384,52 +13340,12 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_REVIVE_CLICK_Y", DefaultReviveClickY), 0, 32767);
     }
 
-    private static int ReadDeathReviveFallbackClickX()
-    {
-        return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_REVIVE_FALLBACK_CLICK_X", DefaultReviveFallbackClickX), 0, 32767);
-    }
-
-    private static int ReadDeathReviveFallbackClickY()
-    {
-        return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_REVIVE_FALLBACK_CLICK_Y", DefaultReviveFallbackClickY), 0, 32767);
-    }
-
-    private static int ReadDeathReviveThirdClickX()
-    {
-        return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_REVIVE_THIRD_CLICK_X", DefaultReviveThirdClickX), 0, 32767);
-    }
-
-    private static int ReadDeathReviveThirdClickY()
-    {
-        return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_REVIVE_THIRD_CLICK_Y", DefaultReviveThirdClickY), 0, 32767);
-    }
-
-    private static (int X, int Y) ReadDeathReviveClickPoint(AccountWorkerContext context, int reviveClickCount)
+    // Keep the saved legacy point solely for the camera-turn mouse reset.
+    private static (int X, int Y) ReadCameraRecoveryMousePoint(AccountWorkerContext context)
     {
         if (context.Config.ScriptSettings?.Paths is { } paths)
-        {
-            return (
-                ClampInt(paths.DeathReviveClickX, 0, 32767),
-                ClampInt(paths.DeathReviveClickY, 0, 32767));
-        }
-
-        return ReadLegacyDeathReviveClickPoint(reviveClickCount);
-    }
-
-    private static (int X, int Y) ReadLegacyDeathReviveClickPoint(int reviveClickCount)
-    {
-        var clickIndex = Math.Max(0, reviveClickCount) % 3;
-        if (clickIndex == 0)
-        {
-            return (ReadDeathReviveClickX(), ReadDeathReviveClickY());
-        }
-
-        if (clickIndex == 1)
-        {
-            return (ReadDeathReviveFallbackClickX(), ReadDeathReviveFallbackClickY());
-        }
-
-        return (ReadDeathReviveThirdClickX(), ReadDeathReviveThirdClickY());
+            return (ClampInt(paths.DeathReviveClickX, 0, 32767), ClampInt(paths.DeathReviveClickY, 0, 32767));
+        return (ReadDeathReviveClickX(), ReadDeathReviveClickY());
     }
 
     private static int ReadDeathReviveClickHoldMs()

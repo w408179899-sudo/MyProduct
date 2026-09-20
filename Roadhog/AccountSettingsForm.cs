@@ -1862,7 +1862,7 @@ namespace Roadhog
                 80,
                 28);
             AddLabel(page, "米", 544, 34, 28, 22);
-            AddLabel(page, "死亡复活坐标:", 310, 86, 104, 22, _textGreen, FontStyle.Bold);
+            AddLabel(page, "转向重置坐标:", 310, 86, 104, 22, _textGreen, FontStyle.Bold);
             deathReviveClickPointTextBox = AddTextBox(
                 page,
                 FormatScreenPoint(PathScriptSettings.DefaultDeathReviveClickX, PathScriptSettings.DefaultDeathReviveClickY),

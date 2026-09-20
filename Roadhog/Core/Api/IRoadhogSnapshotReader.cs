@@ -26,6 +26,8 @@ public interface IRoadhogSnapshotReader
 
     Task<PublishedGameSnapshot<GameUiCursorSnapshot>> ReadUiCursorAsync(long afterVersion = 0);
 
+    Task<PublishedGameSnapshot<ReviveUiSnapshot>> ReadReviveUiAsync(long afterVersion = 0);
+
     Task<PublishedGameSnapshot<ChannelTransitionSnapshot>> ReadChannelTransitionAsync(long afterVersion = 0);
 
     Task<PublishedGameSnapshot<LockedTargetSnapshot>> ReadLockedTargetAsync(long afterVersion = 0);
