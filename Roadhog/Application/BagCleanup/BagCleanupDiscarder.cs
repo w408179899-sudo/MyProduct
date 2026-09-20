@@ -1,6 +1,4 @@
-using Roadhog.Application.Input;
 using Roadhog.Application.Workers;
-using Roadhog.Core.Accounts;
 using Roadhog.Core.Common;
 using Roadhog.Core.Input;
 using Roadhog.Core.Model;
@@ -9,169 +7,75 @@ namespace Roadhog.Application.BagCleanup;
 
 public sealed class BagCleanupDiscarder
 {
-    private static readonly TimeSpan MouseClickHoldDelay = TimeSpan.FromMilliseconds(35);
     private readonly IKeyboardInput _input;
     private readonly BagCleanupSeller _inventoryWindow;
+    private readonly Func<int, CancellationToken, Task>? _actionDelay;
 
-    public BagCleanupDiscarder(IKeyboardInput input, BagCleanupSeller inventoryWindow)
+    public BagCleanupDiscarder(IKeyboardInput input, BagCleanupSeller inventoryWindow,
+        Func<int, CancellationToken, Task>? actionDelay = null)
     {
         _input = input;
         _inventoryWindow = inventoryWindow;
+        _actionDelay = actionDelay;
     }
 
-    public async Task<OperationResult<InventoryWindowSnapshot>> EnsureInventoryWindowTopLeftAsync(
-        AccountWorkerContext context)
+    public async Task<OperationResult> EnsureInventoryWindowOpenAsync(AccountWorkerContext context)
     {
-        var read = await context.Snapshots.ReadInventoryWindowAsync().ConfigureAwait(false);
-
-        if (read.Value.IsOpen && read.Value.IsAtTopLeft())
+        try
         {
-            return OperationResult<InventoryWindowSnapshot>.Ok(read.Value);
-        }
-
-        if (read.Value.IsOpen)
-        {
-            var close = await _inventoryWindow.CloseInventoryWindowAsync(context).ConfigureAwait(false);
-            if (!close.Success)
+            var ui = (await context.Snapshots.ReadInventoryInteractionAsync()).Value;
+            InventoryDiscardActions.RequireIdle(ui);
+            if (!ui.IsOpen)
             {
-                return OperationResult<InventoryWindowSnapshot>.Fail(
-                    "Inventory window close before discard normalization failed: " + close.Error);
+                InventoryDiscardActions.Check(await _input.PressKeyAsync("I", TimeSpan.FromMilliseconds(60), context.StopToken));
+                await Task.Delay(300, context.StopToken);
+                ui = (await context.Snapshots.ReadInventoryInteractionAsync()).Value;
+                InventoryDiscardActions.RequireIdle(ui);
+                InventoryDiscardActions.Require(ui.IsOpen, "背包未打开。");
             }
+            return OperationResult.Ok();
         }
-
-        return await _inventoryWindow.NormalizeInventoryWindowToTopLeftAsync(context).ConfigureAwait(false);
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) { return OperationResult.Fail(ex.Message); }
     }
 
-    public async Task<OperationResult> DragItemToDiscardPointAsync(
-        AccountWorkerContext context,
-        MaintenanceScriptSettings settings,
-        InventoryItemSnapshot item,
-        InventoryWindowSnapshot? window,
-        int destinationX,
-        int destinationY)
+    public async Task<OperationResult> DragItemAsync(AccountWorkerContext context, InventoryItemSnapshot item)
     {
-        if (destinationX <= 0 || destinationY <= 0)
-        {
-            return OperationResult.Fail("Discard destination is not configured.");
-        }
-
-        var source = BagCleanupSeller.EstimateBagItemScreenPoint(
-            item.Slot,
-            settings.BagCleanupItemCoordinateMode,
-            window);
-        var move = await ScreenPointMouseMover
-            .MoveToAsync(_input, source.X, source.Y, cancellationToken: context.StopToken)
-            .ConfigureAwait(false);
-        if (!move.Success)
-        {
-            return OperationResult.Fail("Move to discard item failed: " + move.Error);
-        }
-
-        await DelayAsync(ReadDelayMs("ROADHOG_BAG_DISCARD_HOVER_MS", 160), context.StopToken)
-            .ConfigureAwait(false);
-        var down = await _input.MouseDownAsync(RoadhogMouseButton.Left, context.StopToken).ConfigureAwait(false);
-        if (!down.Success)
-        {
-            return OperationResult.Fail("Discard item mouse down failed: " + down.Error);
-        }
-
-        OperationResult? drag = null;
-        OperationResult? up = null;
         try
         {
-            await DelayAsync(ReadDelayMs("ROADHOG_BAG_DISCARD_MOUSE_DOWN_MS", 80), context.StopToken)
-                .ConfigureAwait(false);
-            drag = await _input
-                .MoveMouseRelativeAsync(destinationX - source.X, destinationY - source.Y, context.StopToken)
-                .ConfigureAwait(false);
-            await DelayAsync(ReadDelayMs("ROADHOG_BAG_DISCARD_DROP_MS", 120), context.StopToken)
-                .ConfigureAwait(false);
+            await Actions(context).DragAsync(item, context.StopToken);
+            return OperationResult.Ok();
         }
-        finally
-        {
-            up = await _input
-                .MouseUpAsync(RoadhogMouseButton.Left, CancellationToken.None)
-                .ConfigureAwait(false);
-        }
-
-        if (drag is null || !drag.Success)
-        {
-            return OperationResult.Fail("Discard item drag failed: " + drag?.Error);
-        }
-
-        if (up is null || !up.Success)
-        {
-            return OperationResult.Fail("Discard item mouse up failed: " + up?.Error);
-        }
-
-        context.Logger.Info("bag_cleanup.discard.dragged", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["name"] = item.Name,
-            ["instanceId"] = item.InstanceId,
-            ["slot"] = item.Slot,
-            ["sourceX"] = source.X,
-            ["sourceY"] = source.Y,
-            ["destinationX"] = destinationX,
-            ["destinationY"] = destinationY
-        });
-        return OperationResult.Ok();
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) { return OperationResult.Fail(ex.Message); }
     }
 
-    public async Task<OperationResult> ClickDiscardConfirmAsync(
-        AccountWorkerContext context,
-        int x,
-        int y,
-        uint itemInstanceId,
-        InventoryDiscardConfirmKind kind)
+    public async Task<OperationResult> ClickDiscardConfirmAsync(AccountWorkerContext context,
+        InventoryItemSnapshot item, InventoryDiscardConfirmSnapshot expected)
     {
-        if (x <= 0 || y <= 0)
-        {
-            return OperationResult.Fail("Discard confirmation point is not configured.");
-        }
-
-        var move = await ScreenPointMouseMover
-            .MoveToAsync(_input, x, y, cancellationToken: context.StopToken)
-            .ConfigureAwait(false);
-        if (!move.Success)
-        {
-            return OperationResult.Fail("Move to discard confirmation failed: " + move.Error);
-        }
-
-        await DelayAsync(ReadDelayMs("ROADHOG_BAG_DISCARD_CONFIRM_HOVER_MS", 120), context.StopToken)
-            .ConfigureAwait(false);
-        var down = await _input.MouseDownAsync(RoadhogMouseButton.Left, context.StopToken).ConfigureAwait(false);
-        if (!down.Success)
-        {
-            return OperationResult.Fail("Discard confirmation mouse down failed: " + down.Error);
-        }
-
-        OperationResult? up = null;
         try
         {
-            await DelayAsync(MouseClickHoldDelay, context.StopToken).ConfigureAwait(false);
+            await Actions(context).ConfirmAsync(item, expected.Kind, context.StopToken, expected.DialogId);
+            context.Logger.Info("bag_cleanup.discard.confirm.clicked", new Dictionary<string, object?>
+            { ["account"] = context.Config.AccountName, ["instanceId"] = item.InstanceId, ["kind"] = expected.Kind.ToString() });
+            return OperationResult.Ok();
         }
-        finally
-        {
-            up = await _input
-                .MouseUpAsync(RoadhogMouseButton.Left, CancellationToken.None)
-                .ConfigureAwait(false);
-        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) { return OperationResult.Fail(ex.Message); }
+    }
 
-        if (up is null || !up.Success)
-        {
-            return OperationResult.Fail("Discard confirmation mouse up failed: " + up?.Error);
-        }
+    private InventoryDiscardActions Actions(AccountWorkerContext context) =>
+        new(_input, context.Snapshots, context.Logger, context.Config.AccountName, _actionDelay);
 
-        context.Logger.Info("bag_cleanup.discard.confirm.clicked", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["instanceId"] = itemInstanceId,
-            ["kind"] = kind.ToString(),
-            ["x"] = x,
-            ["y"] = y
-        });
-        return OperationResult.Ok();
+    // Preserve the controller's existing state record, deriving it from the same official
+    // UI channel used for button targeting. No independent confirmation read or cache.
+    internal static async Task<InventoryDiscardConfirmSnapshot> ReadConfirmationAsync(AccountWorkerContext context)
+    {
+        var ui = (await context.Snapshots.ReadInventoryInteractionAsync().ConfigureAwait(false)).Value;
+        return new(ui.DiscardDialog != null, ui.PendingDiscardInstanceId,
+            ui.DiscardDialog?.Kind ?? (ui.PendingDiscardInstanceId == 0
+                ? InventoryDiscardConfirmKind.None : InventoryDiscardConfirmKind.PendingWithoutVisibleDialog),
+            ui.DiscardDialog?.DialogId ?? -1, 0, DateTimeOffset.UtcNow);
     }
 
     public async Task<OperationResult> CancelPendingDiscardAsync(AccountWorkerContext context)
@@ -179,8 +83,8 @@ public sealed class BagCleanupDiscarder
         await _input.MouseUpAsync(RoadhogMouseButton.Left, CancellationToken.None).ConfigureAwait(false);
         for (var attempt = 0; attempt < 2; attempt++)
         {
-            var read = await context.Snapshots.ReadInventoryDiscardConfirmAsync().ConfigureAwait(false);
-            if (read.Value.PendingItemInstanceId == 0)
+            var read = await context.Snapshots.ReadInventoryInteractionAsync().ConfigureAwait(false);
+            if (read.Value.PendingDiscardInstanceId == 0 && read.Value.DiscardDialog == null)
             {
                 return OperationResult.Ok();
             }
@@ -197,8 +101,8 @@ public sealed class BagCleanupDiscarder
                 .ConfigureAwait(false);
         }
 
-        var verify = await context.Snapshots.ReadInventoryDiscardConfirmAsync().ConfigureAwait(false);
-        return verify.Value.PendingItemInstanceId == 0
+        var verify = await context.Snapshots.ReadInventoryInteractionAsync().ConfigureAwait(false);
+        return verify.Value.PendingDiscardInstanceId == 0 && verify.Value.DiscardDialog == null
             ? OperationResult.Ok()
             : OperationResult.Fail("Discard confirmation remained pending after cancellation.");
     }
@@ -209,7 +113,7 @@ public sealed class BagCleanupDiscarder
         string? lastError = null;
         for (var attempt = 1; attempt <= 2; attempt++)
         {
-            var read = await context.Snapshots.ReadInventoryWindowAsync().ConfigureAwait(false);
+            var read = await context.Snapshots.ReadInventoryInteractionAsync().ConfigureAwait(false);
             if (!read.Value.IsOpen)
             {
                 return OperationResult.Ok();
@@ -223,7 +127,7 @@ public sealed class BagCleanupDiscarder
                 }
                 else
                 {
-                    var verify = await context.Snapshots.ReadInventoryWindowAsync().ConfigureAwait(false);
+                    var verify = await context.Snapshots.ReadInventoryInteractionAsync().ConfigureAwait(false);
                     if (!verify.Value.IsOpen)
                     {
                         return OperationResult.Ok();

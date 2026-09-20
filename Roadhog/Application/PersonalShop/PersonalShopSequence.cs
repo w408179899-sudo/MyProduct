@@ -45,7 +45,7 @@ public sealed class PersonalShopSequence(IKeyboardInput input, IRoadhogLogger lo
                 if (current.IsDead || current.CharacterName != player.CharacterName) throw new InvalidOperationException("角色状态已变化，本次停止摆摊。");
                 ui = await Ui();
                 if (ui.IsSelling || !ui.IsOpen || !ui.InventoryOpen || ui.Editor != null) throw new InvalidOperationException("摆摊界面已变化。");
-                PersonalShopPoint? Locate(PersonalShopSnapshot value) => value.BagItems.SingleOrDefault(i =>
+                GameUiPoint? Locate(PersonalShopSnapshot value) => value.BagItems.SingleOrDefault(i =>
                     i.InstanceId == item.InstanceId && i.TemplateId == item.TemplateId && i.Quantity == item.Count)?.Point;
                 var point = Locate(ui) ?? throw new InvalidOperationException("物品不在可见背包格子中。");
                 // Reopening inventory can leave hover empty until a real mouse event arrives.
@@ -126,20 +126,8 @@ public sealed class PersonalShopSequence(IKeyboardInput input, IRoadhogLogger lo
             }
             catch (OperationCanceledException) when (!token.IsCancellationRequested) { throw new TimeoutException("游戏未确认操作，已停止，不重复点击。"); }
         }
-        async Task Move(PersonalShopPoint point)
-        {
-            for (var attempt = 0; attempt < 60; attempt++)
-            {
-                var cursor = (await snapshots.ReadPersonalShopCursorAsync().WaitAsync(token).ConfigureAwait(false)).Value;
-                if (point.X < 0 || point.Y < 0 || point.X >= cursor.Width || point.Y >= cursor.Height) throw new InvalidOperationException("目标在游戏窗口外。");
-                var dx = point.X - cursor.Position.X; var dy = point.Y - cursor.Position.Y;
-                if (Math.Abs(dx) <= 1 && Math.Abs(dy) <= 1) return;
-                Check(await input.MoveMouseRelativeAsync(Math.Clamp(dx, -70, 70), Math.Clamp(dy, -70, 70), token).ConfigureAwait(false));
-                await Pause(70, token);
-            }
-            throw new TimeoutException("鼠标未到达目标。");
-        }
-        async Task Click(Func<PersonalShopSnapshot, PersonalShopPoint?> locate, RoadhogMouseButton button,
+        Task Move(GameUiPoint point) => new Roadhog.Application.Input.FeedbackMouseMover(input, snapshots, delay).MoveAsync(point, token);
+        async Task Click(Func<PersonalShopSnapshot, GameUiPoint?> locate, RoadhogMouseButton button,
             Func<PersonalShopSnapshot, bool> guard, PersonalShopSnapshot? captured = null)
         {
             var before = captured ?? await Ui();
@@ -147,7 +135,7 @@ public sealed class PersonalShopSequence(IKeyboardInput input, IRoadhogLogger lo
             if (!guard(before)) throw new InvalidOperationException("操作对象已变化。");
             await Move(point);
             var after = await Ui();
-            var cursor = (await snapshots.ReadPersonalShopCursorAsync().WaitAsync(token).ConfigureAwait(false)).Value.Position;
+            var cursor = (await snapshots.ReadUiCursorAsync().WaitAsync(token).ConfigureAwait(false)).Value.Position;
             var actualPoint = locate(after);
             if (!guard(after) || actualPoint == null || Math.Abs(actualPoint.X - cursor.X) > 1 || Math.Abs(actualPoint.Y - cursor.Y) > 1)
                 throw new InvalidOperationException("点击前目标或鼠标位置已变化。");

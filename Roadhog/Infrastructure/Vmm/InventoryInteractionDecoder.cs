@@ -4,13 +4,13 @@ using Roadhog.Core.Model;
 namespace Roadhog.Infrastructure.Vmm;
 
 /// <summary>Read-only adapter for the 2026-09-09 client. Never called by UI or workflow code.</summary>
-internal sealed class PersonalShopDecoder(Func<ulong, int, byte[]> read,
+internal sealed partial class InventoryInteractionDecoder(Func<ulong, int, byte[]> read,
     Func<IReadOnlyList<(ulong Address, int Size)>, IReadOnlyList<byte[]>>? readMany = null)
 {
     private readonly Dictionary<(ulong Address, int Size), byte[]> _guards = new();
     private int _width, _height;
 
-    public PersonalShopCursorSnapshot ReadCursor(ulong gameBase)
+    public GameUiCursorSnapshot ReadCursor(ulong gameBase)
     {
         Viewport(gameBase);
         var cursor = Bytes(gameBase + 0xDAD020, 8);
@@ -26,7 +26,7 @@ internal sealed class PersonalShopDecoder(Func<ulong, int, byte[]> read,
         Viewport(gameBase);
         var shop = GU(gameBase + 0xD63ED0);
         var bag = GU(gameBase + 0xD63990 + 27 * 8);
-        var bagItems = new List<PersonalShopBagItem>();
+        var bagItems = new List<InventoryUiItem>();
         uint hover = 0;
         var bagOpen = bag != 0 && Visible(bag);
         var editorAddress = shop == 0 ? 0 : GU(shop + 0x520);
@@ -34,41 +34,11 @@ internal sealed class PersonalShopDecoder(Func<ulong, int, byte[]> read,
         var isSelling = shop != 0 && BitConverter.ToUInt32(Guard(shop + 0x4D8, 4)) == 1;
         if (bagOpen && !editorVisible && !isSelling)
         {
-            Require(Name(bag) == "inventory_dialog", "Unexpected inventory dialog.");
-            foreach (var grid in Nodes(bag).Where(n => n.Name is "list0" or "list1" or "list2" or "list3" or "list4"))
-            {
-                var layout = Bytes(grid.Address + 0x2E0, 0x98);
-                var columns = BitConverter.ToUInt32(layout, 8);
-                Require(BitConverter.ToUInt32(layout, 0) == 1 && columns is >= 1 and <= 20, "Unsupported inventory grid.");
-                double G(int off) => Number(BitConverter.ToDouble(layout, off - 0x2E0));
-                var w = G(0x2F8); var h = G(0x2F0);
-                Require(w > 0 && h > 0, "Invalid inventory cell.");
-                var begin = GU(grid.Address + 0x368); var end = GU(grid.Address + 0x370);
-                var count = Count(begin, end, 135);
-                var hoveredIndex = BitConverter.ToInt16(Bytes(grid.Address + 0x3F0, 2));
-                var pointers = count == 0 ? Array.Empty<byte>() : Guard(begin, count * 8);
-                GuardEntries(pointers, count);
-                for (var i = 0; i < count; i++)
-                {
-                    var entry = BitConverter.ToUInt64(pointers, i * 8);
-                    if (entry == 0) continue;
-                    var data = Guard(entry + 0xA0, 24);
-                    var id = BitConverter.ToUInt32(data, 0);
-                    var template = BitConverter.ToUInt32(data, 8);
-                    if (id == 0 || template == 0) continue;
-                    var amount = BitConverter.ToUInt64(data, 16);
-                    Require(amount > 0, "Invalid inventory quantity.");
-                    var point = Point(grid.X + G(0x328) + G(0x340) + (i % columns) * (w + G(0x308)) + w / 2,
-                        grid.Y + G(0x330) + G(0x338) + (i / columns) * (h + G(0x310)) + h / 2);
-                    if (point != null) bagItems.Add(new(id, template, amount, point));
-                    if (i == hoveredIndex) hover = id;
-                }
-            }
-            Require(bagItems.Select(i => i.InstanceId).Distinct().Count() == bagItems.Count, "Duplicate inventory instances.");
+            (bagItems, hover) = ReadBagItems(bag);
         }
         var listings = new List<PersonalShopListing>();
         PersonalShopEditor? editor = null;
-        PersonalShopPoint? start = null;
+        GameUiPoint? start = null;
         var open = false; var selling = false;
         if (shop != 0)
         {
@@ -114,10 +84,53 @@ internal sealed class PersonalShopDecoder(Func<ulong, int, byte[]> read,
             }
             else Require(pending == 0, "Shop editor changed during capture.");
         }
+        VerifyGuards();
+        return new(open, selling, bagOpen, bagItems.AsReadOnly(), hover, listings.AsReadOnly(), editor, start);
+    }
+
+    private (List<InventoryUiItem> Items, uint Hover) ReadBagItems(ulong bag)
+    {
+        var bagItems = new List<InventoryUiItem>();
+        uint hover = 0;
+        Require(Name(bag) == "inventory_dialog", "Unexpected inventory dialog.");
+        foreach (var grid in Nodes(bag).Where(n => n.Name is "list0" or "list1" or "list2" or "list3" or "list4"))
+        {
+            var layout = Bytes(grid.Address + 0x2E0, 0x98);
+            var columns = BitConverter.ToUInt32(layout, 8);
+            Require(BitConverter.ToUInt32(layout, 0) == 1 && columns is >= 1 and <= 20, "Unsupported inventory grid.");
+            double G(int off) => Number(BitConverter.ToDouble(layout, off - 0x2E0));
+            var w = G(0x2F8); var h = G(0x2F0);
+            Require(w > 0 && h > 0, "Invalid inventory cell.");
+            var begin = GU(grid.Address + 0x368); var end = GU(grid.Address + 0x370);
+            var count = Count(begin, end, 135);
+            var hoveredIndex = BitConverter.ToInt16(Bytes(grid.Address + 0x3F0, 2));
+            var pointers = count == 0 ? Array.Empty<byte>() : Guard(begin, count * 8);
+            GuardEntries(pointers, count);
+            for (var i = 0; i < count; i++)
+            {
+                var entry = BitConverter.ToUInt64(pointers, i * 8);
+                if (entry == 0) continue;
+                var data = Guard(entry + 0xA0, 24);
+                var id = BitConverter.ToUInt32(data, 0);
+                var template = BitConverter.ToUInt32(data, 8);
+                if (id == 0 || template == 0) continue;
+                var amount = BitConverter.ToUInt64(data, 16);
+                Require(amount > 0, "Invalid inventory quantity.");
+                var point = Point(grid.X + G(0x328) + G(0x340) + (i % columns) * (w + G(0x308)) + w / 2,
+                    grid.Y + G(0x330) + G(0x338) + (i / columns) * (h + G(0x310)) + h / 2);
+                if (point != null) bagItems.Add(new(id, template, amount, point));
+                if (i == hoveredIndex) hover = id;
+            }
+        }
+        Require(bagItems.Select(i => i.InstanceId).Distinct().Count() == bagItems.Count, "Duplicate inventory instances.");
+        return (bagItems, hover);
+    }
+
+    private void VerifyGuards()
+    {
         var guards = _guards.ToArray();
         var verification = Batch(guards.Select(g => g.Key).ToArray());
-        for (var i = 0; i < guards.Length; i++) Require(verification[i].AsSpan().SequenceEqual(guards[i].Value), "Shop UI changed during capture.");
-        return new(open, selling, bagOpen, bagItems.AsReadOnly(), hover, listings.AsReadOnly(), editor, start);
+        for (var i = 0; i < guards.Length; i++) Require(verification[i].AsSpan().SequenceEqual(guards[i].Value), "Inventory UI changed during capture.");
     }
 
     private ulong Price(ulong head, uint id)
@@ -163,9 +176,9 @@ internal sealed class PersonalShopDecoder(Func<ulong, int, byte[]> read,
 
     private sealed record Node(ulong Address, string Name, double X, double Y, double W, double H, bool Enabled)
     {
-        public PersonalShopPoint? Point(PersonalShopDecoder decoder) => Enabled && W > 0 && H > 0 ? decoder.Point(X + W / 2, Y + H / 2) : null;
+        public GameUiPoint? Point(InventoryInteractionDecoder decoder) => Enabled && W > 0 && H > 0 ? decoder.Point(X + W / 2, Y + H / 2) : null;
     }
-    private PersonalShopPoint? Point(double x, double y) => x >= 0 && y >= 0 && x < _width && y < _height ? new((int)Math.Round(x), (int)Math.Round(y)) : null;
+    private GameUiPoint? Point(double x, double y) => x >= 0 && y >= 0 && x < _width && y < _height ? new((int)Math.Round(x), (int)Math.Round(y)) : null;
     private void Viewport(ulong b)
     {
         var data = Bytes(b + 0xDACF00, 16);

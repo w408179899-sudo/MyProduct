@@ -22,7 +22,9 @@ public interface IRoadhogSnapshotReader
 
     Task<PublishedGameSnapshot<PersonalShopSnapshot>> ReadPersonalShopAsync(long afterVersion = 0);
 
-    Task<PublishedGameSnapshot<PersonalShopCursorSnapshot>> ReadPersonalShopCursorAsync(long afterVersion = 0);
+    Task<PublishedGameSnapshot<InventoryInteractionSnapshot>> ReadInventoryInteractionAsync(long afterVersion = 0);
+
+    Task<PublishedGameSnapshot<GameUiCursorSnapshot>> ReadUiCursorAsync(long afterVersion = 0);
 
     Task<PublishedGameSnapshot<ChannelTransitionSnapshot>> ReadChannelTransitionAsync(long afterVersion = 0);
 

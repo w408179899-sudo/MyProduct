@@ -6,7 +6,9 @@
 
 清包页“清理物品类型”右侧提供 **测试摆摊** 按钮。点击后使用当前页面的出售规则和白／黑名单，无须先保存；整叠登记、固定单价 1，一次最多 10 项，完成后保持出售。仅新增手动测试入口，不接入后台自动清包或自动补货。
 
-正式调用链：`AccountSettingsForm` → `RoadhogRuntime.TestPersonalShopAsync` → `PersonalShopSequence`。`personal_shop` 与 `personal_shop_cursor` 均注册为 Stable 官方快照通道，原始读取和一致性校验位于 `AionVmmGameApi.PersonalShop` / `PersonalShopDecoder`。失败读取由 provider 保留上次官方快照，首次读取等待有效发布。业务层只使用已发布值。
+正式调用链：`AccountSettingsForm` → `RoadhogRuntime.TestPersonalShopAsync` → `PersonalShopSequence`。`personal_shop` 与 `ui_cursor` 均注册为 Stable 官方快照通道，原始读取和一致性校验位于 `AionVmmGameApi.PersonalShop` / `InventoryInteractionDecoder`。失败读取由 provider 保留上次官方快照，首次读取等待有效发布。业务层只使用已发布值。
+
+加入“测试丢弃”后，背包 UI 物品定位与鼠标反馈移动抽为共用实现，分别位于 `InventoryInteractionDecoder.ReadBagItems` 与 `FeedbackMouseMover`。摆摊操作节奏与确认逻辑保持不变，参见 [测试丢弃说明](INVENTORY_DISCARD_TEST.md)。
 
 按钮执行时禁用，关闭窗口会取消并释放输入；与脚本、切频道测试和“测试移动”共用手动输入互斥。已经出售时不再点击；已有登记或价格输入框时提示先取消。重新测试可在停止出售后，打开摊位，对已登记物品右键逐件撤下。
 

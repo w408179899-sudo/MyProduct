@@ -6,14 +6,14 @@ namespace Roadhog.Application;
 
 public sealed partial class RoadhogRuntime
 {
-    private readonly SemaphoreSlim _personalShopTestGate = new(1, 1);
+    private readonly SemaphoreSlim _inventoryTestGate = new(1, 1);
 
     public async Task<OperationResult<PersonalShopTestResult>> TestPersonalShopAsync(string accountName,
         MaintenanceScriptSettings settings, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
     {
         if (_keyboardInput == null) return OperationResult<PersonalShopTestResult>.Fail("鼠标键盘输入不可用。");
-        if (!await _personalShopTestGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
-            return OperationResult<PersonalShopTestResult>.Fail("摆摊测试正在进行，请等待完成。");
+        if (!await _inventoryTestGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+            return OperationResult<PersonalShopTestResult>.Fail("背包测试正在进行，请等待完成。");
         try
         {
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -36,6 +36,6 @@ public sealed partial class RoadhogRuntime
             return OperationResult<PersonalShopTestResult>.Fail(cancellationToken.IsCancellationRequested ? "摆摊测试已取消。" : "摆摊测试超时，已释放输入。");
         }
         catch (Exception ex) { return OperationResult<PersonalShopTestResult>.Fail(ex.Message); }
-        finally { _personalShopTestGate.Release(); }
+        finally { _inventoryTestGate.Release(); }
     }
 }

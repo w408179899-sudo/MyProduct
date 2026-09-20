@@ -4,17 +4,21 @@ using Roadhog.Core.Model;
 
 namespace Roadhog.Infrastructure.Vmm;
 
-internal sealed partial class AionVmmGameApi : IPersonalShopGameApi
+internal sealed partial class AionVmmGameApi : IInventoryInteractionGameApi
 {
+    public Task<OperationResult<InventoryInteractionSnapshot>> ReadInventoryInteractionAsync(GameApiReadContext context, CancellationToken cancellationToken = default) =>
+        Task.Run(() => ReadStable(context, AionVmmSnapshotChannels.InventoryInteraction,
+            () => ReadInventoryInteractionCore(context, static (decoder, gameBase) => decoder.ReadInventory(gameBase))), cancellationToken);
+
     public Task<OperationResult<PersonalShopSnapshot>> ReadPersonalShopAsync(GameApiReadContext context, CancellationToken cancellationToken = default) =>
         Task.Run(() => ReadStable(context, AionVmmSnapshotChannels.PersonalShop,
-            () => ReadPersonalShopCore(context, static (decoder, gameBase) => decoder.Read(gameBase))), cancellationToken);
+            () => ReadInventoryInteractionCore(context, static (decoder, gameBase) => decoder.Read(gameBase))), cancellationToken);
 
-    public Task<OperationResult<PersonalShopCursorSnapshot>> ReadPersonalShopCursorAsync(GameApiReadContext context, CancellationToken cancellationToken = default) =>
-        Task.Run(() => ReadStable(context, AionVmmSnapshotChannels.PersonalShopCursor,
-            () => ReadPersonalShopCore(context, static (decoder, gameBase) => decoder.ReadCursor(gameBase))), cancellationToken);
+    public Task<OperationResult<GameUiCursorSnapshot>> ReadUiCursorAsync(GameApiReadContext context, CancellationToken cancellationToken = default) =>
+        Task.Run(() => ReadStable(context, AionVmmSnapshotChannels.UiCursor,
+            () => ReadInventoryInteractionCore(context, static (decoder, gameBase) => decoder.ReadCursor(gameBase))), cancellationToken);
 
-    private OperationResult<T> ReadPersonalShopCore<T>(GameApiReadContext context, Func<PersonalShopDecoder, ulong, T> capture)
+    private OperationResult<T> ReadInventoryInteractionCore<T>(GameApiReadContext context, Func<InventoryInteractionDecoder, ulong, T> capture)
     {
         try
         {
@@ -24,7 +28,7 @@ internal sealed partial class AionVmmGameApi : IPersonalShopGameApi
                 if (!TryResolveProcess(connection.Vmm, context, out var process, out var error)) return OperationResult<T>.Fail(error);
                 var gameBase = process.GetModuleBase(ResolveModuleName());
                 if (gameBase == 0) return OperationResult<T>.Fail("Module not found: Game.dll");
-                var decoder = new PersonalShopDecoder((address, size) =>
+                var decoder = new InventoryInteractionDecoder((address, size) =>
                 {
                     if (!TryReadBytes(process, address, size, out var bytes, bypassMemoryCache: true) || bytes.Length != size)
                         throw new InvalidDataException("Incomplete personal shop UI read.");

@@ -133,13 +133,18 @@ internal sealed class RoadhogSnapshotReader : IRoadhogSnapshotReader
 
     public Task<PublishedGameSnapshot<PersonalShopSnapshot>> ReadPersonalShopAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync("personal_shop",
-            () => _gameApi is IPersonalShopGameApi api ? api.ReadPersonalShopAsync(_readContext, _stopToken)
+            () => _gameApi is IInventoryInteractionGameApi api ? api.ReadPersonalShopAsync(_readContext, _stopToken)
                 : Missing<PersonalShopSnapshot>("Personal shop channel is unavailable."), afterVersion);
 
-    public Task<PublishedGameSnapshot<PersonalShopCursorSnapshot>> ReadPersonalShopCursorAsync(long afterVersion = 0) =>
-        ReadUntilPublishedAsync("personal_shop_cursor",
-            () => _gameApi is IPersonalShopGameApi api ? api.ReadPersonalShopCursorAsync(_readContext, _stopToken)
-                : Missing<PersonalShopCursorSnapshot>("Personal shop cursor channel is unavailable."), afterVersion);
+    public Task<PublishedGameSnapshot<InventoryInteractionSnapshot>> ReadInventoryInteractionAsync(long afterVersion = 0) =>
+        ReadUntilPublishedAsync("inventory_interaction",
+            () => _gameApi is IInventoryInteractionGameApi api ? api.ReadInventoryInteractionAsync(_readContext, _stopToken)
+                : Missing<InventoryInteractionSnapshot>("Inventory interaction channel is unavailable."), afterVersion);
+
+    public Task<PublishedGameSnapshot<GameUiCursorSnapshot>> ReadUiCursorAsync(long afterVersion = 0) =>
+        ReadUntilPublishedAsync("ui_cursor",
+            () => _gameApi is IInventoryInteractionGameApi api ? api.ReadUiCursorAsync(_readContext, _stopToken)
+                : Missing<GameUiCursorSnapshot>("Personal shop cursor channel is unavailable."), afterVersion);
 
     public Task<PublishedGameSnapshot<ChannelTransitionSnapshot>> ReadChannelTransitionAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync(

@@ -9,6 +9,10 @@ using Roadhog.Infrastructure.Config;
 using Roadhog.Infrastructure.Hardware;
 using Roadhog.Infrastructure.Input;
 using Roadhog.Infrastructure.Vmm;
+using Roadhog.Application;
+using Roadhog.Application.BagCleanup;
+using Roadhog.Application.Workers;
+using Roadhog.Core.Common;
 // Raw, bounded hardware diagnostic only. It is deliberately outside runtime business APIs.
 internal static class PersonalShopLiveProbe
 {
@@ -34,8 +38,11 @@ internal static class PersonalShopLiveProbe
     {
         var root = Path.GetFullPath(RequiredOption(args, "--root="));
         var execute = args.Contains("--execute");
-        var expectedCharacter = execute ? RequiredOption(args, "--character=") : null;
-        if (execute && RequiredOption(args, "--unit-price=") != "1") throw new ArgumentException("This probe implements the requested one-coin test only.");
+        var discard = args.Contains("--inventory-discard-probe");
+        var hoverOnly = discard && args.Contains("--hover-only");
+        var expectedCharacter = execute || hoverOnly ? RequiredOption(args, "--character=") : null;
+        if (execute && !discard && RequiredOption(args, "--unit-price=") != "1") throw new ArgumentException("This probe implements the requested one-coin test only.");
+        if (execute && discard && RequiredOption(args, "--max-items=") != "3") throw new ArgumentException("Discard probe requires explicit --max-items=3.");
         var config = (await new JsonAccountConfigStore(Path.Combine(root, "config/accounts.json")).LoadAllAsync()).Value!.Single();
         var hardwareOptions = new WindowsHardwareDeviceResolverOptions();
         hardwareOptions.VmmDeviceByHardwareKey[config.HardwareKey] = config.VmmDeviceName;
@@ -79,7 +86,13 @@ internal static class PersonalShopLiveProbe
             names.Value?.Document?.ApplyTo(config.ScriptSettings!.Maintenance);
             var candidates = BagCleanupItemMatcher.SelectSellRegistrationItems(inventory.Value!, config.ScriptSettings!.Maintenance);
             Print("sell_candidates", candidates);
-            if (execute)
+            var discardPlan = BagCleanupItemMatcher.SelectDiscardItems(inventory.Value!, config.ScriptSettings!.Maintenance).Take(3).ToArray();
+            if (discard)
+            {
+                Print("discard_plan", discardPlan);
+                Print("inventory_ui", new InventoryInteractionDecoder(mem.Bytes).ReadInventory(b));
+            }
+            if (execute || hoverOnly)
             {
                 if (player.Value.CharacterName != expectedCharacter) throw new Exception("Unexpected character");
                 using var productionInput = new KmBoxNetKeyboardInput(JsonSerializer.Deserialize<KmBoxNetKeyboardInputOptions>(
@@ -88,11 +101,108 @@ internal static class PersonalShopLiveProbe
                     new Roadhog.Application.AccountRuntimeManager(log), null!,
                     accountConfigStore: new JsonAccountConfigStore(Path.Combine(root, "config/accounts.json")), keyboardInput: productionInput);
                 var watch = Stopwatch.StartNew();
-                var outcome = await runtime.TestPersonalShopAsync(config.AccountName, config.ScriptSettings!.Maintenance,
-                    new Progress<string>(text => Print("progress", text)), stop.Token);
-                Print("production_result", new { elapsedMs = watch.ElapsedMilliseconds, outcome });
-                foreach (var entry in log.Entries.Where(e => e.EventName.StartsWith("personal_shop") || e.EventName.StartsWith("snapshot.read"))) Print("production_log", entry);
-                if (!outcome.Success) throw new Exception(outcome.Error);
+                if (hoverOnly)
+                {
+                    var snapshots = new RoadhogSnapshotReaderFactory(api).Create(config, log, stop.Token);
+                    try
+                    {
+                        var ui = (await snapshots.ReadInventoryInteractionAsync()).Value;
+                        if (ui.ShopIsOpen || ui.IsSelling || ui.PendingDiscardInstanceId != 0 || ui.OtherModalOpen) throw new Exception("UI must be idle for hover-only probe");
+                        if (!ui.IsOpen)
+                        {
+                            var open = await productionInput.PressKeyAsync("I", TimeSpan.FromMilliseconds(60), stop.Token);
+                            if (!open.Success) throw new Exception(open.Error);
+                            await Task.Delay(300, stop.Token);
+                        }
+                        var mover = new Roadhog.Application.Input.FeedbackMouseMover(productionInput, snapshots);
+                        foreach (var item in discardPlan)
+                        {
+                            ui = (await snapshots.ReadInventoryInteractionAsync()).Value;
+                            var point = ui.Items.Single(i => i.InstanceId == item.InstanceId && i.TemplateId == item.TemplateId && i.Quantity == item.Count).Point;
+                            await mover.MoveAsync(new(point.X + 5, point.Y + 5), stop.Token);
+                            await mover.MoveAsync(point, stop.Token);
+                            await Task.Delay(350, stop.Token);
+                            ui = (await snapshots.ReadInventoryInteractionAsync()).Value;
+                            Print("hover_only", new { item.Name, item.InstanceId, point, ui.HoveredInstanceId, ui.DropPoint });
+                            if (ui.HoveredInstanceId != item.InstanceId || ui.DropPoint == null) throw new Exception("Hover or drop point did not verify");
+                        }
+                    }
+                    finally { await productionInput.ReleaseAllAsync(CancellationToken.None); }
+                }
+                else if (discard && args.Contains("--automatic-discard"))
+                {
+                    if (discardPlan.Length != 3) throw new Exception("Automatic probe requires three configured candidates");
+                    var worker = new AccountWorkerContext(config, new RoadhogSnapshotReaderFactory(api), log,
+                        new AccountRuntimeManager(log), new AccountWorkerOptions(), stop.Token);
+                    var state = new BagCleanupState();
+                    // A bounded diagnostic enters the real discard state machine directly;
+                    // it does not alter the user's free-slot threshold or discard rules.
+                    var capacity = (await worker.Snapshots.ReadInventoryCapacityAsync()).Value;
+                    var freeSlots = capacity - inventory.Value!.Where(i => !i.IsEquipped && i.Slot >= 0 && i.Slot < capacity).Select(i => i.Slot).Distinct().Count();
+                    state.StartDiscard(freeSlots, config.ScriptSettings!.Maintenance.BagCleanupThreshold,
+                        BagCleanupItemMatcher.SelectDiscardItems(inventory.Value!, config.ScriptSettings.Maintenance).Count);
+                    Print("automatic_test_trigger", new { freeSlots, config.ScriptSettings.Maintenance.BagCleanupThreshold, maxItems = 3 });
+                    var controller = new BagCleanupController(productionInput, new InMemorySharedPathStore(),
+                        (_, _, _) => throw new InvalidOperationException("Probe must not execute a cleanup path"));
+                    var discarder = new BagCleanupDiscarder(productionInput, new BagCleanupSeller(productionInput));
+                    try
+                    {
+                        await productionInput.ReleaseAllAsync(stop.Token);
+                        for (var tick = 0; tick < 150 && state.DiscardedItemCount < 3; tick++)
+                        {
+                            var currentPlayer = (await worker.Snapshots.ReadPlayerAsync()).Value;
+                            if (currentPlayer.IsDead || currentPlayer.CharacterName != expectedCharacter) throw new Exception("Character changed during automatic probe");
+                            if (state.Active && !state.DiscardActive) throw new Exception("Probe stopped before non-discard work");
+                            if (state.Step == BagCleanupStep.DragDiscardItem &&
+                                (state.DiscardTarget is not { } target || !discardPlan.Any(p => p.InstanceId == target.InstanceId && p.TemplateId == target.TemplateId && p.Count == target.Count)))
+                                throw new Exception("Automatic target is outside the authorized plan");
+                            var outcome = await controller.TickAfterLootAsync(worker, state);
+                            Print("automatic_tick", new { state.Step, state.DiscardedItemCount, outcome });
+                            if (outcome.Status != BagCleanupTickStatus.Running) throw new Exception("Automatic discard stopped: " + outcome.Reason);
+                            await Task.Delay(100, stop.Token);
+                        }
+                        if (state.DiscardedItemCount != 3) throw new Exception("Automatic discard did not verify three removals");
+                        Print("production_result", new { elapsedMs = watch.ElapsedMilliseconds, state.DiscardedItemCount, boundedStop = true });
+                    }
+                    finally
+                    {
+                        foreach (var entry in log.Entries.Where(e => e.EventName.StartsWith("bag_cleanup") || e.EventName.StartsWith("inventory_discard"))) Print("production_log", entry);
+                        await productionInput.ReleaseAllAsync(CancellationToken.None);
+                        using var cleanupDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                        var cleanup = new AccountWorkerContext(config, new RoadhogSnapshotReaderFactory(api), log,
+                            new AccountRuntimeManager(log), new AccountWorkerOptions(), cleanupDeadline.Token);
+                        var cancel = await discarder.CancelPendingDiscardAsync(cleanup);
+                        var close = await discarder.CloseInventoryWindowIfOpenAsync(cleanup);
+                        Print("automatic_cleanup", new { cancel, close });
+                        if (!cancel.Success || !close.Success) throw new Exception("Automatic probe cleanup failed");
+                    }
+                    var after = (await worker.Snapshots.ReadInventoryAsync()).Value;
+                    var removed = inventory.Value!.Where(i => after.All(a => a.InstanceId != i.InstanceId)).ToArray();
+                    Print("discard_verified_removed", removed);
+                    if (removed.Length != 3 || removed.Any(i => discardPlan.All(p => p.InstanceId != i.InstanceId))) throw new Exception("Removed inventory differs from authorized three-item plan");
+                    Print("final_inventory_ui", (await worker.Snapshots.ReadInventoryInteractionAsync()).Value);
+                }
+                else if (discard)
+                {
+                    var outcome = await runtime.TestInventoryDiscardAsync(config.AccountName, config.ScriptSettings!.Maintenance,
+                        new Progress<string>(text => Print("progress", text)), stop.Token);
+                    Print("production_result", new { elapsedMs = watch.ElapsedMilliseconds, outcome });
+                    foreach (var entry in log.Entries.Where(e => e.EventName.StartsWith("inventory_discard") || e.EventName.StartsWith("snapshot.read"))) Print("production_log", entry);
+                    var after = await api.ReadInventoryAsync(context, stop.Token);
+                    if (!after.Success || after.Value == null) throw new Exception("Final inventory read failed");
+                    var removed = inventory.Value!.Where(i => after.Value.All(a => a.InstanceId != i.InstanceId)).ToArray();
+                    Print("discard_verified_removed", removed);
+                    if (removed.Length > 3 || removed.Any(i => discardPlan.All(p => p.InstanceId != i.InstanceId))) throw new Exception("Removed inventory differs from authorized three-item plan");
+                    if (!outcome.Success) throw new Exception(outcome.Error);
+                }
+                else
+                {
+                    var outcome = await runtime.TestPersonalShopAsync(config.AccountName, config.ScriptSettings!.Maintenance,
+                        new Progress<string>(text => Print("progress", text)), stop.Token);
+                    Print("production_result", new { elapsedMs = watch.ElapsedMilliseconds, outcome });
+                    foreach (var entry in log.Entries.Where(e => e.EventName.StartsWith("personal_shop") || e.EventName.StartsWith("snapshot.read"))) Print("production_log", entry);
+                    if (!outcome.Success) throw new Exception(outcome.Error);
+                }
             }
 
             Print("final", new

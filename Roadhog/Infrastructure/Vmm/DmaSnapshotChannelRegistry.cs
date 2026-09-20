@@ -264,8 +264,11 @@ internal static class AionVmmSnapshotChannels
     public static readonly DmaSnapshotChannel<PersonalShopSnapshot> PersonalShop =
         ChannelRegistry.Register<PersonalShopSnapshot>("personal_shop");
 
-    public static readonly DmaSnapshotChannel<PersonalShopCursorSnapshot> PersonalShopCursor =
-        ChannelRegistry.Register<PersonalShopCursorSnapshot>("personal_shop_cursor");
+    public static readonly DmaSnapshotChannel<InventoryInteractionSnapshot> InventoryInteraction =
+        ChannelRegistry.Register<InventoryInteractionSnapshot>("inventory_interaction");
+
+    public static readonly DmaSnapshotChannel<GameUiCursorSnapshot> UiCursor =
+        ChannelRegistry.Register<GameUiCursorSnapshot>("ui_cursor");
 
     public static readonly DmaSnapshotChannel<ChannelTransitionSnapshot> ChannelTransition =
         ChannelRegistry.Register<ChannelTransitionSnapshot>("channel_transition");

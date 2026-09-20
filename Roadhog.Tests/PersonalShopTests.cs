@@ -104,16 +104,16 @@ internal static class PersonalShopTests
         internal int Starts, Confirms;
         private InventoryItemSnapshot? _editing;
         private ulong _price = 999;
-        private PersonalShopPoint _cursor = new(500, 500);
-        private static readonly PersonalShopPoint Price = new(400, 400), Confirm = new(460, 420), Start = new(270, 430);
-        private static PersonalShopPoint ItemPoint(int index) => new(50 + index % 9 * 35, 60 + index / 9 * 35);
-        private bool At(PersonalShopPoint point) => Math.Abs(point.X - _cursor.X) <= 1 && Math.Abs(point.Y - _cursor.Y) <= 1;
+        private GameUiPoint _cursor = new(500, 500);
+        private static readonly GameUiPoint Price = new(400, 400), Confirm = new(460, 420), Start = new(270, 430);
+        private static GameUiPoint ItemPoint(int index) => new(50 + index % 9 * 35, 60 + index / 9 * 35);
+        private bool At(GameUiPoint point) => Math.Abs(point.X - _cursor.X) <= 1 && Math.Abs(point.Y - _cursor.Y) <= 1;
 
         internal Simulation(int count)
         {
             Api.InventoryItems = Enumerable.Range(0, count).Select(i => new InventoryItemSnapshot(567, (uint)(100 + i), "item" + i, 1, i, false, 7, 3)).ToArray();
             Api.PersonalShopRead = Snapshot;
-            Api.PersonalShopCursorRead = () => new(1024, 768, _cursor);
+            Api.UiCursorRead = () => new(1024, 768, _cursor);
             Input.AfterMove = (x, y) => _cursor = new(_cursor.X + (int)Math.Round(x * .8), _cursor.Y + (int)Math.Round(y * .8));
             Input.AfterPress = key =>
             {
@@ -142,7 +142,7 @@ internal static class PersonalShopTests
             };
         }
         internal PersonalShopSnapshot Snapshot() => new(ShopOpen, Selling, BagOpen,
-            BagOpen ? Api.InventoryItems.Select(i => new PersonalShopBagItem((uint)i.InstanceId, i.TemplateId, i.Count, ItemPoint(i.Slot))).ToArray() : Array.Empty<PersonalShopBagItem>(),
+            BagOpen ? Api.InventoryItems.Select(i => new InventoryUiItem((uint)i.InstanceId, i.TemplateId, i.Count, ItemPoint(i.Slot))).ToArray() : Array.Empty<InventoryUiItem>(),
             WrongHover ? 999U : (uint)(Api.InventoryItems.SingleOrDefault(i => At(ItemPoint(i.Slot)))?.InstanceId ?? 0),
             Listings.ToArray(), _editing == null ? null : new((uint)_editing.InstanceId, true, _price, _price * _editing.Count,
                 WrongEditorQuantity ? 0 : _editing.Count, Price, Confirm), ShopOpen && Listings.Count > 0 && !Selling ? Start : null);

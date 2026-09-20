@@ -246,10 +246,12 @@ namespace Roadhog
         }
 
         private CancellationTokenSource? _personalShopTestCts;
+        private CancellationTokenSource? _inventoryDiscardTestCts;
 
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             _personalShopTestCts?.Cancel();
+            _inventoryDiscardTestCts?.Cancel();
             pathRecordTimer.Stop();
             pathRecordTimer.Dispose();
             base.OnFormClosed(e);
@@ -3450,9 +3452,12 @@ namespace Roadhog
             }
 
             AddLabel(rulesPanel, "清理物品类型", 0, 0, 160, 26, _textGreen, FontStyle.Bold);
-            var testPersonalShopButton = AddButton(rulesPanel, "测试摆摊", 136, 0, 140, 28);
+            var testPersonalShopButton = AddButton(rulesPanel, "测试摆摊", 136, 0, 120, 28);
             testPersonalShopButton.Name = "testPersonalShopButton";
             testPersonalShopButton.Click += async (_, _) => await TestPersonalShopAsync(testPersonalShopButton).ConfigureAwait(true);
+            var testDiscardButton = AddButton(rulesPanel, "测试丢弃", 264, 0, 140, 28);
+            testDiscardButton.Name = "testInventoryDiscardButton";
+            testDiscardButton.Click += async (_, _) => await TestInventoryDiscardAsync(testDiscardButton).ConfigureAwait(true);
 
             void AddCategory(string title, int top)
             {
@@ -4151,7 +4156,7 @@ namespace Roadhog
 
         private async Task TestPersonalShopAsync(Button button)
         {
-            if (_personalShopTestCts != null) return;
+            if (_personalShopTestCts != null || _inventoryDiscardTestCts != null) return;
             using var cancellation = new CancellationTokenSource();
             _personalShopTestCts = cancellation;
             button.Enabled = false;
@@ -4182,6 +4187,42 @@ namespace Roadhog
             {
                 _personalShopTestCts = null;
                 if (!button.IsDisposed) { button.Text = "测试摆摊"; button.Enabled = true; }
+            }
+        }
+
+        private async Task TestInventoryDiscardAsync(Button button)
+        {
+            if (_inventoryDiscardTestCts != null || _personalShopTestCts != null) return;
+            using var cancellation = new CancellationTokenSource();
+            _inventoryDiscardTestCts = cancellation;
+            button.Enabled = false;
+            button.Text = "丢弃中...";
+            SetBagCleanupInventoryStatus("正在测试丢弃：按当前规则，最多 3 项，整叠处理。", false);
+            try
+            {
+                var settings = new MaintenanceScriptSettings
+                {
+                    BagCleanupRules = CaptureBagCleanupRules(),
+                    BagCleanupExcludedItemNames = CaptureBagCleanupExcludedItemList(),
+                    BagCleanupDiscardItemNameKeywords = CaptureBagCleanupDiscardItemList()
+                };
+                var progress = new Progress<string>(text =>
+                {
+                    if (!IsDisposed && _inventoryDiscardTestCts == cancellation && !cancellation.IsCancellationRequested)
+                        SetBagCleanupInventoryStatus(text, false);
+                });
+                var result = await _runtime.TestInventoryDiscardAsync(_account, settings, progress, cancellation.Token).ConfigureAwait(true);
+                if (IsDisposed) return;
+                if (!result.Success || result.Value == null) SetBagCleanupInventoryStatus("测试丢弃失败：" + result.Error, true);
+                else if (result.Value.DiscardedCount == 0) SetBagCleanupInventoryStatus("没有匹配当前丢弃规则的背包物品。", false);
+                else SetBagCleanupInventoryStatus($"已丢弃 {result.Value.DiscardedCount} 项，测试结束。" +
+                    (result.Value.RemainingCount > 0 ? $"剩余 {result.Value.RemainingCount} 项未处理。" : ""), false);
+            }
+            catch (Exception ex) { if (!IsDisposed) SetBagCleanupInventoryStatus("测试丢弃失败：" + ex.Message, true); }
+            finally
+            {
+                _inventoryDiscardTestCts = null;
+                if (!button.IsDisposed) { button.Text = "测试丢弃"; button.Enabled = true; }
             }
         }
 
