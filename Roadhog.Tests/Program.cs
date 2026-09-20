@@ -1,4 +1,4 @@
-﻿using Roadhog;
+using Roadhog;
 using Roadhog.Application;
 using Roadhog.Application.AbnormalStatuses;
 using Roadhog.Application.BagCleanup;
@@ -780,6 +780,23 @@ var tests = new (string Name, Func<Task> Run)[]
     ("combat tick counts kill when monster target dies", TestCombatTickCountsKillAsync)
 };
 
+tests = tests.Concat(new (string Name, Func<Task> Run)[]
+{
+    ("cleanup workflow configuration policy and exclusive requests", CleanupWorkflowTests.ConfigurationAndPolicyAsync),
+    ("cleanup workflow auction settlement listing capacity and withdrawals", CleanupWorkflowTests.AuctionSubmissionAsync),
+    ("cleanup workflow warehouse ownership quantity and cancellation", CleanupWorkflowTests.WarehousePurchaseAsync),
+    ("cleanup workflow configured stall batches sale proof and purchased goods", CleanupWorkflowTests.ConfiguredStallAsync)
+    ,("cleanup workflow purchase decoder guards", PersonalShopDecoderTests.TradingPurchaseDecodeAsync)
+    ,("cleanup workflow auction listing and modal decoder guards", PersonalShopDecoderTests.AuctionListingsDecodeAsync)
+    ,("cleanup workflow hub routes return order and preflight", CleanupWorkflowTests.PathsAndPreflightAsync)
+    ,("cleanup workflow worker insertion stop and session isolation", CleanupWorkflowTests.WorkerSessionAsync)
+    ,("cleanup workflow settings UI persistence and path editors", CleanupWorkflowTests.SettingsUiAsync)
+    ,("cleanup workflow actual combat drain worker resume and stop", CleanupWorkflowTests.ActualWorkerAndCombatAsync)
+    ,("auction path NPC selection save reload and shared metadata", CleanupWorkflowTests.AuctionNpcSettingsAsync)
+    ,("auction path NPC identity selection retry and cancellation", CleanupWorkflowTests.AuctionNpcSelectionAsync)
+    ,("auction path NPC flows use saved name and diagnostic remains noncommitting", CleanupWorkflowTests.AuctionNpcFlowsAsync)
+}).ToArray();
+
 var testFilter = args
     .FirstOrDefault(static argument => argument.StartsWith("--test-filter=", StringComparison.OrdinalIgnoreCase))?
     .Split('=', 2)[1]
@@ -878,6 +895,7 @@ static async Task TestSharedPathStoreRoundTripAsync()
 
         var document = buffer.ToDocument(name);
         document.CleanupNpcName = "清包商人";
+        document.AuctionNpcName = " 拍卖中介 ";
         document.BagCleanupSellItemClickX = 111;
         document.BagCleanupSellItemClickY = 222;
         document.BagCleanupSellButtonClickX = 333;
@@ -905,6 +923,7 @@ static async Task TestSharedPathStoreRoundTripAsync()
         AssertEqual(2, loaded.Value?.PointCount ?? 0, "loaded point count");
         AssertEqual(6.0D, Math.Round(loaded.Value?.TotalDistance ?? 0, 2), "loaded total distance");
         AssertEqual("清包商人", loaded.Value?.CleanupNpcName ?? string.Empty, "loaded cleanup npc name");
+        AssertEqual("拍卖中介", loaded.Value?.AuctionNpcName ?? string.Empty, "loaded independent auction npc name");
         var sellItemClickX = 0;
         var sellItemClickY = 0;
         var sellButtonClickX = 0;
@@ -945,7 +964,7 @@ static Task TestPathTabOpensConfiguredPathFolderAsync()
     using var form = CreateAccountSettingsFormForTests(launcher, pathLibraryDirectory);
     var buttons = form.Controls.Find("openPathLibraryFolderButton", true);
 
-    AssertEqual(4, buttons.Length, "path folder button count");
+    AssertEqual(6, buttons.Length, "each path kind, including auction and stall, exposes the folder action");
     AssertFalse(buttons[0] is not System.Windows.Forms.Button, "path folder control should be a button");
     var onClick = typeof(System.Windows.Forms.Button).GetMethod(
         "OnClick",
@@ -8538,6 +8557,11 @@ static Task TestInputKeyMapAsync()
     AssertHidCode("F4", 0x3D);
     AssertHidCode("F5", 0x3E);
     AssertHidCode("F6", 0x3F);
+    AssertHidCode("F7", 0x40);
+    AssertHidCode("ShiftKey", 0xE1);
+    AssertHidCode("F10", 0x43);
+    AssertHidCode("F11", 0x44);
+    AssertHidCode("F12", 0x45);
     AssertHidCode("F8", 0x41);
     AssertHidCode("F9", 0x42);
     AssertHidCode("NumPad0", 0x62);

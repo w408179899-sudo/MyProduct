@@ -18,6 +18,7 @@ public sealed class AccountWorkerHost
     private readonly object _syncRoot = new();
     private CancellationTokenSource? _stopSource;
     private Task? _task;
+    private CleanupRequestMailbox _cleanupRequests = new();
 
     public AccountWorkerHost(
         IRoadhogSnapshotReaderFactory snapshotReaders,
@@ -48,7 +49,7 @@ public sealed class AccountWorkerHost
         }
     }
 
-    public OperationResult Start(AccountConfig config)
+    public OperationResult Start(AccountConfig config, bool cleanupFirst = false)
     {
         if (!config.Validate(out var error))
         {
@@ -63,6 +64,12 @@ public sealed class AccountWorkerHost
             }
 
             var workerConfig = config.Clone();
+            _cleanupRequests = new();
+            if (cleanupFirst)
+            {
+                var request = _cleanupRequests.Request(workerConfig.ScriptSettings ?? new(), true);
+                if (!request.Success) return request;
+            }
             AccountName = workerConfig.AccountName;
             _stopSource?.Dispose();
             _stopSource = new CancellationTokenSource();
@@ -123,15 +130,11 @@ public sealed class AccountWorkerHost
     private async Task RunWorkerAsync(AccountConfig config, CancellationToken stopToken)
     {
         _runtimeStates.MarkRunning(config.AccountName, Environment.CurrentManagedThreadId);
-
         try
         {
             if (_pathStore is not null)
-            {
                 await CombatPathRadiusBinding.ApplyAsync(config, _pathStore, _logger, stopToken).ConfigureAwait(false);
-            }
-
-            var context = new AccountWorkerContext(config, _snapshotReaders, _logger, _runtimeStates, _options, stopToken);
+            var context = new AccountWorkerContext(config, _snapshotReaders, _logger, _runtimeStates, _options, stopToken, _cleanupRequests);
             await _workerLoop.RunAsync(context).ConfigureAwait(false);
             _runtimeStates.MarkStopped(config.AccountName);
         }
@@ -155,6 +158,16 @@ public sealed class AccountWorkerHost
         catch
         {
             // Worker exceptions are already captured into AccountRuntimeState.
+        }
+    }
+
+    public OperationResult RequestCleanup(ScriptSettings settings)
+    {
+        lock (_syncRoot)
+        {
+            if (_task is not { IsCompleted: false } || _stopSource?.IsCancellationRequested != false)
+                return OperationResult.Fail("账号正在停止或未运行。");
+            return _cleanupRequests.Request(settings, true);
         }
     }
 }

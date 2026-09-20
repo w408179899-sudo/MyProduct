@@ -80,12 +80,29 @@ internal sealed partial class InventoryInteractionDecoder(Func<ulong, int, byte[
                 var nodes = Nodes(dialog);
                 editor = new(pending, mode == 0, BitConverter.ToUInt64(fields, 4), BitConverter.ToUInt64(fields, 12),
                     BitConverter.ToUInt64(fields, 36), nodes.SingleOrDefault(n => n.Name == "price")?.Point(this),
-                    nodes.SingleOrDefault(n => n.Name == "ok")?.Point(this));
+                    nodes.SingleOrDefault(n => n.Name == "ok")?.Point(this))
+                { QuantityInput = nodes.SingleOrDefault(n => n.Name == "count")?.Point(this) };
             }
             else Require(pending == 0, "Shop editor changed during capture.");
         }
+        var purchase = ReadPurchase(gameBase);
+        var otherModal = false;
+        for (int id = 336; id <= 365; id++)
+        {
+            var modal = GU(gameBase + 0xD63990 + (ulong)id * 8);
+            if (modal != 0 && Visible(modal)) otherModal = true;
+        }
+        var stop = open && selling ? Nodes(shop).SingleOrDefault(n => n.Name == "stop")?.Point(this) : null;
+        if (otherModal)
+        {
+            start = stop = null; bagItems.Clear();
+            if (editor != null) editor = editor with { PriceInput = null, QuantityInput = null, ConfirmButton = null };
+            purchase = purchase with { BuyButton = null, Items = purchase.Items.Select(i => i with { Point = null }).ToArray(), HoveredInstanceId = 0,
+                QuantityDialog = purchase.QuantityDialog is { } q ? q with { Input = null, Confirm = null } : null };
+        }
         VerifyGuards();
-        return new(open, selling, bagOpen, bagItems.AsReadOnly(), hover, listings.AsReadOnly(), editor, start);
+        return new(open, selling, bagOpen, bagItems.AsReadOnly(), hover, listings.AsReadOnly(), editor, start)
+        { StopButton = stop, Purchase = purchase, OtherModalOpen = otherModal };
     }
 
     private (List<InventoryUiItem> Items, uint Hover) ReadBagItems(ulong bag)

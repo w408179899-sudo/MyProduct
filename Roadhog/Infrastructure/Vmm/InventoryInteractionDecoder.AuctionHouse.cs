@@ -24,12 +24,15 @@ internal sealed partial class InventoryInteractionDecoder
         var buttons = new Dictionary<string, GameUiPoint>();
         var tab = -1; var search = ""; var message = ""; var loaded = false; ulong money = 0;
         var rows = new List<AuctionMarketRow>();
+        var listings = new List<AuctionListing>(); var listingsLoaded = false;
+        AuctionWithdrawConfirmation? withdrawal = null; bool otherModal = false;
+        uint hoveredListing = 0; GameUiPoint? scrollPoint = null; double scrollY = 0;
         AuctionEditor? sell = null;
         if (open)
         {
             Require(Name(auction) == "vendor_dialog", "Unexpected auction dialog.");
             var nodes = Nodes(auction);
-            foreach (var n in nodes.Where(n => n.Name is "item_list_btn" or "register_item_btn" or "account_btn" or "search_btn" or "search_cancel_btn"))
+            foreach (var n in nodes.Where(n => n.Name is "item_list_btn" or "register_item_btn" or "account_btn" or "search_btn" or "search_cancel_btn" or "collect_btn" or "stop_sell_btn"))
                 if (n.Point(this) is { } point) buttons.Add(n.Name, point);
             tab = BitConverter.ToInt32(Guard(GU(auction + 1256) + 0x2F8, 4));
             Require(tab is >= 0 and <= 2, "Invalid auction tab.");
@@ -45,6 +48,26 @@ internal sealed partial class InventoryInteractionDecoder
                         AuctionMoney(row.Cells[3]) ?? throw new InvalidDataException("Missing market unit price.")));
                 }
             }
+            if (tab == 1)
+            {
+                listingsLoaded = Guard(auction + 1432, 1)[0] != 0;
+                if (listingsLoaded)
+                {
+                    var list = GU(auction + 1384);
+                    var grid = nodes.Single(n => n.Address == list);
+                    var hoverIndex = BitConverter.ToInt16(Guard(list + 0x3F0, 2));
+                    scrollPoint = grid.Point(this);
+                    scrollY = Number(BitConverter.ToDouble(Guard(list + 824, 8)));
+                    foreach (var row in AuctionRows(list))
+                    {
+                        Require(row.Cells.Count >= 3, "Incomplete selling columns.");
+                        listings.Add(new(BitConverter.ToUInt32(Guard(row.Address + 160, 4)), row.Template, row.Quantity,
+                            row.Cells[0], GU(row.Address + 288), row.Cells[2], ListPoint(grid, row.Index)));
+                        if (row.Index == hoverIndex) hoveredListing = listings[^1].ListingId;
+                    }
+                    Require(listings.Count <= 15 && listings.Select(r => r.ListingId).Distinct().Count() == listings.Count, "Invalid selling list.");
+                }
+            }
             if (tab == 2)
             {
                 loaded = Guard(auction + 1488, 1)[0] != 0;
@@ -57,14 +80,44 @@ internal sealed partial class InventoryInteractionDecoder
                 var quantity = GU(editor + 1368); var price = GU(editor + 1376);
                 Require(quantity > 0 && quantity <= GU(editor + 1360), "Invalid auction quantity.");
                 var cancel = Nodes(editor).SingleOrDefault(n => n.Name == "cancel" && n.W > 20)?.Point(this);
-                sell = new(item.Template, quantity, price, AuctionMoney(AuctionText(GU(editor + 1280))), cancel);
+                var controls = Nodes(editor);
+                GameUiPoint? Control(ulong offset) => controls.SingleOrDefault(n => n.Address == GU(editor + offset))?.Point(this);
+                sell = new(item.Template, quantity, price, AuctionMoney(AuctionText(GU(editor + 1280))), cancel)
+                {
+                    InstanceId = BitConverter.ToUInt32(Guard(editor + 1616, 4)), MaximumQuantity = GU(editor + 1360),
+                    MinimumAllowedPrice = GU(editor + 1384), UnitPriceMode = Guard(editor + 1608, 1)[0] == 1 || quantity == 1,
+                    QuantityInput = Control(1248), PriceInput = Control(1256), ConfirmButton = Control(1352)
+                };
             }
         }
         // Generic modal windows may cover controls; never publish a clickable target through them.
         for (int id = 336; id <= 365; id++)
-            if (Open(Root(id))) { trade = null; buttons.Clear(); if (sell != null) sell = sell with { CancelButton = null }; }
+        {
+            var modal = Root(id); if (!Open(modal)) continue;
+            trade = null; buttons.Clear();
+            if (sell != null) sell = sell with { CancelButton = null, ConfirmButton = null, PriceInput = null, QuantityInput = null };
+            var fields = Guard(modal + 0x4D8, 12);
+            if (open && tab == 1 && id <= 355 && (BitConverter.ToUInt32(fields, 0) & ~8u) == 1 &&
+                BitConverter.ToUInt32(fields, 4) == 2108 && BitConverter.ToUInt32(fields, 8) == 2109)
+            {
+                var slotIndex = BitConverter.ToInt32(Guard(auction + 1448, 4));
+                var selected = AuctionRows(GU(auction + 1384)).SingleOrDefault(r => r.Index == slotIndex);
+                Require(selected.Address != 0 && withdrawal == null, "Unbound auction withdrawal.");
+                var listingId = BitConverter.ToUInt32(Guard(selected.Address + 160, 4));
+                withdrawal = new(listingId, Nodes(modal).SingleOrDefault(n => n.Address == GU(modal + 0x578))?.Point(this));
+            }
+            else otherModal = true;
+        }
+        if (otherModal) withdrawal = null;
+        if (otherModal || withdrawal != null)
+        {
+            listings = listings.Select(l => l with { Point = null }).ToList();
+            hoveredListing = 0; scrollPoint = null;
+        }
         VerifyGuards();
-        return new(dialogOpen, trade, open, tab, buttons, search, message, rows, loaded, money, sell);
+        return new(dialogOpen, trade, open, tab, buttons, search, message, rows, loaded, money, sell)
+        { ListingsLoaded = listingsLoaded, Listings = listings.AsReadOnly(), WithdrawConfirmation = withdrawal, OtherModalOpen = otherModal,
+            HoveredListingId = hoveredListing, ListingsScrollPoint = otherModal || withdrawal != null ? null : scrollPoint, ListingsScrollY = scrollY };
     }
 
     private string AuctionWide(ulong address)
@@ -98,10 +151,10 @@ internal sealed partial class InventoryInteractionDecoder
         return ulong.TryParse(text, NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var number) ? number : null;
     }
 
-    private List<(uint Template, ulong Quantity, List<string> Cells)> AuctionRows(ulong list)
+    private List<(uint Template, ulong Quantity, List<string> Cells, ulong Address, int Index)> AuctionRows(ulong list)
     {
         var begin = GU(list + 0x368); var end = GU(list + 0x370); var count = Count(begin, end, 512);
-        var result = new List<(uint, ulong, List<string>)>();
+        var result = new List<(uint, ulong, List<string>, ulong, int)>();
         for (int i = 0; i < count; i++)
         {
             var row = GU(begin + (ulong)i * 8); if (row == 0) continue;
@@ -117,7 +170,7 @@ internal sealed partial class InventoryInteractionDecoder
                 var text = new StringBuilder(); for (var r = rb; r < re; r += 80) text.Append(AuctionWide(r));
                 cells.Add(text.ToString());
             }
-            result.Add((template, quantity, cells));
+            result.Add((template, quantity, cells, row, i));
         }
         return result;
     }

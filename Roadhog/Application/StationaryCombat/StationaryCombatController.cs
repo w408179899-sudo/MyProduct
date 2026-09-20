@@ -1147,10 +1147,14 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             .ConfigureAwait(false);
     }
 
-    public async Task<OperationResult> ExecutePathOnceAsync(
-        AccountWorkerContext context,
-        string pathName,
-        IReadOnlyList<Vector3Snapshot> points)
+    public Task<OperationResult> ExecutePathOnceAsync(AccountWorkerContext context, string pathName, IReadOnlyList<Vector3Snapshot> points) =>
+        ExecutePathCoreAsync(context, pathName, points, false);
+
+    public Task<OperationResult> ExecuteCleanupPathAsync(AccountWorkerContext context, string pathName, IReadOnlyList<Vector3Snapshot> points) =>
+        ExecutePathCoreAsync(context, pathName, points, true);
+
+    private async Task<OperationResult> ExecutePathCoreAsync(
+        AccountWorkerContext context, string pathName, IReadOnlyList<Vector3Snapshot> points, bool fromStart)
     {
         if (points.Count == 0)
         {
@@ -1168,7 +1172,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                     context)
                 .ConfigureAwait(false);
             var initialPosition = initialPlayer.Position!.Value;
-            var nearestPointIndex = FindNearestPathPointIndex(initialPosition, pathPoints, double.MaxValue);
+            var nearestPointIndex = fromStart ? 0 : FindNearestPathPointIndex(initialPosition, pathPoints, double.MaxValue);
             if (nearestPointIndex < 0)
             {
                 return OperationResult.Fail("No nearest path point was found.");
@@ -1194,6 +1198,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 var player = await ReadManualPathPlayerAsync(
                         context)
                     .ConfigureAwait(false);
+                if (player.IsDead) return OperationResult.Fail("角色死亡，路径流程已停止。");
                 var playerPosition = player.Position!.Value;
                 var pointIndex = state.PathCombat.PointIndex;
                 var point = state.PathCombat.Points[pointIndex];
@@ -4335,7 +4340,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             return StationaryCombatBehaviorStatus.Running;
         }
 
-        if (_bagCleanup is not null)
+        if (_bagCleanup is not null && !context.WorkflowOwnsCleanup)
         {
             if (state.BagCleanup.Active)
             {

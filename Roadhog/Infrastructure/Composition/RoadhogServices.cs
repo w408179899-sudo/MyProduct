@@ -241,7 +241,10 @@ public sealed class RoadhogServices : IDisposable
                 stationaryCombatController,
                 teamSupportController,
                 teamOutputController,
-                fixedChannelController),
+                fixedChannelController,
+                new Roadhog.Application.Trading.CleanupWorkflowRunner(keyboardInput, sharedPathStore,
+                    stationaryCombatController.ExecuteCleanupPathAsync,
+                    new JsonAuctionListingJournal(Path.Combine(Path.GetDirectoryName(options.AccountConfigPath)!, "auction-listings")))),
             workerOptions,
             licenseCoordinator,
             sharedPathStore);

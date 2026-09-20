@@ -12,7 +12,7 @@ namespace Roadhog.Application.AuctionHouse;
 public sealed class AuctionHouseTestSequence(IKeyboardInput input, IRoadhogLogger logger, Func<int, CancellationToken, Task>? delay = null)
 {
     public async Task<OperationResult<string>> RunAsync(IRoadhogSnapshotReader snapshots, IReadOnlyList<BagCleanupTradeItemConfig> configured,
-        IProgress<string>? progress, CancellationToken token)
+        IProgress<string>? progress, CancellationToken token, string? configuredNpcName = null)
     {
         var stage = "读取拍卖行"; bool started = false;
         try
@@ -27,21 +27,15 @@ public sealed class AuctionHouseTestSequence(IKeyboardInput input, IRoadhogLogge
             if (!ui.IsOpen)
             {
                 Report("选择拍卖行NPC");
-                var target = (await snapshots.ReadLockedTargetAsync().WaitAsync(token)).Value;
-                async Task<bool> IsBroker(LockedTargetSnapshot selected) => selected.HasTarget &&
-                    (selected.Name == "摩比隆" || (selected.ServerObjectId != 0 && (await Ui()).BrokerTargetServerObjectId == selected.ServerObjectId));
-                if (!await IsBroker(target))
-                {
-                    await Key("F8");
-                    using var selection = CancellationTokenSource.CreateLinkedTokenSource(token); selection.CancelAfter(TimeSpan.FromSeconds(4));
-                    do { target = (await snapshots.ReadLockedTargetAsync().WaitAsync(selection.Token)).Value; if (await IsBroker(target)) break; await Pause(100, selection.Token); } while (true);
-                }
-                if (!await IsBroker(target)) throw new InvalidOperationException("未确认拍卖行NPC。");
+                var broker = new AuctionBrokerSelector(input, snapshots, configuredNpcName, token, delay);
+                await broker.SelectAsync();
+                await CheckPlayer();
+                ui = await Ui();
+                if (!await broker.IsSelectedAsync()) throw new InvalidOperationException("未确认拍卖行NPC。");
                 Report("等待NPC对话");
                 if (!ui.DialogOpen) { await Key("C"); ui = await Wait(s => s.DialogOpen && s.TradeButton != null); }
                 // Recheck selected NPC before clicking an existing conversation.
-                target = (await snapshots.ReadLockedTargetAsync().WaitAsync(token)).Value;
-                if (!await IsBroker(target)) throw new InvalidOperationException("选中NPC已变化。");
+                if (!await broker.IsSelectedAsync()) throw new InvalidOperationException("选中NPC已变化。");
                 await Click(s => s.TradeButton, s => s.DialogOpen && !s.IsOpen);
                 ui = await Wait(s => s.IsOpen);
             }

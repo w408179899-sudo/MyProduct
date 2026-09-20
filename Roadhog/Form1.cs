@@ -29,6 +29,7 @@ namespace Roadhog
         private readonly CancellationTokenSource _formLifetimeCancellation = new();
         private readonly DateTimeOffset _processStartedAtUtc = ResolveCurrentProcessStartTimeUtc();
         private readonly Label _licenseStatusLabel = new();
+        private readonly ToolTip _cleanupToolTip = new();
 
         private DateTimeOffset _topBarStatusMessageExpiresAt = DateTimeOffset.MinValue;
         private IReadOnlyList<Infrastructure.Hardware.DeviceLease> _otherDeviceLeases = Array.Empty<Infrastructure.Hardware.DeviceLease>();
@@ -43,6 +44,7 @@ namespace Roadhog
         public Form1()
         {
             InitializeComponent();
+            FormClosed += (_, _) => _cleanupToolTip.Dispose();
             InitializeLicenseStatusLabel();
             ApplyMainUiScale();
             kmboxStatusLabel.AutoEllipsis = true;
@@ -410,7 +412,7 @@ namespace Roadhog
             var killsPerHourLabel = AddCell(account.KillsPerHour, row, 1, alt, ContentAlignment.MiddleCenter);
             var durationLabel = AddCell(account.Duration, row, 2, alt, ContentAlignment.MiddleCenter);
 
-            AddActionButton("登录", row, 3, account.Account);
+            AddActionButton("清包", row, 3, account.Account);
             AddActionButton("设置", row, 4, account.Account);
             AddActionButton("启动", row, 5, account.Account);
             AddActionButton("停止", row, 6, account.Account);
@@ -460,7 +462,11 @@ namespace Roadhog
                 UseVisualStyleBackColor = false
             };
 
-            if (text == "设置")
+            if (text == "清包")
+            {
+                button.Click += CleanupAccountButton_Click;
+            }
+            else if (text == "设置")
             {
                 button.Click += AccountSettingsButton_Click;
             }
@@ -1341,6 +1347,27 @@ namespace Roadhog
             }
         }
 
+        private async void CleanupAccountButton_Click(object? sender, EventArgs e)
+        {
+            if (sender is not Button { Tag: string account } button) return;
+            button.Enabled = false;
+            try
+            {
+                if (!await EnsureLicenseInteractiveAsync(_formLifetimeCancellation.Token)) return;
+                var build = await TryBuildStartConfigAsync(account);
+                if (!build.Success || build.Config == null) { MessageBox.Show(build.Error, "清包失败"); return; }
+                var flow = build.Config.ScriptSettings?.Maintenance.CleanupWorkflow ?? new Roadhog.Core.Accounts.CleanupWorkflowSettings();
+                if (flow.Describe().Length == 0) { MessageBox.Show("请先在清包页选择执行项目。", "清包"); return; }
+                if (MessageBox.Show($"账号：{account}\n\n{flow.Describe()}\n\n先处理当前战斗，再执行流程。仓库未到或物品未售罄会持续等待。\n完成后自动继续挂机；停止按钮可取消整个流程。", "确认清包", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
+                if (!IsAutoHardwareKey(build.Config.HardwareKey) && !TryAcquireDeviceLease(build.Config.HardwareKey, NormalizeVmmDeviceName(build.Config.VmmDeviceName), out var error))
+                { MessageBox.Show(error, "清包失败"); return; }
+                var result = _services.AccountOrchestrator.RequestCleanup(build.Config);
+                if (!result.Success) MessageBox.Show(result.Error, "清包失败");
+                UpdateAccountRuntimeDisplay(account, updateHardwareKey: true);
+            }
+            finally { if (!button.IsDisposed) button.Enabled = true; }
+        }
+
         private async void StopAccountButton_Click(object? sender, EventArgs e)
         {
             if (sender is not Button { Tag: string account })
@@ -1655,7 +1682,11 @@ namespace Roadhog
                 return;
             }
 
-            SetTextIfChanged(controls.StatusLabel, row.Status);
+            var progress = snapshot?.CleanupProgress ?? string.Empty;
+            SetTextIfChanged(controls.StatusLabel, progress.Length == 0 ? row.Status :
+                progress.StartsWith("等待仓库号", StringComparison.Ordinal) ? "等仓库" :
+                progress.StartsWith("等待摆摊售罄", StringComparison.Ordinal) ? "摆摊中" : "清包中");
+            _cleanupToolTip.SetToolTip(controls.StatusLabel, progress);
             SetTextIfChanged(controls.KillsPerHourLabel, row.KillsPerHour);
             SetTextIfChanged(controls.DurationLabel, row.Duration);
 

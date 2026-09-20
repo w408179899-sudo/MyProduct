@@ -14,6 +14,8 @@ public sealed class SharedPathDocument
 
     public string CleanupNpcName { get; set; } = string.Empty;
 
+    public string AuctionNpcName { get; set; } = string.Empty;
+
     // Null means this path does not override the account/profile radius.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public double? BoundStationaryCombatRadius { get; set; }
@@ -47,6 +49,7 @@ public sealed class SharedPathDocument
             CreatedAt = CreatedAt,
             UpdatedAt = UpdatedAt,
             CleanupNpcName = CleanupNpcName,
+            AuctionNpcName = AuctionNpcName,
             BoundStationaryCombatRadius = BoundStationaryCombatRadius,
             BagCleanupSellItemClickX = BagCleanupSellItemClickX,
             BagCleanupSellItemClickY = BagCleanupSellItemClickY,

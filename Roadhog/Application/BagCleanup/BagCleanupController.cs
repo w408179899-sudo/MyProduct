@@ -13,7 +13,7 @@ public delegate Task<OperationResult> BagCleanupPathExecutor(
     string pathName,
     IReadOnlyList<Vector3Snapshot> points);
 
-public sealed class BagCleanupController
+public sealed partial class BagCleanupController
 {
     private static readonly TimeSpan TownReturnHoldDuration = TimeSpan.FromMilliseconds(35);
     private static readonly TimeSpan TownReturnInterruptEscapeHoldDuration = TimeSpan.FromMilliseconds(35);

@@ -5,6 +5,8 @@ using Roadhog.Application.StationaryCombat;
 using Roadhog.Application.Team;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Input;
+using Roadhog.Application.Trading;
+using Roadhog.Application.BagCleanup;
 
 namespace Roadhog.Application.Workers;
 
@@ -20,6 +22,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
     private readonly TeamSupportController? _teamSupport;
     private readonly TeamOutputController? _teamOutput;
     private readonly FixedChannelController? _fixedChannel;
+    private readonly CleanupWorkflowRunner? _cleanupWorkflow;
 
     public DefaultAccountWorkerLoop(
         IKeyboardInput keyboard,
@@ -27,7 +30,8 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         StationaryCombatController stationaryCombat,
         TeamSupportController? teamSupport = null,
         TeamOutputController? teamOutput = null,
-        FixedChannelController? fixedChannel = null)
+        FixedChannelController? fixedChannel = null,
+        CleanupWorkflowRunner? cleanupWorkflow = null)
     {
         _keyboard = keyboard;
         _semiAuto = semiAuto;
@@ -35,6 +39,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         _teamSupport = teamSupport;
         _teamOutput = teamOutput;
         _fixedChannel = fixedChannel;
+        _cleanupWorkflow = cleanupWorkflow;
     }
 
     public async Task RunAsync(AccountWorkerContext context)
@@ -61,6 +66,9 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         var teamSupportState = new TeamSupportState();
         var teamOutputState = new TeamOutputState();
         var fixedChannelState = new FixedChannelState();
+        context.WorkflowOwnsCleanup = _cleanupWorkflow != null;
+        var nextCleanupCheck = DateTimeOffset.MinValue;
+        var lastCleanup = DateTimeOffset.MinValue;
         CombatJumpAssistSession? jumpAssist = null;
         if (scriptSettings.Combat.JumpAssistEnabled)
         {
@@ -90,6 +98,63 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
             while (!context.StopToken.IsCancellationRequested)
             {
                 context.RuntimeStates.MarkHeartbeat(context.Config.AccountName);
+
+                if (_cleanupWorkflow != null && !fixedChannelState.AwaitingConfirmation)
+                {
+                    var now = DateTimeOffset.UtcNow;
+                    if (context.CleanupRequests.Current == null && now >= nextCleanupCheck &&
+                        !stationaryCombatState.Fighting && !stationaryCombatState.LootAfterKill.Active &&
+                        stationaryCombatState.TopLevelState == StationaryCombatTopLevelState.Normal)
+                    {
+                        nextCleanupCheck = now.AddSeconds(2);
+                        var maintenance = scriptSettings.Maintenance;
+                        if (maintenance.BagCleanupEnabled && maintenance.BagCleanupThreshold > 0)
+                        {
+                            var bag = (await context.Snapshots.ReadInventoryAsync()).Value;
+                            var capacity = (await context.Snapshots.ReadInventoryCapacityAsync()).Value;
+                            if (BagCleanupController.CountFreeSlots(bag, capacity) < maintenance.BagCleanupThreshold)
+                            {
+                                var automatic = scriptSettings.Clone();
+                                if (now - lastCleanup < BagCleanupController.FullCleanupCooldown)
+                                {
+                                    // Existing discard rules remain eligible during the full-cleanup cooldown.
+                                    automatic.Maintenance.CleanupWorkflow.Auction = false;
+                                    automatic.Maintenance.BagCleanupRules = automatic.Maintenance.BagCleanupRules.Where(r => r.Action == BagCleanupAction.Discard).ToList();
+                                    if (!automatic.Maintenance.CleanupWorkflow.NpcCleanup || BagCleanupItemMatcher.SelectDiscardItems(bag, automatic.Maintenance).Count == 0)
+                                        automatic.Maintenance.CleanupWorkflow.NpcCleanup = false;
+                                }
+                                if (automatic.Maintenance.CleanupWorkflow.NpcCleanup || automatic.Maintenance.CleanupWorkflow.Auction)
+                                    context.CleanupRequests.Request(automatic, manual: false, resetsCooldown: now - lastCleanup >= BagCleanupController.FullCleanupCooldown);
+                            }
+                        }
+                    }
+                    if (context.CleanupRequests.Current is { } cleanup)
+                    {
+                        if (await _stationaryCombat.PrepareCleanupTickAsync(context, semiAutoPlan, semiAutoState, stationaryCombatState))
+                        {
+                            try
+                            {
+                                await _cleanupWorkflow.RunAsync(context, cleanup, c => _stationaryCombat.ReturnAfterCleanupAsync(
+                                    c, semiAutoPlan, semiAutoState, stationaryCombatState));
+                            }
+                            catch (CleanupCombatInterruptionException)
+                            {
+                                context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, "清包被攻击打断，处理战斗后继续");
+                                await Task.Delay(context.Options.TickInterval, context.StopToken);
+                                continue;
+                            }
+                            context.StopToken.ThrowIfCancellationRequested();
+                            context.CleanupRequests.Complete();
+                            context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, string.Empty);
+                            if (cleanup.ResetsCooldown) lastCleanup = DateTimeOffset.UtcNow;
+                            stationaryCombatState.PathCombat.Reset();
+                            await _stationaryCombat.SetChannelSwitchPendingAsync(context, stationaryCombatState, false);
+                        }
+                        else context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, "清包已排队，先处理当前战斗 / 复活");
+                        await Task.Delay(context.Options.TickInterval, context.StopToken);
+                        continue;
+                    }
+                }
 
                 var delay = context.Options.TickInterval;
                 var mainMode = scriptSettings.MainMode;

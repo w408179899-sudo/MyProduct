@@ -69,7 +69,17 @@ public sealed class AccountOrchestrator
         finally { lock (_syncRoot) _manualInputActive = false; }
     }
 
-    private OperationResult StartCore(AccountConfig config)
+    public OperationResult RequestCleanup(AccountConfig config)
+    {
+        lock (_syncRoot)
+        {
+            if (_manualInputActive) return OperationResult.Fail("手动测试正在执行。");
+            var worker = GetOrCreateWorker(config.AccountName);
+            return worker.IsRunning ? worker.RequestCleanup(config.ScriptSettings ?? new()) : StartCore(config, cleanupFirst: true);
+        }
+    }
+
+    private OperationResult StartCore(AccountConfig config, bool cleanupFirst = false)
     {
         if (_licenseRuntimeGate is not null && !_licenseRuntimeGate.IsAuthorized)
         {
@@ -105,7 +115,7 @@ public sealed class AccountOrchestrator
 
         TryResolveRuntimeProcess(startConfig);
 
-        var startResult = worker.Start(startConfig);
+        var startResult = worker.Start(startConfig, cleanupFirst);
         if (!startResult.Success)
         {
             ReleaseHardware(startConfig.AccountName);

@@ -24,7 +24,7 @@ internal sealed partial class InventoryInteractionDecoder
         Require(active <= 1, "Invalid shop state.");
         var pending = bag == 0 ? 0 : BitConverter.ToUInt32(Guard(bag + 0x598, 4));
         InventoryDiscardDialog? dialog = null;
-        var otherModal = false;
+        var otherModal = new[] { 171, 310 }.Any(id => Root(id) != 0 && Visible(Root(id)));
         for (var id = 336; id <= 365; id++)
         {
             var address = Root(id);

@@ -203,6 +203,7 @@ public sealed class JsonSharedPathStore : ISharedPathStore
         document.CreatedAt = document.CreatedAt == default ? DateTimeOffset.Now : document.CreatedAt;
         document.UpdatedAt = document.UpdatedAt == default ? document.CreatedAt : document.UpdatedAt;
         document.CleanupNpcName = document.CleanupNpcName?.Trim() ?? string.Empty;
+        document.AuctionNpcName = document.AuctionNpcName?.Trim() ?? string.Empty;
         document.Points ??= new List<SharedPathPoint>();
 
         var buffer = new PathRecordingBuffer();

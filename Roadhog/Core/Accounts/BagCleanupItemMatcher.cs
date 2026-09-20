@@ -63,7 +63,7 @@ public static class BagCleanupItemMatcher
         }
 
         return items
-            .Where(item => IsBagItem(item) && !MatchesNameKeyword(item.Name, whitelistKeywords))
+            .Where(item => IsBagItem(item) && !MatchesNameKeyword(item.Name, whitelistKeywords) && !CleanupTradePolicy.Reserved(item, settings))
             .Where(item => action == BagCleanupAction.Discard
                 ? MatchesNameKeyword(item.Name, blacklistKeywords) ||
                   (rules.Any(rule => MatchesRule(item, rule)) &&
@@ -84,6 +84,7 @@ public static class BagCleanupItemMatcher
         var blacklistKeywords = ReadKeywords(settings.BagCleanupDiscardItemNameKeywords);
         return items.Where(item =>
             IsBagItem(item) &&
+            !CleanupTradePolicy.Reserved(item, settings) &&
             !MatchesNameKeyword(item.Name, whitelistKeywords) &&
             !MatchesNameKeyword(item.Name, blacklistKeywords));
     }

@@ -47,6 +47,7 @@ public sealed class AccountRuntimeManager
         {
             var state = GetOrCreate(config.AccountName, config.CharacterName);
             state.MarkStarting(ToConfigSnapshot(config));
+            state.CleanupProgress = string.Empty;
             _logger.Info("account.starting", new Dictionary<string, object?>
             {
                 ["account"] = config.AccountName,
@@ -77,6 +78,17 @@ public sealed class AccountRuntimeManager
         {
             var state = GetOrCreate(accountName);
             state.MarkHeartbeat();
+        }
+    }
+
+    public void MarkCleanupProgress(string accountName, string message)
+    {
+        lock (_syncRoot)
+        {
+            var state = GetOrCreate(accountName);
+            if (state.CleanupProgress == message) return;
+            state.CleanupProgress = message;
+            _logger.Info("cleanup_workflow.progress", new Dictionary<string, object?> { ["account"] = accountName, ["message"] = message });
         }
     }
 
@@ -137,6 +149,7 @@ public sealed class AccountRuntimeManager
         {
             var state = GetOrCreate(accountName);
             state.MarkStopped();
+            state.CleanupProgress = string.Empty;
             _logger.Info("account.stopped", new Dictionary<string, object?> { ["account"] = accountName });
         }
     }
@@ -147,6 +160,7 @@ public sealed class AccountRuntimeManager
         {
             var state = GetOrCreate(accountName);
             state.MarkFailed(error);
+            state.CleanupProgress = string.Empty;
             _logger.Warn("account.failed", new Dictionary<string, object?> { ["account"] = accountName, ["error"] = error });
         }
     }
@@ -178,7 +192,7 @@ public sealed class AccountRuntimeManager
             state.LastWarningAt,
             state.KillCount,
             state.FirstKillAt,
-            state.LastKillAt);
+            state.LastKillAt) { CleanupProgress = state.CleanupProgress };
     }
 
     private static AccountRuntimeState.AccountConfigSnapshot ToConfigSnapshot(AccountConfig config)

@@ -345,6 +345,9 @@ public sealed class PathScriptSettings
 
     public string GatherPathName { get; set; } = string.Empty;
 
+    public string AuctionPathName { get; set; } = string.Empty;
+    public string StallPathName { get; set; } = string.Empty;
+
     public string TownReturnKey { get; set; } = string.Empty;
 
     public string BagCleanupTownReturnKey { get; set; } = string.Empty;
@@ -373,6 +376,8 @@ public sealed class PathScriptSettings
             CombatPathName = CombatPathName,
             MaintenancePathName = MaintenancePathName,
             GatherPathName = GatherPathName,
+            AuctionPathName = AuctionPathName,
+            StallPathName = StallPathName,
             TownReturnKey = TownReturnKey,
             BagCleanupTownReturnKey = BagCleanupTownReturnKey,
             BagCleanupReturnByReversePath = BagCleanupReturnByReversePath,
@@ -606,6 +611,8 @@ public sealed class MaintenanceScriptSettings
 
     public bool BagCleanupEnabled { get; set; }
 
+    public CleanupWorkflowSettings CleanupWorkflow { get; set; } = new();
+
     public bool SitMaintenanceEnabled { get; set; } = true;
 
     public int SitMpBelowPercent { get; set; } = 10;
@@ -671,6 +678,7 @@ public sealed class MaintenanceScriptSettings
             StatusMaintenanceRules = StatusMaintenanceRules?.Select(rule => rule.Clone()).ToList() ?? new List<StatusMaintenanceRuleConfig>(),
             DpMaintenanceRules = DpMaintenanceRules?.Select(rule => rule.Clone()).ToList() ?? new List<DpMaintenanceRuleConfig>(),
             BagCleanupEnabled = BagCleanupEnabled,
+            CleanupWorkflow = (CleanupWorkflow ?? new()).Clone(),
             AutoEquip = AutoEquip,
             AutoDecompose = AutoDecompose,
             BagCleanupThreshold = BagCleanupThreshold,

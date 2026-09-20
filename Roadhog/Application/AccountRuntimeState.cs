@@ -2,6 +2,7 @@ namespace Roadhog.Application;
 
 public sealed class AccountRuntimeState
 {
+    public string CleanupProgress { get; internal set; } = string.Empty;
     private static readonly TimeSpan DuplicateEntityKillSuppressWindow = TimeSpan.FromSeconds(10);
 
     public AccountRuntimeState(string accountName, string characterName = "")

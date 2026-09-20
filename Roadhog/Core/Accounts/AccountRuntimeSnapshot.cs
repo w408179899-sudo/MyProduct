@@ -25,4 +25,7 @@ public sealed record AccountRuntimeSnapshot(
     DateTimeOffset? LastWarningAt,
     int KillCount,
     DateTimeOffset? FirstKillAt,
-    DateTimeOffset? LastKillAt);
+    DateTimeOffset? LastKillAt)
+{
+    public string CleanupProgress { get; init; } = string.Empty;
+}

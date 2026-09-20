@@ -1,7 +1,7 @@
 using System.Text;
 using Roadhog.Infrastructure.Vmm;
 
-internal static class PersonalShopDecoderTests
+internal static partial class PersonalShopDecoderTests
 {
     public static Task InventoryDiscardGeometryAndFaultsAsync()
     {
@@ -120,7 +120,7 @@ internal static class PersonalShopDecoderTests
         }
         internal InventoryInteractionDecoder Decoder() => new(Read);
         internal byte[] Read(ulong a, int n) => Enumerable.Range(0, a == ShortAddress ? n - 1 : n).Select(i => _memory.GetValueOrDefault(a + (ulong)i)).ToArray();
-        private void Put(ulong a, byte[] value) { for (var i = 0; i < value.Length; i++) _memory[a + (ulong)i] = value[i]; }
+        internal void Put(ulong a, byte[] value) { for (var i = 0; i < value.Length; i++) _memory[a + (ulong)i] = value[i]; }
         internal void U(ulong a, ulong value) => Put(a, BitConverter.GetBytes(value));
         internal void I(ulong a, uint value) => Put(a, BitConverter.GetBytes(value));
         internal void D(ulong a, double value) => Put(a, BitConverter.GetBytes(value));

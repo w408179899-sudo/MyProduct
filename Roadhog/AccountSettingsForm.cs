@@ -110,6 +110,8 @@ namespace Roadhog
         private RoundedTextBox? combatPathNameTextBox;
         private RoundedTextBox? maintenancePathNameTextBox;
         private RoundedTextBox? gatherPathNameTextBox;
+        private RoundedTextBox? auctionPathNameTextBox;
+        private RoundedTextBox? stallPathNameTextBox;
         private Button? townReturnKeyButton;
         private Button? bagCleanupTownReturnKeyButton;
         private RoundedCheckBox? bagCleanupReturnByReversePathCheckBox;
@@ -479,6 +481,8 @@ namespace Roadhog
             SetText(combatPathNameTextBox, paths.CombatPathName);
             SetText(maintenancePathNameTextBox, paths.MaintenancePathName);
             SetText(gatherPathNameTextBox, paths.GatherPathName);
+            SetText(auctionPathNameTextBox, paths.AuctionPathName);
+            SetText(stallPathNameTextBox, paths.StallPathName);
             SetKeyButton(townReturnKeyButton, paths.TownReturnKey);
             SetKeyButton(
                 bagCleanupTownReturnKeyButton,
@@ -499,6 +503,8 @@ namespace Roadhog
             SelectConfiguredPath(SharedPathKind.Combat, paths.CombatPathName);
             SelectConfiguredPath(SharedPathKind.Maintenance, paths.MaintenancePathName);
             SelectConfiguredPath(SharedPathKind.Gather, paths.GatherPathName);
+            SelectConfiguredPath(SharedPathKind.Auction, paths.AuctionPathName);
+            SelectConfiguredPath(SharedPathKind.Stall, paths.StallPathName);
 
             SetChecked(sitMaintenanceCheckBox, settings.Maintenance.SitMaintenanceEnabled);
             SetText(sitMpBelowTextBox, settings.Maintenance.SitMpBelowPercent.ToString());
@@ -511,6 +517,7 @@ namespace Roadhog
             PopulateDpMaintenanceRules(dpMaintenanceRuleList, dpMaintenanceEmptyLabel, settings.Maintenance.DpMaintenanceRules);
             SetChecked(bagCleanupEnabledCheckBox, settings.Maintenance.BagCleanupEnabled);
             SetText(bagCleanupThresholdTextBox, settings.Maintenance.BagCleanupThreshold.ToString());
+            LoadCleanupWorkflow(settings.Maintenance.CleanupWorkflow);
             _bagCleanupDiscardConfirmPoint = (
                 settings.Maintenance.BagCleanupDiscardConfirmClickX,
                 settings.Maintenance.BagCleanupDiscardConfirmClickY);
@@ -876,6 +883,8 @@ namespace Roadhog
                     CombatPathName = GetText(combatPathNameTextBox, string.Empty),
                     MaintenancePathName = GetText(maintenancePathNameTextBox, string.Empty),
                     GatherPathName = GetText(gatherPathNameTextBox, string.Empty),
+                    AuctionPathName = GetText(auctionPathNameTextBox, string.Empty),
+                    StallPathName = GetText(stallPathNameTextBox, string.Empty),
                     TownReturnKey = townReturnKeyButton?.Tag as string ?? string.Empty,
                     BagCleanupTownReturnKey = bagCleanupTownReturnKeyButton?.Tag as string ?? string.Empty,
                     BagCleanupReturnByReversePath = bagCleanupReturnByReversePathCheckBox?.Checked ?? true,
@@ -908,6 +917,7 @@ namespace Roadhog
                     DpMaintenanceRules = CaptureDpMaintenanceRules(dpMaintenanceRuleList),
                     BagCleanupEnabled = bagCleanupEnabledCheckBox?.Checked ?? false,
                     BagCleanupThreshold = ReadInt(bagCleanupThresholdTextBox, 5),
+                    CleanupWorkflow = CaptureCleanupWorkflow(),
                     BagCleanupSellItemClickX = bagCleanupSellItemClickPoint.X,
                     BagCleanupSellItemClickY = bagCleanupSellItemClickPoint.Y,
                     BagCleanupSellButtonClickX = bagCleanupSellButtonClickPoint.X,
@@ -1891,6 +1901,8 @@ namespace Roadhog
             pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Combat, "打怪路径", "打怪巡逻路径", false));
             pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Maintenance, "清包路径", "清包路径", false));
             pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Gather, "采集路径", "采集路线点配置", false));
+            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Auction, "拍卖行路径", "从挂机点到交易中介，完成后原路返回", false));
+            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Stall, "摆摊路径", "从挂机点到仓库 / 摆摊位置，完成后回城走复活路径", false));
             page.Controls.Add(pathTabs);
             page.AutoScroll = true;
             page.AutoScrollMinSize = new Size(836, 520);
@@ -1913,8 +1925,8 @@ namespace Roadhog
             tab.Controls.Add(page);
 
             page.AutoScroll = true;
-            page.AutoScrollMinSize = new Size(824, kind == SharedPathKind.Maintenance ? 488 : 430);
-            var contentOffset = kind == SharedPathKind.Maintenance ? 72 : 0;
+            var contentOffset = kind == SharedPathKind.Maintenance ? 72 : kind == SharedPathKind.Auction ? 40 : 0;
+            page.AutoScrollMinSize = new Size(824, kind == SharedPathKind.Maintenance ? 488 : 430 + contentOffset);
             var editor = new PathEditorControls(kind);
             pathEditors[kind] = editor;
 
@@ -1933,6 +1945,8 @@ namespace Roadhog
             {
                 maintenancePathNameTextBox = pathNameTextBox;
             }
+            else if (kind == SharedPathKind.Auction) { auctionPathNameTextBox = pathNameTextBox; }
+            else if (kind == SharedPathKind.Stall) { stallPathNameTextBox = pathNameTextBox; }
             else if (kind == SharedPathKind.Gather)
             {
                 gatherPathNameTextBox = pathNameTextBox;
@@ -2002,13 +2016,16 @@ namespace Roadhog
                     }
                 };
 
-                AddLabel(maintenanceOptions, "清包NPC", 8, 38, 72, 24, _textGreen, FontStyle.Bold);
-                editor.CleanupNpcRefreshButton = AddButton(maintenanceOptions, "刷新附近NPC", 330, 36, 106, 28);
-                editor.CleanupNpcRefreshButton.Click += async (_, _) =>
-                    await RefreshCleanupNpcsAsync(editor).ConfigureAwait(true);
-                editor.CleanupNpcCombo = AddCombo(maintenanceOptions, 82, 36, 238, 28);
+                AddPathNpcSelection(maintenanceOptions, editor, "清包NPC", 36);
 
                 AddBagCleanupPathClickPointControls(page, 584, 184 + contentOffset);
+            }
+            else if (kind == SharedPathKind.Auction)
+            {
+                var auctionOptions = new Panel { Location = new Point(12, 110), Size = new Size(800, 36), BackColor = _softGreen };
+                page.Controls.Add(auctionOptions);
+                AddPathNpcSelection(auctionOptions, editor, "拍卖NPC", 4);
+                AddLabel(auctionOptions, "随路径保存，执行前核对交易中介身份", 452, 6, 340, 24);
             }
 
             editor.SummaryLabel = AddLabel(page, "点数  0  |  总距  0.0  |  跳过  0", 12, 112 + contentOffset, 300, 24, _textGreen, FontStyle.Bold);
@@ -2071,7 +2088,7 @@ namespace Roadhog
             var pathAdvanced = CreateFoldout(
                 page,
                 "高级路径设置",
-                kind == SharedPathKind.Gather ? 350 : kind == SharedPathKind.Maintenance ? 302 + contentOffset : 326,
+                kind == SharedPathKind.Gather ? 350 : kind == SharedPathKind.Maintenance ? 302 + contentOffset : 326 + contentOffset,
                 824,
                 true);
             pathAdvanced.Content.Height = kind == SharedPathKind.Revive ? 68 : 40;
@@ -2610,7 +2627,7 @@ namespace Roadhog
             ApplyPathRadiusBindingToEditor(editor, result.Value);
             editor.SkippedCount = 0;
             SetText(editor.PathNameTextBox, result.Value.Name);
-            SetCleanupNpcSelection(editor, result.Value.CleanupNpcName);
+            SetCleanupNpcSelection(editor, editor.Kind == SharedPathKind.Auction ? result.Value.AuctionNpcName : result.Value.CleanupNpcName);
             if (editor.Kind == SharedPathKind.Maintenance)
             {
                 ApplyBagCleanupPathClickPoints(result.Value);
@@ -2694,6 +2711,10 @@ namespace Roadhog
                 document.CleanupNpcName = GetSelectedCleanupNpcName(editor);
                 CopyBagCleanupClickPointsToPath(document);
             }
+            else if (editor.Kind == SharedPathKind.Auction)
+            {
+                document.AuctionNpcName = GetSelectedCleanupNpcName(editor);
+            }
 
             var loadedDocument = editor.LoadedDocument?.Clone();
             editor.SavingPath = true;
@@ -2732,6 +2753,10 @@ namespace Roadhog
                     merged.BagCleanupSellItemClickY = document.BagCleanupSellItemClickY;
                     merged.BagCleanupSellButtonClickX = document.BagCleanupSellButtonClickX;
                     merged.BagCleanupSellButtonClickY = document.BagCleanupSellButtonClickY;
+                }
+                else if (editor.Kind == SharedPathKind.Auction)
+                {
+                    merged.AuctionNpcName = document.AuctionNpcName;
                 }
 
                 var result = await _pathStore.SaveAsync(merged).ConfigureAwait(true);
@@ -3072,6 +3097,20 @@ namespace Roadhog
             }
 
             PopulateGatherPointEditor(editor);
+        }
+
+        private void AddPathNpcSelection(Panel panel, PathEditorControls editor, string label, int top)
+        {
+            AddLabel(panel, label, 8, top + 2, 72, 24, _textGreen, FontStyle.Bold);
+            editor.CleanupNpcRefreshButton = AddButton(panel, "刷新附近NPC", 330, top, 106, 28);
+            editor.CleanupNpcRefreshButton.Click += async (_, _) =>
+                await RefreshCleanupNpcsAsync(editor).ConfigureAwait(true);
+            editor.CleanupNpcCombo = AddCombo(panel, 82, top, 238, 28);
+            if (editor.Kind == SharedPathKind.Auction)
+            {
+                editor.CleanupNpcCombo.Name = "auctionPathNpcCombo";
+                editor.CleanupNpcRefreshButton.Name = "auctionPathNpcRefreshButton";
+            }
         }
 
         private async Task RefreshCleanupNpcsAsync(PathEditorControls editor)
@@ -3420,6 +3459,7 @@ namespace Roadhog
             bagCleanupEnabledCheckBox.BackColor = optionsPanel.BackColor;
             AddLabel(optionsPanel, "剩余格低于", 148, 20, 92, 26, _textGreen, FontStyle.Bold);
             bagCleanupThresholdTextBox = AddTextBox(optionsPanel, "5", 244, 18, 72, 28);
+            BuildCleanupWorkflowOptions(page, optionsPanel, rulesPanel, namesPanel);
 
             const int leftOptionX = 8;
             const int leftComboX = 130;
