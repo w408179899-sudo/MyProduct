@@ -76,27 +76,31 @@ internal static class AuctionHouseTests
 
     public static async Task ActionsAsync()
     {
-        foreach (var scenario in new[] { "success", "search", "identity", "cancel", "wrong_editor", "existing_fee" })
+        foreach (var scenario in new[] { "success", "search", "closed_bag", "identity", "cancel", "wrong_editor", "existing_fee" })
         {
             var state=State();var api=new FakeGameApi();var input=new RecordingKeyboardInput();var down=false;int right=0;
             if(scenario=="existing_fee")state=state with{RegistrationConfirmation=new(11,367,1000,true,367000,100,new(650,150),new(700,150))};
             var item=new InventoryItemSnapshot(152010313,11,"坚固的生皮子",367,0,false);
             api.InventoryItems=new[]{item with{InstanceId=22,IsEquipped=true},item};api.AuctionRead=()=>state;
             var bagItem=new InventoryUiItem(11,item.TemplateId,item.Count,new(700,300));
-            api.InventoryInteractionRead=()=>new(true,false,false,new[]{bagItem},api.InventoryUiCursor==bagItem.Point?11u:0u,0,null,null,false);
+            bool bagOpen=scenario!="closed_bag",bagInFront=false;
+            api.InventoryInteractionRead=()=>new(bagOpen,false,false,new[]{bagItem},api.InventoryUiCursor==bagItem.Point?11u:0u,0,null,null,false);
             using var stop=new CancellationTokenSource(TimeSpan.FromSeconds(3));
             input.AfterMove=(x,y)=> { api.InventoryUiCursor=new(api.InventoryUiCursor.X+x,api.InventoryUiCursor.Y+y); if(scenario=="identity")api.Player=api.Player with{CharacterName="changed"}; };
-            input.AfterPress=key=> { if(key=="Space")state=state with{IsOpen=false}; else throw new Exception("unexpected key "+key); };
+            input.AfterPress=key=> { if(key=="Space")state=state with{IsOpen=false}; else if(key=="I"){bagOpen=!bagOpen;bagInFront=bagOpen;} else throw new Exception("unexpected key "+key); };
             input.AfterMouseDown=button=> { down=true; if(scenario=="cancel"){stop.Cancel();stop.Token.ThrowIfCancellationRequested();} };
             input.AfterMouseUp=button=>
             {
                 if(!down)return;down=false;
                 if(button==RoadhogMouseButton.Right)
                 {
+                    Require(bagOpen&&bagInFront,"search and registration both require foreground inventory, even when a stale hover still matches");
                     right++;
+                    bagInFront=false;
                     state=state.ActiveTab==0?state with{SearchName=item.Name}:state with{Editor=new(scenario=="wrong_editor"?999u:item.TemplateId,367,20,1000,new(600,100))};
                     return;
                 }
+                bagInFront=false;
                 var p=api.InventoryUiCursor;
                 if(p==new GameUiPoint(300,100))state=state with{ActiveTab=2,SettlementLoaded=true,SettlementMoney=2645512};
                 else if(p==new GameUiPoint(100,100))state=state with{ActiveTab=0};
@@ -111,7 +115,7 @@ internal static class AuctionHouseTests
             {
                 var result=await new AuctionHouseTestSequence(input,new InMemoryRoadhogLogger(),(_,t)=>{t.ThrowIfCancellationRequested();return Task.CompletedTask;})
                     .RunAsync(snapshots,new[]{new BagCleanupTradeItemConfig{Name=item.Name,PriceLookupMethod=scenario=="search"?AuctionPriceLookupMethod.SearchCalculation:AuctionPriceLookupMethod.DialogMinimum}},null,stop.Token);
-                Require(result.Success==(scenario is "success" or "search"),scenario+": "+result.Error);
+                Require(result.Success==(scenario is "success" or "search" or "closed_bag"),scenario+": "+result.Error);
                 if(result.Success){Require(!state.IsOpen&&state.Editor==null&&right==(scenario=="search"?2:1),"lookup method controls search; cancel and close verified");Require(result.Value!.Contains(scenario=="search"?"算法待定义":"1,000"),"reports selected method");}
             }
             catch(OperationCanceledException)when(scenario=="cancel"){}

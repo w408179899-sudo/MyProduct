@@ -10,8 +10,16 @@ namespace Roadhog.Application.Trading;
 public sealed class AuctionTradingSequence(IKeyboardInput input, IAuctionListingJournal journal,
     Func<int, CancellationToken, Task>? delay = null)
 {
-    public async Task RunAsync(IRoadhogSnapshotReader snapshots, string account, MaintenanceScriptSettings settings,
-        Action<string> report, CancellationToken token, string? configuredNpcName = null)
+    public Task RunAsync(IRoadhogSnapshotReader snapshots, string account, MaintenanceScriptSettings settings,
+        Action<string> report, CancellationToken token, string? configuredNpcName = null) =>
+        RunCoreAsync(snapshots, account, settings, report, token, configuredNpcName, withdrawAll: true);
+
+    internal Task ContinueRegistrationAsync(IRoadhogSnapshotReader snapshots, string account, MaintenanceScriptSettings settings,
+        Action<string> report, CancellationToken token) =>
+        RunCoreAsync(snapshots, account, settings, report, token, null, withdrawAll: false);
+
+    private async Task RunCoreAsync(IRoadhogSnapshotReader snapshots, string account, MaintenanceScriptSettings settings,
+        Action<string> report, CancellationToken token, string? configuredNpcName, bool withdrawAll)
     {
         var actions = new TradingActions(input, snapshots, token, delay);
         var broker = new AuctionBrokerSelector(input, snapshots, configuredNpcName, token, delay);
@@ -37,6 +45,7 @@ public sealed class AuctionTradingSequence(IKeyboardInput input, IAuctionListing
             await actions.Reset(); await actions.Alive();
             var ui = await Ui();
             Require(ui.Editor == null && ui.WithdrawConfirmation == null && ui.RegistrationConfirmation == null && !ui.OtherModalOpen, "请先关闭已有交易确认框。");
+            if (!withdrawAll) Require(ui.IsOpen && ui.ActiveTab == 1 && ui.ListingsLoaded, "续接上架需要已确认打开的登录页。");
             if (!ui.IsOpen)
             {
                 await CloseBag();
@@ -50,48 +59,52 @@ public sealed class AuctionTradingSequence(IKeyboardInput input, IAuctionListing
                 await actions.Click(Ui, s => s.TradeButton, s => s.DialogOpen && !s.IsOpen);
                 await actions.Wait(Ui, s => s.IsOpen);
             }
-            await CloseBag();
-            report("拍卖行：撤回全部在售物品");
-            await Tab("register_item_btn", 1);
-            ui = await actions.Wait(Ui, s => s.ListingsLoaded);
-            foreach (var listing in ui.Listings.ToArray())
+            if (withdrawAll)
             {
-                ui = await actions.Wait(Ui, s => s.IsOpen && s.ActiveTab == 1 && s.ListingsLoaded);
-                var current = ui.Listings.SingleOrDefault(l => l.ListingId == listing.ListingId);
-                if (current == null) continue;
-                report("撤回挂售：" + listing.Name);
-                for (int scrolls = 0; current != null && current.Point == null; scrolls++)
+                await CloseBag();
+                report("拍卖行：撤回全部在售物品");
+                await Tab("register_item_btn", 1);
+                ui = await actions.Wait(Ui, s => s.ListingsLoaded);
+                foreach (var listing in ui.Listings.ToArray())
                 {
-                    Require(scrolls < 30 && ui.ListingsScrollPoint != null, "未找到可见的挂售行。");
-                    var beforeScroll = ui.ListingsScrollY;
-                    var ordered = ui.Listings.ToList();
-                    var firstVisible = ordered.FindIndex(l => l.Point != null);
-                    Require(firstVisible >= 0, "拍卖行列表没有可见行。");
-                    var direction = ordered.FindIndex(l => l.ListingId == listing.ListingId) < firstVisible ? 1 : -1;
-                    await actions.Scroll(ui.ListingsScrollPoint!, direction);
-                    ui = await actions.Wait(Ui, s => s.IsOpen && s.ListingsLoaded && s.ActiveTab == 1 &&
-                        (s.ListingsScrollY != beforeScroll || s.Listings.All(l => l.ListingId != listing.ListingId)));
-                    current = ui.Listings.SingleOrDefault(l => l.ListingId == listing.ListingId);
+                    ui = await actions.Wait(Ui, s => s.IsOpen && s.ActiveTab == 1 && s.ListingsLoaded);
+                    var current = ui.Listings.SingleOrDefault(l => l.ListingId == listing.ListingId);
+                    if (current == null) continue;
+                    report("撤回挂售：" + listing.Name);
+                    for (int scrolls = 0; current != null && current.Point == null; scrolls++)
+                    {
+                        Require(scrolls < 30 && ui.ListingsScrollPoint != null, "未找到可见的挂售行。");
+                        var beforeScroll = ui.ListingsScrollY;
+                        var ordered = ui.Listings.ToList();
+                        var firstVisible = ordered.FindIndex(l => l.Point != null);
+                        Require(firstVisible >= 0, "拍卖行列表没有可见行。");
+                        var direction = ordered.FindIndex(l => l.ListingId == listing.ListingId) < firstVisible ? 1 : -1;
+                        await actions.Scroll(ui.ListingsScrollPoint!, direction);
+                        ui = await actions.Wait(Ui, s => s.IsOpen && s.ListingsLoaded && s.ActiveTab == 1 &&
+                            (s.ListingsScrollY != beforeScroll || s.Listings.All(l => l.ListingId != listing.ListingId)));
+                        current = ui.Listings.SingleOrDefault(l => l.ListingId == listing.ListingId);
+                    }
+                    if (current == null) continue;
+                    await actions.Move(current.Point!);
+                    ui = await actions.Wait(Ui, s => s.IsOpen && s.ActiveTab == 1 && s.ListingsLoaded &&
+                        (s.HoveredListingId == listing.ListingId || s.Listings.All(l => l.ListingId != listing.ListingId)));
+                    if (ui.Listings.All(l => l.ListingId != listing.ListingId)) continue;
+                    var beforeCount = Count(await Bag(), listing.TemplateId);
+                    await actions.Click(Ui, s => s.Listings.SingleOrDefault(l => l.ListingId == listing.ListingId)?.Point,
+                        s => s.IsOpen && s.ActiveTab == 1 && s.ListingsLoaded && s.HoveredListingId == listing.ListingId &&
+                            s.Listings.Any(l => l.ListingId == listing.ListingId && l.TemplateId == listing.TemplateId && l.Quantity == listing.Quantity && l.TotalPrice == listing.TotalPrice), RoadhogMouseButton.Right);
+                    await actions.Wait(Ui, s => s.WithdrawConfirmation?.ListingId == listing.ListingId);
+                    await actions.Click(Ui, s => s.WithdrawConfirmation?.ConfirmButton, s => s.WithdrawConfirmation?.ListingId == listing.ListingId);
+                    await actions.Wait(Ui, s => s.ListingsLoaded && s.WithdrawConfirmation == null && s.Listings.All(l => l.ListingId != listing.ListingId));
+                    await actions.Wait(Bag, b => Count(b, listing.TemplateId) >= checked(beforeCount + listing.Quantity));
+                    history.Listings.RemoveAll(r => r.ListingId == listing.ListingId);
+                    await journal.SaveAsync(account, character, history, token);
                 }
-                if (current == null) continue;
-                await actions.Move(current.Point!);
-                ui = await actions.Wait(Ui, s => s.IsOpen && s.ActiveTab == 1 && s.ListingsLoaded &&
-                    (s.HoveredListingId == listing.ListingId || s.Listings.All(l => l.ListingId != listing.ListingId)));
-                if (ui.Listings.All(l => l.ListingId != listing.ListingId)) continue;
-                var beforeCount = Count(await Bag(), listing.TemplateId);
-                await actions.Click(Ui, s => s.Listings.SingleOrDefault(l => l.ListingId == listing.ListingId)?.Point,
-                    s => s.IsOpen && s.ActiveTab == 1 && s.ListingsLoaded && s.HoveredListingId == listing.ListingId &&
-                        s.Listings.Any(l => l.ListingId == listing.ListingId && l.TemplateId == listing.TemplateId && l.Quantity == listing.Quantity && l.TotalPrice == listing.TotalPrice), RoadhogMouseButton.Right);
-                await actions.Wait(Ui, s => s.WithdrawConfirmation?.ListingId == listing.ListingId);
-                await actions.Click(Ui, s => s.WithdrawConfirmation?.ConfirmButton, s => s.WithdrawConfirmation?.ListingId == listing.ListingId);
-                await actions.Wait(Ui, s => s.ListingsLoaded && s.WithdrawConfirmation == null && s.Listings.All(l => l.ListingId != listing.ListingId));
-                await actions.Wait(Bag, b => Count(b, listing.TemplateId) >= checked(beforeCount + listing.Quantity));
-                history.Listings.RemoveAll(r => r.ListingId == listing.ListingId);
-                await journal.SaveAsync(account, character, history, token);
+                await actions.Wait(Ui, s => s.IsOpen && s.ActiveTab == 1 && s.ListingsLoaded && s.Listings.Count == 0 && s.WithdrawConfirmation == null);
             }
-            await actions.Wait(Ui, s => s.IsOpen && s.ActiveTab == 1 && s.ListingsLoaded && s.Listings.Count == 0 && s.WithdrawConfirmation == null);
             report("拍卖行：按配置登录物品");
             var plan = (await Bag()).Where(i => CleanupTradePolicy.Rule(i, settings, true) != null).ToArray();
+            var bagPrepared = false;
             foreach (var planned in plan)
             {
                 token.ThrowIfCancellationRequested();
@@ -105,7 +118,14 @@ public sealed class AuctionTradingSequence(IKeyboardInput input, IAuctionListing
                 if (item == null) continue;
                 var ids = ui.Listings.Select(l => l.ListingId).ToHashSet();
                 report("拍卖行上架：" + item.Name);
-                await actions.RightClickBag(item, async () => (await Ui()) is { IsOpen: true, ActiveTab: 1, Editor: null, OtherModalOpen: false });
+                if (!bagPrepared)
+                {
+                    await actions.BringBagToFront(async () => (await Ui()) is
+                        { IsOpen: true, ActiveTab: 1, Editor: null, OtherModalOpen: false, WithdrawConfirmation: null, RegistrationConfirmation: null });
+                    bagPrepared = true;
+                }
+                await actions.RightClickBag(item, async () => (await Ui()) is
+                    { IsOpen: true, ActiveTab: 1, Editor: null, OtherModalOpen: false, WithdrawConfirmation: null, RegistrationConfirmation: null });
                 ui = await actions.Wait(Ui, s => s.Editor != null);
                 var editor = ui.Editor!;
                 Require(editor.TemplateId == item.TemplateId && editor.InstanceId == item.InstanceId && editor.MaximumQuantity >= item.Count && editor.UnitPriceMode,

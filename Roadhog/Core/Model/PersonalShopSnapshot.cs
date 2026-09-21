@@ -23,5 +23,6 @@ public sealed record ShopPurchaseQuantity(uint InstanceId, ulong Quantity, ulong
 public sealed record ShopPurchaseSnapshot(bool IsOpen, uint SellerObjectId, IReadOnlyList<ShopPurchaseItem> Items,
     IReadOnlyList<ShopPurchaseItem> Basket, uint? HoveredInstanceId, ShopPurchaseQuantity? QuantityDialog, GameUiPoint? BuyButton)
 {
+    public uint? HoveredBasketInstanceId { get; init; }
     public static ShopPurchaseSnapshot Closed { get; } = new(false, 0, Array.Empty<ShopPurchaseItem>(), Array.Empty<ShopPurchaseItem>(), null, null, null);
 }

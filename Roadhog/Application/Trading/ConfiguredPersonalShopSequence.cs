@@ -50,20 +50,36 @@ public sealed class ConfiguredPersonalShopSequence(IKeyboardInput input, Func<in
                 if (ui.InventoryOpen) { await actions.Key("I"); await actions.Wait(Ui, s => !s.InventoryOpen); }
                 var original = await Bag(); var gold = await Money();
                 var expectedProceeds = batch.Aggregate(0UL, (sum, p) => checked(sum + p.Item.Count * p.UnitPrice));
+                bool Consumed(IReadOnlyList<InventoryItemSnapshot> bag) => batch.All(p =>
+                {
+                    var before = original.Single(i => i.InstanceId == p.Item.InstanceId).Count;
+                    var now = bag.SingleOrDefault(i => i.InstanceId == p.Item.InstanceId)?.Count ?? 0;
+                    return before >= p.Item.Count && now <= before - p.Item.Count;
+                });
                 await actions.Click(Ui, s => s.StartButton, s => s.IsOpen && !s.IsSelling && s.Editor == null && !s.InventoryOpen && s.Listings.Count == registered.Count && registered.All(s.Listings.Contains));
                 await actions.Wait(Ui, s => s.IsSelling);
                 var started = DateTimeOffset.UtcNow; var nextReport = DateTimeOffset.MinValue;
                 while (true)
                 {
                     await actions.Alive(); ui = await Ui(); var bag = await Bag(); var money = await Money();
-                    var consumed = batch.All(p =>
+                    if (Consumed(bag) && money >= checked(gold + expectedProceeds) && ui.Listings.Count == 0) break;
+                    if (!ui.IsSelling)
                     {
-                        var before = original.Single(i => i.InstanceId == p.Item.InstanceId).Count;
-                        var now = bag.SingleOrDefault(i => i.InstanceId == p.Item.InstanceId)?.Count ?? 0;
-                        return before >= p.Item.Count && now <= before - p.Item.Count;
-                    });
-                    if (consumed && money >= checked(gold + expectedProceeds) && ui.Listings.Count == 0) break;
-                    Require(ui.IsSelling, "摆摊中断，未确认本轮全部售罄。");
+                        Require(ui.IsOpen && ui.Editor == null && ui.Listings.Count == 0, "摆摊中断，未确认本轮全部售罄。");
+                        // The game can clear/stop the stall before inventory and proceeds arrive.
+                        // Await all sale postconditions, without treating the empty UI as success.
+                        report("摊位清单已清空，核对背包扣除和出售收入");
+                        var settled = await actions.Wait(async () =>
+                        {
+                            var current = await Ui();
+                            var consumed = Consumed(await Bag());
+                            var proceeds = await Money();
+                            return (Ui: current, Consumed: consumed, Money: proceeds);
+                        }, s => !s.Ui.OtherModalOpen && s.Ui.Editor == null && s.Ui.Listings.Count == 0 &&
+                            s.Consumed && s.Money >= checked(gold + expectedProceeds));
+                        ui = settled.Ui;
+                        break;
+                    }
                     Require(ui.Listings.All(l => registered.Any(p => p.InstanceId == l.InstanceId && p.TemplateId == l.TemplateId && p.UnitPrice == l.UnitPrice && l.Quantity <= p.Quantity)), "摊位清单与计划不一致。");
                     var time = DateTimeOffset.UtcNow;
                     if (time >= nextReport)

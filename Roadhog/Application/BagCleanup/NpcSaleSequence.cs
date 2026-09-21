@@ -6,10 +6,13 @@ using Roadhog.Core.Model;
 
 namespace Roadhog.Application.BagCleanup;
 
+public enum NpcSaleOutcome { AllConfiguredItemsSold, NoSale }
+
 /// <summary>NPC sale UI actions; pathing and return remain owned by the cleanup controller.</summary>
-public sealed class NpcSaleSequence(IKeyboardInput input, Func<int, CancellationToken, Task>? delay = null)
+public sealed class NpcSaleSequence(IKeyboardInput input, Func<int, CancellationToken, Task>? delay = null,
+    int confirmationTimeoutMs = 8000)
 {
-    public async Task RunAsync(AccountWorkerContext context, string npcName, BagCleanupState state)
+    public async Task<NpcSaleOutcome> RunAsync(AccountWorkerContext context, string npcName, BagCleanupState state)
     {
         var token = context.StopToken;
         var snapshots = context.Snapshots;
@@ -46,14 +49,19 @@ public sealed class NpcSaleSequence(IKeyboardInput input, Func<int, Cancellation
             }
             TradingActions.Require((await Ui()).Basket.Count == 0, "商人出售列表已有物品，停止以免出售未配置物品。");
             state.MarkSellItemEntryClicked();
+            await actions.BringBagToFront(async () => Selling(await Ui()) && (await Ui()).Basket.Count == 0);
             while (true)
             {
                 var inventory = (await snapshots.ReadInventoryAsync().WaitAsync(token)).Value;
                 var candidates = BagCleanupItemMatcher.SelectSellRegistrationItems(inventory, context.Config.ScriptSettings!.Maintenance);
-                if (candidates.Count == 0) break;
-                var batch = BagCleanupSellBatchPlanner.SelectNextBatch(candidates).Items;
+                if (candidates.Count == 0)
+                {
+                    await InventoryOpen(false);
+                    return NpcSaleOutcome.AllConfiguredItemsSold;
+                }
+                // Lowest NPC unit value first, one inventory entry per submission; keep the full stack quantity.
+                var batch = candidates.OrderBy(i => i.VendorSellUnitPrice).ThenBy(i => i.Slot).Take(1).ToArray();
                 state.SetSellCandidates(batch, candidates.Count);
-                await InventoryOpen(true);
                 var registered = new List<InventoryItemSnapshot>();
                 foreach (var item in batch)
                 {
@@ -66,24 +74,46 @@ public sealed class NpcSaleSequence(IKeyboardInput input, Func<int, Cancellation
                         ["instanceId"] = item.InstanceId, ["quantity"] = item.Count
                     });
                 }
-                state.MarkSellItemsRegistered(batch.Count);
-                await InventoryOpen(false);
-                await actions.Wait(Ui, s => Selling(s) && !s.InventoryOpen && s.SellButton != null);
+                state.MarkSellItemsRegistered(batch.Length);
+                await actions.Wait(Ui, s => Selling(s) && s.InventoryOpen && s.SellButton != null);
                 var beforeMoney = (await snapshots.ReadInventoryMoneyAsync().WaitAsync(token)).Value;
                 state.SetInitialMoney(beforeMoney);
-                await actions.Click(Ui, s => s.SellButton, s => Selling(s) && !s.InventoryOpen && Matches(s.Basket, batch));
+                await actions.Click(Ui, s => s.SellButton, s => Selling(s) && s.InventoryOpen && Matches(s.Basket, batch));
                 state.MarkSellButtonClicked();
                 // Submit once; prove both item removal and money receipt before another batch.
-                var after = await actions.Wait(async () => (
+                async Task<(NpcTradeSnapshot Ui, IReadOnlyList<InventoryItemSnapshot> Inventory, ulong Money)> ReadResult() => (
                     Ui: await Ui(), Inventory: (await snapshots.ReadInventoryAsync().WaitAsync(token)).Value,
-                    Money: (await snapshots.ReadInventoryMoneyAsync().WaitAsync(token)).Value),
-                    s => Selling(s.Ui) && s.Ui.Basket.Count == 0 && s.Money > beforeMoney &&
-                        batch.All(i => s.Inventory.All(a => a.InstanceId != i.InstanceId)));
+                    Money: (await snapshots.ReadInventoryMoneyAsync().WaitAsync(token)).Value);
+                bool Sold((NpcTradeSnapshot Ui, IReadOnlyList<InventoryItemSnapshot> Inventory, ulong Money) s) =>
+                    Selling(s.Ui) && s.Ui.Basket.Count == 0 && s.Money > beforeMoney &&
+                    batch.All(i => s.Inventory.All(a => a.InstanceId != i.InstanceId));
+                (NpcTradeSnapshot Ui, IReadOnlyList<InventoryItemSnapshot> Inventory, ulong Money) after;
+                try { after = await actions.Wait(ReadResult, Sold, confirmationTimeoutMs); }
+                catch (TradingActions.ConfirmationTimeoutException)
+                {
+                    after = await ReadResult();
+                    await actions.Alive();
+                    // The game clears a rejected sale (e.g. the daily cap). Only the entirely
+                    // unchanged batch and balance may continue; partial/ambiguous results still fail.
+                    if (Selling(after.Ui) && after.Ui.InventoryOpen && after.Ui.Basket.Count == 0 && after.Money == beforeMoney &&
+                        batch.All(i => after.Inventory.Any(a => a.InstanceId == i.InstanceId && a.TemplateId == i.TemplateId && a.Count == i.Count && !a.IsEquipped)))
+                    {
+                        context.Logger.Info("bag_cleanup.sell.no_sale", new Dictionary<string, object?>
+                        {
+                            ["account"] = context.Config.AccountName, ["count"] = batch.Length,
+                            ["money"] = after.Money, ["remaining"] = candidates.Count,
+                            ["reason"] = "basket_cleared_items_and_money_unchanged"
+                        });
+                        await InventoryOpen(false);
+                        return NpcSaleOutcome.NoSale;
+                    }
+                    if (!Sold(after)) throw;
+                }
                 var delta = after.Money - beforeMoney;
                 state.MarkSellBatchVerified(delta);
                 context.Logger.Info("bag_cleanup.sell.batch_verified", new Dictionary<string, object?>
                 {
-                    ["account"] = context.Config.AccountName, ["count"] = batch.Count,
+                    ["account"] = context.Config.AccountName, ["count"] = batch.Length,
                     ["moneyBefore"] = beforeMoney, ["moneyAfter"] = after.Money, ["moneyDelta"] = delta,
                     ["remaining"] = BagCleanupItemMatcher.SelectSellRegistrationItems(after.Inventory, context.Config.ScriptSettings.Maintenance).Count
                 });

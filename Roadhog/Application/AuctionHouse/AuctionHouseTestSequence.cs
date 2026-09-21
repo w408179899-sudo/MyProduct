@@ -1,4 +1,5 @@
 using Roadhog.Application.Input;
+using Roadhog.Application.Trading;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Api;
 using Roadhog.Core.Common;
@@ -15,6 +16,7 @@ public sealed class AuctionHouseTestSequence(IKeyboardInput input, IRoadhogLogge
         IProgress<string>? progress, CancellationToken token, string? configuredNpcName = null)
     {
         var stage = "读取拍卖行"; bool started = false;
+        var inventoryActions = new TradingActions(input, snapshots, token, delay);
         try
         {
             var player = (await snapshots.ReadPlayerAsync().WaitAsync(token)).Value;
@@ -54,8 +56,6 @@ public sealed class AuctionHouseTestSequence(IKeyboardInput input, IRoadhogLogge
             else
             {
                 var item = pair.Item; var rule = pair.Rule;
-                var bag = (await snapshots.ReadInventoryInteractionAsync().WaitAsync(token)).Value;
-                if (!bag.IsOpen) { await Key("I"); await WaitBag(s => s.IsOpen); }
                 Report("查价：" + item.Name);
                 var count = 0;
                 if (rule.PriceLookupMethod == AuctionPriceLookupMethod.SearchCalculation)
@@ -117,6 +117,14 @@ public sealed class AuctionHouseTestSequence(IKeyboardInput input, IRoadhogLogge
             }
             async Task RightClickItem(InventoryItemSnapshot item, int tab)
             {
+                bool MatchesAuction(AuctionHouseSnapshot s) => s.IsOpen && s.ActiveTab == tab && s.Editor == null &&
+                    s.WithdrawConfirmation == null && s.RegistrationConfirmation == null && !s.OtherModalOpen &&
+                    s.Button(tab == 0 ? "item_list_btn" : "register_item_btn") != null;
+                await inventoryActions.BringBagToFront(async () =>
+                {
+                    await CheckPlayer();
+                    return MatchesAuction(await Ui());
+                });
                 var bag = (await snapshots.ReadInventoryInteractionAsync().WaitAsync(token)).Value;
                 var entry = bag.Items.SingleOrDefault(i => i.InstanceId == item.InstanceId && i.TemplateId == item.TemplateId && i.Quantity == item.Count)
                     ?? throw new InvalidOperationException("目标物品不在可见背包中。");
@@ -125,7 +133,7 @@ public sealed class AuctionHouseTestSequence(IKeyboardInput input, IRoadhogLogge
                     !s.ShopIsOpen && !s.IsSelling && s.HoveredInstanceId == item.InstanceId && s.Items.Contains(entry);
                 await WaitBag(MatchesBag);
                 await CheckPlayer(); var auction = await Ui();
-                if (!auction.IsOpen || auction.ActiveTab != tab || auction.Editor != null || auction.Button(tab == 0 ? "item_list_btn" : "register_item_btn") == null)
+                if (!MatchesAuction(auction))
                     throw new InvalidOperationException("右键前拍卖行状态变化。");
                 if (!MatchesBag((await snapshots.ReadInventoryInteractionAsync().WaitAsync(token)).Value)) throw new InvalidOperationException("右键前背包物品变化。");
                 var cursor = (await snapshots.ReadUiCursorAsync().WaitAsync(token)).Value.Position;

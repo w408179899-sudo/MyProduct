@@ -98,6 +98,7 @@ internal sealed partial class InventoryInteractionDecoder(Func<ulong, int, byte[
             start = stop = null; bagItems.Clear();
             if (editor != null) editor = editor with { PriceInput = null, QuantityInput = null, ConfirmButton = null };
             purchase = purchase with { BuyButton = null, Items = purchase.Items.Select(i => i with { Point = null }).ToArray(), HoveredInstanceId = null,
+                Basket = purchase.Basket.Select(i => i with { Point = null }).ToArray(), HoveredBasketInstanceId = null,
                 QuantityDialog = purchase.QuantityDialog is { } q ? q with { Input = null, Confirm = null } : null };
         }
         VerifyGuards();

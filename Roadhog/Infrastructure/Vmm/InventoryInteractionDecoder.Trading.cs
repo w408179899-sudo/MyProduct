@@ -17,8 +17,8 @@ internal sealed partial class InventoryInteractionDecoder
         var seller = BitConverter.ToUInt32(Guard(window + 1240, 4));
         Require(seller != 0, "Missing shop owner.");
         var head = GU(GU(gameBase + 0xD4B010) + 2368);
-        uint? hover = null;
-        List<ShopPurchaseItem> Items(ulong list, bool interactive)
+        uint? hover = null, basketHover = null;
+        List<ShopPurchaseItem> Items(ulong list, bool stock)
         {
             var node = nodes.SingleOrDefault(n => n.Address == list) ?? throw new InvalidDataException("Missing purchase list.");
             var begin = GU(list + 0x368); var count = Count(begin, GU(list + 0x370), 135);
@@ -30,11 +30,16 @@ internal sealed partial class InventoryInteractionDecoder
                 var template = BitConverter.ToUInt32(Guard(slot + 168, 4)); if (template == 0) continue;
                 var id = BitConverter.ToUInt32(Guard(slot + 160, 4)); var qty = GU(slot + 176);
                 var record = MapRecord(head, id);
-                Require(qty > 0 && BitConverter.ToUInt32(Guard(record + 8, 4)) == id && BitConverter.ToUInt32(Guard(record + 12, 4)) == template,
+                Require((stock || qty > 0) && BitConverter.ToUInt32(Guard(record + 8, 4)) == id && BitConverter.ToUInt32(Guard(record + 12, 4)) == template,
                     "Purchase item identity mismatch.");
                 var price = GU(record + 128);
-                result.Add(new(id, template, qty, price, interactive ? ListPoint(node, i) : null));
-                if (interactive && i == hovered) hover = id;
+                // Moving a full stack into the basket leaves a zero-quantity stock row.
+                // Keep its identity, but never publish it as an actionable item.
+                result.Add(new(id, template, qty, price, qty > 0 ? ListPoint(node, i) : null));
+                if (qty > 0 && i == hovered)
+                {
+                    if (stock) hover = id; else basketHover = id;
+                }
             }
             Require(result.Select(i => i.InstanceId).Distinct().Count() == result.Count, "Duplicate purchase items.");
             return result;
@@ -53,7 +58,8 @@ internal sealed partial class InventoryInteractionDecoder
                 controls.SingleOrDefault(n => n.Name == "ok")?.Point(this));
         }
         return new(true, seller, items.AsReadOnly(), basket.AsReadOnly(), hover, editor,
-            editor == null ? nodes.SingleOrDefault(n => n.Name == "ok")?.Point(this) : null);
+            editor == null ? nodes.SingleOrDefault(n => n.Name == "ok")?.Point(this) : null)
+        { HoveredBasketInstanceId = basketHover };
     }
 
     private ulong MapRecord(ulong head, uint id)

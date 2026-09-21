@@ -8,7 +8,7 @@ internal static partial class CleanupWorkflowTests
 {
     public static async Task AuctionSubmissionAsync()
     {
-        foreach (var scenario in new[] { "manual", "minimum", "no_quote", "full", "search", "wrong_editor", "withdraw_all", "legacy_withdraw", "unknown_age", "unconfigured", "empty", "no_proceeds" })
+        foreach (var scenario in new[] { "manual", "minimum", "no_quote", "full", "search", "wrong_editor", "withdraw_all", "legacy_withdraw", "unknown_age", "unconfigured", "empty", "no_proceeds", "continue_registration" })
         {
             var api = new FakeGameApi { InventoryMoney = 100 };
             var input = new RecordingKeyboardInput();
@@ -48,9 +48,12 @@ internal static partial class CleanupWorkflowTests
                 journal.History.WithdrawnTemplates.Add(20);
             }
             var originalIds = state.Listings.Select(l => l.ListingId).ToArray();
-            var expectedSubmits = scenario == "full" ? 15 : allOrders ? 2 : scenario is "manual" or "minimum" or "no_proceeds" ? 1 : 0;
+            if (scenario == "continue_registration")
+                state = state with { ActiveTab = 1, Listings = new[] { new AuctionListing(80, 20, 3, "already-listed", 51, "7", new(400, 100)) } };
+            var expectedSubmits = scenario == "full" ? 15 : allOrders ? 2 : scenario is "manual" or "minimum" or "no_proceeds" or "continue_registration" ? 1 : 0;
             var events = new List<string>();
             var bagOpen = true;
+            var bagInFront = false;
             var down = false;
             var typed = "";
             var submits = 0;
@@ -67,7 +70,7 @@ internal static partial class CleanupWorkflowTests
             input.AfterPress = key =>
             {
                 if (key == "Space") state = state with { IsOpen = false };
-                else if (key == "I") bagOpen = !bagOpen;
+                else if (key == "I") { bagOpen = !bagOpen; bagInFront = bagOpen; }
                 else if (key == "A") typed = "";
                 else if (key.StartsWith("D") && state.Editor != null)
                 { typed += key[1..]; state = state with { Editor = state.Editor with { UnitPrice = ulong.Parse(typed) } }; }
@@ -90,6 +93,8 @@ internal static partial class CleanupWorkflowTests
                         return;
                     }
                     Require(withdrawals == originalIds.Length && state.Listings.All(l => !originalIds.Contains(l.ListingId)), "every original listing withdrawn before opening a registration editor");
+                    Require(bagOpen && bagInFront, "inventory prepared before the registration stage stays in front");
+                    Require(input.Keys.Count(k => k == "I") == 2, "only one close/open preparation before all registrations");
                     var target = BagItems().Single(i => i.Point == p);
                     state = state with { Editor = new(scenario == "wrong_editor" ? 99u : target.TemplateId, target.Quantity, 1, scenario == "no_quote" ? null : 23, new(600, 150))
                     { InstanceId = target.InstanceId, MaximumQuantity = target.Quantity, MinimumAllowedPrice = 2, UnitPriceMode = true, PriceInput = new(500, 150), ConfirmButton = new(550, 150) } };
@@ -135,7 +140,10 @@ internal static partial class CleanupWorkflowTests
             };
             try
             {
-                await new AuctionTradingSequence(input, journal, Fast).RunAsync(api.Create(new(), new InMemoryRoadhogLogger(), stop.Token), "account", settings, _ => { }, stop.Token);
+                var sequence = new AuctionTradingSequence(input, journal, Fast);
+                var snapshots = api.Create(new(), new InMemoryRoadhogLogger(), stop.Token);
+                if (scenario == "continue_registration") await sequence.ContinueRegistrationAsync(snapshots, "account", settings, _ => { }, stop.Token);
+                else await sequence.RunAsync(snapshots, "account", settings, _ => { }, stop.Token);
                 Require(scenario != "wrong_editor", "wrong item must fail");
             }
             catch (InvalidOperationException) when (scenario == "wrong_editor") { }
@@ -145,6 +153,8 @@ internal static partial class CleanupWorkflowTests
             if (expectedCollects == 1) Require(events[^1] == "collect", "collection is the final trade action");
             if (allOrders || scenario == "unconfigured") Require(api.InventoryItems.Single().Name == "unconfigured", "unmatched withdrawn item stays in bag");
             if (scenario == "full") Require(api.InventoryItems.Count == 1 && state.Listings.Count == 15, "fifteen listing limit still collects after retaining overflow");
+            if (scenario == "continue_registration") Require(withdrawals == 0 && state.Listings.Any(l => l.ListingId == 80) && state.Listings.Count == 2,
+                "explicit continuation preserves completed listings and registers only remaining inventory");
             Require(!down && input.KeyUps.Contains("ControlKey"), "release all inputs on every exit");
         }
     }

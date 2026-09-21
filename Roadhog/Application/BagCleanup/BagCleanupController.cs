@@ -1187,9 +1187,9 @@ public sealed partial class BagCleanupController
         {
             try
             {
-                await new NpcSaleSequence(_input).RunAsync(context, state.CleanupNpcName, state);
+                var outcome = await new NpcSaleSequence(_input).RunAsync(context, state.CleanupNpcName, state);
                 state.PrepareReturnAfterSuccess();
-                return BagCleanupTickResult.Running("npc_sale_verified");
+                return BagCleanupTickResult.Running(outcome == NpcSaleOutcome.NoSale ? "npc_sale_no_sale" : "npc_sale_verified");
             }
             catch (Exception ex) when (!context.StopToken.IsCancellationRequested && ex is not OperationCanceledException)
             {

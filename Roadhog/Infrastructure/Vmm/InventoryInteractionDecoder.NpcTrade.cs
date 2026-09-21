@@ -45,7 +45,16 @@ internal sealed partial class InventoryInteractionDecoder
                     basket.Add(new(id, template, quantity));
                 }
                 Require(basket.Select(i => i.InstanceId).Distinct().Count() == basket.Count, "Duplicate NPC sell basket item.");
-                if (!bagOpen) sell = nodes.SingleOrDefault(n => n.Name == "ok")?.Point(this);
+                sell = nodes.SingleOrDefault(n => n.Name == "ok")?.Point(this);
+                if (bagOpen && sell != null)
+                {
+                    Require(Name(bag) == "inventory_dialog", "Unexpected inventory window during NPC sale.");
+                    var bounds = Guard(bag + 0x58, 32);
+                    double D(int offset) => Number(BitConverter.ToDouble(bounds, offset));
+                    var x = D(0); var y = D(8); var width = D(16); var height = D(24);
+                    Require(width > 0 && height > 0, "Invalid inventory bounds during NPC sale.");
+                    if (sell.X >= x && sell.X <= x + width && sell.Y >= y && sell.Y <= y + height) sell = null;
+                }
             }
         }
         var modalOpen = false;

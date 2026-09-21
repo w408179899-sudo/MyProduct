@@ -124,7 +124,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("auction registration fee confirmation validates identity price and submission", CleanupWorkflowTests.AuctionRegistrationFeeAsync),
     ("auction registration fee production decoder and modal guards", PersonalShopDecoderTests.AuctionRegistrationDecodeAsync),
     ("npc sale official snapshot lifecycle and decoder guards", NpcSaleTests.SnapshotAsync),
-    ("npc sale full batches hover identity and submit verification", NpcSaleTests.FlowAsync),
+    ("npc sale single entries by vendor value with hover identity and submit verification", NpcSaleTests.FlowAsync),
     ("npc sale production decoder basket and controls", PersonalShopDecoderTests.NpcTradeAsync),
     ("inventory discard UI button uses unsaved rules and caps three items", TestInventoryDiscardButtonAsync),
     ("inventory discard three-item limit and configured rules", InventoryDiscardTests.LimitAndRulesAsync),
@@ -446,6 +446,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("bag cleanup account3 inventory cycle is hidden and delete verification continues", TestBagCleanupInventoryCycleFailureIsHiddenAsync),
     ("application business code cannot reference raw read APIs", TestBagCleanupBusinessReadBoundaryAsync),
     ("bag cleanup matcher groups weapon armor and accessory as equipment", TestBagCleanupMatcherGroupsEquipmentTypesAsync),
+    ("bag cleanup matcher excludes manastones from equipment rules", BagCleanupManastoneTests.EquipmentRulesExcludeManastonesAsync),
+    ("bag cleanup matcher prioritizes NPC sales before configured stall", BagCleanupTradingPriorityTests.NpcSaleBeforeStallAsync),
     ("bag cleanup matcher maps stigma item type", TestBagCleanupMatcherMapsStigmaItemTypeAsync),
     ("bag cleanup matcher whitelist permits NPC selling", TestBagCleanupMatcherWhitelistPermitsNpcSellingAsync),
     ("bag cleanup matcher maps skill book item type", TestBagCleanupMatcherMapsSkillBookItemTypeAsync),
@@ -800,6 +802,7 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ("cleanup workflow configured stall batches sale proof and purchased goods", CleanupWorkflowTests.ConfiguredStallAsync)
     ,("cleanup workflow purchase decoder guards", PersonalShopDecoderTests.TradingPurchaseDecodeAsync)
     ,("cleanup workflow auction listing and modal decoder guards", PersonalShopDecoderTests.AuctionListingsDecodeAsync)
+    ,("auction inventory foreground reopening guards and cancellation", CleanupWorkflowTests.AuctionInventoryForegroundAsync)
     ,("cleanup workflow hub routes return order and preflight", CleanupWorkflowTests.PathsAndPreflightAsync)
     ,("cleanup workflow worker insertion stop and session isolation", CleanupWorkflowTests.WorkerSessionAsync)
     ,("cleanup workflow settings UI persistence and path editors", CleanupWorkflowTests.SettingsUiAsync)

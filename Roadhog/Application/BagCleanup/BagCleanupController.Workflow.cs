@@ -113,7 +113,7 @@ public sealed partial class BagCleanupController
         {
             context.StopToken.ThrowIfCancellationRequested();
             report(state.Step is BagCleanupStep.LoadCleanupPath or BagCleanupStep.FollowCleanupPath ? "沿清包路径前往商人" :
-                state.Step is BagCleanupStep.ReturnByReversePath or BagCleanupStep.PostCleanupJump ? "出售完成，沿清包路径返回" : "正在向商人出售背包物品");
+                state.Step is BagCleanupStep.ReturnByReversePath or BagCleanupStep.PostCleanupJump ? "NPC 出售阶段结束，沿清包路径返回" : "正在向商人出售背包物品");
             var result = await TickWorkflowAsync(context, state);
             EnsureRunning(result);
             if (result.Status == BagCleanupTickStatus.Completed) return;

@@ -18,6 +18,16 @@ internal static partial class PersonalShopDecoderTests
         m.U(Fixture.Item + 176, 0); Reject(() => m.Decoder().ReadNpcTrade(Fixture.Game), "zero quantity rejected"); m.U(Fixture.Item + 176, 26);
         m.I(trade + 1252, 3); Require(!m.Decoder().ReadNpcTrade(Fixture.Game).IsSelling, "personal-shop purchase is never an NPC sale");
         m.I(trade + 1252, 1);
+        const ulong bag = 0x34000000;
+        m.U(Fixture.Game + 0xD63990 + 27 * 8, bag);
+        m.Widget(bag, "inventory_dialog", 600, 20, 300, 600, 0, 0);
+        Require(m.Decoder().ReadNpcTrade(Fixture.Game) is { InventoryOpen: true, SellButton: not null }, "open inventory outside sell button does not block NPC sale");
+        m.D(bag + 0x58, 100);
+        Require(m.Decoder().ReadNpcTrade(Fixture.Game).SellButton == null, "inventory covering sell button blocks click");
+        m.D(bag + 0x58, 600);
+        m.ShortAddress = bag + 0x58;
+        Reject(() => m.Decoder().ReadNpcTrade(Fixture.Game), "incomplete inventory geometry cannot expose a sell button");
+        m.ShortAddress = null;
         const ulong modal = 0x33000000;
         m.U(Fixture.Game + 0xD63990 + 336 * 8, modal); m.Widget(modal, "msgbox", 0, 0, 100, 100, 0, 0);
         Require(m.Decoder().ReadNpcTrade(Fixture.Game) is { OtherModalOpen: true, SellButton: null }, "modal hides sell control");

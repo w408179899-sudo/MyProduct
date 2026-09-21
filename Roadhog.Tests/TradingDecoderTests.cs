@@ -40,6 +40,21 @@ internal static partial class PersonalShopDecoderTests
         m.I(list+0x3F0,ushort.MaxValue);
         Require(m.Decoder().Read(Fixture.Game).Purchase.HoveredInstanceId==null,"no hover cannot masquerade as remote item zero");
         m.I(list+0x3F0,0);m.I(record+8,1);Reject(()=>m.Decoder().Read(Fixture.Game),"zero remote key still requires matching record identity");m.I(record+8,0);
+        m.U(window+2248,0);
+        const ulong basketVector=0x54000000,basketItem=0x55000000;
+        Grid(m,basket,basketVector,basketItem);m.I(basketItem+160,0);m.I(basketItem+168,567);m.U(basketItem+176,26);
+        m.U(Fixture.Item+176,0);
+        ui=m.Decoder().Read(Fixture.Game).Purchase;
+        Require(ui.Items.Single() is {Quantity:0,Point:null}&&ui.HoveredInstanceId==null,"full basket retains zero stock without an actionable hover");
+        Require(ui.Basket.Single() is {InstanceId:0,Quantity:26,Point:not null}&&ui.HoveredBasketInstanceId==0,"full basket stays readable and exposes a verified cancellation target");
+        m.I(basket+0x3F0,ushort.MaxValue);
+        Require(m.Decoder().Read(Fixture.Game).Purchase.HoveredBasketInstanceId==null,"basket key zero does not imply hover");m.I(basket+0x3F0,0);
+        m.U(basketItem+176,0);Reject(()=>m.Decoder().Read(Fixture.Game),"empty basket row is not valid stock");m.U(basketItem+176,26);
+        m.I(record+12,999);Reject(()=>m.Decoder().Read(Fixture.Game),"zero stock still validates template identity");m.I(record+12,567);
+        m.U(Fixture.Game+0xD63990+336*8,modal);
+        ui=m.Decoder().Read(Fixture.Game).Purchase;
+        Require(ui.Basket.Single().Point==null&&ui.HoveredBasketInstanceId==null&&ui.BuyButton==null,"foreign modal masks basket cancellation and purchase");
+        m.U(Fixture.Game+0xD63990+336*8,0);
         m.U(window+0x28,0);Require(!m.Decoder().Read(Fixture.Game).Purchase.IsOpen,"closed replaces previous remote shop");
         return Task.CompletedTask;
     }

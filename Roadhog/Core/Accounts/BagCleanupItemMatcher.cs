@@ -63,11 +63,11 @@ public static class BagCleanupItemMatcher
         }
 
         return items
-            .Where(item => IsBagItem(item) && !CleanupTradePolicy.Reserved(item, settings))
+            .Where(item => IsBagItem(item) && !CleanupTradePolicy.ReservedForAuction(item, settings))
             .Where(item => action != BagCleanupAction.Discard || !MatchesNameKeyword(item.Name, whitelistKeywords))
             .Where(item => action == BagCleanupAction.Discard
                 ? MatchesNameKeyword(item.Name, blacklistKeywords) ||
-                  (rules.Any(rule => MatchesRule(item, rule)) &&
+                  (!CleanupTradePolicy.Reserved(item, settings) && rules.Any(rule => MatchesRule(item, rule)) &&
                    (!resolveSellDiscardConflict || !sellRules.Any(rule => MatchesRule(item, rule))))
                 : (!MatchesNameKeyword(item.Name, blacklistKeywords) || MatchesNameKeyword(item.Name, whitelistKeywords)) &&
                   rules.Any(rule => MatchesRule(item, rule)))
@@ -85,7 +85,7 @@ public static class BagCleanupItemMatcher
         var blacklistKeywords = ReadKeywords(settings.BagCleanupDiscardItemNameKeywords);
         return items.Where(item =>
             IsBagItem(item) &&
-            !CleanupTradePolicy.Reserved(item, settings) &&
+            !CleanupTradePolicy.ReservedForAuction(item, settings) &&
             !MatchesNameKeyword(item.Name, whitelistKeywords) &&
             !MatchesNameKeyword(item.Name, blacklistKeywords));
     }
@@ -148,7 +148,7 @@ public static class BagCleanupItemMatcher
 
     public static bool IsEquipment(InventoryItemSnapshot item)
     {
-        if (IsRecipeOrDesignScroll(item))
+        if (IsRecipeOrDesignScroll(item) || IsManastone(item))
         {
             return false;
         }
@@ -179,6 +179,7 @@ public static class BagCleanupItemMatcher
     {
         return itemType == 1 ||
                itemType == 2 ||
+               itemType == 3 ||
                itemType == 6 ||
                itemType == 7 ||
                itemType == 8;

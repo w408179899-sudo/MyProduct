@@ -49,23 +49,44 @@ internal static class NpcSaleTests
 
     public static async Task FlowAsync()
     {
-        foreach (var scenario in new[] { "complete", "existing_basket", "wrong_npc", "foreign_item", "wrong_quantity", "hover_changed", "money_only", "stop" })
+        foreach (var scenario in new[] { "complete", "delayed_sale", "sale_limit", "partial_sale", "uncleared_basket", "read_failure", "existing_basket", "wrong_npc", "foreign_item", "wrong_quantity", "hover_changed", "money_only", "stop" })
         {
             var api = new FakeGameApi { TargetName = "merchant", TargetOwnServerObjectId = 42, InventoryMoney = 100 };
             var input = new RecordingKeyboardInput();
             input.AfterMove = (x, y) => api.InventoryUiCursor = new(api.InventoryUiCursor.X + x, api.InventoryUiCursor.Y + y);
-            var items = Enumerable.Range(0, 4).Select(i => new InventoryItemSnapshot(21, (ulong)(11 + i), "equipment", 1, i, false, 7, 1)).ToArray();
+            var prices = new ulong[] { 30, 10, 10, 20 };
+            var items = Enumerable.Range(0, 4).Select(i => new InventoryItemSnapshot(21, (ulong)(11 + i), "equipment",
+                i == 2 ? 3u : 1u, i, false, i == 0 ? 3u : i == 1 ? 2u : i == 2 ? 7u : 6u, 1, prices[i])).ToArray();
             var reserved = new InventoryItemSnapshot(22, 30, "protected", 5, 4, false, 9, 2);
-            api.InventoryItems = items.Append(reserved).ToArray();
+            // Scramble snapshot order: equal unit values must use bag slots, not source order or stack totals.
+            api.InventoryItems = new[] { items[3], items[2], items[0], items[1], reserved };
             var settings = new ScriptSettings();
             settings.Maintenance.BagCleanupRules = new() { new() { Key = BagCleanupRuleCatalog.WhiteEquipment, Enabled = true, Action = BagCleanupAction.Sell } };
+            settings.Maintenance.BagCleanupStallItems = new()
+            {
+                new() { Name = "equipment", UnitPrice = 1 },
+                new() { Name = "protected", UnitPrice = 1 }
+            };
             var ui = new NpcTradeSnapshot(true, new Dictionary<string, GameUiPoint> { ["出售道具"] = new(169, 293) }, false, -1, 0, false, Array.Empty<NpcTradeItem>(), null, false);
             bool open = true, held = false;
             var submits = 0; var rights = 0;
+            var order = new List<uint>();
+            NpcTradeItem[]? pending = null;
+            var settlementReads = 0;
             using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(scenario == "money_only" ? 1 : 3));
             InventoryUiItem[] Bag() => api.InventoryItems.Select(i => new InventoryUiItem((uint)i.InstanceId, i.TemplateId, i.Count, new(700 + i.Slot * 32, 142))).ToArray();
             api.InventoryInteractionRead = () => new(open, false, false, Bag(), scenario == "hover_changed" ? 99u : Bag().FirstOrDefault(i => i.Point == api.InventoryUiCursor)?.InstanceId ?? 0, 0, null, new(512, 384), false);
-            api.NpcTradeRead = () => ui with { InventoryOpen = open, SellButton = ui.IsSelling && !open ? new(280, 400) : null };
+            api.NpcTradeRead = () =>
+            {
+                if (scenario == "read_failure" && submits > 0) throw new TimeoutException("snapshot read failed");
+                if (pending != null)
+                {
+                    settlementReads++;
+                    if (settlementReads == 3) api.InventoryItems = api.InventoryItems.Where(i => pending.All(p => p.InstanceId != i.InstanceId)).ToArray();
+                    if (settlementReads == 5) { api.InventoryMoney += 50; pending = null; }
+                }
+                return ui with { InventoryOpen = open, SellButton = ui.IsSelling ? new(280, 400) : null };
+            };
             input.AfterPress = key => { if (key == "I") open = !open; else throw new Exception("unexpected key " + key); };
             input.AfterMouseDown = _ => held = true;
             input.AfterMouseUp = button =>
@@ -77,6 +98,8 @@ internal static class NpcSaleTests
                     rights++;
                     var item = Bag().Single(i => i.Point == cursor);
                     Require(item.InstanceId != reserved.InstanceId, "reserved item is never clicked");
+                    Require(open && input.Keys.Count(k => k == "I") == 2, "prepare inventory once and keep it open throughout NPC selling");
+                    order.Add(item.InstanceId);
                     ui = ui with { Basket = ui.Basket.Append(new NpcTradeItem(scenario == "foreign_item" ? 999u : item.InstanceId, item.TemplateId,
                         scenario == "wrong_quantity" ? 99UL : item.Quantity)).ToArray() };
                     if (scenario == "stop") stop.Cancel();
@@ -86,10 +109,14 @@ internal static class NpcSaleTests
                         Basket = scenario == "existing_basket" ? new[] { new NpcTradeItem(999, 22, 1) } : Array.Empty<NpcTradeItem>() };
                 else if (cursor == new GameUiPoint(280, 400))
                 {
-                    Require(!open && ui.Basket.Count is > 0 and <= 3, "closed bag and correct batch cap");
-                    submits++; api.InventoryMoney += 50;
-                    if (scenario != "money_only") api.InventoryItems = api.InventoryItems.Where(i => ui.Basket.All(b => b.InstanceId != i.InstanceId)).ToArray();
-                    ui = ui with { Basket = Array.Empty<NpcTradeItem>() };
+                    Require(open && ui.Basket.Count == 1, "sell one stack at a time while the bag stays open");
+                    submits++;
+                    if (scenario == "delayed_sale") { pending = ui.Basket.ToArray(); settlementReads = 0; }
+                    if (scenario is not ("sale_limit" or "partial_sale" or "uncleared_basket" or "delayed_sale" or "read_failure")) api.InventoryMoney += 50;
+                    if (scenario == "partial_sale") api.InventoryItems = api.InventoryItems.Where(i => i.InstanceId != ui.Basket[0].InstanceId).ToArray();
+                    else if (scenario is not ("money_only" or "sale_limit" or "uncleared_basket" or "delayed_sale" or "read_failure"))
+                        api.InventoryItems = api.InventoryItems.Where(i => ui.Basket.All(b => b.InstanceId != i.InstanceId)).ToArray();
+                    if (scenario != "uncleared_basket") ui = ui with { Basket = Array.Empty<NpcTradeItem>() };
                 }
                 else throw new Exception("unexpected click " + cursor);
             };
@@ -97,15 +124,29 @@ internal static class NpcSaleTests
             var context = new AccountWorkerContext(new() { ScriptSettings = settings }, api, logger, new AccountRuntimeManager(logger), new(), stop.Token);
             var state = new BagCleanupState(); state.Start(0, 0);
             Exception? failure = null;
-            try { await new NpcSaleSequence(input, Fast).RunAsync(context, "merchant", state); }
+            try { await new NpcSaleSequence(input, Fast, confirmationTimeoutMs: 150).RunAsync(context, "merchant", state); }
             catch (Exception ex) { failure = ex; }
-            if (scenario == "complete")
-                Require(failure == null && submits == 2 && rights == 4 && api.InventoryItems.Single() == reserved && state.TotalMoneyDelta == 100 && !open,
-                    "two verified batches preserve other items and complete without moving bag");
+            if (scenario is "complete" or "delayed_sale")
+            {
+                Require(failure == null && submits == 4 && rights == 4 && api.InventoryItems.Single() == reserved && state.TotalMoneyDelta == 200 && !open,
+                    "four verified single-item sales preserve other items and close the bag at the end");
+                Require(order.SequenceEqual(new uint[] { 12, 13, 14, 11 }), "ascending NPC unit value, then bag slot, regardless of weapon type or stack total");
+                Require(input.Keys.Count(k => k == "I") == 3, "one initial close/open pair plus final close, without per-item toggles");
+            }
+            else if (scenario == "sale_limit")
+            {
+                Require(failure == null && submits == 1 && rights == 1 && api.InventoryMoney == 100 && api.InventoryItems.Count == 5 && !open,
+                    "empty rejected basket with unchanged items and money ends NPC stage normally without resubmitting");
+                Require(state.SellBatchCount == 0 && logger.Entries.Any(e => e.EventName == "bag_cleanup.sell.no_sale"),
+                    "rejection is distinct from successful sale");
+                Require(api.InventoryItems.Count(i => CleanupTradePolicy.Rule(i, settings.Maintenance, false) != null) == 5,
+                    "unsold configured goods remain eligible for the later stall");
+            }
             else
             {
-                Require(failure != null && submits == (scenario == "money_only" ? 1 : 0), "unsafe or unconfirmed operation must not submit/re-submit: " + scenario);
+                Require(failure != null && submits == (scenario is "money_only" or "partial_sale" or "uncleared_basket" or "read_failure" ? 1 : 0), "unsafe or unconfirmed operation must not submit/re-submit: " + scenario);
                 Require(state.SellBatchCount == 0, "money alone or changed basket is not a successful sale");
+                Require(!logger.Entries.Any(e => e.EventName == "bag_cleanup.sell.no_sale"), "unsafe or failed reads cannot become a normal no-sale result");
             }
             Require(!held, "release mouse on every exit");
         }
