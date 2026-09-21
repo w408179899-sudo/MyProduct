@@ -119,7 +119,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                     {
                         nextCleanupCheck = now.AddSeconds(2);
                         var maintenance = scriptSettings.Maintenance;
-                        if (maintenance.BagCleanupEnabled && maintenance.BagCleanupThreshold > 0)
+                        if (maintenance.BagCleanupEnabled && maintenance.BagCleanupThreshold > 0 && maintenance.CleanupWorkflow.NpcCleanup)
                         {
                             var bag = (await context.Snapshots.ReadInventoryAsync()).Value;
                             var capacity = (await context.Snapshots.ReadInventoryCapacityAsync()).Value;
@@ -130,11 +130,10 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                                 if (!fullCleanupAllowed)
                                 {
                                     // Existing discard rules remain eligible during the full-cleanup cooldown.
-                                    automatic.Maintenance.CleanupWorkflow.Auction = false;
                                     if (!automatic.Maintenance.CleanupWorkflow.NpcCleanup || BagCleanupItemMatcher.SelectDiscardItems(bag, automatic.Maintenance).Count == 0)
                                         automatic.Maintenance.CleanupWorkflow.NpcCleanup = false;
                                 }
-                                if (automatic.Maintenance.CleanupWorkflow.NpcCleanup || automatic.Maintenance.CleanupWorkflow.Auction)
+                                if (automatic.Maintenance.CleanupWorkflow.NpcCleanup)
                                     context.CleanupRequests.Request(automatic, manual: false, resetsCooldown: fullCleanupAllowed, allowNpcSell: fullCleanupAllowed);
                             }
                         }

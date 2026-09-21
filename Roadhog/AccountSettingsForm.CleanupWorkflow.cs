@@ -15,7 +15,7 @@ public partial class AccountSettingsForm
         cleanupAuction = AddCheckBox(options, "拍卖行", 472, 6, 92, false);
         cleanupTransfer = AddCheckBox(options, "转移金币", 576, 6, 110, false);
         cleanupShop = AddCheckBox(options, "摆摊", 700, 6, 90, false);
-        AddLabel(options, "自动仅执行出售、丢弃和拍卖行；手动完成后继续挂机", 344, 34, 480, 24);
+        AddLabel(options, "自动仅执行出售和丢弃；手动按勾选项目执行后继续挂机", 344, 34, 480, 24);
         var toggle = AddButton(page, "▶ 仓库号配置", 12, 78, 250, 28);
         toggle.Name = "cleanupWorkflowOptionsButton";
         var detail = new Panel { Location = new Point(12, 110), Size = new Size(828, 96), Visible = false, BackColor = _inputBackground };

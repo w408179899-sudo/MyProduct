@@ -17,7 +17,7 @@ public sealed class CleanupWorkflowSettings
     public CleanupWorkflowSettings ForTrigger(bool manual)
     {
         var copy = Clone();
-        if (!manual) { copy.TransferGold = false; copy.PersonalShop = false; }
+        if (!manual) { copy.Auction = false; copy.TransferGold = false; copy.PersonalShop = false; }
         return copy;
     }
     public string Describe() => string.Join(" → ", new[]

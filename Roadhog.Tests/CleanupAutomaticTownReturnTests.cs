@@ -35,6 +35,29 @@ internal static partial class CleanupWorkflowTests
         new SharedPathDocument { Name = "merchant", CleanupNpcName = "merchant", Points = new() { new() { X = 1000 } } },
         new SharedPathDocument { Name = "resume", Points = new() { new() { X = 1000 }, new() { X = 0 } } });
 
+    public static async Task AutomaticCleanupSkipsAuctionAsync()
+    {
+        var game = new InventoryDiscardTests.Simulation(0);
+        var config = AutomaticCleanupConfig(game);
+        var settings = config.ScriptSettings!;
+        settings.Maintenance.CleanupWorkflow = new() { NpcCleanup = true, Auction = true, TransferGold = true, PersonalShop = true };
+        settings.Maintenance.BagCleanupAuctionHouseItems.Add(new() { Name = "咒语书", UnitPrice = 10 });
+        game.Api.InventoryItems = new[] { SaleItem() };
+        game.Api.InventoryCapacity = 1;
+        game.Api.AuctionRead = () => throw new Exception("automatic cleanup must not open or read auction UI");
+        var logger = new InMemoryRoadhogLogger();
+        using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var context = new AccountWorkerContext(config, game.Api, logger, new AccountRuntimeManager(logger), new(), stop.Token);
+        Require(context.CleanupRequests.Request(settings, manual: false).Success, "enqueue automatic NPC cleanup");
+        var runner = new CleanupWorkflowRunner(game.Input, new InMemorySharedPathStore(),
+            (_, _, _) => throw new Exception("auction-only inventory must not cause automatic town travel"), new Journal());
+        await runner.RunAsync(context, context.CleanupRequests.Current!);
+        Require(!game.Input.Keys.Any(key => key is "F6" or "F5"), "full bag with auction items does not recall automatically");
+        Require(game.Removed.Count == 0 && game.Api.InventoryItems.Count == 1, "auction-reserved items remain protected");
+        Require(logger.Entries.Any(entry => entry.EventName == "cleanup_workflow.complete"), "automatic cleanup finishes without auction routes");
+        Require(settings.Maintenance.CleanupWorkflow is { Auction: true, TransferGold: true, PersonalShop: true }, "saved manual stages stay selected");
+    }
+
     public static async Task AutomaticDiscardWithSaleStaysLocalAsync()
     {
         var game = new InventoryDiscardTests.Simulation(2);

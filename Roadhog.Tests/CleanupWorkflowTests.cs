@@ -40,10 +40,18 @@ internal static partial class CleanupWorkflowTests
         var mailbox = new CleanupRequestMailbox();
         var requests = await Task.WhenAll(Enumerable.Range(0, 20).Select(_ => Task.Run(() => mailbox.Request(s, true))));
         Require(requests.Count(r => r.Success) == 1, "one pending or executing manual request");
+        Require(mailbox.Current!.Settings.Maintenance.CleanupWorkflow is { NpcCleanup: true, Auction: true, TransferGold: true, PersonalShop: true },
+            "manual cleanup retains all selected stages");
         mailbox.Complete(); Require(mailbox.Request(s, false).Success, "next request after completion");
         var automatic = mailbox.Current!.Settings.Maintenance.CleanupWorkflow;
-        Require(automatic.NpcCleanup && automatic.Auction && !automatic.TransferGold && !automatic.PersonalShop, "automatic trigger cannot transfer or stall");
-        Require(s.Maintenance.CleanupWorkflow.TransferGold, "automatic masking cannot modify saved preferences");
+        Require(automatic.NpcCleanup && !automatic.Auction && !automatic.TransferGold && !automatic.PersonalShop, "automatic trigger only allows NPC sale and discard");
+        Require(s.Maintenance.CleanupWorkflow is { Auction: true, TransferGold: true, PersonalShop: true }, "automatic masking cannot modify saved preferences");
+        mailbox.Complete();
+        var tradingOnly = s.Clone();
+        tradingOnly.Maintenance.CleanupWorkflow.NpcCleanup = false;
+        Require(!mailbox.Request(tradingOnly, false).Success && mailbox.Current is null, "trading stages alone cannot enqueue automatic cleanup");
+        Require(mailbox.Request(tradingOnly, true).Success && mailbox.Current!.Settings.Maintenance.CleanupWorkflow.Auction,
+            "manual trading remains available when automatic cleanup has no eligible stage");
         var item = new InventoryItemSnapshot(1, 11, "green sword", 3, 0, false, ItemType: 1, QualityRank: 1);
         s.Maintenance.BagCleanupAuctionHouseItems.Add(new() { Name = "sword", UnitPrice = 30 });
         s.Maintenance.BagCleanupStallItems.Add(new() { Name = "sword", UnitPrice = 20 });
