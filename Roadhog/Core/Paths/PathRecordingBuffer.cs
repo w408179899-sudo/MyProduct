@@ -145,6 +145,42 @@ public sealed class PathRecordingBuffer
         return OperationResult.Ok();
     }
 
+    public OperationResult RemoveAt(int index)
+    {
+        if (index < 0 || index >= _points.Count) return OperationResult.Fail("请先选择一个路径点");
+        _points.RemoveAt(index);
+        Recalculate();
+        return OperationResult.Ok();
+    }
+
+    public OperationResult ReplaceAt(int index, Vector3Snapshot position, DateTimeOffset recordedAt)
+    {
+        if (index < 0 || index >= _points.Count) return OperationResult.Fail("请先选择一个路径点");
+        if (!IsFinite(position)) return OperationResult.Fail("坐标必须是有效数值");
+        var point = _points[index];
+        point.X = position.X;
+        point.Y = position.Y;
+        point.Z = position.Z;
+        point.RecordedAt = recordedAt;
+        Recalculate();
+        return OperationResult.Ok();
+    }
+
+    public OperationResult InsertAt(int index, Vector3Snapshot position, DateTimeOffset recordedAt)
+    {
+        if (index < 0 || index > _points.Count) return OperationResult.Fail("插入位置无效");
+        if (!IsFinite(position)) return OperationResult.Fail("坐标必须是有效数值");
+        _points.Insert(index, new SharedPathPoint
+        {
+            X = position.X, Y = position.Y, Z = position.Z, RecordedAt = recordedAt
+        });
+        Recalculate();
+        return OperationResult.Ok();
+    }
+
+    private static bool IsFinite(Vector3Snapshot position) =>
+        float.IsFinite(position.X) && float.IsFinite(position.Y) && float.IsFinite(position.Z);
+
     public void Clear()
     {
         MapId = null;

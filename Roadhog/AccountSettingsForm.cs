@@ -140,8 +140,8 @@ namespace Roadhog
         private (int X, int Y) _bagCleanupDiscardConfirmPoint = (
             MaintenanceScriptSettings.DefaultBagCleanupDiscardConfirmClickX,
             MaintenanceScriptSettings.DefaultBagCleanupDiscardConfirmClickY);
-        private RoundedTextBox? bagCleanupSellItemClickPointTextBox;
-        private RoundedTextBox? bagCleanupSellButtonClickPointTextBox;
+        private (int X, int Y) _bagCleanupSellItemClickPoint;
+        private (int X, int Y) _bagCleanupSellButtonClickPoint;
         private BagCleanupItemCoordinateMode _bagCleanupItemCoordinateMode;
         private RoundedTextBox? bagCleanupManualNameTextBox;
         private CheckedListBox? bagCleanupInventoryCheckedListBox;
@@ -521,12 +521,11 @@ namespace Roadhog
             _bagCleanupDiscardConfirmPoint = (
                 settings.Maintenance.BagCleanupDiscardConfirmClickX,
                 settings.Maintenance.BagCleanupDiscardConfirmClickY);
-            SetText(
-                bagCleanupSellItemClickPointTextBox,
-                FormatScreenPoint(settings.Maintenance.BagCleanupSellItemClickX, settings.Maintenance.BagCleanupSellItemClickY));
-            SetText(
-                bagCleanupSellButtonClickPointTextBox,
-                FormatScreenPoint(settings.Maintenance.BagCleanupSellButtonClickX, settings.Maintenance.BagCleanupSellButtonClickY));
+            SetBagCleanupClickPoints(
+                settings.Maintenance.BagCleanupSellItemClickX,
+                settings.Maintenance.BagCleanupSellItemClickY,
+                settings.Maintenance.BagCleanupSellButtonClickX,
+                settings.Maintenance.BagCleanupSellButtonClickY);
             _bagCleanupItemCoordinateMode = settings.Maintenance.BagCleanupItemCoordinateMode;
             ApplyBagCleanupRules(settings.Maintenance.BagCleanupRules);
             PopulateBagCleanupNameLists(BagCleanupNameListsDocument.FromSettings(settings.Maintenance));
@@ -574,6 +573,11 @@ namespace Roadhog
 
         private bool SaveCurrentSettings(out string error)
         {
+            if (pathEditors.Values.Any(IsPathEditorBusy))
+            {
+                error = "路径正在操作中，请完成操作或停止路径后再保存配置。";
+                return false;
+            }
             if (bagCleanupTradeItemGrid?.IsCurrentCellInEditMode == true && bagCleanupTradeItemGrid.CurrentCell is { ColumnIndex: 1, ReadOnly: false } &&
                 !BagCleanupTradeItemConfig.TryParseUnitPrice(bagCleanupTradeItemGrid.EditingControl?.Text, out _))
             {
@@ -695,7 +699,7 @@ namespace Roadhog
                 }
                 if (string.IsNullOrWhiteSpace(name))
                 {
-                    error = "绑定原地打半径前，请选择路径；新路径请先点击“保存到列表”。";
+                    error = "绑定原地打半径前，请选择路径；新路径请先点击“保存修改”。";
                     return false;
                 }
                 if (changes.TryGetValue(name, out var otherRadius) && otherRadius != radius)
@@ -714,7 +718,7 @@ namespace Roadhog
                 var load = _pathStore.LoadAsync(change.Key).GetAwaiter().GetResult();
                 if (!load.Success || load.Value is null)
                 {
-                    error = "读取路径失败，无法保存原地打半径；新路径请先点击“保存到列表”: " +
+                    error = "读取路径失败，无法保存原地打半径；新路径请先点击“保存修改”: " +
                         change.Key + "。" + load.Error;
                     return false;
                 }
@@ -737,6 +741,7 @@ namespace Roadhog
                 {
                     editor.LoadedDocument = document.Clone();
                     ApplyPathRadiusBindingToEditor(editor, document);
+                    MarkPathMetadataSaved(editor, "RadiusEnabled", "Radius");
                     SetPathStatus(editor, "已保存路径半径设置: " + document.Name, false);
                 }
             }
@@ -781,6 +786,7 @@ namespace Roadhog
             var save = _pathStore.SaveAsync(document).GetAwaiter().GetResult();
             if (save.Success)
             {
+                MarkPathMetadataSaved(editor, "Npc");
                 return true;
             }
 
@@ -790,12 +796,10 @@ namespace Roadhog
 
         private void CopyBagCleanupClickPointsToPath(SharedPathDocument document)
         {
-            var sellItemClickPoint = ReadScreenPoint(bagCleanupSellItemClickPointTextBox, 0, 0);
-            var sellButtonClickPoint = ReadScreenPoint(bagCleanupSellButtonClickPointTextBox, 0, 0);
-            document.BagCleanupSellItemClickX = sellItemClickPoint.X;
-            document.BagCleanupSellItemClickY = sellItemClickPoint.Y;
-            document.BagCleanupSellButtonClickX = sellButtonClickPoint.X;
-            document.BagCleanupSellButtonClickY = sellButtonClickPoint.Y;
+            document.BagCleanupSellItemClickX = _bagCleanupSellItemClickPoint.X;
+            document.BagCleanupSellItemClickY = _bagCleanupSellItemClickPoint.Y;
+            document.BagCleanupSellButtonClickX = _bagCleanupSellButtonClickPoint.X;
+            document.BagCleanupSellButtonClickY = _bagCleanupSellButtonClickPoint.Y;
         }
 
         private void ApplyBagCleanupPathClickPoints(SharedPathDocument document)
@@ -806,26 +810,26 @@ namespace Roadhog
                     out var sellButtonClickX,
                     out var sellButtonClickY))
             {
-                SetBagCleanupClickPointTextBoxes(sellItemClickX, sellItemClickY, sellButtonClickX, sellButtonClickY);
+                SetBagCleanupClickPoints(sellItemClickX, sellItemClickY, sellButtonClickX, sellButtonClickY);
                 return;
             }
 
             var settings = BuildEffectiveScriptSettings(LoadAccountConfigOrDefault());
-            SetBagCleanupClickPointTextBoxes(
+            SetBagCleanupClickPoints(
                 settings.Maintenance.BagCleanupSellItemClickX,
                 settings.Maintenance.BagCleanupSellItemClickY,
                 settings.Maintenance.BagCleanupSellButtonClickX,
                 settings.Maintenance.BagCleanupSellButtonClickY);
         }
 
-        private void SetBagCleanupClickPointTextBoxes(
+        private void SetBagCleanupClickPoints(
             int sellItemClickX,
             int sellItemClickY,
             int sellButtonClickX,
             int sellButtonClickY)
         {
-            SetText(bagCleanupSellItemClickPointTextBox, FormatScreenPoint(sellItemClickX, sellItemClickY));
-            SetText(bagCleanupSellButtonClickPointTextBox, FormatScreenPoint(sellButtonClickX, sellButtonClickY));
+            _bagCleanupSellItemClickPoint = (sellItemClickX, sellItemClickY);
+            _bagCleanupSellButtonClickPoint = (sellButtonClickX, sellButtonClickY);
         }
 
         private ScriptSettings CaptureScriptSettings()
@@ -834,8 +838,6 @@ namespace Roadhog
                 deathReviveClickPointTextBox,
                 PathScriptSettings.DefaultDeathReviveClickX,
                 PathScriptSettings.DefaultDeathReviveClickY);
-            var bagCleanupSellItemClickPoint = ReadScreenPoint(bagCleanupSellItemClickPointTextBox, 0, 0);
-            var bagCleanupSellButtonClickPoint = ReadScreenPoint(bagCleanupSellButtonClickPointTextBox, 0, 0);
 
             var settings = new ScriptSettings
             {
@@ -918,10 +920,10 @@ namespace Roadhog
                     BagCleanupEnabled = bagCleanupEnabledCheckBox?.Checked ?? false,
                     BagCleanupThreshold = ReadInt(bagCleanupThresholdTextBox, 5),
                     CleanupWorkflow = CaptureCleanupWorkflow(),
-                    BagCleanupSellItemClickX = bagCleanupSellItemClickPoint.X,
-                    BagCleanupSellItemClickY = bagCleanupSellItemClickPoint.Y,
-                    BagCleanupSellButtonClickX = bagCleanupSellButtonClickPoint.X,
-                    BagCleanupSellButtonClickY = bagCleanupSellButtonClickPoint.Y,
+                    BagCleanupSellItemClickX = _bagCleanupSellItemClickPoint.X,
+                    BagCleanupSellItemClickY = _bagCleanupSellItemClickPoint.Y,
+                    BagCleanupSellButtonClickX = _bagCleanupSellButtonClickPoint.X,
+                    BagCleanupSellButtonClickY = _bagCleanupSellButtonClickPoint.Y,
                     BagCleanupDiscardConfirmClickX = _bagCleanupDiscardConfirmPoint.X,
                     BagCleanupDiscardConfirmClickY = _bagCleanupDiscardConfirmPoint.Y,
                     BagCleanupItemCoordinateMode = _bagCleanupItemCoordinateMode,
@@ -1686,9 +1688,9 @@ namespace Roadhog
             return false;
         }
 
-        private void LoadSelectedProfile()
+        private async void LoadSelectedProfile()
         {
-            if (loadingProfileCombo)
+            if (loadingProfileCombo || resolvingProfilePaths)
             {
                 return;
             }
@@ -1696,7 +1698,27 @@ namespace Roadhog
             var name = GetSelectedProfileName();
             if (!string.IsNullOrWhiteSpace(name))
             {
-                LoadProfileByName(name);
+                resolvingProfilePaths = true;
+                try
+                {
+                    var resolved = new Dictionary<PathEditorControls, string>();
+                    foreach (var editor in pathEditors.Values)
+                    {
+                        if (!await ResolvePathDraftAsync(editor).ConfigureAwait(true))
+                        {
+                            SelectProfileComboItem(profileNameTextBox?.Text, loadProfile: false);
+                            return;
+                        }
+                        resolved[editor] = PathDraftFingerprint(editor);
+                    }
+                    if (resolved.Any(entry => IsPathEditorBusy(entry.Key) || PathDraftFingerprint(entry.Key) != entry.Value))
+                    {
+                        SelectProfileComboItem(profileNameTextBox?.Text, loadProfile: false);
+                        return;
+                    }
+                    LoadProfileByName(name);
+                }
+                finally { resolvingProfilePaths = false; }
             }
         }
 
@@ -1865,7 +1887,7 @@ namespace Roadhog
             pathOverviewLabels[SharedPathKind.Combat] = AddLabel(page, "打怪路径:  未选（0点）", 430, 28, 394, 22);
             pathOverviewLabels[SharedPathKind.Maintenance] = AddLabel(page, "清包路径:  未选（0点）", 12, 52, 394, 22);
             pathOverviewLabels[SharedPathKind.Gather] = AddLabel(page, "采集路径:  未选（0点）", 430, 52, 394, 22);
-            AddLabel(page, "录制最小距离", 12, 82, 104, 22, _textGreen, FontStyle.Bold);
+            AddLabel(page, "末尾加点间距", 12, 82, 104, 22, _textGreen, FontStyle.Bold);
             pathRecordingMinimumDistanceTextBox = AddTextBox(
                 page,
                 PathScriptSettings.DefaultRecordingMinimumDistance.ToString("0.###", CultureInfo.InvariantCulture),
@@ -1957,17 +1979,10 @@ namespace Roadhog
             editor.SavedPathCombo.SelectedIndexChanged += (_, _) => LoadSelectedPath(editor);
             AddLabel(page, "已存路径", 376, 42, 72, 22);
 
-            AddButton(page, "保存到列表", 12, 74, 100, 30, (_, _) => SavePath(editor));
-            AddButton(page, "删除保存", 120, 74, 92, 30, (_, _) => DeleteSavedPath(editor));
-            var openPathFolderButton = AddButton(
-                page,
-                "打开路径文件夹",
-                220,
-                74,
-                128,
-                30,
-                (_, _) => OpenPathLibraryFolder(editor));
-            openPathFolderButton.Name = "openPathLibraryFolderButton";
+            editor.SaveButton = AddButton(page, "保存修改", 12, 74, 100, 30, (_, _) => SavePath(editor));
+            AddPathMoreMenu(page, editor);
+            editor.DirtyLabel = AddLabel(page, "已保存", 350, 6, 96, 22);
+            editor.DirtyLabel.AutoEllipsis = true;
             if (kind is SharedPathKind.Combat or SharedPathKind.Revive)
             {
                 editor.BindStationaryRadiusCheckBox = AddCheckBox(page, "绑定原地打半径", 452, 76, 150, false);
@@ -2017,8 +2032,6 @@ namespace Roadhog
                 };
 
                 AddPathNpcSelection(maintenanceOptions, editor, "清包NPC", 36);
-
-                AddBagCleanupPathClickPointControls(page, 584, 184 + contentOffset);
             }
             else if (kind == SharedPathKind.Auction)
             {
@@ -2031,20 +2044,8 @@ namespace Roadhog
             editor.SummaryLabel = AddLabel(page, "点数  0  |  总距  0.0  |  跳过  0", 12, 112 + contentOffset, 300, 24, _textGreen, FontStyle.Bold);
             editor.StatusLabel = AddLabel(page, "等待读取坐标", 350, 112 + contentOffset, 462, 24);
 
-            editor.ManualButton = AddButton(page, "添加当前位置", 12, 144 + contentOffset, 98, 30, (_, _) => AddManualPathPoint(editor));
-            if (kind != SharedPathKind.Gather)
-            {
-                editor.StartButton = AddButton(page, "开始录制", 118, 144 + contentOffset, 98, 30, (_, _) => StartPathRecording(editor));
-                editor.StopButton = AddButton(page, "停止录制", 224, 144 + contentOffset, 98, 30, (_, _) => StopPathRecording(editor));
-            }
-
-            var deleteLastPointX = kind == SharedPathKind.Gather ? 118 : 338;
-            var clearPointsX = kind == SharedPathKind.Gather ? 216 : 436;
-            var copyPathX = kind == SharedPathKind.Gather ? 294 : 514;
-            var executePathX = kind == SharedPathKind.Gather ? 398 : 720;
-            AddButton(page, "删除末点", deleteLastPointX, 144 + contentOffset, 82, 30, (_, _) => RemoveLastPathPoint(editor));
-            AddButton(page, "清空", clearPointsX, 144 + contentOffset, 62, 30, (_, _) => ClearPathPoints(editor));
-            AddButton(page, "复制路径", copyPathX, 144 + contentOffset, 88, 30, (_, _) => CopyPath(editor));
+            editor.ManualButton = AddButton(page, "添加当前位置到末尾", 12, 144 + contentOffset, 170, 30, (_, _) => AddManualPathPoint(editor));
+            var executePathX = 720;
             editor.ExecutePathButton = AddButton(
                 page,
                 kind == SharedPathKind.Gather ? "执行采集" : "执行路径",
@@ -2067,28 +2068,15 @@ namespace Roadhog
             }
             else
             {
-                var pointsBox = new RoundedTextBox
-                {
-                    BackColor = _inputBackground,
-                    BorderColor = Color.FromArgb(134, 239, 172),
-                    CornerRadius = 9,
-                    Font = new Font("Consolas", 10F, FontStyle.Bold),
-                    ForeColor = _textGreen,
-                    Location = new Point(12, 184 + contentOffset),
-                    Multiline = true,
-                    ReadOnly = true,
-                    ScrollBars = ScrollBars.Vertical,
-                    Size = new Size(kind == SharedPathKind.Maintenance ? 548 : 800, kind == SharedPathKind.Maintenance ? 106 : 130),
-                    Text = string.Empty
-                };
-                editor.PointsTextBox = pointsBox;
-                page.Controls.Add(pointsBox);
+                AddPathPointList(page, editor, 184 + contentOffset);
             }
 
+            var pointEditorTop = kind == SharedPathKind.Gather ? 350 : kind == SharedPathKind.Maintenance ? 284 + contentOffset : 326 + contentOffset;
+            AddPathPointEditControls(page, editor, pointEditorTop);
             var pathAdvanced = CreateFoldout(
                 page,
                 "高级路径设置",
-                kind == SharedPathKind.Gather ? 350 : kind == SharedPathKind.Maintenance ? 302 + contentOffset : 326 + contentOffset,
+                pointEditorTop + 76,
                 824,
                 true);
             pathAdvanced.Content.Height = kind == SharedPathKind.Revive ? 68 : 40;
@@ -2096,7 +2084,6 @@ namespace Roadhog
             var loopCheckBox = AddCheckBox(pathAdvanced.Content, "循环路径", 6, 12, 92, true);
             var reverseCheckBox = AddCheckBox(pathAdvanced.Content, "到终点反向", 102, 12, 106, false);
             var deathStopCheckBox = AddCheckBox(pathAdvanced.Content, "死亡停止路径", 206, 12, 130, true);
-            AddLabel(pathAdvanced.Content, $"自动录制每 {PathRecordTimerIntervalMs}ms 读取一次", 346, 13, 240, 24);
             if (kind == SharedPathKind.Revive)
             {
                 loopPathCheckBox = loopCheckBox;
@@ -2114,6 +2101,7 @@ namespace Roadhog
                 AddLabel(pathAdvanced.Content, "米", 212, 42, 28, 22);
             }
 
+            InitializePathDraftTracking(editor);
             RefreshPathEditor(editor);
             return tab;
         }
@@ -2138,7 +2126,7 @@ namespace Roadhog
             pointsList.Columns.Add("#", 42, HorizontalAlignment.Center);
             pointsList.Columns.Add("坐标", 214, HorizontalAlignment.Left);
             pointsList.Columns.Add("路径点动作", 226, HorizontalAlignment.Left);
-            pointsList.SelectedIndexChanged += (_, _) => PopulateGatherPointEditor(editor);
+            pointsList.SelectedIndexChanged += (_, _) => PopulatePathPointEditor(editor);
             editor.GatherPointsList = pointsList;
             page.Controls.Add(pointsList);
 
@@ -2351,6 +2339,7 @@ namespace Roadhog
 
         private void BindGatherAction(PathEditorControls editor)
         {
+            if (IsPathEditorBusy(editor)) return;
             var point = GetSelectedGatherPoint(editor);
             if (point is null)
             {
@@ -2375,6 +2364,7 @@ namespace Roadhog
                 editor,
                 "采集物 " + gatherSourceId.ToString(CultureInfo.InvariantCulture));
 
+            editor.History.Remember(editor.Buffer.ToDocument(string.Empty), SelectedPathPointIndex(editor));
             foreach (var pathPoint in editor.Buffer.Points)
             {
                 foreach (var sameTypeAction in (pathPoint.GatherActions ?? new List<GatherPointAction>())
@@ -2415,6 +2405,7 @@ namespace Roadhog
 
         private void ClearGatherAction(PathEditorControls editor)
         {
+            if (IsPathEditorBusy(editor)) return;
             var point = GetSelectedGatherPoint(editor);
             if (point is null)
             {
@@ -2422,6 +2413,7 @@ namespace Roadhog
                 return;
             }
 
+            editor.History.Remember(editor.Buffer.ToDocument(string.Empty), SelectedPathPointIndex(editor));
             point.GatherActions = new List<GatherPointAction>();
             SetGatherManualEntryMode(editor, false);
             RefreshPathEditor(editor);
@@ -2453,33 +2445,6 @@ namespace Roadhog
 
             return uint.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out gatherSourceId) &&
                    gatherSourceId > 0;
-        }
-
-        private void AddBagCleanupPathClickPointControls(Control page, int x, int y)
-        {
-            AddLabel(page, "出售道具", x, y + 2, 68, 24, _textGreen, FontStyle.Bold);
-            bagCleanupSellItemClickPointTextBox = AddTextBox(page, "0,0", x + 68, y, 84, 28);
-            var testSellItemPointButton = AddButton(page, "移动测试", x + 158, y, 66, 28);
-            testSellItemPointButton.Click += async (_, _) =>
-                await TestScreenPointMoveAsync(
-                        bagCleanupSellItemClickPointTextBox,
-                        testSellItemPointButton,
-                        0,
-                        0,
-                        "出售道具")
-                    .ConfigureAwait(true);
-
-            AddLabel(page, "出售", x, y + 40, 68, 24, _textGreen, FontStyle.Bold);
-            bagCleanupSellButtonClickPointTextBox = AddTextBox(page, "0,0", x + 68, y + 38, 84, 28);
-            var testSellButtonPointButton = AddButton(page, "移动测试", x + 158, y + 38, 66, 28);
-            testSellButtonPointButton.Click += async (_, _) =>
-                await TestScreenPointMoveAsync(
-                        bagCleanupSellButtonClickPointTextBox,
-                        testSellButtonPointButton,
-                        0,
-                        0,
-                        "出售")
-                    .ConfigureAwait(true);
         }
 
         private void RefreshPathLibrary()
@@ -2537,6 +2502,8 @@ namespace Roadhog
             }
 
             editor.LoadedDocument = null;
+            editor.Buffer.Clear();
+            editor.History.Clear();
             ApplyPathRadiusBindingToEditor(editor, null);
             if (editor.SavedPathCombo is not null)
             {
@@ -2553,12 +2520,16 @@ namespace Roadhog
             }
             if (string.IsNullOrWhiteSpace(pathName))
             {
+                MarkPathDraftSaved(editor);
+                RefreshPathEditor(editor);
                 RefreshPathOverviews();
                 return;
             }
 
             if (!SelectPathComboItem(editor, pathName, loadPath: true))
             {
+                MarkPathDraftSaved(editor);
+                RefreshPathEditor(editor);
                 SetPathStatus(editor, "路径未保存: " + pathName, true);
                 RefreshPathOverviews();
             }
@@ -2599,7 +2570,7 @@ namespace Roadhog
             return false;
         }
 
-        private void LoadSelectedPath(PathEditorControls editor)
+        private async void LoadSelectedPath(PathEditorControls editor)
         {
             if (loadingPathCombos)
             {
@@ -2607,22 +2578,27 @@ namespace Roadhog
             }
 
             var name = GetSelectedPathName(editor);
-            if (!string.IsNullOrWhiteSpace(name))
+            if (string.IsNullOrWhiteSpace(name)) return;
+            var previousName = editor.LoadedDocument?.Name;
+            if (await ResolvePathDraftAsync(editor).ConfigureAwait(true))
             {
-                LoadPathByName(editor, name);
+                if (!LoadPathByName(editor, name)) RestorePathCombo(editor, editor.LoadedDocument?.Name);
             }
+            else RestorePathCombo(editor, previousName);
         }
 
-        private void LoadPathByName(PathEditorControls editor, string name)
+        private bool LoadPathByName(PathEditorControls editor, string name)
         {
             var result = _pathStore.LoadAsync(name).GetAwaiter().GetResult();
             if (!result.Success || result.Value is null)
             {
                 SetPathStatus(editor, result.Error ?? "加载路径失败", true);
-                return;
+                return false;
             }
 
             editor.Buffer.Load(result.Value.Points, result.Value.MapId);
+            editor.History.Clear();
+            editor.PendingSelection = 0;
             editor.LoadedDocument = result.Value.Clone();
             ApplyPathRadiusBindingToEditor(editor, result.Value);
             editor.SkippedCount = 0;
@@ -2635,7 +2611,10 @@ namespace Roadhog
 
             RefreshPathEditor(editor);
             RefreshPathOverviews();
+            MarkPathDraftSaved(editor);
+            SelectPathComboItem(editor, name, loadPath: false);
             SetPathStatus(editor, "已加载路径: " + result.Value.Name, false);
+            return true;
         }
 
         private async void SavePath(PathEditorControls editor)
@@ -2684,7 +2663,7 @@ namespace Roadhog
 
         private async Task SavePathAsync(PathEditorControls editor)
         {
-            if (editor.SavingPath)
+            if (IsPathEditorBusy(editor))
             {
                 return;
             }
@@ -2717,7 +2696,9 @@ namespace Roadhog
             }
 
             var loadedDocument = editor.LoadedDocument?.Clone();
+            var savedFingerprint = PathDraftFingerprint(editor);
             editor.SavingPath = true;
+            RefreshPathEditState(editor);
             try
             {
                 // A shared file may also be edited from another path tab. Preserve its latest
@@ -2771,11 +2752,13 @@ namespace Roadhog
                 if (string.Equals(GetText(editor.PathNameTextBox, string.Empty), name, StringComparison.Ordinal))
                 {
                     editor.LoadedDocument = merged.Clone();
+                    var draftStillCurrent = PathDraftFingerprint(editor) == savedFingerprint;
                     if ((editor.BindStationaryRadiusCheckBox?.Checked == true) == bindingChecked &&
                         GetText(editor.StationaryRadiusTextBox, string.Empty) == bindingText)
                     {
                         ApplyPathRadiusBindingToEditor(editor, merged);
                     }
+                    editor.SavedFingerprint = draftStillCurrent ? PathDraftFingerprint(editor) : savedFingerprint;
                     SelectPathComboItem(editor, name, loadPath: false);
                     SetPathStatus(editor, "已保存共享路径: " + name, false);
                 }
@@ -2784,6 +2767,7 @@ namespace Roadhog
             finally
             {
                 editor.SavingPath = false;
+                RefreshPathEditState(editor);
             }
         }
 
@@ -2800,6 +2784,7 @@ namespace Roadhog
 
         private async void DeleteSavedPath(PathEditorControls editor)
         {
+            if (IsPathEditorBusy(editor)) return;
             var name = GetSelectedPathName(editor);
             if (string.IsNullOrWhiteSpace(name))
             {
@@ -2823,20 +2808,38 @@ namespace Roadhog
                 return;
             }
 
-            var result = await _pathStore.DeleteAsync(name).ConfigureAwait(true);
-            if (!result.Success)
+            editor.SavingPath = true;
+            RefreshPathEditState(editor);
+            try
             {
-                SetPathStatus(editor, result.Error ?? "删除路径失败", true);
-                return;
+                var result = await _pathStore.DeleteAsync(name).ConfigureAwait(true);
+                if (!result.Success)
+                {
+                    SetPathStatus(editor, result.Error ?? "删除路径失败", true);
+                    return;
+                }
+                // Retain the current points as an explicitly unsaved draft after deleting its file.
+                editor.LoadedDocument = null;
+                editor.SavedFingerprint = string.Empty;
+                RefreshPathLibrary();
+                RestorePathCombo(editor, null);
+                SetPathStatus(editor, "已删除共享路径，当前坐标保留为未保存草稿: " + name, false);
             }
-
-            RefreshPathLibrary();
-            SetPathStatus(editor, "已删除共享路径: " + name, false);
+            finally { editor.SavingPath = false; RefreshPathEditState(editor); }
         }
 
         private async void AddManualPathPoint(PathEditorControls editor)
         {
-            await AddCurrentPlayerPointAsync(editor, "手动录点", showSkipped: true, dense: false).ConfigureAwait(true);
+            if (IsPathEditorBusy(editor)) return;
+            editor.ReadingPosition = true;
+            RefreshPathEditState(editor);
+            try
+            {
+                await AddCurrentPlayerPointAsync(editor, "手动录点", showSkipped: true, dense: false).ConfigureAwait(true);
+            }
+            catch (OperationCanceledException) { SetPathStatus(editor, "读取坐标超时，请稍后重试", true); }
+            catch (Exception ex) { SetPathStatus(editor, "读取坐标失败: " + ex.Message, true); }
+            finally { editor.ReadingPosition = false; RefreshPathEditState(editor); }
         }
 
         private void StartPathRecording(PathEditorControls editor)
@@ -2889,12 +2892,15 @@ namespace Roadhog
 
         private async Task AddCurrentPlayerPointAsync(PathEditorControls editor, string reason, bool showSkipped, bool dense)
         {
-            var scene = await _runtime.ReadSceneForPathRecordingAsync(_account).ConfigureAwait(true);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var scene = await _runtime.ReadSceneForPathRecordingAsync(_account, timeout.Token).ConfigureAwait(true);
             if (!scene.IsReady)
             {
                 SetPathStatus(editor, "地图加载中，等待角色恢复后继续录点", false);
                 return;
             }
+            var before = editor.Buffer.ToDocument(string.Empty);
+            var selection = SelectedPathPointIndex(editor);
             if (!editor.Buffer.AcceptRecordingMap(scene.Channel!.MapId))
             {
                 StopPathRecording(editor);
@@ -2924,6 +2930,8 @@ namespace Roadhog
                 return;
             }
 
+            editor.History.Remember(before, selection);
+            editor.PendingSelection = editor.Buffer.Count - 1;
             RefreshPathEditor(editor);
             RefreshPathOverviews();
             SetPathStatus(editor, reason + "成功: " + FormatVector(position), false);
@@ -2945,6 +2953,10 @@ namespace Roadhog
 
         private void ClearPathPoints(PathEditorControls editor)
         {
+            if (IsPathEditorBusy(editor) || editor.Buffer.Count == 0) return;
+            if (MessageBox.Show(this, "清空当前路径的全部坐标？可以撤销恢复。", "清空路径",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            editor.History.Remember(editor.Buffer.ToDocument(string.Empty), SelectedPathPointIndex(editor));
             editor.Buffer.Clear();
             editor.SkippedCount = 0;
             RefreshPathEditor(editor);
@@ -2979,6 +2991,7 @@ namespace Roadhog
                 return;
             }
 
+            if (IsPathEditorBusy(editor)) return;
             if (editor.Buffer.Count == 0)
             {
                 SetPathStatus(editor, "路径为空，无法执行", true);
@@ -2992,6 +3005,7 @@ namespace Roadhog
 
             using var executionCts = new CancellationTokenSource();
             editor.ExecutePathCancellation = executionCts;
+            RefreshPathEditState(editor);
             button.Text = "停止路径";
             SetPathStatus(editor, "正在执行路径", false);
 
@@ -3001,7 +3015,7 @@ namespace Roadhog
                     .ExecutePathAsync(
                         _account,
                         GetText(editor.PathNameTextBox, "manual_path"),
-                        editor.Buffer.Points.ToArray(),
+                        editor.Buffer.Points.Select(point => point.Clone()).ToArray(),
                         CaptureScriptSettings(),
                         executionCts.Token)
                     .ConfigureAwait(true);
@@ -3022,6 +3036,7 @@ namespace Roadhog
                 {
                     button.Text = "执行路径";
                 }
+                RefreshPathEditState(editor);
             }
         }
 
@@ -3037,6 +3052,7 @@ namespace Roadhog
                 RefreshGatherPointList(editor);
             }
 
+            RefreshPathEditState(editor);
             if (editor.SummaryLabel is not null)
             {
                 editor.SummaryLabel.Text =
@@ -3053,9 +3069,8 @@ namespace Roadhog
                 return;
             }
 
-            var selectedIndex = pointsList.SelectedIndices.Count > 0
-                ? pointsList.SelectedIndices[0]
-                : -1;
+            var selectedIndex = editor.PendingSelection ?? SelectedPathPointIndex(editor);
+            editor.PendingSelection = null;
             if (selectedIndex < 0 && editor.Buffer.Count > 0)
             {
                 selectedIndex = editor.Buffer.Count - 1;
@@ -3090,7 +3105,8 @@ namespace Roadhog
                         point.X.ToString("F2", CultureInfo.InvariantCulture) + ", " +
                         point.Y.ToString("F2", CultureInfo.InvariantCulture) + ", " +
                         point.Z.ToString("F2", CultureInfo.InvariantCulture));
-                    item.SubItems.Add(actionText);
+                    item.SubItems.Add(editor.Kind == SharedPathKind.Gather
+                        ? actionText : point.Index == 1 ? "—" : point.SegmentDistance.ToString("F2", CultureInfo.InvariantCulture) + " 米");
                     pointsList.Items.Add(item);
                 }
 
@@ -3107,7 +3123,7 @@ namespace Roadhog
                 editor.RefreshingGatherPoints = false;
             }
 
-            PopulateGatherPointEditor(editor);
+            PopulatePathPointEditor(editor);
         }
 
         private void AddPathNpcSelection(Panel panel, PathEditorControls editor, string label, int top)
@@ -9374,7 +9390,7 @@ namespace Roadhog
             public RoundedComboBox ActionCombo { get; }
         }
 
-        private sealed class PathEditorControls
+        private sealed partial class PathEditorControls
         {
             public PathEditorControls(SharedPathKind kind)
             {

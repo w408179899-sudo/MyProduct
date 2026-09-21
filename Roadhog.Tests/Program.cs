@@ -239,6 +239,14 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat blocks tab when radar line intersects obstacle", TestStationaryCombatBlocksTabWhenRadarLineIntersectsObstacleAsync),
     ("stationary combat consumes waypoint arrival and commits clear target", TestStationaryCombatConsumesWaypointArrivalAndCommitsClearTargetAsync),
     ("path recorder enforces five meter minimum", TestPathRecorderMinimumDistanceAsync),
+    ("path editing boundaries distances actions and undo", PathEditingTests.BufferEditsAsync),
+    ("path editing all six tabs selection and undo", PathEditingTests.AllTabsAsync),
+    ("path editing JSON save reload preserves metadata", PathEditingTests.SaveReloadAsync),
+    ("path editing invalid input and busy guards", PathEditingTests.ValidationAndBusyAsync),
+    ("path editing failed delayed saves and navigation choices", PathEditingTests.SaveFailureAndChoicesAsync),
+    ("path editing current position map and loading guards", PathEditingTests.ReadPositionAsync),
+    ("path editing missing configured files are not unsaved changes", PathEditingTests.MissingConfiguredPathsAsync),
+    ("path editing metadata save retains coordinate drafts", PathEditingTests.MetadataSaveAsync),
     ("shared path store saves loads and deletes path files", TestSharedPathStoreRoundTripAsync),
     ("path radius binding JSON remains compatible", CombatPathRadiusBindingTests.JsonCompatibilityAsync),
     ("path radius binding runtime fallback and mode boundaries", CombatPathRadiusBindingTests.RuntimeFallbacksAndModesAsync),
@@ -994,15 +1002,21 @@ static Task TestPathTabOpensConfiguredPathFolderAsync()
     var launcher = new RecordingFolderLauncher();
     var pathLibraryDirectory = Path.Combine("test-runtime", "config", "paths");
     using var form = CreateAccountSettingsFormForTests(launcher, pathLibraryDirectory);
-    var buttons = form.Controls.Find("openPathLibraryFolderButton", true);
-
-    AssertEqual(6, buttons.Length, "each path kind, including auction and stall, exposes the folder action");
-    AssertFalse(buttons[0] is not System.Windows.Forms.Button, "path folder control should be a button");
-    var onClick = typeof(System.Windows.Forms.Button).GetMethod(
-        "OnClick",
-        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-    AssertFalse(onClick is null, "path folder button click method should be available");
-    onClick!.Invoke(buttons[0], new object[] { EventArgs.Empty });
+    var editors = (System.Collections.IDictionary)GetPrivateFieldForTest(form, "pathEditors");
+    AssertEqual(6, editors.Count, "all six path kinds expose a separate folder button");
+    foreach (var editor in editors.Values.Cast<object>())
+    {
+        var more = (System.Windows.Forms.Button)editor.GetType().GetProperty("MoreButton")!.GetValue(editor)!;
+        var folder = (System.Windows.Forms.Button)more.Parent!.Controls.Find("openPathLibraryFolderButton", false).Single();
+        AssertFalse(more.Left < folder.Right || folder.Top != more.Top, "folder button sits before More");
+        AssertSequence(new[] { "清空当前坐标", "删除已保存路径" },
+            more.ContextMenuStrip!.Items.Cast<System.Windows.Forms.ToolStripItem>().Select(item => item.Text ?? string.Empty).ToArray(),
+            "More retains only clear and delete, with no copy or folder entry");
+        var dirty = (System.Windows.Forms.Label)editor.GetType().GetProperty("DirtyLabel")!.GetValue(editor)!;
+        AssertFalse(dirty.Bounds.IntersectsWith(folder.Bounds), "save indicator does not overlap folder button");
+        typeof(System.Windows.Forms.Button).GetMethod("OnClick", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(folder, new object[] { EventArgs.Empty });
+    }
     AssertEqual(pathLibraryDirectory, launcher.LastDirectory ?? string.Empty, "opened path folder");
     return Task.CompletedTask;
 }

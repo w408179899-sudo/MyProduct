@@ -518,7 +518,7 @@ internal static class CombatPathRadiusBindingTests
 
         ((Control)Editor(form, SharedPathKind.Revive).GetType().GetProperty("PathNameTextBox")!
             .GetValue(Editor(form, SharedPathKind.Revive))!).Text = "unsaved-path";
-        SaveConfiguration(form, "保存到列表");
+        SaveConfiguration(form, "保存修改");
         Check(!store.LoadAsync("unsaved-path").Result.Success, "must not create an empty path from global save");
     });
 
