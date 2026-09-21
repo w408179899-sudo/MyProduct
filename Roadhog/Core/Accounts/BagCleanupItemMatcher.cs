@@ -63,12 +63,13 @@ public static class BagCleanupItemMatcher
         }
 
         return items
-            .Where(item => IsBagItem(item) && !MatchesNameKeyword(item.Name, whitelistKeywords) && !CleanupTradePolicy.Reserved(item, settings))
+            .Where(item => IsBagItem(item) && !CleanupTradePolicy.Reserved(item, settings))
+            .Where(item => action != BagCleanupAction.Discard || !MatchesNameKeyword(item.Name, whitelistKeywords))
             .Where(item => action == BagCleanupAction.Discard
                 ? MatchesNameKeyword(item.Name, blacklistKeywords) ||
                   (rules.Any(rule => MatchesRule(item, rule)) &&
                    (!resolveSellDiscardConflict || !sellRules.Any(rule => MatchesRule(item, rule))))
-                : !MatchesNameKeyword(item.Name, blacklistKeywords) &&
+                : (!MatchesNameKeyword(item.Name, blacklistKeywords) || MatchesNameKeyword(item.Name, whitelistKeywords)) &&
                   rules.Any(rule => MatchesRule(item, rule)))
             .OrderBy(item => item.Slot)
             .ThenBy(item => item.TemplateId)

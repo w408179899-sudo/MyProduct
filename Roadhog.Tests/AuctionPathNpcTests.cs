@@ -119,7 +119,7 @@ internal static partial class CleanupWorkflowTests
     {
         foreach (var diagnostic in new[] { false, true })
         {
-            var api = new FakeGameApi { TargetName = "other broker", TargetOwnServerObjectId = 7 };
+            var api = new FakeGameApi { TargetName = "other broker", TargetOwnServerObjectId = 7, TargetIsTargetingLocalPlayer = false };
             var input = new RecordingKeyboardInput(); Cursor(api, input);
             using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(12));
             var logger = new InMemoryRoadhogLogger();
@@ -157,7 +157,8 @@ internal static partial class CleanupWorkflowTests
                 var settings = new ScriptSettings(); settings.Paths.AuctionPathName = "auction";
                 settings.Maintenance.CleanupWorkflow = new() { NpcCleanup = false, Auction = true };
                 var config = new AccountConfig { AccountName = "npc-flow", ScriptSettings = settings };
-                var paths = new InMemorySharedPathStore(new SharedPathDocument { Name = "auction", AuctionNpcName = "path broker", Points = new() { new() { X = 1 } } });
+                var paths = ManualCleanupPaths(settings, api, input,
+                    new SharedPathDocument { Name = "auction", AuctionNpcName = "path broker", Points = new() { new() { X = 1 } } });
                 var context = new AccountWorkerContext(config, api, logger, new AccountRuntimeManager(logger), new(), stop.Token);
                 await new CleanupWorkflowRunner(input, paths, (_, _, _) => Task.FromResult(OperationResult.Ok()), new Journal()).RunAsync(context, new(settings, true));
             }

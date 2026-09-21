@@ -17,7 +17,7 @@ internal sealed partial class InventoryInteractionDecoder
         var seller = BitConverter.ToUInt32(Guard(window + 1240, 4));
         Require(seller != 0, "Missing shop owner.");
         var head = GU(GU(gameBase + 0xD4B010) + 2368);
-        uint hover = 0;
+        uint? hover = null;
         List<ShopPurchaseItem> Items(ulong list, bool interactive)
         {
             var node = nodes.SingleOrDefault(n => n.Address == list) ?? throw new InvalidDataException("Missing purchase list.");
@@ -30,7 +30,7 @@ internal sealed partial class InventoryInteractionDecoder
                 var template = BitConverter.ToUInt32(Guard(slot + 168, 4)); if (template == 0) continue;
                 var id = BitConverter.ToUInt32(Guard(slot + 160, 4)); var qty = GU(slot + 176);
                 var record = MapRecord(head, id);
-                Require(id != 0 && qty > 0 && BitConverter.ToUInt32(Guard(record + 8, 4)) == id && BitConverter.ToUInt32(Guard(record + 12, 4)) == template,
+                Require(qty > 0 && BitConverter.ToUInt32(Guard(record + 8, 4)) == id && BitConverter.ToUInt32(Guard(record + 12, 4)) == template,
                     "Purchase item identity mismatch.");
                 var price = GU(record + 128);
                 result.Add(new(id, template, qty, price, interactive ? ListPoint(node, i) : null));

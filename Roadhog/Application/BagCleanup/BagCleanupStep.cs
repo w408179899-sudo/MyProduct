@@ -31,5 +31,6 @@ public enum BagCleanupStep
     ReturnByReversePath,
     Complete,
     Failed,
-    Aborted
+    Aborted,
+    WaitDiscardRetry
 }

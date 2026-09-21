@@ -8,7 +8,7 @@ using static Roadhog.Application.Trading.TradingActions;
 
 namespace Roadhog.Application.Trading;
 
-public sealed class CleanupWorkflowRunner(IKeyboardInput input, ISharedPathStore paths,
+public sealed partial class CleanupWorkflowRunner(IKeyboardInput input, ISharedPathStore paths,
     BagCleanupPathExecutor executePath, IAuctionListingJournal journal)
 {
     public async Task RunAsync(AccountWorkerContext source, CleanupRequest request, Func<AccountWorkerContext, Task>? returnToCombat = null)
@@ -39,9 +39,28 @@ public sealed class CleanupWorkflowRunner(IKeyboardInput input, ISharedPathStore
             context.RuntimeStates.MarkHeartbeat(context.Config.AccountName);
             context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, text);
         }
-        // Preflight all selected stages before the first irreversible action.
+        // Automatic requests first exhaust local discard work. A full bag at enqueue time
+        // does not authorize a town trip after that work has recovered capacity.
+        if (!request.Manual && !request.TownReturnCompleted)
+        {
+            bool needsTown;
+            try
+            {
+                await actions.Reset();
+                needsTown = await PrepareAutomaticCleanupAsync(context, request, Report);
+            }
+            finally { await actions.Reset(); }
+            if (!needsTown)
+            {
+                Report("原地清包结束，继续挂机");
+                context.Logger.Info("cleanup_workflow.complete", new Dictionary<string, object?>
+                { ["account"] = context.Config.AccountName, ["fullCleanup"] = false });
+                return;
+            }
+        }
+        // Validate all town stages before recalling. Manual requests also validate before discarding.
         var inventory = (await context.Snapshots.ReadInventoryAsync().WaitAsync(token)).Value;
-        if (flow.NpcCleanup && BagCleanupItemMatcher.SelectSellRegistrationItems(inventory, settings.Maintenance).Count > 0)
+        if (flow.NpcCleanup && request.AllowNpcSell && BagCleanupItemMatcher.SelectSellRegistrationItems(inventory, settings.Maintenance).Count > 0)
             Require(!string.IsNullOrWhiteSpace((await Load(settings.Paths.MaintenancePathName)).CleanupNpcName), "清包路径缺少 NPC 名字。");
         if (flow.Auction) await Load(settings.Paths.AuctionPathName);
         if (flow.TransferGold || flow.PersonalShop)
@@ -50,11 +69,35 @@ public sealed class CleanupWorkflowRunner(IKeyboardInput input, ISharedPathStore
             Require(!string.IsNullOrWhiteSpace(settings.Paths.TownReturnKey), "摆摊区域结束后需要回城按键和复活路径。");
         }
         if (flow.TransferGold) Require(!string.IsNullOrWhiteSpace(flow.WarehouseName) && !string.IsNullOrWhiteSpace(flow.WarehouseSelectionKey), "请填写仓库角色名和选仓库号按键。");
+        if (!request.TownReturnCompleted)
+        {
+            Require(!string.IsNullOrWhiteSpace(settings.Paths.BagCleanupTownReturnKey) || !string.IsNullOrWhiteSpace(settings.Paths.TownReturnKey), "清包前需要配置清包回城按键。");
+            await Load(settings.Paths.RevivePathName);
+        }
         context.Logger.Info("cleanup_workflow.start", new Dictionary<string, object?> { ["account"] = context.Config.AccountName, ["manual"] = request.Manual, ["stages"] = flow.Describe() });
         try
         {
+            var cleanup = new BagCleanupController(input, paths, executePath);
+            request.PreparationStage = !request.TownReturnCompleted
+                ? CleanupPreparationStage.ReturningToTown : flow.NpcCleanup ? CleanupPreparationStage.Discarding : CleanupPreparationStage.None;
             await actions.Reset();
-            if (flow.NpcCleanup) await new BagCleanupController(input, paths, executePath).RunRequestedAsync(context, Report);
+            if (!request.TownReturnCompleted)
+            {
+                var entryPath = flow.NpcCleanup && request.AllowNpcSell &&
+                    BagCleanupItemMatcher.SelectSellRegistrationItems(inventory, settings.Maintenance).Count > 0
+                    ? settings.Paths.MaintenancePathName : flow.Auction ? settings.Paths.AuctionPathName
+                    : flow.TransferGold || flow.PersonalShop ? settings.Paths.StallPathName : settings.Paths.RevivePathName;
+                await cleanup.ReturnToTownRequestedAsync(context, Report, entryPath);
+                request.TownReturnCompleted = true;
+            }
+            request.FullCleanupStarted = true;
+            if (request.Manual && flow.NpcCleanup)
+            {
+                request.PreparationStage = CleanupPreparationStage.Discarding;
+                await cleanup.RunDiscardRequestedAsync(context, Report);
+            }
+            request.PreparationStage = CleanupPreparationStage.None;
+            if (flow.NpcCleanup && request.AllowNpcSell) await cleanup.RunSellRequestedAsync(context, Report);
             if (flow.Auction)
             {
                 await Follow(settings.Paths.AuctionPathName);
@@ -72,7 +115,11 @@ public sealed class CleanupWorkflowRunner(IKeyboardInput input, ISharedPathStore
                 if (flow.TransferGold) await new WarehousePurchaseSequence(input).RunAsync(context.Snapshots, flow, Report, token);
                 if (flow.PersonalShop) await new ConfiguredPersonalShopSequence(input).RunAsync(context.Snapshots, stallPlan, Report, token);
                 Report("交易完成，回城后走复活路径返回挂机点");
-                await new BagCleanupController(input, paths, executePath).ReturnToReviveRequestedAsync(context, Report);
+                await cleanup.ReturnToReviveRequestedAsync(context, Report);
+            }
+            if (request.TownReturnCompleted || flow.TransferGold || flow.PersonalShop)
+            {
+                Report("清包结束，沿复活路径返回挂机点");
                 if (returnToCombat != null) await returnToCombat(context);
                 else await Follow(settings.Paths.RevivePathName);
             }

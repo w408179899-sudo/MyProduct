@@ -15,7 +15,8 @@ internal static partial class CleanupWorkflowTests
 {
     public static async Task PathsAndPreflightAsync()
     {
-        var api = new FakeGameApi {InventoryMoney=0,TargetName="warehouse",TargetOwnServerObjectId=7};
+        var api = new FakeGameApi {InventoryMoney=0,TargetName="warehouse",TargetOwnServerObjectId=7,TargetIsTargetingLocalPlayer=false};
+        api.Player = api.Player with { Position = new(500, 0, 0) };
         var input = new RecordingKeyboardInput(); Cursor(api,input);
         var logger = new InMemoryRoadhogLogger();
         using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(8));
@@ -25,6 +26,7 @@ internal static partial class CleanupWorkflowTests
         {
             if(key=="Space"){auction=auction with{IsOpen=false};shop=shop with{Purchase=ShopPurchaseSnapshot.Closed};}
             else if(key=="C")shop=shop with{Purchase=new(true,7,new[]{new ShopPurchaseItem(8,20,1,30,new(500,300))},Array.Empty<ShopPurchaseItem>(),0,null,new(700,300))};
+            else if(key=="F5")api.Player=api.Player with{Position=new(0,0,0)};
             else if(key=="F6")api.Player=api.Player with{Position=new(1000,0,0)};
             else throw new Exception("unexpected route key "+key);
         };
@@ -39,7 +41,7 @@ internal static partial class CleanupWorkflowTests
         SharedPathDocument Path(string name,double start,double end)=>new(){Name=name,Points=new(){new(){X=start},new(){X=end}}};
         var paths=new InMemorySharedPathStore(Path("auction",0,30),Path("stall",0,70),Path("revive",1000,0));
         var config=new AccountConfig{AccountName="flow",ScriptSettings=new()};var settings=config.ScriptSettings;
-        settings.Paths.AuctionPathName="auction";settings.Paths.StallPathName="stall";settings.Paths.RevivePathName="revive";settings.Paths.TownReturnKey="F6";
+        settings.Paths.AuctionPathName="auction";settings.Paths.StallPathName="stall";settings.Paths.RevivePathName="revive";settings.Paths.TownReturnKey="F6";settings.Paths.BagCleanupTownReturnKey="F5";
         settings.Maintenance.CleanupWorkflow=new(){NpcCleanup=false,Auction=true,TransferGold=true,PersonalShop=true,WarehouseName="warehouse",WarehouseSelectionKey="F7"};
         var context=new AccountWorkerContext(config,api,logger,new AccountRuntimeManager(logger),new(),stop.Token);
         var travel=new List<string>();
@@ -50,7 +52,7 @@ internal static partial class CleanupWorkflowTests
         var runner=new CleanupWorkflowRunner(input,paths,Follow,new Journal());
         await runner.RunAsync(context,new(settings,true));
         Require(travel.SequenceEqual(new[]{"auction:0>30","auction:30>0","stall:0>70","revive:1000>0"}),"independent hub routes; stall never reverses and recall precedes revive");
-        Require(input.Keys.Contains("F6")&&api.InventoryMoney==0,"zero affordable quantity still follows configured return");
+        Require(input.Keys.Count(k=>k=="F5")==1&&input.Keys.Count(k=>k=="F6")==1&&api.InventoryMoney==0,"manual recall before auction and final recall after stall both verified");
         settings.Paths.StallPathName="missing";var before=input.MouseCommands.Count;var keys=input.Keys.Count;
         try{await runner.RunAsync(context,new(settings,true));throw new Exception("missing later route accepted");}
         catch(InvalidOperationException){}
@@ -100,6 +102,10 @@ internal static partial class CleanupWorkflowTests
                 form.ShowInTaskbar=false;form.StartPosition=System.Windows.Forms.FormStartPosition.Manual;form.Location=new(-32000,-32000);form.Show();System.Windows.Forms.Application.DoEvents();
                 var settings=(ScriptSettings)typeof(AccountSettingsForm).GetMethod("CaptureScriptSettings",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(form,null)!;
                 Require(settings.Maintenance.CleanupWorkflow is{Auction:true,TransferGold:true,PersonalShop:true,WarehouseName:"仓库",WarehouseSelectionKey:"F7",OldListingAction:AuctionOldListingAction.Reprice},"UI round-trips all workflow controls");
+                IEnumerable<System.Windows.Forms.Control> Descendants(System.Windows.Forms.Control parent) => parent.Controls.Cast<System.Windows.Forms.Control>().SelectMany(c => new[] { c }.Concat(Descendants(c)));
+                var controls = Descendants(form).ToArray();
+                Require(controls.Any(c => c.Text == "拍卖行：全部撤单 → 按配置登录物品 → 计算领取金币"), "UI explains the fixed auction order");
+                Require(!controls.OfType<System.Windows.Forms.ComboBox>().Any(c => c.Items.Cast<object>().Any(i => i.ToString() == "保持原挂售")), "obsolete old-listing choices no longer appear");
                 Require(settings.Paths.AuctionPathName=="auction"&&settings.Paths.StallPathName=="stall","both path editors retain independent selection");
                 var directory=System.IO.Path.Combine(Environment.CurrentDirectory,".tmp");Directory.CreateDirectory(directory);
                 using var bitmap=new System.Drawing.Bitmap(form.Width,form.Height);form.DrawToBitmap(bitmap,new(System.Drawing.Point.Empty,form.Size));
@@ -134,7 +140,9 @@ internal static partial class CleanupWorkflowTests
         await returnController.ReturnAfterCleanupAsync(context,plan,semiState,state);
         Require(!state.CleanupReturnToCombatActive,"existing revive-return controller completes at the grinding hub");
         api.TargetEntityId=0;config.MainMode=config.ScriptSettings.MainMode=AccountMainMode.SemiAuto;
-        var runner=new CleanupWorkflowRunner(input,new InMemorySharedPathStore(),(_,_,_)=>Task.FromResult(OperationResult.Ok()),new Journal());
+        var paths=ManualCleanupPaths(config.ScriptSettings,api,input);
+        combat=new StationaryCombatController(input,semi,paths);
+        var runner=new CleanupWorkflowRunner(input,paths,(_,_,_)=>Task.FromResult(OperationResult.Ok()),new Journal());
         Require(context.CleanupRequests.Request(config.ScriptSettings,true).Success,"manual bypasses disabled automatic switch");
         var loop=new DefaultAccountWorkerLoop(input,semi,combat,cleanupWorkflow:runner);
         var task=loop.RunAsync(context);
@@ -145,6 +153,7 @@ internal static partial class CleanupWorkflowTests
         }
         await WaitCompleted(1);
         Require(!task.IsCompleted&&!context.StopToken.IsCancellationRequested,"successful manual cleanup continues same worker");
+        api.Player=api.Player with{Position=new(0,0,0)};
         Require(context.CleanupRequests.Request(config.ScriptSettings,true).Success,"resumed worker accepts later cleanup");
         await WaitCompleted(2);stop.Cancel();
         try{await task;}catch(OperationCanceledException)when(stop.IsCancellationRequested){}

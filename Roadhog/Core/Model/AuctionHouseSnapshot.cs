@@ -13,6 +13,8 @@ public sealed record AuctionEditor(uint TemplateId, ulong Quantity, ulong UnitPr
 }
 public sealed record AuctionListing(uint ListingId, uint TemplateId, ulong Quantity, string Name, ulong TotalPrice, string TimeText, GameUiPoint? Point);
 public sealed record AuctionWithdrawConfirmation(uint ListingId, GameUiPoint? ConfirmButton);
+public sealed record AuctionRegistrationConfirmation(uint InstanceId, ulong Quantity, ulong UnitPrice,
+    bool UnitPriceMode, ulong TotalPrice, ulong Fee, GameUiPoint? ConfirmButton, GameUiPoint? CancelButton);
 public sealed record AuctionHouseSnapshot(bool DialogOpen, GameUiPoint? TradeButton, bool IsOpen, int ActiveTab,
     IReadOnlyDictionary<string, GameUiPoint> Buttons, string SearchName, string ResultMessage,
     IReadOnlyList<AuctionMarketRow> MarketRows, bool SettlementLoaded, ulong SettlementMoney, AuctionEditor? Editor)
@@ -22,6 +24,7 @@ public sealed record AuctionHouseSnapshot(bool DialogOpen, GameUiPoint? TradeBut
     public IReadOnlyList<AuctionListing> Listings { get; init; } = Array.Empty<AuctionListing>();
     public int ListingCapacity { get; init; } = 15;
     public AuctionWithdrawConfirmation? WithdrawConfirmation { get; init; }
+    public AuctionRegistrationConfirmation? RegistrationConfirmation { get; init; }
     public bool OtherModalOpen { get; init; }
     public uint HoveredListingId { get; init; }
     public GameUiPoint? ListingsScrollPoint { get; init; }

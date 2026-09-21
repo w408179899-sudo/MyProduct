@@ -32,7 +32,7 @@ internal static class PersonalShopTests
         game.Settings.BagCleanupDiscardItemNameKeywords = new() { "item1" };
         // Keyword item1 also protects item10, item11, item12.
         result = await game.Run();
-        Require(result.Success && result.Value!.RegisteredCount == 8 && game.Listings.All(i => i.InstanceId is >= 102 and <= 109), "existing whitelist and blacklist semantics");
+        Require(result.Success && result.Value!.RegisteredCount == 9 && game.Listings.All(i => i.InstanceId is 100 or >= 102 and <= 109), "whitelist only prevents discard; blacklist still reserves discard candidates");
         var full = new Simulation(12);
         result = await full.Run();
         Require(result.Success && result.Value!.RegisteredCount == 10 && result.Value.RemainingCount == 2 && full.Starts == 1, "ten-slot capacity with explicit remainder");

@@ -13,12 +13,6 @@ internal static partial class CleanupWorkflowTests
 {
     public static async Task WorkerFailureRecoveryAsync()
     {
-        await WorkerFailureRecoveryAsync(discardHoverFailure: false);
-        await WorkerFailureRecoveryAsync(discardHoverFailure: true);
-    }
-
-    private static async Task WorkerFailureRecoveryAsync(bool discardHoverFailure)
-    {
         var api = new FakeGameApi { TargetEntityId = 0 };
         var input = new RecordingKeyboardInput();
         var logger = new InMemoryRoadhogLogger();
@@ -29,22 +23,12 @@ internal static partial class CleanupWorkflowTests
         config.ScriptSettings.Maintenance.BagCleanupThreshold = 5;
         config.ScriptSettings.Maintenance.CleanupWorkflow = new() { NpcCleanup = false, Auction = true };
         config.ScriptSettings.Paths.AuctionPathName = "missing";
-        var bagOpen = false;
-        if (discardHoverFailure)
-        {
-            config.ScriptSettings.Maintenance.CleanupWorkflow = new() { NpcCleanup = true };
-            config.ScriptSettings.Maintenance.BagCleanupDiscardItemNameKeywords = new() { "绳套陷阱 III" };
-            api.InventoryItems = new[] { new InventoryItemSnapshot(10, 20, "绳套陷阱 III", 1, 0, false) };
-            api.InventoryInteractionRead = () => new(bagOpen, false, false,
-                new[] { new InventoryUiItem(20, 10, 1, new(100, 100)) }, 0, 0, null, new(400, 400), false);
-            input.AfterPress = key => { if (key == "I") bagOpen = !bagOpen; };
-            Cursor(api, input);
-        }
+        var paths = ManualCleanupPaths(config.ScriptSettings, api, input);
         using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(8));
         var context = new AccountWorkerContext(config, api, logger, runtime, new() { TickInterval = TimeSpan.FromMilliseconds(1) }, stop.Token);
         var semi = new SemiAutoCombatController(input);
-        var combat = new StationaryCombatController(input, semi);
-        var runner = new CleanupWorkflowRunner(input, new InMemorySharedPathStore(), (_, _, _) => Task.FromResult(OperationResult.Ok()), new Journal());
+        var combat = new StationaryCombatController(input, semi, paths);
+        var runner = new CleanupWorkflowRunner(input, paths, (_, _, _) => Task.FromResult(OperationResult.Ok()), new Journal());
         context.CleanupRequests.Request(config.ScriptSettings, true);
         var task = new DefaultAccountWorkerLoop(input, semi, combat, cleanupWorkflow: runner).RunAsync(context);
         try
@@ -58,12 +42,6 @@ internal static partial class CleanupWorkflowTests
             while (api.PlayerReadCount < baseline + 3) await Task.Delay(5, stop.Token);
             Require(!task.IsCompleted && context.CleanupRequests.Current == null, "failed preflight is discarded and normal player processing resumes");
             Require(logger.Entries.Count(e => e.EventName == "cleanup_workflow.failed_continuing") == 1, "full bag cannot immediately requeue failed cleanup");
-            if (discardHoverFailure)
-            {
-                Require(logger.Entries.Any(e => e.EventName == "bag_cleanup.discard.failed" && Equals(e.Fields["reason"], "discard_drag_failed")), "account 2 hover mismatch reproduces exact failure");
-                Require(!bagOpen && api.InventoryItems.Count == 1, "mismatched item remains intact and bag closes before resuming");
-                api.InventoryItems = Array.Empty<InventoryItemSnapshot>();
-            }
             var retry = config.ScriptSettings.Clone();
             retry.Maintenance.CleanupWorkflow = new() { NpcCleanup = true };
             Require(context.CleanupRequests.Request(retry, true).Success, "manual request still accepted during automatic cooldown");
@@ -98,7 +76,7 @@ internal static partial class CleanupWorkflowTests
         sell.Enabled = true; sell.Action = BagCleanupAction.Sell;
         config.ScriptSettings.Maintenance.BagCleanupRules = rules;
         Require(BagCleanupItemMatcher.SelectSellRegistrationItems(api.InventoryItems, config.ScriptSettings.Maintenance).Count == 1, "fixture selects NPC sale");
-        var paths = new InMemorySharedPathStore(new SharedPathDocument
+        var paths = ManualCleanupPaths(config.ScriptSettings, api, input, new SharedPathDocument
         {
             Name = "merchant", CleanupNpcName = "merchant", Points = new() { new() { X = 50 } }
         });

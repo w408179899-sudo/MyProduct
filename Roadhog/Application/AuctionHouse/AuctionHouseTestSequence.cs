@@ -20,7 +20,8 @@ public sealed class AuctionHouseTestSequence(IKeyboardInput input, IRoadhogLogge
             var player = (await snapshots.ReadPlayerAsync().WaitAsync(token)).Value;
             if (player.IsDead) throw new InvalidOperationException("角色已死亡。");
             var ui = await Ui();
-            if (ui.Editor != null) throw new InvalidOperationException("请先关闭已有上架弹窗。");
+            if (ui.Editor != null || ui.RegistrationConfirmation != null || ui.WithdrawConfirmation != null || ui.OtherModalOpen)
+                throw new InvalidOperationException("请先关闭已有交易弹窗。");
             started = true;
             if (input is IInputStateReset reset) Check(await reset.ReleaseAllAsync(token));
             else { foreach (var key in new[] { "W", "A", "S", "D", "ControlKey" }) Check(await input.KeyUpAsync(key, token)); await ReleaseMouse(); }

@@ -141,6 +141,11 @@ internal sealed class RoadhogSnapshotReader : IRoadhogSnapshotReader
             () => _gameApi is IAuctionHouseGameApi api ? api.ReadAuctionHouseAsync(_readContext, _stopToken)
                 : Missing<AuctionHouseSnapshot>("Auction house channel is unavailable."), afterVersion);
 
+    public Task<PublishedGameSnapshot<NpcTradeSnapshot>> ReadNpcTradeAsync(long afterVersion = 0) =>
+        ReadUntilPublishedAsync("npc_trade",
+            () => _gameApi is INpcTradeGameApi api ? api.ReadNpcTradeAsync(_readContext, _stopToken)
+                : Missing<NpcTradeSnapshot>("NPC trade channel is unavailable."), afterVersion);
+
     public Task<PublishedGameSnapshot<InventoryInteractionSnapshot>> ReadInventoryInteractionAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync("inventory_interaction",
             () => _gameApi is IInventoryInteractionGameApi api ? api.ReadInventoryInteractionAsync(_readContext, _stopToken)

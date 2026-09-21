@@ -126,16 +126,16 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                             if (BagCleanupController.CountFreeSlots(bag, capacity) < maintenance.BagCleanupThreshold)
                             {
                                 var automatic = scriptSettings.Clone();
-                                if (now - lastCleanup < BagCleanupController.FullCleanupCooldown)
+                                var fullCleanupAllowed = now - lastCleanup >= BagCleanupController.FullCleanupCooldown;
+                                if (!fullCleanupAllowed)
                                 {
                                     // Existing discard rules remain eligible during the full-cleanup cooldown.
                                     automatic.Maintenance.CleanupWorkflow.Auction = false;
-                                    automatic.Maintenance.BagCleanupRules = automatic.Maintenance.BagCleanupRules.Where(r => r.Action == BagCleanupAction.Discard).ToList();
                                     if (!automatic.Maintenance.CleanupWorkflow.NpcCleanup || BagCleanupItemMatcher.SelectDiscardItems(bag, automatic.Maintenance).Count == 0)
                                         automatic.Maintenance.CleanupWorkflow.NpcCleanup = false;
                                 }
                                 if (automatic.Maintenance.CleanupWorkflow.NpcCleanup || automatic.Maintenance.CleanupWorkflow.Auction)
-                                    context.CleanupRequests.Request(automatic, manual: false, resetsCooldown: now - lastCleanup >= BagCleanupController.FullCleanupCooldown);
+                                    context.CleanupRequests.Request(automatic, manual: false, resetsCooldown: fullCleanupAllowed, allowNpcSell: fullCleanupAllowed);
                             }
                         }
                     }
@@ -150,7 +150,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                                 context.StopToken.ThrowIfCancellationRequested();
                                 context.CleanupRequests.Complete();
                                 context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, string.Empty);
-                                if (cleanup.ResetsCooldown) lastCleanup = DateTimeOffset.UtcNow;
+                                if (cleanup.ResetsCooldown && cleanup.FullCleanupStarted) lastCleanup = DateTimeOffset.UtcNow;
                                 stationaryCombatState.PathCombat.Reset();
                                 await _stationaryCombat.SetChannelSwitchPendingAsync(context, stationaryCombatState, false);
                             }
@@ -159,7 +159,20 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                         catch (Exception ex) when (!context.StopToken.IsCancellationRequested &&
                             ex is CleanupCombatInterruptionException or CleanupDeathInterruptionException)
                         {
+                            if (ex is CleanupDeathInterruptionException) cleanup.TownReturnCompleted = false;
                             context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, ex.Message);
+                        }
+                        catch (Exception ex) when (!context.StopToken.IsCancellationRequested && cleanup.PreparationStage != CleanupPreparationStage.None)
+                        {
+                            // Keep the same request and town-return progress. Re-read remaining items on retry;
+                            // never replay completed trades or treat an unfinished discard as a successful cleanup.
+                            var stage = cleanup.PreparationStage == CleanupPreparationStage.ReturningToTown ? "回城" : "丢弃";
+                            context.Logger.Warn("cleanup_workflow.preparation_pending", new Dictionary<string, object?>
+                            {
+                                ["account"] = context.Config.AccountName, ["stage"] = stage, ["error"] = ex.Message
+                            });
+                            context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, stage + "未完成，等待重试：" + ex.Message);
+                            await Task.Delay(2000, context.StopToken);
                         }
                         catch (Exception ex) when (!context.StopToken.IsCancellationRequested)
                         {

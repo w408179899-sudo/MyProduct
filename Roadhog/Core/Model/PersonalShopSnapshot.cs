@@ -17,10 +17,11 @@ public sealed record PersonalShopSnapshot(bool IsOpen, bool IsSelling, bool Inve
     public bool OtherModalOpen { get; init; }
 }
 
+// The remote purchase list uses shop-local item keys; zero is valid for its first item.
 public sealed record ShopPurchaseItem(uint InstanceId, uint TemplateId, ulong Quantity, ulong UnitPrice, GameUiPoint? Point);
 public sealed record ShopPurchaseQuantity(uint InstanceId, ulong Quantity, ulong Maximum, GameUiPoint? Input, GameUiPoint? Confirm);
 public sealed record ShopPurchaseSnapshot(bool IsOpen, uint SellerObjectId, IReadOnlyList<ShopPurchaseItem> Items,
-    IReadOnlyList<ShopPurchaseItem> Basket, uint HoveredInstanceId, ShopPurchaseQuantity? QuantityDialog, GameUiPoint? BuyButton)
+    IReadOnlyList<ShopPurchaseItem> Basket, uint? HoveredInstanceId, ShopPurchaseQuantity? QuantityDialog, GameUiPoint? BuyButton)
 {
-    public static ShopPurchaseSnapshot Closed { get; } = new(false, 0, Array.Empty<ShopPurchaseItem>(), Array.Empty<ShopPurchaseItem>(), 0, null, null);
+    public static ShopPurchaseSnapshot Closed { get; } = new(false, 0, Array.Empty<ShopPurchaseItem>(), Array.Empty<ShopPurchaseItem>(), null, null, null);
 }

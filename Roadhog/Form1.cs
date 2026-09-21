@@ -1358,7 +1358,7 @@ namespace Roadhog
                 if (!build.Success || build.Config == null) { MessageBox.Show(build.Error, "清包失败"); return; }
                 var flow = build.Config.ScriptSettings?.Maintenance.CleanupWorkflow ?? new Roadhog.Core.Accounts.CleanupWorkflowSettings();
                 if (flow.Describe().Length == 0) { MessageBox.Show("请先在清包页选择执行项目。", "清包"); return; }
-                if (MessageBox.Show($"账号：{account}\n\n{flow.Describe()}\n\n先处理当前战斗，再执行流程。仓库未到或物品未售罄会持续等待。\n完成后自动继续挂机；停止按钮可取消整个流程。", "确认清包", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
+                if (MessageBox.Show($"账号：{account}\n\n{flow.Describe()}\n\n先处理当前战斗，回城确认后再执行流程。丢弃未完成会等待重试。\n仓库未到或物品未售罄会持续等待。\n完成后自动继续挂机；停止按钮可取消整个流程。", "确认清包", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
                 if (!IsAutoHardwareKey(build.Config.HardwareKey) && !TryAcquireDeviceLease(build.Config.HardwareKey, NormalizeVmmDeviceName(build.Config.VmmDeviceName), out var error))
                 { MessageBox.Show(error, "清包失败"); return; }
                 var result = _services.AccountOrchestrator.RequestCleanup(build.Config);

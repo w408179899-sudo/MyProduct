@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Drawing.Drawing2D;
 using Roadhog.Application;
 using Roadhog.Application.Shell;
@@ -3531,7 +3531,7 @@ namespace Roadhog
             AddCategory("药品", 398);
             AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.Medicine), leftOptionX, leftComboX, 430);
 
-            bagCleanupWhitelistRadio = AddRadioButton(namesPanel, "白名单（不处理）", 0, 0, 144, true);
+            bagCleanupWhitelistRadio = AddRadioButton(namesPanel, "白名单（不丢弃）", 0, 0, 144, true);
             bagCleanupWhitelistRadio.Name = "bagCleanupWhitelistRadio";
             bagCleanupBlacklistRadio = AddRadioButton(namesPanel, "黑名单（丢弃）", 144, 0, 132, false);
             bagCleanupBlacklistRadio.Name = "bagCleanupBlacklistRadio";
@@ -3551,7 +3551,7 @@ namespace Roadhog
             AddLabel(namesPanel, "背包物品 / 关键字", 0, 40, 200, 24, _textGreen, FontStyle.Bold);
             bagCleanupManualNameTextBox = AddTextBox(namesPanel, string.Empty, 0, 76, 280, 28);
             bagCleanupManualNameTextBox.Name = "bagCleanupManualNameTextBox";
-            bagCleanupAddNameButton = AddButton(namesPanel, "加入不处理", 292, 75, 116, 30);
+            bagCleanupAddNameButton = AddButton(namesPanel, "加入不丢弃", 292, 75, 116, 30);
             bagCleanupAddNameButton.Name = "bagCleanupAddNameButton";
             bagCleanupAddNameButton.Click += async (_, _) =>
                 await AddSelectedBagCleanupNameAsync().ConfigureAwait(true);
@@ -3561,7 +3561,7 @@ namespace Roadhog
             bagCleanupInventoryCheckedListBox.Name = "bagCleanupInventoryCheckedListBox";
             bagCleanupInventoryStatusLabel = AddLabel(namesPanel, "等待刷新背包", 0, 244, 408, 24);
 
-            bagCleanupNameListTitleLabel = AddLabel(namesPanel, "白名单：以下物品不处理", 0, 280, 236, 24, _textGreen, FontStyle.Bold);
+            bagCleanupNameListTitleLabel = AddLabel(namesPanel, "白名单：以下物品不丢弃", 0, 280, 236, 24, _textGreen, FontStyle.Bold);
             bagCleanupExcludedItemListBox = CreateFilterListBox(namesPanel, 0, 316, 408, 138);
             bagCleanupExcludedItemListBox.BackColor = Color.White;
             bagCleanupTradeItemGrid = CreateBagCleanupTradeItemGrid(namesPanel);
@@ -4932,8 +4932,8 @@ namespace Roadhog
                         "拍卖行：选择查价方式；测试不提交出售", "已自动保存拍卖行名单");
                 }
 
-                return ("白名单", "加入不处理",
-                    "白名单：以下物品不处理", "已自动保存白名单，不会处理");
+                return ("白名单", "加入不丢弃",
+                    "白名单：以下物品不丢弃", "已自动保存白名单，不会丢弃");
             }
         }
 

@@ -33,6 +33,13 @@ internal static partial class PersonalShopDecoderTests
         m.I(window+2236,999);Reject(()=>m.Decoder().Read(Fixture.Game),"foreign modal identity cannot publish");m.I(window+2236,123);
         m.ShortAddress=record+128;Reject(()=>m.Decoder().Read(Fixture.Game),"partial unit price cannot publish zero");m.ShortAddress=null;
         m.I(record+12,999);Reject(()=>m.Decoder().Read(Fixture.Game),"map and display identity must agree");m.I(record+12,567);
+        // Real remote-shop keys start at zero, unlike local inventory instance IDs.
+        m.U(Fixture.Game+0xD63ED0,0);m.I(Fixture.Item+160,0);m.I(node+32,0);m.I(record+8,0);m.I(window+2236,0);
+        ui=m.Decoder().Read(Fixture.Game).Purchase;
+        Require(ui.Items.Single().InstanceId==0&&ui.HoveredInstanceId==0&&ui.QuantityDialog?.InstanceId==0,"zero remote key binds stock, hover and quantity dialog");
+        m.I(list+0x3F0,ushort.MaxValue);
+        Require(m.Decoder().Read(Fixture.Game).Purchase.HoveredInstanceId==null,"no hover cannot masquerade as remote item zero");
+        m.I(list+0x3F0,0);m.I(record+8,1);Reject(()=>m.Decoder().Read(Fixture.Game),"zero remote key still requires matching record identity");m.I(record+8,0);
         m.U(window+0x28,0);Require(!m.Decoder().Read(Fixture.Game).Purchase.IsOpen,"closed replaces previous remote shop");
         return Task.CompletedTask;
     }

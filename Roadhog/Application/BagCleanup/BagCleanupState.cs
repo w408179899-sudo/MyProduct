@@ -84,7 +84,7 @@ public sealed class BagCleanupState
 
     public bool IsReturningAfterFailure => !string.IsNullOrWhiteSpace(ReturnAfterFailureReason);
 
-    public bool DiscardActive => Step is BagCleanupStep.PrepareDiscardInventory or
+    public bool DiscardActive => Step is BagCleanupStep.WaitDiscardRetry or BagCleanupStep.PrepareDiscardInventory or
         BagCleanupStep.ReadDiscardCandidates or
         BagCleanupStep.DragDiscardItem or
         BagCleanupStep.WaitDiscardConfirm or
@@ -178,6 +178,11 @@ public sealed class BagCleanupState
     public void MarkDiscardVerified()
     {
         DiscardedItemCount++;
+        ClearDiscardTarget();
+    }
+
+    public void ClearDiscardTarget()
+    {
         DiscardTarget = null;
         DiscardConfirmSeen = false;
         DiscardConfirmClickCount = 0;

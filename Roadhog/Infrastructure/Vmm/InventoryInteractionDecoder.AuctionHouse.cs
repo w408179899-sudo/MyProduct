@@ -26,6 +26,7 @@ internal sealed partial class InventoryInteractionDecoder
         var rows = new List<AuctionMarketRow>();
         var listings = new List<AuctionListing>(); var listingsLoaded = false;
         AuctionWithdrawConfirmation? withdrawal = null; bool otherModal = false;
+        AuctionRegistrationConfirmation? registration = null;
         uint hoveredListing = 0; GameUiPoint? scrollPoint = null; double scrollY = 0;
         AuctionEditor? sell = null;
         if (open)
@@ -106,18 +107,25 @@ internal sealed partial class InventoryInteractionDecoder
                 var listingId = BitConverter.ToUInt32(Guard(selected.Address + 160, 4));
                 withdrawal = new(listingId, Nodes(modal).SingleOrDefault(n => n.Address == GU(modal + 0x578))?.Point(this));
             }
+            else if (open && tab == 1 && id <= 355 && (BitConverter.ToUInt32(fields, 0) & ~8u) == 257 &&
+                BitConverter.ToUInt32(fields, 4) == 2106 && BitConverter.ToUInt32(fields, 8) == 2107)
+            {
+                Require(registration == null && sell == null, "Multiple auction registration confirmations.");
+                registration = ReadAuctionRegistration(auction, modal);
+            }
             else otherModal = true;
         }
-        if (otherModal) withdrawal = null;
-        if (otherModal || withdrawal != null)
+        if (withdrawal != null && registration != null) otherModal = true;
+        if (otherModal) { withdrawal = null; registration = null; }
+        if (otherModal || withdrawal != null || registration != null)
         {
             listings = listings.Select(l => l with { Point = null }).ToList();
             hoveredListing = 0; scrollPoint = null;
         }
         VerifyGuards();
         return new(dialogOpen, trade, open, tab, buttons, search, message, rows, loaded, money, sell)
-        { ListingsLoaded = listingsLoaded, Listings = listings.AsReadOnly(), WithdrawConfirmation = withdrawal, OtherModalOpen = otherModal,
-            HoveredListingId = hoveredListing, ListingsScrollPoint = otherModal || withdrawal != null ? null : scrollPoint, ListingsScrollY = scrollY };
+        { ListingsLoaded = listingsLoaded, Listings = listings.AsReadOnly(), WithdrawConfirmation = withdrawal, RegistrationConfirmation = registration, OtherModalOpen = otherModal,
+            HoveredListingId = hoveredListing, ListingsScrollPoint = otherModal || withdrawal != null || registration != null ? null : scrollPoint, ListingsScrollY = scrollY };
     }
 
     private string AuctionWide(ulong address)

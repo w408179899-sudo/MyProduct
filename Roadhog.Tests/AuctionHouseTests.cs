@@ -76,9 +76,10 @@ internal static class AuctionHouseTests
 
     public static async Task ActionsAsync()
     {
-        foreach (var scenario in new[] { "success", "search", "identity", "cancel", "wrong_editor" })
+        foreach (var scenario in new[] { "success", "search", "identity", "cancel", "wrong_editor", "existing_fee" })
         {
             var state=State();var api=new FakeGameApi();var input=new RecordingKeyboardInput();var down=false;int right=0;
+            if(scenario=="existing_fee")state=state with{RegistrationConfirmation=new(11,367,1000,true,367000,100,new(650,150),new(700,150))};
             var item=new InventoryItemSnapshot(152010313,11,"坚固的生皮子",367,0,false);
             api.InventoryItems=new[]{item with{InstanceId=22,IsEquipped=true},item};api.AuctionRead=()=>state;
             var bagItem=new InventoryUiItem(11,item.TemplateId,item.Count,new(700,300));
@@ -116,6 +117,7 @@ internal static class AuctionHouseTests
             catch(OperationCanceledException)when(scenario=="cancel"){}
             Require(!down,"input released "+scenario);
             if(scenario=="identity")Require(!input.MouseCommands.Contains("down:Left"),"identity change blocks click");
+            if(scenario=="existing_fee")Require(input.MouseCommands.Count==0&&input.Keys.Count==0&&state.RegistrationConfirmation!=null,"diagnostic cannot submit or dismiss an existing fee confirmation");
         }
     }
 }

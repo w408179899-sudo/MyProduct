@@ -1,4 +1,4 @@
-﻿using Roadhog;
+using Roadhog;
 using Roadhog.Application;
 using Roadhog.Application.AbnormalStatuses;
 using Roadhog.Application.BagCleanup;
@@ -121,6 +121,11 @@ if (KmboxKeyPressProbe.ShouldRun(args))
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("auction registration fee confirmation validates identity price and submission", CleanupWorkflowTests.AuctionRegistrationFeeAsync),
+    ("auction registration fee production decoder and modal guards", PersonalShopDecoderTests.AuctionRegistrationDecodeAsync),
+    ("npc sale official snapshot lifecycle and decoder guards", NpcSaleTests.SnapshotAsync),
+    ("npc sale full batches hover identity and submit verification", NpcSaleTests.FlowAsync),
+    ("npc sale production decoder basket and controls", PersonalShopDecoderTests.NpcTradeAsync),
     ("inventory discard UI button uses unsaved rules and caps three items", TestInventoryDiscardButtonAsync),
     ("inventory discard three-item limit and configured rules", InventoryDiscardTests.LimitAndRulesAsync),
     ("inventory discard hover modal guards and release", InventoryDiscardTests.HoverModalAndReleaseAsync),
@@ -442,7 +447,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("application business code cannot reference raw read APIs", TestBagCleanupBusinessReadBoundaryAsync),
     ("bag cleanup matcher groups weapon armor and accessory as equipment", TestBagCleanupMatcherGroupsEquipmentTypesAsync),
     ("bag cleanup matcher maps stigma item type", TestBagCleanupMatcherMapsStigmaItemTypeAsync),
-    ("bag cleanup matcher excludes name keywords", TestBagCleanupMatcherExcludesNameKeywordsAsync),
+    ("bag cleanup matcher whitelist permits NPC selling", TestBagCleanupMatcherWhitelistPermitsNpcSellingAsync),
     ("bag cleanup matcher maps skill book item type", TestBagCleanupMatcherMapsSkillBookItemTypeAsync),
     ("window title formats character identity", TestWindowTitleFormatsCharacterIdentityAsync),
     ("kmbox net keyboard input validates unsupported local inputs", TestKmBoxNetKeyboardInputValidationAsync),
@@ -790,7 +795,7 @@ var tests = new (string Name, Func<Task> Run)[]
 tests = tests.Concat(new (string Name, Func<Task> Run)[]
 {
     ("cleanup workflow configuration policy and exclusive requests", CleanupWorkflowTests.ConfigurationAndPolicyAsync),
-    ("cleanup workflow auction settlement listing capacity and withdrawals", CleanupWorkflowTests.AuctionSubmissionAsync),
+    ("cleanup workflow auction withdraw all register then settle", CleanupWorkflowTests.AuctionSubmissionAsync),
     ("cleanup workflow warehouse ownership quantity and cancellation", CleanupWorkflowTests.WarehousePurchaseAsync),
     ("cleanup workflow configured stall batches sale proof and purchased goods", CleanupWorkflowTests.ConfiguredStallAsync)
     ,("cleanup workflow purchase decoder guards", PersonalShopDecoderTests.TradingPurchaseDecodeAsync)
@@ -805,6 +810,20 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("worker recovery initialization exceptions cancellation return and manual stop", WorkerRecoveryTests.HostRecoveryAsync)
     ,("worker recovery cleanup failure continues and accepts next request", CleanupWorkflowTests.WorkerFailureRecoveryAsync)
     ,("worker recovery cleanup death hands off to revival", CleanupWorkflowTests.WorkerCleanupDeathRecoveryAsync)
+    ,("cleanup workflow cooldown retains sell ownership and only discards trash", CleanupWorkflowTests.CooldownPreservesSellRulesAsync)
+    ,("cleanup workflow discard then auction without NPC sale", CleanupWorkflowTests.DiscardThenAuctionWithoutSaleAsync)
+    ,("cleanup workflow auction skips vanished listings", CleanupWorkflowTests.AuctionSkipsVanishedListingsAsync)
+    ,("cleanup workflow manual recall verified before discard and automatic unchanged", CleanupWorkflowTests.ManualRecallBeforeDiscardAsync)
+    ,("cleanup workflow long discard completes every item and rechecks closed bag", CleanupWorkflowTests.FullDiscardBatchAsync)
+    ,("cleanup workflow unfinished discard retries remaining items and remains cancellable", CleanupWorkflowTests.WorkerDiscardRetriesAsync)
+    ,("cleanup workflow unconfirmed recall stays pending without discarding", CleanupWorkflowTests.UnconfirmedRecallStaysPendingAsync)
+    ,("cleanup workflow automatic mixed inventory stays local after capacity recovers", CleanupWorkflowTests.AutomaticDiscardWithSaleStaysLocalAsync)
+    ,("cleanup workflow automatic and manual recall require safety and observed position", CleanupWorkflowTests.CleanupRecallSafetyAndPositionAsync)
+    ,("cleanup workflow local discard does not consume town cooldown", CleanupWorkflowTests.LocalDiscardDoesNotConsumeTownCooldownAsync)
+    ,("automatic discard worker retains unfinished batch after capacity recovers", CleanupWorkflowTests.AutomaticWorkerDiscardCompletionAsync)
+    ,("automatic discard post-loot retry keeps maintenance ownership", CleanupWorkflowTests.PostLootDiscardKeepsOwnershipAsync)
+    ,("automatic discard rechecks closed bag regardless of free slots", CleanupWorkflowTests.AutomaticDiscardClosedBagRecheckAsync)
+    ,("automatic discard retry survives input failure and allows combat and stop", CleanupWorkflowTests.AutomaticDiscardRetrySafetyAsync)
 }).ToArray();
 
 var testFilter = args
@@ -8834,21 +8853,25 @@ static async Task TestRuntimeRegistersConfiguredBagCleanupSellItemsAsync()
             .ConfigureAwait(false);
 
         AssertFalse(!result.Success, "sell registration should succeed: " + result.Error);
-        AssertEqual(4, result.Value?.RegisteredCount ?? 0, "registered sell item count");
+        AssertEqual(5, result.Value?.RegisteredCount ?? 0, "registered sell item count includes whitelist item");
         AssertEqual("slot-0", result.Value?.Items[0].Name ?? string.Empty, "first registered sell item name");
         AssertEqual(30, result.Value?.Items[0].X ?? 0, "row 0 column 0 x");
         AssertEqual(86, result.Value?.Items[0].Y ?? 0, "row 0 column 0 y");
         AssertEqual(357, result.Value?.Items[1].X ?? 0, "row 2 column 8 x");
         AssertEqual(157, result.Value?.Items[1].Y ?? 0, "row 2 column 8 y");
-        AssertEqual(357, result.Value?.Items[2].X ?? 0, "row 5 column 8 x");
-        AssertEqual(308, result.Value?.Items[2].Y ?? 0, "row 5 column 8 y");
-        AssertEqual(357, result.Value?.Items[3].X ?? 0, "row 8 column 8 x");
-        AssertEqual(455, result.Value?.Items[3].Y ?? 0, "row 8 column 8 y");
+        AssertEqual("excluded", result.Value?.Items[2].Name ?? string.Empty, "whitelist does not filter NPC registration");
+        AssertEqual(234, result.Value?.Items[2].X ?? 0, "row 3 column 5 x");
+        AssertEqual(237, result.Value?.Items[2].Y ?? 0, "row 3 column 5 y");
+        AssertEqual(357, result.Value?.Items[3].X ?? 0, "row 5 column 8 x");
+        AssertEqual(308, result.Value?.Items[3].Y ?? 0, "row 5 column 8 y");
+        AssertEqual(357, result.Value?.Items[4].X ?? 0, "row 8 column 8 x");
+        AssertEqual(455, result.Value?.Items[4].Y ?? 0, "row 8 column 8 y");
         AssertSequence(
             new[]
             {
                 "move:-2000,-2000", "move:30,86", "down:Right", "up:Right",
                 "move:-2000,-2000", "move:357,157", "down:Right", "up:Right",
+                "move:-2000,-2000", "move:234,237", "down:Right", "up:Right",
                 "move:-2000,-2000", "move:357,308", "down:Right", "up:Right",
                 "move:-2000,-2000", "move:357,455", "down:Right", "up:Right"
             },
@@ -10656,7 +10679,7 @@ static Task TestBagCleanupMatcherAppliesWhitelistThenBlacklistPrecedenceAsync()
     var discard = BagCleanupItemMatcher.SelectDiscardItems(items, settings);
     var conflicts = BagCleanupItemMatcher.SelectSellDiscardConflicts(items, settings);
 
-    AssertSequence(new[] { 13UL }, sell.Select(item => item.InstanceId).ToArray(), "blacklist should remove sell matches while whitelist protects all actions");
+    AssertSequence(new[] { 11UL, 13UL }, sell.Select(item => item.InstanceId).ToArray(), "whitelist prevents blacklist discard without blocking NPC selling");
     AssertSequence(new[] { 12UL, 14UL }, discard.Select(item => item.InstanceId).ToArray(), "blacklist should force discard before normal discard rules");
     AssertEqual(0, conflicts.Count, "blacklist resolution should not be reported as a normal sell-wins conflict");
     AssertEqual(1, BagCleanupItemMatcher.CountWhitelistedBagItems(items, settings), "whitelist match count");
@@ -10734,7 +10757,7 @@ static async Task TestAutomaticDiscardChangedTargetAsync()
         await controller.TickAfterLootAsync(CreateContext(settings, api, logger), state);
         AssertFalse(keyboard.MouseCommands.Contains("down:Left"), change + " must stop before grabbing an item");
         AssertEqual(1, api.InventoryItems.Count, change + " must retain the inventory");
-        AssertFalse(state.Active, change + " must terminate the discard session");
+        AssertEqual(BagCleanupStep.WaitDiscardRetry, state.Step, change + " must retain discard work for fresh validation");
     }
 }
 
@@ -10758,7 +10781,8 @@ static async Task TestAutomaticDiscardUnresponsiveDialogAsync()
     var controller = new BagCleanupController(keyboard, new InMemorySharedPathStore(), (_, _, _) => throw new Exception("unexpected path"));
     await controller.TickAfterLootAsync(CreateContext(settings, api, logger), state);
     AssertEqual(1, keyboard.MouseCommands.Count(c => c == "down:Left"), "unresponsive confirmation must never be clicked twice");
-    AssertFalse(state.Active || api.InventoryWindow.IsOpen || api.InventoryDiscardConfirm.IsOpen, "failure cancels the dialog and closes the bag");
+    AssertEqual(BagCleanupStep.WaitDiscardRetry, state.Step, "unresponsive dialog retains pending discard");
+    AssertFalse(api.InventoryWindow.IsOpen || api.InventoryDiscardConfirm.IsOpen, "failure cancels the dialog and closes the bag");
     AssertEqual(1, api.InventoryItems.Count, "unconfirmed item remains present");
 }
 
@@ -11101,13 +11125,13 @@ static async Task TestBagCleanupDiscardLimitsConfirmClicksPerItemAsync()
 
     var result = await controller.TickAfterLootAsync(CreateContext(settings, gameApi, logger), state).ConfigureAwait(false);
 
-    AssertEqual(BagCleanupTickStatus.Skipped, result.Status, "third confirm should stop the local discard session");
-    AssertEqual("discard_confirm_click_limit", result.Reason, "third confirm should report the safety limit");
+    AssertEqual(BagCleanupTickStatus.Running, result.Status, "confirmation limit preserves pending discard without another click");
+    AssertEqual("discard_retry_pending", result.Reason, "confirmation limit waits before rechecking remaining items");
     AssertFalse(keyboard.MouseCommands.Contains("move:650,470"), "third confirm must never be clicked");
     AssertFalse(!keyboard.Keys.Contains("Escape"), "third confirm should be cancelled safely");
     AssertFalse(gameApi.InventoryWindow.IsOpen, "click-limit cleanup should close inventory");
     AssertFalse(!gameApi.InventoryItems.Any(item => item.InstanceId == target.InstanceId), "click-limit cleanup must keep the item");
-    AssertFalse(state.Active, "click-limit cleanup should use no-resume policy");
+    AssertEqual(BagCleanupStep.WaitDiscardRetry, state.Step, "click-limit cleanup retains active ownership");
 }
 
 static async Task TestBagCleanupDiscardRetriesInventoryCloseAsync()
@@ -11589,7 +11613,7 @@ static Task TestBagCleanupMatcherMapsStigmaItemTypeAsync()
     return Task.CompletedTask;
 }
 
-static Task TestBagCleanupMatcherExcludesNameKeywordsAsync()
+static Task TestBagCleanupMatcherWhitelistPermitsNpcSellingAsync()
 {
     var rules = BagCleanupRuleCatalog.CreateDefaultRules();
     rules.First(rule => rule.Key == BagCleanupRuleCatalog.Stigma).Enabled = true;
@@ -11607,9 +11631,9 @@ static Task TestBagCleanupMatcherExcludesNameKeywordsAsync()
     var selected = BagCleanupItemMatcher.SelectSellRegistrationItems(items, settings);
 
     AssertSequence(
-        new[] { "生命力吸收 II" },
+        new[] { "痊愈之闪光 I", "生命力吸收 II" },
         selected.Select(item => item.Name).ToArray(),
-        "bag cleanup excluded item names should match by keyword containment");
+        "bag cleanup whitelist only excludes discard, not NPC sale");
 
     return Task.CompletedTask;
 }
@@ -33691,6 +33715,7 @@ static Task TestDmaSnapshotCatalogRegistersEveryBusinessChannelAsync()
         "locked_target",
         "locked_target_abnormal_statuses",
         "loot_corpses",
+        "npc_trade",
         "party",
         "personal_shop",
         "player",
@@ -35061,7 +35086,7 @@ sealed class InMemoryScriptProfileStore : IScriptProfileStore
     }
 }
 
-sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi, IChannelSwitchUiGameApi, IChannelTransitionGameApi, IInventoryInteractionGameApi, IReviveUiGameApi, IAuctionHouseGameApi
+sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi, IChannelSwitchUiGameApi, IChannelTransitionGameApi, IInventoryInteractionGameApi, IReviveUiGameApi, IAuctionHouseGameApi, INpcTradeGameApi
 #if DEBUG
     , IRoadhogApiAddressProbe
     , IRoadhogSnapshotDiagnostics
@@ -35161,6 +35186,9 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
             (Player.IsDead ? new ReviveUiSnapshot(true, 209, InventoryUiCursor) : ReviveUiSnapshot.Closed)));
 
     public Func<PersonalShopSnapshot>? PersonalShopRead { get; set; }
+    public Func<NpcTradeSnapshot>? NpcTradeRead { get; set; }
+    public Task<OperationResult<NpcTradeSnapshot>> ReadNpcTradeAsync(GameApiReadContext context, CancellationToken cancellationToken = default) =>
+        Task.FromResult(OperationResult<NpcTradeSnapshot>.Ok(NpcTradeRead!()));
     public Func<AuctionHouseSnapshot>? AuctionRead { get; set; }
     public Task<OperationResult<AuctionHouseSnapshot>> ReadAuctionHouseAsync(GameApiReadContext context, CancellationToken cancellationToken = default) =>
         Task.FromResult(OperationResult<AuctionHouseSnapshot>.Ok(AuctionRead!()));
