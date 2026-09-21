@@ -1,3 +1,4 @@
+using Roadhog.Application.Travel;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Api;
@@ -21,7 +22,6 @@ public sealed partial class BagCleanupController
     private static readonly TimeSpan CompletionJumpPreDelay = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan CompletionJumpHoldDuration = TimeSpan.FromMilliseconds(35);
     private static readonly TimeSpan CompletionJumpPostDelay = TimeSpan.FromSeconds(1);
-    private static readonly TimeSpan DefaultTownReturnTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DefaultSafeWaitTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan DefaultCleanupCooldown = TimeSpan.FromMinutes(25);
     private const int MaxDiscardConfirmClicksPerItem = 2;
@@ -925,8 +925,21 @@ public sealed partial class BagCleanupController
                 "Bag cleanup town return key is not configured.");
         }
 
-        var before = await context.Snapshots.ReadPlayerAsync().ConfigureAwait(false);
-        var startPosition = before.Value.Position!.Value;
+        var departure = (await context.Snapshots.ReadChannelTransitionAsync().WaitAsync(context.StopToken).ConfigureAwait(false)).Value;
+        if (!departure.IsReady) return BagCleanupTickResult.Running("waiting_for_return_scene");
+        var destination = await _pathStore.LoadAsync(state.ReturnDestinationPathName ?? context.Config.ScriptSettings!.Paths.MaintenancePathName, context.StopToken).ConfigureAwait(false);
+        if (destination.Value is not { Points.Count: > 0 })
+            throw new InvalidOperationException("回城目标路线不可用：" + destination.Error);
+        var transition = new TownReturnTransition();
+        transition.Start(departure, destination.Value, DateTimeOffset.UtcNow);
+        foreach (var movementKey in new[] { "W", "A", "S", "D" })
+        {
+            var release = await _input.KeyUpAsync(movementKey, context.StopToken).ConfigureAwait(false);
+            if (!release.Success) throw new InvalidOperationException("回城前释放移动按键失败：" + release.Error);
+        }
+        var releaseMouse = await _input.MouseUpAsync(RoadhogMouseButton.Right, context.StopToken).ConfigureAwait(false);
+        if (!releaseMouse.Success) throw new InvalidOperationException("回城前释放鼠标右键失败：" + releaseMouse.Error);
+        var startPosition = departure.Player!.Position!.Value;
 
         var press = await _input.PressKeyAsync(key, TownReturnHoldDuration, context.StopToken).ConfigureAwait(false);
         if (!press.Success)
@@ -935,6 +948,7 @@ public sealed partial class BagCleanupController
         }
 
         state.MarkPressedTownReturn(startPosition);
+        state.ReturnTransition = transition;
         state.Advance(BagCleanupStep.WaitTownReturnSettle);
         context.Logger.Info("bag_cleanup.return.press", new Dictionary<string, object?>
         {
@@ -952,56 +966,23 @@ public sealed partial class BagCleanupController
         AccountWorkerContext context,
         BagCleanupState state)
     {
-        var interrupted = await TryAbandonTownReturnIfInterruptedAsync(context, state).ConfigureAwait(false);
-        if (interrupted is not null)
+        var transition = state.ReturnTransition ?? throw new InvalidOperationException("清包回城确认状态缺失。");
+        var phase = await transition.TickAsync(context).ConfigureAwait(false);
+        if (phase == TownReturnPhase.Dead) throw new CleanupDeathInterruptionException();
+        if (phase == TownReturnPhase.Arrived)
         {
-            return interrupted;
+            context.Logger.Info("bag_cleanup.return.verify.ok", new Dictionary<string, object?>
+            { ["account"] = context.Config.AccountName, ["mapId"] = transition.Arrival!.Channel!.MapId });
+            state.Advance(BagCleanupStep.LoadCleanupPath);
+            return BagCleanupTickResult.Running("town_return_settled");
         }
-
-        if (state.TownReturnStartPosition is not { } startPosition)
+        // Existing attack cancellation is allowed only before any observed scene transition.
+        if (!transition.SawLoading && phase == TownReturnPhase.WaitingForDeparture)
         {
-            return RecoverableFailure(
-                context,
-                state,
-                "town_return_start_position_missing",
-                "Player position before town return was not recorded.");
+            var interrupted = await TryAbandonTownReturnIfInterruptedAsync(context, state).ConfigureAwait(false);
+            if (interrupted != null) return interrupted;
         }
-
-        var after = await context.Snapshots.ReadPlayerAsync().ConfigureAwait(false);
-        var endPosition = after.Value.Position!.Value;
-
-        var distance = Distance(startPosition, endPosition);
-        var requiredDistance = ReadTownReturnMinDistance();
-        if (distance < requiredDistance)
-        {
-            if (DateTimeOffset.Now - state.StepStartedAt < ReadTownReturnTimeout())
-            {
-                return BagCleanupTickResult.Running("waiting_for_town_return");
-            }
-
-            return RecoverableFailure(
-                context,
-                state,
-                "town_return_position_unchanged",
-                "Town return did not move the character enough. distance=" +
-                distance.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) +
-                ", required=" +
-                requiredDistance.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
-        }
-
-        context.Logger.Info("bag_cleanup.return.verify.ok", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["startX"] = startPosition.X,
-            ["startY"] = startPosition.Y,
-            ["startZ"] = startPosition.Z,
-            ["endX"] = endPosition.X,
-            ["endY"] = endPosition.Y,
-            ["endZ"] = endPosition.Z,
-            ["distance"] = distance
-        });
-        state.Advance(BagCleanupStep.LoadCleanupPath);
-        return BagCleanupTickResult.Running("town_return_settled");
+        return BagCleanupTickResult.Running("waiting_for_town_return");
     }
 
     private async Task<BagCleanupTickResult?> TryAbandonTownReturnIfInterruptedAsync(
@@ -1494,8 +1475,21 @@ public sealed partial class BagCleanupController
                 "Town return key is not configured.");
         }
 
-        var before = await context.Snapshots.ReadPlayerAsync().ConfigureAwait(false);
-        var startPosition = before.Value.Position!.Value;
+        var departure = (await context.Snapshots.ReadChannelTransitionAsync().WaitAsync(context.StopToken).ConfigureAwait(false)).Value;
+        if (!departure.IsReady) return BagCleanupTickResult.Running("waiting_for_return_scene");
+        var destination = await _pathStore.LoadAsync(context.Config.ScriptSettings!.Paths.RevivePathName, context.StopToken).ConfigureAwait(false);
+        if (destination.Value is not { Points.Count: > 0 })
+            throw new InvalidOperationException("返回复活点的目标路线不可用：" + destination.Error);
+        var transition = new TownReturnTransition();
+        transition.Start(departure, destination.Value, DateTimeOffset.UtcNow);
+        foreach (var movementKey in new[] { "W", "A", "S", "D" })
+        {
+            var release = await _input.KeyUpAsync(movementKey, context.StopToken).ConfigureAwait(false);
+            if (!release.Success) throw new InvalidOperationException("回城前释放移动按键失败：" + release.Error);
+        }
+        var releaseMouse = await _input.MouseUpAsync(RoadhogMouseButton.Right, context.StopToken).ConfigureAwait(false);
+        if (!releaseMouse.Success) throw new InvalidOperationException("回城前释放鼠标右键失败：" + releaseMouse.Error);
+        var startPosition = departure.Player!.Position!.Value;
 
         var press = await _input.PressKeyAsync(key, TownReturnHoldDuration, context.StopToken).ConfigureAwait(false);
         if (!press.Success)
@@ -1508,6 +1502,7 @@ public sealed partial class BagCleanupController
         }
 
         state.MarkPressedTownReturn(startPosition);
+        state.ReturnTransition = transition;
         state.Advance(BagCleanupStep.WaitReturnToReviveSettle);
         context.Logger.Info("bag_cleanup.return_to_revive.press", new Dictionary<string, object?>
         {
@@ -1524,48 +1519,12 @@ public sealed partial class BagCleanupController
         AccountWorkerContext context,
         BagCleanupState state)
     {
-        if (state.TownReturnStartPosition is not { } startPosition)
-        {
-            return FallbackToReversePathAfterTownReturnFailure(
-                context,
-                state,
-                "return_to_revive_start_position_missing",
-                "Player position before returning to revive point was not recorded.");
-        }
-
-        var after = await context.Snapshots.ReadPlayerAsync().ConfigureAwait(false);
-        var endPosition = after.Value.Position!.Value;
-
-        var distance = Distance(startPosition, endPosition);
-        var requiredDistance = ReadTownReturnMinDistance();
-        if (distance < requiredDistance)
-        {
-            if (DateTimeOffset.Now - state.StepStartedAt < ReadTownReturnTimeout())
-            {
-                return BagCleanupTickResult.Running("waiting_for_return_to_revive");
-            }
-
-            return FallbackToReversePathAfterTownReturnFailure(
-                context,
-                state,
-                "return_to_revive_position_unchanged",
-                "Town return did not move the character enough. distance=" +
-                distance.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) +
-                ", required=" +
-                requiredDistance.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
-        }
-
+        var transition = state.ReturnTransition ?? throw new InvalidOperationException("返回复活点的确认状态缺失。");
+        var phase = await transition.TickAsync(context).ConfigureAwait(false);
+        if (phase == TownReturnPhase.Dead) throw new CleanupDeathInterruptionException();
+        if (phase != TownReturnPhase.Arrived) return BagCleanupTickResult.Running("waiting_for_return_to_revive");
         context.Logger.Info("bag_cleanup.return_to_revive.verify.ok", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["startX"] = startPosition.X,
-            ["startY"] = startPosition.Y,
-            ["startZ"] = startPosition.Z,
-            ["endX"] = endPosition.X,
-            ["endY"] = endPosition.Y,
-            ["endZ"] = endPosition.Z,
-            ["distance"] = distance
-        });
+        { ["account"] = context.Config.AccountName, ["mapId"] = transition.Arrival!.Channel!.MapId });
         return FinishCleanupAfterReturn(context, state, returnedByReversePath: false);
     }
 
@@ -1766,12 +1725,7 @@ public sealed partial class BagCleanupController
             (int)fallback.TotalMilliseconds));
     }
 
-    private static TimeSpan ReadTownReturnTimeout()
-    {
-        return TimeSpan.FromMilliseconds(ReadIntFromEnv(
-            "ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS",
-            (int)DefaultTownReturnTimeout.TotalMilliseconds));
-    }
+
 
     private static TimeSpan ReadSafeWaitTimeout()
     {
@@ -1806,10 +1760,7 @@ public sealed partial class BagCleanupController
         return Math.Clamp(ReadIntFromEnv("ROADHOG_BAG_DISCARD_POLL_MS", 150), 0, 2000);
     }
 
-    private static double ReadTownReturnMinDistance()
-    {
-        return ReadDoubleFromEnv("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", 20.0D);
-    }
+
 
     private static int ReadIntFromEnv(string name, int fallback)
     {

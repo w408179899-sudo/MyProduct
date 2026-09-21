@@ -1,3 +1,4 @@
+using Roadhog.Application.Travel;
 using Roadhog.Core.Model;
 using Roadhog.Core.Paths;
 
@@ -34,6 +35,9 @@ public sealed class BagCleanupState
     public ulong TotalMoneyDelta { get; private set; }
 
     public ulong? InitialMoney { get; private set; }
+
+    public TownReturnTransition? ReturnTransition { get; set; }
+    public string? ReturnDestinationPathName { get; set; }
 
     public Vector3Snapshot? TownReturnStartPosition { get; private set; }
 
@@ -108,6 +112,7 @@ public sealed class BagCleanupState
         InitialMoney = null;
         ReturnAfterFailureReason = string.Empty;
         ReturnAfterFailureError = string.Empty;
+        ReturnTransition = null;
         TownReturnStartPosition = null;
         PathName = string.Empty;
         CleanupNpcName = string.Empty;
@@ -332,6 +337,7 @@ public sealed class BagCleanupState
         InitialMoney = null;
         ReturnAfterFailureReason = string.Empty;
         ReturnAfterFailureError = string.Empty;
+        ReturnTransition = null;
         TownReturnStartPosition = null;
         PathName = string.Empty;
         CleanupNpcName = string.Empty;

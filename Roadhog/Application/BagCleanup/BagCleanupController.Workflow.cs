@@ -16,6 +16,38 @@ public sealed class CleanupDeathInterruptionException : Exception
 public sealed partial class BagCleanupController
 {
     public static TimeSpan FullCleanupCooldown => ReadCleanupCooldown();
+    public async Task ReturnToTownRequestedAsync(AccountWorkerContext context, Action<string> report, string? destinationPathName = null)
+    {
+        var state = new BagCleanupState();
+        state.Start(0, 0);
+        state.ReturnDestinationPathName = destinationPathName;
+        while (state.Active && state.Step != BagCleanupStep.LoadCleanupPath)
+        {
+            report("清包前回城，等待回城位置确认");
+            var result = await TickWorkflowAsync(context, state);
+            if (result.Reason == "town_return_interrupted_by_attack") throw new CleanupCombatInterruptionException();
+            EnsureRunning(result);
+            await Task.Delay(100, context.StopToken);
+        }
+        if (state.Step != BagCleanupStep.LoadCleanupPath) throw new InvalidOperationException("清包前回城未确认完成。");
+    }
+
+    public async Task ReturnToReviveRequestedAsync(AccountWorkerContext context, Action<string> report)
+    {
+        var state = new BagCleanupState();
+        state.Start(0, 0);
+        state.Advance(BagCleanupStep.PressReturnToRevive);
+        while (state.Active)
+        {
+            report("清包后返回复活点，等待回城位置确认");
+            var result = await TickWorkflowAsync(context, state);
+            EnsureRunning(result);
+            if (result.Status == BagCleanupTickStatus.Completed) return;
+            await Task.Delay(100, context.StopToken);
+        }
+        throw new InvalidOperationException("返回复活点未确认完成。");
+    }
+
     /// <summary>The caller owns trigger/cooldown and starts at the shared grinding origin.</summary>
     public async Task RunRequestedAsync(AccountWorkerContext context, Action<string> report)
     {
@@ -71,6 +103,7 @@ public sealed partial class BagCleanupController
         async Task CheckLifeAsync()
         {
             context.StopToken.ThrowIfCancellationRequested();
+            if (state.ReturnTransition?.Active == true) return; // The coherent scene observation owns life checks during recall.
             if ((await context.Snapshots.ReadPlayerAsync().WaitAsync(context.StopToken)).Value.IsDead)
             {
                 if (state.DiscardActive)

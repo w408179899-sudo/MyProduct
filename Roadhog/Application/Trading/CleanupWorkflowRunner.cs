@@ -72,10 +72,7 @@ public sealed class CleanupWorkflowRunner(IKeyboardInput input, ISharedPathStore
                 if (flow.TransferGold) await new WarehousePurchaseSequence(input).RunAsync(context.Snapshots, flow, Report, token);
                 if (flow.PersonalShop) await new ConfiguredPersonalShopSequence(input).RunAsync(context.Snapshots, stallPlan, Report, token);
                 Report("交易完成，回城后走复活路径返回挂机点");
-                var position = (await context.Snapshots.ReadPlayerAsync().WaitAsync(token)).Value.Position!.Value;
-                await actions.Key(settings.Paths.TownReturnKey);
-                await actions.Wait(async () => (await context.Snapshots.ReadPlayerAsync().WaitAsync(token)).Value,
-                    p => p.Position is { } q && Distance(position, q) > 20, 45000);
+                await new BagCleanupController(input, paths, executePath).ReturnToReviveRequestedAsync(context, Report);
                 if (returnToCombat != null) await returnToCombat(context);
                 else await Follow(settings.Paths.RevivePathName);
             }

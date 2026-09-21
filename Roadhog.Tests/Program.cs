@@ -151,6 +151,13 @@ var tests = new (string Name, Func<Task> Run)[]
     ("channel peace actual worker holds and cancels without new target", ChannelPeaceTests.WorkerActuallyHoldsAsync),
     ("channel peace actual worker handles death before holding", ChannelPeaceTests.WorkerDeathStillWinsAsync),
     ("fixed channel completion marker stops reads and resets by target or run", FixedChannelSchedulingTests.CompletionMarkerAsync),
+    ("town return destination and missing loading frame matrix", TownReturnTests.DestinationMatrixAsync),
+    ("town return delayed landing remains exclusive and reconnects route", TownReturnTests.StartupDelayedLandingAsync),
+    ("town return death and pending read cancellation", TownReturnTests.DeathAndCancellationAsync),
+    ("town return cleanup branches confirm coherent destination", TownReturnTests.CleanupBothReturnsAsync),
+    ("town return worker owns transition before normal work", TownReturnTests.WorkerOwnsTransitionAsync),
+    ("town return sustained obstruction rejoins once then stops", TownReturnTests.StuckRecoveryIsBoundedAsync),
+    ("town return path map persistence and recording isolation", TownReturnTests.PathMapRoundTripAsync),
     ("channel transition delayed and slow loading awaits recovered character", ChannelTransitionTests.DelayedAndSlowLoadingAsync),
     ("channel transition no loading and wrong destination remain retryable", ChannelTransitionTests.NoLoadingAndWrongDestinationAsync),
     ("channel transition stop cancels even after slow loading warning", ChannelTransitionTests.StopDuringLoadingAsync),
@@ -9211,8 +9218,8 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
             BagCleanupSellButtonClickY = 510,
             Points = new List<SharedPathPoint>
             {
-                new() { X = 1, Y = 0, Z = 0 },
-                new() { X = 2, Y = 0, Z = 0 }
+                new() { X = 100, Y = 0, Z = 0 },
+                new() { X = 101, Y = 0, Z = 0 }
             }
         });
         var pathCalls = new List<string>();
@@ -9293,6 +9300,7 @@ static async Task TestBagCleanupControllerUsesTownReturnAfterCleanupAsync()
         settings.Paths.TownReturnKey = "NumPad7";
         settings.Paths.BagCleanupTownReturnKey = "NumPad8";
         settings.Paths.BagCleanupReturnByReversePath = false;
+        settings.Paths.RevivePathName = "cleanup-path";
         var logger = new InMemoryRoadhogLogger();
         var keyboard = new RecordingKeyboardInput();
         var gameApi = new FakeGameApi
@@ -9414,7 +9422,7 @@ static async Task TestBagCleanupControllerDetectsTownReturnBeforeTimeoutAsync()
         };
         var controller = new BagCleanupController(
             keyboard,
-            new InMemorySharedPathStore(),
+            new InMemorySharedPathStore(CreatePath("cleanup-path", new Vector3Snapshot(100, 0, 0))),
             (context, pathName, points) => Task.FromResult(OperationResult.Ok()));
         var state = new BagCleanupState();
         var context = CreateContext(settings, gameApi, logger);
@@ -9429,11 +9437,11 @@ static async Task TestBagCleanupControllerDetectsTownReturnBeforeTimeoutAsync()
 
         gameApi.Player = gameApi.Player with { Position = new Vector3Snapshot(19, 0, 0) };
         var belowThreshold = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
-        AssertEqual("waiting_for_town_return", belowThreshold.Reason, "movement below twenty should keep waiting");
+        AssertEqual("waiting_for_town_return", belowThreshold.Reason, "movement away from the destination should keep waiting");
 
-        gameApi.Player = gameApi.Player with { Position = new Vector3Snapshot(20, 0, 0) };
+        gameApi.Player = gameApi.Player with { Position = new Vector3Snapshot(100, 0, 0) };
         var detected = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
-        AssertEqual("town_return_settled", detected.Reason, "movement of twenty should confirm town return immediately");
+        AssertEqual("town_return_settled", detected.Reason, "arrival at the destination should confirm without a fixed delay");
         AssertEqual(BagCleanupStep.LoadCleanupPath, state.Step, "confirmed town return should load cleanup path next");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.return.verify.ok"), "early town return should be logged");
         AssertFalse(
@@ -9621,8 +9629,8 @@ static async Task TestBagCleanupControllerReversesCleanupPathWhenFollowFailsAsyn
                 CleanupNpcName = "cleanup-npc",
                 Points = new List<SharedPathPoint>
                 {
-                    new() { X = 1, Y = 0, Z = 0 },
-                    new() { X = 2, Y = 0, Z = 0 }
+                    new() { X = 100, Y = 0, Z = 0 },
+                    new() { X = 101, Y = 0, Z = 0 }
                 }
             }),
             (_, pathName, points) =>
@@ -9799,8 +9807,8 @@ static async Task TestBagCleanupControllerSellsMoreThanThreeItemsInBatchesAsync(
             CleanupNpcName = cleanupNpcName,
             Points = new List<SharedPathPoint>
             {
-                new() { X = 1, Y = 0, Z = 0 },
-                new() { X = 2, Y = 0, Z = 0 }
+                new() { X = 100, Y = 0, Z = 0 },
+                new() { X = 101, Y = 0, Z = 0 }
             }
         });
         var pathCalls = new List<string>();
@@ -10047,8 +10055,8 @@ static async Task TestBagCleanupControllerSellsNonEquipmentBeforeEquipmentBatche
                 CleanupNpcName = cleanupNpcName,
                 Points = new List<SharedPathPoint>
                 {
-                    new() { X = 1, Y = 0, Z = 0 },
-                    new() { X = 2, Y = 0, Z = 0 }
+                    new() { X = 100, Y = 0, Z = 0 },
+                    new() { X = 101, Y = 0, Z = 0 }
                 }
             }),
             (_, _, _) => Task.FromResult(OperationResult.Ok()));
@@ -10197,8 +10205,8 @@ static async Task TestBagCleanupControllerReturnsWhenNpcNotFoundAsync()
             CleanupNpcName = cleanupNpcName,
             Points = new List<SharedPathPoint>
             {
-                new() { X = 1, Y = 0, Z = 0 },
-                new() { X = 2, Y = 0, Z = 0 }
+                new() { X = 100, Y = 0, Z = 0 },
+                new() { X = 101, Y = 0, Z = 0 }
             }
         });
         var pathCalls = new List<string>();
@@ -10401,8 +10409,8 @@ static async Task TestBagCleanupControllerFailureCoolsDownAsync()
             CleanupNpcName = cleanupNpcName,
             Points = new List<SharedPathPoint>
             {
-                new() { X = 1, Y = 0, Z = 0 },
-                new() { X = 2, Y = 0, Z = 0 }
+                new() { X = 100, Y = 0, Z = 0 },
+                new() { X = 101, Y = 0, Z = 0 }
             }
         });
         var pathCalls = new List<string>();
@@ -16147,6 +16155,8 @@ static async Task TestStationaryCombatStartupRecoveryReturnsBeforeDistantReviveP
 
         AssertFalse(state.StartupTownReturnPending, "verified town return should clear the pending state");
         AssertFalse(!state.StartupRecoveryActive, "verified town return should start revive path recovery");
+        AssertEqual(0, state.StartupRecoveryPointIndex, "arrival hands off at the first point");
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
         AssertEqual(1, state.StartupRecoveryPointIndex, "verified town return should begin at point zero before advancing");
         AssertFalse(!keyboard.KeyDowns.Contains("W"), "verified town return should continue toward the next revive point");
         AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad7"), "verified town return must not press the key twice");
@@ -16273,17 +16283,14 @@ static async Task TestStationaryCombatStartupRecoveryRejectsStillDistantTownRetu
         await controller.TickAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
 
         AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad7"), "still distant town return should not be pressed repeatedly");
-        AssertFalse(state.StartupTownReturnPending, "still distant town return should leave the pending state");
-        AssertFalse(!state.StartupRecoveryActive, "still distant town return should fall back to existing nearest-point recovery");
-        AssertEqual(0, state.StartupRecoveryPointIndex, "fallback should retain the existing nearest revive point selection");
-        AssertFalse(!keyboard.KeyDowns.Contains("W"), "fallback should preserve existing path movement behavior");
-        AssertFalse(!logger.Entries.Any(entry =>
-                entry.EventName == "stationary_combat.startup_recovery.return.failed" &&
-                string.Equals(
-                    Convert.ToString(entry.Fields["reason"]),
-                    "town_return_destination_still_distant",
-                    StringComparison.Ordinal)),
-            "still distant town return should log the verification failure");
+        AssertFalse(!state.StartupTownReturnPending, "wrong destination must retain pending recall");
+        AssertFalse(state.StartupRecoveryActive, "wrong destination cannot start nearest-point recovery");
+        AssertFalse(keyboard.KeyDowns.Contains("W"), "wrong destination cannot fall through to movement");
+        gameApi.Player = gameApi.Player with { Position = new Vector3Snapshot(0, 0, 0) };
+        await controller.TickAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
+        AssertFalse(state.StartupTownReturnPending, "later correct landing must complete the same operation");
+        AssertFalse(!state.StartupRecoveryActive, "late landing must attach to the revive path");
+
     }
     finally
     {
@@ -19206,6 +19213,8 @@ static async Task TestPathCombatNoKillReturnStartsRevivePathAtFirstPointAsync()
             StationaryCombatNoKillRecoveryStep.FollowRevivePath,
             state.NoKillRecovery.Step,
             "verified town return should begin revive path");
+        AssertEqual(0, state.StartupRecoveryPointIndex, "arrival hands off at the first point");
+        await controller.TickPathAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
         AssertEqual(1, state.StartupRecoveryPointIndex, "revive path should begin at point zero before advancing");
         var verifyLog = logger.Entries.Last(entry => entry.EventName == "stationary_combat.no_kill.return.verify.ok");
         AssertEqual(0, Convert.ToInt32(verifyLog.Fields["startPointIndex"]), "no-kill recovery start point index");
@@ -19324,13 +19333,14 @@ static async Task TestPathCombatFailedNoKillReturnWaitsBeforeRetryAsync()
         await controller.TickPathAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
         await controller.TickPathAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
 
-        AssertFalse(state.NoKillRecovery.Active, "unchanged position should stop the failed return attempt");
-        AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad7"), "failed return should wait before pressing again");
-        var postponed = logger.Entries.Last(entry => entry.EventName == "stationary_combat.no_kill.recovery.postponed");
-        AssertEqual(
-            "town_return_position_unchanged",
-            Convert.ToString(postponed.Fields["reason"]) ?? string.Empty,
-            "failed town return reason");
+        AssertFalse(!state.NoKillRecovery.Active, "unconfirmed recall remains pending for delayed landing");
+        AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad7"), "pending return must not repeat the key");
+        AssertFalse(keyboard.KeyDowns.Contains("W"), "unconfirmed return must not resume movement");
+        gameApi.Player = gameApi.Player with { Position = new Vector3Snapshot(0, 0, 0) };
+        await controller.TickPathAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
+        AssertEqual(StationaryCombatNoKillRecoveryStep.FollowRevivePath, state.NoKillRecovery.Step,
+            "late landing must recover through the existing attempt");
+
     }
     finally
     {
@@ -25129,7 +25139,9 @@ static async Task TestStationaryCombatRunsAfterCombatMaintenanceRoundAsync()
                 .Concat(RepeatedKey("NumPad6", 3))
                 .Concat(new[] { "NumPadAdd", "NumPad3" }),
             keyboard.Keys,
-            "after-combat maintenance round should continue through status, potion, and skill");
+            "after-combat maintenance round should continue through status, potion, and skill; events=" +
+            string.Join(";", logger.Entries.Where(entry => entry.EventName.StartsWith("semi_auto.maintenance", StringComparison.Ordinal))
+                .Select(entry => entry.EventName + "=" + System.Text.Json.JsonSerializer.Serialize(entry.Fields))));
         AssertEqual(
             3,
             logger.Entries.Count(entry => entry.EventName == "stationary_combat.loot.post_combat_maintenance"),

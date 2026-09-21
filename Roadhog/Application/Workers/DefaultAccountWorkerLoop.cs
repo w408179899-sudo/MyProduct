@@ -103,6 +103,12 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
             while (!context.StopToken.IsCancellationRequested)
             {
                 context.RuntimeStates.MarkHeartbeat(context.Config.AccountName);
+                if (await _stationaryCombat.TryTickTownReturnAsync(
+                        context, semiAutoPlan, semiAutoState, stationaryCombatState).ConfigureAwait(false) is { } townReturnDelay)
+                {
+                    await Task.Delay(townReturnDelay, context.StopToken).ConfigureAwait(false);
+                    continue;
+                }
 
                 if (_cleanupWorkflow != null && !fixedChannelState.AwaitingConfirmation)
                 {

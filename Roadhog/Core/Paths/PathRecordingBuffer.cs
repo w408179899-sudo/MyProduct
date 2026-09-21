@@ -20,12 +20,23 @@ public sealed class PathRecordingBuffer
 
     public int Count => _points.Count;
 
+    public uint? MapId { get; private set; }
+
+    public bool AcceptRecordingMap(uint mapId)
+    {
+        if (mapId == 0 || MapId is > 0 && MapId != mapId) return false;
+        // Do not label an existing legacy route from a single newly appended point.
+        if (_points.Count == 0) MapId = mapId;
+        return true;
+    }
+
     public double TotalDistance => _points.Count == 0
         ? 0.0D
         : _points[^1].TotalDistance;
 
-    public void Load(IEnumerable<SharedPathPoint>? points)
+    public void Load(IEnumerable<SharedPathPoint>? points, uint? mapId = null)
     {
+        MapId = mapId is > 0 ? mapId : null;
         _points.Clear();
         if (points is not null)
         {
@@ -136,6 +147,7 @@ public sealed class PathRecordingBuffer
 
     public void Clear()
     {
+        MapId = null;
         _points.Clear();
     }
 
@@ -146,6 +158,7 @@ public sealed class PathRecordingBuffer
         {
             Version = 1,
             Name = name,
+            MapId = MapId,
             CreatedAt = now,
             UpdatedAt = now,
             Points = _points.Select(point => point.Clone()).ToList()

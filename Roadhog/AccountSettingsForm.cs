@@ -2622,7 +2622,7 @@ namespace Roadhog
                 return;
             }
 
-            editor.Buffer.Load(result.Value.Points);
+            editor.Buffer.Load(result.Value.Points, result.Value.MapId);
             editor.LoadedDocument = result.Value.Clone();
             ApplyPathRadiusBindingToEditor(editor, result.Value);
             editor.SkippedCount = 0;
@@ -2737,6 +2737,7 @@ namespace Roadhog
                 }
                 merged.Name = document.Name;
                 merged.Points = document.Points;
+                merged.MapId = document.MapId;
                 // Both revive and combat editors can own this field. An unchanged draft must
                 // not overwrite a newer binding saved through the other editor.
                 if (editor.BindStationaryRadiusCheckBox is not null &&
@@ -2888,9 +2889,19 @@ namespace Roadhog
 
         private async Task AddCurrentPlayerPointAsync(PathEditorControls editor, string reason, bool showSkipped, bool dense)
         {
-            var player = dense
-                ? await _runtime.ReadPlayerForPathRecordingAsync(_account).ConfigureAwait(true)
-                : await _runtime.ReadPlayerAsync(_account).ConfigureAwait(true);
+            var scene = await _runtime.ReadSceneForPathRecordingAsync(_account).ConfigureAwait(true);
+            if (!scene.IsReady)
+            {
+                SetPathStatus(editor, "地图加载中，等待角色恢复后继续录点", false);
+                return;
+            }
+            if (!editor.Buffer.AcceptRecordingMap(scene.Channel!.MapId))
+            {
+                StopPathRecording(editor);
+                SetPathStatus(editor, "当前地图与路线不一致，已停止录点", true);
+                return;
+            }
+            var player = scene.Player!;
             var position = player.Position!.Value;
 
             var minimumDistanceMeters = ReadDouble(

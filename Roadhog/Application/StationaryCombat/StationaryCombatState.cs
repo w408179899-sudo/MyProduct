@@ -1,6 +1,7 @@
-﻿using Roadhog.Application.BagCleanup;
+using Roadhog.Application.BagCleanup;
 using Roadhog.Application.JumpAssist;
 using Roadhog.Application.Team;
+using Roadhog.Application.Travel;
 using Roadhog.Core.Model;
 
 using Roadhog.Application.Radar;
@@ -197,6 +198,8 @@ public sealed class StationaryCombatState
 
     public bool StartupTownReturnPending { get; private set; }
 
+    public TownReturnTransition? ReturnTransition { get; set; }
+
     public Vector3Snapshot? StartupTownReturnStartPosition { get; private set; }
 
     public DateTimeOffset StartupTownReturnStartedAt { get; private set; } = DateTimeOffset.MinValue;
@@ -258,6 +261,8 @@ public sealed class StationaryCombatState
 
     public void EnterDeathRecovery(DateTimeOffset now)
     {
+        ReturnNavigationBlocked = false;
+        ReturnRouteRejoinAttempted = false;
         ObstacleNavigation.ClearRoute();
         TopLevelState = StationaryCombatTopLevelState.DeathRecovery;
         ReturningHome = false;
@@ -901,6 +906,10 @@ public sealed class StationaryCombatState
         StartupRecoveryChecked = true;
     }
 
+    public bool ReturnNavigationBlocked { get; set; }
+    public bool ReturnRouteRejoinAttempted { get; set; }
+    public void RetryStartupRecovery() => StartupRecoveryChecked = false;
+
     public void StartCleanupReturnToCombat()
     {
         CleanupReturnToCombatActive = true;
@@ -1032,6 +1041,7 @@ public sealed class StationaryCombatState
 
     private void ResetStartupTownReturn()
     {
+        ReturnTransition = null;
         StartupTownReturnPending = false;
         StartupTownReturnStartPosition = null;
         StartupTownReturnStartedAt = DateTimeOffset.MinValue;

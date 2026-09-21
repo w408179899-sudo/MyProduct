@@ -1,3 +1,4 @@
+using Roadhog.Application.Travel;
 using Roadhog.Core.Model;
 
 namespace Roadhog.Application.StationaryCombat;
@@ -12,6 +13,8 @@ public sealed class StationaryCombatNoKillRecoveryState
     public DateTimeOffset StepStartedAt { get; private set; } = DateTimeOffset.MinValue;
 
     public DateTimeOffset RetryNotBefore { get; private set; } = DateTimeOffset.MinValue;
+
+    public TownReturnTransition? ReturnTransition { get; set; }
 
     public Vector3Snapshot? TownReturnStartPosition { get; private set; }
 
@@ -88,6 +91,7 @@ public sealed class StationaryCombatNoKillRecoveryState
 
     private void ResetRecovery()
     {
+        ReturnTransition = null;
         Step = StationaryCombatNoKillRecoveryStep.Inactive;
         StepStartedAt = DateTimeOffset.MinValue;
         TownReturnStartPosition = null;

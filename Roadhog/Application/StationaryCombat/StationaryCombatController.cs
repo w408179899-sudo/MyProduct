@@ -1,4 +1,5 @@
-﻿using Roadhog.Application.Input;
+using Roadhog.Application.Travel;
+using Roadhog.Application.Input;
 using Roadhog.Application.BagCleanup;
 using Roadhog.Application.SemiAuto;
 using Roadhog.Application.Radar;
@@ -28,10 +29,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
     private static readonly TimeSpan GatherApproachJumpRetryDelay = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan NoKillTownReturnHoldDuration = TimeSpan.FromMilliseconds(35);
     private static readonly TimeSpan DefaultNoKillTimeout = TimeSpan.FromMinutes(20);
-    private static readonly TimeSpan DefaultNoKillTownReturnSettleDelay = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan DefaultNoKillRetryDelay = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan StartupTownReturnHoldDuration = TimeSpan.FromMilliseconds(35);
-    private static readonly TimeSpan DefaultStartupTownReturnSettleDelay = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan FightSoftRestartApproachTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan TemporaryTargetSwitchGuardGrace = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan DefaultSmartPreAimResultTtl = TimeSpan.FromSeconds(30);
@@ -48,7 +47,6 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
     private const int SmartPreAimCandidateDiagnosticSampleCount = 8;
     private const double DefaultPathFollowReachDistance = 5.0D;
     private const double DefaultStartupTownReturnDistance = 500.0D;
-    private const double DefaultStartupTownReturnMinDistance = 5.0D;
     private const double DefaultYawPixelsPerDegree = 11.0D;
     private const double DefaultPitchPixelsPerDegree = 13.0D;
     private const double DefaultSmartPreAimSwitchDistanceMargin = 2.0D;
@@ -154,6 +152,9 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state)
     {
+        if (await TryTickTownReturnAsync(context, plan, semiAutoState, state).ConfigureAwait(false) is { } returnDelay)
+            return returnDelay;
+
         UpdateMaintenanceRestJumpPause(state, semiAutoState);
         if (!state.Fighting && state.CandidateEntityId == 0)
         {
@@ -990,6 +991,9 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state)
     {
+        if (await TryTickTownReturnAsync(context, plan, semiAutoState, state).ConfigureAwait(false) is { } returnDelay)
+            return returnDelay;
+
         StopNextTargetPreAim(context, state, "path_combat", clearCandidate: true);
         UpdateMaintenanceRestJumpPause(state, semiAutoState);
         if (!state.Fighting && state.CandidateEntityId == 0)
@@ -2375,6 +2379,21 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             .ToArray();
         state.SetStationaryHomeFromRevivePath(revivePathName, revivePoints[^1], revivePoints.Length);
 
+        var wrongMap = false;
+        if (pathResult.Value.MapId is > 0)
+        {
+            var scene = (await context.Snapshots.ReadChannelTransitionAsync().WaitAsync(context.StopToken).ConfigureAwait(false)).Value;
+            if (!scene.IsReady)
+            {
+                state.RetryStartupRecovery();
+                await StopMovementAsync(context, state, releaseRightMouse: true).ConfigureAwait(false);
+                return IdleDelay;
+            }
+            wrongMap = scene.Channel!.MapId != pathResult.Value.MapId;
+            player = scene.Player!;
+            playerPosition = player.Position!.Value;
+            playerDistanceFromHome = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, home);
+        }
         var nearestPathPointIndex = FindNearestPathPointIndex(playerPosition, revivePoints, double.MaxValue);
         if (nearestPathPointIndex < 0)
         {
@@ -2394,7 +2413,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         var startupTownReturnDistance = ReadStartupTownReturnDistance();
         if (context.Config.ScriptSettings?.CombatMode == AccountCombatMode.Stationary &&
             !state.CleanupReturnToCombatActive &&
-            nearestPathPointDistance > startupTownReturnDistance)
+            (wrongMap || nearestPathPointDistance > startupTownReturnDistance))
         {
             var key = context.Config.ScriptSettings?.Paths?.TownReturnKey?.Trim() ?? string.Empty;
             if (string.IsNullOrWhiteSpace(key))
@@ -2416,6 +2435,15 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 state.ReturningHome = false;
                 state.ClearTarget();
 
+                await PrepareForTownReturnAsync(context, semiAutoState, state).ConfigureAwait(false);
+                var departure = (await context.Snapshots.ReadChannelTransitionAsync().WaitAsync(context.StopToken).ConfigureAwait(false)).Value;
+                if (!departure.IsReady)
+                {
+                    state.RetryStartupRecovery();
+                    return IdleDelay;
+                }
+                var transition = new TownReturnTransition();
+                transition.Start(departure, pathResult.Value, DateTimeOffset.UtcNow);
                 var press = await _input
                     .PressKeyAsync(key, StartupTownReturnHoldDuration, context.StopToken)
                     .ConfigureAwait(false);
@@ -2424,8 +2452,9 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                     state.StartStartupTownReturn(
                         revivePathName,
                         revivePoints,
-                        playerPosition,
+                        departure.Player!.Position!.Value,
                         DateTimeOffset.Now);
+                    state.ReturnTransition = transition;
                     context.Logger.Warn("stationary_combat.startup_recovery.return.press", new Dictionary<string, object?>
                     {
                         ["account"] = context.Config.AccountName,
@@ -2453,6 +2482,17 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                     ["error"] = press.Error
                 });
             }
+            state.ReturnNavigationBlocked = true;
+            await PrepareForTownReturnAsync(context, semiAutoState, state).ConfigureAwait(false);
+            context.RuntimeStates.MarkWarning(context.Config.AccountName, "回城按键未配置或发送失败，已停止移动，请检查回城设置。");
+            return IdleDelay;
+        }
+
+        if (wrongMap)
+        {
+            state.ReturnNavigationBlocked = true;
+            await PrepareForTownReturnAsync(context, semiAutoState, state).ConfigureAwait(false);
+            return IdleDelay;
         }
 
         if (!TryStartStartupRecoveryFromNearestPoint(
@@ -3190,6 +3230,11 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
         var stuckMs = ReadDeathRevivePathStuckMs();
         var stuckFor = now - state.ReturnHomeLastProgressAt;
+        if (stuckFor >= TimeSpan.FromSeconds(15))
+        {
+            await RecoverBlockedReturnRouteAsync(context, state).ConfigureAwait(false);
+            return;
+        }
         if (stuckFor.TotalMilliseconds < stuckMs)
         {
             return;
@@ -3267,6 +3312,11 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
         var stuckMs = ReadDeathRevivePathStuckMs();
         var stuckFor = now - state.StartupRecoveryLastProgressAt;
+        if (stuckFor >= TimeSpan.FromSeconds(15))
+        {
+            await RecoverBlockedReturnRouteAsync(context, state).ConfigureAwait(false);
+            return;
+        }
         if (stuckFor.TotalMilliseconds < stuckMs)
         {
             return;
@@ -4669,6 +4719,11 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             state.ClearStartupRecovery();
             state.ClearTarget();
 
+            await PrepareForTownReturnAsync(context, semiAutoState, state).ConfigureAwait(false);
+            var departure = (await context.Snapshots.ReadChannelTransitionAsync().WaitAsync(context.StopToken).ConfigureAwait(false)).Value;
+            if (!departure.IsReady) return IdleDelay;
+            var transition = new TownReturnTransition();
+            transition.Start(departure, pathResult.Value, DateTimeOffset.UtcNow);
             var press = await _input
                 .PressKeyAsync(key, NoKillTownReturnHoldDuration, context.StopToken)
                 .ConfigureAwait(false);
@@ -4685,7 +4740,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             var revivePoints = pathPoints
                 .Select(point => point.ToVector3())
                 .ToArray();
-            state.NoKillRecovery.StartTownReturn(startPosition, revivePathName, revivePoints, now);
+            state.NoKillRecovery.StartTownReturn(departure.Player!.Position!.Value, revivePathName, revivePoints, now);
+            state.NoKillRecovery.ReturnTransition = transition;
             context.Logger.Warn("stationary_combat.no_kill.return.press", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
@@ -4702,62 +4758,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         }
 
         if (state.NoKillRecovery.Step == StationaryCombatNoKillRecoveryStep.WaitTownReturnSettle)
-        {
-            if (now - state.NoKillRecovery.StepStartedAt < ReadNoKillTownReturnSettleDelay())
-            {
-                return IdleDelay;
-            }
-
-            if (state.NoKillRecovery.TownReturnStartPosition is not { } startPosition)
-            {
-                return PostponeNoKillRecovery(
-                    context,
-                    state,
-                    now,
-                    "town_return_start_position_missing",
-                    "Town return start position was not recorded.");
-            }
-
-            var afterPlayer = await ReadPlayerAsync(context).ConfigureAwait(false);
-            var endPosition = afterPlayer.Position!.Value;
-
-            var distance = StationaryCombatTargetSelector.HorizontalDistance(startPosition, endPosition);
-            if (distance < ReadNoKillTownReturnMinDistance())
-            {
-                return PostponeNoKillRecovery(
-                    context,
-                    state,
-                    now,
-                    "town_return_position_unchanged",
-                    "Town return did not move the character enough. distance=" +
-                    distance.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
-            }
-
-            var revivePoints = state.NoKillRecovery.RevivePathPoints;
-            if (revivePoints.Count < 2)
-            {
-                return PostponeNoKillRecovery(
-                    context,
-                    state,
-                    now,
-                    "revive_path_unavailable",
-                    "Revive path points were not retained after town return.");
-            }
-
-            var revivePathName = state.NoKillRecovery.RevivePathName;
-            state.SetStationaryHomeFromRevivePath(revivePathName, revivePoints[^1], revivePoints.Count);
-            state.StartStartupRecovery(revivePathName, revivePoints, 0);
-            state.NoKillRecovery.StartRevivePath(now);
-            context.Logger.Info("stationary_combat.no_kill.return.verify.ok", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["distance"] = Math.Round(distance, 2),
-                ["revivePathName"] = revivePathName,
-                ["startPointIndex"] = 0,
-                ["pathPointCount"] = revivePoints.Count
-            });
-            player = afterPlayer;
-        }
+            return await TickNoKillReturnTransitionAsync(context, state).ConfigureAwait(false);
 
         if (state.NoKillRecovery.Step != StationaryCombatNoKillRecoveryStep.FollowRevivePath ||
             state.NoKillRecovery.RevivePathPoints.Count < 2)
@@ -6099,112 +6100,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         Vector3Snapshot playerPosition,
         double radius)
     {
-        if (DateTimeOffset.Now - state.StartupTownReturnStartedAt < ReadStartupTownReturnSettleDelay())
-        {
-            return IdleDelay;
-        }
-
-        var startPosition = state.StartupTownReturnStartPosition;
-        var revivePathName = state.StartupRecoveryPathName;
-        var revivePoints = state.StartupRecoveryPoints;
-        state.CompleteStartupTownReturn();
-
-        if (startPosition is null || revivePoints.Count < 2)
-        {
-            state.ClearStartupRecovery();
-            context.Logger.Warn("stationary_combat.startup_recovery.return.failed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["reason"] = startPosition is null ? "start_position_missing" : "revive_path_unavailable",
-                ["pathName"] = revivePathName,
-                ["pathPointCount"] = revivePoints.Count
-            });
-            return IdleDelay;
-        }
-
-        var movedDistance = StationaryCombatTargetSelector.HorizontalDistance(
-            startPosition.Value,
-            playerPosition);
-        var playerDistanceFromHome = StationaryCombatTargetSelector.HorizontalDistance(
-            playerPosition,
-            revivePoints[^1]);
-        var nearestReturnedPointIndex = FindNearestPathPointIndex(
-            playerPosition,
-            revivePoints,
-            double.MaxValue);
-        var nearestReturnedPointDistance = nearestReturnedPointIndex >= 0
-            ? StationaryCombatTargetSelector.HorizontalDistance(
-                playerPosition,
-                revivePoints[nearestReturnedPointIndex])
-            : double.MaxValue;
-        var minimumMovedDistance = ReadStartupTownReturnMinDistance();
-        var startupTownReturnDistance = ReadStartupTownReturnDistance();
-        var returnFailureReason = movedDistance < minimumMovedDistance
-            ? "town_return_position_unchanged"
-            : nearestReturnedPointDistance > startupTownReturnDistance
-                ? "town_return_destination_still_distant"
-                : string.Empty;
-        if (!string.IsNullOrEmpty(returnFailureReason))
-        {
-            context.Logger.Warn("stationary_combat.startup_recovery.return.failed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["reason"] = returnFailureReason,
-                ["pathName"] = revivePathName,
-                ["movedDistance"] = Math.Round(movedDistance, 2),
-                ["minimumMovedDistance"] = Math.Round(minimumMovedDistance, 2),
-                ["nearestPathPointDistance"] = nearestReturnedPointIndex >= 0
-                    ? Math.Round(nearestReturnedPointDistance, 2)
-                    : null,
-                ["distanceThreshold"] = Math.Round(startupTownReturnDistance, 2)
-            });
-
-            if (!TryStartStartupRecoveryFromNearestPoint(
-                    context,
-                    state,
-                    playerPosition,
-                    revivePathName,
-                    revivePoints,
-                    playerDistanceFromHome))
-            {
-                return IdleDelay;
-            }
-        }
-        else
-        {
-            state.StartStartupRecovery(revivePathName, revivePoints, 0);
-            state.ReturningHome = false;
-            state.ClearTarget();
-            context.Logger.Info("stationary_combat.startup_recovery.return.verify.ok", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["pathName"] = revivePathName,
-                ["movedDistance"] = Math.Round(movedDistance, 2),
-                ["nearestPathPointDistance"] = Math.Round(nearestReturnedPointDistance, 2),
-                ["startPointIndex"] = 0,
-                ["pathPointCount"] = revivePoints.Count
-            });
-            LogStartupRecoverySelected(
-                context,
-                revivePathName,
-                revivePoints,
-                0,
-                StationaryCombatTargetSelector.HorizontalDistance(playerPosition, revivePoints[0]),
-                playerDistanceFromHome,
-                selectionReason: "town_return_verified");
-        }
-
-        return await ContinueStartupRecoveryAsync(
-                context,
-                plan,
-                semiAutoState,
-                state,
-                player,
-                playerPosition,
-                revivePoints[^1],
-                radius,
-                playerDistanceFromHome)
-            .ConfigureAwait(false) ?? IdleDelay;
+        return await TickStartupReturnTransitionAsync(context, state).ConfigureAwait(false);
     }
 
     private static bool TryStartStartupRecoveryFromNearestPoint(
@@ -13276,15 +13172,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             24 * 60 * 60 * 1000));
     }
 
-    private static TimeSpan ReadNoKillTownReturnSettleDelay()
-    {
-        return TimeSpan.FromMilliseconds(ClampInt(
-            ReadRawIntFromEnv(
-                "ROADHOG_NO_KILL_RETURN_SETTLE_MS",
-                (int)DefaultNoKillTownReturnSettleDelay.TotalMilliseconds),
-            0,
-            60_000));
-    }
+
 
     private static TimeSpan ReadNoKillRetryDelay()
     {
@@ -13294,10 +13182,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             60 * 60 * 1000));
     }
 
-    private static double ReadNoKillTownReturnMinDistance()
-    {
-        return ClampDouble(ReadDoubleFromEnv("ROADHOG_NO_KILL_RETURN_MIN_DISTANCE", 5.0D), 0.0D, 10_000.0D);
-    }
+
 
     private static double ReadStartupTownReturnDistance()
     {
@@ -13307,23 +13192,9 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             10_000.0D);
     }
 
-    private static TimeSpan ReadStartupTownReturnSettleDelay()
-    {
-        return TimeSpan.FromMilliseconds(ClampInt(
-            ReadRawIntFromEnv(
-                "ROADHOG_STARTUP_RETURN_SETTLE_MS",
-                (int)DefaultStartupTownReturnSettleDelay.TotalMilliseconds),
-            0,
-            60_000));
-    }
 
-    private static double ReadStartupTownReturnMinDistance()
-    {
-        return ClampDouble(
-            ReadDoubleFromEnv("ROADHOG_STARTUP_RETURN_MIN_DISTANCE", DefaultStartupTownReturnMinDistance),
-            0.0D,
-            10_000.0D);
-    }
+
+
 
     private static double ReadPathCombatAccessPathDistance()
     {

@@ -8,6 +8,9 @@ public sealed class SharedPathDocument
 
     public string Name { get; set; } = string.Empty;
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public uint? MapId { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
 
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
@@ -46,6 +49,7 @@ public sealed class SharedPathDocument
         {
             Version = Version,
             Name = Name,
+            MapId = MapId,
             CreatedAt = CreatedAt,
             UpdatedAt = UpdatedAt,
             CleanupNpcName = CleanupNpcName,

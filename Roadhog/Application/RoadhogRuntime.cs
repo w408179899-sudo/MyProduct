@@ -276,6 +276,11 @@ public sealed partial class RoadhogRuntime
         return snapshot;
     }
 
+    public async Task<ChannelTransitionSnapshot> ReadSceneForPathRecordingAsync(
+        string? accountName = null, CancellationToken cancellationToken = default) =>
+        (await CreateSnapshotReader(accountName, cancellationToken).ReadChannelTransitionAsync()
+            .WaitAsync(cancellationToken).ConfigureAwait(false)).Value;
+
     public async Task<PlayerSnapshot> ReadPlayerForPathRecordingAsync(
         string? accountName = null,
         CancellationToken cancellationToken = default)

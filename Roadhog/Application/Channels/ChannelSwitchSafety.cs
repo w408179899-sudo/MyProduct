@@ -9,7 +9,8 @@ internal static class ChannelSwitchSafety
     internal static bool IsWorkingOnCombat(StationaryCombatState state) => TeamLeaderRuntimePolicy.HasActiveCombatTarget(state);
 
     internal static bool HasExclusiveWork(StationaryCombatState state) =>
-        state.TopLevelState != StationaryCombatTopLevelState.Normal || state.BagCleanup.Active ||
+        state.StartupTownReturnPending || state.NoKillRecovery.Step == StationaryCombatNoKillRecoveryStep.WaitTownReturnSettle ||
+        state.ReturnNavigationBlocked || state.TopLevelState != StationaryCombatTopLevelState.Normal || state.BagCleanup.Active ||
         state.Gather.Phase != StationaryGatherPhase.Idle || state.LootAfterKill.Active;
 
     internal static async Task<(uint Hp, bool Busy)> ReadAsync(IRoadhogSnapshotReader snapshots, StationaryCombatState state)
