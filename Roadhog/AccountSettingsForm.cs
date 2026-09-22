@@ -594,12 +594,19 @@ namespace Roadhog
                 error = "请先修正物品单价：输入大于 0 的整数，或留空。";
                 return false;
             }
+            if (bagCleanupTradeItemGrid?.IsCurrentCellInEditMode == true &&
+                bagCleanupTradeItemGrid.CurrentCell is { ReadOnly: false } discountCell && discountCell.OwningColumn.Name == "AuctionDiscount" &&
+                !BagCleanupTradeItemConfig.TryParseDiscount(bagCleanupTradeItemGrid.EditingControl?.Text, out _))
+            {
+                error = "请先修正拍卖折扣：输入 8.01～9.99，最多两位小数，或留空不打折。";
+                return false;
+            }
             if (bagCleanupTradeItemGrid?.IsCurrentCellInEditMode == true && !bagCleanupTradeItemGrid.EndEdit())
             {
                 error = "请先修正物品单价：输入大于 0 的整数，或留空。";
                 return false;
             }
-            if (bagCleanupTradeItemGrid?.CurrentCell is { ColumnIndex: 1 } priceCell)
+            if (bagCleanupTradeItemGrid?.CurrentCell is { } priceCell && priceCell.OwningColumn.Name is "UnitPrice" or "AuctionDiscount")
             {
                 bagCleanupTradeItemGrid.CurrentCell = bagCleanupTradeItemGrid.Rows[priceCell.RowIndex].Cells[0];
             }
@@ -4932,6 +4939,7 @@ namespace Roadhog
                     bagCleanupTradeItemGrid.Visible = tradeItems is not null;
                     bagCleanupTradeItemGrid.Rows.Clear();
                     bagCleanupTradeItemGrid.Columns["PriceLookupMethod"].Visible = bagCleanupAuctionHouseRadio?.Checked == true;
+                    bagCleanupTradeItemGrid.Columns["AuctionDiscount"].Visible = bagCleanupAuctionHouseRadio?.Checked == true;
                     if (tradeItems is not null)
                     {
                         foreach (var item in tradeItems)

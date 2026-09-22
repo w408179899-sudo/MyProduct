@@ -54,7 +54,7 @@ public sealed class SharedCleanupConfiguration
         var result = BagCleanupTradeItemConfig.Normalize(current).ToDictionary(i => i.Name, StringComparer.OrdinalIgnoreCase);
         foreach (var name in old.Keys.Except(next.Keys, StringComparer.OrdinalIgnoreCase)) result.Remove(name);
         foreach (var (name, item) in next)
-            if (!old.TryGetValue(name, out var previous) || previous.UnitPrice != item.UnitPrice || previous.PriceLookupMethod != item.PriceLookupMethod)
+            if (!old.TryGetValue(name, out var previous) || previous.UnitPrice != item.UnitPrice || previous.PriceLookupMethod != item.PriceLookupMethod || previous.AuctionDiscount != item.AuctionDiscount)
                 result[name] = item;
         return result.Values.ToList();
     }

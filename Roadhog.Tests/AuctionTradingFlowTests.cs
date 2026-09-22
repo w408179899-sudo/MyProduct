@@ -8,7 +8,7 @@ internal static partial class CleanupWorkflowTests
 {
     public static async Task AuctionSubmissionAsync()
     {
-        foreach (var scenario in new[] { "manual", "minimum", "no_quote", "full", "search", "wrong_editor", "withdraw_all", "legacy_withdraw", "unknown_age", "unconfigured", "empty", "no_proceeds", "continue_registration" })
+        foreach (var scenario in new[] { "manual", "minimum", "no_quote", "discount_floor", "discount_above", "discount_no_quote", "full", "search", "wrong_editor", "withdraw_all", "legacy_withdraw", "unknown_age", "unconfigured", "empty", "no_proceeds", "continue_registration" })
         {
             var api = new FakeGameApi { InventoryMoney = 100 };
             var input = new RecordingKeyboardInput();
@@ -16,7 +16,7 @@ internal static partial class CleanupWorkflowTests
             using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(4));
             var state = Auction() with { SettlementMoney = scenario == "no_proceeds" ? 0UL : 50UL };
             var journal = new Journal();
-            var item = new InventoryItemSnapshot(20, 11, "item", 3, 0, false);
+            var item = new InventoryItemSnapshot(20, 11, "item", 3, 0, false, VendorSellUnitPrice: 400);
             api.InventoryItems = scenario is "unconfigured" or "empty" ? Array.Empty<InventoryItemSnapshot>() : new[] { item };
             if (scenario == "full") api.InventoryItems = Enumerable.Range(0, 16).Select(i => item with { InstanceId = (ulong)(11 + i), Slot = i }).ToArray();
             var settings = new MaintenanceScriptSettings
@@ -26,6 +26,11 @@ internal static partial class CleanupWorkflowTests
                     PriceLookupMethod = scenario == "search" ? AuctionPriceLookupMethod.SearchCalculation : scenario is "minimum" or "no_quote" ? AuctionPriceLookupMethod.DialogMinimum : AuctionPriceLookupMethod.Manual } }
             };
             var allOrders = scenario is "withdraw_all" or "legacy_withdraw" or "unknown_age";
+            if (scenario.StartsWith("discount_"))
+            {
+                settings.BagCleanupAuctionHouseItems[0].PriceLookupMethod = AuctionPriceLookupMethod.DialogMinimum;
+                settings.BagCleanupAuctionHouseItems[0].AuctionDiscount = 9.5m;
+            }
             if (allOrders)
             {
                 state = state with { Listings = new[]
@@ -50,7 +55,7 @@ internal static partial class CleanupWorkflowTests
             var originalIds = state.Listings.Select(l => l.ListingId).ToArray();
             if (scenario == "continue_registration")
                 state = state with { ActiveTab = 1, Listings = new[] { new AuctionListing(80, 20, 3, "already-listed", 51, "7", new(400, 100)) } };
-            var expectedSubmits = scenario == "full" ? 15 : allOrders ? 2 : scenario is "manual" or "minimum" or "no_proceeds" or "continue_registration" ? 1 : 0;
+            var expectedSubmits = scenario == "full" ? 15 : allOrders ? 2 : scenario is "manual" or "minimum" or "discount_floor" or "discount_above" or "no_proceeds" or "continue_registration" ? 1 : 0;
             var events = new List<string>();
             var bagOpen = true;
             var bagInFront = false;
@@ -96,7 +101,9 @@ internal static partial class CleanupWorkflowTests
                     Require(bagOpen && bagInFront, "inventory prepared before the registration stage stays in front");
                     Require(input.Keys.Count(k => k == "I") == 2, "only one close/open preparation before all registrations");
                     var target = BagItems().Single(i => i.Point == p);
-                    state = state with { Editor = new(scenario == "wrong_editor" ? 99u : target.TemplateId, target.Quantity, 1, scenario == "no_quote" ? null : 23, new(600, 150))
+                    state = state with { Editor = new(scenario == "wrong_editor" ? 99u : target.TemplateId, target.Quantity,
+                        scenario.StartsWith("discount_") ? 20UL : 1UL,
+                        scenario is "no_quote" or "discount_no_quote" ? null : scenario == "discount_floor" ? 20UL : 23UL, new(600, 150))
                     { InstanceId = target.InstanceId, MaximumQuantity = target.Quantity, MinimumAllowedPrice = 2, UnitPriceMode = true, PriceInput = new(500, 150), ConfirmButton = new(550, 150) } };
                     return;
                 }
@@ -128,7 +135,7 @@ internal static partial class CleanupWorkflowTests
                 else if (p == new GameUiPoint(550, 150))
                 {
                     var editor = state.Editor!;
-                    var price = scenario == "minimum" ? 23UL : 17UL;
+                    var price = scenario switch { "minimum" => 23UL, "discount_floor" => 20UL, "discount_above" => 21UL, _ => 17UL };
                     Require(collects == 0 && editor.UnitPrice == price, "configured pricing before settlement");
                     var target = api.InventoryItems.Single(i => i.InstanceId == editor.InstanceId);
                     Require(editor.Quantity == target.Count, "register the fresh bag quantity including merged withdrawals");
@@ -156,6 +163,8 @@ internal static partial class CleanupWorkflowTests
             if (scenario == "continue_registration") Require(withdrawals == 0 && state.Listings.Any(l => l.ListingId == 80) && state.Listings.Count == 2,
                 "explicit continuation preserves completed listings and registers only remaining inventory");
             Require(!down && input.KeyUps.Contains("ControlKey"), "release all inputs on every exit");
+            if (scenario == "discount_floor") Require(!input.Keys.Any(k => k.StartsWith("D")), "default floor is submitted without retyping");
+            if (scenario == "discount_above") Require(input.Keys.Any(k => k.StartsWith("D")), "higher discounted price is explicitly entered");
         }
     }
 }

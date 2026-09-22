@@ -56,6 +56,13 @@ public partial class AccountSettingsForm
         lookup.Items.AddRange("手动单价", "弹窗最低价", "搜索后计算");
         grid.Columns.Add(lookup);
         lookup.DisplayIndex = 1;
+        grid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "AuctionDiscount", HeaderText = "折扣", FillWeight = 27,
+            ToolTipText = "单位：折。8.01～9.99，保留两位小数；留空不打折。",
+            Visible = false, SortMode = DataGridViewColumnSortMode.NotSortable,
+            DefaultCellStyle = new DataGridViewCellStyle { NullValue = "不打折", Alignment = DataGridViewContentAlignment.MiddleRight }
+        });
         grid.CurrentCellDirtyStateChanged += (_, _) =>
         {
             if (grid.IsCurrentCellDirty && grid.CurrentCell?.OwningColumn == lookup)
@@ -73,11 +80,19 @@ public partial class AccountSettingsForm
         };
         grid.EditingControlShowing += (_, e) =>
         {
-            if (grid.CurrentCell?.ColumnIndex == 1 && grid.CurrentCell.Value is null && e.Control is TextBox textBox)
+            if (grid.CurrentCell?.OwningColumn.Name is "UnitPrice" or "AuctionDiscount" && grid.CurrentCell.Value is null && e.Control is TextBox textBox)
                 textBox.Text = string.Empty;
         };
         grid.CellValidating += (_, e) =>
         {
+            if (e.RowIndex >= 0 && e.ColumnIndex == grid.Columns["AuctionDiscount"].Index &&
+                !grid.Rows[e.RowIndex].Cells[e.ColumnIndex].ReadOnly && !loadingBagCleanupNameListEditor && grid.IsCurrentCellInEditMode)
+            {
+                e.Cancel = !BagCleanupTradeItemConfig.TryParseDiscount(Convert.ToString(e.FormattedValue), out var validatedDiscount);
+                grid.Rows[e.RowIndex].ErrorText = e.Cancel ? "折扣为 8.01～9.99，最多两位小数；留空不打折。" : string.Empty;
+                if (e.Cancel) SetBagCleanupInventoryStatus(grid.Rows[e.RowIndex].ErrorText, true);
+                return;
+            }
             if (e.ColumnIndex != 1 || grid.Rows[e.RowIndex].Cells[1].ReadOnly || loadingBagCleanupNameListEditor || !grid.IsCurrentCellInEditMode) return;
             if (!BagCleanupTradeItemConfig.TryParseUnitPrice(Convert.ToString(e.FormattedValue), out var validatedPrice))
             {
@@ -89,6 +104,12 @@ public partial class AccountSettingsForm
         };
         grid.CellEndEdit += async (_, e) =>
         {
+            if (e.RowIndex >= 0 && e.ColumnIndex == grid.Columns["AuctionDiscount"].Index && !loadingBagCleanupNameListEditor)
+            {
+                if (grid.Rows[e.RowIndex].Tag is BagCleanupTradeItemConfig discountItem)
+                    await SaveAuctionDiscountAsync(discountItem, Convert.ToString(grid.Rows[e.RowIndex].Cells[e.ColumnIndex].Value)).ConfigureAwait(true);
+                return;
+            }
             if (e.ColumnIndex != 1 || grid.Rows[e.RowIndex].Cells[1].ReadOnly || loadingBagCleanupNameListEditor) return;
             var row = grid.Rows[e.RowIndex];
             if (row.Tag is not BagCleanupTradeItemConfig item) return;
@@ -139,6 +160,13 @@ public partial class AccountSettingsForm
         cell.Style.ForeColor = manual ? _textGreen : SystemColors.GrayText;
         cell.Style.SelectionForeColor = manual ? _textGreen : SystemColors.GrayText;
         cell.ToolTipText = manual ? "手动设置每个物品的单价" : "自动查价，此处手动价格不参与处理";
+        var discountCell = row.Cells["AuctionDiscount"];
+        var editableDiscount = bagCleanupAuctionHouseItemNames.Contains(item) && item.PriceLookupMethod == AuctionPriceLookupMethod.DialogMinimum;
+        discountCell.ReadOnly = !editableDiscount;
+        discountCell.Value = editableDiscount ? item.AuctionDiscount?.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) : null;
+        discountCell.Style.NullValue = editableDiscount ? "不打折" : "—";
+        discountCell.Style.BackColor = editableDiscount ? Color.White : SystemColors.Control;
+        discountCell.ToolTipText = "8.01～9.99 折，留空不打折。折扣价不低于系统单价 ÷ 20；切换查价方式保留折扣。";
         row.ErrorText = string.Empty;
     }
 
@@ -153,6 +181,31 @@ public partial class AccountSettingsForm
             foreach (DataGridViewRow row in bagCleanupTradeItemGrid.Rows) RefreshTradePriceCell(row);
         await SaveBagCleanupNameListsOrRollbackAsync(before, "已自动保存查价方式：" + item.Name).ConfigureAwait(true);
     });
+
+    private Task SaveAuctionDiscountAsync(BagCleanupTradeItemConfig item, string? text)
+    {
+        if (!bagCleanupAuctionHouseItemNames.Contains(item) || item.PriceLookupMethod != AuctionPriceLookupMethod.DialogMinimum)
+            return Task.CompletedTask;
+        if (!BagCleanupTradeItemConfig.TryParseDiscount(text, out var discount))
+        {
+            SetBagCleanupInventoryStatus("折扣无效：请输入 8.01～9.99，最多两位小数，或留空不打折。", true);
+            if (bagCleanupTradeItemGrid is not null)
+                foreach (DataGridViewRow row in bagCleanupTradeItemGrid.Rows) RefreshTradePriceCell(row);
+            return Task.CompletedTask;
+        }
+        return RunBagCleanupNameListMutationAsync(async () =>
+        {
+            if (!bagCleanupAuctionHouseItemNames.Contains(item) || item.PriceLookupMethod != AuctionPriceLookupMethod.DialogMinimum) return;
+            if (item.AuctionDiscount != discount)
+            {
+                var before = CaptureBagCleanupNameLists();
+                item.AuctionDiscount = discount;
+                await SaveBagCleanupNameListsOrRollbackAsync(before, "已自动保存拍卖折扣：" + item.Name).ConfigureAwait(true);
+            }
+            if (bagCleanupTradeItemGrid is not null)
+                foreach (DataGridViewRow row in bagCleanupTradeItemGrid.Rows) RefreshTradePriceCell(row);
+        });
+    }
 
     private Task SaveBagCleanupTradePriceAsync(BagCleanupTradeItemConfig item, string? text)
     {

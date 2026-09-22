@@ -130,7 +130,7 @@ public sealed class AuctionTradingSequence(IKeyboardInput input, IAuctionListing
                 var editor = ui.Editor!;
                 Require(editor.TemplateId == item.TemplateId && editor.InstanceId == item.InstanceId && editor.MaximumQuantity >= item.Count && editor.UnitPriceMode,
                     "上架物品或计价方式不匹配。");
-                var price = rule.PriceLookupMethod == AuctionPriceLookupMethod.DialogMinimum ? editor.MarketMinimum : checked((ulong?)rule.EffectiveUnitPrice);
+                var price = AuctionPricePolicy.Resolve(rule, item, editor);
                 if (price == null || price == 0 || price < editor.MinimumAllowedPrice)
                 {
                     await actions.Click(Ui, s => s.Editor?.CancelButton, s => s.Editor?.InstanceId == item.InstanceId);
@@ -140,7 +140,8 @@ public sealed class AuctionTradingSequence(IKeyboardInput input, IAuctionListing
                 bool Same(AuctionHouseSnapshot s) => s.IsOpen && s.ActiveTab == 1 && !s.OtherModalOpen && s.Editor is { } e &&
                     e.InstanceId == item.InstanceId && e.TemplateId == item.TemplateId && e.UnitPriceMode;
                 if (editor.Quantity != item.Count) await actions.Number(Ui, s => s.Editor?.QuantityInput, Same, item.Count);
-                await actions.Number(Ui, s => s.Editor?.PriceInput, Same, price.Value);
+                if (editor.UnitPrice != price.Value)
+                    await actions.Number(Ui, s => s.Editor?.PriceInput, Same, price.Value);
                 bool Ready(AuctionHouseSnapshot s) => Same(s) && s.Editor!.Quantity == item.Count && s.Editor.UnitPrice == price && s.Editor.UnitPrice >= s.Editor.MinimumAllowedPrice;
                 await actions.Wait(Ui, Ready);
                 await actions.Click(Ui, s => s.Editor?.ConfirmButton, Ready);

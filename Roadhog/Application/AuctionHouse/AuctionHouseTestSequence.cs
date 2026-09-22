@@ -81,7 +81,8 @@ public sealed class AuctionHouseTestSequence(IKeyboardInput input, IRoadhogLogge
                 var minimum = ui.Editor.MarketMinimum;
                 detail = rule.PriceLookupMethod switch
                 {
-                    AuctionPriceLookupMethod.DialogMinimum => $"{item.Name}：弹窗最低价 " + (minimum?.ToString("N0") ?? "暂无报价"),
+                    AuctionPriceLookupMethod.DialogMinimum => $"{item.Name}：弹窗最低价 " + (minimum?.ToString("N0") ?? "暂无报价") +
+                        (rule.AuctionDiscount is { } discount ? $"，折扣 {discount:F2} 折，计算登录单价 " + (AuctionPricePolicy.Resolve(rule, item, ui.Editor)?.ToString("N0") ?? "不登录") : "，未设置折扣"),
                     AuctionPriceLookupMethod.SearchCalculation => $"{item.Name}：已读 {count} 条报价，搜索定价算法待定义",
                     _ => $"{item.Name}：手动单价 " + (rule.EffectiveUnitPrice?.ToString("N0") ?? "未设置")
                 };

@@ -8,13 +8,18 @@ internal static partial class CleanupWorkflowTests
 {
     public static async Task AuctionRegistrationFeeAsync()
     {
-        foreach (var scenario in new[] { "valid", "wrong_item", "wrong_quantity", "wrong_price", "wrong_mode", "insufficient", "foreign_modal", "unconfirmed", "existing", "stop" })
+        foreach (var scenario in new[] { "valid", "discount_floor", "discount_above", "wrong_item", "wrong_quantity", "wrong_price", "wrong_mode", "insufficient", "foreign_modal", "unconfirmed", "existing", "stop" })
         {
             var api = new FakeGameApi { InventoryMoney = 100 };
             var input = new RecordingKeyboardInput(); Cursor(api, input);
-            var item = new InventoryItemSnapshot(20, 11, "item", 3, 0, false);
+            var item = new InventoryItemSnapshot(20, 11, "item", 3, 0, false, VendorSellUnitPrice: 400);
             api.InventoryItems = new[] { item };
             var settings = new MaintenanceScriptSettings { BagCleanupAuctionHouseItems = new() { new() { Name = "item", UnitPrice = 20 } } };
+            if (scenario.StartsWith("discount_"))
+            {
+                settings.BagCleanupAuctionHouseItems[0].PriceLookupMethod = AuctionPriceLookupMethod.DialogMinimum;
+                settings.BagCleanupAuctionHouseItems[0].AuctionDiscount = 9.5m;
+            }
             var confirmation = new AuctionRegistrationConfirmation(11, 3, 20, true, 60, 10, new(650, 150), new(700, 150));
             var state = Auction() with { SettlementMoney = 50, RegistrationConfirmation = scenario == "existing" ? confirmation : null };
             bool bagOpen = true, held = false; int editorClicks = 0, feeClicks = 0, collects = 0;
@@ -41,7 +46,7 @@ internal static partial class CleanupWorkflowTests
                 if (button == RoadhogMouseButton.Right)
                 {
                     Require(point == new GameUiPoint(700, 300), "right-click exact inventory instance");
-                    state = state with { Editor = new(20, 3, 1, 20, new(600, 150))
+                    state = state with { Editor = new(20, 3, scenario == "discount_floor" ? 20UL : 1UL, scenario == "discount_above" ? 22UL : 20UL, new(600, 150))
                     { InstanceId = 11, MaximumQuantity = 3, MinimumAllowedPrice = 1, UnitPriceMode = true, PriceInput = new(500, 150), ConfirmButton = new(550, 150) } };
                 }
                 else if (point == new GameUiPoint(200, 100)) state = state with { ActiveTab = 1 };
@@ -84,7 +89,8 @@ internal static partial class CleanupWorkflowTests
             var journal = new Journal();
             try { await new AuctionTradingSequence(input, journal, Fast).RunAsync(api.Create(new(), new InMemoryRoadhogLogger(), stop.Token), "account", settings, _ => { }, stop.Token); }
             catch (Exception ex) { error = ex; }
-            if (scenario == "valid")
+            if (scenario == "discount_floor") Require(!input.Keys.Any(k => k.StartsWith("D")) && !input.Keys.Contains("A"), "default floor price registers without any price typing");
+            if (scenario is "valid" or "discount_floor" or "discount_above")
                 Require(error == null && editorClicks == 1 && feeClicks == 1 && collects == 1 && api.InventoryMoney == 140 && journal.History.Listings.Single().ListingId == 100,
                     "fee confirmed once; listing recorded; proceeds collected after fee deducted");
             else

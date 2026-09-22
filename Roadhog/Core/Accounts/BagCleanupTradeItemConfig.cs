@@ -15,6 +15,23 @@ public sealed class BagCleanupTradeItemConfig
     // Retained when automatic lookup is selected, for switching back to manual.
     public long? UnitPrice { get; set; } = 1;
     public AuctionPriceLookupMethod PriceLookupMethod { get; set; } = AuctionPriceLookupMethod.Manual;
+    // Null preserves legacy pricing without applying a discount.
+    public decimal? AuctionDiscount { get; set; }
+
+    public static bool IsValidDiscount(decimal? discount) => discount is null ||
+        (discount >= 8.01m && discount <= 9.99m && decimal.Round(discount.Value, 2) == discount.Value);
+
+    public static bool TryParseDiscount(string? text, out decimal? discount)
+    {
+        discount = null;
+        var value = text?.Trim() ?? string.Empty;
+        if (value.Length == 0) return true;
+        if (!Regex.IsMatch(value, @"\A[0-9]+(?:\.[0-9]{1,2})?\z") ||
+            !decimal.TryParse(value, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var parsed) ||
+            !IsValidDiscount(parsed)) return false;
+        discount = parsed;
+        return true;
+    }
     [JsonIgnore]
     public long? EffectiveUnitPrice => PriceLookupMethod == AuctionPriceLookupMethod.Manual ? UnitPrice : null;
 
@@ -27,6 +44,7 @@ public sealed class BagCleanupTradeItemConfig
             if (item is null || string.IsNullOrWhiteSpace(item.Name)) continue;
             if (item.EffectiveUnitPrice is <= 0) throw new ArgumentException("物品单价必须是大于 0 的整数，或留空。");
             if (!Enum.IsDefined(item.PriceLookupMethod)) throw new ArgumentException("无效的查价方式。");
+            if (!IsValidDiscount(item.AuctionDiscount)) throw new ArgumentException("拍卖折扣必须为 8.01～9.99 折，最多两位小数。");
             var name = item.Name.Trim();
             if (byName.TryGetValue(name, out var existing))
             {
@@ -34,7 +52,7 @@ public sealed class BagCleanupTradeItemConfig
                 continue;
             }
 
-            var copy = new BagCleanupTradeItemConfig { Name = name, UnitPrice = item.UnitPrice, PriceLookupMethod = item.PriceLookupMethod };
+            var copy = new BagCleanupTradeItemConfig { Name = name, UnitPrice = item.UnitPrice, PriceLookupMethod = item.PriceLookupMethod, AuctionDiscount = item.AuctionDiscount };
             byName.Add(name, copy);
             result.Add(copy);
         }
@@ -74,6 +92,13 @@ public sealed class BagCleanupTradeItemConfigJsonConverter : JsonConverter<BagCl
         {
             if (property.Name.Equals("name", StringComparison.OrdinalIgnoreCase))
                 result.Name = property.Value.GetString() ?? string.Empty;
+            else if (property.Name.Equals("auctionDiscount", StringComparison.OrdinalIgnoreCase))
+            {
+                if (property.Value.ValueKind == JsonValueKind.Null) result.AuctionDiscount = null;
+                else if (property.Value.ValueKind == JsonValueKind.Number && property.Value.TryGetDecimal(out var discount) && BagCleanupTradeItemConfig.IsValidDiscount(discount))
+                    result.AuctionDiscount = discount;
+                else throw new JsonException("Invalid auction discount.");
+            }
             else if (property.Name.Equals("unitPrice", StringComparison.OrdinalIgnoreCase))
             {
                 priceValue = property.Value;
@@ -104,11 +129,14 @@ public sealed class BagCleanupTradeItemConfigJsonConverter : JsonConverter<BagCl
     {
         if (value.EffectiveUnitPrice is <= 0) throw new JsonException("Invalid trading unit price.");
         if (!Enum.IsDefined(value.PriceLookupMethod)) throw new JsonException("Invalid auction price lookup method.");
+        if (!BagCleanupTradeItemConfig.IsValidDiscount(value.AuctionDiscount)) throw new JsonException("Invalid auction discount.");
         writer.WriteStartObject();
         writer.WriteString("name", value.Name);
         if (value.UnitPrice is { } price) writer.WriteNumber("unitPrice", price);
         else writer.WriteNull("unitPrice");
         writer.WriteString("priceLookupMethod", value.PriceLookupMethod.ToString());
+        if (value.AuctionDiscount is { } discount) writer.WriteNumber("auctionDiscount", discount);
+        else writer.WriteNull("auctionDiscount");
         writer.WriteEndObject();
     }
 }

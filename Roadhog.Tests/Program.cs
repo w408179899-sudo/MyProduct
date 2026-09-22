@@ -258,6 +258,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("skill binding combat maintenance and summon controllers send resolved keys", SkillBindingTests.ControllerAsync),
 
     ("auction registration fee confirmation validates identity price and submission", CleanupWorkflowTests.AuctionRegistrationFeeAsync),
+    ("auction discount price floor rounding and validation", AuctionDiscountTests.PricesAsync),
+    ("auction discount legacy persistence shared changes and regions", AuctionDiscountTests.CompatibilityAsync),
     ("auction registration fee production decoder and modal guards", PersonalShopDecoderTests.AuctionRegistrationDecodeAsync),
     ("npc sale official snapshot lifecycle and decoder guards", NpcSaleTests.SnapshotAsync),
     ("npc sale single entries by vendor value with hover identity and submit verification", NpcSaleTests.FlowAsync),
@@ -12525,6 +12527,36 @@ static Task TestBagCleanupTradePricesAsync()
             grid.Rows[0].Cells["PriceLookupMethod"].Value = "弹窗最低价";
             System.Windows.Forms.Application.DoEvents();
             AssertEqual(AuctionPriceLookupMethod.DialogMinimum, store.Document.AuctionHouse[0].PriceLookupMethod, "lookup auto-save");
+            void EditDiscount(string text)
+            {
+                grid.CurrentCell = grid.Rows[0].Cells["AuctionDiscount"];
+                grid.BeginEdit(true);
+                ((System.Windows.Forms.TextBox)grid.EditingControl!).Text = text;
+                grid.NotifyCurrentCellDirty(true);
+                AssertFalse(!grid.EndEdit(), "valid discount should commit");
+                grid.CurrentCell = grid.Rows[0].Cells[0];
+                System.Windows.Forms.Application.DoEvents();
+            }
+            AssertFalse(grid.Rows[0].Cells["AuctionDiscount"].ReadOnly, "dialog price permits discount editing");
+            EditDiscount("9.5");
+            AssertEqual(9.5m, store.Document.AuctionHouse[0].AuctionDiscount ?? 0, "discount autosaves");
+            AssertEqual("9.50", Convert.ToString(grid.Rows[0].Cells["AuctionDiscount"].Value)!, "discount displays two decimals");
+            grid.CurrentCell = grid.Rows[0].Cells["AuctionDiscount"];
+            grid.BeginEdit(true);
+            ((System.Windows.Forms.TextBox)grid.EditingControl!).Text = "8.00";
+            grid.NotifyCurrentCellDirty(true);
+            AssertFalse(form.ValidateChildren(), "UI rejects discount below 8.01");
+            AssertFalse(InvokeSaveCurrentSettingsForTest(form, out _), "account save rejects invalid active discount");
+            grid.CancelEdit();
+            grid.CurrentCell = grid.Rows[0].Cells[0];
+            AssertEqual(9.5m, store.Document.AuctionHouse[0].AuctionDiscount ?? 0, "invalid edit leaves saved discount unchanged");
+            store.FailSaves = true;
+            EditDiscount("8.50");
+            AssertEqual("9.50", Convert.ToString(grid.Rows[0].Cells["AuctionDiscount"].Value)!, "failed discount save rolls UI back");
+            store.FailSaves = false;
+            EditDiscount("");
+            AssertFalse(store.Document.AuctionHouse[0].AuctionDiscount.HasValue, "blank clears discount");
+            EditDiscount("9.50");
             AssertEqual(AuctionPriceLookupMethod.Manual, store.Document.Stall[0].PriceLookupMethod, "stall unaffected");
             AssertFalse(!grid.Rows[0].Cells[1].ReadOnly, "automatic lookup disables price editing");
             AssertEqual("—", Convert.ToString(grid.Rows[0].Cells[1].FormattedValue)!, "automatic price is visually inactive");
@@ -12557,12 +12589,17 @@ static Task TestBagCleanupTradePricesAsync()
             AssertEqual(3500L, store.Document.AuctionHouse[0].UnitPrice ?? 0, "saving account should commit active price editor");
             grid.Rows[0].Cells["PriceLookupMethod"].Value = "弹窗最低价";
             System.Windows.Forms.Application.DoEvents();
+            grid.CurrentCell = grid.Rows[0].Cells["AuctionDiscount"];
+            grid.BeginEdit(true);
+            ((System.Windows.Forms.TextBox)grid.EditingControl!).Text = "9.25";
+            grid.NotifyCurrentCellDirty(true);
             AssertFalse(!InvokeSaveCurrentSettingsForTest(form, out error), "automatic mode account save: " + error);
             using var reopened = CreateAccountSettingsFormForTestsWithStore(configStore);
             var captured = (BagCleanupNameListsDocument)InvokePrivateMethodForTest(reopened, "CaptureBagCleanupNameLists")!;
             AssertEqual(1800L, captured.Stall[0].UnitPrice ?? 0, "account reopening preserves stall price");
             AssertEqual(3500L, captured.AuctionHouse[0].UnitPrice ?? 0, "account reopening preserves auction price");
             AssertEqual(AuctionPriceLookupMethod.DialogMinimum, captured.AuctionHouse[0].PriceLookupMethod, "account reopening preserves lookup");
+            AssertEqual(9.25m, captured.AuctionHouse[0].AuctionDiscount ?? 0, "active discount commits on account save and survives reopening");
 
             var preview = Environment.GetEnvironmentVariable("ROADHOG_BAG_PREVIEW_DIRECTORY");
             if (!string.IsNullOrWhiteSpace(preview))
