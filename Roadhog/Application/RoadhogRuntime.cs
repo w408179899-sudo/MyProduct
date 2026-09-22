@@ -217,6 +217,9 @@ public sealed partial class RoadhogRuntime
         return snapshot;
     }
 
+    public async Task<QuickbarSnapshot> ReadQuickbarAsync(string? accountName = null, CancellationToken cancellationToken = default) =>
+        (await CreateSnapshotReader(accountName, cancellationToken).ReadQuickbarAsync().ConfigureAwait(false)).Value;
+
     public async Task<IReadOnlyList<WorldObjectSnapshot>> RefreshWorldObjectsAsync(
         string? accountName = null,
         CancellationToken cancellationToken = default)

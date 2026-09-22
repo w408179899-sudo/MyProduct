@@ -34,13 +34,13 @@ public sealed class SemiAutoSkillPlan
 
     public bool HasCombatActions => HasExecutableSkills || HasOpeningSkill;
 
-    public static SemiAutoSkillPlan FromSettings(SkillScriptSettings settings)
+    public static SemiAutoSkillPlan FromSettings(SkillScriptSettings settings, SkillKeyBindings? bindings = null, Action<string>? missing = null)
     {
         var usesSpiritmasterAutoLogic =
             settings.Mode == SkillConfigurationMode.Auto &&
             settings.SpiritmasterAutoSkillLogicEnabled;
 
-        var roots = settings.Mode switch
+        var roots = bindings is not null ? BuildBoundRoots(settings, bindings, missing) : settings.Mode switch
         {
             SkillConfigurationMode.ManualMapping => BuildManualRoots(settings),
             SkillConfigurationMode.SystemClassification => BuildSystemRoots(settings),
@@ -50,7 +50,7 @@ public sealed class SemiAutoSkillPlan
         };
 
         var triggerPrefix = BuildTriggerPrefixRoots(roots, settings.TriggerPrefixMode);
-        var openingSkill = BuildOpeningSkill(settings);
+        var openingSkill = bindings is null ? BuildOpeningSkill(settings) : BuildBoundOpeningSkill(settings, bindings, missing);
 
         return new SemiAutoSkillPlan(roots, triggerPrefix, openingSkill, usesSpiritmasterAutoLogic)
         {
@@ -62,6 +62,35 @@ public sealed class SemiAutoSkillPlan
                 out var requiresFullSkillRead),
             RequiresFullSkillRead = requiresFullSkillRead
         };
+    }
+
+    private static IReadOnlyList<SemiAutoSkillNode> BuildBoundRoots(SkillScriptSettings settings, SkillKeyBindings bindings, Action<string>? missing)
+    {
+        var tree = settings.Mode == SkillConfigurationMode.SystemClassification ? settings.SystemExecutionTree : settings.ExecutionTree;
+        if (settings.Mode == SkillConfigurationMode.ManualMapping)
+            tree = settings.ManualMappings.Select(m => new SkillConfigNode { Name = m.SkillName, BaseName = m.SkillName, Type = m.SkillType }).ToList();
+        SemiAutoSkillNode? Build(SkillConfigNode config, SemiAutoSkillNode? parent)
+        {
+            var bound = bindings.ResolveChain(config.SkillId, config.Name, parent);
+            if (bound is null)
+            {
+                missing?.Invoke(config.Name + "：未放入主栏或 Alt 栏，也没有可确认的连续技栏位");
+                return null;
+            }
+            var node = new SemiAutoSkillNode(bound.SkillId, bound.Name, config.BaseName, config.Type, config.ChainTimeMs, bound.Key, parent);
+            foreach (var child in config.Children)
+                if (Build(child, node) is { } next) node.Children.Add(next);
+            return node;
+        }
+        return tree.Select(config => Build(config, null)).OfType<SemiAutoSkillNode>().ToArray();
+    }
+
+    private static SemiAutoSkillNode? BuildBoundOpeningSkill(SkillScriptSettings settings, SkillKeyBindings bindings, Action<string>? missing)
+    {
+        if (!settings.OpeningSkill.Enabled) return null;
+        var bound = bindings.Resolve(settings.OpeningSkill.SkillId, settings.OpeningSkill.SkillName);
+        if (bound is null) { missing?.Invoke("起手技能：未放入主栏或 Alt 栏"); return null; }
+        return new(bound.SkillId, bound.Name, bound.Name, "主动技能", null, bound.Key);
     }
 
     private static IReadOnlyList<uint> BuildSkillReadIds(

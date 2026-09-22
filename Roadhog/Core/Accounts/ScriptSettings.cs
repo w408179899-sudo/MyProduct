@@ -540,9 +540,21 @@ public sealed class TeamSupportScriptSettings
 
     public string MentalCleanseKey { get; set; } = "NumPad8";
 
+    public uint MentalCleanseSkillId { get; set; }
+
+    public string MentalCleanseSkillName { get; set; } = string.Empty;
+
     public string PhysicalCleanseKey { get; set; } = "NumPad7";
 
+    public uint PhysicalCleanseSkillId { get; set; }
+
+    public string PhysicalCleanseSkillName { get; set; } = string.Empty;
+
     public string GroupCleanseKey { get; set; } = string.Empty;
+
+    public uint GroupCleanseSkillId { get; set; }
+
+    public string GroupCleanseSkillName { get; set; } = string.Empty;
 
     public TeamSupportScriptSettings Clone()
     {
@@ -562,8 +574,14 @@ public sealed class TeamSupportScriptSettings
                 ? DefaultSelectTacticalMarkTargetKey
                 : SelectTacticalMarkTargetKey.Trim(),
             HealSkillRules = HealSkillRules?.Select(rule => rule.Clone()).ToList() ?? new List<TeamHealSkillRuleConfig>(),
+            MentalCleanseSkillId = MentalCleanseSkillId,
+            MentalCleanseSkillName = MentalCleanseSkillName ?? string.Empty,
             MentalCleanseKey = MentalCleanseKey ?? string.Empty,
+            PhysicalCleanseSkillId = PhysicalCleanseSkillId,
+            PhysicalCleanseSkillName = PhysicalCleanseSkillName ?? string.Empty,
             PhysicalCleanseKey = PhysicalCleanseKey ?? string.Empty,
+            GroupCleanseSkillId = GroupCleanseSkillId,
+            GroupCleanseSkillName = GroupCleanseSkillName ?? string.Empty,
             GroupCleanseKey = GroupCleanseKey ?? string.Empty
         };
     }
@@ -1012,6 +1030,10 @@ public sealed class SpiritmasterSkillSettings
 
     public string OpeningAttackKey { get; set; } = string.Empty;
 
+    public uint OpeningAttackSkillId { get; set; }
+
+    public string OpeningAttackSkillName { get; set; } = string.Empty;
+
     public List<SpiritmasterPetHpRuleConfig> PetHpMaintenanceRules { get; set; } = new();
 
     public List<SpiritmasterPetBuffRuleConfig> PetBuffRules { get; set; } = new();
@@ -1024,6 +1046,8 @@ public sealed class SpiritmasterSkillSettings
             SummonSkills = SummonSkills?.Select(rule => rule.Clone()).ToList() ?? new List<SpiritmasterSkillKeyRuleConfig>(),
             SummonKeyIntervalMs = SummonKeyIntervalMs <= 0 ? 2000 : SummonKeyIntervalMs,
             OpeningAttackKey = OpeningAttackKey ?? string.Empty,
+            OpeningAttackSkillId = OpeningAttackSkillId,
+            OpeningAttackSkillName = OpeningAttackSkillName ?? string.Empty,
             PetHpMaintenanceRules = PetHpMaintenanceRules?.Select(rule => rule.Clone()).ToList() ?? new List<SpiritmasterPetHpRuleConfig>(),
             PetBuffRules = PetBuffRules?.Select(rule => rule.Clone()).ToList() ?? new List<SpiritmasterPetBuffRuleConfig>()
         };

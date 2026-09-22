@@ -2396,10 +2396,9 @@ public sealed partial class SemiAutoCombatController
     {
         var keys = spiritSettings.SummonSkills
             .Select(rule => rule.Key?.Trim() ?? string.Empty)
-            .Where(key => !string.IsNullOrWhiteSpace(key))
             .Take(2)
             .ToArray();
-        if (keys.Length == 0)
+        if (keys.Length == 0 || keys.All(string.IsNullOrWhiteSpace))
         {
             return false;
         }
@@ -2411,15 +2410,15 @@ public sealed partial class SemiAutoCombatController
         }
 
         state.MarkSpiritmasterSummonAttempted(now);
-        if (!await PressSpiritmasterRawKeyAsync(context, settings, keys[0], "summon_speed").ConfigureAwait(false))
+        if (!string.IsNullOrWhiteSpace(keys[0]) && !await PressSpiritmasterRawKeyAsync(context, settings, keys[0], "summon_speed").ConfigureAwait(false))
         {
             state.BeginSpiritmasterSummonVerification(DateTimeOffset.Now, SpiritmasterSummonVerifyWindow);
             return true;
         }
 
-        if (keys.Length > 1)
+        if (keys.Length > 1 && !string.IsNullOrWhiteSpace(keys[1]))
         {
-            await Task.Delay(SpiritmasterSummonKeyInterval, context.StopToken).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(keys[0])) await Task.Delay(SpiritmasterSummonKeyInterval, context.StopToken).ConfigureAwait(false);
             await PressSpiritmasterRawKeyAsync(context, settings, keys[1], "summon_pet").ConfigureAwait(false);
         }
 

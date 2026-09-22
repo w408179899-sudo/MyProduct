@@ -4,6 +4,8 @@ namespace Roadhog.Core.Api;
 
 public interface IRoadhogSnapshotReader
 {
+    Task<PublishedGameSnapshot<QuickbarSnapshot>> ReadQuickbarAsync(long afterVersion = 0);
+
     Task<PublishedGameSnapshot<PlayerSnapshot>> ReadPlayerAsync(long afterVersion = 0);
 
     Task<PublishedGameSnapshot<PlayerAbnormalStatusSnapshot>> ReadPlayerAbnormalStatusesAsync(long afterVersion = 0);

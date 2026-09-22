@@ -45,6 +45,11 @@ internal sealed class RoadhogSnapshotReader : IRoadhogSnapshotReader
     public Task<PublishedGameSnapshot<PlayerSnapshot>> ReadPlayerAsync(long afterVersion = 0) =>
         ReadPlayerAsync(_readContext, afterVersion);
 
+    public Task<PublishedGameSnapshot<QuickbarSnapshot>> ReadQuickbarAsync(long afterVersion = 0) =>
+        ReadUntilPublishedAsync("quickbar",
+            () => _gameApi is IQuickbarGameApi api ? api.ReadQuickbarAsync(_readContext, _stopToken)
+                : Missing<QuickbarSnapshot>("Quickbar channel is unavailable."), afterVersion);
+
     private Task<PublishedGameSnapshot<PlayerSnapshot>> ReadPlayerAsync(
         GameApiReadContext readContext,
         long afterVersion) =>

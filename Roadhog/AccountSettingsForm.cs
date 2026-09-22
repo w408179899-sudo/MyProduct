@@ -3708,6 +3708,20 @@ namespace Roadhog
             AddLabel(supportPanel, "群体解除", 416, 300, 70, 24, _textGreen, FontStyle.Bold);
             teamGroupCleanseKeyButton = AddTeamKeyButton(supportPanel, 486, 297, string.Empty);
 
+            teamMentalCleanseSkillCombo = AddCombo(supportPanel, 24, 330, 184, 28);
+            PopulateMaintenanceSkillCombo(teamMentalCleanseSkillCombo, 0, string.Empty);
+            BindAutomaticSkillButton(teamMentalCleanseKeyButton, teamMentalCleanseSkillCombo,
+                () => !HasSpiritmasterSkillSelection(GetSelectedMaintenanceSkill(teamMentalCleanseSkillCombo)));
+            teamPhysicalCleanseSkillCombo = AddCombo(supportPanel, 220, 330, 184, 28);
+            PopulateMaintenanceSkillCombo(teamPhysicalCleanseSkillCombo, 0, string.Empty);
+            BindAutomaticSkillButton(teamPhysicalCleanseKeyButton, teamPhysicalCleanseSkillCombo,
+                () => !HasSpiritmasterSkillSelection(GetSelectedMaintenanceSkill(teamPhysicalCleanseSkillCombo)));
+            teamGroupCleanseSkillCombo = AddCombo(supportPanel, 416, 330, 184, 28);
+            PopulateMaintenanceSkillCombo(teamGroupCleanseSkillCombo, 0, string.Empty);
+            BindAutomaticSkillButton(teamGroupCleanseKeyButton, teamGroupCleanseSkillCombo,
+                () => !HasSpiritmasterSkillSelection(GetSelectedMaintenanceSkill(teamGroupCleanseSkillCombo)));
+            AddLabel(supportPanel, "选技能自动匹配\n留空时手动设置", 616, 297, 194, 61);
+
             teamRoleCombo.SelectedIndexChanged += (_, _) => RefreshTeamRolePanelVisibility();
             teamLeaderTacticalMarkCheckBox.Click += (_, _) => RefreshTeamTacticalMarkKeyVisibility();
             teamOutputTacticalMarkTargetingCheckBox.Click += (_, _) => RefreshTeamTacticalMarkKeyVisibility();
@@ -3836,6 +3850,7 @@ namespace Roadhog
                 RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
             };
 
+            BindAutomaticSkillButton(keyButton, skillCombo);
             list.Controls.Add(row);
             RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
         }
@@ -3959,8 +3974,11 @@ namespace Roadhog
                     : support.SelectTacticalMarkTargetKey);
             PopulateTeamHealSkillRules(teamHealSkillRuleList, teamHealSkillEmptyLabel, support.HealSkillRules);
             SetKeyButton(teamMentalCleanseKeyButton, support.MentalCleanseKey);
+            if (teamMentalCleanseSkillCombo is not null) PopulateMaintenanceSkillCombo(teamMentalCleanseSkillCombo, support.MentalCleanseSkillId, support.MentalCleanseSkillName);
             SetKeyButton(teamPhysicalCleanseKeyButton, support.PhysicalCleanseKey);
+            if (teamPhysicalCleanseSkillCombo is not null) PopulateMaintenanceSkillCombo(teamPhysicalCleanseSkillCombo, support.PhysicalCleanseSkillId, support.PhysicalCleanseSkillName);
             SetKeyButton(teamGroupCleanseKeyButton, support.GroupCleanseKey);
+            if (teamGroupCleanseSkillCombo is not null) PopulateMaintenanceSkillCombo(teamGroupCleanseSkillCombo, support.GroupCleanseSkillId, support.GroupCleanseSkillName);
 
             RefreshTeamRolePanelVisibility();
             RefreshTeamTacticalMarkKeyVisibility();
@@ -4021,8 +4039,14 @@ namespace Roadhog
                         teamSupportSelectTacticalMarkTargetKeyButton?.Tag as string ??
                         TeamSupportScriptSettings.DefaultSelectTacticalMarkTargetKey,
                     HealSkillRules = CaptureTeamHealSkillRules(teamHealSkillRuleList),
+                    MentalCleanseSkillId = GetSelectedMaintenanceSkill(teamMentalCleanseSkillCombo).SkillId,
+                    MentalCleanseSkillName = GetSelectedMaintenanceSkill(teamMentalCleanseSkillCombo).SkillName,
                     MentalCleanseKey = teamMentalCleanseKeyButton?.Tag as string ?? string.Empty,
+                    PhysicalCleanseSkillId = GetSelectedMaintenanceSkill(teamPhysicalCleanseSkillCombo).SkillId,
+                    PhysicalCleanseSkillName = GetSelectedMaintenanceSkill(teamPhysicalCleanseSkillCombo).SkillName,
                     PhysicalCleanseKey = teamPhysicalCleanseKeyButton?.Tag as string ?? string.Empty,
+                    GroupCleanseSkillId = GetSelectedMaintenanceSkill(teamGroupCleanseSkillCombo).SkillId,
+                    GroupCleanseSkillName = GetSelectedMaintenanceSkill(teamGroupCleanseSkillCombo).SkillName,
                     GroupCleanseKey = teamGroupCleanseKeyButton?.Tag as string ?? string.Empty
                 }
             };
@@ -5203,6 +5227,9 @@ namespace Roadhog
                 }
             };
 
+            BindAutomaticSkillButton(keyButton, skillCombo,
+                () => GetSelectedMaintenanceActionType(actionCombo) == MaintenanceRuleActionType.Potion);
+            if (actionCombo is not null) actionCombo.SelectedIndexChanged += (_, _) => RefreshAutomaticSkillDisplays();
             list.Controls.Add(row);
             RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
         }
@@ -5276,6 +5303,7 @@ namespace Roadhog
                 }
             };
 
+            BindAutomaticSkillButton(keyButton, skillCombo);
             list.Controls.Add(row);
             RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
         }
@@ -5369,6 +5397,7 @@ namespace Roadhog
                 }
             };
 
+            BindAutomaticSkillButton(keyButton, skillCombo);
             list.Controls.Add(row);
             RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
         }
@@ -5801,6 +5830,7 @@ namespace Roadhog
             };
             page.Controls.Add(optionsPanel);
             AddLabel(optionsPanel, "技能配置", 12, 4, 90, 24, _textGreen, FontStyle.Bold);
+            AddLabel(optionsPanel, "按键自动匹配主栏 / Alt栏；移动技能后重启脚本", 168, 4, 630, 24);
             var autoMode = AddRadioButton(optionsPanel, "自动技能", 12, 32, 120, true);
             autoMode.BackColor = optionsPanel.BackColor;
             skillAutoModeRadio = autoMode;
@@ -5855,6 +5885,7 @@ namespace Roadhog
             availableSkillTree = availableTree;
             var selectedTree = CreateSkillTree(autoPanel, "selectedSkillTree", 416, 38, 316, 292);
             selectedSkillTree = selectedTree;
+            AddSkillTreeBindingDisplay(selectedTree);
             PopulateAvailableSkillTree(availableTree);
             PopulateSelectedSkillTree(selectedTree);
 
@@ -5903,6 +5934,7 @@ namespace Roadhog
                 }
             };
 
+            BindAutomaticSkillButton(openingSkillKeyButton, openingSkillCombo);
             AddLabel(manualPanel, "手动分类 / 手动Mapping", 8, 6, 160, 24, _textGreen, FontStyle.Bold);
 
             var mappingRows = CreateManualSkillMappingList(manualPanel);
@@ -5918,6 +5950,7 @@ namespace Roadhog
             PopulateSystemSkillTree(systemTree);
             var systemSelectedTree = CreateSkillTree(systemPanel, "systemSelectedSkillTree", 378, 34, 300, 260);
             systemSelectedSkillTree = systemSelectedTree;
+            AddSkillTreeBindingDisplay(systemSelectedTree);
             PopulateSelectedSkillTree(systemSelectedTree);
 
             AddButton(systemPanel, "添加 >", 288, 102, 70, 30, (_, _) => AddSystemSkillSelection(systemTree, systemSelectedTree));
@@ -5944,49 +5977,6 @@ namespace Roadhog
 
             RefreshSpiritmasterAutoSkillCheckBoxState();
             return tab;
-        }
-
-        private Form CreateSpiritmasterSettingsDialog()
-        {
-            var dialog = new Form
-            {
-                AutoScaleDimensions = new SizeF(7F, 17F),
-                AutoScaleMode = AutoScaleMode.Font,
-                BackColor = Color.FromArgb(248, 253, 250),
-                ClientSize = new Size(860, 620),
-                Font = new Font("Microsoft YaHei UI", 9F),
-                MinimumSize = new Size(720, 420),
-                Name = "SpiritmasterSettingsForm",
-                ShowIcon = false,
-                StartPosition = FormStartPosition.CenterParent,
-                Text = "精灵设置 - " + _account
-            };
-
-            var page = CreatePagePanel();
-            page.AutoScroll = true;
-            page.AutoScrollMinSize = new Size(0, 590);
-            dialog.Controls.Add(page);
-            spiritmasterRuleLists.Clear();
-            spiritmasterDotRuleList = null;
-            spiritmasterSummonRuleList = null;
-            spiritmasterOpeningAttackKeyButton = null;
-            spiritmasterPetHpRuleList = null;
-            spiritmasterPetBuffRuleList = null;
-
-            AddLabel(page, "精灵专用设置", 4, 16, 130, 24, _textGreen, FontStyle.Bold);
-            AddButton(page, "保存配置", 620, 10, 110, 30, SaveSettingsButton_Click);
-            AddButton(page, "关闭", 740, 10, 96, 30, (_, _) => dialog.Close());
-
-            spiritmasterDotRuleList = CreateSpiritmasterRuleSection(page, "DOT技能设置", "新增DOT", 54, 96, 100, 92, list => AddSpiritmasterDotRuleRow(list));
-
-            spiritmasterSummonRuleList = CreateSpiritmasterFixedRuleSection(page, "召唤宝宝技能设置", 158, 135, 100);
-
-            spiritmasterPetHpRuleList = CreateSpiritmasterRuleSection(page, "精灵宝宝血量维护技能设置", "新增宝宝维护", 292, 190, 196, 116, list => AddSpiritmasterPetHpRuleRow(list));
-
-            spiritmasterPetBuffRuleList = CreateSpiritmasterRuleSection(page, "宝宝Buff技能设置", "新增宝宝Buff", 396, 135, 142, 116, list => AddSpiritmasterPetBuffRuleRow(list));
-            PopulateSpiritmasterRuleLists(currentSpiritmasterSettings);
-
-            return dialog;
         }
 
         private TabPage CreateFilterTab()
@@ -6729,36 +6719,6 @@ namespace Roadhog
             return panel;
         }
 
-        private FlowLayoutPanel CreateSpiritmasterRuleSection(
-            Control parent,
-            string title,
-            string addButtonText,
-            int y,
-            int titleWidth,
-            int addButtonX,
-            int addButtonWidth,
-            Action<FlowLayoutPanel> addRow)
-        {
-            AddLabel(parent, title, 4, y + 4, titleWidth, 24, _textGreen, FontStyle.Bold);
-            var list = CreateMaintenanceRuleList(parent, 4, y + 38, 830, 66);
-            spiritmasterRuleLists.Add(list);
-            AddButton(parent, addButtonText, addButtonX, y, addButtonWidth, 30, (_, _) => addRow(list));
-            return list;
-        }
-
-        private FlowLayoutPanel CreateSpiritmasterFixedRuleSection(
-            Control parent,
-            string title,
-            int y,
-            int titleWidth,
-            int listHeight = 66)
-        {
-            AddLabel(parent, title, 4, y + 4, titleWidth, 24, _textGreen, FontStyle.Bold);
-            var list = CreateMaintenanceRuleList(parent, 4, y + 38, 830, listHeight);
-            spiritmasterRuleLists.Add(list);
-            return list;
-        }
-
         private void PopulateSpiritmasterRuleLists(SpiritmasterSkillSettings? settings)
         {
             var spiritmaster = settings ?? new SpiritmasterSkillSettings();
@@ -6786,12 +6746,16 @@ namespace Roadhog
                 AddSpiritmasterSummonButtonRow(
                     spiritmasterSummonRuleList,
                     1,
-                    summonRules.Length > 0 ? summonRules[0].Key : string.Empty);
+                    summonRules.Length > 0 ? summonRules[0].Key : string.Empty,
+                    summonRules.Length > 0 ? summonRules[0].SkillId : 0,
+                    summonRules.Length > 0 ? summonRules[0].SkillName : string.Empty);
                 AddSpiritmasterSummonButtonRow(
                     spiritmasterSummonRuleList,
                     2,
-                    summonRules.Length > 1 ? summonRules[1].Key : string.Empty);
-                AddSpiritmasterOpeningAttackKeyRow(spiritmasterSummonRuleList, spiritmaster.OpeningAttackKey);
+                    summonRules.Length > 1 ? summonRules[1].Key : string.Empty,
+                    summonRules.Length > 1 ? summonRules[1].SkillId : 0,
+                    summonRules.Length > 1 ? summonRules[1].SkillName : string.Empty);
+                AddSpiritmasterOpeningAttackKeyRow(spiritmasterSummonRuleList, spiritmaster.OpeningAttackKey, spiritmaster.OpeningAttackSkillId, spiritmaster.OpeningAttackSkillName);
             }
 
             if (spiritmasterPetHpRuleList is not null)
@@ -6839,6 +6803,8 @@ namespace Roadhog
                 SummonSkills = CaptureSpiritmasterSkillKeyRules(spiritmasterSummonRuleList),
                 SummonKeyIntervalMs = 2000,
                 OpeningAttackKey = CaptureSpiritmasterKey(spiritmasterOpeningAttackKeyButton),
+                OpeningAttackSkillId = GetSelectedMaintenanceSkill(spiritmasterOpeningSkillCombo).SkillId,
+                OpeningAttackSkillName = GetSelectedMaintenanceSkill(spiritmasterOpeningSkillCombo).SkillName,
                 PetHpMaintenanceRules = CaptureSpiritmasterPetHpRules(spiritmasterPetHpRuleList),
                 PetBuffRules = CaptureSpiritmasterPetBuffRules(spiritmasterPetBuffRuleList)
             };
@@ -6870,14 +6836,10 @@ namespace Roadhog
         private static List<SpiritmasterSkillKeyRuleConfig> CaptureSpiritmasterSkillKeyRules(FlowLayoutPanel? list)
         {
             var rules = new List<SpiritmasterSkillKeyRuleConfig>();
-            foreach (var row in EnumerateSpiritmasterRows(list))
+            foreach (var row in EnumerateSpiritmasterRows(list).Where(row => row.Name == "spiritmasterSummonRow"))
             {
                 var selectedSkill = GetSelectedMaintenanceSkill(FindSpiritmasterSkillCombo(row));
                 var key = FindSpiritmasterKeyButton(row)?.Tag as string ?? string.Empty;
-                if (!HasSpiritmasterSkillSelection(selectedSkill) && string.IsNullOrWhiteSpace(key))
-                {
-                    continue;
-                }
 
                 rules.Add(new SpiritmasterSkillKeyRuleConfig
                 {
@@ -6993,14 +6955,14 @@ namespace Roadhog
                 : fallback;
         }
 
-        private Panel CreateSpiritmasterRuleRow(int width = 760)
+        private Panel CreateSpiritmasterRuleRow(int width = 780)
         {
             return new Panel
             {
-                BackColor = _pageBackground,
+                BackColor = Color.White,
                 BorderStyle = BorderStyle.None,
                 Margin = new Padding(0, 0, 0, 2),
-                Size = new Size(width, 31)
+                Size = new Size(width, 34)
             };
         }
 
@@ -7014,6 +6976,7 @@ namespace Roadhog
         {
             var combo = AddCombo(parent, x, y, width, 28);
             combo.Name = "spiritmasterRuleSkillCombo";
+            combo.DropDownWidth = Math.Max(340, width);
             PopulateMaintenanceSkillCombo(combo, skillId, skillName);
             return combo;
         }
@@ -7057,25 +7020,31 @@ namespace Roadhog
 
         private void AddSpiritmasterDeleteButton(FlowLayoutPanel list, Panel row, int x)
         {
-            AddButton(row, "删除", x, 0, 58, 30, (_, _) =>
+            var remove = AddSpiritmasterSecondaryButton(row, "移除", x, 0, 58, removal: true);
+            remove.Name = "spiritmasterRemoveRuleButton";
+            remove.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            remove.Click += (_, _) =>
             {
                 list.Controls.Remove(row);
                 row.Dispose();
-            });
+            };
         }
 
         private void AddSpiritmasterDotRuleRow(FlowLayoutPanel list, uint skillId = 0, string skillName = "")
         {
-            var row = CreateSpiritmasterRuleRow(650);
+            var row = CreateSpiritmasterRuleRow();
             AddLabel(row, "技能", 0, 3, 34, 24);
-            var skillCombo = AddSpiritmasterSkillCombo(row, 38, 1, 240, skillId, skillName);
-            var statusLabel = AddLabel(row, "状态: 自动识别", 288, 3, 120, 24);
+            var skillCombo = AddSpiritmasterSkillCombo(row, 44, 1, 408, skillId, skillName);
+            skillCombo.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            var statusLabel = AddLabel(row, "状态自动识别", 464, 3, 114, 24);
             statusLabel.Name = "spiritmasterDotStatusLabel";
-            var durationLabel = AddLabel(row, "持续: XML自动", 416, 3, 116, 24);
+            statusLabel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            var durationLabel = AddLabel(row, "持续时间自动识别", 582, 3, 132, 24);
             durationLabel.Name = "spiritmasterDotDurationLabel";
+            durationLabel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             skillCombo.SelectedIndexChanged += (_, _) => UpdateSpiritmasterDotRuleInfo(skillCombo, statusLabel, durationLabel);
             UpdateSpiritmasterDotRuleInfo(skillCombo, statusLabel, durationLabel);
-            AddSpiritmasterDeleteButton(list, row, 544);
+            AddSpiritmasterDeleteButton(list, row, 722);
             list.Controls.Add(row);
         }
 
@@ -7084,11 +7053,11 @@ namespace Roadhog
             Label statusLabel,
             Label durationLabel)
         {
-            statusLabel.Text = "状态: 自动识别";
+            statusLabel.Text = "状态自动识别";
 
             var selectedSkill = GetSelectedMaintenanceSkill(skillCombo);
             var skill = FindCurrentSkill(selectedSkill.SkillId, selectedSkill.SkillName);
-            durationLabel.Text = "持续: " + FormatSpiritmasterDotDuration(skill, selectedSkill);
+            durationLabel.Text = FormatSpiritmasterDotDuration(skill, selectedSkill);
         }
 
         private SkillSnapshot? FindCurrentSkill(uint skillId, string? skillName)
@@ -7120,15 +7089,15 @@ namespace Roadhog
         {
             if (selectedSkill.SkillId == 0 && string.IsNullOrWhiteSpace(selectedSkill.SkillName))
             {
-                return "XML自动";
+                return "持续时间自动识别";
             }
 
             if (skill?.XmlEffectRemainMs is int remainMs && remainMs > 0)
             {
-                return "XML " + FormatMillisecondsAsSeconds(remainMs);
+                return "持续 " + FormatMillisecondsAsSeconds(remainMs);
             }
 
-            return "XML未知";
+            return "持续时间待识别";
         }
 
         private static string FormatMillisecondsAsSeconds(int milliseconds)
@@ -7141,27 +7110,49 @@ namespace Roadhog
         private void AddSpiritmasterSummonButtonRow(
             FlowLayoutPanel list,
             int index,
-            string key = "")
+            string key = "", uint skillId = 0, string skillName = "")
         {
-            var row = CreateSpiritmasterRuleRow(260);
-            AddLabel(row, GetSpiritmasterSummonButtonLabel(index), 0, 3, 96, 24);
-            AddSpiritmasterKeyButton(row, 106, 0, key);
+            var row = CreateSpiritmasterRuleRow();
+            row.Name = "spiritmasterSummonRow";
+            AddLabel(row, GetSpiritmasterSummonButtonLabel(index), 0, 3, 96, 24, _textGreen, FontStyle.Bold);
+            var combo = AddSpiritmasterSkillCombo(row, 106, 1, 452, skillId, skillName);
+            combo.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            var button = AddSpiritmasterKeyButton(row, 570, 0, key);
+            button.Width = 120;
+            button.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            var mode = AddLabel(row, "手动按键", 702, 3, 78, 24, Color.FromArgb(112, 127, 116));
+            mode.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            button.EnabledChanged += (_, _) => mode.Text = button.Enabled ? "手动按键" : "自动匹配";
+            BindAutomaticSkillButton(button, combo, () => !HasSpiritmasterSkillSelection(GetSelectedMaintenanceSkill(combo)));
+            ShowSpiritmasterAutomaticKeyAsLabel(button);
             list.Controls.Add(row);
         }
 
         private void AddSpiritmasterOpeningAttackKeyRow(
             FlowLayoutPanel list,
-            string key = "")
+            string key = "", uint skillId = 0, string skillName = "")
         {
-            var row = CreateSpiritmasterRuleRow(260);
-            AddLabel(row, "开怪按键", 0, 3, 96, 24);
-            spiritmasterOpeningAttackKeyButton = AddSpiritmasterKeyButton(row, 106, 0, key);
+            var row = CreateSpiritmasterRuleRow();
+            row.Name = "spiritmasterOpeningRow";
+            AddLabel(row, "宝宝攻击", 0, 3, 96, 24, _textGreen, FontStyle.Bold);
+            spiritmasterOpeningSkillCombo = AddSpiritmasterSkillCombo(row, 106, 1, 452, skillId, skillName);
+            spiritmasterOpeningSkillCombo.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            spiritmasterOpeningAttackKeyButton = AddSpiritmasterKeyButton(row, 570, 0, key);
+            spiritmasterOpeningAttackKeyButton.Width = 120;
+            spiritmasterOpeningAttackKeyButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            var mode = AddLabel(row, "手动指令", 702, 3, 78, 24, Color.FromArgb(112, 127, 116));
+            mode.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            var button = spiritmasterOpeningAttackKeyButton;
+            button.EnabledChanged += (_, _) => mode.Text = button.Enabled ? "手动指令" : "自动匹配";
+            BindAutomaticSkillButton(spiritmasterOpeningAttackKeyButton, spiritmasterOpeningSkillCombo,
+                () => !HasSpiritmasterSkillSelection(GetSelectedMaintenanceSkill(spiritmasterOpeningSkillCombo)));
+            ShowSpiritmasterAutomaticKeyAsLabel(button);
             list.Controls.Add(row);
         }
 
         private static string GetSpiritmasterSummonButtonLabel(int index)
         {
-            return index == 1 ? "提速按键" : "召唤按键";
+            return index == 1 ? "服从手印" : "精灵召唤";
         }
 
         private void AddSpiritmasterPetHpRuleRow(
@@ -7172,33 +7163,29 @@ namespace Roadhog
             string key = "",
             int cooldownMs = SpiritmasterPetHpRuleConfig.DefaultCooldownMs)
         {
-            var row = CreateSpiritmasterRuleRow(680);
-            AddLabel(row, "低于", 0, 3, 34, 24);
-            var thresholdTextBox = AddTextBox(
-                row,
-                Math.Clamp(belowPercent, 0, 100).ToString(CultureInfo.InvariantCulture),
-                36,
-                1,
-                54,
-                28);
+            var row = CreateSpiritmasterRuleRow();
+            row.Height = 68;
+            AddLabel(row, "技能", 0, 3, 34, 24);
+            var skillCombo = AddSpiritmasterSkillCombo(row, 44, 1, 514, skillId, skillName);
+            skillCombo.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            var keyButton = AddSpiritmasterKeyButton(row, 570, 0, key);
+            keyButton.Width = 120;
+            keyButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            BindAutomaticSkillButton(keyButton, skillCombo);
+            ShowSpiritmasterAutomaticKeyAsLabel(keyButton);
+            AddSpiritmasterDeleteButton(list, row, 722);
+
+            AddLabel(row, "血量低于", 0, 38, 64, 24);
+            var thresholdTextBox = AddTextBox(row, Math.Clamp(belowPercent, 0, 100).ToString(CultureInfo.InvariantCulture), 68, 36, 54, 28);
             thresholdTextBox.Name = "spiritmasterPetHpBelowTextBox";
-            AddLabel(row, "% 按", 94, 3, 42, 24);
-            AddSpiritmasterSkillCombo(row, 138, 1, 210, skillId, skillName);
-            AddSpiritmasterKeyButton(row, 356, 0, key);
-            AddLabel(row, "CD", 468, 3, 22, 24);
-            var cooldownTextBox = AddTextBox(
-                row,
-                Math.Clamp(
-                    cooldownMs <= 0 ? SpiritmasterPetHpRuleConfig.DefaultCooldownMs : cooldownMs,
-                    SpiritmasterPetHpRuleConfig.MinCooldownMs,
-                    SpiritmasterPetHpRuleConfig.MaxCooldownMs).ToString(CultureInfo.InvariantCulture),
-                494,
-                1,
-                70,
-                28);
+            AddLabel(row, "% 时使用", 130, 38, 70, 24);
+            AddLabel(row, "最短间隔", 224, 38, 64, 24);
+            var cooldownTextBox = AddTextBox(row,
+                Math.Clamp(cooldownMs <= 0 ? SpiritmasterPetHpRuleConfig.DefaultCooldownMs : cooldownMs,
+                    SpiritmasterPetHpRuleConfig.MinCooldownMs, SpiritmasterPetHpRuleConfig.MaxCooldownMs).ToString(CultureInfo.InvariantCulture),
+                292, 36, 82, 28);
             cooldownTextBox.Name = "spiritmasterPetHpCooldownTextBox";
-            AddLabel(row, "ms", 568, 3, 22, 24);
-            AddSpiritmasterDeleteButton(list, row, 608);
+            AddLabel(row, "毫秒", 382, 38, 44, 24);
             list.Controls.Add(row);
         }
 
@@ -7208,13 +7195,16 @@ namespace Roadhog
             string skillName = "",
             string key = "")
         {
-            var row = CreateSpiritmasterRuleRow(650);
-            AddLabel(row, "缺少Buff", 0, 3, 60, 24);
-            AddLabel(row, "状态: 自动识别", 66, 3, 118, 24);
-            AddLabel(row, "按", 190, 3, 24, 24);
-            AddSpiritmasterSkillCombo(row, 214, 1, 210, skillId, skillName);
-            AddSpiritmasterKeyButton(row, 432, 0, key);
-            AddSpiritmasterDeleteButton(list, row, 544);
+            var row = CreateSpiritmasterRuleRow();
+            AddLabel(row, "技能", 0, 3, 34, 24);
+            var skillCombo = AddSpiritmasterSkillCombo(row, 44, 1, 514, skillId, skillName);
+            skillCombo.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            var keyButton = AddSpiritmasterKeyButton(row, 570, 0, key);
+            keyButton.Width = 120;
+            keyButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            BindAutomaticSkillButton(keyButton, skillCombo);
+            ShowSpiritmasterAutomaticKeyAsLabel(keyButton);
+            AddSpiritmasterDeleteButton(list, row, 722);
             list.Controls.Add(row);
         }
 
@@ -8323,6 +8313,7 @@ namespace Roadhog
             };
 
             EnableManualSkillMappingRowDrag(list, row);
+            BindAutomaticSkillButton(keyButton, skillCombo);
             list.Controls.Add(row);
         }
 
@@ -8335,6 +8326,7 @@ namespace Roadhog
             try
             {
                 currentManualSkills = await _runtime.RefreshSkillsAsync(_account).ConfigureAwait(true);
+                await RefreshSkillBindingsPreviewAsync().ConfigureAwait(true);
                 if (availableTree is not null && skillAutoModeRadio?.Checked == true)
                 {
                     PopulateAvailableSkillTreeFromSkills(availableTree, currentManualSkills);
@@ -8349,6 +8341,9 @@ namespace Roadhog
                 RefreshMaintenanceSkillCombos();
                 RefreshSpiritmasterSkillCombos();
                 RefreshOpeningSkillCombo();
+                foreach (var combo in new[] { teamMentalCleanseSkillCombo, teamPhysicalCleanseSkillCombo, teamGroupCleanseSkillCombo })
+                    if (combo is not null) { var skill = GetSelectedMaintenanceSkill(combo); PopulateMaintenanceSkillCombo(combo, skill.SkillId, skill.SkillName); }
+                RefreshAutomaticSkillDisplays();
                 button.Text = "已刷新 " + currentManualSkills.Count;
                 await Task.Delay(700).ConfigureAwait(true);
             }
@@ -8371,11 +8366,15 @@ namespace Roadhog
             try
             {
                 currentManualSkills = await _runtime.RefreshSkillsAsync(_account).ConfigureAwait(true);
+                await RefreshSkillBindingsPreviewAsync().ConfigureAwait(true);
                 var refreshResult = RefreshSelectedSkillTreeToHighestCurrentSkills(selectedTree, currentManualSkills);
                 RefreshManualSkillMappingCombos();
                 RefreshMaintenanceSkillCombos();
                 RefreshSpiritmasterSkillCombos();
                 RefreshOpeningSkillCombo();
+                foreach (var combo in new[] { teamMentalCleanseSkillCombo, teamPhysicalCleanseSkillCombo, teamGroupCleanseSkillCombo })
+                    if (combo is not null) { var skill = GetSelectedMaintenanceSkill(combo); PopulateMaintenanceSkillCombo(combo, skill.SkillId, skill.SkillName); }
+                RefreshAutomaticSkillDisplays();
 
                 button.Text = "已刷新 " + refreshResult.UpdatedCount + " 删除 " + refreshResult.DeletedCount;
                 await Task.Delay(700).ConfigureAwait(true);

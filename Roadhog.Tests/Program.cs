@@ -121,6 +121,15 @@ if (KmboxKeyPressProbe.ShouldRun(args))
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("skill binding fixed bars order duplicate missing and chain rules", SkillBindingTests.MappingAsync),
+    ("skill binding maintenance spirit team and manual action isolation", SkillBindingTests.ConsumersAsync),
+    ("skill binding decoder rejects partial and changed captures", SkillBindingTests.DecoderAsync),
+    ("skill binding official snapshot hold cold retry and session isolation", SkillBindingTests.LifecycleAsync),
+    ("skill binding startup rebinds new sessions and preserves configured keys", SkillBindingTests.StartupAsync),
+    ("skill binding UI automatic skill buttons and manual keyboard coexist", SkillBindingTests.UiAsync),
+    ("spirit settings layout resize add remove and save roundtrip", SkillBindingTests.SpiritLayoutAsync),
+    ("skill binding combat maintenance and summon controllers send resolved keys", SkillBindingTests.ControllerAsync),
+
     ("auction registration fee confirmation validates identity price and submission", CleanupWorkflowTests.AuctionRegistrationFeeAsync),
     ("auction registration fee production decoder and modal guards", PersonalShopDecoderTests.AuctionRegistrationDecodeAsync),
     ("npc sale official snapshot lifecycle and decoder guards", NpcSaleTests.SnapshotAsync),
@@ -33738,6 +33747,7 @@ static Task TestDmaSnapshotCatalogRegistersEveryBusinessChannelAsync()
         "personal_shop",
         "player",
         "player_abnormal_statuses",
+        "quickbar",
         "revive_ui",
         "skills",
         "summoned_pet",
@@ -35104,7 +35114,7 @@ sealed class InMemoryScriptProfileStore : IScriptProfileStore
     }
 }
 
-sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi, IChannelSwitchUiGameApi, IChannelTransitionGameApi, IInventoryInteractionGameApi, IReviveUiGameApi, IAuctionHouseGameApi, INpcTradeGameApi
+sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi, IChannelSwitchUiGameApi, IChannelTransitionGameApi, IInventoryInteractionGameApi, IReviveUiGameApi, IAuctionHouseGameApi, INpcTradeGameApi, IQuickbarGameApi
 #if DEBUG
     , IRoadhogApiAddressProbe
     , IRoadhogSnapshotDiagnostics
@@ -35116,6 +35126,16 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
         IRoadhogLogger logger,
         CancellationToken cancellationToken = default) =>
         new RoadhogSnapshotReader(config, this, logger, cancellationToken);
+
+    public QuickbarSnapshot Quickbar { get; set; } = new(0, Array.Empty<QuickbarSlotSnapshot>());
+    public int QuickbarReadCount { get; private set; }
+    public Func<QuickbarSnapshot>? QuickbarRead { get; set; }
+    public Task<OperationResult<QuickbarSnapshot>> ReadQuickbarAsync(GameApiReadContext context, CancellationToken token = default)
+    {
+        token.ThrowIfCancellationRequested();
+        QuickbarReadCount++;
+        return Task.FromResult(OperationResult<QuickbarSnapshot>.Ok(QuickbarRead?.Invoke() ?? Quickbar));
+    }
 
     private readonly object _playerReadSync = new();
 

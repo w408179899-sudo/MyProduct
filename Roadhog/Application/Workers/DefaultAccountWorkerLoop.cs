@@ -58,6 +58,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         }
         await ScrollStartupMouseAsync(context).ConfigureAwait(false);
         await ReleaseStartupMovementAsync(context).ConfigureAwait(false);
+        await context.PrepareSkillBindingsAsync().ConfigureAwait(false);
 
         var scriptSettings = context.Config.ScriptSettings ?? new ScriptSettings
         {
@@ -65,7 +66,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
             MainMode = context.Config.MainMode,
             CombatMode = context.Config.CombatMode
         };
-        var semiAutoPlan = SemiAutoSkillPlan.FromSettings(scriptSettings.Skills);
+        var semiAutoPlan = SemiAutoSkillPlan.FromSettings(scriptSettings.Skills, context.SkillBindings, context.ReportMissingSkillBinding);
         var semiAutoState = new SemiAutoCombatState();
         var stationaryCombatState = new StationaryCombatState();
         var teamSupportState = new TeamSupportState();
