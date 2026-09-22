@@ -18647,6 +18647,9 @@ static async Task TestWorkerContinuesLootDuringRevivePathLeaderSiphonAsync()
             [1] = 0
         });
 
+        // The worker resolves skill keys from the live quickbar before building its combat plan.
+        gameApi.Quickbar = new QuickbarSnapshot(0, new[] { new QuickbarSlotSnapshot(SkillQuickbar.Main, 0, 21, 1) });
+
         var pathStore = new InMemorySharedPathStore(
             CreatePath("revive-a",
                 new Vector3Snapshot(0, 0, 0),
@@ -18705,12 +18708,29 @@ static async Task TestWorkerContinuesLootDuringRevivePathLeaderSiphonAsync()
             stopToken: cts.Token);
 
         var runTask = worker.RunAsync(context);
-        await WaitUntilAsync(
-                () => logger.Entries.Any(entry => entry.EventName == "stationary_combat.loot.finished"),
-                "loot during revive-path leader siphon")
-            .ConfigureAwait(false);
-        cts.Cancel();
-        await IgnoreCancellationAsync(runTask).ConfigureAwait(false);
+        try
+        {
+            // Start the loot assertion only after its prerequisite kill; startup includes fixed camera-scroll delays.
+            await WaitUntilAsync(() => logger.Entries.Any(entry => entry.EventName == "stationary_combat.death_recovery.leader_siphon.enter"),
+                "the worker to enter revive-path leader siphon").ConfigureAwait(false);
+            await WaitUntilAsync(() => keyboard.Keys.Contains("D1") && gameApi.TargetCurrentHp == 0,
+                "the mocked attack to kill the siphoned target").ConfigureAwait(false);
+            await WaitUntilAsync(
+                    () => logger.Entries.Any(entry => entry.EventName == "stationary_combat.loot.finished"),
+                    "loot during revive-path leader siphon")
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            throw new InvalidOperationException(exception.Message + " Keys: " + string.Join(",", keyboard.Keys) +
+                "; Events: " + string.Join(" | ", logger.Entries.TakeLast(25).Select(entry => entry.EventName + ":" +
+                    System.Text.Json.JsonSerializer.Serialize(entry.Fields))), exception);
+        }
+        finally
+        {
+            cts.Cancel();
+            await IgnoreCancellationAsync(runTask).ConfigureAwait(false);
+        }
 
         AssertFalse(
             !logger.Entries.Any(entry => entry.EventName == "stationary_combat.death_recovery.leader_siphon.enter"),
