@@ -1332,11 +1332,13 @@ namespace Roadhog
 
             var profilePanel = AddSection("方案管理", 10, 80);
             var modePanel = AddSection("运行模式与范围", 102, 126);
-            AddLabel(modePanel, "所属区服", 380, 2, 80, 24);
+            // Header editors must sit above the full-width section heading label.
+            AddLabel(modePanel, "所属区服", 380, 2, 80, 24).BringToFront();
             regionCombo = AddCombo(modePanel, 464, 0, 130, 28, "未分区", "一区", "二区", "三区", "四区", "五区", "六区", "七区", "八区", "九区", "十区");
             regionCombo.Name = "accountRegionCombo";
+            regionCombo.BringToFront();
             regionCombo.SelectedIndexChanged += (_, _) => ChangeRegion();
-            AddLabel(modePanel, "保存后重启账号生效", 608, 2, 202, 24);
+            AddLabel(modePanel, "保存后重启账号生效", 608, 2, 202, 24).BringToFront();
             var behaviorPanel = AddSection("选怪与拾取", 240, 148);
             var environmentPanel = AddSection("镜头与频道", 400, 126);
 

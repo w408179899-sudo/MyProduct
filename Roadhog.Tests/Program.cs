@@ -12597,6 +12597,19 @@ static Task TestSharedCleanupEditorAsync()
             while (parent is not null && parent is not System.Windows.Forms.TabPage) parent = parent.Parent;
             AssertEqual("总览", parent?.Text ?? "", "region selector belongs to overview");
             AssertEqual("一区", region.Text, "load saved region");
+            form.StartPosition = System.Windows.Forms.FormStartPosition.Manual;
+            form.Location = new System.Drawing.Point(-4000, -4000);
+            form.Show();
+            System.Windows.Forms.Application.DoEvents();
+            foreach (var headerControl in region.Parent!.Controls.Cast<System.Windows.Forms.Control>()
+                .Where(c => c == region || c.Text == "所属区服" || c.Text == "保存后重启账号生效"))
+            {
+                var center = new System.Drawing.Point(headerControl.Left + headerControl.Width / 2,
+                    headerControl.Top + headerControl.Height / 2);
+                AssertFalse(!ReferenceEquals(headerControl, region.Parent.GetChildAtPoint(center)),
+                    "region header control must be unobscured and receive mouse input: " + headerControl.Text
+                    + "; hit=" + region.Parent.GetChildAtPoint(center)?.Text);
+            }
             var sale = (System.Windows.Forms.RadioButton)GetPrivateFieldForTest(form, "bagCleanupSellRadio");
             var input = (System.Windows.Forms.Control)GetPrivateFieldForTest(form, "bagCleanupManualNameTextBox");
             void Complete(Task task)
