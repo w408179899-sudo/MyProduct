@@ -7,12 +7,12 @@ public sealed class SemiAutoSkillPlan
     private SemiAutoSkillPlan(
         IReadOnlyList<SemiAutoSkillNode> roots,
         IReadOnlyList<SemiAutoSkillNode> triggerPrefixRoots,
-        SemiAutoSkillNode? openingSkill,
+        IReadOnlyList<SemiAutoSkillNode> openingSkills,
         bool usesSpiritmasterAutoLogic)
     {
         Roots = roots;
         TriggerPrefixRoots = triggerPrefixRoots;
-        OpeningSkill = openingSkill;
+        OpeningSkills = openingSkills;
         UsesSpiritmasterAutoLogic = usesSpiritmasterAutoLogic;
     }
 
@@ -20,7 +20,11 @@ public sealed class SemiAutoSkillPlan
 
     public IReadOnlyList<SemiAutoSkillNode> TriggerPrefixRoots { get; }
 
-    public SemiAutoSkillNode? OpeningSkill { get; }
+    public IReadOnlyList<SemiAutoSkillNode> OpeningSkills { get; }
+
+    public SemiAutoSkillNode? OpeningSkill => OpeningSkills.FirstOrDefault();
+
+    public bool ReleaseAllOpeningSkills { get; private init; }
 
     public bool UsesSpiritmasterAutoLogic { get; }
 
@@ -50,13 +54,18 @@ public sealed class SemiAutoSkillPlan
         };
 
         var triggerPrefix = BuildTriggerPrefixRoots(roots, settings.TriggerPrefixMode);
-        var openingSkill = bindings is null ? BuildOpeningSkill(settings) : BuildBoundOpeningSkill(settings, bindings, missing);
+        var openingConfig = settings.OpeningSkill ?? new OpeningSkillConfig();
+        var openingSkills = openingConfig.Enabled
+            ? openingConfig.GetEffectiveSkills().Select(config => bindings is null
+                ? BuildOpeningSkill(config) : BuildBoundOpeningSkill(config, bindings, missing)).OfType<SemiAutoSkillNode>().ToArray()
+            : Array.Empty<SemiAutoSkillNode>();
 
-        return new SemiAutoSkillPlan(roots, triggerPrefix, openingSkill, usesSpiritmasterAutoLogic)
+        return new SemiAutoSkillPlan(roots, triggerPrefix, openingSkills, usesSpiritmasterAutoLogic)
         {
+            ReleaseAllOpeningSkills = openingConfig.ReleaseAll,
             SkillReadIds = BuildSkillReadIds(
                 roots,
-                openingSkill,
+                openingSkills,
                 settings,
                 usesSpiritmasterAutoLogic,
                 out var requiresFullSkillRead),
@@ -85,17 +94,16 @@ public sealed class SemiAutoSkillPlan
         return tree.Select(config => Build(config, null)).OfType<SemiAutoSkillNode>().ToArray();
     }
 
-    private static SemiAutoSkillNode? BuildBoundOpeningSkill(SkillScriptSettings settings, SkillKeyBindings bindings, Action<string>? missing)
+    private static SemiAutoSkillNode? BuildBoundOpeningSkill(OpeningSkillEntryConfig config, SkillKeyBindings bindings, Action<string>? missing)
     {
-        if (!settings.OpeningSkill.Enabled) return null;
-        var bound = bindings.Resolve(settings.OpeningSkill.SkillId, settings.OpeningSkill.SkillName);
-        if (bound is null) { missing?.Invoke("起手技能：未放入主栏或 Alt 栏"); return null; }
+        var bound = bindings.Resolve(config.SkillId, config.SkillName);
+        if (bound is null) { missing?.Invoke("起手技能 " + config.SkillName + "：未放入主栏或 Alt 栏"); return null; }
         return new(bound.SkillId, bound.Name, bound.Name, "主动技能", null, bound.Key);
     }
 
     private static IReadOnlyList<uint> BuildSkillReadIds(
         IReadOnlyList<SemiAutoSkillNode> roots,
-        SemiAutoSkillNode? openingSkill,
+        IReadOnlyList<SemiAutoSkillNode> openingSkills,
         SkillScriptSettings settings,
         bool usesSpiritmasterAutoLogic,
         out bool requiresFullSkillRead)
@@ -118,7 +126,7 @@ public sealed class SemiAutoSkillPlan
             ids.Add(node.SkillId);
         }
 
-        if (openingSkill is not null)
+        foreach (var openingSkill in openingSkills)
         {
             if (openingSkill.SkillId == 0)
             {
@@ -271,11 +279,9 @@ public sealed class SemiAutoSkillPlan
         return roots;
     }
 
-    private static SemiAutoSkillNode? BuildOpeningSkill(SkillScriptSettings settings)
+    private static SemiAutoSkillNode? BuildOpeningSkill(OpeningSkillEntryConfig config)
     {
-        var config = settings.OpeningSkill;
         if (config is null ||
-            !config.Enabled ||
             string.IsNullOrWhiteSpace(config.Key) ||
             (config.SkillId == 0 && string.IsNullOrWhiteSpace(config.SkillName)))
         {

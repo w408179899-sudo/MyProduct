@@ -106,8 +106,6 @@ namespace Roadhog
         private RoundedCheckBox? spiritmasterAutoSkillCheckBox;
         private Button? spiritmasterSettingsButton;
         private RoundedCheckBox? openingSkillEnabledCheckBox;
-        private RoundedComboBox? openingSkillCombo;
-        private Button? openingSkillKeyButton;
         private RoundedTextBox? revivePathNameTextBox;
         private RoundedTextBox? combatPathNameTextBox;
         private RoundedTextBox? maintenancePathNameTextBox;
@@ -5602,40 +5600,6 @@ namespace Roadhog
                 : MaintenanceRuleActionType.Skill;
         }
 
-        private void ApplyOpeningSkillSettings(OpeningSkillConfig? config)
-        {
-            var openingSkill = config ?? new OpeningSkillConfig();
-            if (openingSkillEnabledCheckBox is not null)
-            {
-                openingSkillEnabledCheckBox.Checked = openingSkill.Enabled;
-            }
-
-            PopulateOpeningSkillCombo(openingSkillCombo, openingSkill.SkillId, openingSkill.SkillName);
-            SetOpeningSkillKey(openingSkill.Key);
-        }
-
-        private OpeningSkillConfig CaptureOpeningSkill()
-        {
-            var selectedSkill = GetSelectedOpeningSkill(openingSkillCombo);
-            return new OpeningSkillConfig
-            {
-                Enabled = openingSkillEnabledCheckBox?.Checked ?? false,
-                SkillId = selectedSkill.SkillId,
-                SkillName = selectedSkill.SkillName,
-                Key = openingSkillKeyButton?.Tag as string ?? string.Empty
-            };
-        }
-
-        private void SetOpeningSkillKey(string? key)
-        {
-            if (openingSkillKeyButton is null)
-            {
-                return;
-            }
-
-            SetKeyButton(openingSkillKeyButton, key);
-        }
-
         private static void SetKeyButton(Button? keyButton, string? key)
         {
             if (keyButton is null)
@@ -5652,12 +5616,6 @@ namespace Roadhog
 
             keyButton.Tag = key.Trim();
             keyButton.Text = FormatSkillKey(key);
-        }
-
-        private void RefreshOpeningSkillCombo()
-        {
-            var selectedSkill = GetSelectedOpeningSkill(openingSkillCombo);
-            PopulateOpeningSkillCombo(openingSkillCombo, selectedSkill.SkillId, selectedSkill.SkillName);
         }
 
         private void PopulateOpeningSkillCombo(RoundedComboBox? combo, uint selectedSkillId, string? selectedSkillName)
@@ -5940,34 +5898,7 @@ namespace Roadhog
             AddButton(autoPanel, "下移", 744, 190, 84, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Down));
             AddButton(autoPanel, "置底", 744, 230, 84, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Bottom));
 
-            var openingPanel = new Panel
-            {
-                Name = "openingSkillPanel",
-                BackColor = _inputBackground,
-                Location = new Point(0, 346),
-                Size = new Size(828, 60)
-            };
-            autoPanel.Controls.Add(openingPanel);
-            openingSkillEnabledCheckBox = AddCheckBox(openingPanel, "启用起手技能", 12, 18, 128, false);
-            openingSkillEnabledCheckBox.BackColor = openingPanel.BackColor;
-            AddLabel(openingPanel, "技能", 148, 18, 40, 24, _textGreen, FontStyle.Bold);
-            openingSkillCombo = AddCombo(openingPanel, 192, 16, 430, 28);
-            openingSkillCombo.Name = "openingSkillCombo";
-            PopulateOpeningSkillCombo(openingSkillCombo, 0, string.Empty);
-            AddLabel(openingPanel, "按键", 634, 18, 40, 24, _textGreen, FontStyle.Bold);
-            openingSkillKeyButton = AddButton(openingPanel, "选择按键", 676, 15, 136, 30);
-            openingSkillKeyButton.Name = "openingSkillKeyButton";
-            openingSkillKeyButton.Click += (_, _) =>
-            {
-                var selectedKey = ShowKeyboardPicker(openingSkillKeyButton.Tag as string);
-                if (!string.IsNullOrWhiteSpace(selectedKey))
-                {
-                    openingSkillKeyButton.Tag = selectedKey;
-                    openingSkillKeyButton.Text = FormatSkillKey(selectedKey);
-                }
-            };
-
-            BindAutomaticSkillButton(openingSkillKeyButton, openingSkillCombo);
+            CreateOpeningSkillEditor(autoPanel);
             AddLabel(manualPanel, "手动分类 / 手动Mapping", 8, 6, 160, 24, _textGreen, FontStyle.Bold);
 
             var mappingRows = CreateManualSkillMappingList(manualPanel);

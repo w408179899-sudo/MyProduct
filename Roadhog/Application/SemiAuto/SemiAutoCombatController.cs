@@ -3244,80 +3244,86 @@ public sealed partial class SemiAutoCombatController
         LockedTargetSnapshot target,
         IReadOnlyList<SkillSnapshot>? observedSnapshot = null)
     {
-        var openingSkill = plan.OpeningSkill;
-        if (openingSkill is null || !state.ShouldHandleOpeningSkill(target))
-        {
+        state.ObserveOpeningSkillTarget(target);
+        if (!plan.HasOpeningSkill || !state.ShouldHandleOpeningSkill(target))
             return false;
-        }
 
-        var now = DateTimeOffset.Now;
-        var confirmationStartedAt = state.GetOrStartOpeningSkillAttemptStartedAt(target, now);
-        var confirmationTimeout = ResolveOpeningSkillConfirmationTimeout();
-        if (confirmationStartedAt != DateTimeOffset.MinValue &&
-            now - confirmationStartedAt >= confirmationTimeout)
+        while (state.ShouldHandleOpeningSkill(target))
         {
-            state.MarkOpeningSkillHandled(target);
-            state.ClearPressedSkillCooldownConfirmation();
-            LogOpeningSkillConfirmTimeout(
-                context,
-                target,
-                openingSkill,
-                now - confirmationStartedAt,
-                confirmationTimeout);
-            return false;
-        }
+            context.StopToken.ThrowIfCancellationRequested();
+            var now = DateTimeOffset.Now;
+            // This also resets the cursor when the target identity changes.
+            var confirmationStartedAt = state.GetOrStartOpeningSkillAttemptStartedAt(target, now);
+            if (state.OpeningSkillIndex >= plan.OpeningSkills.Count)
+            {
+                state.MarkOpeningSkillHandled(target);
+                return false;
+            }
 
-        var skills = observedSnapshot ?? await ReadOpeningSkillAsync(context, openingSkill).ConfigureAwait(false);
-        var skill = openingSkill.ResolveSkill(skills);
-        if (skill is null)
-        {
-            state.MarkOpeningSkillHandled(target);
-            LogOpeningSkillSkipped(context, target, openingSkill, null, "missing");
-            return false;
-        }
+            var openingSkill = plan.OpeningSkills[state.OpeningSkillIndex];
+            var confirmationTimeout = ResolveOpeningSkillConfirmationTimeout();
+            if (now - confirmationStartedAt >= confirmationTimeout)
+            {
+                LogOpeningSkillConfirmTimeout(context, target, openingSkill, now - confirmationStartedAt, confirmationTimeout);
+                FinishOpeningSkillEntry(state, plan, target);
+                continue;
+            }
 
-        var readiness = SemiAutoSkillReleasePriority.GetActionCooldownReadiness(skill, state);
-        if (readiness != SemiAutoSkillCooldownReadiness.Ready)
-        {
-            state.MarkOpeningSkillHandled(target);
-            LogOpeningSkillSkipped(
-                context,
-                target,
-                openingSkill,
-                skill,
-                SemiAutoSkillReleasePriority.FormatCooldownReason(skill, state));
-            return false;
-        }
+            var skills = observedSnapshot ?? await ReadOpeningSkillAsync(context, openingSkill).ConfigureAwait(false);
+            var skill = openingSkill.ResolveSkill(skills);
+            if (skill is null)
+            {
+                LogOpeningSkillSkipped(context, target, openingSkill, null, "missing");
+                FinishOpeningSkillEntry(state, plan, target);
+                continue;
+            }
 
-        if (settings.AttackWeaveEnabled && !state.AttackWeave.CanPress(skill.SkillId))
-        {
+            var readiness = SemiAutoSkillReleasePriority.GetActionCooldownReadiness(skill, state);
+            if (readiness != SemiAutoSkillCooldownReadiness.Ready)
+            {
+                LogOpeningSkillSkipped(context, target, openingSkill, skill,
+                    SemiAutoSkillReleasePriority.FormatCooldownReason(skill, state));
+                FinishOpeningSkillEntry(state, plan, target);
+                continue;
+            }
+
+            if (settings.AttackWeaveEnabled && !state.AttackWeave.CanPress(skill.SkillId))
+                return true;
+
+            if (!await PressNodeKeyAsync(context, openingSkill, settings, "opening_skill").ConfigureAwait(false))
+            {
+                FinishOpeningSkillEntry(state, plan, target);
+                continue;
+            }
+
+            state.MarkOpeningSkillPressed();
+            TrackAttackWeaveSkill(state, settings, plan, skill);
+            if (skill.CooldownDuration == 0)
+            {
+                FinishOpeningSkillEntry(state, plan, target);
+                return true;
+            }
+
+            var confirmationExpiresAt = DateTimeOffset.Now + ResolveCooldownConfirmationWindow(settings, plan.UsesSpiritmasterAutoLogic);
+            state.MarkSkillPressed(skill, confirmationExpiresAt,
+                retryKey: openingSkill.Key, retrySkillName: openingSkill.Name,
+                retrySkillType: openingSkill.Type, retryPhase: "opening_skill");
+            state.SuppressUncalibratedUnknownSkill(skill, confirmationExpiresAt);
             return true;
         }
 
-        var pressed = await PressNodeKeyAsync(context, openingSkill, settings, "opening_skill").ConfigureAwait(false);
-        if (!pressed)
-        {
-            return false;
-        }
+        return false;
+    }
 
-        TrackAttackWeaveSkill(state, settings, plan, skill);
-
-        if (skill.CooldownDuration == 0)
-        {
+    private static void FinishOpeningSkillEntry(
+        SemiAutoCombatState state, SemiAutoSkillPlan plan, LockedTargetSnapshot target)
+    {
+        var wasPressed = state.OpeningSkillWasPressed;
+        if (wasPressed) state.ClearPressedSkillCooldownConfirmation();
+        if (wasPressed && !plan.ReleaseAllOpeningSkills)
             state.MarkOpeningSkillHandled(target);
-            return true;
-        }
-
-        var confirmationExpiresAt = DateTimeOffset.Now + ResolveCooldownConfirmationWindow(settings, plan.UsesSpiritmasterAutoLogic);
-        state.MarkSkillPressed(
-            skill,
-            confirmationExpiresAt,
-            retryKey: openingSkill.Key,
-            retrySkillName: openingSkill.Name,
-            retrySkillType: openingSkill.Type,
-            retryPhase: "opening_skill");
-        state.SuppressUncalibratedUnknownSkill(skill, confirmationExpiresAt);
-        return true;
+        else
+            state.AdvanceOpeningSkill();
     }
 
     private static void LogOpeningSkillSkipped(
@@ -3432,9 +3438,9 @@ public sealed partial class SemiAutoCombatController
             configuredSkills.Add(skill);
         }
 
-        if (plan.OpeningSkill is not null)
+        foreach (var openingSkill in plan.OpeningSkills)
         {
-            AddResolvedSkill(plan.OpeningSkill);
+            AddResolvedSkill(openingSkill);
         }
 
         foreach (var node in FlattenNodes(plan.Roots))

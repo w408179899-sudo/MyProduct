@@ -1151,6 +1151,17 @@ public sealed class OpeningSkillConfig
 {
     public bool Enabled { get; set; }
 
+    public bool ReleaseAll { get; set; }
+
+    // Null means a legacy single-skill configuration; an explicit empty list stays empty.
+    public List<OpeningSkillEntryConfig>? Skills { get; set; }
+
+    public IReadOnlyList<OpeningSkillEntryConfig> GetEffectiveSkills() => Skills is not null
+        ? Skills.Where(skill => skill is not null).ToArray()
+        : SkillId != 0 || !string.IsNullOrWhiteSpace(SkillName)
+            ? new[] { new OpeningSkillEntryConfig { SkillId = SkillId, SkillName = SkillName, Key = Key } }
+            : Array.Empty<OpeningSkillEntryConfig>();
+
     public uint SkillId { get; set; }
 
     public string SkillName { get; set; } = string.Empty;
@@ -1162,11 +1173,25 @@ public sealed class OpeningSkillConfig
         return new OpeningSkillConfig
         {
             Enabled = Enabled,
+            ReleaseAll = ReleaseAll,
+            Skills = Skills?.Where(skill => skill is not null).Select(skill => skill.Clone()).ToList(),
             SkillId = SkillId,
             SkillName = SkillName,
             Key = Key
         };
     }
+}
+
+public sealed class OpeningSkillEntryConfig
+{
+    public uint SkillId { get; set; }
+    public string SkillName { get; set; } = string.Empty;
+    public string Key { get; set; } = string.Empty;
+
+    public OpeningSkillEntryConfig Clone() => new()
+    {
+        SkillId = SkillId, SkillName = SkillName ?? string.Empty, Key = Key ?? string.Empty
+    };
 }
 
 public enum SkillConfigurationMode

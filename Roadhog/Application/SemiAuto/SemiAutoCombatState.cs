@@ -56,8 +56,20 @@ public sealed class SemiAutoCombatState
     private uint openingAttackTargetIdentity;
     private uint spiritmasterOpeningAttackTargetIdentity;
     private uint openingSkillTargetIdentity;
+    private uint openingSkillObservedTargetIdentity;
     private uint openingSkillAttemptTargetIdentity;
     private DateTimeOffset openingSkillAttemptStartedAt = DateTimeOffset.MinValue;
+    public int OpeningSkillIndex { get; private set; }
+    public bool OpeningSkillWasPressed { get; private set; }
+
+    public void MarkOpeningSkillPressed() => OpeningSkillWasPressed = true;
+
+    public void AdvanceOpeningSkill()
+    {
+        OpeningSkillIndex++;
+        OpeningSkillWasPressed = false;
+        openingSkillAttemptStartedAt = DateTimeOffset.MinValue;
+    }
     private ushort observedTargetEntityId;
     private uint observedTargetIdentity;
     private bool observedTargetWasAliveMonster;
@@ -208,6 +220,15 @@ public sealed class SemiAutoCombatState
         spiritmasterOpeningAttackTargetIdentity = 0;
     }
 
+    public void ObserveOpeningSkillTarget(LockedTargetSnapshot target)
+    {
+        var identity = target.IsMonsterAlive ? ResolveOpeningTargetIdentity(target) : 0;
+        if (openingSkillObservedTargetIdentity == identity) return;
+        if (OpeningSkillWasPressed) ClearPressedSkillCooldownConfirmation();
+        ResetOpeningSkill();
+        openingSkillObservedTargetIdentity = identity;
+    }
+
     public bool ShouldHandleOpeningSkill(LockedTargetSnapshot target)
     {
         var targetIdentity = ResolveOpeningTargetIdentity(target);
@@ -224,6 +245,7 @@ public sealed class SemiAutoCombatState
 
     public void ResetOpeningSkill()
     {
+        openingSkillObservedTargetIdentity = 0;
         openingSkillTargetIdentity = 0;
         ClearOpeningSkillAttempt();
     }
@@ -236,10 +258,14 @@ public sealed class SemiAutoCombatState
             return DateTimeOffset.MinValue;
         }
 
-        if (openingSkillAttemptTargetIdentity != targetIdentity ||
-            openingSkillAttemptStartedAt == DateTimeOffset.MinValue)
+        if (openingSkillAttemptTargetIdentity != targetIdentity)
         {
+            ClearOpeningSkillAttempt();
             openingSkillAttemptTargetIdentity = targetIdentity;
+        }
+
+        if (openingSkillAttemptStartedAt == DateTimeOffset.MinValue)
+        {
             openingSkillAttemptStartedAt = now;
         }
 
@@ -1065,6 +1091,8 @@ public sealed class SemiAutoCombatState
 
     private void ClearOpeningSkillAttempt()
     {
+        OpeningSkillIndex = 0;
+        OpeningSkillWasPressed = false;
         openingSkillAttemptTargetIdentity = 0;
         openingSkillAttemptStartedAt = DateTimeOffset.MinValue;
     }

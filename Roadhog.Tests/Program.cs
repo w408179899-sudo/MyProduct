@@ -848,6 +848,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("attack weave target transitions and disable cancel C", AttackWeaveTests.TargetAndDisableCancellationAsync),
     ("attack weave stop and death cancel C", AttackWeaveTests.StopAndDeathAsync),
     ("attack weave prefix and opening success accounting", AttackWeaveTests.PrefixAndOpeningAsync),
+    ("attack weave opening skill list resumes after pair and handoff", AttackWeaveTests.OpeningListAsync),
     ("attack weave disabled preserves existing skill input", AttackWeaveTests.DisabledCompatibilityAsync),
     ("attack weave opening C switch stays independent", AttackWeaveTests.OpeningAttackSwitchIsIndependentAsync),
     ("attack weave preserves condition preempt priority", AttackWeaveTests.ConditionPriorityAsync),
@@ -857,6 +858,18 @@ var tests = new (string Name, Func<Task> Run)[]
     ("attack weave settings persistence and visual layout", AttackWeaveTests.SettingsAndLayoutAsync),
     ("opening attack key switch presses C once", TestOpeningAttackKeySwitchPressesCOnceAsync),
     ("opening skill presses before C once", TestOpeningSkillPressesBeforeCOnceAsync),
+    ("opening skill list legacy JSON clone and binding compatibility", OpeningSkillListTests.CompatibilityAsync),
+    ("opening skill list UI order modes save and empty reload", OpeningSkillListTests.UiAsync),
+    ("opening skill list releases all in order", () => TestOpeningSkillListAsync("all")),
+    ("opening skill list chooses first ready only", () => TestOpeningSkillListAsync("single")),
+    ("opening skill list skips all cooling and missing", () => TestOpeningSkillListAsync("cooling")),
+    ("opening skill list zero cooldown releases once", () => TestOpeningSkillListAsync("zero")),
+    ("opening skill list target switch resets progress", () => TestOpeningSkillListAsync("target")),
+    ("opening skill list same server object keeps progress", () => TestOpeningSkillListAsync("same-target")),
+    ("opening skill list failed key skips entry", () => TestOpeningSkillListAsync("failed")),
+    ("opening skill list confirmation timeout advances each entry", () => TestOpeningSkillListAsync("timeout")),
+    ("opening skill list disabled and empty use normal skills", () => TestOpeningSkillListAsync("disabled")),
+    ("opening skill list stop prevents next entry", () => TestOpeningSkillListAsync("stop")),
     ("opening skill confirm timeout releases normal skill loop", TestOpeningSkillConfirmTimeoutReleasesNormalSkillLoopAsync),
     ("opening skill uses server object id identity", TestOpeningSkillUsesServerObjectIdIdentityAsync),
     ("stale opening skill cooldown is ready before calibration", TestStaleOpeningSkillCooldownIsReadyBeforeCalibrationAsync),
@@ -29416,6 +29429,124 @@ static async Task TestOpeningAttackKeySwitchPressesCOnceAsync()
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
 
     AssertSequence(new[] { "C" }, keyboard.Keys.ToArray(), "fallback should not press C after opening key was attempted");
+}
+
+static async Task TestOpeningSkillListAsync(string scenario)
+{
+    var settings = CreateScriptSettings();
+    settings.SemiAuto.AttackKeyLoopEnabled = false;
+    settings.Skills.ExecutionTree = new() { Node(1804, "Normal", "active") };
+    settings.Skills.OpeningSkill = new()
+    {
+        Enabled = scenario != "disabled", ReleaseAll = scenario != "single",
+        Skills = new()
+        {
+            new() { SkillId = 1801, SkillName = "A", Key = "F1" },
+            new() { SkillId = 1802, SkillName = "B", Key = "F2" },
+            new() { SkillId = 1803, SkillName = "C", Key = "F3" }
+        }
+    };
+    var cooldowns = new Dictionary<uint, uint>();
+    if (scenario is "single" or "cooling") cooldowns[1801] = CooldownEndIn(60000);
+    if (scenario == "cooling") cooldowns[1803] = CooldownEndIn(60000);
+    SkillSnapshot Snapshot(uint id) => new(id, "Skill " + id, 1, 1, "Skill " + id, 1, false,
+        scenario == "zero" ? 0u : 60000u, cooldowns.GetValueOrDefault(id));
+    var api = new FakeGameApi { TargetEntityId = 100, TargetOwnServerObjectId = 5000 };
+    void UpdateSkills() => api.Skills = new uint[] { 1801, 1802, 1803, 1804 }
+        .Where(id => scenario != "cooling" || id != 1802).Select(Snapshot).ToArray();
+    UpdateSkills();
+    var keys = new RecordingKeyboardInput();
+    var log = new InMemoryRoadhogLogger();
+    var controller = new SemiAutoCombatController(keys);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+    using var stop = new CancellationTokenSource();
+    var context = CreateContext(settings, api, log, stopToken: stop.Token);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    async Task Tick() => await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+    void Confirm(uint id) { cooldowns[id] = CooldownEndIn(60000); UpdateSkills(); }
+    if (scenario == "failed") keys.PressResult = key => key == "F1" ? OperationResult.Fail("test failure") : OperationResult.Ok();
+
+    if (scenario == "timeout")
+    {
+        const string variable = "ROADHOG_OPENING_SKILL_CONFIRM_TIMEOUT_MS";
+        var previous = Environment.GetEnvironmentVariable(variable);
+        Environment.SetEnvironmentVariable(variable, "30");
+        try
+        {
+            await Tick();
+            await Task.Delay(60);
+            await Tick();
+            await Task.Delay(60);
+            await Tick();
+            await Task.Delay(60);
+            await Tick();
+            AssertSequence(new[] { "F1", "F2", "F3", "D1" }, keys.Keys.ToArray(), "each opener has its own timeout and cannot block normal skills forever");
+        }
+        finally { Environment.SetEnvironmentVariable(variable, previous); }
+        return;
+    }
+
+    await Tick();
+    if (scenario is "cooling" or "disabled")
+    {
+        AssertSequence(new[] { "D1" }, keys.Keys.ToArray(), "unavailable or disabled opener list falls through");
+        settings.Skills.OpeningSkill.Enabled = true;
+        settings.Skills.OpeningSkill.Skills.Clear();
+        settings.Skills.OpeningSkill.SkillId = 1801;
+        settings.Skills.OpeningSkill.Key = "F1";
+        AssertFalse(SemiAutoSkillPlan.FromSettings(settings.Skills).HasOpeningSkill, "explicit empty list cannot revive legacy opener");
+        return;
+    }
+    if (scenario == "stop")
+    {
+        Confirm(1801);
+        stop.Cancel();
+        var cancelled = false;
+        try { await Tick(); } catch (OperationCanceledException) { cancelled = true; }
+        AssertFalse(!cancelled, "stop cancels remaining opener list");
+        AssertSequence(new[] { "F1" }, keys.Keys.ToArray(), "no next opener after stop");
+        return;
+    }
+    if (scenario == "single")
+    {
+        AssertSequence(new[] { "F2" }, keys.Keys.ToArray(), "single mode skips A and selects B");
+        Confirm(1802);
+        await Tick();
+        AssertSequence(new[] { "F2", "D1" }, keys.Keys.ToArray(), "single mode never presses C");
+        return;
+    }
+    if (scenario == "failed")
+    {
+        AssertSequence(new[] { "F1", "F2" }, keys.Keys.ToArray(), "failed key does not stall list");
+        return;
+    }
+    if (scenario == "zero")
+    {
+        await Tick(); await Tick(); await Tick();
+        AssertSequence(new[] { "F1", "F2", "F3", "D1" }, keys.Keys.ToArray(), "zero cooldown skills execute once per target");
+        return;
+    }
+    Confirm(1801);
+    await Tick();
+    AssertSequence(new[] { "F1", "F2" }, keys.Keys.ToArray(), "second opener follows confirmed first");
+    if (scenario == "target")
+    {
+        cooldowns.Clear(); UpdateSkills();
+        api.TargetOwnServerObjectId = 6000;
+        await Tick();
+        AssertSequence(new[] { "F1", "F2", "F1" }, keys.Keys.ToArray(), "new target resets list and confirmation");
+        return;
+    }
+    if (scenario == "same-target") api.TargetEntityId = 101;
+    Confirm(1802);
+    await Tick();
+    Confirm(1803);
+    await Tick();
+    AssertSequence(new[] { "F1", "F2", "F3", "D1" }, keys.Keys.ToArray(), "all openers run before normal skill in order");
+    cooldowns.Clear(); UpdateSkills();
+    await Tick();
+    AssertEqual(3, keys.Keys.Count(key => key.StartsWith("F")), "same target never restarts completed opener list");
 }
 
 static async Task TestOpeningSkillPressesBeforeCOnceAsync()

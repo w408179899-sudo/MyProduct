@@ -525,6 +525,38 @@ internal static class AttackWeaveTests
             "opening, prefix and normal skills share confirmed count");
     }
 
+    public static async Task OpeningListAsync()
+    {
+        using var f = new Fixture(Node(1));
+        f.Settings.Skills.OpeningSkill = new()
+        {
+            Enabled = true, ReleaseAll = true,
+            Skills = new()
+            {
+                new() { SkillId = 2, SkillName = "Skill 2", Key = "F2" },
+                new() { SkillId = 3, SkillName = "Skill 3", Key = "F3" },
+                new() { SkillId = 4, SkillName = "Skill 4", Key = "F4" }
+            }
+        };
+        f.RebuildPlan();
+        f.State.ObserveTarget((await f.Api.ReadLockedTargetAsync()).Value!, out _, out _);
+        f.Api.TargetOwnServerObjectId = 9988;
+        var target = (await f.Api.ReadLockedTargetAsync()).Value!;
+        await f.Controller.TickOpeningAttackKeyLoopAsync(f.Context, f.Plan, f.State, target);
+        f.Confirm(2);
+        await f.Controller.TickOpeningAttackKeyLoopAsync(f.Context, f.Plan, f.State, target);
+        f.Confirm(3);
+        await f.Tick();
+        f.Clock.Advance(600);
+        await f.Tick();
+        await f.Tick();
+        Equal("Skill 4", f.LastSkill(), "third opener resumes after C and opening-path handoff");
+        f.Confirm(4);
+        await f.Tick();
+        Sequence(new[] { "F2", "F3", "C", "F4", "D1" }, f.Keyboard.Keys,
+            "list progress and pair count survive handoff without replay");
+    }
+
     public static async Task DisabledCompatibilityAsync()
     {
         using var f = new Fixture(Node(1), Node(2, "触发技能"), Node(3, "触发技能"));
@@ -681,7 +713,7 @@ internal static class AttackWeaveTests
                 var selected = Field<TreeView>(form, "selectedSkillTree");
                 Equal(available.Size, selected.Size, "skill lists have equal sizes");
                 Equal(available.Top, selected.Top, "skill lists align");
-                var opener = Field<Control>(form, "openingSkillKeyButton").Parent!;
+                var opener = form.Controls.Find("openingSkillPanel", true).Single();
                 Check(opener.Top > selected.Bottom && opener.Top - selected.Bottom <= 24,
                     "opening skill follows lists without a large empty gap");
                 Check(opener.Bottom <= panel.Height, "opening skill stays inside skill panel");
