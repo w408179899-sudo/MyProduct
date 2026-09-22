@@ -23,6 +23,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
     private readonly TeamOutputController? _teamOutput;
     private readonly FixedChannelController? _fixedChannel;
     private readonly CleanupWorkflowRunner? _cleanupWorkflow;
+    private readonly Func<AccountConfig, ISharedAccountConfiguration?>? _sharedConfigurationFactory;
 
     public DefaultAccountWorkerLoop(
         IKeyboardInput keyboard,
@@ -31,7 +32,8 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         TeamSupportController? teamSupport = null,
         TeamOutputController? teamOutput = null,
         FixedChannelController? fixedChannel = null,
-        CleanupWorkflowRunner? cleanupWorkflow = null)
+        CleanupWorkflowRunner? cleanupWorkflow = null,
+        Func<AccountConfig, ISharedAccountConfiguration?>? sharedConfigurationFactory = null)
     {
         _keyboard = keyboard;
         _semiAuto = semiAuto;
@@ -40,6 +42,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         _teamOutput = teamOutput;
         _fixedChannel = fixedChannel;
         _cleanupWorkflow = cleanupWorkflow;
+        _sharedConfigurationFactory = sharedConfigurationFactory;
     }
 
     public async Task RunAsync(AccountWorkerContext context)
@@ -74,6 +77,8 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         var fixedChannelState = new FixedChannelState();
         context.WorkflowOwnsCleanup = _cleanupWorkflow != null;
         var nextCleanupCheck = DateTimeOffset.MinValue;
+        var nextSharedRefresh = DateTimeOffset.MinValue;
+        var sharedConfiguration = _sharedConfigurationFactory?.Invoke(context.Config);
         var lastCleanup = DateTimeOffset.MinValue;
         CombatJumpAssistSession? jumpAssist = null;
         if (scriptSettings.Combat.JumpAssistEnabled)
@@ -104,6 +109,21 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
             while (!context.StopToken.IsCancellationRequested)
             {
                 context.RuntimeStates.MarkHeartbeat(context.Config.AccountName);
+                if (sharedConfiguration is not null && DateTimeOffset.UtcNow >= nextSharedRefresh)
+                {
+                    nextSharedRefresh = DateTimeOffset.UtcNow.AddSeconds(2);
+                    try
+                    {
+                        await SharedConfigurationRefresh.RefreshAsync(sharedConfiguration, scriptSettings,
+                            includeCleanup: context.CleanupRequests.Current is null, context.StopToken).ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        context.Logger.Warn("shared_configuration.refresh_failed", new Dictionary<string, object?>
+                            { ["account"] = context.Config.AccountName, ["error"] = ex.Message });
+                        context.RuntimeStates.MarkWarning(context.Config.AccountName, "共享配置刷新失败：" + ex.Message);
+                    }
+                }
                 if (await _stationaryCombat.TryTickTownReturnAsync(
                         context, semiAutoPlan, semiAutoState, stationaryCombatState).ConfigureAwait(false) is { } townReturnDelay)
                 {

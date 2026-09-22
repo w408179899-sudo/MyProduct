@@ -4,13 +4,14 @@ namespace Roadhog.Core.Accounts;
 
 public sealed class BagCleanupNameListsDocument
 {
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
 
     public int Version { get; set; } = CurrentVersion;
 
     public List<string> Whitelist { get; set; } = new();
 
     public List<string> Blacklist { get; set; } = new();
+    public List<string> Sell { get; set; } = new();
 
     public List<BagCleanupTradeItemConfig> Stall { get; set; } = new();
 
@@ -23,6 +24,7 @@ public sealed class BagCleanupNameListsDocument
             Version = CurrentVersion,
             Whitelist = NormalizeKeywords(Whitelist),
             Blacklist = NormalizeKeywords(Blacklist),
+            Sell = NormalizeKeywords(Sell),
             Stall = BagCleanupTradeItemConfig.Normalize(Stall),
             AuctionHouse = BagCleanupTradeItemConfig.Normalize(AuctionHouse)
         };
@@ -33,6 +35,7 @@ public sealed class BagCleanupNameListsDocument
         ArgumentNullException.ThrowIfNull(settings);
         settings.BagCleanupExcludedItemNames = NormalizeKeywords(Whitelist);
         settings.BagCleanupDiscardItemNameKeywords = NormalizeKeywords(Blacklist);
+        settings.BagCleanupSellItemNameKeywords = NormalizeKeywords(Sell);
         settings.BagCleanupStallItems = BagCleanupTradeItemConfig.Normalize(Stall);
         settings.BagCleanupAuctionHouseItems = BagCleanupTradeItemConfig.Normalize(AuctionHouse);
     }
@@ -44,6 +47,7 @@ public sealed class BagCleanupNameListsDocument
         {
             Whitelist = NormalizeKeywords(settings.BagCleanupExcludedItemNames),
             Blacklist = NormalizeKeywords(settings.BagCleanupDiscardItemNameKeywords),
+            Sell = NormalizeKeywords(settings.BagCleanupSellItemNameKeywords),
             Stall = BagCleanupTradeItemConfig.Normalize(settings.BagCleanupStallItems),
             AuctionHouse = BagCleanupTradeItemConfig.Normalize(settings.BagCleanupAuctionHouseItems)
         };
@@ -85,6 +89,8 @@ public sealed class BagCleanupNameListsLoadResult
 
 public interface IBagCleanupNameListStore
 {
+    Task<OperationResult> SaveChangesAsync(BagCleanupNameListsDocument before, BagCleanupNameListsDocument after,
+        CancellationToken cancellationToken = default) => SaveAsync(after, cancellationToken);
     string FilePath { get; }
 
     Task<OperationResult<BagCleanupNameListsLoadResult>> LoadAsync(

@@ -23,7 +23,7 @@ public sealed class AccountStartConfigBuilder
         if (!account.Validate(out var error)) return OperationResult<AccountConfig>.Fail(error);
         var config = account.Clone();
         var nameLists = _nameLists;
-        if (!string.IsNullOrWhiteSpace(config.BagCleanupNameListPath))
+        if (nameLists is not ISharedAccountConfiguration && !string.IsNullOrWhiteSpace(config.BagCleanupNameListPath))
         {
             if (_accountNameListFactory is not null) nameLists = _accountNameListFactory(config.BagCleanupNameListPath);
             else if (!string.Equals(config.BagCleanupNameListPath, nameLists.FilePath, StringComparison.OrdinalIgnoreCase))
@@ -65,6 +65,12 @@ public sealed class AccountStartConfigBuilder
                 ["source"] = lists.Value.Source.ToString(),
                 ["whitelistCount"] = document.Whitelist.Count, ["blacklistCount"] = document.Blacklist.Count
             });
+        }
+        if (nameLists is ISharedAccountConfiguration shared)
+        {
+            var filters = await shared.LoadMonsterFiltersAsync(cancellationToken).ConfigureAwait(false);
+            if (!filters.Success) return OperationResult<AccountConfig>.Fail("共享怪物过滤读取失败：" + filters.Error);
+            config.ScriptSettings.Combat.ActiveMonsterNameFilters = filters.Value!;
         }
         config.ProfileName = config.ScriptSettings.ProfileName;
         config.MainMode = config.ScriptSettings.MainMode;

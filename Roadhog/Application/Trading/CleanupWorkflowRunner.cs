@@ -9,10 +9,13 @@ using static Roadhog.Application.Trading.TradingActions;
 namespace Roadhog.Application.Trading;
 
 public sealed partial class CleanupWorkflowRunner(IKeyboardInput input, ISharedPathStore paths,
-    BagCleanupPathExecutor executePath, IAuctionListingJournal journal)
+    BagCleanupPathExecutor executePath, IAuctionListingJournal journal,
+    Func<AccountConfig, ISharedAccountConfiguration?>? sharedConfigurationFactory = null)
 {
     public async Task RunAsync(AccountWorkerContext source, CleanupRequest request, Func<AccountWorkerContext, Task>? returnToCombat = null)
     {
+        if (sharedConfigurationFactory?.Invoke(source.Config) is { } shared)
+            await SharedConfigurationRefresh.CaptureCleanupAsync(shared, request, source.StopToken).ConfigureAwait(false);
         var context = source.ForCleanup(request.Settings); var token = context.StopToken;
         context.WorkflowOwnsCleanup = true;
         var settings = context.Config.ScriptSettings!; var flow = settings.Maintenance.CleanupWorkflow;

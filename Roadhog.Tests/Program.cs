@@ -39,6 +39,14 @@ if (args.Contains("--hardware-mapping-audit"))
     return;
 }
 
+if (args.Contains("--shared-cleanup-migration-audit"))
+{
+    var index = Array.IndexOf(args, "--shared-cleanup-migration-audit");
+    try { await SharedCleanupMigrationAudit.RunAsync(args[index + 1], args[index + 2]); }
+    catch (Exception exception) { Console.WriteLine("FAIL shared cleanup migration audit: " + exception); Environment.ExitCode = 1; }
+    return;
+}
+
 if (args.Contains("--migration-snapshot-audit"))
 {
     try { await MigrationSnapshotTests.AuditCopyAsync(args[Array.IndexOf(args, "--migration-snapshot-audit") + 1]); }
@@ -253,6 +261,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("auction registration fee production decoder and modal guards", PersonalShopDecoderTests.AuctionRegistrationDecodeAsync),
     ("npc sale official snapshot lifecycle and decoder guards", NpcSaleTests.SnapshotAsync),
     ("npc sale single entries by vendor value with hover identity and submit verification", NpcSaleTests.FlowAsync),
+    ("shared cleanup sale list executes NPC sale and stops at cap with auction overlap", NpcSaleTests.SharedSellListAsync),
     ("npc sale production decoder basket and controls", PersonalShopDecoderTests.NpcTradeAsync),
     ("inventory discard UI button uses unsaved rules and caps three items", TestInventoryDiscardButtonAsync),
     ("inventory discard three-item limit and configured rules", InventoryDiscardTests.LimitAndRulesAsync),
@@ -564,6 +573,13 @@ var tests = new (string Name, Func<Task> Run)[]
     ("bag cleanup controller skips within cooldown", TestBagCleanupControllerSkipsWithinCooldownAsync),
     ("bag cleanup controller failure cools down instead of stopping", TestBagCleanupControllerFailureCoolsDownAsync),
     ("bag cleanup name-list store round trips and preserves legacy whitelist", TestBagCleanupNameListStoreRoundTripAndLegacyAsync),
+    ("shared cleanup migration merges six accounts with region isolation", SharedCleanupConfigurationTests.MigrationAsync),
+    ("shared cleanup concurrent edits preserve unrelated changes", SharedCleanupConfigurationTests.ConcurrentEditsAsync),
+    ("shared cleanup refresh freezes current run and updates next run", SharedCleanupConfigurationTests.RefreshAndFreezeAsync),
+    ("shared cleanup running worker reloads monster filters", SharedCleanupConfigurationTests.WorkerRefreshAsync),
+    ("shared cleanup priority discard sale auction stall", SharedCleanupConfigurationTests.PriorityAsync),
+    ("shared cleanup failed migration preserves original configuration", SharedCleanupConfigurationTests.FailedMigrationAsync),
+    ("shared cleanup overview region and sale editor persist and rollback", TestSharedCleanupEditorAsync),
     ("bag cleanup matcher separates discard and resolves sell conflicts", TestBagCleanupMatcherSeparatesDiscardAndResolvesConflictsAsync),
     ("bag cleanup matcher applies whitelist then blacklist precedence", TestBagCleanupMatcherAppliesWhitelistThenBlacklistPrecedenceAsync),
     ("bag cleanup blacklist starts discard during full cleanup cooldown", TestBagCleanupBlacklistStartsDiscardDuringFullCleanupCooldownAsync),
@@ -950,7 +966,7 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("worker recovery initialization exceptions cancellation return and manual stop", WorkerRecoveryTests.HostRecoveryAsync)
     ,("worker recovery cleanup failure continues and accepts next request", CleanupWorkflowTests.WorkerFailureRecoveryAsync)
     ,("worker recovery cleanup death hands off to revival", CleanupWorkflowTests.WorkerCleanupDeathRecoveryAsync)
-    ,("cleanup workflow cooldown retains sell ownership and only discards trash", CleanupWorkflowTests.CooldownPreservesSellRulesAsync)
+    ,("cleanup workflow cooldown still prioritizes discard over sale", CleanupWorkflowTests.CooldownPreservesSellRulesAsync)
     ,("cleanup workflow discard then auction without NPC sale", CleanupWorkflowTests.DiscardThenAuctionWithoutSaleAsync)
     ,("cleanup workflow auction skips vanished listings", CleanupWorkflowTests.AuctionSkipsVanishedListingsAsync)
     ,("cleanup workflow manual recall verified before discard and automatic unchanged", CleanupWorkflowTests.ManualRecallBeforeDiscardAsync)
@@ -10669,7 +10685,7 @@ static async Task TestBagCleanupNameListStoreRoundTripAndLegacyAsync()
         AssertFalse(!save.Success, "name-list json should save");
 
         var text = await File.ReadAllTextAsync(jsonPath).ConfigureAwait(false);
-        AssertFalse(!text.Contains("\"version\": 2", StringComparison.Ordinal), "name-list json should persist version");
+        AssertFalse(!text.Contains("\"version\": " + BagCleanupNameListsDocument.CurrentVersion, StringComparison.Ordinal), "name-list json should persist version");
         AssertFalse(!text.Contains("\"whitelist\"", StringComparison.Ordinal), "name-list json should persist whitelist");
         AssertFalse(!text.Contains("\"blacklist\"", StringComparison.Ordinal), "name-list json should persist blacklist");
 
@@ -10791,8 +10807,8 @@ static Task TestBagCleanupMatcherSeparatesDiscardAndResolvesConflictsAsync()
     var discard = BagCleanupItemMatcher.SelectDiscardItems(new[] { greenItem, whiteItem }, settings);
     var conflicts = BagCleanupItemMatcher.SelectSellDiscardConflicts(new[] { greenItem, whiteItem }, settings);
 
-    AssertSequence(new[] { 11UL }, sell.Select(item => item.InstanceId).ToArray(), "sell rule should retain the conflicted item");
-    AssertSequence(new[] { 12UL }, discard.Select(item => item.InstanceId).ToArray(), "discard should exclude sell conflicts");
+    AssertSequence(Array.Empty<ulong>(), sell.Select(item => item.InstanceId).ToArray(), "discard rule owns conflicted item");
+    AssertSequence(new[] { 11UL, 12UL }, discard.Select(item => item.InstanceId).ToArray(), "discard wins over sale conflicts");
     AssertSequence(new[] { 11UL }, conflicts.Select(item => item.InstanceId).ToArray(), "matcher should report sell discard conflicts");
     return Task.CompletedTask;
 }
@@ -12555,6 +12571,83 @@ static Task TestBagCleanupTradePricesAsync()
     thread.SetApartmentState(ApartmentState.STA);
     thread.Start();
     thread.Join();
+    if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    return Task.CompletedTask;
+}
+
+static Task TestSharedCleanupEditorAsync()
+{
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "Roadhog-shared-ui-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var accountsPath = Path.Combine(directory, "accounts.json");
+            SharedCleanupMigration.MigrateAsync(accountsPath, Array.Empty<AccountConfig>(), Path.Combine(directory, "profiles")).GetAwaiter().GetResult();
+            var store = new SharedAccountConfigurationStore(SharedAccountConfigurationStore.PathFor(accountsPath), "一区");
+            var six = new SharedAccountConfigurationStore(store.FilePath, "六区");
+            store.SaveAsync(new() { AuctionHouse = new() { new() { Name = "region-one", UnitPrice = 100 } } }).GetAwaiter().GetResult();
+            six.SaveAsync(new() { AuctionHouse = new() { new() { Name = "region-six", UnitPrice = 600 } } }).GetAwaiter().GetResult();
+            var config = new InMemoryAccountConfigStore(new AccountConfig { AccountName = "account1", Region = "一区", ScriptSettings = CreateScriptSettings() });
+            using var form = CreateAccountSettingsFormForTestsWithStore(config, bagCleanupNameListStore: store);
+            var region = (System.Windows.Forms.Control)GetPrivateFieldForTest(form, "regionCombo");
+            var parent = region.Parent;
+            while (parent is not null && parent is not System.Windows.Forms.TabPage) parent = parent.Parent;
+            AssertEqual("总览", parent?.Text ?? "", "region selector belongs to overview");
+            AssertEqual("一区", region.Text, "load saved region");
+            var sale = (System.Windows.Forms.RadioButton)GetPrivateFieldForTest(form, "bagCleanupSellRadio");
+            var input = (System.Windows.Forms.Control)GetPrivateFieldForTest(form, "bagCleanupManualNameTextBox");
+            void Complete(Task task)
+            {
+                var deadline = DateTime.UtcNow.AddSeconds(10);
+                while (!task.IsCompleted && DateTime.UtcNow < deadline) { System.Windows.Forms.Application.DoEvents(); Thread.Sleep(1); }
+                if (!task.IsCompleted) throw new TimeoutException("shared editor save timed out");
+                task.GetAwaiter().GetResult();
+            }
+            sale.Checked = true; input.Text = "vendor-item";
+            Complete((Task)InvokePrivateMethodForTest(form, "AddSelectedBagCleanupNameAsync")!);
+            AssertSequence(new[] { "vendor-item" }, six.LoadAsync().GetAwaiter().GetResult().Value!.Document!.Sell.ToArray(), "sale edit shared across regions");
+            region.Text = "六区";
+            var lists = (BagCleanupNameListsDocument)InvokePrivateMethodForTest(form, "CaptureBagCleanupNameLists")!;
+            AssertEqual("region-six", lists.AuctionHouse.Single().Name, "switch region loads its auction list");
+            AssertSequence(new[] { "vendor-item" }, lists.Sell.ToArray(), "region switch keeps public sale list");
+            InvokePrivateMethodForTest(form, "AddActiveMonsterFilterName", "shared-filter");
+            AssertSequence(new[] { "shared-filter" }, six.LoadMonsterFiltersAsync().GetAwaiter().GetResult().Value!.ToArray(), "monster edits auto-save shared list");
+            AssertFalse(!InvokeSaveCurrentSettingsForTest(form, out var error), "region save succeeds: " + error);
+            AssertEqual("六区", config.LoadAllAsync().GetAwaiter().GetResult().Value!.Single().Region, "region persists outside profile");
+            using var reopened = CreateAccountSettingsFormForTestsWithStore(config, bagCleanupNameListStore: six);
+            AssertEqual("六区", ((System.Windows.Forms.Control)GetPrivateFieldForTest(reopened, "regionCombo")).Text, "region survives reopening");
+            var preview = Environment.GetEnvironmentVariable("ROADHOG_SHARED_PREVIEW_DIRECTORY");
+            if (!string.IsNullOrWhiteSpace(preview))
+            {
+                Directory.CreateDirectory(preview);
+                form.StartPosition = System.Windows.Forms.FormStartPosition.Manual;
+                form.Location = new System.Drawing.Point(-4000, -4000); form.Show();
+                var tabs = (System.Windows.Forms.TabControl)GetPrivateFieldForTest(form, "settingsTabs");
+                foreach (var name in new[] { "总览", "清包" })
+                {
+                    tabs.SelectedTab = tabs.TabPages.Cast<System.Windows.Forms.TabPage>().Single(p => p.Text == name);
+                    System.Windows.Forms.Application.DoEvents();
+                    using var bitmap = new System.Drawing.Bitmap(form.Width, form.Height);
+                    form.DrawToBitmap(bitmap, new System.Drawing.Rectangle(System.Drawing.Point.Empty, form.Size));
+                    bitmap.Save(Path.Combine(preview, name == "总览" ? "overview.png" : "cleanup.png"));
+                }
+                form.Hide();
+            }
+            File.WriteAllText(store.FilePath, "{broken");
+            input.Text = "must-rollback";
+            Complete((Task)InvokePrivateMethodForTest(form, "AddSelectedBagCleanupNameAsync")!);
+            lists = (BagCleanupNameListsDocument)InvokePrivateMethodForTest(form, "CaptureBagCleanupNameLists")!;
+            AssertSequence(new[] { "vendor-item" }, lists.Sell.ToArray(), "sale editor rolls back on failed shared save");
+            InvokePrivateMethodForTest(form, "ClearActiveMonsterFilterList");
+            AssertSequence(new[] { "shared-filter" }, ((List<string>)InvokePrivateMethodForTest(form, "CaptureActiveMonsterFilterList")!).ToArray(), "monster clear rolls back on failed save");
+        }
+        catch (Exception ex) { failure = ex; }
+        finally { DeleteDirectoryIfExists(directory); }
+    });
+    thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
     if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
     return Task.CompletedTask;
 }

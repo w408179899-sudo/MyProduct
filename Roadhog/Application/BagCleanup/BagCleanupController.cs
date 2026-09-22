@@ -212,7 +212,7 @@ public sealed partial class BagCleanupController
                 ["account"] = context.Config.AccountName,
                 ["count"] = conflicts.Count,
                 ["instanceIds"] = string.Join(",", conflicts.Select(item => item.InstanceId)),
-                ["resolution"] = "sell_wins"
+                ["resolution"] = "discard_wins"
             });
         }
 

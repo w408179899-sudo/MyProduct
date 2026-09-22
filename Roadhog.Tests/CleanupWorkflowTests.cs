@@ -56,10 +56,10 @@ internal static partial class CleanupWorkflowTests
         s.Maintenance.BagCleanupAuctionHouseItems.Add(new() { Name = "sword", UnitPrice = 30 });
         s.Maintenance.BagCleanupStallItems.Add(new() { Name = "sword", UnitPrice = 20 });
         s.Maintenance.BagCleanupDiscardItemNameKeywords.Add("sword");
-        Require(CleanupTradePolicy.Rule(item, s.Maintenance, true)?.UnitPrice == 30 && CleanupTradePolicy.Rule(item, s.Maintenance, false) == null, "auction owns overlaps");
-        Require(!BagCleanupItemMatcher.SelectDiscardItems(new[] { item }, s.Maintenance).Any() && !BagCleanupItemMatcher.SelectSellRegistrationItems(new[] { item }, s.Maintenance).Any(), "reserved trading items cannot be discarded or NPC sold");
+        Require(CleanupTradePolicy.Rule(item, s.Maintenance, true)?.UnitPrice == 30 && CleanupTradePolicy.Rule(item, s.Maintenance, false)?.UnitPrice == 20, "each trading stage can match remaining items");
+        Require(BagCleanupItemMatcher.SelectDiscardItems(new[] { item }, s.Maintenance).Count == 1 && !BagCleanupItemMatcher.SelectSellRegistrationItems(new[] { item }, s.Maintenance).Any(), "discard precedes all trading lists");
         s.Maintenance.BagCleanupExcludedItemNames.Add("sword");
-        Require(CleanupTradePolicy.Rule(item, s.Maintenance, true)?.UnitPrice == 30 && CleanupTradePolicy.Rule(item, s.Maintenance, false) == null, "whitelist does not block auction or change auction priority");
+        Require(CleanupTradePolicy.Rule(item, s.Maintenance, true)?.UnitPrice == 30 && CleanupTradePolicy.Rule(item, s.Maintenance, false)?.UnitPrice == 20, "whitelist does not block either trading stage");
         s.Maintenance.BagCleanupAuctionHouseItems.Clear();
         Require(CleanupTradePolicy.Rule(item, s.Maintenance, false)?.UnitPrice == 20 && BagCleanupItemMatcher.SelectDiscardItems(new[] { item }, s.Maintenance).Count == 0, "whitelist does not block configured stall and still prevents discard");
         Require(CleanupTradePolicy.PurchaseQuantity(100, 30, 9, 8) == 3 && CleanupTradePolicy.PurchaseQuantity(100, 30, 2, 8) == 2 && CleanupTradePolicy.PurchaseQuantity(100, 30, 9, 1) == 1 && CleanupTradePolicy.PurchaseQuantity(100, 0, 9, 9) == 0, "affordability, stock and modal caps");

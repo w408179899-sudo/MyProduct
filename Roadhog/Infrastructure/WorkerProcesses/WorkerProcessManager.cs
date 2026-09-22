@@ -282,8 +282,11 @@ public sealed class WorkerProcessManager : IAsyncDisposable
         // Recovery may have acquired the gate while a manual start persisted its intent.
         if (!cleanup && Alive(entry) && entry.Status?.IsRunning == true) return OperationResult.Ok();
         var paths = PathsFor(entry.Config);
+        var sharedPath = Roadhog.Infrastructure.Config.SharedAccountConfigurationStore.PathFor(_paths.AccountConfigPath);
         var builder = new AccountStartConfigBuilder(new Roadhog.Infrastructure.Profiles.JsonScriptProfileStore(paths.ProfileLibraryDirectory),
-            new Roadhog.Infrastructure.Config.JsonBagCleanupNameListStore(paths.BagCleanupNameListPath, logger: _logger), _logger,
+            File.Exists(sharedPath) || !string.IsNullOrWhiteSpace(entry.Config.Region)
+                ? new Roadhog.Infrastructure.Config.SharedAccountConfigurationStore(sharedPath, entry.Config.Region)
+                : new Roadhog.Infrastructure.Config.JsonBagCleanupNameListStore(paths.BagCleanupNameListPath, logger: _logger), _logger,
             path => new Roadhog.Infrastructure.Config.JsonBagCleanupNameListStore(
                 AccountResourcePath.Resolve(path, paths.BagCleanupNameListPath, _paths.AccountConfigPath), logger: _logger));
         var built = await builder.BuildAsync(entry.Config, cancellationToken).ConfigureAwait(false);

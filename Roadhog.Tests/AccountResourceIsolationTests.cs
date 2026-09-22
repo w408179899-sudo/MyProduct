@@ -81,18 +81,18 @@ internal static class AccountResourceIsolationTests
         sibling.LicenseCredentialPath = "preserved/2/license.dat";
         await files.Workspace.SaveAccountsAsync(new[] { account, sibling });
         Require((await files.Workspace.NameListsFor(account).SaveAsync(new() { Whitelist = new() { "first-only" } })).Success,
-            "first account list can be stored independently");
-        Require((await files.Workspace.NameListsFor(sibling).SaveAsync(new() { Whitelist = new() { "second-only" } })).Success,
-            "second account list can be stored independently");
+            "first account can edit shared public lists");
+        Require((await files.Workspace.NameListsFor(sibling).SaveChangesAsync(new(), new() { Whitelist = new() { "second-only" } })).Success,
+            "second account can add to shared public lists");
         using var console = new MultiAccountForm(files.Workspace) { ShowInTaskbar = false };
         Field<System.Windows.Forms.NotifyIcon>(console, "_tray").Visible = false;
         foreach (var selected in new[] { account, sibling })
         {
             using var settings = (AccountSettingsForm)Invoke(console, "CreateAccountSettingsForm", selected)!;
             var selectedPaths = files.Workspace.Processes.PathsFor(selected);
-            Require(Field<IBagCleanupNameListStore>(settings, "_bagCleanupNameListStore").FilePath == selectedPaths.BagCleanupNameListPath
+            Require(Field<IBagCleanupNameListStore>(settings, "_bagCleanupNameListStore").FilePath == SharedAccountConfigurationStore.PathFor(files.Workspace.Options.AccountConfigPath)
                 && Field<JsonRadarMapStore>(settings, "_radarMapStore").DirectoryPath == selectedPaths.RadarMapDirectory,
-                "the real main-window settings factory must select that account's list and map stores");
+                "main-window settings use shared cleanup lists while maps remain account-specific");
             object?[] arguments = { null };
             Require((bool)Method(settings, "SaveCurrentSettings").Invoke(settings, arguments)!,
                 "settings save remains available without a hardware worker: " + arguments[0]);
@@ -107,9 +107,9 @@ internal static class AccountResourceIsolationTests
         }
         var firstList = await files.Workspace.NameListsFor(account).LoadAsync();
         var secondList = await files.Workspace.NameListsFor(sibling).LoadAsync();
-        Require(firstList.Value?.Document?.Whitelist.SequenceEqual(new[] { "first-only" }) == true
-            && secondList.Value?.Document?.Whitelist.SequenceEqual(new[] { "second-only" }) == true,
-            "editing each account must preserve the other account's item rules");
+        Require(firstList.Value?.Document?.Whitelist.SequenceEqual(new[] { "first-only", "second-only" }) == true
+            && secondList.Value?.Document?.Whitelist.SequenceEqual(new[] { "first-only", "second-only" }) == true,
+            "both accounts see the same combined public rules");
         Require(files.Workspace.Processes.Snapshot().All(view => view.WorkerProcessId is null),
             "opening and saving resource-aware settings must not construct hardware workers");
     });

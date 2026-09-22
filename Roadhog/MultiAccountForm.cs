@@ -276,7 +276,9 @@ public sealed class MultiAccountForm : Form
     {
         var loaded = await _workspace.Accounts.LoadAllAsync(_operations.Token);
         if (!loaded.Success || loaded.Value is null) throw new InvalidOperationException(loaded.Error);
-        _accounts = loaded.Value.ToList(); _workspace.Processes.UpdateAccounts(_accounts); RefreshRows();
+        _accounts = loaded.Value.ToList();
+        await _workspace.MigrateSharedConfigurationAsync(_accounts, _operations.Token);
+        _workspace.Processes.UpdateAccounts(_accounts); RefreshRows();
     }
 
     private async Task EditHardwareAsync(string? id)

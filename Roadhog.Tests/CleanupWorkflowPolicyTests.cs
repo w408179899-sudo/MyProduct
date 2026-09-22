@@ -53,8 +53,8 @@ internal static partial class CleanupWorkflowTests
             await WaitForCompletions(1);
             game.Api.InventoryItems = new[] { book, trash };
             await WaitForCompletions(2);
-            Require(game.Removed.SequenceEqual(new[] { trash.InstanceId }), "cooldown may discard trash but cannot discard the overlapping sell item");
-            Require(game.Api.InventoryItems.Single().InstanceId == book.InstanceId, "sell item remains for next full cleanup");
+            Require(game.Removed.Order().SequenceEqual(new[] { book.InstanceId, trash.InstanceId }.Order()), "discard priority also applies during NPC sale cooldown");
+            Require(game.Api.InventoryItems.Count == 0, "overlapping discard and sell item is discarded first");
             Require(settings.Maintenance.BagCleanupRules.Any(r => r.Action == BagCleanupAction.Sell), "saved sell rules stay intact");
         }
         finally

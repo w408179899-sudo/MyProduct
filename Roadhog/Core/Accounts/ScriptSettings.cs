@@ -673,6 +673,7 @@ public sealed class MaintenanceScriptSettings
     public List<string> BagCleanupExcludedItemNames { get; set; } = new();
 
     public List<string> BagCleanupDiscardItemNameKeywords { get; set; } = new();
+    public List<string> BagCleanupSellItemNameKeywords { get; set; } = new();
 
     [System.Text.Json.Serialization.JsonPropertyName("BagCleanupStallItemNameKeywords")]
     public List<BagCleanupTradeItemConfig> BagCleanupStallItems { get; set; } = new();
@@ -718,6 +719,7 @@ public sealed class MaintenanceScriptSettings
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList() ?? new List<string>(),
             BagCleanupStallItems = BagCleanupTradeItemConfig.Normalize(BagCleanupStallItems),
+            BagCleanupSellItemNameKeywords = BagCleanupNameListsDocument.NormalizeKeywords(BagCleanupSellItemNameKeywords),
             BagCleanupAuctionHouseItems = BagCleanupTradeItemConfig.Normalize(BagCleanupAuctionHouseItems),
             BagCleanupRules = BagCleanupRuleCatalog.MergeWithDefaults(BagCleanupRules)
         };

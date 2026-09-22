@@ -10,14 +10,14 @@ public static class BagCleanupItemMatcher
         IEnumerable<InventoryItemSnapshot> items,
         MaintenanceScriptSettings settings)
     {
-        return SelectItems(items, settings, BagCleanupAction.Sell, resolveSellDiscardConflict: false);
+        return SelectItems(items, settings, BagCleanupAction.Sell);
     }
 
     public static IReadOnlyList<InventoryItemSnapshot> SelectDiscardItems(
         IEnumerable<InventoryItemSnapshot> items,
         MaintenanceScriptSettings settings)
     {
-        return SelectItems(items, settings, BagCleanupAction.Discard, resolveSellDiscardConflict: true);
+        return SelectItems(items, settings, BagCleanupAction.Discard);
     }
 
     public static IReadOnlyList<InventoryItemSnapshot> SelectSellDiscardConflicts(
@@ -31,7 +31,8 @@ public static class BagCleanupItemMatcher
         var sellRules = rules.Where(rule => rule.Action == BagCleanupAction.Sell).ToArray();
         var discardRules = rules.Where(rule => rule.Action == BagCleanupAction.Discard).ToArray();
         return FilterBagItems(items, settings)
-            .Where(item => sellRules.Any(rule => MatchesRule(item, rule)) &&
+            .Where(item => (sellRules.Any(rule => MatchesRule(item, rule)) ||
+                           MatchesNameKeyword(item.Name, ReadKeywords(settings.BagCleanupSellItemNameKeywords))) &&
                            discardRules.Any(rule => MatchesRule(item, rule)))
             .OrderBy(item => item.Slot)
             .ThenBy(item => item.TemplateId)
@@ -42,8 +43,7 @@ public static class BagCleanupItemMatcher
     private static IReadOnlyList<InventoryItemSnapshot> SelectItems(
         IEnumerable<InventoryItemSnapshot> items,
         MaintenanceScriptSettings settings,
-        BagCleanupAction action,
-        bool resolveSellDiscardConflict)
+        BagCleanupAction action)
     {
         var whitelistKeywords = ReadKeywords(settings.BagCleanupExcludedItemNames);
         var blacklistKeywords = ReadKeywords(settings.BagCleanupDiscardItemNameKeywords);
@@ -52,25 +52,15 @@ public static class BagCleanupItemMatcher
             .Where(rule => rule.Enabled)
             .ToArray();
         var rules = allRules.Where(rule => rule.Action == action).ToArray();
-        var sellRules = resolveSellDiscardConflict
-            ? allRules.Where(rule => rule.Action == BagCleanupAction.Sell).ToArray()
-            : Array.Empty<BagCleanupRuleConfig>();
-
-        if (rules.Length == 0 &&
-            (action != BagCleanupAction.Discard || blacklistKeywords.Length == 0))
-        {
-            return Array.Empty<InventoryItemSnapshot>();
-        }
+        var sellKeywords = ReadKeywords(settings.BagCleanupSellItemNameKeywords);
+        var discardRules = allRules.Where(rule => rule.Action == BagCleanupAction.Discard).ToArray();
+        bool Discard(InventoryItemSnapshot item) => !MatchesNameKeyword(item.Name, whitelistKeywords) &&
+            (MatchesNameKeyword(item.Name, blacklistKeywords) || discardRules.Any(rule => MatchesRule(item, rule)));
 
         return items
-            .Where(item => IsBagItem(item) && !CleanupTradePolicy.ReservedForAuction(item, settings))
-            .Where(item => action != BagCleanupAction.Discard || !MatchesNameKeyword(item.Name, whitelistKeywords))
-            .Where(item => action == BagCleanupAction.Discard
-                ? MatchesNameKeyword(item.Name, blacklistKeywords) ||
-                  (!CleanupTradePolicy.Reserved(item, settings) && rules.Any(rule => MatchesRule(item, rule)) &&
-                   (!resolveSellDiscardConflict || !sellRules.Any(rule => MatchesRule(item, rule))))
-                : (!MatchesNameKeyword(item.Name, blacklistKeywords) || MatchesNameKeyword(item.Name, whitelistKeywords)) &&
-                  rules.Any(rule => MatchesRule(item, rule)))
+            .Where(IsBagItem)
+            .Where(item => action == BagCleanupAction.Discard ? Discard(item) :
+                !Discard(item) && (MatchesNameKeyword(item.Name, sellKeywords) || rules.Any(rule => MatchesRule(item, rule))))
             .OrderBy(item => item.Slot)
             .ThenBy(item => item.TemplateId)
             .ThenBy(item => item.InstanceId)
@@ -85,7 +75,6 @@ public static class BagCleanupItemMatcher
         var blacklistKeywords = ReadKeywords(settings.BagCleanupDiscardItemNameKeywords);
         return items.Where(item =>
             IsBagItem(item) &&
-            !CleanupTradePolicy.ReservedForAuction(item, settings) &&
             !MatchesNameKeyword(item.Name, whitelistKeywords) &&
             !MatchesNameKeyword(item.Name, blacklistKeywords));
     }

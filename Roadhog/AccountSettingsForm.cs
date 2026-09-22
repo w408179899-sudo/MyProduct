@@ -25,6 +25,8 @@ namespace Roadhog
         private readonly IFolderLauncher _folderLauncher;
         private readonly string _pathLibraryDirectory;
         private readonly IBagCleanupNameListStore? _bagCleanupNameListStore;
+        private RoundedComboBox? regionCombo;
+        private bool loadingRegion;
         private readonly IRadarMapStore? _radarMapStore;
         private readonly Dictionary<SharedPathKind, PathEditorControls> pathEditors = new();
         private readonly Dictionary<SharedPathKind, Label> pathOverviewLabels = new();
@@ -152,6 +154,8 @@ namespace Roadhog
         private RadioButton? bagCleanupWhitelistRadio;
         private RadioButton? bagCleanupBlacklistRadio;
         private RadioButton? bagCleanupStallRadio;
+        private RadioButton? bagCleanupSellRadio;
+        private readonly List<string> bagCleanupSellItemNames = new();
         private RadioButton? bagCleanupAuctionHouseRadio;
         private Button? bagCleanupAddNameButton;
         private Button? bagCleanupRemoveNameButton;
@@ -319,6 +323,7 @@ namespace Roadhog
         private void LoadSavedSettings()
         {
             var account = LoadAccountConfigOrDefault();
+            LoadRegion(account);
             RefreshProfileLibrary();
             var settings = BuildEffectiveScriptSettings(account);
             var nameListLoadError = TryApplySharedBagCleanupNameLists(settings);
@@ -347,6 +352,13 @@ namespace Roadhog
             if (load.Value is { Found: true, Document: { } document })
             {
                 document.ApplyTo(settings.Maintenance);
+            }
+
+            if (_bagCleanupNameListStore is ISharedAccountConfiguration shared)
+            {
+                var filters = shared.LoadMonsterFiltersAsync().GetAwaiter().GetResult();
+                if (!filters.Success) return filters.Error;
+                settings.Combat.ActiveMonsterNameFilters = filters.Value!;
             }
 
             return null;
@@ -652,6 +664,7 @@ namespace Roadhog
             }
 
             account.AccountName = _account;
+            account.Region = regionCombo?.Text.Trim() ?? account.Region;
             account.ScriptSettings = capturedSettings;
             ApplyScriptSettingsToLegacyFields(account, account.ScriptSettings);
 
@@ -930,6 +943,7 @@ namespace Roadhog
                     BagCleanupRules = CaptureBagCleanupRules(),
                     BagCleanupExcludedItemNames = CaptureBagCleanupExcludedItemList(),
                     BagCleanupDiscardItemNameKeywords = CaptureBagCleanupDiscardItemList(),
+                    BagCleanupSellItemNameKeywords = BagCleanupNameListsDocument.NormalizeKeywords(bagCleanupSellItemNames),
                     BagCleanupStallItems = BagCleanupTradeItemConfig.Normalize(bagCleanupStallItemNames),
                     BagCleanupAuctionHouseItems = BagCleanupTradeItemConfig.Normalize(bagCleanupAuctionHouseItemNames)
                 },
@@ -1318,6 +1332,11 @@ namespace Roadhog
 
             var profilePanel = AddSection("方案管理", 10, 80);
             var modePanel = AddSection("运行模式与范围", 102, 126);
+            AddLabel(modePanel, "所属区服", 380, 2, 80, 24);
+            regionCombo = AddCombo(modePanel, 464, 0, 130, 28, "未分区", "一区", "二区", "三区", "四区", "五区", "六区", "七区", "八区", "九区", "十区");
+            regionCombo.Name = "accountRegionCombo";
+            regionCombo.SelectedIndexChanged += (_, _) => ChangeRegion();
+            AddLabel(modePanel, "保存后重启账号生效", 608, 2, 202, 24);
             var behaviorPanel = AddSection("选怪与拾取", 240, 148);
             var environmentPanel = AddSection("镜头与频道", 400, 126);
 
@@ -3547,13 +3566,16 @@ namespace Roadhog
             AddCategory("药品", 398);
             AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.Medicine), leftOptionX, leftComboX, 430);
 
-            bagCleanupWhitelistRadio = AddRadioButton(namesPanel, "白名单（不丢弃）", 0, 0, 144, true);
+            bagCleanupWhitelistRadio = AddRadioButton(namesPanel, "白名单（不丢弃）", 0, 0, 128, true);
             bagCleanupWhitelistRadio.Name = "bagCleanupWhitelistRadio";
-            bagCleanupBlacklistRadio = AddRadioButton(namesPanel, "黑名单（丢弃）", 144, 0, 132, false);
+            bagCleanupBlacklistRadio = AddRadioButton(namesPanel, "黑名单（丢弃）", 128, 0, 112, false);
             bagCleanupBlacklistRadio.Name = "bagCleanupBlacklistRadio";
-            bagCleanupStallRadio = AddRadioButton(namesPanel, "摆摊", 276, 0, 60, false);
+            bagCleanupSellRadio = AddRadioButton(namesPanel, "出售", 240, 0, 54, false);
+            bagCleanupSellRadio.Name = "bagCleanupSellRadio";
+            bagCleanupSellRadio.CheckedChanged += (_, _) => RefreshBagCleanupNameListEditor();
+            bagCleanupStallRadio = AddRadioButton(namesPanel, "摆摊", 354, 0, 54, false);
             bagCleanupStallRadio.Name = "bagCleanupStallRadio";
-            bagCleanupAuctionHouseRadio = AddRadioButton(namesPanel, "拍卖行", 336, 0, 72, false);
+            bagCleanupAuctionHouseRadio = AddRadioButton(namesPanel, "拍卖行", 294, 0, 60, false);
             bagCleanupAuctionHouseRadio.Name = "bagCleanupAuctionHouseRadio";
             bagCleanupWhitelistRadio.CheckedChanged += (_, _) => RefreshBagCleanupNameListEditor();
             bagCleanupBlacklistRadio.CheckedChanged += (_, _) => RefreshBagCleanupNameListEditor();
@@ -4779,6 +4801,8 @@ namespace Roadhog
 
         private void SetBagCleanupNameListMutationControlsEnabled(bool enabled)
         {
+            if (bagCleanupSellRadio is not null) bagCleanupSellRadio.Enabled = enabled;
+            if (regionCombo is not null) regionCombo.Enabled = enabled;
             if (bagCleanupTradeItemGrid is not null)
             {
                 bagCleanupTradeItemGrid.Enabled = enabled;
@@ -4840,7 +4864,7 @@ namespace Roadhog
             }
 
             var document = CaptureBagCleanupNameLists();
-            var save = await _bagCleanupNameListStore.SaveAsync(document).ConfigureAwait(true);
+            var save = await _bagCleanupNameListStore.SaveChangesAsync(listsBefore, document).ConfigureAwait(true);
             if (save.Success)
             {
                 SetBagCleanupInventoryStatus(successText, false);
@@ -4863,12 +4887,14 @@ namespace Roadhog
                 bagCleanupWhitelistItemNames.AddRange(BagCleanupNameListsDocument.NormalizeKeywords(document.Whitelist));
                 bagCleanupBlacklistItemNames.Clear();
                 bagCleanupBlacklistItemNames.AddRange(BagCleanupNameListsDocument.NormalizeKeywords(document.Blacklist));
+                bagCleanupSellItemNames.Clear();
+                bagCleanupSellItemNames.AddRange(BagCleanupNameListsDocument.NormalizeKeywords(document.Sell));
                 bagCleanupStallItemNames.Clear();
                 bagCleanupStallItemNames.AddRange(BagCleanupTradeItemConfig.Normalize(document.Stall));
                 bagCleanupAuctionHouseItemNames.Clear();
                 bagCleanupAuctionHouseItemNames.AddRange(BagCleanupTradeItemConfig.Normalize(document.AuctionHouse));
                 if (bagCleanupWhitelistRadio?.Checked != true && bagCleanupBlacklistRadio?.Checked != true &&
-                    bagCleanupStallRadio?.Checked != true && bagCleanupAuctionHouseRadio?.Checked != true &&
+                    bagCleanupStallRadio?.Checked != true && bagCleanupAuctionHouseRadio?.Checked != true && bagCleanupSellRadio?.Checked != true &&
                     bagCleanupWhitelistRadio is not null)
                 {
                     bagCleanupWhitelistRadio.Checked = true;
@@ -4946,7 +4972,9 @@ namespace Roadhog
 
             if (bagCleanupNameListTitleLabel is not null)
             {
-                bagCleanupNameListTitleLabel.Text = activeList.Title;
+                bagCleanupNameListTitleLabel.Text = _bagCleanupNameListStore is ISharedAccountConfiguration shared
+                    ? activeList.Name + (bagCleanupAuctionHouseRadio?.Checked == true ? "（" + shared.Region + "共享）" : "（全账号共享）")
+                    : activeList.Title;
             }
         }
 
@@ -4954,6 +4982,8 @@ namespace Roadhog
         {
             get
             {
+                if (bagCleanupSellRadio?.Checked == true)
+                    return ("出售名单", "加入出售", "出售：丢弃后剩余物品卖给 NPC", "已自动保存出售名单");
                 if (bagCleanupBlacklistRadio?.Checked == true)
                 {
                     return ("黑名单", "加入处理（丢弃）",
@@ -4963,7 +4993,7 @@ namespace Roadhog
                 if (bagCleanupStallRadio?.Checked == true)
                 {
                     return ("摆摊名单", "加入摆摊",
-                        "摆摊：单价留空则跳过", "已自动保存摆摊名单，执行逻辑待接入");
+                        "摆摊：单价留空则跳过", "已自动保存摆摊名单");
                 }
 
                 if (bagCleanupAuctionHouseRadio?.Checked == true)
@@ -4980,7 +5010,7 @@ namespace Roadhog
         private List<string> GetActiveBagCleanupNameList()
         {
             return GetActiveBagCleanupTradeItems()?.Select(item => item.Name).ToList()
-                ?? (bagCleanupBlacklistRadio?.Checked == true ? bagCleanupBlacklistItemNames : bagCleanupWhitelistItemNames);
+                ?? (bagCleanupSellRadio?.Checked == true ? bagCleanupSellItemNames : bagCleanupBlacklistRadio?.Checked == true ? bagCleanupBlacklistItemNames : bagCleanupWhitelistItemNames);
         }
 
         private List<BagCleanupTradeItemConfig>? GetActiveBagCleanupTradeItems()
@@ -4996,6 +5026,7 @@ namespace Roadhog
             {
                 Whitelist = CaptureBagCleanupExcludedItemList(),
                 Blacklist = CaptureBagCleanupDiscardItemList(),
+                Sell = BagCleanupNameListsDocument.NormalizeKeywords(bagCleanupSellItemNames),
                 Stall = BagCleanupTradeItemConfig.Normalize(bagCleanupStallItemNames),
                 AuctionHouse = BagCleanupTradeItemConfig.Normalize(bagCleanupAuctionHouseItemNames)
             };
@@ -6022,7 +6053,7 @@ namespace Roadhog
 
             activeMonsterFilterStatusLabel = AddLabel(selectionPanel, "等待刷新", 12, 82, 788, 24);
 
-            AddLabel(page, "已过滤怪物", 12, 142, 200, 24, _textGreen, FontStyle.Bold);
+            AddLabel(page, _bagCleanupNameListStore is ISharedAccountConfiguration ? "已过滤怪物（全账号共享）" : "已过滤怪物", 12, 142, 240, 24, _textGreen, FontStyle.Bold);
             activeMonsterFilterListBox = CreateFilterListBox(page, 12, 180, 812, 318);
             activeMonsterFilterListBox.BackColor = Color.White;
             AddButton(page, "移除", 632, 138, 88, 30, (_, _) => RemoveSelectedActiveMonsterFilter());
@@ -6466,9 +6497,11 @@ namespace Roadhog
                 }
             }
 
+            var before = CaptureActiveMonsterFilterList();
             var index = activeMonsterFilterListBox.Items.Add(trimmed);
             activeMonsterFilterListBox.SelectedIndex = index;
             SetActiveMonsterFilterStatus("已添加 " + trimmed, false);
+            SaveSharedMonsterFilters(before);
         }
 
         private void RemoveSelectedActiveMonsterFilter()
@@ -6478,16 +6511,20 @@ namespace Roadhog
                 return;
             }
 
+            var before = CaptureActiveMonsterFilterList();
             var selected = activeMonsterFilterListBox.SelectedItems.Cast<object>().ToArray();
             foreach (var item in selected)
             {
                 activeMonsterFilterListBox.Items.Remove(item);
             }
+            SaveSharedMonsterFilters(before);
         }
 
         private void ClearActiveMonsterFilterList()
         {
+            var before = CaptureActiveMonsterFilterList();
             activeMonsterFilterListBox?.Items.Clear();
+            SaveSharedMonsterFilters(before);
         }
 
         private void PopulateActiveMonsterFilterList(IEnumerable<string>? filters)

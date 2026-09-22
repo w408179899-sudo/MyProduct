@@ -30,15 +30,15 @@ internal static class BagCleanupTradingPriorityTests
             new InventoryItemSnapshot(115000370, 9, "黄昏拍卖黑名单盾", 1, 8, false, 6, 2)
         };
         var sold = BagCleanupItemMatcher.SelectSellRegistrationItems(items, settings);
-        Require(sold.Select(i => i.InstanceId).SequenceEqual(new ulong[] { 1, 2, 3, 6 }),
+        Require(sold.Select(i => i.InstanceId).SequenceEqual(new ulong[] { 1, 2, 3, 4, 6 }),
             "NPC sell rules own stall overlaps, including type 3 weapons; whitelist only prevents discard");
         var discarded = BagCleanupItemMatcher.SelectDiscardItems(items, settings);
-        Require(discarded.Select(i => i.InstanceId).SequenceEqual(new ulong[] { 5 }),
-            "explicit blacklist precedes stall, auction and whitelist still protect, broad discard rules keep stall goods");
+        Require(discarded.Select(i => i.InstanceId).SequenceEqual(new ulong[] { 5, 7, 9 }),
+            "discard rules precede sale auction and stall, while whitelist prevents discard");
         var remaining = items.Except(sold).Except(discarded).ToArray();
         Require(remaining.Where(i => CleanupTradePolicy.Rule(i, settings, false) != null)
-                .Select(i => i.InstanceId).SequenceEqual(new ulong[] { 7, 8 }),
-            "only remaining non-auction items enter the subsequent stall plan");
+                .Select(i => i.InstanceId).SequenceEqual(new ulong[] { 8 }),
+            "only remaining items enter the subsequent stall plan");
         settings.BagCleanupRules.Single(r => r.Key == BagCleanupRuleCatalog.GreenEquipment).Enabled = false;
         Require(BagCleanupItemMatcher.SelectSellRegistrationItems(items, settings).Count == 0,
             "stall membership never enables an unconfigured NPC sale");

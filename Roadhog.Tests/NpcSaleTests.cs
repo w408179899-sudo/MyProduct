@@ -47,9 +47,12 @@ internal static class NpcSaleTests
         return Task.CompletedTask;
     }
 
-    public static async Task FlowAsync()
+    public static Task FlowAsync() => FlowCoreAsync(false);
+    public static Task SharedSellListAsync() => FlowCoreAsync(true);
+
+    private static async Task FlowCoreAsync(bool nameListOnly)
     {
-        foreach (var scenario in new[] { "complete", "delayed_sale", "sale_limit", "partial_sale", "uncleared_basket", "read_failure", "existing_basket", "wrong_npc", "foreign_item", "wrong_quantity", "hover_changed", "money_only", "stop" })
+        foreach (var scenario in nameListOnly ? new[] { "complete", "sale_limit" } : new[] { "complete", "delayed_sale", "sale_limit", "partial_sale", "uncleared_basket", "read_failure", "existing_basket", "wrong_npc", "foreign_item", "wrong_quantity", "hover_changed", "money_only", "stop" })
         {
             var api = new FakeGameApi { TargetName = "merchant", TargetOwnServerObjectId = 42, InventoryMoney = 100 };
             var input = new RecordingKeyboardInput();
@@ -62,6 +65,12 @@ internal static class NpcSaleTests
             api.InventoryItems = new[] { items[3], items[2], items[0], items[1], reserved };
             var settings = new ScriptSettings();
             settings.Maintenance.BagCleanupRules = new() { new() { Key = BagCleanupRuleCatalog.WhiteEquipment, Enabled = true, Action = BagCleanupAction.Sell } };
+            if (nameListOnly)
+            {
+                settings.Maintenance.BagCleanupRules = BagCleanupRuleCatalog.CreateDefaultRules();
+                settings.Maintenance.BagCleanupSellItemNameKeywords = new() { "equipment" };
+                settings.Maintenance.BagCleanupAuctionHouseItems = new() { new() { Name = "equipment", UnitPrice = 10 } };
+            }
             settings.Maintenance.BagCleanupStallItems = new()
             {
                 new() { Name = "equipment", UnitPrice = 1 },

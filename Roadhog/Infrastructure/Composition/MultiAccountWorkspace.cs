@@ -50,6 +50,7 @@ public sealed class MultiAccountWorkspace : IAsyncDisposable
         var accounts = result.Value.Select(a => a.Clone()).ToArray();
         var legacyKmBox = new JsonKmBoxNetDeviceConfigStore(Options.KmBoxNetConfigPath).Load().Value;
         var legacyPrimary = accounts.FirstOrDefault(a => HasPhysicalKey(a.HardwareKey)) ?? accounts.FirstOrDefault();
+        var regionsBefore = accounts.Select(a => a.Region).ToArray();
         var changed = false;
         foreach (var account in accounts)
         {
@@ -68,6 +69,9 @@ public sealed class MultiAccountWorkspace : IAsyncDisposable
             }
             changed = true;
         }
+        await SharedCleanupMigration.MigrateAsync(Options.AccountConfigPath, accounts, Options.ProfileLibraryDirectory,
+            Options.BagCleanupNameListPath, cancellationToken).ConfigureAwait(false);
+        changed |= !regionsBefore.SequenceEqual(accounts.Select(a => a.Region));
         if (changed)
         {
             // Keep a readable legacy backup before the first conversion.
@@ -104,6 +108,8 @@ public sealed class MultiAccountWorkspace : IAsyncDisposable
             .Any(group => group.Count() > 1 && group.Any(account => activeIds.Contains(account.InstanceId))))
             throw new InvalidOperationException("读取编号正被运行中或正在恢复的账号占用，请先停止对应账号，再重新验证并保存硬件配置。");
         Processes.ValidateAccountUpdate(accounts);
+        await SharedCleanupMigration.MigrateAsync(Options.AccountConfigPath, accounts, Options.ProfileLibraryDirectory,
+            Options.BagCleanupNameListPath, cancellationToken).ConfigureAwait(false);
         var result = await Accounts.SaveAllAsync(accounts, cancellationToken).ConfigureAwait(false);
         if (!result.Success) throw new InvalidOperationException(result.Error);
         Processes.UpdateAccounts(accounts);
@@ -123,8 +129,20 @@ public sealed class MultiAccountWorkspace : IAsyncDisposable
             }, ownerLicenseGrantProvider: new SignedOwnerLicenseGrantProvider(paths.OwnerLicenseGrantPath, identity));
     }
 
-    public JsonBagCleanupNameListStore NameListsFor(AccountConfig account) =>
-        new(Processes.PathsFor(account).BagCleanupNameListPath, logger: Logger);
+    public IBagCleanupNameListStore NameListsFor(AccountConfig account) =>
+        new SharedAccountConfigurationStore(SharedAccountConfigurationStore.PathFor(Options.AccountConfigPath), account.Region);
+
+    public async Task MigrateSharedConfigurationAsync(IReadOnlyList<AccountConfig> accounts, CancellationToken token = default)
+    {
+        var before = accounts.Select(a => a.Region).ToArray();
+        await SharedCleanupMigration.MigrateAsync(Options.AccountConfigPath, accounts, Options.ProfileLibraryDirectory,
+            Options.BagCleanupNameListPath, token).ConfigureAwait(false);
+        if (!before.SequenceEqual(accounts.Select(a => a.Region)))
+        {
+            var result = await Accounts.SaveAllAsync(accounts, token).ConfigureAwait(false);
+            if (!result.Success) throw new InvalidOperationException(result.Error);
+        }
+    }
 
     public JsonRadarMapStore RadarMapsFor(AccountConfig account) =>
         new(Processes.PathsFor(account).RadarMapDirectory);

@@ -178,9 +178,14 @@ public sealed class RoadhogServices : IDisposable
             : new JsonAccountConfigStore(options.AccountConfigPath);
         var configDirectory = Path.GetDirectoryName(Path.GetFullPath(options.AccountConfigPath)) ??
                               Path.Combine(AppContext.BaseDirectory, "config");
-        var bagCleanupNameListStore = new JsonBagCleanupNameListStore(
-            options.BagCleanupNameListPath ?? Path.Combine(configDirectory, JsonBagCleanupNameListStore.DefaultFileName),
-            logger: logger);
+        var sharedConfigurationPath = SharedAccountConfigurationStore.PathFor(options.AccountConfigPath);
+        var sharedConfigurationEnabled = File.Exists(sharedConfigurationPath) || !string.IsNullOrWhiteSpace(options.AccountOverride?.Region);
+        ISharedAccountConfiguration? SharedConfiguration(AccountConfig account) => sharedConfigurationEnabled
+            ? new SharedAccountConfigurationStore(sharedConfigurationPath, account.Region) : null;
+        IBagCleanupNameListStore bagCleanupNameListStore = options.AccountOverride is { } scopedAccount && sharedConfigurationEnabled
+            ? SharedConfiguration(scopedAccount)!
+            : new JsonBagCleanupNameListStore(
+                options.BagCleanupNameListPath ?? Path.Combine(configDirectory, JsonBagCleanupNameListStore.DefaultFileName), logger: logger);
         var sharedPathStore = new JsonSharedPathStore(options.PathLibraryDirectory);
         var radarMapStore = new JsonRadarMapStore(options.RadarMapDirectory);
         var radarMapRevisions = new RadarMapRevisionRegistry();
@@ -230,7 +235,8 @@ public sealed class RoadhogServices : IDisposable
                 fixedChannelController,
                 new Roadhog.Application.Trading.CleanupWorkflowRunner(keyboardInput, sharedPathStore,
                     stationaryCombatController.ExecuteCleanupPathAsync,
-                    new JsonAuctionListingJournal(Path.Combine(Path.GetDirectoryName(options.AccountConfigPath)!, "auction-listings")))),
+                    new JsonAuctionListingJournal(Path.Combine(Path.GetDirectoryName(options.AccountConfigPath)!, "auction-listings")), SharedConfiguration),
+                SharedConfiguration),
             workerOptions,
             licenseCoordinator,
             sharedPathStore);

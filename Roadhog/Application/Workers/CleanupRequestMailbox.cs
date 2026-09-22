@@ -11,6 +11,7 @@ public sealed record CleanupRequest(ScriptSettings Settings, bool Manual, bool R
     internal CleanupPreparationStage PreparationStage { get; set; }
     internal bool TownReturnCompleted { get; set; }
     internal bool FullCleanupStarted { get; set; }
+    internal bool SharedConfigurationLoaded { get; set; }
 }
 
 /// <summary>One pending or executing request per worker session. Never survives Stop/Start.</summary>

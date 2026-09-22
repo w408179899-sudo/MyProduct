@@ -3,6 +3,7 @@ namespace Roadhog.Core.Accounts;
 public sealed class AccountConfig
 {
     public string InstanceId { get; set; } = string.Empty;
+    public string Region { get; set; } = string.Empty;
 
     public AccountKmBoxSettings? KmBox { get; set; }
 
@@ -81,6 +82,7 @@ public sealed class AccountConfig
         return new AccountConfig
         {
             InstanceId = InstanceId,
+            Region = Region,
             KmBox = KmBox?.Clone(),
             AutoRecover = AutoRecover,
             LicenseCredentialPath = LicenseCredentialPath,
