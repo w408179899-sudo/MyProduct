@@ -123,7 +123,13 @@ public sealed class RoadhogServices : IDisposable
         options ??= new RoadhogServiceOptions();
         var kmBoxConfigStore = new JsonKmBoxNetDeviceConfigStore(options.KmBoxNetConfigPath);
         var kmBoxLoadResult = kmBoxConfigStore.Load();
-        if (kmBoxLoadResult.Success && kmBoxLoadResult.Value is { IsConfigured: true } savedKmBoxConfig)
+        if (options.AccountOverride?.KmBox is { } accountKmBox)
+        {
+            options.KmBoxNetInput.IpAddress = accountKmBox.IpAddress.Trim();
+            options.KmBoxNetInput.Port = accountKmBox.Port;
+            options.KmBoxNetInput.Mac = accountKmBox.Mac.Trim();
+        }
+        else if (kmBoxLoadResult.Success && kmBoxLoadResult.Value is { IsConfigured: true } savedKmBoxConfig)
         {
             savedKmBoxConfig.ApplyTo(options.KmBoxNetInput);
         }
@@ -163,16 +169,18 @@ public sealed class RoadhogServices : IDisposable
             : options.UseMockGameApi
                 ? new MockRoadhogGameApi()
                 : new AionVmmGameApi(options.AionVmm, logger);
-        var snapshotReaders = new RoadhogSnapshotReaderFactory(gameApi);
+        var accounts = new AccountRuntimeManager(logger);
+        var snapshotReaders = new RoadhogSnapshotReaderFactory(gameApi, accounts.CreatePlayerInfoObserver);
         var hardwareResolver = new WindowsHardwareDeviceResolver(options.HardwareResolver);
         var processResolver = new AionProcessResolver(options.ProcessResolver);
-        var accountConfigStore = new JsonAccountConfigStore(options.AccountConfigPath);
+        IAccountConfigStore accountConfigStore = options.AccountOverride is { } accountOverride
+            ? new Roadhog.Infrastructure.WorkerProcesses.WorkerAccountConfigStore(accountOverride)
+            : new JsonAccountConfigStore(options.AccountConfigPath);
         var configDirectory = Path.GetDirectoryName(Path.GetFullPath(options.AccountConfigPath)) ??
                               Path.Combine(AppContext.BaseDirectory, "config");
         var bagCleanupNameListStore = new JsonBagCleanupNameListStore(
-            Path.Combine(configDirectory, JsonBagCleanupNameListStore.DefaultFileName),
-            Path.Combine(configDirectory, JsonBagCleanupNameListStore.LegacyFileName),
-            logger);
+            options.BagCleanupNameListPath ?? Path.Combine(configDirectory, JsonBagCleanupNameListStore.DefaultFileName),
+            logger: logger);
         var sharedPathStore = new JsonSharedPathStore(options.PathLibraryDirectory);
         var radarMapStore = new JsonRadarMapStore(options.RadarMapDirectory);
         var radarMapRevisions = new RadarMapRevisionRegistry();
@@ -183,29 +191,7 @@ public sealed class RoadhogServices : IDisposable
             radarMapRevisions);
         var scriptProfileStore = new JsonScriptProfileStore(options.ProfileLibraryDirectory);
         var folderLauncher = new WindowsFolderLauncher();
-        var accounts = new AccountRuntimeManager(logger);
-        var deviceIdentityProvider = new WindowsDeviceIdentityProvider();
-        var licenseServerUri = new Uri(options.LicenseServerUrl.TrimEnd('/') + "/", UriKind.Absolute);
-        var licenseApiClient = new CloudflareLicenseApiClient(new HttpClient
-        {
-            BaseAddress = licenseServerUri,
-            Timeout = options.LicenseRequestTimeout
-        });
-        var licenseCoordinator = new LicenseCoordinator(
-            licenseApiClient,
-            new DpapiLicenseCredentialStore(options.LicenseCredentialPath),
-            deviceIdentityProvider,
-            logger,
-            new LicenseCoordinatorOptions
-            {
-                HeartbeatInterval = options.LicenseHeartbeatInterval,
-                HeartbeatRetryCount = options.LicenseHeartbeatRetryCount,
-                HeartbeatRetryDelay = options.LicenseHeartbeatRetryDelay,
-                ClientVersion = typeof(RoadhogServices).Assembly.GetName().Version?.ToString(3) ?? "unknown"
-            },
-            ownerLicenseGrantProvider: new SignedOwnerLicenseGrantProvider(
-                options.OwnerLicenseGrantPath,
-                deviceIdentityProvider));
+        var licenseCoordinator = CreateLicenseCoordinator(options, logger);
         var keyboardInput = CreateKeyboardInput(options);
         var semiAutoController = new SemiAutoCombatController(keyboardInput);
         var stationaryCombatController = new StationaryCombatController(
@@ -281,6 +267,33 @@ public sealed class RoadhogServices : IDisposable
             options.KmBoxNetConfigPath,
             options.PathLibraryDirectory,
             effectiveKmBoxConfig);
+    }
+
+    public static LicenseCoordinator CreateLicenseCoordinator(RoadhogServiceOptions options, IRoadhogLogger? logger = null)
+    {
+        logger ??= NoOpRoadhogLogger.Instance;
+        var deviceIdentityProvider = new WindowsDeviceIdentityProvider();
+        var licenseServerUri = new Uri(options.LicenseServerUrl.TrimEnd('/') + "/", UriKind.Absolute);
+        var licenseApiClient = new CloudflareLicenseApiClient(new HttpClient
+        {
+            BaseAddress = licenseServerUri,
+            Timeout = options.LicenseRequestTimeout
+        });
+        return new LicenseCoordinator(
+            licenseApiClient,
+            new DpapiLicenseCredentialStore(options.LicenseCredentialPath),
+            deviceIdentityProvider,
+            logger,
+            new LicenseCoordinatorOptions
+            {
+                HeartbeatInterval = options.LicenseHeartbeatInterval,
+                HeartbeatRetryCount = options.LicenseHeartbeatRetryCount,
+                HeartbeatRetryDelay = options.LicenseHeartbeatRetryDelay,
+                ClientVersion = typeof(RoadhogServices).Assembly.GetName().Version?.ToString(3) ?? "unknown"
+            },
+            ownerLicenseGrantProvider: new SignedOwnerLicenseGrantProvider(
+                options.OwnerLicenseGrantPath,
+                deviceIdentityProvider));
     }
 
     public void Dispose()

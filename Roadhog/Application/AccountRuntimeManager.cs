@@ -1,5 +1,6 @@
 using Roadhog.Core.Diagnostics;
 using Roadhog.Core.Accounts;
+using Roadhog.Core.Model;
 
 namespace Roadhog.Application;
 
@@ -38,6 +39,34 @@ public sealed class AccountRuntimeManager
             }
 
             return state;
+        }
+    }
+
+    // Display telemetry only. Observe existing trusted reads; never request another DMA read.
+    internal Action<PlayerSnapshot>? CreatePlayerInfoObserver(AccountConfig config)
+    {
+        lock (_syncRoot)
+        {
+            if (!_accounts.TryGetValue(config.AccountName, out var state) ||
+                state.Status is not ("starting" or "running") ||
+                state.ProcessId != config.ProcessId ||
+                !string.Equals(state.VmmDeviceName, config.VmmDeviceName, StringComparison.OrdinalIgnoreCase))
+                return null;
+            var generation = state.RunGeneration;
+            return player =>
+            {
+                lock (_syncRoot)
+                {
+                    if (state.RunGeneration != generation || state.Status is not ("starting" or "running") ||
+                        (!string.IsNullOrWhiteSpace(state.CharacterName) &&
+                         !string.Equals(state.CharacterName, player.CharacterName, StringComparison.Ordinal)) ||
+                        (state.PlayerInfoCapturedAt is { } previous && player.CapturedAt < previous))
+                        return;
+                    state.CharacterLevel = player.Level;
+                    state.CharacterClass = player.CharacterClass;
+                    state.PlayerInfoCapturedAt = player.CapturedAt;
+                }
+            };
         }
     }
 
@@ -192,7 +221,12 @@ public sealed class AccountRuntimeManager
             state.LastWarningAt,
             state.KillCount,
             state.FirstKillAt,
-            state.LastKillAt) { CleanupProgress = state.CleanupProgress };
+            state.LastKillAt)
+        {
+            CleanupProgress = state.CleanupProgress,
+            CharacterLevel = state.CharacterLevel,
+            CharacterClass = state.CharacterClass
+        };
     }
 
     private static AccountRuntimeState.AccountConfigSnapshot ToConfigSnapshot(AccountConfig config)

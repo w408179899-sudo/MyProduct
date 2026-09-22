@@ -17,6 +17,11 @@ public sealed class AccountRuntimeState
 
     public string CharacterName { get; private set; }
 
+    public ushort CharacterLevel { get; internal set; }
+    public string CharacterClass { get; internal set; } = string.Empty;
+    internal long RunGeneration { get; private set; }
+    internal DateTimeOffset? PlayerInfoCapturedAt { get; set; }
+
     public int ProcessId { get; private set; }
 
     public string TargetProcessName { get; private set; } = string.Empty;
@@ -84,6 +89,8 @@ public sealed class AccountRuntimeState
 
     public void MarkStarting(AccountConfigSnapshot config)
     {
+        RunGeneration++;
+        ClearPlayerInfo();
         CharacterName = config.CharacterName;
         ProcessId = config.ProcessId;
         TargetProcessName = config.TargetProcessName;
@@ -164,6 +171,7 @@ public sealed class AccountRuntimeState
 
     public void MarkStopped()
     {
+        ClearPlayerInfo();
         Status = "idle";
         ProcessId = 0;
         ThreadId = null;
@@ -176,6 +184,7 @@ public sealed class AccountRuntimeState
 
     public void MarkFailed(string error)
     {
+        ClearPlayerInfo();
         Status = "failed";
         LastError = error;
         ThreadId = null;
@@ -227,6 +236,13 @@ public sealed class AccountRuntimeState
     private void Touch()
     {
         UpdatedAt = DateTimeOffset.Now;
+    }
+
+    private void ClearPlayerInfo()
+    {
+        CharacterLevel = 0;
+        CharacterClass = string.Empty;
+        PlayerInfoCapturedAt = null;
     }
 
     public sealed record AccountConfigSnapshot(

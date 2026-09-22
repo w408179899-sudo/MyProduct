@@ -125,14 +125,16 @@ public sealed class KmBoxNetKeyboardInput : IKeyboardInput, IInputStateReset, ID
 
     public async Task<OperationResult> ReleaseAllAsync(CancellationToken cancellationToken = default)
     {
-        if (!_connected)
-        {
-            return OperationResult.Ok();
-        }
-
         try
         {
             ThrowIfDisposed();
+            // A previous worker may have died with input held; a fresh local connection is not proof of neutral device state.
+            var connect = await EnsureConnectedAsync(cancellationToken).ConfigureAwait(false);
+            if (!connect.Success)
+            {
+                return connect;
+            }
+
             await _device.ReleaseAllAsync(cancellationToken).ConfigureAwait(false);
             return OperationResult.Ok();
         }
@@ -160,6 +162,10 @@ public sealed class KmBoxNetKeyboardInput : IKeyboardInput, IInputStateReset, ID
         _device.Dispose();
         _connectionLock.Dispose();
     }
+
+    /// <summary>Connects and completes the device handshake without sending keyboard or mouse input.</summary>
+    public Task<OperationResult> ConnectAsync(CancellationToken cancellationToken = default) =>
+        EnsureConnectedAsync(cancellationToken);
 
     private async Task<OperationResult> ExecuteAsync(
         Func<KmBoxNetDevice, Task> action,

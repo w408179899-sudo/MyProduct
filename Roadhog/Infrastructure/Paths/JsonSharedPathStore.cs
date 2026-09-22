@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Roadhog.Core.Common;
 using Roadhog.Core.Paths;
+using Roadhog.Infrastructure.Config;
 
 namespace Roadhog.Infrastructure.Paths;
 
@@ -77,7 +78,7 @@ public sealed class JsonSharedPathStore : ISharedPathStore
         {
             EnsureDirectory();
             var path = ResolvePath(normalizedName);
-            if (!File.Exists(path))
+            if (!AtomicJsonFile.Exists(path))
             {
                 return OperationResult<SharedPathDocument>.Fail("Path file was not found: " + normalizedName);
             }
@@ -129,8 +130,7 @@ public sealed class JsonSharedPathStore : ISharedPathStore
             }
 
             document.UpdatedAt = DateTimeOffset.Now;
-            await using var stream = File.Create(filePath);
-            await JsonSerializer.SerializeAsync(stream, document, _jsonOptions, cancellationToken).ConfigureAwait(false);
+            await AtomicJsonFile.WriteAsync(filePath, document, _jsonOptions, cancellationToken).ConfigureAwait(false);
             return OperationResult.Ok();
         }
         catch (Exception ex)
@@ -179,7 +179,7 @@ public sealed class JsonSharedPathStore : ISharedPathStore
         string path,
         CancellationToken cancellationToken)
     {
-        await using var stream = File.OpenRead(path);
+        await using var stream = AtomicJsonFile.OpenRead(path);
         return await JsonSerializer.DeserializeAsync<SharedPathDocument>(stream, _jsonOptions, cancellationToken)
             .ConfigureAwait(false);
     }

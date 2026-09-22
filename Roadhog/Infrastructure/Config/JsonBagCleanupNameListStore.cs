@@ -44,9 +44,9 @@ public sealed class JsonBagCleanupNameListStore : IBagCleanupNameListStore
         await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (File.Exists(FilePath))
+            if (AtomicJsonFile.Exists(FilePath))
             {
-                await using var stream = File.OpenRead(FilePath);
+                await using var stream = AtomicJsonFile.OpenRead(FilePath);
                 var fileDocument = await JsonSerializer
                     .DeserializeAsync<FileDocument>(stream, _jsonOptions, cancellationToken)
                     .ConfigureAwait(false);
@@ -141,7 +141,7 @@ public sealed class JsonBagCleanupNameListStore : IBagCleanupNameListStore
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            File.Move(temporaryPath, FilePath, overwrite: true);
+            AtomicJsonFile.Commit(temporaryPath, FilePath);
             temporaryPath = null;
             _logger.Info("bag_cleanup.name_lists.saved", new Dictionary<string, object?>
             {

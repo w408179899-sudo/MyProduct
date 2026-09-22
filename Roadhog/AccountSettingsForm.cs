@@ -18,7 +18,7 @@ namespace Roadhog
 
         private readonly string _account;
         private readonly string _windowTitle;
-        private readonly RoadhogRuntime _runtime;
+        private readonly IRoadhogRuntime _runtime;
         private readonly IAccountConfigStore _configStore;
         private readonly ISharedPathStore _pathStore;
         private readonly IScriptProfileStore _profileStore;
@@ -225,7 +225,7 @@ namespace Roadhog
 
         public AccountSettingsForm(
             string account,
-            RoadhogRuntime runtime,
+            IRoadhogRuntime runtime,
             IAccountConfigStore configStore,
             ISharedPathStore pathStore,
             IScriptProfileStore profileStore,

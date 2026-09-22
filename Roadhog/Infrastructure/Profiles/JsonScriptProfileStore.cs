@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Common;
 using Roadhog.Core.Profiles;
+using Roadhog.Infrastructure.Config;
 
 namespace Roadhog.Infrastructure.Profiles;
 
@@ -76,7 +77,7 @@ public sealed class JsonScriptProfileStore : IScriptProfileStore
         {
             EnsureDirectory();
             var path = ResolvePath(normalizedName);
-            if (!File.Exists(path))
+            if (!AtomicJsonFile.Exists(path))
             {
                 return OperationResult<ScriptProfileDocument>.Fail("Profile file was not found: " + normalizedName);
             }
@@ -129,8 +130,7 @@ public sealed class JsonScriptProfileStore : IScriptProfileStore
 
             document.UpdatedAt = DateTimeOffset.Now;
             document.Settings.ProfileName = document.Name;
-            await using var stream = File.Create(filePath);
-            await JsonSerializer.SerializeAsync(stream, document, _jsonOptions, cancellationToken).ConfigureAwait(false);
+            await AtomicJsonFile.WriteAsync(filePath, document, _jsonOptions, cancellationToken).ConfigureAwait(false);
             return OperationResult.Ok();
         }
         catch (Exception ex)
@@ -179,7 +179,7 @@ public sealed class JsonScriptProfileStore : IScriptProfileStore
         string path,
         CancellationToken cancellationToken)
     {
-        await using var stream = File.OpenRead(path);
+        await using var stream = AtomicJsonFile.OpenRead(path);
         return await JsonSerializer.DeserializeAsync<ScriptProfileDocument>(stream, _jsonOptions, cancellationToken)
             .ConfigureAwait(false);
     }

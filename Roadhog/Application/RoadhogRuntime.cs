@@ -18,7 +18,7 @@ using System.Globalization;
 
 namespace Roadhog.Application;
 
-public sealed partial class RoadhogRuntime
+public sealed partial class RoadhogRuntime : IRoadhogRuntime
 {
     private readonly IRoadhogSnapshotReaderFactory _snapshotReaders;
     private readonly IRoadhogLogger _logger;

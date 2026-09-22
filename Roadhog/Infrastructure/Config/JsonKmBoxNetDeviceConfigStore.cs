@@ -26,12 +26,14 @@ public sealed class JsonKmBoxNetDeviceConfigStore
     {
         try
         {
-            if (!File.Exists(_path))
+            if (!AtomicJsonFile.Exists(_path))
             {
                 return OperationResult<KmBoxNetDeviceConfig>.Ok(new KmBoxNetDeviceConfig());
             }
 
-            var text = File.ReadAllText(_path);
+            using var stream = AtomicJsonFile.OpenRead(_path);
+            using var reader = new StreamReader(stream);
+            var text = reader.ReadToEnd();
             var config = JsonSerializer.Deserialize<KmBoxNetDeviceConfig>(text, _jsonOptions) ?? new KmBoxNetDeviceConfig();
             return OperationResult<KmBoxNetDeviceConfig>.Ok(config);
         }
@@ -45,12 +47,12 @@ public sealed class JsonKmBoxNetDeviceConfigStore
     {
         try
         {
-            if (!File.Exists(_path))
+            if (!AtomicJsonFile.Exists(_path))
             {
                 return OperationResult<KmBoxNetDeviceConfig>.Ok(new KmBoxNetDeviceConfig());
             }
 
-            await using var stream = File.OpenRead(_path);
+            await using var stream = AtomicJsonFile.OpenRead(_path);
             var config = await JsonSerializer.DeserializeAsync<KmBoxNetDeviceConfig>(stream, _jsonOptions, cancellationToken)
                 .ConfigureAwait(false);
             return OperationResult<KmBoxNetDeviceConfig>.Ok(config ?? new KmBoxNetDeviceConfig());
@@ -76,8 +78,7 @@ public sealed class JsonKmBoxNetDeviceConfigStore
                 Directory.CreateDirectory(directory);
             }
 
-            await using var stream = File.Create(_path);
-            await JsonSerializer.SerializeAsync(stream, config, _jsonOptions, cancellationToken).ConfigureAwait(false);
+            await AtomicJsonFile.WriteAsync(_path, config, _jsonOptions, cancellationToken).ConfigureAwait(false);
             return OperationResult.Ok();
         }
         catch (Exception ex)

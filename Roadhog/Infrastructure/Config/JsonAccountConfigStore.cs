@@ -32,12 +32,12 @@ public sealed class JsonAccountConfigStore : IAccountConfigStore
         await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!File.Exists(_path))
+            if (!AtomicJsonFile.Exists(_path))
             {
                 return OperationResult<IReadOnlyList<AccountConfig>>.Ok(Array.Empty<AccountConfig>());
             }
 
-            await using var stream = File.OpenRead(_path);
+            await using var stream = AtomicJsonFile.OpenRead(_path);
             var document = await JsonSerializer.DeserializeAsync<AccountConfigDocument>(stream, _jsonOptions, cancellationToken)
                 .ConfigureAwait(false);
 
@@ -80,8 +80,7 @@ public sealed class JsonAccountConfigStore : IAccountConfigStore
                 Accounts = accounts.Select(account => account.Clone()).ToList()
             };
 
-            await using var stream = File.Create(_path);
-            await JsonSerializer.SerializeAsync(stream, document, _jsonOptions, cancellationToken).ConfigureAwait(false);
+            await AtomicJsonFile.WriteAsync(_path, document, _jsonOptions, cancellationToken).ConfigureAwait(false);
             return OperationResult.Ok();
         }
         catch (Exception ex)
@@ -107,7 +106,7 @@ public sealed class JsonAccountConfigStore : IAccountConfigStore
             var accounts = new List<AccountConfig>();
             if (File.Exists(_path))
             {
-                await using var readStream = File.OpenRead(_path);
+                await using var readStream = AtomicJsonFile.OpenRead(_path);
                 var document = await JsonSerializer.DeserializeAsync<AccountConfigDocument>(readStream, _jsonOptions, cancellationToken)
                     .ConfigureAwait(false);
                 if (document?.Accounts is not null)
@@ -138,8 +137,7 @@ public sealed class JsonAccountConfigStore : IAccountConfigStore
                 Directory.CreateDirectory(directory);
             }
 
-            await using var writeStream = File.Create(_path);
-            await JsonSerializer.SerializeAsync(writeStream, new AccountConfigDocument { Version = 1, Accounts = accounts }, _jsonOptions, cancellationToken)
+            await AtomicJsonFile.WriteAsync(_path, new AccountConfigDocument { Version = 1, Accounts = accounts }, _jsonOptions, cancellationToken)
                 .ConfigureAwait(false);
             return OperationResult.Ok();
         }

@@ -2,9 +2,25 @@ namespace Roadhog.Core.Accounts;
 
 public sealed class AccountConfig
 {
+    public string InstanceId { get; set; } = string.Empty;
+
+    public AccountKmBoxSettings? KmBox { get; set; }
+
+    public bool AutoRecover { get; set; } = true;
+
+    public string LicenseCredentialPath { get; set; } = string.Empty;
+
+    public string BagCleanupNameListPath { get; set; } = string.Empty;
+
+    public string RadarMapDirectory { get; set; } = string.Empty;
+
+    public string OwnerLicenseGrantPath { get; set; } = string.Empty;
+
     public string AccountName { get; set; } = string.Empty;
 
     public string CharacterName { get; set; } = string.Empty;
+
+    public string HardwareVerificationSessionId { get; set; } = string.Empty;
 
     public int ProcessId { get; set; }
 
@@ -64,8 +80,16 @@ public sealed class AccountConfig
     {
         return new AccountConfig
         {
+            InstanceId = InstanceId,
+            KmBox = KmBox?.Clone(),
+            AutoRecover = AutoRecover,
+            LicenseCredentialPath = LicenseCredentialPath,
+            BagCleanupNameListPath = BagCleanupNameListPath,
+            RadarMapDirectory = RadarMapDirectory,
+            OwnerLicenseGrantPath = OwnerLicenseGrantPath,
             AccountName = AccountName,
             CharacterName = CharacterName,
+            HardwareVerificationSessionId = HardwareVerificationSessionId,
             ProcessId = ProcessId,
             TargetProcessName = TargetProcessName,
             HardwareKey = HardwareKey,

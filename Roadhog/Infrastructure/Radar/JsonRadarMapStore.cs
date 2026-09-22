@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using Roadhog.Core.Common;
 using Roadhog.Core.Radar;
+using Roadhog.Infrastructure.Config;
 
 namespace Roadhog.Infrastructure.Radar;
 
@@ -41,13 +42,13 @@ public sealed class JsonRadarMapStore : IRadarMapStore
         {
             Directory.CreateDirectory(DirectoryPath);
             var path = ResolvePath(mapId);
-            if (!File.Exists(path))
+            if (!AtomicJsonFile.Exists(path))
             {
                 return OperationResult<RadarMapLoadResult>.Ok(
                     new RadarMapLoadResult(false, CreateEmpty(mapId)));
             }
 
-            await using var stream = File.OpenRead(path);
+            await using var stream = AtomicJsonFile.OpenRead(path);
             var document = await JsonSerializer
                 .DeserializeAsync<RadarMapDocument>(stream, _jsonOptions, cancellationToken)
                 .ConfigureAwait(false);
@@ -95,7 +96,7 @@ public sealed class JsonRadarMapStore : IRadarMapStore
             var value = normalized.Value!;
             if (File.Exists(path))
             {
-                await using var existingStream = File.OpenRead(path);
+                await using var existingStream = AtomicJsonFile.OpenRead(path);
                 var existing = await JsonSerializer
                     .DeserializeAsync<RadarMapDocument>(existingStream, _jsonOptions, cancellationToken)
                     .ConfigureAwait(false);
@@ -122,7 +123,7 @@ public sealed class JsonRadarMapStore : IRadarMapStore
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            File.Move(temporaryPath, path, overwrite: true);
+            AtomicJsonFile.Commit(temporaryPath, path);
             temporaryPath = null;
             return OperationResult.Ok();
         }

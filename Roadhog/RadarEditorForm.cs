@@ -14,7 +14,7 @@ internal sealed class RadarEditorForm : Form
     private const int SettingsPanelMinimumWidth = 280;
 
     private readonly string _account;
-    private readonly RoadhogRuntime _runtime;
+    private readonly IRoadhogRuntime _runtime;
     private readonly IRadarMapStore _mapStore;
     private readonly IFolderLauncher _folderLauncher;
     private readonly Func<RadarObstacleScriptSettings, OperationResult> _applySettings;
@@ -44,7 +44,7 @@ internal sealed class RadarEditorForm : Form
 
     public RadarEditorForm(
         string account,
-        RoadhogRuntime runtime,
+        IRoadhogRuntime runtime,
         IRadarMapStore mapStore,
         IFolderLauncher folderLauncher,
         RadarObstacleScriptSettings settings,

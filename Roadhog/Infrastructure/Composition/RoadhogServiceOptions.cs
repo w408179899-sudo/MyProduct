@@ -8,6 +8,10 @@ namespace Roadhog.Infrastructure.Composition;
 
 public sealed class RoadhogServiceOptions
 {
+    public Roadhog.Core.Accounts.AccountConfig? AccountOverride { get; set; }
+
+    public string? BagCleanupNameListPath { get; set; }
+
     public const string ClientRootEnvironmentVariable = "ROADHOG_CLIENT_ROOT";
     public const string ConfigRootEnvironmentVariable = "ROADHOG_CONFIG_ROOT";
     public const string AccountConfigPathEnvironmentVariable = "ROADHOG_ACCOUNT_CONFIG_PATH";
@@ -212,6 +216,7 @@ public sealed class RoadhogServiceOptions
                 System.Globalization.CultureInfo.InvariantCulture,
                 out var seconds)
             || seconds <= 0
+            || !double.IsFinite(seconds)
             || seconds > 86_400)
         {
             return null;

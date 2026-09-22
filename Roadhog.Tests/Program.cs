@@ -32,6 +32,44 @@ using Roadhog.Infrastructure.Paths;
 using Roadhog.Infrastructure.Profiles;
 using Roadhog.Infrastructure.Vmm;
 
+if (args.Contains("--hardware-mapping-audit"))
+{
+    try { await SavedHardwareBindingTests.AuditLocalAsync(args[Array.IndexOf(args, "--hardware-mapping-audit") + 1]); }
+    catch (Exception exception) { Console.WriteLine("FAIL hardware mapping audit: " + exception); Environment.ExitCode = 1; }
+    return;
+}
+
+if (args.Contains("--migration-snapshot-audit"))
+{
+    try { await MigrationSnapshotTests.AuditCopyAsync(args[Array.IndexOf(args, "--migration-snapshot-audit") + 1]); }
+    catch (Exception exception) { Console.WriteLine("FAIL migration snapshot audit: " + exception); Environment.ExitCode = 1; }
+    return;
+}
+
+if (args.Contains("--robustness-controller"))
+{
+    Environment.ExitCode = await WorkerProcessRobustnessTests.RunControllerAsync(args);
+    return;
+}
+
+if (args.Contains("--robustness-worker"))
+{
+    Environment.ExitCode = await WorkerProcessRobustnessTests.RunChildAsync(args);
+    return;
+}
+
+if (args.Contains("--host-robustness-worker"))
+{
+    Environment.ExitCode = await WorkerHostRobustnessTests.RunChildAsync(args);
+    return;
+}
+
+if (args.Contains("--account-worker"))
+{
+    Environment.ExitCode = await WorkerProcessManagerTests.RunChildAsync(args);
+    return;
+}
+
 if (args.Contains("--personal-shop-probe") || args.Contains("--inventory-discard-probe"))
 {
     Environment.ExitCode = PersonalShopLiveProbe.RunAsync(args).GetAwaiter().GetResult();
@@ -121,6 +159,87 @@ if (KmboxKeyPressProbe.ShouldRun(args))
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("legacy import preservation conflicting routes and profiles remain effective", LegacyImportPreservationTests.ConflictingRoutesAndProfilesRemainEffectiveAsync),
+    ("legacy import preservation identical routes reuse and different profiles separate", LegacyImportPreservationTests.IdenticalRoutesReuseAndDifferentProfilesSeparateAsync),
+    ("legacy import preservation alias names never steal source or existing names", LegacyImportPreservationTests.AliasNamesDoNotStealSourceOrExistingNamesAsync),
+    ("legacy import preservation missing resources cannot acquire another account files", LegacyImportPreservationTests.MissingResourcesDoNotAcquireAnotherAccountsFilesAsync),
+    ("legacy import preservation lists maps and machine grant keep source binding", LegacyImportPreservationTests.SourceListsMapsAndMachineGrantStayBoundAsync),
+    ("legacy import preservation malformed source and late write failure roll back", LegacyImportPreservationTests.MalformedSourceAndWriteFailureLeaveExistingFilesAsync),
+    ("legacy import preservation external resources and duplicate device rejection", LegacyImportPreservationTests.ExternalResourcesAndDeviceRejectionRemainExplicitAsync),
+    ("legacy import preservation sequential same named customer accounts", LegacyImportPreservationTests.SequentialSameNamedCustomerAccountsImportAsync),
+    ("account resource isolation host rejects launch and runtime source changes", AccountResourceIsolationTests.HostRejectsResourceSourceChangesAsync),
+    ("account resource isolation settings and hardware preserve selected sources", AccountResourceIsolationTests.SettingsAndHardwarePreserveAccountSourcesAsync),
+    ("migration snapshot clone and JSON retain per-account resource references", MigrationSnapshotTests.CloneAndJsonPreserveOverridesAsync),
+    ("migration snapshot resource selection resolves overrides and shared fallbacks", MigrationSnapshotTests.AccountResourcesResolveWithoutChangingSharedLibrariesAsync),
+    ("migration snapshot six preserved profiles paths and resources remain effective", MigrationSnapshotTests.SixAccountSnapshotsKeepEffectiveProfilesAndPathsAsync),
+    ("kmbox cold reset clears inherited input before the first command", KmBoxColdResetTests.ColdStartClearsInheritedInputAsync),
+    ("kmbox cold reset handshake failure can retry", KmBoxColdResetTests.HandshakeFailureCanRetryAsync),
+    ("kmbox cold reset cancellation cannot report success", KmBoxColdResetTests.CancellationDoesNotReportSuccessAsync),
+    ("kmbox cold reset release failure reconnects", KmBoxColdResetTests.ReleaseFailureReconnectsAsync),
+    ("worker robustness repeated starts concurrent stops and generation isolation", WorkerProcessRobustnessTests.RepeatedStartStopAndConcurrentStopAsync),
+    ("worker robustness deterministic repeated crashes isolate three accounts", WorkerProcessRobustnessTests.RepeatedRandomCrashesRemainIsolatedAsync),
+    ("worker robustness forged stale and malformed manifests cannot stop another account", WorkerProcessRobustnessTests.ForgedAndStaleManifestsNeverStopAnotherAccountAsync),
+    ("worker robustness responsive uninitialized workers have bounded lifetime", WorkerProcessRobustnessTests.ResponsiveButUninitializedWorkersHaveBoundedLifetimeAsync),
+    ("worker robustness missing manifest retains running process and launch identity", WorkerProcessRobustnessTests.MissingManifestReattachesWithoutReplacingLaunchIdentityAsync),
+    ("worker robustness abrupt controller crash before manifest preserves child ownership", WorkerProcessRobustnessTests.ControllerCrashBeforeManifestStillReattachesAsync),
+    ("worker robustness disposed manager cannot spawn through retained runtime", WorkerProcessRobustnessTests.DisposedManagerCannotSpawnThroughOldRuntimeAsync),
+    ("worker host robustness authorization loss releases input before native completion", WorkerHostRobustnessTests.AuthorizationLossReleasesBeforeNativeCompletesAsync),
+    ("worker host robustness accepted shutdown survives disconnected caller", WorkerHostRobustnessTests.ShutdownSurvivesDisconnectedCallerAsync),
+    ("worker host robustness shutdown deadline terminates stuck child", WorkerHostRobustnessTests.ShutdownDeadlineTerminatesStuckWorkerAsync),
+    ("main window robustness shutdown cancels and drains initialization", MainWindowRobustnessTests.ShutdownCancelsAndDrainsInitializationAsync),
+    ("main window robustness failed exit resumes with a fresh cancellation scope", MainWindowRobustnessTests.FailedExitCanResumeWithNewCancellationScopeAsync),
+    ("main window robustness operation failure is observed during shutdown", MainWindowRobustnessTests.OperationFailureIsObservedDuringShutdownAsync),
+    ("main window robustness nonfinite authorization timeouts use defaults", MainWindowRobustnessTests.NonFiniteLicenseTimeoutsUseDefaultsAsync),
+    ("main window robustness configuration dialogs and import cannot overlap", MainWindowRobustnessTests.ConfigurationDialogsAndImportCannotOverlapAsync),
+    ("main window robustness exit waits for tracked startup", MainWindowRobustnessTests.MainWindowExitWaitsForTrackedStartupAsync),
+    ("shared config atomic concurrent account readers see complete documents", SharedConfigAtomicWriteTests.ConcurrentReadersAsync),
+    ("shared config atomic replacement keeps open readers and UTF8 contracts", SharedConfigAtomicWriteTests.OpenReadersAndEncodingAsync),
+    ("shared config atomic serialization cancellation and replacement failures preserve previous", SharedConfigAtomicWriteTests.FailedWritesKeepPreviousAsync),
+    ("shared config atomic incomplete writes stay invisible and paths remain independent", SharedConfigAtomicWriteTests.IncompleteWritesAndPathIsolationAsync),
+    ("shared config atomic startup and recovery resolve latest profile and lists", SharedConfigAtomicWriteTests.StartupUsesLatestSharedConfigAsync),
+    ("worker rpc results progress and errors round trip", WorkerRpcTests.ResultProgressAndErrorsAsync),
+    ("worker rpc cancellation preserves concurrent status", WorkerRpcTests.CancellationAndConcurrencyAsync),
+    ("worker rpc disconnect cancels server operation", WorkerRpcTests.DisconnectCancelsServerAsync),
+    ("worker rpc authentication and malformed frames are rejected", WorkerRpcTests.AuthenticationAndMalformedFramesAsync),
+    ("worker rpc bound runtime catalog routes all methods and DTOs", WorkerRpcTests.BoundRuntimeCatalogAsync),
+    ("worker rpc lazy client reconnects to replacement worker", WorkerRpcTests.LazyClientReconnectsAsync),
+    ("worker rpc notifications never start a worker", WorkerRpcTests.NotificationDoesNotStartWorkerAsync),
+    ("legacy account import preserves settings and shared libraries", LegacyAccountImporterTests.ImportsPreserveSettingsAndLibrariesAsync),
+    ("legacy account import checks shared conflicts before writing", LegacyAccountImporterTests.SharedConflictIsPreflightedAsync),
+    ("legacy account import rejects duplicate devices and credentials", LegacyAccountImporterTests.DuplicateBindingsAndCredentialsRejectedAsync),
+    ("legacy account import requires physical resolution for generic fpga", LegacyAccountImporterTests.GenericFpgaNeedsPhysicalResolutionAsync),
+    ("legacy account import invalid later account prevents partial import", LegacyAccountImporterTests.InvalidLaterAccountPreventsImportAsync),
+    ("legacy account import shares name lists and rejects differing existing lists", LegacyAccountImporterTests.NameListsCopiedAndConflictPreflightedAsync),
+    ("account process independent PIDs duplicate start config and shared libraries", WorkerProcessManagerTests.IsolationAndDuplicateStartAsync),
+    ("account process crash recovery preserves other account and respects disable", WorkerProcessManagerTests.CrashRecoveryAndDisableAsync),
+    ("account process manager reconnect adopts same PID without duplicate start", WorkerProcessManagerTests.DetachAndAdoptAsync),
+    ("account process stop timeout kills and stop cancels startup", WorkerProcessManagerTests.StopTimeoutAndStartupCancelAsync),
+    ("account process authorization identity and hardware verification guards", WorkerProcessManagerTests.AuthorizationAndIdentityGuardsAsync),
+    ("account process delayed initialization remains readable and cancellable", WorkerProcessManagerTests.SlowInitializationAsync),
+    ("account process slow recovery never blocks another account monitoring or commands", WorkerProcessManagerTests.SlowRecoveryDoesNotBlockOtherAccountsAsync),
+    ("account process intent persistence failure prevents start but cannot prevent stop", WorkerProcessManagerTests.IntentPersistenceFailuresAsync),
+    ("account process instance ownership and hardware leases reject duplicate hosts", WorkerProcessManagerTests.HardwareLeaseAndDuplicateHostAsync),
+    ("account process long manual command permits status and stop cancellation", WorkerProcessManagerTests.ManualCancellationAsync),
+    ("account process rejected startup releases lease and waits for explicit retry", WorkerProcessManagerTests.RejectedStartReleasesWorkerAsync),
+    ("saved hardware binding worker carries explicit mapping", SavedHardwareBindingTests.WorkerOptionsPreserveMappingAsync),
+    ("saved hardware binding boot session storage invalidates old confirmations", SavedHardwareBindingTests.BootSessionStorageAsync),
+    ("account process reboot clears all six intents and requires individual confirmation", WorkerProcessManagerTests.PreviousBootRequiresEachAccountConfirmationAsync),
+    ("account process concurrent self exit and stop completes idempotently", WorkerProcessManagerTests.ConcurrentSelfExitAndStopAsync),
+    ("multi-account ui reboot requires read confirm and explicit hardware save", MultiAccountUiTests.HardwareRebootRequiresReadConfirmSaveAsync),
+    ("saved hardware binding changed role blocks startup until explicitly corrected", SavedHardwareBindingTests.StartupRejectsChangedRoleAsync),
+    ("saved hardware binding cancelled identity read cannot start input", SavedHardwareBindingTests.StartupCancellationNeverStartsAsync),
+    ("saved hardware binding rejects offline or changed physical identity", SavedHardwareBindingTests.PhysicalIdentityGuardsAsync),
+    ("multi-account ui hardware editing releases idle worker and preserves sibling", MultiAccountUiTests.HardwareEditingReleasesIdleWorkerAsync),
+    ("multi-account ui stopped hardware index swaps save and active collisions fail", MultiAccountUiTests.HardwareIndexSwapSaveAsync),
+    ("multi-account ui hardware editor preserves mapping and refreshes verified role", MultiAccountUiTests.HardwareEditorMappingAndRefreshAsync),
+    ("account player info lifecycle and isolation", AccountPlayerInfoTests.LifecycleAndIsolationAsync),
+    ("account player info trusted reader and wire compatibility", AccountPlayerInfoTests.TrustedReaderAndWireAsync),
+    ("multi-account ui player level and class over worker IPC", MultiAccountUiTests.ConsolePlayerInfoAsync),
+    ("multi-account ui console rows selection and independent actions", MultiAccountUiTests.ConsoleRowsAndSelectionAsync),
+    ("multi-account ui stop remains available while startup is pending", MultiAccountUiTests.ConsoleStopDuringStartAsync),
+    ("multi-account ui hardware requires current verified identity", MultiAccountUiTests.HardwareVerificationAsync),
+    ("multi-account ui hardware verification cancellation closes pending worker", MultiAccountUiTests.HardwareVerificationCancellationAsync),
+    ("multi-account ui stopped settings save without authorization", MultiAccountUiTests.SettingsSaveWithoutAuthorizationAsync),
     ("skill binding fixed bars order duplicate missing and chain rules", SkillBindingTests.MappingAsync),
     ("skill binding maintenance spirit team and manual action isolation", SkillBindingTests.ConsumersAsync),
     ("skill binding decoder rejects partial and changed captures", SkillBindingTests.DecoderAsync),

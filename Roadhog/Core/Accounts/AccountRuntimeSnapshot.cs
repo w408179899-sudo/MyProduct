@@ -28,4 +28,6 @@ public sealed record AccountRuntimeSnapshot(
     DateTimeOffset? LastKillAt)
 {
     public string CleanupProgress { get; init; } = string.Empty;
+    public ushort CharacterLevel { get; init; }
+    public string CharacterClass { get; init; } = string.Empty;
 }

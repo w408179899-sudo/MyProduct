@@ -2,6 +2,7 @@ using Roadhog.Core.Accounts;
 using Roadhog.Core.Api;
 using Roadhog.Core.Common;
 using Roadhog.Core.Diagnostics;
+using Roadhog.Core.Model;
 
 namespace Roadhog.Infrastructure.Vmm;
 
@@ -11,10 +12,13 @@ internal sealed class RoadhogSnapshotReaderFactory : IRoadhogSnapshotReaderFacto
 #endif
 {
     private readonly IRoadhogGameApi _provider;
+    private readonly Func<AccountConfig, Action<PlayerSnapshot>?>? _playerObserverFactory;
 
-    public RoadhogSnapshotReaderFactory(IRoadhogGameApi provider)
+    public RoadhogSnapshotReaderFactory(IRoadhogGameApi provider,
+        Func<AccountConfig, Action<PlayerSnapshot>?>? playerObserverFactory = null)
     {
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
+        _playerObserverFactory = playerObserverFactory;
     }
 
     public IRoadhogSnapshotReader Create(
@@ -22,7 +26,8 @@ internal sealed class RoadhogSnapshotReaderFactory : IRoadhogSnapshotReaderFacto
         IRoadhogLogger logger,
         CancellationToken cancellationToken = default)
     {
-        return new RoadhogSnapshotReader(config, _provider, logger, cancellationToken);
+        return new RoadhogSnapshotReader(config, _provider, logger, cancellationToken,
+            _playerObserverFactory?.Invoke(config));
     }
 
 #if DEBUG

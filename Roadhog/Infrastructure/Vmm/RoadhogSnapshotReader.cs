@@ -20,6 +20,7 @@ internal sealed class RoadhogSnapshotReader : IRoadhogSnapshotReader
     private readonly IRoadhogLogger _logger;
     private readonly CancellationToken _stopToken;
     private readonly GameApiReadContext _readContext;
+    private readonly Action<PlayerSnapshot>? _playerObserved;
     private readonly object _versionSync = new();
     private readonly Dictionary<string, long> _versions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DateTimeOffset> _faultLogAt = new(StringComparer.Ordinal);
@@ -28,12 +29,14 @@ internal sealed class RoadhogSnapshotReader : IRoadhogSnapshotReader
         AccountConfig config,
         IRoadhogGameApi gameApi,
         IRoadhogLogger logger,
-        CancellationToken stopToken)
+        CancellationToken stopToken,
+        Action<PlayerSnapshot>? playerObserved = null)
     {
         ArgumentNullException.ThrowIfNull(config);
         _gameApi = gameApi ?? throw new ArgumentNullException(nameof(gameApi));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _stopToken = stopToken;
+        _playerObserved = playerObserved;
         _readContext = new GameApiReadContext(
             config.AccountName,
             config.ProcessId,
@@ -50,17 +53,22 @@ internal sealed class RoadhogSnapshotReader : IRoadhogSnapshotReader
             () => _gameApi is IQuickbarGameApi api ? api.ReadQuickbarAsync(_readContext, _stopToken)
                 : Missing<QuickbarSnapshot>("Quickbar channel is unavailable."), afterVersion);
 
-    private Task<PublishedGameSnapshot<PlayerSnapshot>> ReadPlayerAsync(
+    private async Task<PublishedGameSnapshot<PlayerSnapshot>> ReadPlayerAsync(
         GameApiReadContext readContext,
-        long afterVersion) =>
-        ReadUntilPublishedAsync(
+        long afterVersion)
+    {
+        var published = await ReadUntilPublishedAsync(
             "player",
             () => _gameApi is IRoadhogScopedGameApi scoped
                 ? scoped.ReadPlayerAsync(readContext, _stopToken)
                 : _gameApi.ReadPlayerAsync(_stopToken),
             afterVersion,
             static player => player.Position is not null,
-            "Player position is unavailable.");
+            "Player position is unavailable.").ConfigureAwait(false);
+        _stopToken.ThrowIfCancellationRequested();
+        _playerObserved?.Invoke(published.Value);
+        return published;
+    }
 
     public Task<PublishedGameSnapshot<PlayerAbnormalStatusSnapshot>> ReadPlayerAbnormalStatusesAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync(
