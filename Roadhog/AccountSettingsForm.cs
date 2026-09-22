@@ -6794,7 +6794,7 @@ namespace Roadhog
                     summonRules.Length > 1 ? summonRules[1].Key : string.Empty,
                     summonRules.Length > 1 ? summonRules[1].SkillId : 0,
                     summonRules.Length > 1 ? summonRules[1].SkillName : string.Empty);
-                AddSpiritmasterOpeningAttackKeyRow(spiritmasterSummonRuleList, spiritmaster.OpeningAttackKey, spiritmaster.OpeningAttackSkillId, spiritmaster.OpeningAttackSkillName);
+                AddSpiritmasterOpeningAttackKeyRow(spiritmasterSummonRuleList, spiritmaster.OpeningAttackKey, spiritmaster.OpeningAttackSkillId, spiritmaster.OpeningAttackSkillName, spiritmaster.OpeningAttackDelayMs);
             }
 
             if (spiritmasterPetHpRuleList is not null)
@@ -6842,6 +6842,8 @@ namespace Roadhog
                 SummonSkills = CaptureSpiritmasterSkillKeyRules(spiritmasterSummonRuleList),
                 SummonKeyIntervalMs = 2000,
                 OpeningAttackKey = CaptureSpiritmasterKey(spiritmasterOpeningAttackKeyButton),
+                OpeningAttackDelayMs = Math.Max(0, spiritmasterOpeningAttackKeyButton?.Parent is Panel openingRow
+                    ? ReadRowInt(openingRow, "spiritmasterOpeningAttackDelayTextBox", 0) : currentSpiritmasterSettings.OpeningAttackDelayMs),
                 OpeningAttackSkillId = GetSelectedMaintenanceSkill(spiritmasterOpeningSkillCombo).SkillId,
                 OpeningAttackSkillName = GetSelectedMaintenanceSkill(spiritmasterOpeningSkillCombo).SkillName,
                 PetHpMaintenanceRules = CaptureSpiritmasterPetHpRules(spiritmasterPetHpRuleList),
@@ -7169,10 +7171,11 @@ namespace Roadhog
 
         private void AddSpiritmasterOpeningAttackKeyRow(
             FlowLayoutPanel list,
-            string key = "", uint skillId = 0, string skillName = "")
+            string key = "", uint skillId = 0, string skillName = "", int delayMs = 0)
         {
             var row = CreateSpiritmasterRuleRow();
             row.Name = "spiritmasterOpeningRow";
+            row.Height = 68;
             AddLabel(row, "宝宝攻击", 0, 3, 96, 24, _textGreen, FontStyle.Bold);
             spiritmasterOpeningSkillCombo = AddSpiritmasterSkillCombo(row, 106, 1, 452, skillId, skillName);
             spiritmasterOpeningSkillCombo.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
@@ -7186,6 +7189,10 @@ namespace Roadhog
             BindAutomaticSkillButton(spiritmasterOpeningAttackKeyButton, spiritmasterOpeningSkillCombo,
                 () => !HasSpiritmasterSkillSelection(GetSelectedMaintenanceSkill(spiritmasterOpeningSkillCombo)));
             ShowSpiritmasterAutomaticKeyAsLabel(button);
+            AddLabel(row, "按后延迟", 0, 38, 64, 24);
+            var delayTextBox = AddTextBox(row, Math.Max(0, delayMs).ToString(CultureInfo.InvariantCulture), 68, 36, 82, 28);
+            delayTextBox.Name = "spiritmasterOpeningAttackDelayTextBox";
+            AddLabel(row, "ms 后开始后续技能（0 不额外等待）", 158, 38, 340, 24);
             list.Controls.Add(row);
         }
 

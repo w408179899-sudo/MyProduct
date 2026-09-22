@@ -279,6 +279,9 @@ internal static class SkillBindingTests
                 var summon = (FlowLayoutPanel)Get("spiritmasterSummonRuleList")!;
                 var titles = summon.Controls.OfType<Panel>().Select(row => row.Controls.OfType<Label>().First().Text).ToArray();
                 Check(titles.SequenceEqual(new[] { "服从手印", "精灵召唤", "宝宝攻击" }), "user-facing skill and command labels");
+                var delayInput = dialog.Controls.Find("spiritmasterOpeningAttackDelayTextBox", true).Single();
+                Check(delayInput.Text == "0", "legacy spirit settings default to no extra delay");
+                delayInput.Text = "500";
                 var automatic = summon.Controls[0].Controls.OfType<Label>().Single(l => l.Name == "spiritmasterAutomaticKeyLabel");
                 var manual = summon.Controls[1].Controls.OfType<Button>().Single();
                 Check(automatic.Visible && automatic.Text.Contains("Num+") && manual.Visible && manual.Enabled, "automatic badge and manual button coexist");
@@ -323,6 +326,7 @@ internal static class SkillBindingTests
                 dialog.ClientSize = new(1040, 780);
                 CheckLayout();
                 var saved = (SpiritmasterSkillSettings)Call("CaptureSpiritmasterSettings")!;
+                Check(saved.OpeningAttackDelayMs == 500 && saved.Clone().OpeningAttackDelayMs == 500, "post-command delay survives capture and clone");
                 Check(saved.SummonSkills[0].SkillId == 103 && saved.SummonSkills[1].Key == "F7" && saved.OpeningAttackSkillId == 101 && saved.OpeningAttackKey == "F6", "all three action identities survive layout editing");
                 Check(saved.PetHpMaintenanceRules.Single().BelowPercent == 57 && saved.PetHpMaintenanceRules.Single().CooldownMs == 12345, "HP threshold and millisecond interval remain unchanged");
                 var saveArgs = new object?[] { null };

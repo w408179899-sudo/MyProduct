@@ -2458,7 +2458,17 @@ public sealed partial class SemiAutoCombatController
         }
 
         await Task.Delay(SpiritmasterOpeningAttackKeyInterval, context.StopToken).ConfigureAwait(false);
-        await PressSpiritmasterRawKeyAsync(context, settings, key, "opening_attack").ConfigureAwait(false);
+        if (await PressSpiritmasterRawKeyAsync(context, settings, key, "opening_attack").ConfigureAwait(false) &&
+            spiritSettings.OpeningAttackDelayMs > 0)
+        {
+            context.Logger.Info("semi_auto.spiritmaster.opening_attack_key.delay", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["delayMs"] = spiritSettings.OpeningAttackDelayMs,
+                ["targetServerObjectId"] = target.ServerObjectId
+            });
+            await Task.Delay(spiritSettings.OpeningAttackDelayMs, context.StopToken).ConfigureAwait(false);
+        }
         return true;
     }
 

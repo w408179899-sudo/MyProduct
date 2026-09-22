@@ -1032,6 +1032,8 @@ public sealed class SpiritmasterSkillSettings
 
     public string OpeningAttackKey { get; set; } = string.Empty;
 
+    public int OpeningAttackDelayMs { get; set; }
+
     public uint OpeningAttackSkillId { get; set; }
 
     public string OpeningAttackSkillName { get; set; } = string.Empty;
@@ -1048,6 +1050,7 @@ public sealed class SpiritmasterSkillSettings
             SummonSkills = SummonSkills?.Select(rule => rule.Clone()).ToList() ?? new List<SpiritmasterSkillKeyRuleConfig>(),
             SummonKeyIntervalMs = SummonKeyIntervalMs <= 0 ? 2000 : SummonKeyIntervalMs,
             OpeningAttackKey = OpeningAttackKey ?? string.Empty,
+            OpeningAttackDelayMs = Math.Max(0, OpeningAttackDelayMs),
             OpeningAttackSkillId = OpeningAttackSkillId,
             OpeningAttackSkillName = OpeningAttackSkillName ?? string.Empty,
             PetHpMaintenanceRules = PetHpMaintenanceRules?.Select(rule => rule.Clone()).ToList() ?? new List<SpiritmasterPetHpRuleConfig>(),

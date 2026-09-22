@@ -927,6 +927,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("spiritmaster dot learning prefers skill id", TestSpiritmasterDotLearningPrefersSkillIdAsync),
     ("spiritmaster dot hit blocks repeat on next tick", TestSpiritmasterDotHitBlocksRepeatOnNextTickAsync),
     ("spiritmaster opening attack key presses twice before opening skill", TestSpiritmasterOpeningAttackKeyPressesTwiceBeforeOpeningSkillAsync),
+    ("spiritmaster opening attack key waits before subsequent skills", () => TestSpiritmasterOpeningAttackDelayAsync(200)),
+    ("spiritmaster opening attack key delay supports stop", () => TestSpiritmasterOpeningAttackDelayAsync(5000, true)),
     ("spiritmaster waits for pressed skill cooldown before next root", TestSpiritmasterWaitsForPressedSkillCooldownBeforeNextRootAsync),
     ("spiritmaster combat runs global mp maintenance before skills", TestSpiritmasterCombatRunsGlobalMpMaintenanceBeforeSkillsAsync),
     ("dp skill is skipped until dp value support exists", TestDpSkillSkippedAsync),
@@ -28809,10 +28811,13 @@ static async Task TestSpiritmasterDotHitBlocksRepeatOnNextTickAsync()
     AssertSequence(new[] { "D2" }, keyboard.Keys.ToArray(), "active dot should be skipped on next tick");
 }
 
-static async Task TestSpiritmasterOpeningAttackKeyPressesTwiceBeforeOpeningSkillAsync()
+static Task TestSpiritmasterOpeningAttackKeyPressesTwiceBeforeOpeningSkillAsync() => TestSpiritmasterOpeningAttackDelayAsync(0);
+
+static async Task TestSpiritmasterOpeningAttackDelayAsync(int delayMs, bool cancelDuringDelay = false)
 {
     var settings = CreateSpiritmasterScriptSettings();
     settings.Skills.Spiritmaster.OpeningAttackKey = "NumPad5";
+    settings.Skills.Spiritmaster.OpeningAttackDelayMs = delayMs;
     settings.Skills.OpeningSkill = new OpeningSkillConfig
     {
         Enabled = true,
@@ -28840,7 +28845,34 @@ static async Task TestSpiritmasterOpeningAttackKeyPressesTwiceBeforeOpeningSkill
     CalibrateCooldownClock(state);
     var context = CreateContext(settings, gameApi, logger);
 
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+    using var stop = new CancellationTokenSource();
+    context = CreateContext(settings, gameApi, logger, stopToken: stop.Token);
+    var tick = controller.TickAsync(context, plan, state);
+    if (delayMs > 0)
+    {
+        var timeout = System.Diagnostics.Stopwatch.StartNew();
+        while (keyboard.Keys.Count < 2 && timeout.ElapsedMilliseconds < 5000)
+            await Task.Delay(1).ConfigureAwait(false);
+        AssertEqual(2, keyboard.Keys.Count, "both command presses must precede the delay");
+        AssertFalse(tick.IsCompleted, "combat tick must wait after the second command");
+        if (cancelDuringDelay)
+        {
+            stop.Cancel();
+            var cancelled = false;
+            try { await tick.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false); }
+            catch (OperationCanceledException) { cancelled = true; }
+            AssertFalse(!cancelled, "stop must cancel the post-command delay promptly");
+            AssertSequence(new[] { "NumPad5", "NumPad5" }, keyboard.Keys.ToArray(), "stop must prevent subsequent skills");
+            return;
+        }
+        var delayWatch = System.Diagnostics.Stopwatch.StartNew();
+        await tick.ConfigureAwait(false);
+        AssertFalse(delayWatch.ElapsedMilliseconds < delayMs - 40, "configured delay must elapse before subsequent skills");
+    }
+    else
+    {
+        await tick.ConfigureAwait(false);
+    }
     AssertSequence(new[] { "NumPad5", "NumPad5" }, keyboard.Keys.ToArray(), "spiritmaster opening attack key should press twice first");
 
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
