@@ -27,6 +27,14 @@ public sealed class MultiAccountWorkspace : IAsyncDisposable
     public JsonBagCleanupNameListStore NameLists { get; }
     public WindowsHardwareDeviceResolver Hardware { get; }
     public WorkerProcessManager Processes { get; }
+    private readonly DeviceLeaseStore _deviceLeases;
+
+    public HardwareSelectionAvailability HardwareAvailability(string editingId)
+    {
+        var leases = _deviceLeases.ReadActive();
+        if (!leases.Success || leases.Value is null) throw new InvalidOperationException("无法读取设备占用状态：" + leases.Error);
+        return new HardwareSelectionAvailability(editingId, Processes.Snapshot(), leases.Value);
+    }
 
     public MultiAccountWorkspace(RoadhogServiceOptions? options = null, WorkerProcessLaunchOptions? launch = null)
     {
@@ -41,6 +49,7 @@ public sealed class MultiAccountWorkspace : IAsyncDisposable
             logger: Logger);
         Hardware = new(Options.HardwareResolver);
         Processes = new(Options, Logger, launch);
+        _deviceLeases = new(launch?.LeasePath);
     }
 
     public async Task<IReadOnlyList<AccountConfig>> InitializeAsync(CancellationToken cancellationToken)

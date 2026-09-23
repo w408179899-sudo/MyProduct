@@ -355,7 +355,8 @@ public sealed class MultiAccountForm : Form
             if (state.Kind == LicenseRuntimeStateKind.ActivationRequired)
             { using var activation = new LicenseActivationForm(coordinator, state); activation.ShowDialog(owner); }
             if (!coordinator.IsAuthorized) throw new InvalidOperationException(LicenseUiText.Describe(coordinator.State));
-        });
+        }, () => Infrastructure.Hardware.SavedHardwareBindingPolicy.ForEditor(_workspace.Hardware.ListDevices(), _accounts),
+            () => _workspace.HardwareAvailability(draft.InstanceId));
         try
         {
             if (form.ShowDialog(this) != DialogResult.OK) return;

@@ -229,12 +229,89 @@ internal static class MultiAccountUiTests
         using var form = new AccountHardwareForm(account, devices, (draft, _) =>
             Task.FromResult(new HardwareVerification("新读取角色", draft.HardwareKey, draft.VmmDeviceName, true, HardwareVerificationSession.CurrentId)));
         var combo = Field<ComboBox>(form, "_device"); combo.SelectedIndex = 1; combo.SelectedIndex = 0;
-        Require(Field<TextBox>(form, "_vmm").Text == account.VmmDeviceName, "reselecting physical device retains saved driver mapping");
+        Require(Field<ComboBox>(form, "_vmm").Text == account.VmmDeviceName, "reselecting physical device retains saved driver mapping");
         Pump((Task)Invoke(form, "VerifyAsync")!); Field<CheckBox>(form, "_confirm").Checked = true;
         Invoke(form, "Save");
         Require(form.Config.CharacterName == "新读取角色", "a confirmed fresh read updates the role even when hardware is unchanged");
         using var changed = new AccountHardwareForm(account, new[] { device with { DeviceInstanceId = "replacement-device" } }, (_, _) => throw new InvalidOperationException());
         Require(!Field<Button>(changed, "_save").Enabled, "replacement physical identity requires fresh verification even on same port and VMM");
+    });
+
+    public static Task HardwareOccupiedChoicesAsync() => Sta(() =>
+    {
+        using var test = new UiEnvironment();
+        var accounts = Enumerable.Range(0, 6).Select(index =>
+        {
+            var item = test.Account(1); item.AccountName = "账号 " + index;
+            item.HardwareKey = "mock-dma-" + index; item.VmmDeviceName = "fpga://devindex=" + index;
+            return item;
+        }).ToArray();
+        var devices = accounts.Select(a => Device(a) with { DeviceInstanceId = "instance-" + a.InstanceId }).ToArray();
+        var account = accounts[0]; account.HardwareDeviceInstanceId = devices[0].DeviceInstanceId;
+        AccountProcessView View(int index, bool desired, int? pid) => new(accounts[index], "stopped", null, null, desired, pid, "");
+        IReadOnlyList<AccountProcessView> views = new[] { View(0, false, null), View(1, true, null), View(2, false, 202), View(4, false, null) };
+        IReadOnlyList<DeviceLease> leases = new[] { new DeviceLease(303, DateTimeOffset.UtcNow, "external", accounts[3].HardwareKey, accounts[3].VmmDeviceName, DateTimeOffset.UtcNow) };
+        HardwareSelectionAvailability Available() => new(account.InstanceId, views, leases);
+        var reads = 0;
+        using var form = new AccountHardwareForm(account, devices, (draft, _) =>
+        {
+            reads++;
+            return Task.FromResult(new HardwareVerification("Tone", draft.HardwareKey, draft.VmmDeviceName, true, HardwareVerificationSession.CurrentId));
+        }, refreshDevices: () => devices, availability: Available);
+        var dma = Field<ComboBox>(form, "_device"); var vmm = Field<ComboBox>(form, "_vmm");
+        Require(dma.Items.Count == 3 && vmm.Items.Count == 3, "starting, live idle worker and external lease are hidden in both lists");
+        Require(vmm.Items.Cast<object>().Select(x => x.ToString()!).Any(s => s == "fpga://devindex=5"), "filtering preserves original high index instead of renumbering");
+        Require(dma.Items.Cast<object>().Any(x => x.ToString()!.Contains("已绑定：" + accounts[4].AccountName)) &&
+            vmm.Items.Cast<object>().Any(x => x.ToString()!.Contains("已绑定：" + accounts[4].AccountName)), "stopped account binding is labeled in both lists");
+        vmm.Text = accounts[1].VmmDeviceName;
+        Pump((Task)Invoke(form, "VerifyAsync")!);
+        Require(reads == 0 && Field<Label>(form, "_result").Text.Contains("占用"), "typing a hidden occupied index cannot start hardware verification");
+        vmm.SelectedIndex = 1;
+        Pump((Task)Invoke(form, "VerifyAsync")!);
+        Require(reads == 0 && Field<Label>(form, "_result").Text.Contains("请先调整"), "stopped binding gives actionable conflict before connecting");
+        vmm.Text = accounts[0].VmmDeviceName;
+        Pump((Task)Invoke(form, "VerifyAsync")!); Field<CheckBox>(form, "_confirm").Checked = true;
+        Require(reads == 1, "own stopped binding remains available");
+        leases = leases.Append(new DeviceLease(404, DateTimeOffset.UtcNow, "late", account.HardwareKey, account.VmmDeviceName, DateTimeOffset.UtcNow)).ToArray();
+        Invoke(form, "Save");
+        Require(form.DialogResult != DialogResult.OK && Field<Label>(form, "_result").Text.Contains("占用"), "new occupation after proof blocks save");
+        Invoke(form, "RefreshDevices");
+        Require(dma.SelectedIndex == -1 && vmm.Text == "" && !Field<CheckBox>(form, "_confirm").Checked, "refresh clears occupied selections and old proof");
+        views = Array.Empty<AccountProcessView>(); leases = Array.Empty<DeviceLease>(); Invoke(form, "RefreshDevices");
+        Require(dma.Items.Count == 6 && vmm.Items.Count == 6, "released devices and original indices return");
+        leases = accounts.Select((a, i) => new DeviceLease(500 + i, DateTimeOffset.UtcNow, "all", a.HardwareKey, a.VmmDeviceName, DateTimeOffset.UtcNow)).ToArray();
+        Invoke(form, "RefreshDevices");
+        Require(dma.Items.Count == 0 && vmm.Items.Count == 0 && Field<Label>(form, "_result").Text.Contains("暂无空闲"), "all occupied shows an explicit empty state");
+    });
+
+    public static Task HardwareCustomerRebindingAsync() => Sta(() =>
+    {
+        using var test = new UiEnvironment();
+        var account = test.Account(1); account.HardwareDeviceInstanceId = "old-instance";
+        var old = Device(account) with { DeviceInstanceId = "old-instance" };
+        var replacement = old with { DeviceInstanceId = "new-instance" };
+        IReadOnlyList<HardwareDeviceFeature> online = new[] { replacement };
+        AccountConfig? verified = null;
+        using var form = new AccountHardwareForm(account, new[] { old }, (draft, _) =>
+        {
+            verified = draft.Clone();
+            return Task.FromResult(new HardwareVerification("Tone", draft.HardwareKey, draft.VmmDeviceName, true, HardwareVerificationSession.CurrentId));
+        }, refreshDevices: () => online);
+        Invoke(form, "RefreshDevices");
+        Require(!Field<Button>(form, "_save").Enabled, "refresh replacement requires verification");
+        Field<ComboBox>(form, "_vmm").Text = "fpga://devindex=4";
+        Pump((Task)Invoke(form, "VerifyAsync")!);
+        Require(verified!.HardwareDeviceInstanceId == "new-instance" && verified.ProcessId == 0 && verified.VmmDeviceName == "fpga://devindex=4", "verification uses refreshed identity and customer selected index without old PID");
+        Require(!Field<Button>(form, "_save").Enabled, "new role still requires customer confirmation");
+        Field<CheckBox>(form, "_confirm").Checked = true;
+        Invoke(form, "RefreshDevices");
+        Require(!Field<CheckBox>(form, "_confirm").Checked && !Field<Button>(form, "_save").Enabled, "refresh invalidates even a completed proof");
+        online = Array.Empty<HardwareDeviceFeature>(); Invoke(form, "RefreshDevices");
+        Require(Field<ComboBox>(form, "_device").SelectedIndex == -1 && !Field<Button>(form, "_save").Enabled, "disconnected device cannot be saved");
+        online = new[] { replacement }; Invoke(form, "RefreshDevices");
+        Pump((Task)Invoke(form, "VerifyAsync")!); Field<CheckBox>(form, "_confirm").Checked = true; Invoke(form, "Save");
+        Require(form.Config.HardwareDeviceInstanceId == "new-instance" && form.Config.CharacterName == "Tone" && form.Config.VmmDeviceName == "fpga://devindex=4", "confirmed save replaces stale binding with tested customer selection");
+        Require(account.HardwareDeviceInstanceId == "old-instance", "editing leaves original untouched until accepted");
     });
 
     public static Task HardwareRebootRequiresReadConfirmSaveAsync() => Sta(() =>

@@ -240,6 +240,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("multi-account ui hardware editing releases idle worker and preserves sibling", MultiAccountUiTests.HardwareEditingReleasesIdleWorkerAsync),
     ("multi-account ui stopped hardware index swaps save and active collisions fail", MultiAccountUiTests.HardwareIndexSwapSaveAsync),
     ("multi-account ui hardware editor preserves mapping and refreshes verified role", MultiAccountUiTests.HardwareEditorMappingAndRefreshAsync),
+    ("multi-account ui hardware customer refresh rebind and confirm save", MultiAccountUiTests.HardwareCustomerRebindingAsync),
+    ("multi-account ui hardware occupied choices filter and recheck", MultiAccountUiTests.HardwareOccupiedChoicesAsync),
     ("account player info lifecycle and isolation", AccountPlayerInfoTests.LifecycleAndIsolationAsync),
     ("account player info trusted reader and wire compatibility", AccountPlayerInfoTests.TrustedReaderAndWireAsync),
     ("multi-account ui player level and class over worker IPC", MultiAccountUiTests.ConsolePlayerInfoAsync),
