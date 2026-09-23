@@ -11,6 +11,46 @@ using System.Windows.Forms;
 
 internal static class MultiAccountUiTests
 {
+    public static Task DeleteSelectedAccountsAsync() => Sta(() =>
+    {
+        using var test = new UiEnvironment();
+        var accounts = new[] { test.Account(1), test.Account(2), test.Account(3) };
+        test.Initialize(accounts);
+        using var form = test.Console(accounts);
+        var grid = Field<DataGridView>(form, "_grid");
+        var prompts = 0;
+        bool Confirm(string text) { prompts++; Require(text.Contains(accounts[0].AccountName) && text.Contains("授权文件将保留"), "confirmation names accounts and retained files"); return true; }
+        void Delete(Func<string, bool> confirm) => Pump((Task)Invoke(form, "DeleteSelectedAsync", confirm)!);
+        Delete(Confirm);
+        Require(prompts == 0 && grid.Rows.Count == 3, "highlight alone cannot delete accounts");
+        grid.Rows[0].Cells[0].Value = true;
+        Delete(_ => false);
+        Require(grid.Rows.Count == 3 && Pump(test.Workspace.Accounts.LoadAllAsync()).Value!.Count == 3, "cancel leaves disk and UI unchanged");
+        Require(Pump(test.Workspace.Processes.StartAsync(accounts[0].InstanceId)).Success, "selected account starts");
+        Delete(Confirm);
+        Require(prompts == 0 && grid.Rows.Count == 3, "running account prevents deletion before confirmation");
+        Require(Pump(test.Workspace.Processes.StopAsync(accounts[0].InstanceId)).Success, "selected account stops");
+        // A start while the confirmation is open must still be rejected by the save guard.
+        var rejected = false;
+        try { Delete(_ => { Require(Pump(test.Workspace.Processes.StartAsync(accounts[0].InstanceId)).Success, "start during confirmation"); return true; }); }
+        catch (InvalidOperationException) { rejected = true; }
+        Require(rejected && Pump(test.Workspace.Accounts.LoadAllAsync()).Value!.Count == 3, "late start cannot delete persisted account");
+        Pump(test.Workspace.Processes.StopAsync(accounts[0].InstanceId));
+        var retained = Path.Combine(test.Workspace.Processes.PathsFor(accounts[0]).LogDirectory, "retained.txt");
+        Directory.CreateDirectory(Path.GetDirectoryName(retained)!); File.WriteAllText(retained, "keep");
+        var latest = accounts.Select(account => account.Clone()).ToArray();
+        latest[1].CharacterName = "最新角色名";
+        Pump(test.Workspace.Accounts.SaveAllAsync(latest));
+        Delete(Confirm);
+        var saved = Pump(test.Workspace.Accounts.LoadAllAsync()).Value!;
+        Require(prompts == 1 && grid.Rows.Count == 2 && saved.Count == 2, "confirmed deletion updates disk manager and UI");
+        Require(saved.Single(account => account.InstanceId == accounts[1].InstanceId).CharacterName == "最新角色名", "surviving latest settings are retained");
+        Require(File.ReadAllText(retained) == "keep", "deletion preserves account files");
+        foreach (DataGridViewRow row in grid.Rows) row.Cells[0].Value = true;
+        Delete(_ => true);
+        Require(grid.Rows.Count == 0 && Pump(test.Workspace.Accounts.LoadAllAsync()).Value!.Count == 0, "deleting remaining accounts supports empty list");
+    });
+
     public static Task ConsoleSelectAllHeaderAsync() => Sta(() =>
     {
         using var test = new UiEnvironment();

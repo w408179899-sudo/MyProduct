@@ -245,6 +245,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("multi-account ui player level and class over worker IPC", MultiAccountUiTests.ConsolePlayerInfoAsync),
     ("multi-account ui console rows selection and independent actions", MultiAccountUiTests.ConsoleRowsAndSelectionAsync),
     ("multi-account ui select all header state filtering and refresh", MultiAccountUiTests.ConsoleSelectAllHeaderAsync),
+    ("multi-account ui delete selected confirmation active guards and persistence", MultiAccountUiTests.DeleteSelectedAccountsAsync),
     ("multi-account ui stop remains available while startup is pending", MultiAccountUiTests.ConsoleStopDuringStartAsync),
     ("multi-account ui hardware requires current verified identity", MultiAccountUiTests.HardwareVerificationAsync),
     ("multi-account ui hardware verification cancellation closes pending worker", MultiAccountUiTests.HardwareVerificationCancellationAsync),

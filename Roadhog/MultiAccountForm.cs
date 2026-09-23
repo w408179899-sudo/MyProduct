@@ -57,6 +57,7 @@ public sealed class MultiAccountForm : Form
         tools.Controls.Add(Button("导入旧配置", () => RunConfigurationActionAsync(ImportAsync)));
         tools.Controls.Add(Button("启动所选", () => BatchAsync(true)));
         tools.Controls.Add(Button("停止所选", () => BatchAsync(false)));
+        tools.Controls.Add(Button("删除所选", () => RunConfigurationActionAsync(() => DeleteSelectedAsync())));
         tools.Controls.Add(Button("退出程序", () => ExitAsync(), exitAction: true));
         root.Controls.Add(tools, 0, 0);
         var filters = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false };
@@ -270,6 +271,37 @@ public sealed class MultiAccountForm : Form
             catch (Exception ex) { return _accounts.Single(a => a.InstanceId == id).AccountName + "：" + ex.Message; }
         }));
         Report(errors.Any(e => e is not null) ? string.Join("；", errors.Where(e => e is not null)) : $"已{(start ? "启动" : "停止")}所选账号。"); RefreshRows();
+    }
+
+    private async Task DeleteSelectedAsync(Func<string, bool>? confirm = null)
+    {
+        _grid.EndEdit();
+        var ids = _grid.Rows.Cast<DataGridViewRow>().Where(row => row.Cells[0].Value is true)
+            .Select(row => (string)row.Tag!).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (ids.Count == 0) { Report("请先勾选要删除的账号。"); return; }
+        var blocked = _workspace.Processes.Snapshot().Where(view => ids.Contains(view.Config.InstanceId) &&
+            (view.DesiredRunning || view.WorkerProcessId.HasValue)).Select(view => view.Config.AccountName).ToArray();
+        if (blocked.Length > 0)
+        {
+            Report("请先停止以下账号并关闭其设置窗口，等待后台进程退出后再删除：" + string.Join("、", blocked));
+            return;
+        }
+        var names = _accounts.Where(account => ids.Contains(account.InstanceId))
+            .Select(account => account.AccountName + (string.IsNullOrWhiteSpace(account.CharacterName) ? "" : " / " + account.CharacterName));
+        var message = $"确定删除以下 {ids.Count} 个账号的配置吗？\n\n{string.Join("\n", names)}\n\n相关路径、方案、日志和授权文件将保留。";
+        var confirmed = confirm?.Invoke(message) ?? MessageBox.Show(this, message, "确认删除账号",
+            MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) == DialogResult.Yes;
+        if (!confirmed) return;
+        _operations.Token.ThrowIfCancellationRequested();
+        // Read the latest persisted settings so deleting one account cannot overwrite edits to another.
+        var loaded = await _workspace.Accounts.LoadAllAsync(_operations.Token);
+        if (!loaded.Success || loaded.Value is null) throw new InvalidOperationException(loaded.Error);
+        var next = loaded.Value.Where(account => !ids.Contains(account.InstanceId)).ToList();
+        // SaveAccountsAsync rechecks running/background processes after the confirmation dialog.
+        await _workspace.SaveAccountsAsync(next, _operations.Token);
+        _accounts = next;
+        RefreshRows();
+        Report($"已删除 {loaded.Value.Count - next.Count} 个账号配置；相关资料文件已保留。");
     }
 
     private async Task OpenSettingsAsync(string id)
