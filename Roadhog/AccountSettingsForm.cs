@@ -37,13 +37,13 @@ namespace Roadhog
         private bool loadingPathCombos;
         private bool loadingProfileCombo;
         private bool pathRecordReadInFlight;
-        private readonly Color _primaryGreen = Color.FromArgb(22, 163, 74);
-        private readonly Color _darkGreen = Color.FromArgb(21, 128, 61);
+        private readonly Color _primaryGreen = SettingsPalette.Primary;
+        private readonly Color _darkGreen = SettingsPalette.Border;
         private readonly Color _headerGreen = Color.FromArgb(34, 139, 84);
         private readonly Color _softGreen = Color.FromArgb(240, 253, 244);
-        private readonly Color _pageBackground = Color.FromArgb(244, 248, 246);
-        private readonly Color _inputBackground = Color.FromArgb(231, 242, 235);
-        private readonly Color _textGreen = Color.FromArgb(20, 83, 45);
+        private readonly Color _pageBackground = SettingsPalette.Page;
+        private readonly Color _inputBackground = SettingsPalette.Input;
+        private readonly Color _textGreen = SettingsPalette.Text;
 
         private TabControl settingsTabs = null!;
         private Form? spiritmasterSettingsDialog;

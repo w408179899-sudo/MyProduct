@@ -283,6 +283,12 @@ namespace Roadhog
             }
         }
 
+        public string PlaceholderText
+        {
+            get => _innerTextBox.PlaceholderText;
+            set => _innerTextBox.PlaceholderText = value;
+        }
+
         public bool Multiline
         {
             get => _innerTextBox.Multiline;

@@ -20,8 +20,8 @@ public sealed class MultiAccountForm : Form
     private readonly Label _summary = new();
     private readonly Label _detail = new();
     private readonly Label _message = new();
-    private readonly TextBox _search = new();
-    private readonly ComboBox _filter = new();
+    private readonly RoundedTextBox _search = new();
+    private readonly RoundedComboBox _filter = new();
     private readonly NotifyIcon _tray = new();
     private readonly HashSet<string> _busy = new(StringComparer.OrdinalIgnoreCase);
     private List<AccountConfig> _accounts = [];
@@ -36,7 +36,8 @@ public sealed class MultiAccountForm : Form
         Font = new Font("Microsoft YaHei UI", 9F);
         Size = new Size(1120, 590); MinimumSize = new Size(920, 450);
         StartPosition = FormStartPosition.CenterScreen;
-        BackColor = Color.FromArgb(245, 248, 245);
+        BackColor = SettingsPalette.Page;
+        ForeColor = SettingsPalette.Text;
         Icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
         BuildUi();
         _timer.Tick += (_, _) => RefreshRows();
@@ -59,10 +60,12 @@ public sealed class MultiAccountForm : Form
         tools.Controls.Add(Button("退出程序", () => ExitAsync(), exitAction: true));
         root.Controls.Add(tools, 0, 0);
         var filters = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false };
-        _filter.DropDownStyle = ComboBoxStyle.DropDownList; _filter.Width = 95;
+        _filter.DropDownStyle = ComboBoxStyle.DropDownList; _filter.Size = new Size(110, 28);
+        _filter.BackColor = _search.BackColor = SettingsPalette.Input;
         _filter.Items.AddRange(["全部", "运行中", "已停止", "需关注"]); _filter.SelectedIndex = 0;
         _filter.SelectedIndexChanged += (_, _) => RefreshRows();
-        _search.PlaceholderText = "搜索账号 / 角色"; _search.Width = 200; _search.TextChanged += (_, _) => RefreshRows();
+        _search.PlaceholderText = "搜索账号 / 角色"; _search.Size = new Size(220, 28);
+        _search.Controls.OfType<TextBox>().Single().TextChanged += (_, _) => RefreshRows();
         _summary.AutoSize = true; _summary.Margin = new Padding(16, 5, 0, 0);
         filters.Controls.AddRange([_filter, _search, _summary]); root.Controls.Add(filters, 0, 1);
         _grid.Dock = DockStyle.Fill; _grid.ReadOnly = false; _grid.AllowUserToAddRows = false; _grid.AllowUserToDeleteRows = false;
@@ -70,13 +73,24 @@ public sealed class MultiAccountForm : Form
         _grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect; _grid.BackgroundColor = Color.White;
         _grid.BorderStyle = BorderStyle.None; _grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
         _grid.RowTemplate.Height = 42; _grid.ColumnHeadersHeight = 34;
-        _grid.EnableHeadersVisualStyles = false; _grid.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(228, 241, 232);
+        _grid.EnableHeadersVisualStyles = false; _grid.ColumnHeadersDefaultCellStyle.BackColor = SettingsPalette.Input;
+        _grid.ColumnHeadersDefaultCellStyle.ForeColor = SettingsPalette.Text;
+        _grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = SettingsPalette.Input;
+        _grid.ColumnHeadersDefaultCellStyle.SelectionForeColor = SettingsPalette.Text;
+        _grid.ColumnHeadersDefaultCellStyle.Font = new Font(Font, FontStyle.Bold);
+        _grid.DefaultCellStyle.BackColor = Color.White;
+        _grid.DefaultCellStyle.ForeColor = SettingsPalette.Text;
+        _grid.DefaultCellStyle.SelectionBackColor = Color.FromArgb(207, 235, 216);
+        _grid.DefaultCellStyle.SelectionForeColor = SettingsPalette.Text;
+        _grid.GridColor = Color.FromArgb(202, 222, 209);
+        _grid.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
+        _grid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
         _grid.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(247, 251, 247);
         _grid.Columns.Add(new DataGridViewCheckBoxColumn { HeaderText = "", Width = 32, AutoSizeMode = DataGridViewAutoSizeColumnMode.None });
         AddTextColumn("账号 / 角色", 24); AddTextColumn("设备", 15); AddTextColumn("状态", 20); AddTextColumn("杀怪/h", 8); AddTextColumn("时长", 9);
         _grid.Columns[1].DefaultCellStyle.WrapMode = DataGridViewTriState.True;
         foreach (var action in new[] { "清包", "设置", "硬件", "启动", "停止" })
-            _grid.Columns.Add(new DataGridViewButtonColumn { HeaderText = "", Name = action, Text = action == "硬件" ? "设备/角色" : action,
+            _grid.Columns.Add(new DataGridViewButtonColumn { CellTemplate = new SettingsActionCell(), HeaderText = "", Name = action, Text = action == "硬件" ? "设备/角色" : action,
                 UseColumnTextForButtonValue = true, Width = action == "硬件" ? 85 : 55, AutoSizeMode = DataGridViewAutoSizeColumnMode.None });
         _grid.CurrentCellDirtyStateChanged += (_, _) => { if (_grid.IsCurrentCellDirty) _grid.CommitEdit(DataGridViewDataErrorContexts.Commit); };
         _grid.CellContentClick += GridAction;
@@ -101,8 +115,9 @@ public sealed class MultiAccountForm : Form
 
     private Button Button(string text, Func<Task> action, bool exitAction = false)
     {
-        var button = new Button { Text = text, AutoSize = true, Height = 30, FlatStyle = FlatStyle.Flat, Padding = new Padding(6, 0, 6, 0) };
-        button.FlatAppearance.BorderColor = Color.FromArgb(192, 215, 199);
+        var button = new RoundedButton { Text = text, Size = new Size(96, 32), Margin = new Padding(3, 3, 6, 3),
+            BackColor = SettingsPalette.Primary, ForeColor = Color.White, BorderColor = SettingsPalette.Border,
+            Font = new Font(Font.FontFamily, 8.5F, FontStyle.Bold), UseVisualStyleBackColor = false };
         button.Click += async (_, _) =>
         {
             button.Enabled = false;

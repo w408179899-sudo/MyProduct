@@ -1,16 +1,17 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [string]$SourceDirectory,
 
     [Parameter(Mandatory = $true)]
-    [string]$DestinationRoot
+    [string]$DestinationRoot,
+
+    [string[]]$DestinationNames = @("1", "2", "3", "4", "多账号客户端")
 )
 
 $ErrorActionPreference = "Stop"
 
 $runtimeFiles = @("Roadhog.exe", "Roadhog.dll")
 $runtimeAssets = @("Source\gather_src.xml")
-$destinationNames = @("1", "2", "3", "4")
 
 function Test-FileInUse {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -54,8 +55,9 @@ $sourceFiles = foreach ($relativePath in ($runtimeFiles + $runtimeAssets)) {
     }
 }
 
-foreach ($destinationName in $destinationNames) {
+foreach ($destinationName in $DestinationNames) {
     $destinationDirectory = Join-Path -Path $DestinationRoot -ChildPath $destinationName
+    $filesToCopy = if ($destinationName -eq '多账号客户端') { @($sourceFiles | Where-Object { $_.RelativePath -in $runtimeFiles }) } else { $sourceFiles }
 
     try {
         if (-not (Test-Path -LiteralPath $destinationDirectory)) {
@@ -63,7 +65,7 @@ foreach ($destinationName in $destinationNames) {
         }
 
         $lockedFiles = @()
-        foreach ($fileName in $runtimeFiles) {
+        foreach ($fileName in $filesToCopy.RelativePath) {
             $destinationPath = Join-Path -Path $destinationDirectory -ChildPath $fileName
             if (Test-FileInUse -Path $destinationPath) {
                 $lockedFiles += $fileName
@@ -75,7 +77,7 @@ foreach ($destinationName in $destinationNames) {
             continue
         }
 
-        foreach ($sourceFile in $sourceFiles) {
+        foreach ($sourceFile in $filesToCopy) {
             $destinationPath = Join-Path -Path $destinationDirectory -ChildPath $sourceFile.RelativePath
             $destinationParent = Split-Path -Parent $destinationPath
             if (-not (Test-Path -LiteralPath $destinationParent)) {

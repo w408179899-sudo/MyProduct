@@ -33,7 +33,7 @@ internal static class MultiAccountUiTests
         Require(header.CheckState == CheckState.Checked, "partial state click selects all");
         ClickHeader();
         Require(grid.Rows.Cast<DataGridViewRow>().All(row => row.Cells[0].Value is false), "checked header click clears all");
-        var search = Field<TextBox>(form, "_search");
+        var search = Field<Control>(form, "_search");
         search.Text = accounts[1].AccountName;
         Require(grid.Rows.Count == 1, "search reduces visible account list");
         ClickHeader();
@@ -49,6 +49,14 @@ internal static class MultiAccountUiTests
         form.Width += 150;
         Application.DoEvents();
         Require(grid.GetCellDisplayRectangle(0, -1, true).Contains(header.Bounds), "resized header remains centered in column");
+        var filter = Field<RoundedComboBox>(form, "_filter");
+        filter.SelectedIndex = 1;
+        Require(grid.Rows.Count == 0 && !header.Enabled, "rounded running filter updates the list");
+        filter.SelectedIndex = 2;
+        Require(grid.Rows.Count == 3 && header.Enabled, "rounded stopped filter restores stopped accounts");
+        filter.SelectedIndex = 0;
+        search.Controls.OfType<TextBox>().Single().Text = accounts[0].AccountName;
+        Require(grid.Rows.Count == 1 && (string)grid.Rows[0].Tag! == accounts[0].InstanceId, "typing in rounded search updates account list");
     });
 
     public static Task ConsolePlayerInfoAsync() => Sta(() =>
@@ -97,7 +105,7 @@ internal static class MultiAccountUiTests
         Invoke(form, "RefreshRows");
         Require(grid.Rows[0].Cells[3].Value?.ToString() == "运行中" && grid.Rows[1].Cells[3].Value?.ToString() == "已停止", "running and stopped rows display independently");
         Require(grid.Rows[0].Cells[0].Value is true && (string?)Invoke(form, "SelectedId") == accounts[1].InstanceId, "refresh preserves checks and current detail row separately");
-        var search = Field<TextBox>(form, "_search");
+        var search = Field<Control>(form, "_search");
         search.Text = accounts[2].CharacterName;
         Require(grid.Rows.Count == 1 && (string)grid.Rows[0].Tag! == accounts[2].InstanceId, "role-name search filters accounts");
         search.Text = string.Empty;
