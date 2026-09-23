@@ -56,7 +56,6 @@ public sealed class MultiAccountForm : Form
         tools.Controls.Add(Button("导入旧配置", () => RunConfigurationActionAsync(ImportAsync)));
         tools.Controls.Add(Button("启动所选", () => BatchAsync(true)));
         tools.Controls.Add(Button("停止所选", () => BatchAsync(false)));
-        tools.Controls.Add(Button("全选", () => { foreach (DataGridViewRow row in _grid.Rows) row.Cells[0].Value = true; return Task.CompletedTask; }));
         tools.Controls.Add(Button("退出程序", () => ExitAsync(), exitAction: true));
         root.Controls.Add(tools, 0, 0);
         var filters = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false };
@@ -82,6 +81,7 @@ public sealed class MultiAccountForm : Form
         _grid.CurrentCellDirtyStateChanged += (_, _) => { if (_grid.IsCurrentCellDirty) _grid.CommitEdit(DataGridViewDataErrorContexts.Commit); };
         _grid.CellContentClick += GridAction;
         _grid.SelectionChanged += (_, _) => ShowDetail();
+        _ = new AccountSelectionHeader(_grid);
         root.Controls.Add(_grid, 0, 2);
         var detailPanel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, Padding = new Padding(0, 10, 0, 0) };
         detailPanel.ColumnStyles.Add(new(SizeType.Percent, 100)); detailPanel.ColumnStyles.Add(new(SizeType.Absolute, 105)); detailPanel.ColumnStyles.Add(new(SizeType.Absolute, 105));

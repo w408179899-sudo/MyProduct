@@ -11,6 +11,46 @@ using System.Windows.Forms;
 
 internal static class MultiAccountUiTests
 {
+    public static Task ConsoleSelectAllHeaderAsync() => Sta(() =>
+    {
+        using var test = new UiEnvironment();
+        var accounts = new[] { test.Account(1), test.Account(2), test.Account(3) };
+        test.Initialize(accounts);
+        using var form = test.Console(accounts, renderWindow: true);
+        var grid = Field<DataGridView>(form, "_grid");
+        var header = (CheckBox)grid.Controls["accountSelectAllCheckBox"]!;
+        void ClickHeader() => typeof(Control).GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(header, new object[] { EventArgs.Empty });
+        Require(header.Enabled && header.CheckState == CheckState.Unchecked, "initial header is unchecked");
+        Require(grid.GetCellDisplayRectangle(0, -1, true).Contains(header.Bounds), "checkbox is contained in first header cell");
+        ClickHeader();
+        Require(grid.Rows.Cast<DataGridViewRow>().All(row => row.Cells[0].Value is true) && header.Checked, "header checks all listed accounts");
+        Invoke(form, "RefreshRows");
+        Require(header.CheckState == CheckState.Checked, "timer refresh preserves checked header");
+        grid.Rows[1].Cells[0].Value = false;
+        Require(header.CheckState == CheckState.Indeterminate, "individual uncheck shows partial state");
+        ClickHeader();
+        Require(header.CheckState == CheckState.Checked, "partial state click selects all");
+        ClickHeader();
+        Require(grid.Rows.Cast<DataGridViewRow>().All(row => row.Cells[0].Value is false), "checked header click clears all");
+        var search = Field<TextBox>(form, "_search");
+        search.Text = accounts[1].AccountName;
+        Require(grid.Rows.Count == 1, "search reduces visible account list");
+        ClickHeader();
+        search.Text = "";
+        Require(grid.Rows.Cast<DataGridViewRow>().Count(row => row.Cells[0].Value is true) == 1 &&
+            grid.Rows.Cast<DataGridViewRow>().Single(row => row.Cells[0].Value is true).Tag as string == accounts[1].InstanceId,
+            "filtered select all does not select hidden accounts");
+        search.Text = "no-such-account";
+        Require(!header.Enabled && header.CheckState == CheckState.Unchecked, "empty list disables and clears header");
+        search.Text = "";
+        foreach (DataGridViewRow row in grid.Rows) row.Cells[0].Value = true;
+        Require(header.CheckState == CheckState.Checked, "checking each row updates header to all selected");
+        form.Width += 150;
+        Application.DoEvents();
+        Require(grid.GetCellDisplayRectangle(0, -1, true).Contains(header.Bounds), "resized header remains centered in column");
+    });
+
     public static Task ConsolePlayerInfoAsync() => Sta(() =>
     {
         using var test = new UiEnvironment("player-info");
