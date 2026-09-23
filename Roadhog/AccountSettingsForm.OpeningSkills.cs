@@ -72,6 +72,7 @@ public sealed partial class AccountSettingsForm
         openingSkillRows.Height = Math.Max(36, openingSkillRows.Controls.Count * 36);
         panel.Height = openingSkillRows.Bottom + 6;
         if (panel.Parent is Control parent) parent.Height = panel.Bottom + 14;
+        layoutSkillPage?.Invoke();
     }
 
     private void ApplyOpeningSkillSettings(OpeningSkillConfig? config)

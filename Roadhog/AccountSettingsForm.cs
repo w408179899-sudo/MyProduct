@@ -41,8 +41,8 @@ namespace Roadhog
         private readonly Color _darkGreen = Color.FromArgb(21, 128, 61);
         private readonly Color _headerGreen = Color.FromArgb(34, 139, 84);
         private readonly Color _softGreen = Color.FromArgb(240, 253, 244);
-        private readonly Color _pageBackground = Color.FromArgb(247, 252, 249);
-        private readonly Color _inputBackground = Color.FromArgb(229, 245, 235);
+        private readonly Color _pageBackground = Color.FromArgb(244, 248, 246);
+        private readonly Color _inputBackground = Color.FromArgb(231, 242, 235);
         private readonly Color _textGreen = Color.FromArgb(20, 83, 45);
 
         private TabControl settingsTabs = null!;
@@ -269,8 +269,8 @@ namespace Roadhog
         {
             AutoScaleDimensions = new SizeF(7F, 17F);
             AutoScaleMode = AutoScaleMode.Font;
-            BackColor = Color.FromArgb(248, 253, 250);
-            ClientSize = new Size(860, 620);
+            BackColor = _pageBackground;
+            ClientSize = new Size(1000, 800);
             Font = new Font("Microsoft YaHei UI", 9F);
             MinimumSize = new Size(720, 420);
             Name = "AccountSettingsForm";
@@ -1451,6 +1451,7 @@ namespace Roadhog
             RefreshSmartPreAimOriginControlState();
             RefreshCombatModeVisibility();
 
+            ConfigureWideSettingsPage(page, 852);
             return tab;
         }
 
@@ -2129,6 +2130,7 @@ namespace Roadhog
 
             InitializePathDraftTracking(editor);
             RefreshPathEditor(editor);
+            ConfigurePathPageLayout(page, editor.GatherPointsList!, pointEditorTop, kind == SharedPathKind.Gather ? 850 : 824);
             return tab;
         }
 
@@ -3617,6 +3619,7 @@ namespace Roadhog
             bagCleanupClearNamesButton.Click += async (_, _) =>
                 await ClearSelectedBagCleanupNameListAsync().ConfigureAwait(true);
 
+            ConfigureWideSettingsPage(page, 852);
             return tab;
         }
 
@@ -3758,6 +3761,7 @@ namespace Roadhog
             RefreshTeamRolePanelVisibility();
             RefreshTeamTacticalMarkKeyVisibility();
 
+            ConfigureWideSettingsPage(page, 852);
             return tab;
         }
 
@@ -5488,9 +5492,7 @@ namespace Roadhog
 
             var selectedIndex = 0;
             var index = 1;
-            foreach (var skill in currentManualSkills
-                         .GroupBy(skill => skill.SkillId)
-                         .Select(group => group.First())
+            foreach (var skill in SelectHighestSkillComboCandidates(currentManualSkills)
                          .OrderBy(FormatManualSkillName, StringComparer.CurrentCulture))
             {
                 var name = FormatManualSkillName(skill);
@@ -5639,11 +5641,9 @@ namespace Roadhog
 
             var selectedIndex = 0;
             var index = 1;
-            foreach (var skill in currentManualSkills
+            foreach (var skill in SelectHighestSkillComboCandidates(currentManualSkills
                          .Where(skill => !ShouldHideManualSkillCandidate(skill))
-                         .Where(IsOpeningSkillCandidate)
-                         .GroupBy(skill => skill.SkillId)
-                         .Select(group => group.First())
+                         .Where(IsOpeningSkillCandidate))
                          .OrderBy(FormatManualSkillName, StringComparer.CurrentCulture))
             {
                 var name = FormatManualSkillName(skill);
@@ -5892,19 +5892,18 @@ namespace Roadhog
             refreshSkillsButton.Click += async (_, _) =>
                 await RefreshCurrentSkillsAsync(refreshSkillsButton, availableTree, systemSkillTree).ConfigureAwait(true);
 
-            AddButton(autoPanel, "添加 >", 328, 110, 76, 30, (_, _) => AddSkillSelection(availableTree, selectedTree));
-            AddButton(autoPanel, "< 移除", 328, 150, 76, 30, (_, _) => RemoveSelectedSkill(selectedTree));
-            AddButton(autoPanel, "全部 >>", 328, 190, 76, 30, (_, _) => AddAllAvailableSkills(availableTree, selectedTree));
-            AddButton(autoPanel, "清空", 328, 230, 76, 30, (_, _) => selectedTree.Nodes.Clear());
+            AddButton(autoPanel, "添加 >", 328, 169, 76, 30, (_, _) => AddSkillSelection(availableTree, selectedTree));
 
             var refreshSelectedSkillsButton = AddButton(autoPanel, "刷新当前已选技能", 588, 0, 144, 30);
             refreshSelectedSkillsButton.Click += async (_, _) =>
                 await RefreshSelectedSkillTreeAsync(refreshSelectedSkillsButton, selectedTree).ConfigureAwait(true);
 
-            AddButton(autoPanel, "置顶", 744, 110, 84, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Top));
-            AddButton(autoPanel, "上移", 744, 150, 84, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Up));
-            AddButton(autoPanel, "下移", 744, 190, 84, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Down));
-            AddButton(autoPanel, "置底", 744, 230, 84, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Bottom));
+            AddButton(autoPanel, "置顶", 744, 69, 84, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Top));
+            AddButton(autoPanel, "上移", 744, 109, 84, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Up));
+            AddButton(autoPanel, "下移", 744, 149, 84, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Down));
+            AddButton(autoPanel, "置底", 744, 189, 84, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Bottom));
+            AddButton(autoPanel, "移除", 744, 229, 84, 30, (_, _) => RemoveSelectedSkill(selectedTree));
+            AddButton(autoPanel, "清空", 744, 269, 84, 30, (_, _) => selectedTree.Nodes.Clear());
 
             CreateOpeningSkillEditor(autoPanel);
             AddLabel(manualPanel, "手动分类 / 手动Mapping", 8, 6, 160, 24, _textGreen, FontStyle.Bold);
@@ -5948,6 +5947,7 @@ namespace Roadhog
             };
 
             RefreshSpiritmasterAutoSkillCheckBoxState();
+            ConfigureSkillPageLayout(page, optionsPanel, autoPanel, manualPanel, systemPanel);
             return tab;
         }
 
@@ -6000,6 +6000,7 @@ namespace Roadhog
             AddButton(page, "移除", 632, 138, 88, 30, (_, _) => RemoveSelectedActiveMonsterFilter());
             AddButton(page, "清空", 736, 138, 88, 30, (_, _) => ClearActiveMonsterFilterList());
 
+            ConfigureWideSettingsPage(page, 836);
             return tab;
         }
 
@@ -6098,6 +6099,7 @@ namespace Roadhog
             clearGatherFilterButton = AddButton(page, "清空", 736, 186, 88, 30, (_, _) => ClearGatherFilters());
             clearGatherFilterButton.Name = "clearGatherFilterButton";
 
+            ConfigureWideSettingsPage(page, 836);
             return tab;
         }
 
