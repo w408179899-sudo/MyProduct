@@ -820,6 +820,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("smart pre-aim responsive switch persists from summary UI", TestSmartPreAimResponsiveSwitchPersistsFromSummaryUiAsync),
     ("smart pre-aim dependent switches follow enabled state from summary UI", TestSmartPreAimDependentSwitchesFollowEnabledStateFromSummaryUiAsync),
     ("selected skill refresh removes unavailable current skills", TestSelectedSkillRefreshRemovesUnavailableCurrentSkillsAsync),
+    ("configured skill refresh updates all references and retains keys", TestConfiguredSkillRefreshUpdatesAllReferencesAsync),
     ("skill tree maps at most configured roots across the 24 supported keys", TestConfiguredRootKeyBoundaryAsync),
     ("combat tick presses trigger prefix then first ready root", TestCombatTickPressesPrefixThenReadyRootAsync),
     ("ankle strike legacy trigger is treated as condition", TestAnkleStrikeLegacyTriggerIsTreatedAsConditionAsync),
@@ -27855,6 +27856,87 @@ static Task TestSelectedSkillRefreshRemovesUnavailableCurrentSkillsAsync()
         System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
     }
 
+    return Task.CompletedTask;
+}
+
+static Task TestConfiguredSkillRefreshUpdatesAllReferencesAsync()
+{
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        try
+        {
+            var settings = CreateScriptSettings();
+            settings.Skills.ExecutionTree = new()
+            {
+                new() { SkillId = 1001, Name = "Test Strike V", BaseName = "Test Strike" },
+                new() { SkillId = 9999, Name = "Missing Skill I", BaseName = "Missing Skill" }
+            };
+            settings.Skills.SystemExecutionTree = new()
+            {
+                new() { SkillId = 1001, Name = "Test Strike V", BaseName = "Test Strike" }
+            };
+            settings.Skills.OpeningSkill = new OpeningSkillConfig
+            {
+                Enabled = true,
+                Skills = new()
+                {
+                    new() { SkillId = 1001, SkillName = "Test Strike V", Key = "NumPad1" },
+                    new() { SkillId = 9999, SkillName = "Missing Skill I", Key = "NumPad4" }
+                }
+            };
+            settings.Maintenance.HpMaintenanceRules = new()
+            {
+                new() { SkillId = 1001, SkillName = "Test Strike V", Key = "NumPad2" }
+            };
+            settings.Skills.Spiritmaster.DotSkills = new()
+            {
+                new() { SkillId = 1001, SkillName = "Test Strike V" }
+            };
+            settings.Skills.ManualMappings = new()
+            {
+                new() { SkillType = "主动技能", SkillName = "Test Strike V", Key = "NumPad3" }
+            };
+            settings.Team.Support.MentalCleanseSkillId = 1001;
+            settings.Team.Support.MentalCleanseSkillName = "Test Strike V";
+            var store = new InMemoryAccountConfigStore(new AccountConfig
+            {
+                AccountName = "account1", ScriptSettings = settings
+            });
+            using var form = CreateAccountSettingsFormForTestsWithStore(store);
+            var skills = new[]
+            {
+                new SkillSnapshot(1002, "Test Strike II", 2, 2, "Test Strike", 2, false, 1000, 0)
+            };
+            typeof(AccountSettingsForm).GetField("currentManualSkills",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                .SetValue(form, skills);
+            var result = ((int UpdatedCount, int DeletedCount, bool Saved, string Error))InvokePrivateMethodForTest(
+                form, "RefreshAndSaveConfiguredSkills")!;
+            AssertEqual(7, result.UpdatedCount, "all configured references should refresh");
+            AssertEqual(2, result.DeletedCount, "missing configured skills should be cleared");
+            AssertFalse(!result.Saved, "refresh should auto save configured skills: " + result.Error);
+            var saved = store.LoadAllAsync().GetAwaiter().GetResult().Value!
+                .Single(account => account.AccountName == "account1").ScriptSettings!;
+            AssertEqual(1, saved.Skills.ExecutionTree.Count, "missing execution skill removed");
+            AssertEqual(1002U, saved.Skills.ExecutionTree[0].SkillId, "execution skill rank");
+            AssertEqual(1002U, saved.Skills.SystemExecutionTree[0].SkillId, "system execution skill rank");
+            AssertEqual(1002U, saved.Skills.OpeningSkill.Skills![0].SkillId, "opening skill rank");
+            AssertEqual(1, saved.Skills.OpeningSkill.Skills.Count, "missing opening skill removed");
+            AssertEqual("NumPad1", saved.Skills.OpeningSkill.Skills[0].Key, "opening skill key retained");
+            AssertEqual(1002U, saved.Maintenance.HpMaintenanceRules[0].SkillId, "maintenance skill rank");
+            AssertEqual("NumPad2", saved.Maintenance.HpMaintenanceRules[0].Key, "maintenance key retained");
+            AssertEqual(1002U, saved.Skills.Spiritmaster.DotSkills[0].SkillId, "spiritmaster skill rank");
+            AssertEqual("Test Strike II", saved.Skills.ManualMappings[0].SkillName, "manual mapping skill rank");
+            AssertEqual("NumPad3", saved.Skills.ManualMappings[0].Key, "manual mapping key retained");
+            AssertEqual(1002U, saved.Team.Support.MentalCleanseSkillId, "team cleanse skill rank");
+        }
+        catch (Exception ex) { failure = ex; }
+    });
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    thread.Join();
+    if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
     return Task.CompletedTask;
 }
 

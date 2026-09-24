@@ -128,7 +128,7 @@ public sealed partial class AccountSettingsForm
                     switch (button.Text)
                     {
                         case "刷新当前技能": button.Left = treeWidth - button.Width; break;
-                        case "刷新当前已选技能": button.Left = rightX + treeWidth - button.Width; break;
+                        case "刷新全部已配置技能": button.Left = rightX + treeWidth - button.Width; break;
                         case "添加 >": button.Location = new(treeWidth + 12, 38 + (height - button.Height) / 2); break;
                     }
                 }

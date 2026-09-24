@@ -5894,9 +5894,9 @@ namespace Roadhog
 
             AddButton(autoPanel, "添加 >", 328, 169, 76, 30, (_, _) => AddSkillSelection(availableTree, selectedTree));
 
-            var refreshSelectedSkillsButton = AddButton(autoPanel, "刷新当前已选技能", 588, 0, 144, 30);
+            var refreshSelectedSkillsButton = AddButton(autoPanel, "刷新全部已配置技能", 588, 0, 144, 30);
             refreshSelectedSkillsButton.Click += async (_, _) =>
-                await RefreshSelectedSkillTreeAsync(refreshSelectedSkillsButton, selectedTree).ConfigureAwait(true);
+                await RefreshConfiguredSkillsAsync(refreshSelectedSkillsButton).ConfigureAwait(true);
 
             AddButton(autoPanel, "置顶", 744, 69, 84, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Top));
             AddButton(autoPanel, "上移", 744, 109, 84, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Up));
@@ -8256,6 +8256,7 @@ namespace Roadhog
             PopulateManualSkillNameCombo(skillCombo, typeCombo.Text);
             if (!string.IsNullOrWhiteSpace(skillName))
             {
+                if (!skillCombo.Items.Contains(skillName)) skillCombo.Items.Add(skillName);
                 skillCombo.Text = skillName;
             }
 
@@ -8344,7 +8345,7 @@ namespace Roadhog
             }
         }
 
-        private async Task RefreshSelectedSkillTreeAsync(Button button, TreeView selectedTree)
+        private async Task RefreshConfiguredSkillsAsync(Button button)
         {
             var originalText = button.Text;
             button.Enabled = false;
@@ -8354,16 +8355,20 @@ namespace Roadhog
             {
                 currentManualSkills = await _runtime.RefreshSkillsAsync(_account).ConfigureAwait(true);
                 await RefreshSkillBindingsPreviewAsync().ConfigureAwait(true);
-                var refreshResult = RefreshSelectedSkillTreeToHighestCurrentSkills(selectedTree, currentManualSkills);
-                RefreshManualSkillMappingCombos();
-                RefreshMaintenanceSkillCombos();
-                RefreshSpiritmasterSkillCombos();
-                RefreshOpeningSkillCombo();
-                foreach (var combo in new[] { teamMentalCleanseSkillCombo, teamPhysicalCleanseSkillCombo, teamGroupCleanseSkillCombo })
-                    if (combo is not null) { var skill = GetSelectedMaintenanceSkill(combo); PopulateMaintenanceSkillCombo(combo, skill.SkillId, skill.SkillName); }
+                if (availableSkillTree is not null && skillAutoModeRadio?.Checked == true)
+                    PopulateAvailableSkillTreeFromSkills(availableSkillTree, currentManualSkills);
+                if (systemSkillTree is not null)
+                    PopulateSystemSkillTreeFromSkills(systemSkillTree, currentManualSkills);
+                var refreshResult = RefreshAndSaveConfiguredSkills();
                 RefreshAutomaticSkillDisplays();
+                if (!refreshResult.Saved)
+                {
+                    button.Text = "保存失败";
+                    MessageBox.Show(this, refreshResult.Error, "刷新技能后保存失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
 
-                button.Text = "已刷新 " + refreshResult.UpdatedCount + " 删除 " + refreshResult.DeletedCount;
+                button.Text = "已保存: 改" + refreshResult.UpdatedCount + " 清" + refreshResult.DeletedCount;
                 await Task.Delay(700).ConfigureAwait(true);
             }
             finally
@@ -8380,14 +8385,16 @@ namespace Roadhog
             TreeView selectedTree,
             IReadOnlyList<SkillSnapshot> currentSkills)
         {
-            var candidates = currentSkills
-                .Where(skill => !ShouldHideManualSkillCandidate(skill))
-                .GroupBy(skill => NormalizeSkillBaseName(GetSkillBaseName(skill)), StringComparer.Ordinal)
-                .Where(group => !string.IsNullOrWhiteSpace(group.Key))
-                .ToDictionary(
-                    group => group.Key,
-                    group => group.OrderByDescending(GetSkillRank).First(),
-                    StringComparer.Ordinal);
+            return RefreshSelectedSkillTreeToHighestCurrentSkillsCore(selectedTree, currentSkills, systemTree: false);
+        }
+
+        private static (int UpdatedCount, int DeletedCount) RefreshSelectedSkillTreeToHighestCurrentSkillsCore(
+            TreeView selectedTree,
+            IReadOnlyList<SkillSnapshot> currentSkills,
+            bool systemTree)
+        {
+            var candidates = BuildHighestSkillCandidates(currentSkills
+                .Where(skill => systemTree || !ShouldHideManualSkillCandidate(skill)));
 
             var updatedCount = 0;
             var deletedCount = 0;
@@ -8396,7 +8403,7 @@ namespace Roadhog
             {
                 for (var i = selectedTree.Nodes.Count - 1; i >= 0; i--)
                 {
-                    var nodeResult = RefreshSelectedSkillNodeToHighestCurrentSkill(selectedTree.Nodes[i], candidates);
+                    var nodeResult = RefreshSelectedSkillNodeToHighestCurrentSkill(selectedTree.Nodes[i], candidates, systemTree);
                     updatedCount += nodeResult.UpdatedCount;
                     deletedCount += nodeResult.DeletedCount;
                 }
@@ -8411,9 +8418,22 @@ namespace Roadhog
             return (updatedCount, deletedCount);
         }
 
+        private static IReadOnlyDictionary<string, SkillSnapshot> BuildHighestSkillCandidates(
+            IEnumerable<SkillSnapshot> skills)
+        {
+            return skills
+                .GroupBy(skill => NormalizeSkillBaseName(GetSkillBaseName(skill)), StringComparer.Ordinal)
+                .Where(group => !string.IsNullOrWhiteSpace(group.Key))
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.OrderByDescending(GetSkillRank).First(),
+                    StringComparer.Ordinal);
+        }
+
         private static (int UpdatedCount, int DeletedCount) RefreshSelectedSkillNodeToHighestCurrentSkill(
             TreeNode node,
-            IReadOnlyDictionary<string, SkillSnapshot> candidates)
+            IReadOnlyDictionary<string, SkillSnapshot> candidates,
+            bool systemTree)
         {
             var updatedCount = 0;
             var deletedCount = 0;
@@ -8431,10 +8451,15 @@ namespace Roadhog
                 return (0, removedCount);
             }
 
-            var currentData = CreateSkillTreeNodeData(currentSkill);
+            var currentData = systemTree
+                ? CreateSystemSkillTreeNodeData(currentSkill)
+                : CreateSkillTreeNodeData(currentSkill);
             if (data is null ||
                 data.SkillId != currentData.SkillId ||
                 !string.Equals(data.Name, currentData.Name, StringComparison.Ordinal) ||
+                !string.Equals(data.BaseName, currentData.BaseName, StringComparison.Ordinal) ||
+                !string.Equals(data.Type, currentData.Type, StringComparison.Ordinal) ||
+                data.ChainTimeMs != currentData.ChainTimeMs ||
                 !string.Equals(node.Text, currentData.Name, StringComparison.Ordinal))
             {
                 node.Text = currentData.Name;
@@ -8445,7 +8470,7 @@ namespace Roadhog
 
             for (var i = node.Nodes.Count - 1; i >= 0; i--)
             {
-                var childResult = RefreshSelectedSkillNodeToHighestCurrentSkill(node.Nodes[i], candidates);
+                var childResult = RefreshSelectedSkillNodeToHighestCurrentSkill(node.Nodes[i], candidates, systemTree);
                 updatedCount += childResult.UpdatedCount;
                 deletedCount += childResult.DeletedCount;
             }
@@ -8562,8 +8587,9 @@ namespace Roadhog
             combo.Items.Clear();
             combo.Items.AddRange(GetManualSkillNames(skillType));
 
-            if (!string.IsNullOrWhiteSpace(previous) && combo.Items.Contains(previous))
+            if (!string.IsNullOrWhiteSpace(previous))
             {
+                if (!combo.Items.Contains(previous)) combo.Items.Add(previous);
                 combo.Text = previous;
                 return;
             }
