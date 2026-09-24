@@ -645,6 +645,11 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat route distance falls back when radar disabled", TestStationaryCombatRouteDistanceFallsBackWhenRadarDisabledAsync),
     ("stationary combat route distance falls back on empty obstacle map", TestStationaryCombatRouteDistanceFallsBackOnEmptyObstacleMapAsync),
     ("stationary combat route distance skips unreachable target", TestStationaryCombatRouteDistanceSkipsUnreachableTargetAsync),
+    ("selection deep audit snapshots advance and retry within provider", TestSelectionSnapshotTransitionsAsync),
+    ("selection deep audit randomized exhaustive ranking parity", TestSelectionRandomizedParityAsync),
+    ("selection deep audit cancellation during route read", TestSelectionCancellationAsync),
+    ("selection deep audit map revision fallback uses one generation", TestSelectionMapRevisionFallbackAsync),
+    ("stationary combat post loot selection shares snapshot and safely reuses preaim", TestPostLootSelectionOptimizationsAsync),
     ("stationary combat route distance scoring does not mutate navigation state", TestStationaryCombatRouteDistanceScoringDoesNotMutateNavigationStateAsync),
     ("stationary combat smart pre-aim uses route distance", TestSmartPreAimUsesRouteDistanceAsync),
     ("stationary combat smart pre-aim logs candidate diagnostics", TestSmartPreAimLogsCandidateDiagnosticsAsync),
@@ -13820,7 +13825,11 @@ static async Task TestSmartPreAimUsesRouteDistanceAsync()
     var settings = CreateRouteDistanceStationarySettings(
         maximumDetourExtraMeters: 100.0D,
         smartPreAimEnabled: true);
-    var gameApi = CreateRouteDistanceGameApi(mapId, currentTarget, nearBehindWall, directFarther);
+    settings.Combat.ActiveMonsterNameFilters.Add("filtered-preaim");
+    var gameApi = CreateRouteDistanceGameApi(mapId, currentTarget, nearBehindWall, directFarther,
+        RouteDistanceMonster(73, 6073, "outside-preaim", 0, 100),
+        RouteDistanceMonster(74, 6074, "filtered-preaim", 0, 5),
+        RouteDistanceMonster(75, 6075, "claimed-preaim", 0, 6) with { TargetServerObjectId = 99999 });
     var logger = new InMemoryRoadhogLogger();
     var keyboard = new RecordingKeyboardInput();
     var controller = new StationaryCombatController(
@@ -13860,10 +13869,257 @@ static async Task TestSmartPreAimUsesRouteDistanceAsync()
     await task.ConfigureAwait(false);
 
     AssertEqual(directFarther.EntityId, state.NextTargetPreAim.TargetEntityId, "smart pre-aim should rank by route distance");
+    AssertEqual(2, Convert.ToInt32(logger.Entries.Last(entry => entry.EventName ==
+        "stationary_combat.target.route_scoring_timing").Fields["candidateCount"]),
+        "preaim filters current, claimed, named and out-of-radius monsters before scoring");
     var selected = logger.Entries.LastOrDefault(entry =>
         entry.EventName == "stationary_combat.smart_preaim.target_selected");
     AssertFalse(selected is null, "smart pre-aim route-distance selection should be logged");
     AssertEqual("direct", Convert.ToString(selected!.Fields["distanceMode"]) ?? string.Empty, "selected route distance mode");
+}
+
+static async Task TestSelectionSnapshotTransitionsAsync()
+{
+    const uint mapId = 8794;
+    var first = RouteDistanceMonster(80, 6080, "first", 0, 5);
+    var second = RouteDistanceMonster(81, 6081, "second", 0, 15);
+    var settings = CreateRouteDistanceStationarySettings(100, true);
+    var api = CreateRouteDistanceGameApi(mapId, first, second);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var context = CreateContext(settings, api, logger);
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard), obstacleNavigator: CreateRouteDistanceNavigator(mapId));
+    var state = new StationaryCombatState();
+    SeedAlignedSmartPreAimCandidate(state, first);
+    state.MarkLootAfterKillFinished(DateTimeOffset.Now, true);
+    var method = typeof(StationaryCombatController).GetMethod("SelectNextStationaryTargetAsync",
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+    Task<WorldObjectSnapshot?> Select() => (Task<WorldObjectSnapshot?>)method.Invoke(controller, new object?[]
+    { context, state, new Vector3Snapshot(0, 0, 0), new Vector3Snapshot(0, 0, 0), 60D, false, null })!;
+    AssertEqual(first.ServerObjectId, (await Select())!.ServerObjectId, "first official decision");
+    api.WorldObjectReadResults.Enqueue(OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail("injected read fault"));
+    api.WorldObjects = new[] { first with { CurrentHp = 0 }, second };
+    AssertEqual(second.ServerObjectId, (await Select())!.ServerObjectId, "next decision cannot reuse dead snapshot target");
+    AssertEqual(3, api.WorldObjectReadCount, "one initial read plus provider retry for second decision");
+    api.WorldObjects = new[] { first, second with { IsTargetingLocalPlayer = true, Position = new Vector3Snapshot(0, 80, 0) } };
+    AssertEqual(second.ServerObjectId, (await Select())!.ServerObjectId, "new defense threat beats cached preaim and radius");
+    api.WorldObjects = Array.Empty<WorldObjectSnapshot>();
+    AssertFalse(await Select() is not null, "official empty world cannot resurrect previous candidate");
+    AssertEqual(0, keyboard.Keys.Count, "decision-only code sends no input");
+}
+
+static async Task TestSelectionRandomizedParityAsync()
+{
+    const uint mapId = 8792;
+    var random = new Random(903);
+    var reusedCount = 0;
+    var origin = new Vector3Snapshot(0, 0, 0);
+    for (var sample = 0; sample < 400; sample++)
+    {
+        var settings = CreateRouteDistanceStationarySettings(sample % 3 == 0 ? 2 : 100, true);
+        settings.Combat.SmartPreAimResponsiveSwitching = sample % 2 == 0;
+        settings.Combat.SmartPreAimUseFightTargetPosition = sample % 4 == 1;
+        var distanceOrigin = settings.Combat.SmartPreAimUseFightTargetPosition ? new Vector3Snapshot(20, -5, 0) : origin;
+        var radius = sample % 10 == 0 ? 60D : sample % 6 == 1 ? 20D : sample % 6 == 2 ? 0D : 60D;
+        settings.Combat.PreferAggressiveMonsters = sample % 3 == 0;
+        settings.Combat.ContestMonster = sample % 4 == 0;
+        settings.Combat.RadarObstacleAvoidance.Enabled = sample % 5 != 0;
+        settings.Combat.ActiveMonsterNameFilters.Add("blocked");
+        var objects = Enumerable.Range(0, 12).Select(index =>
+            RouteDistanceMonster((ushort)(100 + index), (uint)(6100 + index),
+                random.Next(8) == 0 ? "blocked" : "monster-" + index,
+                random.Next(-80, 81), random.Next(-80, 81)) with
+            {
+                CurrentHp = random.Next(9) == 0 ? 0u : 1000u,
+                Position = random.Next(20) == 0 ? null : new Vector3Snapshot(random.Next(-80, 81), random.Next(-80, 81), 0),
+                TargetServerObjectId = random.Next(5) == 0 ? 9999u : 0u,
+                IsTargetingLocalPlayer = random.Next(25) == 0,
+                AggressiveKnown = true,
+                IsAggressiveToPlayer = random.Next(4) == 0
+            }).ToArray();
+        if (sample % 10 == 0) // Guarantee coverage of exact ties and successful shortcuts.
+        {
+            objects = Enumerable.Range(0, 12).Select(index => RouteDistanceMonster(
+                (ushort)(100 + index), (uint)(6100 + index), "tie-" + index, 0, index < 2 ? 5 : 20 + index)).ToArray();
+            settings.Combat.PreferAggressiveMonsters = false;
+        }
+        var ignored = sample % 7 == 0 ? objects[3].ServerObjectId : 0u;
+        var excluded = sample % 8 == 0 ? objects[4].ServerObjectId : 0u;
+        // Independent oracle: score EVERY positioned monster first, then apply legacy rules.
+        var navigator = CreateRouteDistanceNavigator(mapId);
+        var requests = objects.Where(StationaryCombatTargetSelector.IsSelectableMonster)
+            .Select(t => new RadarRouteDistanceRequest(t.ServerObjectId.ToString(), new RadarPoint(t.Position!.Value.X, t.Position.Value.Y))).ToArray();
+        var allScores = await navigator.ScoreRouteDistancesAsync(mapId, new RadarPoint(distanceOrigin.X, distanceOrigin.Y), requests,
+            settings.Combat.RadarObstacleAvoidance);
+        var alive = objects.Where(StationaryCombatTargetSelector.IsSelectableMonster)
+            .Where(t => t.ServerObjectId != excluded);
+        var expected = alive.Where(t => t.IsTargetingLocalPlayer)
+            .OrderBy(t => StationaryCombatTargetSelector.HorizontalDistance(t.Position!.Value, distanceOrigin))
+            .ThenBy(t => t.ServerObjectId).ThenBy(t => t.EntityId).FirstOrDefault();
+        expected ??= alive.Where(t => t.ServerObjectId != ignored && t.Name != "blocked")
+            .Where(t => settings.Combat.ContestMonster || t.TargetServerObjectId == 0 || t.TargetServerObjectId == t.ServerObjectId)
+            .Where(t => StationaryCombatTargetSelector.HorizontalDistance(t.Position!.Value, origin) <= radius)
+            .OrderByDescending(t => settings.Combat.PreferAggressiveMonsters && t.IsAggressiveToPlayer)
+            .ThenBy(t => allScores.Scores[t.ServerObjectId.ToString()].EffectiveDistance)
+            .ThenBy(t => t.ServerObjectId).ThenBy(t => t.EntityId).FirstOrDefault();
+        var logger = new InMemoryRoadhogLogger();
+        var keyboard = new RecordingKeyboardInput();
+        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard), obstacleNavigator: navigator);
+        var api = CreateRouteDistanceGameApi(mapId, objects);
+        var state = new StationaryCombatState();
+        SeedAlignedSmartPreAimCandidate(state, objects[sample % 10 == 0 ? 0 : random.Next(objects.Length)]);
+        state.NextTargetPreAim.FightTargetPosition = distanceOrigin;
+        state.MarkLootAfterKillFinished(DateTimeOffset.Now, true);
+        if (ignored != 0) state.IgnoreTarget(objects[3]);
+        if (excluded != 0) state.TemporarilyExcludeTarget(objects[4].EntityId, excluded, DateTimeOffset.Now.AddMinutes(1), DateTimeOffset.MinValue);
+        var method = typeof(StationaryCombatController).GetMethod("SelectNextStationaryTargetAsync",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var actual = await (Task<WorldObjectSnapshot?>)method.Invoke(controller, new object?[]
+        {
+            CreateContext(settings, api, logger), state, origin, origin, radius, settings.Combat.ContestMonster, null
+        })!;
+        AssertEqual(expected?.ServerObjectId ?? 0u, actual?.ServerObjectId ?? 0u, "exhaustive ranking parity sample " + sample);
+        AssertEqual(1, api.WorldObjectReadCount, "one capture per selection sample " + sample);
+        if (logger.Entries.Any(e => e.EventName == "stationary_combat.smart_preaim.post_loot_reused")) reusedCount++;
+    }
+    AssertFalse(reusedCount < 30, "randomized parity actually exercises fast-path decisions");
+    Console.WriteLine("AUDIT 400 deterministic worlds: exhaustive ranking parity; fast-path hits=" + reusedCount);
+}
+
+static async Task TestSelectionCancellationAsync()
+{
+    const uint mapId = 8793;
+    using var stop = new CancellationTokenSource();
+    var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var store = new SelectionTestMapStore(async (id, token) =>
+    {
+        entered.SetResult();
+        await release.Task;
+        // A reader can finish after cancellation; an empty map also skips per-request planner checks.
+        return OperationResult<RadarMapLoadResult>.Ok(new RadarMapLoadResult(true, new RadarMapDocument { MapId = id }));
+    });
+    var candidate = RouteDistanceMonster(80, 6080, "candidate", 0, 5);
+    var settings = CreateRouteDistanceStationarySettings(100, true);
+    var logger = new InMemoryRoadhogLogger();
+    var keyboard = new RecordingKeyboardInput();
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard),
+        obstacleNavigator: new StationaryObstacleNavigator(store, new RadarRoutePlanner(), new RadarMapRevisionRegistry()));
+    var state = new StationaryCombatState();
+    SeedAlignedSmartPreAimCandidate(state, candidate);
+    state.MarkLootAfterKillFinished(DateTimeOffset.Now, true);
+    var method = typeof(StationaryCombatController).GetMethod("SelectNextStationaryTargetAsync",
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+    var task = (Task<WorldObjectSnapshot?>)method.Invoke(controller, new object?[]
+    {
+        CreateContext(settings, CreateRouteDistanceGameApi(mapId, candidate), logger, stopToken: stop.Token),
+        state, new Vector3Snapshot(0, 0, 0), new Vector3Snapshot(0, 0, 0), 60D, false, null
+    })!;
+    await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    stop.Cancel(); release.SetResult();
+    var canceled = false;
+    try { await task; } catch (OperationCanceledException) { canceled = true; }
+    AssertFalse(!canceled, "stop during scoring cannot return a selected target");
+    AssertFalse(logger.Entries.Any(e => e.EventName == "stationary_combat.smart_preaim.post_loot_reused"), "canceled work cannot report handoff");
+    AssertEqual(0, keyboard.Keys.Count, "selection cancellation sends no input");
+}
+
+static async Task TestSelectionMapRevisionFallbackAsync()
+{
+    const uint mapId = 8791;
+    var candidate = RouteDistanceMonster(80, 6080, "candidate", 20, 0);
+    var other = RouteDistanceMonster(81, 6081, "other", 0, 24);
+    var settings = CreateRouteDistanceStationarySettings(100, true);
+    var revisions = new RadarMapRevisionRegistry();
+    var loads = 0;
+    var store = new SelectionTestMapStore((id, token) =>
+    {
+        var doc = ++loads == 1 ? CreateRouteDistanceMap(id) : new RadarMapDocument { MapId = id };
+        if (loads == 1) revisions.Increment(id); // Map changes while the first capture is being loaded.
+        return Task.FromResult(OperationResult<RadarMapLoadResult>.Ok(new RadarMapLoadResult(true, doc)));
+    });
+    var keyboard = new RecordingKeyboardInput();
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard),
+        obstacleNavigator: new StationaryObstacleNavigator(store, new RadarRoutePlanner(), revisions));
+    var api = CreateRouteDistanceGameApi(mapId, candidate, other);
+    var state = new StationaryCombatState();
+    SeedAlignedSmartPreAimCandidate(state, candidate);
+    state.MarkLootAfterKillFinished(DateTimeOffset.Now, true);
+    var method = typeof(StationaryCombatController).GetMethod("SelectNextStationaryTargetAsync",
+        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+    var result = await (Task<WorldObjectSnapshot?>)method.Invoke(controller, new object?[]
+    {
+        CreateContext(settings, api, new InMemoryRoadhogLogger()), state,
+        new Vector3Snapshot(0, 0, 0), new Vector3Snapshot(0, 0, 0), 60D, false, null
+    })!;
+    AssertEqual(2, loads, "fallback sees updated radar map");
+    AssertEqual(candidate.ServerObjectId, result?.ServerObjectId ?? 0u,
+        "fallback must not mix old blocked route distance with new clear-map distances");
+}
+
+static async Task TestPostLootSelectionOptimizationsAsync()
+{
+    const uint mapId = 8790;
+    var preferred = RouteDistanceMonster(80, 6080, "preferred", 0, 8);
+    var alternative = RouteDistanceMonster(81, 6081, "alternative", 0, 20);
+    foreach (var scenario in new[] { "reuse", "responsive_closer", "claimed", "filtered", "outside", "dead",
+        "identity_reused", "defense", "aggressive", "stale", "no_loot", "disabled", "empty", "route_detour", "recently_confirmed" })
+    {
+        var settings = CreateRouteDistanceStationarySettings(100, smartPreAimEnabled: scenario != "disabled");
+        settings.Combat.SmartPreAimResponsiveSwitching = true;
+        var candidate = preferred;
+        var other = alternative;
+        if (scenario == "responsive_closer") other = other with { Position = new Vector3Snapshot(0, 3, 0) };
+        if (scenario == "claimed") candidate = candidate with { TargetServerObjectId = 99999 };
+        if (scenario == "filtered") settings.Combat.ActiveMonsterNameFilters.Add(candidate.Name);
+        if (scenario == "outside") candidate = candidate with { Position = new Vector3Snapshot(0, 80, 0) };
+        if (scenario == "dead") candidate = candidate with { CurrentHp = 0 };
+        if (scenario == "identity_reused") candidate = candidate with { ServerObjectId = 9080 };
+        if (scenario == "defense") other = other with { IsTargetingLocalPlayer = true };
+        if (scenario == "aggressive")
+        {
+            settings.Combat.PreferAggressiveMonsters = true;
+            other = other with { AggressiveKnown = true, IsAggressiveToPlayer = true };
+        }
+        if (scenario == "route_detour") candidate = candidate with { Position = new Vector3Snapshot(20, 0, 0) };
+        var api = CreateRouteDistanceGameApi(mapId, scenario == "empty" ? Array.Empty<WorldObjectSnapshot>() : new[] { candidate, other });
+        var logger = new InMemoryRoadhogLogger();
+        var keyboard = new RecordingKeyboardInput();
+        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard),
+            obstacleNavigator: CreateRouteDistanceNavigator(mapId));
+        var state = new StationaryCombatState();
+        SeedAlignedSmartPreAimCandidate(state, preferred);
+        if (scenario != "no_loot") state.MarkLootAfterKillFinished(DateTimeOffset.Now, true);
+        if (scenario == "stale") state.NextTargetPreAim.TargetSelectedAt = DateTimeOffset.Now.AddMinutes(-5);
+        if (scenario == "recently_confirmed")
+        {
+            state.NextTargetPreAim.TargetSelectedAt = DateTimeOffset.Now.AddMinutes(-5);
+            state.NextTargetPreAim.LastSnapshotAt = DateTimeOffset.Now;
+        }
+        var context = CreateContext(settings, api, logger);
+        var method = typeof(StationaryCombatController).GetMethod("SelectNextStationaryTargetAsync",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var selected = await (Task<WorldObjectSnapshot?>)method.Invoke(controller, new object?[]
+        {
+            context, state, new Vector3Snapshot(0, 0, 0), new Vector3Snapshot(0, 0, 0), 60D, false, null
+        })!;
+        AssertEqual(1, api.WorldObjectReadCount, scenario + ": defense and normal selection share one published world read");
+        var expected = scenario switch
+        {
+            "empty" => 0u,
+            "responsive_closer" or "claimed" or "filtered" or "outside" or "dead" or "defense" or "aggressive" or "route_detour" => other.ServerObjectId,
+            _ => candidate.ServerObjectId
+        };
+        AssertEqual(expected, selected?.ServerObjectId ?? 0u, scenario + ": selection rules preserved");
+        AssertEqual(scenario is "reuse" or "recently_confirmed", logger.Entries.Any(e => e.EventName == "stationary_combat.smart_preaim.post_loot_reused"),
+            scenario + ": only validated best candidate bypasses full scoring");
+        AssertFalse(!logger.Entries.Any(e => e.EventName == "stationary_combat.target.selection_timing"),
+            scenario + ": selection timing emitted");
+        if (scenario is "filtered" or "outside" or "dead" or "claimed")
+            AssertEqual(1, Convert.ToInt32(logger.Entries.Last(e => e.EventName ==
+                "stationary_combat.target.route_scoring_timing").Fields["candidateCount"]),
+                scenario + ": rejected candidates must never enter route planning");
+    }
 }
 
 static ScriptSettings CreateRouteDistanceStationarySettings(

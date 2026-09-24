@@ -31,27 +31,9 @@ public static class NextTargetPreAimSelector
                               (target => StationaryCombatTargetSelector.HorizontalDistance(
                                   target.Position!.Value,
                                   distanceOrigin));
-        var candidates = objects
-            .Where(StationaryCombatTargetSelector.IsSelectableMonster)
-            .Where(target => !StationaryCombatState.IsSameTarget(
-                target.EntityId,
-                target.ServerObjectId,
-                currentTargetEntityId,
-                currentTargetServerObjectId))
-            .Where(target => !effectiveExclusions.IsTemporarilyExcluded(target))
-            .Where(target => IsTargetingLocalSide(
-                target,
-                localSideServerObjectId,
-                localSidePetServerObjectId) ||
-                IsTargetingTeamSide(target, teamSideServerObjectIds) ||
-                IsOrdinaryTargetEligible(
-                    target,
-                    effectiveExclusions,
-                    activeMonsterNameFilters,
-                    allowClaimedByOther,
-                    localSideServerObjectId,
-                    localSidePetServerObjectId,
-                    teamSideServerObjectIds))
+        var candidates = EligibleTargets(objects, home, radius, currentTargetEntityId, currentTargetServerObjectId,
+            localSideServerObjectId, localSidePetServerObjectId, allowClaimedByOther,
+            activeMonsterNameFilters, effectiveExclusions, teamSideServerObjectIds)
             .Select(target => BuildSelection(
                 target,
                 distanceOrigin,
@@ -152,6 +134,39 @@ public static class NextTargetPreAimSelector
         }
 
         return best with { DecisionReason = "closer_after_hold" };
+    }
+
+    internal static IEnumerable<WorldObjectSnapshot> EligibleTargets(
+        IEnumerable<WorldObjectSnapshot> objects, Vector3Snapshot home, double radius,
+        ushort currentTargetEntityId, uint currentTargetServerObjectId,
+        uint localSideServerObjectId, uint localSidePetServerObjectId, bool allowClaimedByOther,
+        IReadOnlyCollection<string>? activeMonsterNameFilters,
+        NextTargetPreAimExclusionSnapshot exclusions, IReadOnlySet<uint>? teamSideServerObjectIds)
+    {
+        return objects
+            .Where(StationaryCombatTargetSelector.IsSelectableMonster)
+            .Where(target => !StationaryCombatState.IsSameTarget(
+                target.EntityId,
+                target.ServerObjectId,
+                currentTargetEntityId,
+                currentTargetServerObjectId))
+            .Where(target => !exclusions.IsTemporarilyExcluded(target))
+            .Where(target => IsTargetingLocalSide(
+                target,
+                localSideServerObjectId,
+                localSidePetServerObjectId) ||
+                IsTargetingTeamSide(target, teamSideServerObjectIds) ||
+                IsOrdinaryTargetEligible(
+                    target,
+                    exclusions,
+                    activeMonsterNameFilters,
+                    allowClaimedByOther,
+                    localSideServerObjectId,
+                    localSidePetServerObjectId,
+                    teamSideServerObjectIds))
+            .Where(target => IsTargetingLocalSide(target, localSideServerObjectId, localSidePetServerObjectId) ||
+                IsTargetingTeamSide(target, teamSideServerObjectIds) ||
+                StationaryCombatTargetSelector.HorizontalDistance(target.Position!.Value, home) <= Math.Max(0, radius));
     }
 
     private static NextTargetPreAimSelection? BuildSelection(

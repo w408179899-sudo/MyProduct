@@ -620,31 +620,9 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         }
 
         var target = noTargetRestWakeTarget ?? preMaintenanceDefenseTarget;
-        if (target is null)
-        {
-            target = await SelectMaintenanceDefenseTargetAsync(
-                    context,
-                    state,
-                    playerPosition)
-                .ConfigureAwait(false);
-        }
-
-        if (target is null)
-        {
-            target = gatherThreatTarget;
-        }
-
-        if (target is null)
-        {
-            target = await SelectTargetAsync(
-                    context,
-                    state,
-                    playerPosition,
-                    home,
-                    radius,
-                    combat.ContestMonster)
-                .ConfigureAwait(false);
-        }
+        target ??= await SelectNextStationaryTargetAsync(
+            context, state, playerPosition, home, radius, combat.ContestMonster, gatherThreatTarget)
+            .ConfigureAwait(false);
 
         if (target is not null &&
             state.HasSmartPreAimHandoff &&
@@ -7587,18 +7565,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             return new PostLootNoTargetDelayResult(false, null);
         }
 
-        var target = await SelectMaintenanceDefenseTargetAsync(
-                context,
-                state,
-                playerPosition)
-            .ConfigureAwait(false);
-        target ??= await SelectTargetAsync(
-                context,
-                state,
-                playerPosition,
-                home,
-                radius,
-                combat.ContestMonster)
+        var target = await SelectNextStationaryTargetAsync(
+            context, state, playerPosition, home, radius, combat.ContestMonster)
             .ConfigureAwait(false);
         if (target?.Position is not null)
         {
@@ -7723,7 +7691,16 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         double radius,
         bool allowClaimedByOther)
     {
-        var objects = await RefreshWorldObjectsAsync(context, state).ConfigureAwait(false);
+        return await SelectTargetFromSnapshotAsync(context, state, playerPosition, home, radius,
+            allowClaimedByOther, await RefreshWorldObjectsAsync(context, state).ConfigureAwait(false), false)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<WorldObjectSnapshot?> SelectTargetFromSnapshotAsync(
+        AccountWorkerContext context, StationaryCombatState state,
+        Vector3Snapshot playerPosition, Vector3Snapshot home, double radius,
+        bool allowClaimedByOther, IReadOnlyList<WorldObjectSnapshot> objects, bool allowPreAimReuse)
+    {
         var now = DateTimeOffset.Now;
         var preferAggressiveMonsters = PrefersAggressiveMonsters(context);
         var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
@@ -7794,7 +7771,15 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             candidates = candidates.Where(target => !IsClaimedByOther(target, state));
         }
 
-        var candidateArray = candidates.ToArray();
+        var candidateArray = candidates
+            .Where(StationaryCombatTargetSelector.IsSelectableMonster)
+            .Where(target => StationaryCombatTargetSelector.HorizontalDistance(target.Position!.Value, home) <= Math.Max(0, radius))
+            .ToArray();
+        if (allowPreAimReuse && await TryReusePostLootCandidateAsync(
+                context, state, selectionOrigin, home, radius, candidateArray, preferAggressiveMonsters)
+                .ConfigureAwait(false) is { } reused)
+            return reused;
+        // A fallback is one complete scoring batch: never mix map revisions across awaits.
         var routeDistances = await ScoreTargetRouteDistancesAsync(
                 context,
                 state,
@@ -8801,6 +8786,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 "map_id_unavailable");
         }
 
+        var scoringTimer = System.Diagnostics.Stopwatch.StartNew();
         var batch = await _obstacleNavigator
             .ScoreRouteDistancesAsync(
                 mapId,
@@ -8809,6 +8795,14 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 radarSettings,
                 context.StopToken)
             .ConfigureAwait(false);
+        LogActionThrottled(context, state, "stationary_combat.target.route_scoring_timing",
+            "route_scoring:" + requests.Count, new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["candidateCount"] = requests.Count,
+                ["elapsedMs"] = Math.Round(scoringTimer.Elapsed.TotalMilliseconds, 2),
+                ["mapId"] = mapId
+            }, TimeSpan.FromSeconds(2));
         return batch.Scores.ToDictionary(
             pair => pair.Key,
             pair => new TargetRouteDistanceSnapshot(
@@ -10105,11 +10099,15 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         var allowClaimedByOther = AllowsClaimedTargets(context);
         var preferAggressiveMonsters = PrefersAggressiveMonsters(context);
         var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
+        var scoringCandidates = NextTargetPreAimSelector.EligibleTargets(
+            objects, home, radius, fightTargetEntityId, fightTargetServerObjectId,
+            state.LocalCombatSideServerObjectId, state.LocalCombatSidePetServerObjectId,
+            allowClaimedByOther, activeMonsterNameFilters, exclusions, teamSideServerObjectIds).ToArray();
         var routeDistances = await ScoreTargetRouteDistancesAsync(
                 context,
                 state,
                 distanceOrigin,
-                objects)
+                scoringCandidates)
             .ConfigureAwait(false);
         Func<WorldObjectSnapshot, double> distanceResolver =
             target => ResolveTargetDistance(target, distanceOrigin, routeDistances);
