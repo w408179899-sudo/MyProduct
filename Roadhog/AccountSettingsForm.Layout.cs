@@ -21,9 +21,16 @@ public sealed partial class AccountSettingsForm
         {
             if (resizing || page.IsDisposed) return;
             resizing = true;
+            var autoScroll = page.AutoScroll;
             page.SuspendLayout();
             try
             {
+                // Discard scroll extents from the previous window size before measuring.
+                if (autoScroll)
+                {
+                    page.AutoScrollPosition = Point.Empty;
+                    page.AutoScroll = false;
+                }
                 resizeColumns(Math.Max(designWidth, page.ClientSize.Width));
                 foreach (var list in lists)
                     list.Height = Math.Max(listHeights[list], page.ClientSize.Height - list.Top - 16);
@@ -34,7 +41,12 @@ public sealed partial class AccountSettingsForm
                         list.Height = Math.Max(height, bagNames.Height - list.Top);
                 }
             }
-            finally { resizing = false; page.ResumeLayout(true); }
+            finally
+            {
+                page.AutoScroll = autoScroll;
+                page.ResumeLayout(true);
+                resizing = false;
+            }
         }
         page.ClientSizeChanged += (_, _) => ResizePage();
         if (bagNames is not null) bagNames.LocationChanged += (_, _) => ResizePage();
@@ -56,11 +68,8 @@ public sealed partial class AccountSettingsForm
             {
                 var left = (int)Math.Round(bounds.Left * ratio);
                 var right = (int)Math.Round(bounds.Right * ratio);
-                if (control is Button)
-                {
-                    left += (right - left - bounds.Width) / 2;
-                    right = left + bounds.Width;
-                }
+                // Keep shared column edges shared for buttons, editors and lists.
+                // Centering a fixed-width button in a scaled slot breaks that alignment.
                 control.SetBounds(left, control.Top, right - left, control.Height);
                 children?.Invoke(control.Width);
             }

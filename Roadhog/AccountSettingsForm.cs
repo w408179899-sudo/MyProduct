@@ -1350,11 +1350,11 @@ namespace Roadhog
             currentProfileLabel = AddLabel(profilePanel, "当前方案: default_profile", 124, 2, 304, 24, _textGreen, FontStyle.Bold);
             currentProfileLabel.BackColor = _inputBackground;
             AddLabel(profilePanel, "方案名", 12, 44, 64, 24);
-            profileNameTextBox = AddTextBox(profilePanel, "default_profile", 80, 42, 236, 28);
-            AddLabel(profilePanel, "已保存方案", 340, 44, 92, 24);
+            profileNameTextBox = AddTextBox(profilePanel, "default_profile", 88, 42, 236, 28);
+            AddLabel(profilePanel, "已保存方案", 380, 44, 80, 24);
             profileStatusLabel = AddLabel(profilePanel, string.Empty, 436, 2, 380, 24);
             profileStatusLabel.BackColor = _inputBackground;
-            savedProfileCombo = AddCombo(profilePanel, 436, 42, 272, 28);
+            savedProfileCombo = AddCombo(profilePanel, 464, 42, 244, 28);
             savedProfileCombo.SelectedIndexChanged += (_, _) => LoadSelectedProfile();
             AddButton(profilePanel, "删除", 724, 41, 92, 30, (_, _) => DeleteSavedProfile());
             AddLabel(environmentPanel, "水平", 12, 44, 46, 24);
@@ -1384,9 +1384,9 @@ namespace Roadhog
             pathFollowReachDistanceUnitLabel = AddLabel(modePanel, "m", 576, 84, 24, 24);
 
             enableLootCheckBox = AddCheckBox(behaviorPanel, "启用拾取", 12, 42, 120, true);
-            contestMonsterCheckBox = AddCheckBox(behaviorPanel, "抢怪", 164, 42, 100, false);
-            counterEnemyRaceCheckBox = AddCheckBox(behaviorPanel, "反击敌对种族", 312, 42, 180, false);
-            preferAggressiveMonsterCheckBox = AddCheckBox(behaviorPanel, "优先攻击主动怪", 520, 42, 190, false);
+            contestMonsterCheckBox = AddCheckBox(behaviorPanel, "抢怪", 184, 42, 140, false);
+            counterEnemyRaceCheckBox = AddCheckBox(behaviorPanel, "反击敌对种族", 380, 42, 180, false);
+            preferAggressiveMonsterCheckBox = AddCheckBox(behaviorPanel, "优先攻击主动怪", 576, 42, 190, false);
 
 #if DEBUG
             var apiProbeButton = AddButton(page, "API探针", 702, 32, 134, 30);
@@ -1397,7 +1397,7 @@ namespace Roadhog
 
             returnHomeWhenNoTargetCheckBox = AddCheckBox(behaviorPanel, "\u6ca1\u602a\u56de\u4e2d\u5fc3", 12, 114, 140, true);
             sitWhenNoTargetAtHomeCheckBox = AddCheckBox(behaviorPanel, "\u6ca1\u602a\u5750\u5730\u677f", 184, 114, 140, false);
-            jumpAssistEnabledCheckBox = AddCheckBox(behaviorPanel, "\u6253\u602a\u8df3\u8dc3", 356, 114, 120, false);
+            jumpAssistEnabledCheckBox = AddCheckBox(behaviorPanel, "\u6253\u602a\u8df3\u8dc3", 380, 114, 120, false);
             jumpAssistEnabledCheckBox.Name = "jumpAssistEnabledCheckBox";
             smartPreAimEnabledCheckBox = AddCheckBox(behaviorPanel, "\u667a\u80fd\u9009\u602a", 12, 78, 120, false);
             smartPreAimEnabledCheckBox.Name = "smartPreAimEnabledCheckBox";
@@ -1405,7 +1405,7 @@ namespace Roadhog
             smartPreAimUseFightTargetPositionCheckBox = AddCheckBox(
                 behaviorPanel,
                 "\u6309\u5f53\u524d\u602a\u4f4d\u7f6e\u9009\u602a",
-                164,
+                184,
                 78,
                 186,
                 false);
@@ -1440,7 +1440,7 @@ namespace Roadhog
             AddLabel(environmentPanel, "\u56fa\u5b9a\u9891\u9053", 380, 44, 80, 24);
             fixedChannelCombo = AddCombo(
                 environmentPanel,
-                468,
+                464,
                 42,
                 152,
                 28,
@@ -3354,20 +3354,20 @@ namespace Roadhog
             page.AutoScrollMinSize = new Size(748, 0);
             tab.Controls.Add(page);
 
-            AddLabel(page, "坐地板维护", 4, 8, 82, 24, _textGreen, FontStyle.Bold);
-            sitMaintenanceCheckBox = AddCheckBox(page, "启用", 84, 6, 70, true);
+            AddLabel(page, "坐地板维护", 12, 8, 82, 24, _textGreen, FontStyle.Bold);
+            sitMaintenanceCheckBox = AddCheckBox(page, "启用", 96, 6, 70, true);
 
-            AddLabel(page, "血量低于", 4, 44, 66, 24);
-            sitHpBelowTextBox = AddTextBox(page, "25", 68, 42, 70, 28);
-            AddLabel(page, "%  坐地板，恢复到", 144, 44, 130, 24);
-            sitHpRecoverToTextBox = AddTextBox(page, "75", 272, 42, 70, 28);
-            AddLabel(page, "%  起来继续打怪", 348, 44, 160, 24);
+            AddLabel(page, "血量低于", 12, 44, 66, 24);
+            sitHpBelowTextBox = AddTextBox(page, "25", 80, 42, 70, 28);
+            AddLabel(page, "%  坐地板，恢复到", 156, 44, 130, 24);
+            sitHpRecoverToTextBox = AddTextBox(page, "75", 292, 42, 70, 28);
+            AddLabel(page, "%  起来继续打怪", 368, 44, 160, 24);
 
-            AddLabel(page, "蓝量低于", 4, 78, 66, 24);
-            sitMpBelowTextBox = AddTextBox(page, "10", 68, 76, 70, 28);
-            AddLabel(page, "%  坐地板，恢复到", 144, 78, 130, 24);
-            sitMpRecoverToTextBox = AddTextBox(page, "90", 272, 76, 70, 28);
-            AddLabel(page, "%  起来继续打怪", 348, 78, 160, 24);
+            AddLabel(page, "蓝量低于", 12, 78, 66, 24);
+            sitMpBelowTextBox = AddTextBox(page, "10", 80, 76, 70, 28);
+            AddLabel(page, "%  坐地板，恢复到", 156, 78, 130, 24);
+            sitMpRecoverToTextBox = AddTextBox(page, "90", 292, 76, 70, 28);
+            AddLabel(page, "%  起来继续打怪", 368, 78, 160, 24);
 
             var refreshMaintenanceSkillsButton = AddButton(page, "刷新技能", 720, 6, 120, 30);
             refreshMaintenanceSkillsButton.Click += async (_, _) =>
@@ -3629,20 +3629,20 @@ namespace Roadhog
             var page = CreatePagePanel();
             tab.Controls.Add(page);
 
-            AddLabel(page, "组队模式", 4, 16, 90, 24, _textGreen, FontStyle.Bold);
+            AddLabel(page, "组队模式", 24, 16, 90, 24, _textGreen, FontStyle.Bold);
             teamRoleCombo = AddCombo(page, 24, 52, 190, 28, "队长", "输出", "治疗");
             teamRoleCombo.Name = "teamRoleCombo";
             AddLabel(page, "抱团距离", 240, 52, 90, 24, _textGreen, FontStyle.Bold);
-            teamGroupDistanceTextBox = AddTextBox(page, "20.0", 330, 50, 72, 28);
+            teamGroupDistanceTextBox = AddTextBox(page, "20.0", 330, 52, 72, 28);
             teamGroupDistanceTextBox.Name = "teamGroupDistanceTextBox";
             AddLabel(page, "m", 408, 52, 24, 24, _textGreen, FontStyle.Bold);
 
             var leaderPanel = CreateTeamRolePanel(page);
             teamLeaderPanel = leaderPanel;
-            AddLabel(leaderPanel, "队长开关", 4, 0, 90, 24, _textGreen, FontStyle.Bold);
+            AddLabel(leaderPanel, "队长开关", 24, 0, 90, 24, _textGreen, FontStyle.Bold);
             teamLeaderEnabledCheckBox = AddCheckBox(leaderPanel, "启用组队", 24, 30, 92, false);
-            teamLeaderDungeonModeCheckBox = AddCheckBox(leaderPanel, "刷本模式", 132, 30, 92, false);
-            teamLeaderAllowSelfDefenseCheckBox = AddCheckBox(leaderPanel, "允许自卫", 240, 30, 92, true);
+            teamLeaderDungeonModeCheckBox = AddCheckBox(leaderPanel, "刷本模式", 188, 30, 92, false);
+            teamLeaderAllowSelfDefenseCheckBox = AddCheckBox(leaderPanel, "允许自卫", 352, 30, 92, true);
             teamLeaderStopAdvanceWhenMemberDisconnectedCheckBox = AddCheckBox(leaderPanel, "队员掉线停止推进", 24, 62, 170, false);
             teamLeaderTacticalMarkCheckBox = AddCheckBox(leaderPanel, "攻击目标标记", 24, 94, 130, false);
             teamLeaderTacticalMarkKeyLabel = AddLabel(leaderPanel, "标记键", 170, 97, 62, 24, _textGreen, FontStyle.Bold);
@@ -3654,14 +3654,14 @@ namespace Roadhog
 
             var dpsPanel = CreateTeamRolePanel(page);
             teamOutputPanel = dpsPanel;
-            AddLabel(dpsPanel, "输出队员开关", 4, 0, 110, 24, _textGreen, FontStyle.Bold);
+            AddLabel(dpsPanel, "输出队员开关", 24, 0, 110, 24, _textGreen, FontStyle.Bold);
             teamOutputEnabledCheckBox = AddCheckBox(dpsPanel, "启用组队", 24, 30, 92, false);
-            teamOutputDungeonModeCheckBox = AddCheckBox(dpsPanel, "刷本模式", 132, 30, 92, false);
-            teamOutputAllowSelfDefenseCheckBox = AddCheckBox(dpsPanel, "允许自卫", 240, 30, 92, true);
+            teamOutputDungeonModeCheckBox = AddCheckBox(dpsPanel, "刷本模式", 188, 30, 92, false);
+            teamOutputAllowSelfDefenseCheckBox = AddCheckBox(dpsPanel, "允许自卫", 352, 30, 92, true);
             teamOutputFollowLeaderCheckBox = AddCheckBox(dpsPanel, "跟随队长", 24, 62, 92, true);
-            teamOutputOnlyAttackLeaderMarkedTargetCheckBox = AddCheckBox(dpsPanel, "只打队长标记", 132, 62, 130, true);
-            teamOutputStopWhenLeaderHasNoTargetCheckBox = AddCheckBox(dpsPanel, "队长无目标停手", 278, 62, 150, true);
-            teamOutputStopWhenLeaderDeadCheckBox = AddCheckBox(dpsPanel, "队长死亡停手", 444, 62, 130, true);
+            teamOutputOnlyAttackLeaderMarkedTargetCheckBox = AddCheckBox(dpsPanel, "只打队长标记", 188, 62, 130, true);
+            teamOutputStopWhenLeaderHasNoTargetCheckBox = AddCheckBox(dpsPanel, "队长无目标停手", 352, 62, 150, true);
+            teamOutputStopWhenLeaderDeadCheckBox = AddCheckBox(dpsPanel, "队长死亡停手", 516, 62, 130, true);
             AddLabel(dpsPanel, "和队长距离", 24, 94, 90, 24, _textGreen, FontStyle.Bold);
             teamOutputLeaderDistanceTextBox = AddTextBox(dpsPanel, "12.0", 116, 92, 72, 28);
             AddLabel(dpsPanel, "m", 194, 94, 24, 24, _textGreen, FontStyle.Bold);
@@ -3681,28 +3681,28 @@ namespace Roadhog
 
             var supportPanel = CreateTeamRolePanel(page);
             teamSupportPanel = supportPanel;
-            AddLabel(supportPanel, "治疗队员开关", 4, 0, 110, 24, _textGreen, FontStyle.Bold);
+            AddLabel(supportPanel, "治疗队员开关", 24, 0, 110, 24, _textGreen, FontStyle.Bold);
             teamSupportEnabledCheckBox = AddCheckBox(supportPanel, "启用组队", 24, 30, 92, false);
-            teamSupportDungeonModeCheckBox = AddCheckBox(supportPanel, "刷本模式", 132, 30, 92, false);
-            teamSupportJoinCombatCheckBox = AddCheckBox(supportPanel, "加入打怪", 240, 30, 92, false);
+            teamSupportDungeonModeCheckBox = AddCheckBox(supportPanel, "刷本模式", 188, 30, 92, false);
+            teamSupportJoinCombatCheckBox = AddCheckBox(supportPanel, "加入打怪", 352, 30, 92, false);
             teamSupportMentalCleanseCheckBox = AddCheckBox(supportPanel, "精神解除", 24, 62, 92, true);
-            teamSupportPhysicalCleanseCheckBox = AddCheckBox(supportPanel, "肉体解除", 132, 62, 92, true);
-            teamSupportAllowSelfDefenseCheckBox = AddCheckBox(supportPanel, "允许自卫", 240, 62, 92, false);
-            teamSupportStopWhenLeaderDeadCheckBox = AddCheckBox(supportPanel, "队长死亡停手", 386, 62, 130, true);
+            teamSupportPhysicalCleanseCheckBox = AddCheckBox(supportPanel, "肉体解除", 188, 62, 92, true);
+            teamSupportAllowSelfDefenseCheckBox = AddCheckBox(supportPanel, "允许自卫", 352, 62, 92, false);
+            teamSupportStopWhenLeaderDeadCheckBox = AddCheckBox(supportPanel, "队长死亡停手", 516, 62, 130, true);
             AddLabel(supportPanel, "和队长距离", 24, 94, 90, 24, _textGreen, FontStyle.Bold);
             teamSupportLeaderDistanceTextBox = AddTextBox(supportPanel, "12.0", 116, 92, 72, 28);
             AddLabel(supportPanel, "m", 194, 94, 24, 24, _textGreen, FontStyle.Bold);
             teamSupportTacticalMarkTargetingCheckBox = AddCheckBox(
                 supportPanel,
                 "\u6218\u672f\u6807\u8bb0\u9009\u602a",
-                240,
+                352,
                 94,
                 130,
                 false);
             teamSupportSelectTacticalMarkTargetKeyLabel = AddLabel(
                 supportPanel,
                 "\u9009\u6807\u8bb0\u952e",
-                386,
+                516,
                 97,
                 74,
                 24,
@@ -3710,7 +3710,7 @@ namespace Roadhog
                 FontStyle.Bold);
             teamSupportSelectTacticalMarkTargetKeyButton = AddTeamKeyButton(
                 supportPanel,
-                464,
+                594,
                 92,
                 TeamSupportScriptSettings.DefaultSelectTacticalMarkTargetKey);
             AddLabel(supportPanel, "加血技能", 24, 132, 70, 24, _textGreen, FontStyle.Bold);

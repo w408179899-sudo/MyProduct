@@ -18,6 +18,7 @@ internal static class SettingsLayoutTests
             {
                 var logger = new InMemoryRoadhogLogger();
                 var settings = new ScriptSettings();
+                settings.Combat.SmartPreAimEnabled = true;
                 settings.SemiAuto.AttackWeaveDelayMs = 530;
                 settings.Skills.OpeningSkill = new() { Enabled = true, SkillId = 101, SkillName = "起手技能", Key = "F1" };
                 var store = new InMemoryAccountConfigStore(new AccountConfig { AccountName = "layout", ScriptSettings = settings });
@@ -43,6 +44,24 @@ internal static class SettingsLayoutTests
                 foreach (TabPage tab in tabs.TabPages)
                 {
                     tabs.SelectedTab = tab; Application.DoEvents();
+                    if (tab.Text == "总览")
+                    {
+                        foreach (var size in new[] { new Size(1000, 800), new Size(1200, 900), new Size(1000, 800) })
+                        {
+                            form.ClientSize = size; Application.DoEvents();
+                            Check(!tab.Controls.OfType<Panel>().Single().HorizontalScroll.Visible,
+                                "summary does not retain a horizontal scrollbar after resizing");
+                            foreach (var column in new[]
+                            {
+                                new[] { "enableLootCheckBox", "smartPreAimEnabledCheckBox", "returnHomeWhenNoTargetCheckBox" },
+                                new[] { "contestMonsterCheckBox", "smartPreAimUseFightTargetPositionCheckBox", "sitWhenNoTargetAtHomeCheckBox" },
+                                new[] { "counterEnemyRaceCheckBox", "smartPreAimResponsiveSwitchingCheckBox", "jumpAssistEnabledCheckBox" },
+                                new[] { "combatModeCombo", "stalledTargetExclusionSecondsTextBox" }
+                            })
+                                Check(column.Select(name => ((Control)Field(name)).Left).Distinct().Count() == 1,
+                                    "summary columns remain aligned after resizing: " + string.Join(", ", column));
+                        }
+                    }
                     if (tab.Text == "路径")
                     {
                         var pathTabs = tab.Controls.OfType<Panel>().Single().Controls.OfType<TabControl>().Single();
@@ -55,8 +74,30 @@ internal static class SettingsLayoutTests
                             form.ClientSize = new(1200, 900); Application.DoEvents();
                             Check(list.Bottom < coordinate.Top, "expanded path list cannot overlap coordinate editor");
                             form.ClientSize = new(1000, 800); Application.DoEvents();
+                            Capture("路径-" + pathTab.Text);
                         }
                         pathTabs.SelectedIndex = 0; Application.DoEvents();
+                    }
+                    if (tab.Text == "过滤")
+                    {
+                        var filterTabs = (TabControl)tab.Controls.Find("filterTabs", true).Single();
+                        foreach (TabPage filterTab in filterTabs.TabPages)
+                        {
+                            filterTabs.SelectedTab = filterTab; Application.DoEvents();
+                            Capture("过滤-" + filterTab.Text);
+                        }
+                        filterTabs.SelectedIndex = 0; Application.DoEvents();
+                    }
+                    if (tab.Text == "组队")
+                    {
+                        var role = (Control)Field("teamRoleCombo");
+                        var selectedIndex = role.GetType().GetProperty("SelectedIndex")!;
+                        for (var index = 0; index < 3; index++)
+                        {
+                            selectedIndex.SetValue(role, index); Application.DoEvents();
+                            Capture("组队-" + role.Text);
+                        }
+                        selectedIndex.SetValue(role, 0); Application.DoEvents();
                     }
                     Capture(tab.Text);
                 }
