@@ -27906,11 +27906,28 @@ static Task TestConfiguredSkillRefreshUpdatesAllReferencesAsync()
             using var form = CreateAccountSettingsFormForTestsWithStore(store);
             var skills = new[]
             {
-                new SkillSnapshot(1002, "Test Strike II", 2, 2, "Test Strike", 2, false, 1000, 0)
+                new SkillSnapshot(1000, "Test Strike I", 1, 1, "Test Strike", 1, false, 1000, 0),
+                new SkillSnapshot(1002, "Test Strike II", 2, 2, "Test Strike", 2, false, 1000, 0),
+                new SkillSnapshot(1003, "Test Strike III", 3, 3, "Test Strike", 3, false, 1000, 0),
+                new SkillSnapshot(1004, "Test Strike IV", 4, 4, "Test Strike", 4, false, 1000, 0),
+                new SkillSnapshot(9999, "Missing Skill I", 1, 1, "Missing Skill", 1, false, 1000, 0)
             };
             typeof(AccountSettingsForm).GetField("currentManualSkills",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
                 .SetValue(form, skills);
+            var unread = ((int UpdatedCount, int DeletedCount, bool Saved, string Error))InvokePrivateMethodForTest(
+                form, "RefreshAndSaveConfiguredSkills")!;
+            AssertFalse(unread.Saved, "unavailable quickbar must not mutate or save configuration");
+            AssertEqual(1001U, store.LoadAllAsync().GetAwaiter().GetResult().Value!.Single().ScriptSettings!
+                .Skills.ExecutionTree[0].SkillId, "unread quickbar preserves saved skills");
+            typeof(AccountSettingsForm).GetField("previewSkillBindings",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                .SetValue(form, new Roadhog.Application.SemiAuto.SkillKeyBindings(new QuickbarSnapshot(0, new[]
+                {
+                    new QuickbarSlotSnapshot(SkillQuickbar.Main, 0, 21, 1000),
+                    new QuickbarSlotSnapshot(SkillQuickbar.Alt, 1, 21, 1002),
+                    new QuickbarSlotSnapshot(SkillQuickbar.Main, 2, 1, 1004)
+                }), skills));
             var result = ((int UpdatedCount, int DeletedCount, bool Saved, string Error))InvokePrivateMethodForTest(
                 form, "RefreshAndSaveConfiguredSkills")!;
             AssertEqual(7, result.UpdatedCount, "all configured references should refresh");

@@ -6,6 +6,8 @@ public sealed partial class AccountSettingsForm
 {
     private (int UpdatedCount, int DeletedCount, bool Saved, string Error) RefreshAndSaveConfiguredSkills()
     {
+        if (previewSkillBindings is null)
+            return (0, 0, false, "未能读取技能栏，请重试；配置未修改。");
         var result = RefreshAllConfiguredSkills();
         var saved = SaveCurrentSettings(out var error);
         return (result.UpdatedCount, result.DeletedCount, saved, saved ? string.Empty : error);
@@ -13,6 +15,10 @@ public sealed partial class AccountSettingsForm
 
     private (int UpdatedCount, int DeletedCount) RefreshAllConfiguredSkills()
     {
+        // Resolve by exact ID: only actual skills on the current main/Alt bars qualify.
+        var barSkills = currentManualSkills
+            .Where(skill => skill.SkillId != 0 && previewSkillBindings?.Resolve(skill.SkillId, skill.Name) is not null)
+            .ToArray();
         var updated = 0;
         var deleted = 0;
         void Add((int UpdatedCount, int DeletedCount) result)
@@ -22,13 +28,13 @@ public sealed partial class AccountSettingsForm
         }
 
         if (selectedSkillTree is not null)
-            Add(RefreshSelectedSkillTreeToHighestCurrentSkills(selectedSkillTree, currentManualSkills));
+            Add(RefreshSelectedSkillTreeToHighestCurrentSkills(selectedSkillTree, barSkills));
         if (systemSelectedSkillTree is not null)
-            Add(RefreshSelectedSkillTreeToHighestCurrentSkillsCore(systemSelectedSkillTree, currentManualSkills, systemTree: true));
+            Add(RefreshSelectedSkillTreeToHighestCurrentSkillsCore(systemSelectedSkillTree, barSkills, systemTree: true));
 
-        var candidates = BuildHighestSkillCandidates(currentManualSkills.Where(skill => !ShouldHideManualSkillCandidate(skill)));
-        var allCandidates = BuildHighestSkillCandidates(currentManualSkills);
-        var openingCandidates = BuildHighestSkillCandidates(currentManualSkills
+        var candidates = BuildHighestSkillCandidates(barSkills.Where(skill => !ShouldHideManualSkillCandidate(skill)));
+        var allCandidates = BuildHighestSkillCandidates(barSkills);
+        var openingCandidates = BuildHighestSkillCandidates(barSkills
             .Where(skill => !ShouldHideManualSkillCandidate(skill) && IsOpeningSkillCandidate(skill)));
 
         foreach (var list in new[] { hpMaintenanceRuleList, mpMaintenanceRuleList, statusMaintenanceRuleList,
