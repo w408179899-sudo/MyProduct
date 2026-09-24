@@ -5831,6 +5831,8 @@ namespace Roadhog
             AddLabel(optionsPanel, "技能配置", 12, 4, 90, 24, _textGreen, FontStyle.Bold);
             AddLabel(optionsPanel, "按键自动匹配主栏 / Alt栏；移动技能后重启脚本", 168, 4, 630, 24);
             var autoMode = AddRadioButton(optionsPanel, "自动技能", 12, 32, 120, true);
+            // Keep the existing mode state for loading/saving; there is no mode choice in this UI.
+            autoMode.Visible = false;
             autoMode.BackColor = optionsPanel.BackColor;
             skillAutoModeRadio = autoMode;
             openingAttackKeyCheckBox = AddCheckBox(optionsPanel, "开怪按C", 168, 32, 120, true);
