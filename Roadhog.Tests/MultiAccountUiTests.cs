@@ -115,8 +115,15 @@ internal static class MultiAccountUiTests
         Require(grid.Rows[0].Cells[1].Value?.ToString() == "账号 1 / 守望者\n50级 · 精灵星", "first account shows localized level and class");
         Require(grid.Rows[1].Cells[1].Value?.ToString() == "账号 2 / 晨光\n32级 · 守护星", "second account owns its metadata");
         Require(grid.Rows[2].Cells[1].Value?.ToString() == "账号 3 / 青岚", "unread account invents no level or class");
-        Require(grid.Rows[0].Cells[0].Value is true && grid.Columns.Count == 11 &&
+        Require(grid.Rows[0].Cells[0].Value is true && grid.Columns.Count == 12 &&
             grid.Columns[1].DefaultCellStyle.WrapMode == DataGridViewTriState.True, "metadata refresh preserves selection and existing action layout");
+        Require(grid.Columns[2].HeaderText == "进程 PID" &&
+            grid.Rows[0].Cells[2].Value?.ToString() == test.View(accounts[0]).WorkerProcessId?.ToString() &&
+            grid.Rows[1].Cells[2].Value?.ToString() == test.View(accounts[1]).WorkerProcessId?.ToString() &&
+            grid.Rows[2].Cells[2].Value?.ToString() == "—",
+            "PID column identifies each account worker and leaves stopped accounts blank");
+        Require(Field<Label>(form, "_summary").Text.Contains("主界面 PID：" + Environment.ProcessId),
+            "main page shows its own process ID");
         form.PerformLayout();
         using var bitmap = new System.Drawing.Bitmap(form.Width, form.Height);
         form.DrawToBitmap(bitmap, new System.Drawing.Rectangle(System.Drawing.Point.Empty, form.Size));
@@ -126,6 +133,9 @@ internal static class MultiAccountUiTests
         Invoke(form, "RefreshRows");
         Require(!grid.Rows[0].Cells[1].Value!.ToString()!.Contains("50级") &&
             grid.Rows[1].Cells[1].Value!.ToString()!.Contains("32级 · 守护星"), "stop removes stale data without affecting sibling display");
+        Require(grid.Rows[0].Cells[2].Value?.ToString() == "—" &&
+            grid.Rows[1].Cells[2].Value?.ToString() == test.View(accounts[1]).WorkerProcessId?.ToString(),
+            "stopping one worker clears only its PID");
     });
 
     public static Task ConsoleRowsAndSelectionAsync() => Sta(() =>
@@ -135,15 +145,15 @@ internal static class MultiAccountUiTests
         test.Initialize(accounts);
         using var form = test.Console(accounts, renderWindow: true);
         var grid = Field<DataGridView>(form, "_grid");
-        Require(grid.Rows.Count == 3 && grid.Columns.Count == 11, "console has account rows and five action columns");
-        Require(new[] { "清包", "设置", "硬件", "启动", "停止" }.SequenceEqual(grid.Columns.Cast<DataGridViewColumn>().Skip(6).Select(c => c.Name)), "console actions are available per account");
+        Require(grid.Rows.Count == 3 && grid.Columns.Count == 12, "console has account rows and five action columns");
+        Require(new[] { "清包", "设置", "硬件", "启动", "停止" }.SequenceEqual(grid.Columns.Cast<DataGridViewColumn>().Skip(7).Select(c => c.Name)), "console actions are available per account");
         grid.Rows[0].Cells[0].Value = true;
         grid.ClearSelection(); grid.Rows[1].Selected = true;
         Pump((Task)Invoke(form, "BatchAsync", true)!);
         Until(() => test.View(accounts[0]).Worker?.IsRunning == true, "checked account starts");
         Require(test.View(accounts[1]).WorkerProcessId is null && test.View(accounts[2]).WorkerProcessId is null, "selected but unchecked account does not start");
         Invoke(form, "RefreshRows");
-        Require(grid.Rows[0].Cells[3].Value?.ToString() == "运行中" && grid.Rows[1].Cells[3].Value?.ToString() == "已停止", "running and stopped rows display independently");
+        Require(grid.Rows[0].Cells[4].Value?.ToString() == "运行中" && grid.Rows[1].Cells[4].Value?.ToString() == "已停止", "running and stopped rows display independently");
         Require(grid.Rows[0].Cells[0].Value is true && (string?)Invoke(form, "SelectedId") == accounts[1].InstanceId, "refresh preserves checks and current detail row separately");
         var search = Field<Control>(form, "_search");
         search.Text = accounts[2].CharacterName;
@@ -167,10 +177,10 @@ internal static class MultiAccountUiTests
         using var test = new UiEnvironment("slow-start");
         var account = test.Account(1); test.Initialize(new[] { account });
         using var form = test.Console(new[] { account });
-        Invoke(form, "GridAction", null, new DataGridViewCellEventArgs(9, 0));
+        Invoke(form, "GridAction", null, new DataGridViewCellEventArgs(10, 0));
         var entered = Path.Combine(test.Workspace.Processes.PathsFor(account).LogDirectory, "start-entered");
         Until(() => File.Exists(entered), "slow account start entered backend");
-        Invoke(form, "GridAction", null, new DataGridViewCellEventArgs(10, 0));
+        Invoke(form, "GridAction", null, new DataGridViewCellEventArgs(11, 0));
         Until(() => test.View(account) is { DesiredRunning: false, WorkerProcessId: null, State: "stopped" }, "same-row stop cancels pending start", 6000);
         Until(() => Field<HashSet<string>>(form, "_busy").Count == 0, "start handler completes after cancellation");
         System.Windows.Forms.Application.DoEvents();

@@ -88,7 +88,18 @@ public sealed class MultiAccountForm : Form
         _grid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
         _grid.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(247, 251, 247);
         _grid.Columns.Add(new DataGridViewCheckBoxColumn { HeaderText = "", Width = 32, AutoSizeMode = DataGridViewAutoSizeColumnMode.None });
-        AddTextColumn("账号 / 角色", 24); AddTextColumn("设备", 15); AddTextColumn("状态", 20); AddTextColumn("杀怪/h", 8); AddTextColumn("时长", 9);
+        AddTextColumn("账号 / 角色", 24);
+        _grid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "WorkerProcessId",
+            HeaderText = "进程 PID",
+            ReadOnly = true,
+            Width = 84,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
+            SortMode = DataGridViewColumnSortMode.NotSortable,
+            DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
+        });
+        AddTextColumn("设备", 15); AddTextColumn("状态", 20); AddTextColumn("杀怪/h", 8); AddTextColumn("时长", 9);
         _grid.Columns[1].DefaultCellStyle.WrapMode = DataGridViewTriState.True;
         foreach (var action in new[] { "清包", "设置", "硬件", "启动", "停止" })
             _grid.Columns.Add(new DataGridViewButtonColumn { CellTemplate = new SettingsActionCell(), HeaderText = "", Name = action, Text = action == "硬件" ? "设备/角色" : action,
@@ -164,7 +175,7 @@ public sealed class MultiAccountForm : Form
         var checkedIds = _grid.Rows.Cast<DataGridViewRow>().Where(r => r.Cells[0].Value is true).Select(r => (string)r.Tag!).ToHashSet();
         var selected = SelectedId();
         var views = _workspace.Processes.Snapshot();
-        _summary.Text = $"共 {views.Count} 个账号 · {views.Count(v => v.Worker?.IsRunning == true)} 个运行中";
+        _summary.Text = $"主界面 PID：{Environment.ProcessId} · 共 {views.Count} 个账号 · {views.Count(v => v.Worker?.IsRunning == true)} 个运行中";
         var query = _search.Text.Trim();
         var shown = views.Where(v => (query.Length == 0 || (v.Config.AccountName + v.Config.CharacterName).Contains(query, StringComparison.OrdinalIgnoreCase)) &&
             (_filter.SelectedIndex == 0 || _filter.SelectedIndex == 1 && v.Worker?.IsRunning == true || _filter.SelectedIndex == 2 && v.State is "stopped" or "idle" or "verification_required" || _filter.SelectedIndex == 3 && v.State is "failed" or "recovering" or "verification_required")).ToArray();
@@ -189,11 +200,12 @@ public sealed class MultiAccountForm : Form
                 row.Cells[1].Value += "\n" + level + " · " + characterClass;
             }
             row.Cells[1].ToolTipText = row.Cells[1].Value?.ToString();
-            row.Cells[2].Value = string.IsNullOrWhiteSpace(view.Config.VmmDeviceName) ? "待配置" : view.Config.VmmDeviceName;
-            row.Cells[3].Value = StateText(view);
+            row.Cells[2].Value = view.WorkerProcessId?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "—";
+            row.Cells[3].Value = string.IsNullOrWhiteSpace(view.Config.VmmDeviceName) ? "待配置" : view.Config.VmmDeviceName;
+            row.Cells[4].Value = StateText(view);
             var elapsed = snapshot?.StartedAt is { } started ? (snapshot.StoppedAt ?? DateTimeOffset.Now) - started : TimeSpan.Zero;
-            row.Cells[4].Value = elapsed.TotalHours > 0 ? (snapshot!.KillCount / elapsed.TotalHours).ToString("0") : "—";
-            row.Cells[5].Value = elapsed > TimeSpan.Zero ? $"{(int)elapsed.TotalHours:00}:{elapsed.Minutes:00}:{elapsed.Seconds:00}" : "—";
+            row.Cells[5].Value = elapsed.TotalHours > 0 ? (snapshot!.KillCount / elapsed.TotalHours).ToString("0") : "—";
+            row.Cells[6].Value = elapsed > TimeSpan.Zero ? $"{(int)elapsed.TotalHours:00}:{elapsed.Minutes:00}:{elapsed.Seconds:00}" : "—";
             row.DefaultCellStyle.ForeColor = view.State is "failed" or "recovering" or "verification_required" ? Color.DarkOrange : Color.FromArgb(30, 65, 43);
             if (view.Config.InstanceId == selected) row.Selected = true;
         }
@@ -221,7 +233,7 @@ public sealed class MultiAccountForm : Form
     {
         await RunUiActionAsync(async () =>
         {
-        if (e.RowIndex < 0 || e.ColumnIndex < 6) return;
+        if (e.RowIndex < 0 || e.ColumnIndex < 7) return;
         var id = (string)_grid.Rows[e.RowIndex].Tag!;
         var action = _grid.Columns[e.ColumnIndex].Name;
         if (action == "停止")
