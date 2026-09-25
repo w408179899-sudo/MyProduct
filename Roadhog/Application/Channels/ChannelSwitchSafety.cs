@@ -1,6 +1,7 @@
 using Roadhog.Application.StationaryCombat;
 using Roadhog.Application.Team;
 using Roadhog.Core.Api;
+using Roadhog.Core.Model;
 
 namespace Roadhog.Application.Channels;
 
@@ -26,7 +27,10 @@ internal static class ChannelSwitchSafety
         }
         // A selected live object may be idle or already abandoned by combat.
         // Only an actual local-side threat should keep resetting the peace timer.
-        if (target.HasTarget && target.IsAlive &&
+        var selectedSelf = target.ObjectType == LockedTargetSnapshot.PlayerObjectType &&
+                           target.LocalServerObjectId != 0 &&
+                           target.ServerObjectId == target.LocalServerObjectId;
+        if (target.HasTarget && target.IsAlive && !selectedSelf &&
             (target.IsTargetingLocalPlayer || target.TargetServerObjectIdMatchesLocal ||
              (petId != 0 && target.TargetServerObjectId == petId))) return (player.CurrentHp, true);
         var world = (await snapshots.ReadWorldObjectsAsync().ConfigureAwait(false)).Value;

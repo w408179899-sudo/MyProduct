@@ -294,6 +294,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("channel selected target alone does not start combat or block peace", ChannelPeaceTests.SelectedTargetIsNotCombatAsync),
     ("channel selected target after abandonment cannot starve switching", ChannelPeaceTests.AbandonedSelectedTargetAllowsPeaceAsync),
     ("channel selected target keeps local and pet attacker guards", ChannelPeaceTests.SelectedTargetThreatGuardsAsync),
+    ("channel self selection does not block peace", ChannelPeaceTests.SelfSelectionDoesNotBlockChannelPeaceAsync),
     ("channel peace incoming defense restarts fifteen seconds", ChannelPeaceTests.IncomingDefenseRestartsPeaceAsync),
     ("channel peace release preserves route and exclusive work", ChannelPeaceTests.ReleaseAndExclusiveWorkAsync),
     ("channel peace actual worker holds and cancels without new target", ChannelPeaceTests.WorkerActuallyHoldsAsync),

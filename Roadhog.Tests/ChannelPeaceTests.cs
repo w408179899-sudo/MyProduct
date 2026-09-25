@@ -71,6 +71,40 @@ internal static class ChannelPeaceTests
             "selection with no attack evidence must allow peace observation");
     }
 
+    public static async Task SelfSelectionDoesNotBlockChannelPeaceAsync()
+    {
+        var h = new Harness();
+        const uint localServerObjectId = 1879053259;
+        h.Api.TargetEntityId = ushort.MaxValue;
+        h.Api.TargetOwnServerObjectId = localServerObjectId;
+        h.Api.TargetServerObjectId = localServerObjectId;
+        h.Api.LocalServerObjectId = localServerObjectId;
+        h.Api.TargetObjectType = LockedTargetSnapshot.PlayerObjectType;
+        h.Api.TargetCurrentHp = h.Api.TargetMaxHp = 100;
+        h.Api.TargetIsTargetingLocalPlayer = true;
+
+        Require(!(await ChannelSwitchSafety.ReadAsync(h.Context.Snapshots, h.Combat)).Busy,
+            "selecting the local player must not count as an incoming attacker");
+        h.Api.WorldObjects = new[] { Monster(200, true) };
+        Require((await ChannelSwitchSafety.ReadAsync(h.Context.Snapshots, h.Combat)).Busy,
+            "self selection must still inspect nearby attackers targeting the player");
+        h.Combat.LocalCombatSidePetServerObjectId = 5678;
+        h.Api.WorldObjects = new[] { Monster(200, false) with { TargetServerObjectId = 5678 } };
+        Require((await ChannelSwitchSafety.ReadAsync(h.Context.Snapshots, h.Combat)).Busy,
+            "self selection must still inspect nearby attackers targeting the pet");
+        h.Combat.LocalCombatSidePetServerObjectId = 0;
+        h.Api.WorldObjects = new[] { Monster(300, false) };
+        await h.Tick();
+        await h.Tick(14);
+        Require(h.Executor.Requests.Count == 0, "self selection still requires fifteen seconds of peace");
+        await h.Tick(1);
+        Require(h.Executor.Requests.Count == 1, "self selection must allow the channel attempt after peace");
+
+        h.Api.TargetOwnServerObjectId = localServerObjectId + 1;
+        Require((await ChannelSwitchSafety.ReadAsync(h.Context.Snapshots, h.Combat)).Busy,
+            "a different player targeting the local player must still block channel switching");
+    }
+
     public static async Task FinishCurrentThenReservePeaceAsync()
     {
         var h = new Harness();
