@@ -54,6 +54,13 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
             ["hardwareKey"] = context.Config.HardwareKey,
             ["vmmDevice"] = context.Config.VmmDeviceName
         });
+        var startupF1 = await _keyboard.PressKeyAsync("F1", TimeSpan.FromMilliseconds(35), context.StopToken).ConfigureAwait(false);
+        if (!startupF1.Success) throw new InvalidOperationException("启动时按 F1 失败：" + startupF1.Error);
+        context.Logger.Info("worker.startup.f1", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["key"] = "F1"
+        });
         if (_keyboard is IInputStateReset inputReset)
         {
             var reset = await inputReset.ReleaseAllAsync(context.StopToken).ConfigureAwait(false);
