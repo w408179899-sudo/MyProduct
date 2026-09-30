@@ -30,6 +30,7 @@ public sealed class MultiAccountForm : Form
     private bool _initialized;
     private CancellationTokenSource? _discoveryCancellation;
     private Dictionary<string, string> _discoveryMessages = new();
+    private const int DiscoveryAttempts = 3;
 
     public MultiAccountForm(MultiAccountWorkspace? workspace = null)
     {
@@ -161,18 +162,45 @@ public sealed class MultiAccountForm : Form
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_operations.Token);
         _discoveryCancellation = cancellation;
         _discoveryMessages = new Dictionary<string, string>();
-        Report("正在逐台识别角色，请保持设备接线不变；完成后由你点击启动。");
+        Report("正在自动获取 mapping，请保持设备接线不变；完成后由你点击启动。");
         try
         {
-            var result = await _workspace.DiscoverDevicesAsync(cancellation.Token);
-            _accounts = result.Accounts.ToList();
-            _discoveryMessages = result.Messages.ToDictionary(p => p.Key, p => p.Value);
-            Report("设备识别结束。选择账号查看结果；未进入游戏的账号可稍后重新识别。");
+            for (var attempt = 1; attempt <= DiscoveryAttempts; attempt++)
+            {
+                var result = await _workspace.DiscoverDevicesAsync(cancellation.Token);
+                _accounts = result.Accounts.ToList();
+                _discoveryMessages = result.Messages.ToDictionary(p => p.Key, p => p.Value);
+                var succeeded = result.Messages.Count(p => p.Value.StartsWith("已识别 ", StringComparison.Ordinal));
+                var skipped = result.Messages.Count(p => p.Value.Contains("正在使用设备", StringComparison.Ordinal));
+                var failed = result.Messages.Count - succeeded - skipped;
+                RefreshRows();
+                if (failed == 0)
+                {
+                    Report($"Mapping 获取成功：{succeeded} 个账号就绪" +
+                        (skipped > 0 ? $"，{skipped} 个运行中跳过。" : "。") + " 可全选后点击“启动所选”。");
+                    break;
+                }
+                if (attempt < DiscoveryAttempts && result.Messages.Values.Any(IsTransientDiscoveryFailure))
+                {
+                    Report($"Mapping 已识别 {succeeded} 个，{failed} 个暂未就绪；5 秒后自动重试（{attempt}/{DiscoveryAttempts}）。");
+                    await Task.Delay(TimeSpan.FromSeconds(5), cancellation.Token);
+                    continue;
+                }
+                Report($"Mapping 获取结果：成功 {succeeded} 个，失败 {failed} 个" +
+                    (skipped > 0 ? $"，运行中跳过 {skipped} 个。" : "。") + " 请查看账号行中的原因；成功账号可勾选启动。");
+                break;
+            }
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
-        { Report("已取消设备识别，未保存本轮结果。"); }
+        { Report("已取消设备识别；已完成的账号结果会保留，可稍后重新识别。"); }
         finally { _discoveryCancellation = null; RefreshRows(); }
     }
+
+    private static bool IsTransientDiscoveryFailure(string message) =>
+        message.StartsWith("扫描未完整", StringComparison.Ordinal) ||
+        message.StartsWith("未找到原角色", StringComparison.Ordinal) ||
+        message.StartsWith("KMBox 验证失败", StringComparison.Ordinal) ||
+        message.StartsWith("原物理设备身份已变化或离线", StringComparison.Ordinal);
 
     private async Task RunUiActionAsync(Func<Task> action, bool requireInitialized = true)
     {
@@ -230,6 +258,7 @@ public sealed class MultiAccountForm : Form
             row.Cells[3].Value = string.IsNullOrWhiteSpace(view.Config.VmmDeviceName) ? "待配置" : view.Config.VmmDeviceName;
             row.Cells[3].ToolTipText = DiscoveryMessage(view);
             row.Cells[4].Value = StateText(view);
+            row.Cells[4].ToolTipText = DiscoveryMessage(view);
             var elapsed = snapshot?.StartedAt is { } started ? (snapshot.StoppedAt ?? DateTimeOffset.Now) - started : TimeSpan.Zero;
             row.Cells[5].Value = elapsed.TotalHours > 0 ? (snapshot!.KillCount / elapsed.TotalHours).ToString("0") : "—";
             row.Cells[6].Value = elapsed > TimeSpan.Zero ? $"{(int)elapsed.TotalHours:00}:{elapsed.Minutes:00}:{elapsed.Seconds:00}" : "—";
@@ -239,7 +268,9 @@ public sealed class MultiAccountForm : Form
         ShowDetail();
     }
 
-    private static string StateText(AccountProcessView view) => string.IsNullOrWhiteSpace(view.Config.VmmDeviceName) || view.Config.KmBox is null ? "待配置"
+    private string StateText(AccountProcessView view) => DiscoveryMessage(view) is { } discovery
+        ? discovery.StartsWith("已识别 ", StringComparison.Ordinal) ? "映射成功 · 待启动" : "映射失败 · " + discovery
+        : string.IsNullOrWhiteSpace(view.Config.VmmDeviceName) || view.Config.KmBox is null ? "待配置"
         : !Infrastructure.Hardware.HardwareVerificationSession.IsCurrent(view.Config) ? "待验证" : view.State switch
     {
         "starting" => "启动中", "stopping" => "停止中", "recovering" => "恢复中", "failed" => "需处理",

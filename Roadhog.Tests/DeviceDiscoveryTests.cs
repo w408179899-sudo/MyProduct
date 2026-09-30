@@ -262,6 +262,38 @@ internal static class DeviceDiscoveryTests
                 Field<Task>(reopened, "_initializationTask").GetAwaiter().GetResult();
                 Require(f.Probe.Reads.Count == 2, "same boot persisted mapping skips automatic scan on reopen");
             }
+
+            Pump(f.Workspace.SaveAccountsAsync(f.Accounts));
+            var originalRead = f.Probe.Read;
+            var attempts = 0;
+            f.Probe.Read = (v, token) => ++attempts == 1
+                ? Task.FromException<string>(new IOException("device not ready")) : originalRead(v, token);
+            using (var retry = Show(f.Workspace))
+            {
+                Until(() => Field<Task?>(retry, "_initializationTask")?.IsCompleted == true);
+                Require(attempts == 4 && f.Workspace.Processes.Snapshot().All(v => HardwareVerificationSession.IsCurrent(v.Config)),
+                    "reboot discovery retries a transient read and confirms every account without manual binding");
+                Require(Field<System.Windows.Forms.Label>(retry, "_message").Text.Contains("Mapping 获取成功：2 个账号"),
+                    "automatic mapping success is visible before batch start");
+                var grid = Field<System.Windows.Forms.DataGridView>(retry, "_grid");
+                Require(grid.Rows.Cast<System.Windows.Forms.DataGridViewRow>().All(row =>
+                    row.Cells[4].Value?.ToString()?.Contains("映射成功") == true),
+                    "each mapped account shows readiness in its row");
+            }
+
+            f.Accounts[1].CharacterName = f.Accounts[0].CharacterName;
+            Pump(f.Workspace.SaveAccountsAsync(f.Accounts));
+            using (var failed = Show(f.Workspace))
+            {
+                Until(() => Field<Task?>(failed, "_initializationTask")?.IsCompleted == true);
+                Require(Field<System.Windows.Forms.Label>(failed, "_message").Text.Contains("失败 2 个"),
+                    "permanent mapping failure is summarized without futile retries");
+                var grid = Field<System.Windows.Forms.DataGridView>(failed, "_grid");
+                Require(grid.Rows.Cast<System.Windows.Forms.DataGridViewRow>().All(row =>
+                    row.Cells[4].Value?.ToString()?.Contains("映射失败") == true &&
+                    row.Cells[4].ToolTipText.Contains("重复")),
+                    "failed rows retain their actionable cause");
+            }
         }
         finally { Pump(f.DisposeAsync().AsTask()); }
     });
@@ -284,7 +316,7 @@ internal static class DeviceDiscoveryTests
             // PerformClick bypasses the real message loop that installs the UI context.
             SynchronizationContext.SetSynchronizationContext(new System.Windows.Forms.WindowsFormsSynchronizationContext());
             FindButton(form, "自动识别设备").PerformClick();
-            Until(() => FindButton(form, "自动识别设备").Enabled && Field<System.Windows.Forms.Label>(form, "_message").Text.Contains("设备识别结束"));
+            Until(() => FindButton(form, "自动识别设备").Enabled && Field<System.Windows.Forms.Label>(form, "_message").Text.Contains("Mapping 获取成功"));
             Require(f.Probe.Reads.Count == 3 && f.Workspace.Processes.Snapshot().All(v => HardwareVerificationSession.IsCurrent(v.Config)), "manual retry rescans once and saves");
             var grid = Field<System.Windows.Forms.DataGridView>(form, "_grid");
             Require(grid.Rows[0].Cells[3].ToolTipText.Contains("已识别"), "per-account result visible when scan completes");
