@@ -46,7 +46,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
     private const int SmartPreAimSwitchConfirmationThreshold = 3;
     private const int SmartPreAimCandidateDiagnosticSampleCount = 8;
     private const double DefaultPathFollowReachDistance = 5.0D;
-    private const double DefaultStartupTownReturnDistance = 500.0D;
+    private const double DefaultStartupTownReturnDistance = 300.0D;
     private const double DefaultYawPixelsPerDegree = 11.0D;
     private const double DefaultPitchPixelsPerDegree = 13.0D;
     private const double DefaultSmartPreAimSwitchDistanceMargin = 2.0D;
