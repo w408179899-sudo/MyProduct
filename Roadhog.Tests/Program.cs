@@ -32,6 +32,12 @@ using Roadhog.Infrastructure.Paths;
 using Roadhog.Infrastructure.Profiles;
 using Roadhog.Infrastructure.Vmm;
 
+if (args.Contains("--device-discovery"))
+{
+    Environment.ExitCode = await DeviceDiscoveryTests.RunChildAsync(args);
+    return;
+}
+
 if (args.Contains("--hardware-mapping-audit"))
 {
     try { await SavedHardwareBindingTests.AuditLocalAsync(args[Array.IndexOf(args, "--hardware-mapping-audit") + 1]); }
@@ -635,6 +641,23 @@ var tests = new (string Name, Func<Task> Run)[]
     ("kmbox net config store saves and loads endpoint", TestKmBoxNetConfigStoreRoundTripAsync),
     ("legacy hardware save rolls back KMBox when FPGA save fails", LegacyHardwareSaveTests.KmBoxSaveRollsBackWhenFpgaSaveFailsAsync),
     ("legacy device read requires lease and committed save survives UI refresh failure", LegacyHardwareSaveTests.DeviceReadRequiresLeaseAndCommittedSaveSurvivesUiRefreshFailureAsync),
+    ("device discovery Swap", DeviceDiscoveryTests.SwapAsync),
+    ("device discovery Ambiguity", DeviceDiscoveryTests.AmbiguityAsync),
+    ("device discovery Partial", DeviceDiscoveryTests.PartialAsync),
+    ("device discovery Occupied", DeviceDiscoveryTests.OccupiedAsync),
+    ("device discovery Eligibility", DeviceDiscoveryTests.EligibilityAsync),
+    ("device discovery Cancellation", DeviceDiscoveryTests.CancellationAsync),
+    ("device discovery HandshakeFailure", DeviceDiscoveryTests.HandshakeFailureAsync),
+    ("device discovery CleanupFailure", DeviceDiscoveryTests.CleanupFailureAsync),
+    ("device discovery Persist", DeviceDiscoveryTests.PersistAsync),
+    ("device discovery WorkspaceCancellation", DeviceDiscoveryTests.WorkspaceCancellationAsync),
+    ("device discovery TopologyChanged", DeviceDiscoveryTests.TopologyChangedAsync),
+    ("device discovery UnsupportedMode", DeviceDiscoveryTests.UnsupportedModeAsync),
+    ("device discovery Admission", DeviceDiscoveryTests.AdmissionAsync),
+    ("device discovery ProductionHandshake", DeviceDiscoveryTests.ProductionHandshakeAsync),
+    ("device discovery UiTiming", DeviceDiscoveryTests.UiTimingAsync),
+    ("device discovery UiCancelRetry", DeviceDiscoveryTests.UiCancelRetryAsync),
+    ("device discovery ProcessBoundary", DeviceDiscoveryTests.ProcessBoundaryAsync),
     ("device lease store prevents cross process device reuse", TestDeviceLeaseStorePreventsCrossProcessReuseAsync),
     ("device lease store explains corrupted registry recovery", TestDeviceLeaseStoreExplainsCorruptedRegistryRecoveryAsync),
     ("device lease uncertain process identity preserves owner and blocks takeover", DeviceLeasePresenceTests.UnknownOwnerPreservesLeaseAndBlocksTakeoverAsync),

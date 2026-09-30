@@ -408,7 +408,7 @@ public sealed class WorkerProcessHost
         }
     }
 
-    private sealed class WorkerMutex : IDisposable
+    internal sealed class WorkerMutex : IDisposable
     {
         private readonly ManualResetEventSlim _ready = new();
         private readonly ManualResetEventSlim _release = new();

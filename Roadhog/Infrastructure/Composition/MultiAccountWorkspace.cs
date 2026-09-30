@@ -14,7 +14,7 @@ using Roadhog.Infrastructure.WorkerProcesses;
 namespace Roadhog.Infrastructure.Composition;
 
 /// <summary>The desktop owns configuration. This composition never constructs a game provider or keyboard.</summary>
-public sealed class MultiAccountWorkspace : IAsyncDisposable
+public sealed partial class MultiAccountWorkspace : IAsyncDisposable
 {
     private readonly object _disposeSync = new();
     private readonly SemaphoreSlim _saveDisposeGate = new(1, 1);
@@ -52,6 +52,8 @@ public sealed class MultiAccountWorkspace : IAsyncDisposable
         Hardware = new(Options.HardwareResolver);
         Processes = new(Options, Logger, launch);
         _deviceLeases = new(launch?.LeasePath);
+        DiscoveryProbe = new DeviceDiscoveryProcess(Path.Combine(directory, "device-discovery"), launch ?? new());
+        DiscoveryDevices = Hardware.ListDevices;
     }
 
     public async Task<IReadOnlyList<AccountConfig>> InitializeAsync(CancellationToken cancellationToken)
@@ -104,27 +106,32 @@ public sealed class MultiAccountWorkspace : IAsyncDisposable
             // Keep start admission closed through validation, disk persistence, and the manager update.
             // Otherwise a worker can start with the old binding after validation but before the new file is written.
             using var admission = await Processes.HoldStartAdmissionsAsync(cancellationToken).ConfigureAwait(false);
-            var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var credentials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var account in accounts)
-            {
-                if (!Guid.TryParse(account.InstanceId, out _) || !ids.Add(account.InstanceId)) throw new InvalidOperationException("账号实例标识无效或重复。");
-                if (!credentials.Add(Path.GetFullPath(Processes.PathsFor(account).LicenseCredentialPath))) throw new InvalidOperationException("两个账号不能共用同一份客户端授权凭据，请为新账号完成独立授权或导入其原有授权。");
-            }
-            // Stopped accounts may save overlapping selections while devices are reassigned one at a time.
-            // Recheck new selections against live ownership; unchanged saved overlaps do not block settings saves.
-            var previous = Processes.Snapshot().ToDictionary(view => view.Config.InstanceId, view => view.Config, StringComparer.OrdinalIgnoreCase);
-            foreach (var account in accounts)
-                if (!previous.TryGetValue(account.InstanceId, out var old) || HardwareSelectionChanged(old, account))
-                    HardwareAvailability(account.InstanceId).EnsureAvailable(account);
-            Processes.ValidateAccountUpdate(accounts);
-            await SharedCleanupMigration.MigrateAsync(Options.AccountConfigPath, accounts, Options.ProfileLibraryDirectory,
-                Options.BagCleanupNameListPath, cancellationToken).ConfigureAwait(false);
-            var result = await Accounts.SaveAllAsync(accounts, cancellationToken).ConfigureAwait(false);
-            if (!result.Success) throw new InvalidOperationException(result.Error);
-            Processes.UpdateAccounts(accounts);
+            await SaveAccountsCoreAsync(accounts, cancellationToken).ConfigureAwait(false);
         }
         finally { _saveDisposeGate.Release(); }
+    }
+
+    private async Task SaveAccountsCoreAsync(IReadOnlyList<AccountConfig> accounts, CancellationToken cancellationToken)
+    {
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var credentials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var account in accounts)
+        {
+            if (!Guid.TryParse(account.InstanceId, out _) || !ids.Add(account.InstanceId)) throw new InvalidOperationException("账号实例标识无效或重复。");
+            if (!credentials.Add(Path.GetFullPath(Processes.PathsFor(account).LicenseCredentialPath))) throw new InvalidOperationException("两个账号不能共用同一份客户端授权凭据，请为新账号完成独立授权或导入其原有授权。");
+        }
+        // Stopped accounts may save overlapping selections while devices are reassigned one at a time.
+        // Recheck new selections against live ownership; unchanged saved overlaps do not block settings saves.
+        var previous = Processes.Snapshot().ToDictionary(view => view.Config.InstanceId, view => view.Config, StringComparer.OrdinalIgnoreCase);
+        foreach (var account in accounts)
+            if (!previous.TryGetValue(account.InstanceId, out var old) || HardwareSelectionChanged(old, account))
+                HardwareAvailability(account.InstanceId).EnsureAvailable(account);
+        Processes.ValidateAccountUpdate(accounts);
+        await SharedCleanupMigration.MigrateAsync(Options.AccountConfigPath, accounts, Options.ProfileLibraryDirectory,
+            Options.BagCleanupNameListPath, cancellationToken).ConfigureAwait(false);
+        var result = await Accounts.SaveAllAsync(accounts, cancellationToken).ConfigureAwait(false);
+        if (!result.Success) throw new InvalidOperationException(result.Error);
+        Processes.UpdateAccounts(accounts);
     }
 
     private static bool HardwareSelectionChanged(AccountConfig a, AccountConfig b) =>

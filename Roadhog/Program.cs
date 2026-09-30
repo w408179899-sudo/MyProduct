@@ -8,6 +8,13 @@ namespace Roadhog
         [STAThread]
         static void Main(string[] args)
         {
+            if (args.Length > 0 && args[0] == "--device-discovery")
+            {
+                try { Environment.ExitCode = args.Length == 2
+                    ? Infrastructure.Hardware.DeviceDiscoveryProcess.RunChildAsync(args[1]).GetAwaiter().GetResult() : 2; }
+                catch { Environment.ExitCode = 12; }
+                return;
+            }
             if (args.Length == 2 && args[0] == "--account-worker")
             {
                 try

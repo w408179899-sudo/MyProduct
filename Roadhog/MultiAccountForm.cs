@@ -28,6 +28,8 @@ public sealed class MultiAccountForm : Form
     private bool _exiting;
     private bool _allowClose;
     private bool _initialized;
+    private CancellationTokenSource? _discoveryCancellation;
+    private Dictionary<string, string> _discoveryMessages = new();
 
     public MultiAccountForm(MultiAccountWorkspace? workspace = null)
     {
@@ -68,7 +70,10 @@ public sealed class MultiAccountForm : Form
         _search.PlaceholderText = "搜索账号 / 角色"; _search.Size = new Size(220, 28);
         _search.Controls.OfType<TextBox>().Single().TextChanged += (_, _) => RefreshRows();
         _summary.AutoSize = true; _summary.Margin = new Padding(16, 5, 0, 0);
-        filters.Controls.AddRange([_filter, _search, _summary]); root.Controls.Add(filters, 0, 1);
+        filters.Controls.AddRange([_filter, _search,
+            Button("自动识别设备", () => RunConfigurationActionAsync(DiscoverDevicesAsync)),
+            Button("取消识别", () => { _discoveryCancellation?.Cancel(); return Task.CompletedTask; }), _summary]);
+        root.Controls.Add(filters, 0, 1);
         _grid.Dock = DockStyle.Fill; _grid.ReadOnly = false; _grid.AllowUserToAddRows = false; _grid.AllowUserToDeleteRows = false;
         _grid.AllowUserToResizeRows = false; _grid.RowHeadersVisible = false; _grid.MultiSelect = false;
         _grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect; _grid.BackgroundColor = Color.White;
@@ -146,6 +151,27 @@ public sealed class MultiAccountForm : Form
         var accounts = await _workspace.InitializeAsync(_operations.Token);
         if (_operations.IsClosing || IsDisposed) return;
         _accounts = accounts.ToList(); _initialized = true; RefreshRows(); _timer.Start();
+        if (_accounts.Any(a => !Infrastructure.Hardware.HardwareVerificationSession.IsCurrent(a)
+            && !string.IsNullOrWhiteSpace(a.CharacterName) && !string.IsNullOrWhiteSpace(a.HardwareVerificationSessionId)))
+            await RunConfigurationActionAsync(DiscoverDevicesAsync);
+    }
+
+    private async Task DiscoverDevicesAsync()
+    {
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_operations.Token);
+        _discoveryCancellation = cancellation;
+        _discoveryMessages = new Dictionary<string, string>();
+        Report("正在逐台识别角色，请保持设备接线不变；完成后由你点击启动。");
+        try
+        {
+            var result = await _workspace.DiscoverDevicesAsync(cancellation.Token);
+            _accounts = result.Accounts.ToList();
+            _discoveryMessages = result.Messages.ToDictionary(p => p.Key, p => p.Value);
+            Report("设备识别结束。选择账号查看结果；未进入游戏的账号可稍后重新识别。");
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        { Report("已取消设备识别，未保存本轮结果。"); }
+        finally { _discoveryCancellation = null; RefreshRows(); }
     }
 
     private async Task RunUiActionAsync(Func<Task> action, bool requireInitialized = true)
@@ -202,6 +228,7 @@ public sealed class MultiAccountForm : Form
             row.Cells[1].ToolTipText = row.Cells[1].Value?.ToString();
             row.Cells[2].Value = view.WorkerProcessId?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "—";
             row.Cells[3].Value = string.IsNullOrWhiteSpace(view.Config.VmmDeviceName) ? "待配置" : view.Config.VmmDeviceName;
+            row.Cells[3].ToolTipText = DiscoveryMessage(view);
             row.Cells[4].Value = StateText(view);
             var elapsed = snapshot?.StartedAt is { } started ? (snapshot.StoppedAt ?? DateTimeOffset.Now) - started : TimeSpan.Zero;
             row.Cells[5].Value = elapsed.TotalHours > 0 ? (snapshot!.KillCount / elapsed.TotalHours).ToString("0") : "—";
@@ -221,12 +248,16 @@ public sealed class MultiAccountForm : Form
             : "运行中", _ => "已停止"
     };
     private string? SelectedId() => _grid.SelectedRows.Count > 0 ? _grid.SelectedRows[0].Tag as string : null;
+    private string? DiscoveryMessage(AccountProcessView view) => view.WorkerProcessId is null && !view.DesiredRunning
+        ? _discoveryMessages.GetValueOrDefault(view.Config.InstanceId) : null;
     private void ShowDetail()
     {
         var id = SelectedId(); var view = _workspace.Processes.Snapshot().FirstOrDefault(v => v.Config.InstanceId == id);
         _detail.Text = view is null ? "选择账号查看状态；勾选后可批量操作。" :
             $"{view.Config.AccountName} · {StateText(view)} · 自动恢复：{(view.Config.AutoRecover ? "开启" : "关闭")}\n" +
-            (view.Error ?? view.Worker?.Snapshot?.LastWarning ?? view.Worker?.Snapshot?.CleanupProgress ?? "");
+            ((view.Error != Infrastructure.Hardware.HardwareVerificationSession.RequiredMessage ? view.Error : null)
+                ?? DiscoveryMessage(view) ?? view.Error
+                ?? view.Worker?.Snapshot?.LastWarning ?? view.Worker?.Snapshot?.CleanupProgress ?? "");
     }
 
     private async void GridAction(object? sender, DataGridViewCellEventArgs e)
@@ -374,6 +405,7 @@ public sealed class MultiAccountForm : Form
             if (form.ShowDialog(this) != DialogResult.OK) return;
             var next = _accounts.Where(a => a.InstanceId != draft.InstanceId).Append(form.Config).ToList();
             await _workspace.SaveAccountsAsync(next, _operations.Token); _accounts = next; Report("账号配置已保存。");
+            _discoveryMessages.Remove(draft.InstanceId);
         }
         finally { _workspace.Processes.UpdateAccounts(_accounts); RefreshRows(); }
     }

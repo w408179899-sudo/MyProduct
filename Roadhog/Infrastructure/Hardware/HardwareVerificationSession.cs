@@ -5,7 +5,7 @@ namespace Roadhog.Infrastructure.Hardware;
 
 internal static class HardwareVerificationSession
 {
-    public const string RequiredMessage = "本次开机尚未确认硬件连接。请打开“设备/角色”，重新读取角色、勾选确认并保存硬件配置后再启动。";
+    public const string RequiredMessage = "本次开机尚未确认硬件连接。接线未变时可点击“自动识别设备”；或打开“设备/角色”，重新读取角色、勾选确认并保存后再启动。";
     private static readonly Lazy<string> Session = new(() => ReadOrCreate(@"Software\Roadhog\HardwareVerificationBootV1"));
     public static string CurrentId => Session.Value;
     public static bool IsCurrent(AccountConfig account) => IsCurrent(account, CurrentId);
