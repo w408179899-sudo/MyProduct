@@ -56,6 +56,7 @@ public sealed class WorkerProcessManager : IAsyncDisposable
     private readonly RoadhogServiceOptions _paths;
     private readonly WorkerProcessLaunchOptions _launch;
     private readonly IRoadhogLogger _logger;
+    private readonly IWorkerProcessExitReconciler _exitReconciler;
     private readonly string _root;
     private readonly SemaphoreSlim _intentGate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
@@ -65,11 +66,13 @@ public sealed class WorkerProcessManager : IAsyncDisposable
     private Task? _monitor;
     private static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true, WriteIndented = true };
 
-    public WorkerProcessManager(RoadhogServiceOptions paths, IRoadhogLogger logger, WorkerProcessLaunchOptions? launch = null)
+    public WorkerProcessManager(RoadhogServiceOptions paths, IRoadhogLogger logger, WorkerProcessLaunchOptions? launch = null,
+        IWorkerProcessExitReconciler? exitReconciler = null)
     {
         _paths = paths;
         _logger = logger;
         _launch = launch ?? new();
+        _exitReconciler = exitReconciler ?? new WindowsWorkerProcessExitReconciler();
         _root = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(paths.AccountConfigPath))!, "workers");
         Directory.CreateDirectory(_root);
     }
@@ -140,7 +143,7 @@ public sealed class WorkerProcessManager : IAsyncDisposable
             foreach (var key in _entries.Keys.Except(accounts.Select(a => a.InstanceId), StringComparer.OrdinalIgnoreCase).ToArray())
             {
                 var entry = _entries[key];
-                if (Alive(entry) || entry.Desired) throw new InvalidOperationException("请先停止账号，再删除配置。");
+                if (entry.Process is not null || entry.Desired) throw new InvalidOperationException("请先停止账号，再删除配置。");
                 _entries.Remove(key);
             }
         }
@@ -154,7 +157,7 @@ public sealed class WorkerProcessManager : IAsyncDisposable
             foreach (var config in accounts)
             {
                 if (!Guid.TryParse(config.InstanceId, out _) || !ids.Add(config.InstanceId)) throw new InvalidOperationException("账号实例标识无效或重复。");
-                if (_entries.TryGetValue(config.InstanceId, out var entry) && (entry.Desired || Alive(entry)) &&
+                if (_entries.TryGetValue(config.InstanceId, out var entry) && (entry.Desired || entry.Process is not null) &&
                     (entry.Config.AccountName != config.AccountName || entry.Config.HardwareKey != config.HardwareKey ||
                      entry.Config.VmmDeviceName != config.VmmDeviceName || entry.Config.LicenseCredentialPath != config.LicenseCredentialPath ||
                      entry.Config.BagCleanupNameListPath != config.BagCleanupNameListPath || entry.Config.RadarMapDirectory != config.RadarMapDirectory ||
@@ -164,7 +167,7 @@ public sealed class WorkerProcessManager : IAsyncDisposable
                     throw new InvalidOperationException("请先停止账号，再修改名称、硬件绑定、资料目录或授权。");
             }
             foreach (var pair in _entries)
-                if (!ids.Contains(pair.Key) && (pair.Value.Desired || Alive(pair.Value))) throw new InvalidOperationException("请先停止账号，再删除配置。");
+                if (!ids.Contains(pair.Key) && (pair.Value.Desired || pair.Value.Process is not null)) throw new InvalidOperationException("请先停止账号，再删除配置。");
         }
     }
 
@@ -188,7 +191,7 @@ public sealed class WorkerProcessManager : IAsyncDisposable
     public async Task<HardwareVerification> VerifyHardwareAsync(AccountConfig draft, CancellationToken cancellationToken)
     {
         var entry = Get(draft.InstanceId);
-        if (Alive(entry)) throw new InvalidOperationException("请先停止此账号，再验证新的硬件绑定。");
+        if (entry.Process is not null) throw new InvalidOperationException("请先停止此账号，再验证新的硬件绑定。");
         var old = entry.Config;
         lock (entry.Sync) entry.Config = draft.Clone();
         try
@@ -376,7 +379,8 @@ public sealed class WorkerProcessManager : IAsyncDisposable
             stopError = (stopError is null ? "账号已停止，但停止状态未能保存：" : stopError + "；停止状态未能保存：") + ex.Message;
             _logger.Error("account_process.stop_intent_failed", ex);
         }
-        lock (entry.Sync) { entry.State = Alive(entry) ? "failed" : "stopped"; entry.Error = stopError; if (!Alive(entry)) entry.Status = null; }
+        lock (entry.Sync) { entry.State = stopError is not null || entry.Process is not null ? "failed" : "stopped"; entry.Error = stopError; if (!Alive(entry)) entry.Status = null; }
+        if (stopError is not null) Fail(entry, stopError);
         return stopError is null ? OperationResult.Ok() : OperationResult.Fail(stopError);
     }
 
@@ -445,7 +449,13 @@ public sealed class WorkerProcessManager : IAsyncDisposable
     private async Task<WorkerRpcClient> EnsureWorkerAsync(Entry entry, CancellationToken cancellationToken)
     {
         ThrowIfUnavailable();
-        if (!Alive(entry)) await TryAdoptAsync(entry, waitForPending: true, cancellationToken).ConfigureAwait(false);
+        if (!Alive(entry))
+        {
+            // HasExited is not proof that Windows has released the old worker's driver handles.
+            // Keep its authenticated identity until the system process is also gone.
+            if (entry.Process is not null) await ShutdownCoreAsync(entry).ConfigureAwait(false);
+            await TryAdoptAsync(entry, waitForPending: true, cancellationToken).ConfigureAwait(false);
+        }
         if (Alive(entry) && entry.Descriptor is not null)
         {
             try
@@ -560,11 +570,17 @@ public sealed class WorkerProcessManager : IAsyncDisposable
     {
         if (!Alive(entry))
         {
-            if (entry.Descriptor is { } exited) ClearPending(entry.Config.InstanceId, exited.Token);
+            if (entry.Descriptor is { } exited)
+            {
+                await ReconcileOwnedExitAsync(entry, exited).ConfigureAwait(false);
+                ClearPending(entry.Config.InstanceId, exited.Token);
+            }
             Forget(entry); return;
         }
         var process = entry.Process!;
         var descriptor = entry.Descriptor ?? throw new InvalidOperationException("后台缺少已验证的进程身份，拒绝强制结束。");
+        lock (entry.Sync) { entry.Status = null; entry.RunningSince = null; }
+        var reconciled = false;
         using var timeout = new CancellationTokenSource(_launch.StopTimeout);
         try
         {
@@ -586,9 +602,18 @@ public sealed class WorkerProcessManager : IAsyncDisposable
         {
             _logger.Warn("account_process.stop_timeout", new Dictionary<string, object?> { ["account"] = entry.Config.AccountName, ["error"] = ex.Message });
             await TerminateOwnedAsync(process, descriptor).ConfigureAwait(false);
+            reconciled = true;
         }
+        if (!reconciled) await ReconcileOwnedExitAsync(entry, descriptor).ConfigureAwait(false);
         ClearPending(entry.Config.InstanceId, descriptor.Token);
         Forget(entry);
+    }
+
+    private async Task ReconcileOwnedExitAsync(Entry entry, WorkerDescriptor descriptor)
+    {
+        // A completed business status must not hide a failed process cleanup or acknowledge Start.
+        lock (entry.Sync) { entry.Status = null; entry.RunningSince = null; }
+        await _exitReconciler.ReconcileAsync(descriptor, _launch.ExecutablePath).ConfigureAwait(false);
     }
 
     private void EnsureOwnedProcess(Process process, WorkerDescriptor descriptor)
@@ -611,6 +636,7 @@ public sealed class WorkerProcessManager : IAsyncDisposable
         }
         catch (InvalidOperationException) when (HasExitedOrDisposed(process)) { }
         catch (System.ComponentModel.Win32Exception) when (HasExitedOrDisposed(process)) { }
+        await _exitReconciler.ReconcileAsync(descriptor, _launch.ExecutablePath).ConfigureAwait(false);
     }
 
     private static bool HasExitedOrDisposed(Process process)
@@ -693,9 +719,17 @@ public sealed class WorkerProcessManager : IAsyncDisposable
             }
             if (!Alive(entry))
             {
-                var unexpectedlyExited = entry.Process is not null && entry.Desired;
-                Forget(entry);
-                if (!entry.Desired) return;
+                var ownedProcessExited = entry.Process is not null;
+                // A failed cleanup retains ownership and follows the same bounded retry delay as recovery.
+                // Explicit Start/Stop calls bypass this background delay.
+                if (ownedProcessExited && DateTimeOffset.UtcNow < entry.RetryAt) return;
+                var unexpectedlyExited = ownedProcessExited && entry.Desired;
+                await ShutdownCoreAsync(entry).ConfigureAwait(false);
+                if (!entry.Desired)
+                {
+                    if (ownedProcessExited) lock (entry.Sync) { entry.State = "stopped"; entry.Error = null; }
+                    return;
+                }
                 if (unexpectedlyExited) Fail(entry, "账号后台异常退出，等待恢复。");
                 if (!entry.Config.AutoRecover) { entry.State = "failed"; entry.Error ??= "后台已退出，请手动重试。"; return; }
                 if (DateTimeOffset.UtcNow < entry.RetryAt) return;
@@ -899,7 +933,7 @@ public sealed class WorkerProcessManager : IAsyncDisposable
     }
     private static int? ProcessId(Entry entry)
     {
-        try { var process = entry.Process; return process is { HasExited: false } ? process.Id : null; }
+        try { return entry.Process is not null ? entry.Descriptor?.ProcessId ?? entry.Process.Id : null; }
         catch (InvalidOperationException) { return null; }
         catch (System.ComponentModel.Win32Exception) { return entry.Descriptor?.ProcessId; }
     }

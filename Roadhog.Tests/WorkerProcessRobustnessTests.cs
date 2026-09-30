@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using Roadhog.Application;
@@ -101,6 +102,127 @@ internal static class WorkerProcessRobustnessTests
         Require(manager.Snapshot().All(view => !view.DesiredRunning && view.WorkerProcessId is null), "no recovery remains after final stop");
     }
 
+    public static async Task HealthyPollingNeverReconcilesProcessExitAsync()
+    {
+        await using var test = new EnvironmentScope();
+        var account = test.Account(1);
+        var reconciler = new FakeExitReconciler();
+        var manager = await test.ManagerAsync(new[] { account }, exitReconciler: reconciler);
+        Require((await manager.StartAsync(account.InstanceId)).Success, "start healthy worker");
+        var pid = (await RunningAsync(manager, account)).WorkerProcessId;
+        await Task.Delay(350);
+        Require(View(manager, account) is { State: "running", Worker.IsRunning: true } && View(manager, account).WorkerProcessId == pid,
+            "healthy polling preserves the running child");
+        Require(reconciler.Calls.Length == 0, "healthy startup and repeated polling never invoke process exit reconciliation");
+    }
+
+    public static async Task ResidualExitBlocksReplacementUntilReconciledAsync()
+    {
+        await using var test = new EnvironmentScope();
+        var account = test.Account(1);
+        var neighbor = test.Account(2);
+        var reconciler = new FakeExitReconciler();
+        var manager = await test.ManagerAsync(new[] { account, neighbor }, exitReconciler: reconciler);
+        RequireSuccess(await Task.WhenAll(manager.StartAsync(account.InstanceId), manager.StartAsync(neighbor.InstanceId)), "start residual recovery accounts");
+        var oldPid = (await RunningAsync(manager, account)).WorkerProcessId!.Value;
+        var neighborPid = (await RunningAsync(manager, neighbor)).WorkerProcessId;
+        var descriptor = ReadDescriptor(test.Manifest(account));
+        var launch = await File.ReadAllTextAsync(test.Launch(account));
+        var workersBefore = test.RecordedWorkerCount();
+        reconciler.Block(oldPid);
+        try
+        {
+            await KillAsync(oldPid);
+            Require(!Alive(oldPid), "fault injection completes the real child exit before simulating its residual system entity");
+            await UntilAsync(() => reconciler.Calls.Length >= 2, "failed residual cleanup is retried with the retained identity");
+            var blocked = View(manager, account);
+            Require(blocked.WorkerProcessId == oldPid && blocked.DesiredRunning && blocked.State != "stopped",
+                "a failed residual cleanup preserves the old PID and recovery intent");
+            Require(blocked.Error?.Contains("residual", StringComparison.Ordinal) == true, "residual cleanup failure remains visible");
+            Require(test.RecordedWorkerCount() == workersBefore, "failed residual cleanup cannot create a replacement worker");
+            Require(await File.ReadAllTextAsync(test.Launch(account)) == launch, "failed residual cleanup cannot overwrite the stable launch identity");
+            Require(ReadDescriptor(test.Manifest(account)) == descriptor, "failed residual cleanup preserves the old manifest");
+            RequireReconciledIdentity(reconciler.Calls, descriptor);
+            Require(View(manager, neighbor).WorkerProcessId == neighborPid && (await InfoAsync(test, neighbor)).Running,
+                "a blocked residual cleanup leaves the neighboring worker running");
+
+            reconciler.Release();
+            await UntilAsync(() => View(manager, account) is { State: "running", WorkerProcessId: { } pid, Worker.IsRunning: true } && pid != oldPid,
+                "automatic recovery resumes after residual cleanup succeeds", 10000);
+            Require(test.RecordedWorkerCount() == workersBefore + 1, "cleanup success creates exactly one new worker generation");
+            Require(test.ReadLaunch(account).Token != descriptor.Token, "replacement receives a new launch identity only after cleanup succeeds");
+            Require((await InfoAsync(test, account)).Starts == 1, "recovered backend starts once");
+            Require(View(manager, neighbor).WorkerProcessId == neighborPid && (await InfoAsync(test, neighbor)).Running,
+                "successful recovery also preserves the neighboring PID");
+            RequireReconciledIdentity(reconciler.Calls, descriptor);
+        }
+        finally { reconciler.Release(); }
+    }
+
+    public static async Task ResidualStopFailureRetainsIdentityForRetryAsync()
+    {
+        await using var test = new EnvironmentScope();
+        var account = test.Account(1);
+        account.AutoRecover = false;
+        var reconciler = new FakeExitReconciler();
+        var manager = await test.ManagerAsync(new[] { account }, exitReconciler: reconciler);
+        Require((await manager.StartAsync(account.InstanceId)).Success, "start worker before residual Stop failure");
+        var pid = (await RunningAsync(manager, account)).WorkerProcessId!.Value;
+        var descriptor = ReadDescriptor(test.Manifest(account));
+        var launch = await File.ReadAllTextAsync(test.Launch(account));
+        var workersBefore = test.RecordedWorkerCount();
+        reconciler.Block(pid);
+        try
+        {
+            var stopped = await manager.StopAsync(account.InstanceId).WaitAsync(TimeSpan.FromSeconds(4));
+            Require(!stopped.Success && stopped.Error?.Contains("residual", StringComparison.Ordinal) == true,
+                "Stop reports failure when the system entity cannot be reconciled");
+            Require(!Alive(pid), "Stop fault occurs after the actual child has exited");
+            var retained = View(manager, account);
+            Require(retained.WorkerProcessId == pid && !retained.DesiredRunning && retained.State != "stopped",
+                "failed Stop retains unresolved process ownership without claiming the account has stopped");
+            Require(reconciler.Calls.Length > 0, "Stop reconciles process exit even after graceful shutdown");
+            RequireReconciledIdentity(reconciler.Calls, descriptor);
+            Require(await File.ReadAllTextAsync(test.Launch(account)) == launch && test.RecordedWorkerCount() == workersBefore,
+                "failed Stop never replaces the retained generation");
+
+            var deletionRejected = false;
+            try { manager.ValidateAccountUpdate(Array.Empty<AccountConfig>()); }
+            catch (InvalidOperationException) { deletionRejected = true; }
+            Require(deletionRejected, "an exited process with unresolved ownership still prevents account deletion");
+            var changedHardware = account.Clone();
+            changedHardware.HardwareKey += "-changed";
+            var hardwareChangeRejected = false;
+            try { manager.ValidateAccountUpdate(new[] { changedHardware }); }
+            catch (InvalidOperationException) { hardwareChangeRejected = true; }
+            Require(hardwareChangeRejected, "residual ownership prevents changing the stopped account's hardware binding");
+
+            // Graceful shutdown may remove its own manifest before reconciliation fails.
+            var retainedManifest = File.Exists(test.Manifest(account)) ? await File.ReadAllTextAsync(test.Manifest(account)) : null;
+            var restarted = await manager.StartAsync(account.InstanceId).WaitAsync(TimeSpan.FromSeconds(4));
+            Require(!restarted.Success && restarted.Error?.Contains("residual", StringComparison.Ordinal) == true,
+                "an explicit Start cannot replace a worker whose residual cleanup still fails");
+            Require(View(manager, account).WorkerProcessId == pid && test.RecordedWorkerCount() == workersBefore,
+                "a rejected explicit Start keeps the old PID and cannot spawn a new generation");
+            Require(await File.ReadAllTextAsync(test.Launch(account)) == launch,
+                "a rejected explicit Start preserves the stable launch file contents");
+            var manifestAfterRestart = File.Exists(test.Manifest(account)) ? await File.ReadAllTextAsync(test.Manifest(account)) : null;
+            Require(manifestAfterRestart == retainedManifest,
+                "a rejected explicit Start preserves the old manifest or leaves a gracefully removed manifest absent");
+            RequireReconciledIdentity(reconciler.Calls, descriptor);
+
+            reconciler.Release();
+            Require((await manager.StopAsync(account.InstanceId).WaitAsync(TimeSpan.FromSeconds(4))).Success,
+                "a repeated Stop succeeds once residual cleanup succeeds");
+            Require(View(manager, account) is { State: "stopped", WorkerProcessId: null, DesiredRunning: false },
+                "successful repeated Stop clears ownership and reports stopped");
+            Require(reconciler.Calls.Length >= 2, "repeated Stop retries cleanup using the old descriptor");
+            RequireReconciledIdentity(reconciler.Calls, descriptor);
+            Require(test.RecordedWorkerCount() == workersBefore, "Stop retry cannot spawn a new process");
+        }
+        finally { reconciler.Release(); }
+    }
+
     public static async Task ForgedAndStaleManifestsNeverStopAnotherAccountAsync()
     {
         await using var test = new EnvironmentScope();
@@ -119,11 +241,13 @@ internal static class WorkerProcessRobustnessTests
             if (variant == "wrong-start-time") forged = forged with { ProcessStartedAtUtc = forged.ProcessStartedAtUtc.AddMinutes(-1) };
             if (variant == "wrong-token") forged = forged with { Token = new string('0', 64) };
             await File.WriteAllTextAsync(test.Manifest(first), variant == "malformed" ? "{broken" : JsonSerializer.Serialize(forged));
-            var manager = await test.ManagerAsync(new[] { first, second });
+            var reconciler = new FakeExitReconciler();
+            var manager = await test.ManagerAsync(new[] { first, second }, exitReconciler: reconciler);
             await manager.StopAsync(first.InstanceId).WaitAsync(TimeSpan.FromSeconds(4));
             Require(Alive(neighborPid), variant + " manifest cannot make Stop target another account process");
             Require((await InfoAsync(test, second)).Running, variant + " manifest cannot send another account a shutdown command");
             Require(View(manager, first).WorkerProcessId != neighborPid, "unverified manifest is never adopted as owned");
+            Require(reconciler.Calls.Length == 0, variant + " unverified manifest never grants residual termination authority");
             await test.DetachAsync(manager);
         }
     }
@@ -222,7 +346,7 @@ internal static class WorkerProcessRobustnessTests
         Require(test.RecordedWorkerCount() == observedBefore, "disposed manager never creates a replacement process");
     }
 
-    private static WorkerProcessManager CreateManager(string root, string scenario, TimeSpan startupTimeout) => new(
+    private static WorkerProcessManager CreateManager(string root, string scenario, TimeSpan startupTimeout, IWorkerProcessExitReconciler? exitReconciler = null) => new(
         new RoadhogServiceOptions
         {
             AccountConfigPath = Path.Combine(root, "config", "accounts.json"), PathLibraryDirectory = Path.Combine(root, "config", "paths"),
@@ -235,7 +359,7 @@ internal static class WorkerProcessRobustnessTests
             StartupTimeout = startupTimeout, StopTimeout = TimeSpan.FromMilliseconds(750),
             PollInterval = TimeSpan.FromMilliseconds(30), RecoveryDelay = TimeSpan.FromMilliseconds(40),
             LeasePath = Path.Combine(root, "leases.json")
-        });
+        }, exitReconciler);
 
     private static AccountProcessView View(WorkerProcessManager manager, AccountConfig account) => manager.Snapshot().Single(value => value.Config.InstanceId == account.InstanceId);
     private static async Task<AccountProcessView> RunningAsync(WorkerProcessManager manager, AccountConfig account)
@@ -273,6 +397,36 @@ internal static class WorkerProcessRobustnessTests
     private sealed record ControllerSpec(string Root, AccountConfig[] Accounts, string Scenario);
     private sealed record OwnedProcess(int ProcessId, DateTime StartedAtUtc);
     private sealed record BackendInfo(int Starts, bool Running);
+
+    private static void RequireReconciledIdentity(ReconciliationCall[] calls, WorkerDescriptor expected)
+    {
+        Require(calls.All(call => call.Descriptor.ProcessId == expected.ProcessId &&
+            call.Descriptor.ProcessStartedAtUtc == expected.ProcessStartedAtUtc && call.Descriptor.InstanceId == expected.InstanceId &&
+            call.Descriptor.PipeName == expected.PipeName && call.Descriptor.Token == expected.Token &&
+            string.Equals(call.ExecutablePath, Path.Combine(AppContext.BaseDirectory, "Roadhog.Tests.exe"), StringComparison.OrdinalIgnoreCase)),
+            "every cleanup attempt uses the same verified process, account, launch token, and executable identity");
+    }
+
+    private sealed record ReconciliationCall(WorkerDescriptor Descriptor, string ExecutablePath);
+
+    private sealed class FakeExitReconciler : IWorkerProcessExitReconciler
+    {
+        private readonly ConcurrentQueue<ReconciliationCall> _calls = new();
+        private int _blockedPid;
+        private int _released;
+        public ReconciliationCall[] Calls => _calls.ToArray();
+        public void Block(int pid) { Volatile.Write(ref _blockedPid, pid); Volatile.Write(ref _released, 0); }
+        public void Release() => Volatile.Write(ref _released, 1);
+        public Task ReconcileAsync(WorkerDescriptor descriptor, string executablePath, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _calls.Enqueue(new(descriptor, executablePath));
+            Require(!Alive(descriptor.ProcessId), "exit reconciliation is only invoked after the owned child has exited");
+            if (descriptor.ProcessId == Volatile.Read(ref _blockedPid) && Volatile.Read(ref _released) == 0)
+                throw new InvalidOperationException("residual process entity is still present");
+            return Task.CompletedTask;
+        }
+    }
 
     private sealed class Backend(WorkerLaunchSpec spec, string scenario) : IWorkerProcessBackend
     {
@@ -322,14 +476,16 @@ internal static class WorkerProcessRobustnessTests
             HardwareKey = "mock-" + _deviceScope + "-" + number, VmmDeviceName = "fpga://devindex=" + number, AutoRecover = true,
             KmBox = new() { IpAddress = "127.0.0." + number, Port = _port, Mac = _deviceScope + number }
         };
-        public async Task<WorkerProcessManager> ManagerAsync(AccountConfig[] accounts, string scenario = "normal", TimeSpan? startupTimeout = null)
+        public async Task<WorkerProcessManager> ManagerAsync(AccountConfig[] accounts, string scenario = "normal", TimeSpan? startupTimeout = null,
+            IWorkerProcessExitReconciler? exitReconciler = null)
         {
-            var manager = CreateManager(Root, scenario, startupTimeout ?? TimeSpan.FromSeconds(3));
+            var manager = CreateManager(Root, scenario, startupTimeout ?? TimeSpan.FromSeconds(3), exitReconciler);
             _managers.Add(manager); await manager.InitializeAsync(accounts); return manager;
         }
         public async Task DetachAsync(WorkerProcessManager manager) { _managers.Remove(manager); await manager.DisposeAsync(); }
         public string Manifest(AccountConfig account) => Path.Combine(Root, "config", "workers", Guid.Parse(account.InstanceId).ToString("N"), "worker.json");
-        public WorkerLaunchSpec ReadLaunch(AccountConfig account) => JsonSerializer.Deserialize<WorkerLaunchSpec>(File.ReadAllText(Path.Combine(Path.GetDirectoryName(Manifest(account))!, "launch.json")))!;
+        public string Launch(AccountConfig account) => Path.Combine(Path.GetDirectoryName(Manifest(account))!, "launch.json");
+        public WorkerLaunchSpec ReadLaunch(AccountConfig account) => JsonSerializer.Deserialize<WorkerLaunchSpec>(File.ReadAllText(Launch(account)))!;
         public int RecordedWorkerCount() => Directory.Exists(Path.Combine(Root, "observed-workers")) ? Directory.EnumerateFiles(Path.Combine(Root, "observed-workers"), "*.json").Count() : 0;
         public Process LaunchController(string specPath)
         {
