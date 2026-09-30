@@ -173,7 +173,7 @@ public sealed class AccountHardwareForm : Form
             if (match is not null) _device.SelectedItem = _device.Items.Cast<Choice>().First(c => c.Device == match);
             _vmm.SelectedIndex = -1; _vmm.Text = vmm; PopulateVmmChoices(_allDevices);
             _result.Text = devices.Length == 0 ? "暂无空闲 DMA 设备，请先停止占用设备的账号，再刷新设备。"
-                : $"可选 DMA：{devices.Length} 个，已隐藏占用中的设备和读取编号。标注“已绑定”的选项需先调整原账号绑定。";
+                : $"可选 DMA：{devices.Length} 个，已隐藏占用中的设备和读取编号。标注“已绑定”的设备可重新选择并保存；停止账号的旧绑定不占用设备。";
         }
         catch (Exception ex) { _device.Items.Clear(); _vmm.Items.Clear(); _vmm.Text = ""; _result.Text = "刷新设备失败：" + ex.Message; }
         ShowBinding(); UpdateSave();

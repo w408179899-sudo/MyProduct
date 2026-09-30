@@ -81,7 +81,13 @@ internal static class WorkerHostRobustnessTests
             Require(await running.WaitAsync(TimeSpan.FromSeconds(3)) == 0, "accepted shutdown completes after the requesting pipe disconnects");
             Require(backend.StopCalls > 0 && !terminated, "disconnection does not abort cleanup or require the watchdog");
             Require(!File.Exists(test.Spec.ManifestPath), "disconnected shutdown removes the worker's own manifest");
-            Require(new DeviceLeaseStore(test.Spec.LeasePath).ReadActive().Value?.Count == 0, "disconnected shutdown releases its DMA lease");
+            var leases = new DeviceLeaseStore(test.Spec.LeasePath);
+            Require(leases.ReadActive().Value?.Count == 1,
+                "completed inline host retains its DMA lease while the enclosing process still exists");
+            var takeover = leases.TryAcquire(Environment.ProcessId + 1, DateTimeOffset.UtcNow, test.Root + "-other-client",
+                test.Spec.Account.HardwareKey, "fpga://devindex=99999");
+            Require(!takeover.Success && takeover.Conflict?.ProcessId == Environment.ProcessId,
+                "another PID cannot acquire the DMA device before the previous process exits");
         }
         finally
         {

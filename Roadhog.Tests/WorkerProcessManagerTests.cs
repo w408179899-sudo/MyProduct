@@ -19,6 +19,13 @@ internal static class WorkerProcessManagerTests
             var index = Array.IndexOf(args, "--account-worker");
             var spec = JsonSerializer.Deserialize<WorkerLaunchSpec>(await File.ReadAllTextAsync(args[index + 1]))!;
             var scenario = args.FirstOrDefault(a => a.StartsWith("--worker-scenario=", StringComparison.Ordinal))?.Split('=', 2)[1] ?? "normal";
+            if (scenario == "resource-conflict-after-spawn")
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(spec.ManifestPath)!);
+                await File.WriteAllTextAsync(spec.ManifestPath + ".error",
+                    JsonSerializer.Serialize(new { Code = "resource_conflict", Message = "设备已被另一个后台占用。" }));
+                return 11;
+            }
             if (scenario == "account1-stuck-init") scenario = spec.Account.AccountName.EndsWith("-1", StringComparison.Ordinal) ? "stuck-init" : "normal";
             return await new WorkerProcessHost(s => new MockBackend(s, scenario)).RunAsync(spec);
         }
@@ -314,6 +321,7 @@ internal static class WorkerProcessManagerTests
         sharedHardware.KmBox = test.Account(4).KmBox;
         var conflict = duplicate with { Account = sharedHardware, PipeName = "Roadhog.Tests." + Guid.NewGuid().ToString("N") };
         Require(await test.RunRejectedChildAsync(conflict) == 11, "same DMA binding cannot be leased by another account process");
+        Require(HasResourceConflictCode(conflict.ManifestPath), "DMA lease rejection has a stable resource conflict code");
         var otherRoot = Path.Combine(test.Root, "other-client");
         var sharedEndpoint = test.Account(5);
         sharedEndpoint.KmBox!.IpAddress = account.KmBox!.IpAddress;
@@ -324,12 +332,214 @@ internal static class WorkerProcessManagerTests
             Paths = spec.Paths with { ClientRoot = otherRoot }
         };
         Require(await test.RunRejectedChildAsync(endpointConflict) == 13, "same KMBox endpoint is rejected across separate client roots and DMA devices");
+        Require(HasResourceConflictCode(endpointConflict.ManifestPath), "KMBox endpoint rejection has a stable resource conflict code");
         var sharedMac = test.Account(6);
         sharedMac.KmBox!.Mac = account.KmBox.Mac.ToUpperInvariant();
         var macConflict = endpointConflict with { Account = sharedMac, PipeName = "Roadhog.Tests." + Guid.NewGuid().ToString("N") };
         Require(await test.RunRejectedChildAsync(macConflict) == 14, "same KMBox MAC is rejected with a different network endpoint");
+        Require(HasResourceConflictCode(macConflict.ManifestPath), "KMBox MAC rejection has a stable resource conflict code");
         Require((await test.InfoAsync(account)).Running, "rejected children do not disturb owner");
         Require(new DeviceLeaseStore(test.LeasePath).ReadActive().Value?.Count == 1, "only legitimate owner retains lease");
+    }
+
+    public static async Task ResourceConflictAfterSpawnClearsIntentAsync()
+    {
+        await using var test = new TestEnvironment();
+        var account = test.Account(1);
+        var manager = await test.ManagerAsync(new[] { account }, "resource-conflict-after-spawn");
+        var result = await manager.StartAsync(account.InstanceId);
+        Require(!result.Success && result.Error?.Contains("占用", StringComparison.Ordinal) == true,
+            "a resource conflict returned by the child is reported to the user");
+        var view = View(manager, account);
+        Require(!view.DesiredRunning && view.WorkerProcessId is null,
+            "resource rejection clears the pending start and keeps the failed child unowned");
+        var intentPath = Path.Combine(test.Root, "config", "workers", "run-intent.json");
+        Require(JsonSerializer.Deserialize<string[]>(await File.ReadAllTextAsync(intentPath))?.Length == 0,
+            "resource rejection persists an empty run intent");
+        await Task.Delay(350);
+        Require(View(manager, account) is { DesiredRunning: false, WorkerProcessId: null },
+            "AutoRecover does not repeatedly spawn after a resource rejection");
+    }
+
+    public static async Task ExistingExternalLeaseBlocksStartUntilReleasedAsync()
+    {
+        await using var test = new TestEnvironment();
+        var account = test.Account(1);
+        var leases = new DeviceLeaseStore(test.LeasePath);
+        using var owner = Process.GetCurrentProcess();
+        var ownerStartedAt = new DateTimeOffset(owner.StartTime.ToUniversalTime());
+        Require(leases.TryAcquire(owner.Id, ownerStartedAt, test.Root + "-other-client",
+            account.HardwareKey, account.VmmDeviceName).Success, "external process reserves the DMA device");
+        try
+        {
+            var manager = await test.ManagerAsync(new[] { account });
+            var blocked = await manager.StartAsync(account.InstanceId);
+            Require(!blocked.Success && blocked.Error?.Contains(owner.Id.ToString(), StringComparison.Ordinal) == true,
+                "global lease preflight reports the actual owner PID");
+            Require(View(manager, account) is { DesiredRunning: false, WorkerProcessId: null },
+                "occupied DMA does not create a worker or a recovery intent");
+            Require(leases.Release(owner.Id, ownerStartedAt).Success, "release simulated external owner");
+            Require((await manager.StartAsync(account.InstanceId)).Success,
+                "explicit retry starts after the external lease is released");
+        }
+        finally { leases.Release(owner.Id, ownerStartedAt); }
+    }
+
+    private static bool HasResourceConflictCode(string manifestPath)
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(manifestPath + ".error"));
+        return document.RootElement.GetProperty("Code").GetString() == "resource_conflict";
+    }
+
+    public static async Task ConcurrentSharedHardwareStartsKeepOneOwnerAsync()
+    {
+        await using var test = new TestEnvironment();
+        var first = test.Account(1);
+        var second = test.Account(2);
+        second.HardwareKey = first.HardwareKey;
+        second.VmmDeviceName = first.VmmDeviceName;
+        second.KmBox = first.KmBox!.Clone();
+        var manager = await test.ManagerAsync(new[] { first, second });
+
+        // Stopped accounts can retain the same saved binding while it is being reassigned.
+        // Starting both at once must grant it to one account and reject the other without recovery intent.
+        var starts = await Task.WhenAll(manager.StartAsync(first.InstanceId), manager.StartAsync(second.InstanceId));
+        Require(starts.Count(result => result.Success) == 1,
+            "exactly one concurrent start owns shared hardware: " + string.Join("; ", starts.Select(result => result.Error)));
+        var winner = starts[0].Success ? first : second;
+        var loser = starts[0].Success ? second : first;
+        var running = await test.RunningAsync(manager, winner);
+        Require(View(manager, loser) is { DesiredRunning: false, WorkerProcessId: null },
+            "a rejected conflicting start clears its desired state and worker identity");
+        Require(new DeviceLeaseStore(test.LeasePath).ReadActive().Value?.Count == 1,
+            "shared hardware has only one active lease");
+
+        await Task.Delay(600);
+        Require(View(manager, winner) is { State: "running", WorkerProcessId: { } pid } && pid == running.WorkerProcessId,
+            "the winning worker stays running without a restart");
+        Require(View(manager, loser) is { DesiredRunning: false, WorkerProcessId: null },
+            "the rejected account does not enter an automatic recovery loop");
+        var intentPath = Path.Combine(test.Root, "config", "workers", "run-intent.json");
+        var desired = JsonSerializer.Deserialize<string[]>(await File.ReadAllTextAsync(intentPath)) ?? [];
+        Require(desired.Length == 1 && desired.Contains(winner.InstanceId, StringComparer.OrdinalIgnoreCase),
+            "durable recovery intent belongs only to the hardware owner");
+    }
+
+    public static async Task QueuedStartCannotUndoLaterStopAsync()
+    {
+        await using var test = new TestEnvironment();
+        var account = test.Account(1);
+        var manager = await test.ManagerAsync(new[] { account });
+        var admission = await manager.HoldStartAdmissionsAsync();
+        Task<OperationResult> queuedStart;
+        try
+        {
+            queuedStart = manager.StartAsync(account.InstanceId);
+            Require(!queuedStart.IsCompleted && !View(manager, account).DesiredRunning,
+                "start waits without recording intent while configuration owns admission");
+            Require((await manager.StopAsync(account.InstanceId)).Success,
+                "a later explicit stop completes while the earlier start is queued");
+        }
+        finally { admission.Dispose(); }
+
+        var startResult = await queuedStart.WaitAsync(TimeSpan.FromSeconds(5));
+        Require(!startResult.Success && View(manager, account) is { DesiredRunning: false, WorkerProcessId: null },
+            "the queued start cannot revive an account after a later stop");
+        var intentPath = Path.Combine(test.Root, "config", "workers", "run-intent.json");
+        Require(!File.ReadAllText(intentPath).Contains(account.InstanceId, StringComparison.OrdinalIgnoreCase),
+            "the cancelled start is absent from durable recovery intent");
+        Require((await manager.StartAsync(account.InstanceId)).Success,
+            "a new explicit start after the stop still works");
+    }
+
+    public static async Task LazyClientWaitsForStartAdmissionAsync()
+    {
+        await using var test = new TestEnvironment();
+        var account = test.Account(1);
+        var manager = await test.ManagerAsync(new[] { account });
+        var admission = await manager.HoldStartAdmissionsAsync();
+        Task<Roadhog.Core.Model.PlayerSnapshot> read;
+        try
+        {
+            read = manager.RuntimeFor(account.InstanceId).ReadPlayerAsync(account.AccountName);
+            Require(!read.IsCompleted && View(manager, account).WorkerProcessId is null,
+                "a lazy settings read cannot launch a worker during account persistence");
+        }
+        finally { admission.Dispose(); }
+
+        try { await read.WaitAsync(TimeSpan.FromSeconds(5)); }
+        catch (WorkerRpcException) { /* The mock backend does not implement player reads. */ }
+        Require(View(manager, account).WorkerProcessId is not null &&
+            new DeviceLeaseStore(test.LeasePath).ReadActive().Value?.Count == 1,
+            "lazy settings access can create one worker after admission is released");
+    }
+
+    public static async Task VerificationCannotReplaceConfigDuringPendingStartAsync()
+    {
+        await using var test = new TestEnvironment();
+        var account = test.Account(1);
+        var manager = await test.ManagerAsync(new[] { account });
+        var entries = (System.Collections.IDictionary)typeof(WorkerProcessManager)
+            .GetField("_entries", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .GetValue(manager)!;
+        var entry = entries[account.InstanceId]!;
+        var workerGate = (SemaphoreSlim)entry.GetType().GetField("Gate")!.GetValue(entry)!;
+        await workerGate.WaitAsync();
+        Task<OperationResult> start;
+        try
+        {
+            start = manager.StartAsync(account.InstanceId);
+            await UntilAsync(() => View(manager, account).DesiredRunning,
+                "start records intent before waiting to create its worker");
+            Require(!start.IsCompleted && View(manager, account).WorkerProcessId is null,
+                "start is pending before worker creation");
+
+            var draft = test.Account(2);
+            draft.InstanceId = account.InstanceId;
+            var rejected = false;
+            try { await manager.VerifyHardwareAsync(draft, CancellationToken.None); }
+            catch (InvalidOperationException exception) when (exception.Message.Contains("停止", StringComparison.Ordinal))
+            { rejected = true; }
+            Require(rejected && View(manager, account).Config.HardwareKey == account.HardwareKey &&
+                View(manager, account).Config.VmmDeviceName == account.VmmDeviceName && !start.IsCompleted,
+                "verification cannot replace the pending start's hardware configuration");
+        }
+        finally { workerGate.Release(); }
+
+        Require((await start.WaitAsync(TimeSpan.FromSeconds(10))).Success,
+            "the already admitted start still uses its original binding");
+        Require(new DeviceLeaseStore(test.LeasePath).ReadActive().Value?.Single().HardwareKey == account.HardwareKey,
+            "the worker leases the original DMA after the rejected verification");
+    }
+
+    public static async Task RunningPhysicalBindingIdentityCannotChangeAsync()
+    {
+        await using var test = new TestEnvironment();
+        var account = test.Account(1);
+        account.HardwareDeviceInstanceId = "mock-physical-device-1";
+        account.HardwareLocationKey = "mock-usb-port-1";
+        var manager = await test.ManagerAsync(new[] { account });
+        Require((await manager.StartAsync(account.InstanceId)).Success, "start account with a saved physical binding");
+        var original = await test.RunningAsync(manager, account);
+
+        foreach (var change in new Action<AccountConfig>[]
+        {
+            draft => draft.HardwareDeviceInstanceId = "mock-physical-device-2",
+            draft => draft.HardwareLocationKey = "mock-usb-port-2"
+        })
+        {
+            var draft = account.Clone();
+            change(draft);
+            var rejected = false;
+            try { manager.ValidateAccountUpdate(new[] { draft }); }
+            catch (InvalidOperationException) { rejected = true; }
+            Require(rejected, "a running worker cannot have its saved physical binding identity changed");
+            var current = View(manager, account);
+            Require(current.WorkerProcessId == original.WorkerProcessId &&
+                current.Config.HardwareDeviceInstanceId == account.HardwareDeviceInstanceId &&
+                current.Config.HardwareLocationKey == account.HardwareLocationKey,
+                "rejected binding edit leaves the running worker and configuration untouched");
+        }
     }
 
     public static async Task PreviousBootRequiresEachAccountConfirmationAsync()

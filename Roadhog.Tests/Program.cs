@@ -192,6 +192,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("worker robustness forged stale and malformed manifests cannot stop another account", WorkerProcessRobustnessTests.ForgedAndStaleManifestsNeverStopAnotherAccountAsync),
     ("worker robustness responsive uninitialized workers have bounded lifetime", WorkerProcessRobustnessTests.ResponsiveButUninitializedWorkersHaveBoundedLifetimeAsync),
     ("worker robustness missing manifest retains running process and launch identity", WorkerProcessRobustnessTests.MissingManifestReattachesWithoutReplacingLaunchIdentityAsync),
+    ("worker robustness recorded residual identity blocks replacement", WorkerProcessRobustnessTests.RecordedResidualIdentityBlocksReplacementAsync),
     ("worker robustness abrupt controller crash before manifest preserves child ownership", WorkerProcessRobustnessTests.ControllerCrashBeforeManifestStillReattachesAsync),
     ("worker robustness disposed manager cannot spawn through retained runtime", WorkerProcessRobustnessTests.DisposedManagerCannotSpawnThroughOldRuntimeAsync),
     ("worker exit reconciler matching identity terminates and confirms CIM absence", WorkerProcessExitReconcilerTests.MatchingIdentityTerminatesAndConfirmsAbsenceAsync),
@@ -234,6 +235,13 @@ var tests = new (string Name, Func<Task> Run)[]
     ("account process slow recovery never blocks another account monitoring or commands", WorkerProcessManagerTests.SlowRecoveryDoesNotBlockOtherAccountsAsync),
     ("account process intent persistence failure prevents start but cannot prevent stop", WorkerProcessManagerTests.IntentPersistenceFailuresAsync),
     ("account process instance ownership and hardware leases reject duplicate hosts", WorkerProcessManagerTests.HardwareLeaseAndDuplicateHostAsync),
+    ("account process concurrent shared hardware starts keep one owner", WorkerProcessManagerTests.ConcurrentSharedHardwareStartsKeepOneOwnerAsync),
+    ("account process queued start cannot undo later stop", WorkerProcessManagerTests.QueuedStartCannotUndoLaterStopAsync),
+    ("account process lazy client waits for start admission", WorkerProcessManagerTests.LazyClientWaitsForStartAdmissionAsync),
+    ("account process verification cannot replace pending start config", WorkerProcessManagerTests.VerificationCannotReplaceConfigDuringPendingStartAsync),
+    ("account process child resource conflict clears recovery intent", WorkerProcessManagerTests.ResourceConflictAfterSpawnClearsIntentAsync),
+    ("account process external DMA lease blocks start until released", WorkerProcessManagerTests.ExistingExternalLeaseBlocksStartUntilReleasedAsync),
+    ("account process running physical binding identity cannot change", WorkerProcessManagerTests.RunningPhysicalBindingIdentityCannotChangeAsync),
     ("account process long manual command permits status and stop cancellation", WorkerProcessManagerTests.ManualCancellationAsync),
     ("account process rejected startup releases lease and waits for explicit retry", WorkerProcessManagerTests.RejectedStartReleasesWorkerAsync),
     ("saved hardware binding worker carries explicit mapping", SavedHardwareBindingTests.WorkerOptionsPreserveMappingAsync),
@@ -246,6 +254,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("saved hardware binding rejects offline or changed physical identity", SavedHardwareBindingTests.PhysicalIdentityGuardsAsync),
     ("multi-account ui hardware editing releases idle worker and preserves sibling", MultiAccountUiTests.HardwareEditingReleasesIdleWorkerAsync),
     ("multi-account ui stopped hardware index swaps save and active collisions fail", MultiAccountUiTests.HardwareIndexSwapSaveAsync),
+    ("multi-account ui hardware combinations swap verify save and enforce live ownership", MultiAccountUiTests.HardwareDeviceCombinationSwapAsync),
+    ("multi-account ui hardware save serializes start admission", MultiAccountUiTests.HardwareSaveAndStartAdmissionAsync),
+    ("multi-account ui hardware save blocks verification worker", MultiAccountUiTests.HardwareSaveBlocksVerificationWorkerAsync),
+    ("multi-account ui hardware save completes before workspace dispose", MultiAccountUiTests.HardwareSaveCompletesBeforeWorkspaceDisposeAsync),
     ("multi-account ui hardware editor preserves mapping and refreshes verified role", MultiAccountUiTests.HardwareEditorMappingAndRefreshAsync),
     ("multi-account ui hardware customer refresh rebind and confirm save", MultiAccountUiTests.HardwareCustomerRebindingAsync),
     ("multi-account ui hardware occupied choices filter and recheck", MultiAccountUiTests.HardwareOccupiedChoicesAsync),
@@ -621,8 +633,14 @@ var tests = new (string Name, Func<Task> Run)[]
     ("kmbox net keyboard input validates unsupported local inputs", TestKmBoxNetKeyboardInputValidationAsync),
     ("kmbox net keyboard input accepts team keys", TestKmBoxNetKeyboardInputAcceptsTeamKeysAsync),
     ("kmbox net config store saves and loads endpoint", TestKmBoxNetConfigStoreRoundTripAsync),
+    ("legacy hardware save rolls back KMBox when FPGA save fails", LegacyHardwareSaveTests.KmBoxSaveRollsBackWhenFpgaSaveFailsAsync),
+    ("legacy device read requires lease and committed save survives UI refresh failure", LegacyHardwareSaveTests.DeviceReadRequiresLeaseAndCommittedSaveSurvivesUiRefreshFailureAsync),
     ("device lease store prevents cross process device reuse", TestDeviceLeaseStorePreventsCrossProcessReuseAsync),
     ("device lease store explains corrupted registry recovery", TestDeviceLeaseStoreExplainsCorruptedRegistryRecoveryAsync),
+    ("device lease uncertain process identity preserves owner and blocks takeover", DeviceLeasePresenceTests.UnknownOwnerPreservesLeaseAndBlocksTakeoverAsync),
+    ("device lease Windows probe confirms current and absent process identity", DeviceLeasePresenceTests.WindowsProbeConfirmsCurrentAndAbsentIdentityAsync),
+    ("device lease incomplete record cannot disappear", DeviceLeasePresenceTests.IncompleteLeaseRecordCannotDisappearAsync),
+    ("device lease duplicate live owner cannot lose one device", DeviceLeasePresenceTests.DuplicateLiveOwnerCannotLoseOneDeviceAsync),
     ("service options use client root environment", TestRoadhogServiceOptionsUseClientRootEnvironmentAsync),
     ("license credential store encrypts and restores credential", LicenseTests.TestDpapiCredentialStoreRoundTripAsync),
     ("signed owner license grant authorizes matching device", LicenseTests.TestSignedOwnerLicenseGrantAuthorizesMatchingDeviceAsync),
@@ -11999,12 +12017,16 @@ static Task TestDeviceLeaseStorePreventsCrossProcessReuseAsync()
         AssertFalse(!afterExit.Success, "dead process lease cleanup should succeed");
         AssertEqual(1, afterExit.Value?.Count ?? 0, "dead process lease should be removed");
 
-        var reclaimed = store.TryAcquire(202, processStarts[202], @"C:\script\2", "P0004.H0002", "fpga");
-        AssertFalse(!reclaimed.Success, "remaining process should reclaim devices released by a dead process");
+        var prematureSwitch = store.TryAcquire(202, processStarts[202], @"C:\script\2", "P0004.H0002", "fpga");
+        AssertFalse(prematureSwitch.Success, "a live process cannot drop its old lease while it may still hold VMM handles");
+        AssertEqual("P0004.H0003", store.ReadActive().Value?.Single()?.HardwareKey ?? "", "failed switch preserves the old physical lease");
 
         var release = store.Release(202, processStarts[202]);
         AssertFalse(!release.Success, "device lease release should succeed");
         AssertEqual(0, store.ReadActive().Value?.Count ?? -1, "released lease count");
+
+        var reclaimed = store.TryAcquire(202, processStarts[202], @"C:\script\2", "P0004.H0002", "fpga");
+        AssertFalse(!reclaimed.Success, "a process may acquire another device after it explicitly releases the old lease");
     }
     finally
     {

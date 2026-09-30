@@ -7,7 +7,7 @@ namespace Roadhog.Infrastructure.Hardware;
 /// <summary>A point-in-time view for the editor; actual acquisition still belongs to the worker.</summary>
 public sealed class HardwareSelectionAvailability
 {
-    private sealed record Use(string Name, string Key, string Instance, string Vmm, bool Busy);
+    private sealed record Use(string Name, string Key, string Instance, string Vmm, AccountKmBoxSettings? KmBox, bool Busy);
     private readonly IReadOnlyList<Use> _uses;
 
     public HardwareSelectionAvailability(string editingId, IReadOnlyList<AccountProcessView> accounts,
@@ -15,9 +15,9 @@ public sealed class HardwareSelectionAvailability
     {
         var others = accounts.Where(a => a.Config.InstanceId != editingId).ToArray();
         _uses = others.Select(a => new Use(a.Config.AccountName, a.Config.HardwareKey,
-            a.Config.HardwareDeviceInstanceId, a.Config.VmmDeviceName,
+            a.Config.HardwareDeviceInstanceId, a.Config.VmmDeviceName, a.Config.KmBox,
             a.DesiredRunning || a.WorkerProcessId.HasValue || a.Worker?.IsRunning == true))
-            .Concat(leases.Select(l => new Use("其他客户端（进程 " + l.ProcessId + "）", l.HardwareKey, "", l.VmmDeviceName, true))).ToArray();
+            .Concat(leases.Select(l => new Use("其他客户端（进程 " + l.ProcessId + "）", l.HardwareKey, "", l.VmmDeviceName, null, true))).ToArray();
     }
 
     private static bool Equal(string? a, string? b) => !string.IsNullOrWhiteSpace(a)
@@ -34,11 +34,14 @@ public sealed class HardwareSelectionAvailability
 
     public void EnsureAvailable(AccountConfig draft)
     {
-        var conflict = _uses.FirstOrDefault(u => Equal(draft.HardwareKey, u.Key)
-            || Equal(draft.HardwareDeviceInstanceId, u.Instance) || MatchesVmm(draft.VmmDeviceName, u));
+        var conflict = _uses.FirstOrDefault(u => u.Busy && (Equal(draft.HardwareKey, u.Key)
+            || Equal(draft.HardwareDeviceInstanceId, u.Instance) || MatchesVmm(draft.VmmDeviceName, u)
+            || (draft.KmBox is { } box && u.KmBox is { } other &&
+                ((Equal(box.IpAddress, other.IpAddress) && box.Port == other.Port)
+                 || Equal(NormalizeMac(box.Mac), NormalizeMac(other.Mac))))));
         if (conflict is not null)
-            throw new InvalidOperationException(conflict.Busy
-                ? $"所选设备或读取编号正被“{conflict.Name}”占用，请刷新设备后重新选择。"
-                : $"所选设备或读取编号已绑定“{conflict.Name}”，请先调整该账号的绑定，再测试或保存。");
+            throw new InvalidOperationException($"所选 DMA、读取编号或 KMBox 正被“{conflict.Name}”占用，请先停止占用账号或重新选择。");
     }
+
+    private static string NormalizeMac(string value) => new(value.Where(char.IsLetterOrDigit).ToArray());
 }

@@ -17,7 +17,9 @@ namespace Roadhog.Infrastructure.Composition;
 public sealed class MultiAccountWorkspace : IAsyncDisposable
 {
     private readonly object _disposeSync = new();
+    private readonly SemaphoreSlim _saveDisposeGate = new(1, 1);
     private Task? _disposeTask;
+    private int _disposing;
     public RoadhogServiceOptions Options { get; }
     public IRoadhogLogger Logger { get; }
     public JsonAccountConfigStore Accounts { get; }
@@ -95,34 +97,39 @@ public sealed class MultiAccountWorkspace : IAsyncDisposable
 
     public async Task SaveAccountsAsync(IReadOnlyList<AccountConfig> accounts, CancellationToken cancellationToken = default)
     {
-        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var hardware = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var kmbox = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var macs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var credentials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var account in accounts)
+        await _saveDisposeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            if (!Guid.TryParse(account.InstanceId, out _) || !ids.Add(account.InstanceId)) throw new InvalidOperationException("账号实例标识无效或重复。");
-            if (!string.IsNullOrWhiteSpace(account.HardwareKey) && !hardware.Add(account.HardwareKey)) throw new InvalidOperationException("DMA 设备已被其他账号绑定。");
-            if (account.KmBox is { } input && !kmbox.Add(input.IpAddress.Trim() + ":" + input.Port)) throw new InvalidOperationException("KMBox 地址已被其他账号绑定。");
-            if (account.KmBox is { } box && !macs.Add(box.Mac.Replace(":", "").Replace("-", "").Trim())) throw new InvalidOperationException("KMBox 设备已被其他账号绑定。");
-            if (!credentials.Add(Path.GetFullPath(Processes.PathsFor(account).LicenseCredentialPath))) throw new InvalidOperationException("两个账号不能共用同一份客户端授权凭据，请为新账号完成独立授权或导入其原有授权。");
+            if (Volatile.Read(ref _disposing) != 0) throw new ObjectDisposedException(nameof(MultiAccountWorkspace));
+            // Keep start admission closed through validation, disk persistence, and the manager update.
+            // Otherwise a worker can start with the old binding after validation but before the new file is written.
+            using var admission = await Processes.HoldStartAdmissionsAsync(cancellationToken).ConfigureAwait(false);
+            var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var credentials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var account in accounts)
+            {
+                if (!Guid.TryParse(account.InstanceId, out _) || !ids.Add(account.InstanceId)) throw new InvalidOperationException("账号实例标识无效或重复。");
+                if (!credentials.Add(Path.GetFullPath(Processes.PathsFor(account).LicenseCredentialPath))) throw new InvalidOperationException("两个账号不能共用同一份客户端授权凭据，请为新账号完成独立授权或导入其原有授权。");
+            }
+            // Stopped accounts may save overlapping selections while devices are reassigned one at a time.
+            // Recheck new selections against live ownership; unchanged saved overlaps do not block settings saves.
+            var previous = Processes.Snapshot().ToDictionary(view => view.Config.InstanceId, view => view.Config, StringComparer.OrdinalIgnoreCase);
+            foreach (var account in accounts)
+                if (!previous.TryGetValue(account.InstanceId, out var old) || HardwareSelectionChanged(old, account))
+                    HardwareAvailability(account.InstanceId).EnsureAvailable(account);
+            Processes.ValidateAccountUpdate(accounts);
+            await SharedCleanupMigration.MigrateAsync(Options.AccountConfigPath, accounts, Options.ProfileLibraryDirectory,
+                Options.BagCleanupNameListPath, cancellationToken).ConfigureAwait(false);
+            var result = await Accounts.SaveAllAsync(accounts, cancellationToken).ConfigureAwait(false);
+            if (!result.Success) throw new InvalidOperationException(result.Error);
+            Processes.UpdateAccounts(accounts);
         }
-        // Saved indices may be stale after reboot. Allow stopped accounts to be corrected one at a time
-        // even when their old indices form a swap; actual running ownership remains protected by leases.
-        var activeIds = Processes.Snapshot().Where(view => view.DesiredRunning || view.WorkerProcessId.HasValue)
-            .Select(view => view.Config.InstanceId).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (accounts.Where(account => !string.IsNullOrWhiteSpace(account.VmmDeviceName))
-            .GroupBy(account => DeviceLeaseStore.CanonicalVmmDeviceName(account.VmmDeviceName), StringComparer.OrdinalIgnoreCase)
-            .Any(group => group.Count() > 1 && group.Any(account => activeIds.Contains(account.InstanceId))))
-            throw new InvalidOperationException("读取编号正被运行中或正在恢复的账号占用，请先停止对应账号，再重新验证并保存硬件配置。");
-        Processes.ValidateAccountUpdate(accounts);
-        await SharedCleanupMigration.MigrateAsync(Options.AccountConfigPath, accounts, Options.ProfileLibraryDirectory,
-            Options.BagCleanupNameListPath, cancellationToken).ConfigureAwait(false);
-        var result = await Accounts.SaveAllAsync(accounts, cancellationToken).ConfigureAwait(false);
-        if (!result.Success) throw new InvalidOperationException(result.Error);
-        Processes.UpdateAccounts(accounts);
+        finally { _saveDisposeGate.Release(); }
     }
+
+    private static bool HardwareSelectionChanged(AccountConfig a, AccountConfig b) =>
+        (a.HardwareKey, a.HardwareDeviceInstanceId, a.VmmDeviceName, a.KmBox?.IpAddress, a.KmBox?.Port, a.KmBox?.Mac) !=
+        (b.HardwareKey, b.HardwareDeviceInstanceId, b.VmmDeviceName, b.KmBox?.IpAddress, b.KmBox?.Port, b.KmBox?.Mac);
 
     public LicenseCoordinator CreateLicenseCoordinator(AccountConfig account)
     {
@@ -158,7 +165,22 @@ public sealed class MultiAccountWorkspace : IAsyncDisposable
 
     public ValueTask DisposeAsync()
     {
-        lock (_disposeSync) return new ValueTask(_disposeTask ??= Processes.DisposeAsync().AsTask());
+        lock (_disposeSync)
+        {
+            if (_disposeTask is null)
+            {
+                Interlocked.Exchange(ref _disposing, 1);
+                _disposeTask = DisposeCoreAsync();
+            }
+            return new ValueTask(_disposeTask);
+        }
+    }
+
+    private async Task DisposeCoreAsync()
+    {
+        await _saveDisposeGate.WaitAsync().ConfigureAwait(false);
+        try { await Processes.DisposeAsync().ConfigureAwait(false); }
+        finally { _saveDisposeGate.Release(); }
     }
 
     private static bool HasPhysicalKey(string key) => !string.IsNullOrWhiteSpace(key) &&

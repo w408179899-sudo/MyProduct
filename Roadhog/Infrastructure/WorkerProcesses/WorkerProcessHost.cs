@@ -46,7 +46,7 @@ public sealed class WorkerProcessHost
         using var ownership = new WorkerMutex(spec.Paths.ClientRoot, spec.Account.InstanceId);
         if (!ownership.Acquired)
         {
-            WriteStartupError(spec.ManifestPath, "同一账号后台已经运行，不能重复启动。");
+            WriteStartupError(spec.ManifestPath, "同一账号后台已经运行，不能重复启动。", resourceConflict: true);
             return 10;
         }
         var address = System.Net.IPAddress.Parse(spec.Account.KmBox!.IpAddress.Trim());
@@ -55,14 +55,14 @@ public sealed class WorkerProcessHost
         using var endpointOwnership = new WorkerMutex("Roadhog.KmBox.Endpoint", endpoint, globalScope: true);
         if (!endpointOwnership.Acquired)
         {
-            WriteStartupError(spec.ManifestPath, "KMBox 地址已被其他账号后台占用：" + endpoint);
+            WriteStartupError(spec.ManifestPath, "KMBox 地址已被其他账号后台占用：" + endpoint, resourceConflict: true);
             return 13;
         }
         var mac = new string(spec.Account.KmBox.Mac.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
         using var macOwnership = new WorkerMutex("Roadhog.KmBox.Mac", mac, globalScope: true);
         if (!macOwnership.Acquired)
         {
-            WriteStartupError(spec.ManifestPath, "KMBox MAC 已被其他账号后台占用：" + spec.Account.KmBox.Mac);
+            WriteStartupError(spec.ManifestPath, "KMBox MAC 已被其他账号后台占用：" + spec.Account.KmBox.Mac, resourceConflict: true);
             return 14;
         }
         var leases = new DeviceLeaseStore(string.IsNullOrWhiteSpace(spec.LeasePath) ? null : spec.LeasePath);
@@ -72,7 +72,7 @@ public sealed class WorkerProcessHost
         {
             WriteStartupError(spec.ManifestPath, acquired.Conflict is { } conflict
                 ? $"DMA 设备已被其他后台占用（进程 {conflict.ProcessId}，设备 {conflict.VmmDeviceName}）。"
-                : acquired.Error ?? "无法取得 DMA 设备租约。");
+                : acquired.Error ?? "无法取得 DMA 设备租约。", resourceConflict: acquired.Conflict is not null);
             return 11;
         }
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -119,7 +119,8 @@ public sealed class WorkerProcessHost
             finally
             {
                 commands?.Dispose();
-                leases.Release(Environment.ProcessId, startedAt);
+                // This method can finish before the OS process disappears. Keep the lease until
+                // DeviceLeaseStore confirms that this PID and start time are no longer alive.
                 RemoveOwnManifest(spec.ManifestPath, Environment.ProcessId, startedAt);
             }
         }
@@ -158,13 +159,15 @@ public sealed class WorkerProcessHost
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
-    private static void WriteStartupError(string manifestPath, string error)
+    private static void WriteStartupError(string manifestPath, string error, bool resourceConflict = false)
     {
         if (string.IsNullOrWhiteSpace(manifestPath)) return;
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(manifestPath))!);
-            File.WriteAllText(manifestPath + ".error", error);
+            File.WriteAllText(manifestPath + ".error", resourceConflict
+                ? JsonSerializer.Serialize(new WorkerStartupFailure(WorkerStartupFailure.ResourceConflict, error))
+                : error);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException) { }
     }

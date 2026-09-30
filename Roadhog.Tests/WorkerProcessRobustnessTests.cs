@@ -47,13 +47,15 @@ internal static class WorkerProcessRobustnessTests
         await using var test = new EnvironmentScope();
         var account = test.Account(1);
         var manager = await test.ManagerAsync(new[] { account });
-        var seenPids = new HashSet<int>();
+        var seenIdentities = new HashSet<(int ProcessId, DateTimeOffset StartedAtUtc)>();
         for (var cycle = 0; cycle < 8; cycle++)
         {
             RequireSuccess(await Task.WhenAll(Enumerable.Range(0, 6).Select(_ => manager.StartAsync(account.InstanceId))), "parallel start " + cycle);
             var running = await RunningAsync(manager, account);
             var pid = running.WorkerProcessId!.Value;
-            seenPids.Add(pid);
+            var descriptor = ReadDescriptor(test.Manifest(account));
+            // Windows can recycle a PID after an earlier cycle has completely exited.
+            seenIdentities.Add((descriptor.ProcessId, descriptor.ProcessStartedAtUtc));
             Require((await InfoAsync(test, account)).Starts == 1, "parallel starts must enter backend once in cycle " + cycle);
             var stopping = Enumerable.Range(0, 6).Select(_ => manager.StopAsync(account.InstanceId)).ToArray();
             Require((await stopping[0].WaitAsync(TimeSpan.FromSeconds(4))).Success, "first stop completes in cycle " + cycle);
@@ -69,7 +71,7 @@ internal static class WorkerProcessRobustnessTests
                 "late completion from a previous Stop cannot terminate the newer start");
             Require((await manager.StopAsync(account.InstanceId)).Success, "cycle cleanup stop");
         }
-        Require(seenPids.Count == 8, "every cycle owned an independent completed process lifetime");
+        Require(seenIdentities.Count == 8, "every cycle owned an independent completed process identity");
         Require(new DeviceLeaseStore(test.LeasePath).ReadActive().Value?.Count == 0, "repeated stops leave no active DMA leases");
     }
 
@@ -278,8 +280,19 @@ internal static class WorkerProcessRobustnessTests
             await UntilAsync(() => View(manager, account).WorkerProcessId is not null, "first recovering child starts");
             var firstPid = View(manager, account).WorkerProcessId!.Value;
             await starting.WaitAsync(TimeSpan.FromSeconds(4));
-            await UntilAsync(() => View(manager, account) is { State: "running", WorkerProcessId: { } pid } && pid != firstPid,
-                "startup timeout reclaims the first process before retrying with a fresh child", 8000);
+            try
+            {
+                await UntilAsync(() => View(manager, account) is { State: "running", WorkerProcessId: { } pid } && pid != firstPid,
+                    "startup timeout reclaims the first process before retrying with a fresh child", 8000);
+            }
+            catch (TimeoutException exception)
+            {
+                var view = View(manager, account);
+                var leases = new DeviceLeaseStore(test.LeasePath).ReadActive();
+                var startupErrors = string.Join(" | ", Directory.EnumerateFiles(test.Root, "*.error", SearchOption.AllDirectories)
+                    .Select(File.ReadAllText));
+                throw new TimeoutException($"{exception.Message}; state={view.State}; desired={view.DesiredRunning}; pid={view.WorkerProcessId}; error={view.Error}; leases={leases.Value?.Count}; leaseError={leases.Error}; workers={test.RecordedWorkerCount()}; initialized={File.Exists(Path.Combine(test.Root, "initialization-attempted"))}; startupErrors={startupErrors}");
+            }
             Require(!Alive(firstPid), "timed-out startup never overlaps its replacement");
             Require((await InfoAsync(test, account)).Starts == 1, "only recovered ready backend is started");
         }
@@ -302,6 +315,37 @@ internal static class WorkerProcessRobustnessTests
         Require(after.PipeName == launch.PipeName && after.Token == launch.Token, "reattach preserves the original worker pipe and token");
         Require((await InfoAsync(test, account)).Starts == 1, "rediscovery never starts account work twice");
         Require((await reopened.StopAsync(account.InstanceId)).Success && !Alive(originalPid), "rediscovered worker is still independently stoppable");
+    }
+
+    public static async Task RecordedResidualIdentityBlocksReplacementAsync()
+    {
+        await using var test = new EnvironmentScope();
+        var account = test.Account(1);
+        account.AutoRecover = false;
+        var original = await test.ManagerAsync(new[] { account });
+        Require((await original.StartAsync(account.InstanceId)).Success, "start original worker");
+        var oldPid = (await RunningAsync(original, account)).WorkerProcessId!.Value;
+        await test.DetachAsync(original);
+        await KillAsync(oldPid);
+        Require(File.Exists(test.Manifest(account)), "an abrupt exit leaves a recorded identity");
+
+        var probe = new FakePresenceProbe(ProcessIdentityPresence.Alive);
+        var reopened = await test.ManagerAsync(new[] { account }, processPresenceProbe: probe);
+        var count = test.RecordedWorkerCount();
+        Require(!(await reopened.StartAsync(account.InstanceId)).Success,
+            "a recorded OS process without authenticated RPC blocks replacement");
+        Require(test.RecordedWorkerCount() == count && View(reopened, account).WorkerProcessId is null,
+            "a live residual identity cannot spawn a second worker");
+        probe.Set(ProcessIdentityPresence.Unknown);
+        Require(!(await reopened.StartAsync(account.InstanceId)).Success,
+            "an unavailable OS identity query also blocks replacement");
+        Require(test.RecordedWorkerCount() == count, "unknown process presence cannot launch a replacement");
+
+        probe.Set(ProcessIdentityPresence.Gone);
+        Require((await reopened.StartAsync(account.InstanceId)).Success,
+            "explicit retry succeeds after the recorded process is confirmed gone");
+        Require((await RunningAsync(reopened, account)).WorkerProcessId != oldPid,
+            "confirmed process exit permits a fresh worker identity");
     }
 
     public static async Task ControllerCrashBeforeManifestStillReattachesAsync()
@@ -346,7 +390,8 @@ internal static class WorkerProcessRobustnessTests
         Require(test.RecordedWorkerCount() == observedBefore, "disposed manager never creates a replacement process");
     }
 
-    private static WorkerProcessManager CreateManager(string root, string scenario, TimeSpan startupTimeout, IWorkerProcessExitReconciler? exitReconciler = null) => new(
+    private static WorkerProcessManager CreateManager(string root, string scenario, TimeSpan startupTimeout,
+        IWorkerProcessExitReconciler? exitReconciler = null, IProcessIdentityPresenceProbe? processPresenceProbe = null) => new(
         new RoadhogServiceOptions
         {
             AccountConfigPath = Path.Combine(root, "config", "accounts.json"), PathLibraryDirectory = Path.Combine(root, "config", "paths"),
@@ -359,7 +404,7 @@ internal static class WorkerProcessRobustnessTests
             StartupTimeout = startupTimeout, StopTimeout = TimeSpan.FromMilliseconds(750),
             PollInterval = TimeSpan.FromMilliseconds(30), RecoveryDelay = TimeSpan.FromMilliseconds(40),
             LeasePath = Path.Combine(root, "leases.json")
-        }, exitReconciler);
+        }, exitReconciler, processPresenceProbe);
 
     private static AccountProcessView View(WorkerProcessManager manager, AccountConfig account) => manager.Snapshot().Single(value => value.Config.InstanceId == account.InstanceId);
     private static async Task<AccountProcessView> RunningAsync(WorkerProcessManager manager, AccountConfig account)
@@ -428,6 +473,14 @@ internal static class WorkerProcessRobustnessTests
         }
     }
 
+    private sealed class FakePresenceProbe(ProcessIdentityPresence presence) : IProcessIdentityPresenceProbe
+    {
+        private int _presence = (int)presence;
+        public void Set(ProcessIdentityPresence value) => Volatile.Write(ref _presence, (int)value);
+        public ProcessIdentityPresence Check(int processId, DateTimeOffset processStartedAtUtc) =>
+            (ProcessIdentityPresence)Volatile.Read(ref _presence);
+    }
+
     private sealed class Backend(WorkerLaunchSpec spec, string scenario) : IWorkerProcessBackend
     {
         private readonly AccountRuntimeManager _states = new(NoOpRoadhogLogger.Instance);
@@ -477,9 +530,9 @@ internal static class WorkerProcessRobustnessTests
             KmBox = new() { IpAddress = "127.0.0." + number, Port = _port, Mac = _deviceScope + number }
         };
         public async Task<WorkerProcessManager> ManagerAsync(AccountConfig[] accounts, string scenario = "normal", TimeSpan? startupTimeout = null,
-            IWorkerProcessExitReconciler? exitReconciler = null)
+            IWorkerProcessExitReconciler? exitReconciler = null, IProcessIdentityPresenceProbe? processPresenceProbe = null)
         {
-            var manager = CreateManager(Root, scenario, startupTimeout ?? TimeSpan.FromSeconds(3), exitReconciler);
+            var manager = CreateManager(Root, scenario, startupTimeout ?? TimeSpan.FromSeconds(3), exitReconciler, processPresenceProbe);
             _managers.Add(manager); await manager.InitializeAsync(accounts); return manager;
         }
         public async Task DetachAsync(WorkerProcessManager manager) { _managers.Remove(manager); await manager.DisposeAsync(); }

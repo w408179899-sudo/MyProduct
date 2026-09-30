@@ -89,7 +89,6 @@ namespace Roadhog
             _uiRefreshTimer.Stop();
             _uiRefreshTimer.Dispose();
             _services.LicenseCoordinator.StateChanged -= LicenseCoordinator_StateChanged;
-            _deviceLeaseStore.Release(Environment.ProcessId, _processStartedAtUtc);
             _services.Dispose();
             _formLifetimeCancellation.Dispose();
             base.OnFormClosed(e);
@@ -779,6 +778,14 @@ namespace Roadhog
         private bool TryAcquireDeviceLease(string hardwareKey, string vmmDeviceName, out string error)
         {
             var previousLease = _deviceLease;
+            if (previousLease is not null &&
+                (!string.Equals(previousLease.HardwareKey, hardwareKey, StringComparison.OrdinalIgnoreCase) ||
+                 !string.Equals(Infrastructure.Hardware.DeviceLeaseStore.CanonicalVmmDeviceName(previousLease.VmmDeviceName),
+                     Infrastructure.Hardware.DeviceLeaseStore.CanonicalVmmDeviceName(vmmDeviceName), StringComparison.OrdinalIgnoreCase)))
+            {
+                error = "当前程序仍占用原 DMA 设备。新绑定已保存时，请退出并重新打开程序后再启动账号。";
+                return false;
+            }
             var result = _deviceLeaseStore.TryAcquire(
                 Environment.ProcessId,
                 _processStartedAtUtc,
@@ -808,22 +815,21 @@ namespace Roadhog
             return false;
         }
 
-        private void RestoreDeviceLease(Infrastructure.Hardware.DeviceLease? previousLease)
+        private Core.Common.OperationResult AcquirePlayerReadLease(string hardwareKey, string vmmDeviceName)
         {
-            if (previousLease is null)
-            {
-                _deviceLeaseStore.Release(Environment.ProcessId, _processStartedAtUtc);
-                _deviceLease = null;
-                return;
-            }
+            if (IsAutoHardwareKey(hardwareKey) || string.IsNullOrWhiteSpace(vmmDeviceName))
+                return Core.Common.OperationResult.Fail("请先选择明确的 FPGA 设备和 VMM 读取编号，再读取角色。");
+            return TryAcquireDeviceLease(hardwareKey, NormalizeVmmDeviceName(vmmDeviceName), out var error)
+                ? Core.Common.OperationResult.Ok() : Core.Common.OperationResult.Fail(error);
+        }
 
-            var result = _deviceLeaseStore.TryAcquire(
-                previousLease.ProcessId,
-                previousLease.ProcessStartedAtUtc,
-                previousLease.ClientRoot,
-                previousLease.HardwareKey,
-                previousLease.VmmDeviceName);
-            _deviceLease = result.Success ? result.Lease : null;
+        private static Task<Core.Model.PlayerSnapshot> ReadWithDeviceLeaseAsync(
+            Func<Core.Common.OperationResult> acquire,
+            Func<Task<Core.Model.PlayerSnapshot>> read)
+        {
+            var result = acquire();
+            if (!result.Success) throw new InvalidOperationException(result.Error ?? "无法取得目标设备租约，未读取角色。");
+            return read();
         }
 
         private void RefreshDeviceLeaseState(bool refreshListsWhenChanged)
@@ -951,18 +957,11 @@ namespace Roadhog
             var closeAfterSave = false;
             try
             {
-                var store = new Infrastructure.Config.JsonKmBoxNetDeviceConfigStore(_services.KmBoxNetConfigPath);
-                var result = await store.SaveAsync(config).ConfigureAwait(true);
+                var result = await SaveKmBoxAndFpgaAsync(_services.KmBoxNetConfigPath, config,
+                    SaveSelectedFpgaConfigAsync).ConfigureAwait(true);
                 if (!result.Success)
                 {
-                    MessageBox.Show(this, result.Error ?? "保存KMBox配置失败。", "保存硬件配置失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    return;
-                }
-
-                var fpgaResult = await SaveSelectedFpgaConfigAsync().ConfigureAwait(true);
-                if (!fpgaResult.Success)
-                {
-                    MessageBox.Show(this, fpgaResult.Error ?? "保存FPGA配置失败。", "保存硬件配置失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show(this, result.Error ?? "保存硬件配置失败。", "保存硬件配置失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
 
@@ -980,6 +979,83 @@ namespace Roadhog
             {
                 Close();
             }
+        }
+
+        private static async Task<Core.Common.OperationResult> SaveKmBoxAndFpgaAsync(
+            string kmBoxPath, Infrastructure.Input.KmBoxNetDeviceConfig config,
+            Func<Task<Core.Common.OperationResult>> saveFpga)
+        {
+            byte[]? previousBytes = null;
+            try
+            {
+                if (Infrastructure.Config.AtomicJsonFile.Exists(kmBoxPath))
+                {
+                    using var original = Infrastructure.Config.AtomicJsonFile.OpenRead(kmBoxPath);
+                    using var buffer = new MemoryStream();
+                    await original.CopyToAsync(buffer).ConfigureAwait(true);
+                    previousBytes = buffer.ToArray();
+                }
+            }
+            catch (Exception ex)
+            {
+                return Core.Common.OperationResult.Fail("无法备份原 KMBox 配置，未保存硬件设置：" + ex.Message);
+            }
+
+            var store = new Infrastructure.Config.JsonKmBoxNetDeviceConfigStore(kmBoxPath);
+            var kmBoxResult = await store.SaveAsync(config).ConfigureAwait(true);
+            if (!kmBoxResult.Success)
+                return Core.Common.OperationResult.Fail("保存 KMBox 配置失败：" + kmBoxResult.Error);
+
+            Core.Common.OperationResult fpgaResult;
+            try { fpgaResult = await saveFpga().ConfigureAwait(true); }
+            catch (Exception ex) { fpgaResult = Core.Common.OperationResult.Fail(ex.Message); }
+            if (fpgaResult.Success) return Core.Common.OperationResult.Ok();
+
+            var fpgaError = fpgaResult.Error ?? "保存 FPGA 配置失败。";
+            try
+            {
+                if (previousBytes is null)
+                {
+                    // A legacy client may have had no KMBox file before this save.
+                    File.Delete(kmBoxPath);
+                }
+                else
+                {
+                    var fullPath = Path.GetFullPath(kmBoxPath);
+                    var directory = Path.GetDirectoryName(fullPath)!;
+                    var temporary = Path.Combine(directory, "." + Path.GetFileName(fullPath) + ".rollback-" + Guid.NewGuid().ToString("N") + ".tmp");
+                    try
+                    {
+                        await File.WriteAllBytesAsync(temporary, previousBytes).ConfigureAwait(true);
+                        Infrastructure.Config.AtomicJsonFile.Commit(temporary, fullPath);
+                    }
+                    finally
+                    {
+                        try { File.Delete(temporary); }
+                        catch (IOException) { }
+                        catch (UnauthorizedAccessException) { }
+                    }
+                }
+                return Core.Common.OperationResult.Fail(fpgaError + "；KMBox 配置已恢复为保存前的内容。");
+            }
+            catch (Exception ex)
+            {
+                return Core.Common.OperationResult.Fail(fpgaError + "；KMBox 配置回滚失败：" + ex.Message);
+            }
+        }
+
+        private Core.Common.OperationResult CheckDeviceAvailableForNextStart(string hardwareKey, string vmmDeviceName)
+        {
+            var active = _deviceLeaseStore.ReadActive();
+            if (!active.Success || active.Value is null)
+                return Core.Common.OperationResult.Fail("读取设备占用记录失败：" + active.Error);
+            var conflict = active.Value.FirstOrDefault(lease => lease.ProcessId != Environment.ProcessId &&
+                (string.Equals(lease.HardwareKey, hardwareKey, StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(Infrastructure.Hardware.DeviceLeaseStore.CanonicalVmmDeviceName(lease.VmmDeviceName),
+                     Infrastructure.Hardware.DeviceLeaseStore.CanonicalVmmDeviceName(vmmDeviceName), StringComparison.OrdinalIgnoreCase)));
+            return conflict is null
+                ? Core.Common.OperationResult.Ok()
+                : Core.Common.OperationResult.Fail($"设备仍被另一个 Roadhog.exe 占用，PID {conflict.ProcessId}；请先停止占用进程或选择其他设备。");
         }
 
         private async Task<Core.Common.OperationResult> SaveSelectedFpgaConfigAsync()
@@ -1032,34 +1108,48 @@ namespace Roadhog
 
             account.VmmDeviceName = vmmDeviceName;
 
-            var previousLease = _deviceLease;
-            if (!TryAcquireDeviceLease(account.HardwareKey, account.VmmDeviceName, out var leaseError))
-            {
-                return Core.Common.OperationResult.Fail(leaseError);
-            }
+            // The saved binding takes effect after restart. Keep the current device leased
+            // until this OS process exits instead of transferring ownership while VMM may still be open.
+            var availability = CheckDeviceAvailableForNextStart(account.HardwareKey, account.VmmDeviceName);
+            if (!availability.Success) return availability;
 
             var saveResult = await _services.AccountConfigStore.UpsertAsync(account).ConfigureAwait(true);
             if (!saveResult.Success)
             {
-                RestoreDeviceLease(previousLease);
                 return saveResult;
             }
 
-            var index = _accounts.FindIndex(row =>
-                string.Equals(row.Account, account.AccountName, StringComparison.OrdinalIgnoreCase));
-            if (index >= 0)
+            // Both configuration files are now committed. A disposed or stale UI must not make
+            // the caller roll back KMBox while accounts.json already contains the new binding.
+            return CompleteFpgaSaveAfterCommit(() =>
             {
-                var row = _accounts[index] with
+                var index = _accounts.FindIndex(row =>
+                    string.Equals(row.Account, account.AccountName, StringComparison.OrdinalIgnoreCase));
+                if (index >= 0)
                 {
-                    HardwareKey = account.HardwareKey,
-                    VmmDeviceName = account.VmmDeviceName
-                };
-                _accounts[index] = row;
-                UpdateAccountRowText(row, snapshot: null, updateHardwareKey: true);
-            }
+                    var row = _accounts[index] with
+                    {
+                        HardwareKey = account.HardwareKey,
+                        VmmDeviceName = account.VmmDeviceName
+                    };
+                    _accounts[index] = row;
+                    UpdateAccountRowText(row, snapshot: null, updateHardwareKey: true);
+                }
 
-            UpdateWindowTitle();
-            RefreshDeviceLeaseState(refreshListsWhenChanged: false);
+                UpdateWindowTitle();
+                RefreshDeviceLeaseState(refreshListsWhenChanged: false);
+            }, ex => _services.Logger.Warn("ui.hardware_save_refresh_failed", new Dictionary<string, object?>
+                { ["account"] = account.AccountName, ["error"] = ex.Message }));
+        }
+
+        private static Core.Common.OperationResult CompleteFpgaSaveAfterCommit(Action refresh, Action<Exception> report)
+        {
+            try { refresh(); }
+            catch (Exception ex)
+            {
+                try { report(ex); }
+                catch { }
+            }
             return Core.Common.OperationResult.Ok();
         }
 
@@ -1131,16 +1221,12 @@ namespace Roadhog
                 };
             }
 
-            var previousLease = _deviceLease;
-            if (!TryAcquireDeviceLease(account.HardwareKey, account.VmmDeviceName, out var leaseError))
-            {
-                return Core.Common.OperationResult.Fail(leaseError);
-            }
+            var availability = CheckDeviceAvailableForNextStart(account.HardwareKey, account.VmmDeviceName);
+            if (!availability.Success) return availability;
 
             var saveResult = await _services.AccountConfigStore.UpsertAsync(account).ConfigureAwait(true);
             if (!saveResult.Success)
             {
-                RestoreDeviceLease(previousLease);
                 return saveResult;
             }
 
@@ -1168,7 +1254,16 @@ namespace Roadhog
                 var accountName = _accounts.FirstOrDefault()?.Account
                     ?? SelectClientAccount(LoadSavedAccountsForRows())?.AccountName
                     ?? "account1";
-                var player = await ReadPlayerForVmmDeviceAsync(accountName, vmmDeviceName).ConfigureAwait(true);
+                var selectedHardwareKey = (fpgaDeviceComboBox.SelectedItem as FpgaDeviceComboItem)?.BindingKey;
+                if (string.IsNullOrWhiteSpace(selectedHardwareKey))
+                {
+                    var saved = _accounts.FirstOrDefault();
+                    if (saved is not null && string.Equals(
+                            Infrastructure.Hardware.DeviceLeaseStore.CanonicalVmmDeviceName(saved.VmmDeviceName),
+                            Infrastructure.Hardware.DeviceLeaseStore.CanonicalVmmDeviceName(vmmDeviceName), StringComparison.OrdinalIgnoreCase))
+                        selectedHardwareKey = saved.HardwareKey;
+                }
+                var player = await ReadPlayerForVmmDeviceAsync(accountName, selectedHardwareKey ?? string.Empty, vmmDeviceName).ConfigureAwait(true);
                 var levelClass = FormatLevelClass(player);
                 var characterText = string.IsNullOrWhiteSpace(player.CharacterName)
                     ? "entity=" + player.EntityId.ToString(System.Globalization.CultureInfo.InvariantCulture)
@@ -1176,6 +1271,11 @@ namespace Roadhog
                 ShowTopBarStatusMessage(string.IsNullOrWhiteSpace(levelClass)
                     ? "VMM OK " + characterText
                     : levelClass + " " + characterText, Color.FromArgb(22, 101, 52), TimeSpan.FromSeconds(6));
+            }
+            catch (Exception ex)
+            {
+                ShowTopBarStatusMessage("VMM 读取失败：" + ex.Message, Color.FromArgb(185, 28, 28), TimeSpan.FromSeconds(10));
+                MessageBox.Show(this, ex.Message, "VMM 读取失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
             finally
             {
@@ -1187,11 +1287,13 @@ namespace Roadhog
 
         private Task<Core.Model.PlayerSnapshot> ReadPlayerForVmmDeviceAsync(
             string accountName,
+            string hardwareKey,
             string vmmDeviceName)
         {
-            return _services.Runtime.ReadPlayerForVmmDeviceAsync(
-                accountName,
-                NormalizeVmmDeviceName(vmmDeviceName));
+            return ReadWithDeviceLeaseAsync(
+                () => AcquirePlayerReadLease(hardwareKey, vmmDeviceName),
+                () => _services.Runtime.ReadPlayerForVmmDeviceAsync(
+                    accountName, NormalizeVmmDeviceName(vmmDeviceName)));
         }
 
         private Core.Hardware.HardwareDeviceFeature? FindFpgaDeviceByKey(string hardwareKey)
@@ -1660,16 +1762,18 @@ namespace Roadhog
                 .FirstOrDefault(item => string.Equals(item.AccountName, account, StringComparison.OrdinalIgnoreCase));
             if (snapshot is not null && snapshot.ProcessId > 0)
             {
-                return _services.Runtime.ReadPlayerAsync(account);
+                return ReadWithDeviceLeaseAsync(
+                    () => AcquirePlayerReadLease(snapshot.HardwareKey, snapshot.VmmDeviceName),
+                    () => _services.Runtime.ReadPlayerAsync(account));
             }
 
             var row = _accounts.FirstOrDefault(item => string.Equals(item.Account, account, StringComparison.OrdinalIgnoreCase));
             if (row is not null)
             {
-                return _services.Runtime.ReadPlayerForVmmDeviceAsync(row.Account, row.VmmDeviceName);
+                return ReadPlayerForVmmDeviceAsync(row.Account, row.HardwareKey, row.VmmDeviceName);
             }
 
-            return _services.Runtime.ReadPlayerAsync(account);
+            throw new InvalidOperationException("账号缺少已验证的设备绑定，无法读取角色。");
         }
 
         private void UpdateAccountRowText(

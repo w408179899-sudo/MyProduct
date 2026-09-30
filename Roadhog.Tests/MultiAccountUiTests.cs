@@ -223,10 +223,201 @@ internal static class MultiAccountUiTests
         var runningPid = test.View(second).WorkerProcessId;
         var conflict = changedFirst.Clone(); conflict.VmmDeviceName = changedSecond.VmmDeviceName;
         try { Pump(test.Workspace.SaveAccountsAsync(new[] { conflict, changedSecond })); throw new InvalidOperationException("expected active-index rejection"); }
-        catch (InvalidOperationException exception) when (exception.Message.Contains("读取编号正被", StringComparison.Ordinal)) { }
+        catch (InvalidOperationException exception) when (exception.Message.Contains("占用", StringComparison.Ordinal)) { }
         Require(test.View(second).WorkerProcessId == runningPid && test.View(second).Worker?.IsRunning == true, "failed save leaves running account untouched");
         Require(Pump(test.Workspace.Accounts.LoadAllAsync()).Value!.Single(a => a.InstanceId == first.InstanceId).VmmDeviceName == changedFirst.VmmDeviceName,
             "rejected active-index collision leaves the previous saved file intact");
+    });
+
+    public static Task HardwareSaveAndStartAdmissionAsync() => Sta(() =>
+    {
+        using var test = new UiEnvironment();
+        var account = test.Account(1);
+        test.Initialize(new[] { account });
+        var replacement = test.Account(2);
+        var changed = account.Clone();
+        changed.HardwareKey = replacement.HardwareKey;
+        changed.VmmDeviceName = replacement.VmmDeviceName;
+        changed.KmBox = replacement.KmBox!.Clone();
+
+        // SharedCleanupMigration waits for this cross-process file lock after the workspace
+        // has validated the edit. Start must wait until disk and manager both use the new binding.
+        var lockPath = Roadhog.Infrastructure.Config.SharedAccountConfigurationStore.PathFor(test.Workspace.Options.AccountConfigPath) + ".lock";
+        using var migrationLock = new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        var save = test.Workspace.SaveAccountsAsync(new[] { changed });
+        Task<Roadhog.Core.Common.OperationResult>? start = null;
+        try
+        {
+            Require(!save.IsCompleted, "test holds account save between validation and persistence");
+            using var probeTimeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(250));
+            var probeBlocked = false;
+            try { using var unexpected = Pump(test.Workspace.Processes.HoldStartAdmissionsAsync(probeTimeout.Token)); }
+            catch (OperationCanceledException) { probeBlocked = true; }
+            Require(probeBlocked, "the workspace owns start admission while its disk save is pending");
+
+            start = test.Workspace.Processes.StartAsync(account.InstanceId);
+            Thread.Sleep(150);
+            Require(!start.IsCompleted && !test.View(account).DesiredRunning,
+                "start has not reserved the old binding while the new configuration is saving");
+        }
+        finally
+        {
+            migrationLock.Dispose();
+            try { Pump(save); } catch { /* Preserve the assertion or save error below. */ }
+        }
+
+        Pump(save);
+        Require(start is not null && Pump(start).Success, "start proceeds after the account save completes");
+        var running = test.View(account);
+        Require(running.Config.HardwareKey == changed.HardwareKey && running.Config.VmmDeviceName == changed.VmmDeviceName &&
+            running.Config.KmBox?.Mac == changed.KmBox.Mac,
+            "the worker starts with the committed hardware combination");
+        Require(new DeviceLeaseStore(test.LeasePath).ReadActive().Value?.Single().HardwareKey == changed.HardwareKey,
+            "the active DMA lease belongs to the newly saved binding");
+
+        Require(Pump(test.Workspace.Processes.StopAsync(account.InstanceId)).Success, "stop before failed-save admission check");
+        var duplicate = changed.Clone(); duplicate.AccountName = "duplicate";
+        var failed = false;
+        try { Pump(test.Workspace.SaveAccountsAsync(new[] { changed, duplicate })); }
+        catch (InvalidOperationException) { failed = true; }
+        Require(failed && Pump(test.Workspace.Processes.StartAsync(account.InstanceId)).Success,
+            "validation failure releases start admission for a later explicit start");
+    });
+
+    public static Task HardwareSaveBlocksVerificationWorkerAsync() => Sta(() =>
+    {
+        using var test = new UiEnvironment();
+        var account = test.Account(1);
+        test.Initialize(new[] { account });
+        var changed = account.Clone(); changed.ProfileName = "saved-during-verification";
+        var lockPath = Roadhog.Infrastructure.Config.SharedAccountConfigurationStore.PathFor(test.Workspace.Options.AccountConfigPath) + ".lock";
+        using var migrationLock = new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        var save = test.Workspace.SaveAccountsAsync(new[] { changed });
+        Task<HardwareVerification>? verify = null;
+        try
+        {
+            using var probeTimeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(250));
+            var probeBlocked = false;
+            try { using var unexpected = Pump(test.Workspace.Processes.HoldStartAdmissionsAsync(probeTimeout.Token)); }
+            catch (OperationCanceledException) { probeBlocked = true; }
+            Require(probeBlocked, "account save owns admission while waiting for shared migration persistence");
+
+            verify = test.Workspace.Processes.VerifyHardwareAsync(account.Clone(), CancellationToken.None);
+            Thread.Sleep(150);
+            Require(!verify.IsCompleted && test.View(account).WorkerProcessId is null,
+                "hardware verification cannot swap the account config or launch an old-binding worker during save");
+        }
+        finally
+        {
+            migrationLock.Dispose();
+            try { Pump(save); } catch { /* Preserve the assertion or save error below. */ }
+        }
+
+        Pump(save);
+        Require(verify is not null && Pump(verify).CharacterName == account.CharacterName,
+            "hardware verification can read the selected role after the save completes");
+        Require(test.View(account) is { WorkerProcessId: null } view && view.Config.ProfileName == changed.ProfileName &&
+            new DeviceLeaseStore(test.LeasePath).ReadActive().Value?.Count == 0,
+            "verification closes its worker and restores the newly committed account configuration");
+    });
+
+    public static Task HardwareSaveCompletesBeforeWorkspaceDisposeAsync() => Sta(() =>
+    {
+        using var test = new UiEnvironment();
+        var account = test.Account(1);
+        test.Initialize(new[] { account });
+        var changed = account.Clone(); changed.ProfileName = "saved-before-dispose";
+        var lockPath = Roadhog.Infrastructure.Config.SharedAccountConfigurationStore.PathFor(test.Workspace.Options.AccountConfigPath) + ".lock";
+        using var migrationLock = new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        var save = test.Workspace.SaveAccountsAsync(new[] { changed });
+        Task? dispose = null;
+        try
+        {
+            using var probeTimeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(250));
+            var probeBlocked = false;
+            try { using var unexpected = Pump(test.Workspace.Processes.HoldStartAdmissionsAsync(probeTimeout.Token)); }
+            catch (OperationCanceledException) { probeBlocked = true; }
+            Require(probeBlocked && !save.IsCompleted,
+                "account save holds admission while shared migration is paused");
+
+            dispose = test.Workspace.DisposeAsync().AsTask();
+            Thread.Sleep(150);
+            Require(!dispose.IsCompleted && !save.IsCompleted,
+                "workspace disposal waits for the in-progress account save");
+        }
+        finally { migrationLock.Dispose(); }
+
+        Pump(save);
+        Require(dispose is not null, "workspace disposal was requested during the save");
+        Pump(dispose!);
+        Require(Pump(test.Workspace.Accounts.LoadAllAsync()).Value!.Single().ProfileName == changed.ProfileName &&
+            test.View(account).Config.ProfileName == changed.ProfileName,
+            "completed save commits the same configuration to disk and manager before disposal");
+
+        var rejected = false;
+        try { Pump(test.Workspace.SaveAccountsAsync(new[] { account })); }
+        catch (ObjectDisposedException) { rejected = true; }
+        Require(rejected && Pump(test.Workspace.Accounts.LoadAllAsync()).Value!.Single().ProfileName == changed.ProfileName,
+            "a new save after disposal cannot replace the committed account file");
+    });
+
+    public static Task HardwareDeviceCombinationSwapAsync() => Sta(() =>
+    {
+        using var test = new UiEnvironment();
+        var first = test.Account(1); var second = test.Account(2);
+        first.KmBox!.Mac = "001122334401"; second.KmBox!.Mac = "001122334402";
+        first.HardwareDeviceInstanceId = "physical-first"; second.HardwareDeviceInstanceId = "physical-second";
+        test.Initialize(new[] { first, second });
+        AccountConfig Select(AccountConfig account, AccountConfig source)
+        {
+            var result = account.Clone(); result.HardwareKey = source.HardwareKey;
+            result.HardwareDeviceInstanceId = source.HardwareDeviceInstanceId;
+            result.VmmDeviceName = source.VmmDeviceName; result.KmBox = source.KmBox!.Clone();
+            return result;
+        }
+        var changedFirst = Select(first, second);
+        using (var editor = new AccountHardwareForm(changedFirst, new[] { Device(second) with { DeviceInstanceId = second.HardwareDeviceInstanceId } },
+            (draft, token) => test.Workspace.Processes.VerifyHardwareAsync(draft, token),
+            availability: () => test.Workspace.HardwareAvailability(first.InstanceId)))
+        {
+            Pump((Task)Invoke(editor, "VerifyAsync")!);
+            Require(Field<CheckBox>(editor, "_confirm").Enabled, "stopped sibling binding permits real worker verification through mock backend");
+            Field<CheckBox>(editor, "_confirm").Checked = true;
+            Invoke(editor, "Save");
+            Require(editor.DialogResult == DialogResult.OK, "verified duplicate stopped selection can be saved in editor");
+            changedFirst = editor.Config;
+        }
+        Pump(test.Workspace.SaveAccountsAsync(new[] { changedFirst, second }));
+        var intermediate = Pump(test.Workspace.Accounts.LoadAllAsync()).Value!;
+        Require(intermediate.All(a => a.HardwareKey == second.HardwareKey && a.KmBox!.Mac == second.KmBox!.Mac),
+            "first save permits overlapping DMA and KMBox without clearing sibling binding");
+        Require(Pump(test.Workspace.Processes.StartAsync(first.InstanceId)).Success, "saved binding of a stopped sibling does not block startup");
+        changedFirst.ProfileName = "edited-while-running";
+        Pump(test.Workspace.SaveAccountsAsync(new[] { changedFirst, second }));
+        Require(!Pump(test.Workspace.Processes.StartAsync(second.InstanceId)).Success, "same devices cannot be used concurrently");
+        Pump(test.Workspace.Processes.StopAsync(second.InstanceId));
+        Pump(test.Workspace.Processes.StopAsync(first.InstanceId));
+        var changedSecond = Select(second, first);
+        Pump(test.Workspace.SaveAccountsAsync(new[] { changedFirst, changedSecond }));
+        Require(Pump(test.Workspace.Processes.StartAsync(second.InstanceId)).Success, "second account starts after full combination swap");
+        var before = File.ReadAllBytes(test.Workspace.Options.AccountConfigPath);
+        foreach (var conflict in new Action<AccountConfig>[]
+        {
+            a => a.HardwareKey = changedSecond.HardwareKey,
+            a => a.HardwareDeviceInstanceId = changedSecond.HardwareDeviceInstanceId,
+            a => a.VmmDeviceName = changedSecond.VmmDeviceName,
+            a => { a.KmBox!.IpAddress = changedSecond.KmBox!.IpAddress; a.KmBox.Port = changedSecond.KmBox.Port; },
+            a => a.KmBox!.Mac = "00:11:22:33:44:01"
+        })
+        {
+            var draft = changedFirst.Clone(); conflict(draft);
+            var rejected = false;
+            try { Pump(test.Workspace.SaveAccountsAsync(new[] { draft, changedSecond })); }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("占用")) { rejected = true; }
+            Require(rejected && before.SequenceEqual(File.ReadAllBytes(test.Workspace.Options.AccountConfigPath)),
+                "each live resource conflict rejects save without changing persisted configuration");
+        }
+        Require(Pump(test.Workspace.Processes.StartAsync(first.InstanceId)).Success, "both accounts can run after sequential full device swap");
     });
 
     public static Task HardwareEditorMappingAndRefreshAsync() => Sta(() =>
@@ -254,6 +445,7 @@ internal static class MultiAccountUiTests
         {
             var item = test.Account(1); item.AccountName = "账号 " + index;
             item.HardwareKey = "mock-dma-" + index; item.VmmDeviceName = "fpga://devindex=" + index;
+            item.KmBox = new() { IpAddress = "127.0.0." + (index + 1), Port = 12345, Mac = "00112233440" + index };
             return item;
         }).ToArray();
         var devices = accounts.Select(a => Device(a) with { DeviceInstanceId = "instance-" + a.InstanceId }).ToArray();
@@ -278,10 +470,10 @@ internal static class MultiAccountUiTests
         Require(reads == 0 && Field<Label>(form, "_result").Text.Contains("占用"), "typing a hidden occupied index cannot start hardware verification");
         vmm.SelectedIndex = 1;
         Pump((Task)Invoke(form, "VerifyAsync")!);
-        Require(reads == 0 && Field<Label>(form, "_result").Text.Contains("请先调整"), "stopped binding gives actionable conflict before connecting");
+        Require(reads == 1 && Field<CheckBox>(form, "_confirm").Enabled, "stopped sibling binding permits verification without editing sibling first");
         vmm.Text = accounts[0].VmmDeviceName;
         Pump((Task)Invoke(form, "VerifyAsync")!); Field<CheckBox>(form, "_confirm").Checked = true;
-        Require(reads == 1, "own stopped binding remains available");
+        Require(reads == 2, "own stopped binding remains available");
         leases = leases.Append(new DeviceLease(404, DateTimeOffset.UtcNow, "late", account.HardwareKey, account.VmmDeviceName, DateTimeOffset.UtcNow)).ToArray();
         Invoke(form, "Save");
         Require(form.DialogResult != DialogResult.OK && Field<Label>(form, "_result").Text.Contains("占用"), "new occupation after proof blocks save");

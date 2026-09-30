@@ -46,6 +46,11 @@ public sealed record WorkerDescriptor
     public DateTimeOffset ProcessStartedAtUtc { get; init; }
 }
 
+internal sealed record WorkerStartupFailure(string Code, string Message)
+{
+    public const string ResourceConflict = "resource_conflict";
+}
+
 public sealed record WorkerStatus
 {
     public bool InitializationComplete { get; init; }

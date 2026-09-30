@@ -37,6 +37,7 @@ public sealed class WorkerProcessManager : IAsyncDisposable
         public Process? Process;
         public WorkerStatus? Status;
         public bool Desired;
+        public long StopGeneration;
         public string State = "stopped";
         public string? Error;
         public CancellationTokenSource Operation = new();
@@ -51,13 +52,23 @@ public sealed class WorkerProcessManager : IAsyncDisposable
         public readonly Dictionary<string, object?[]> Notifications = new(StringComparer.Ordinal);
     }
 
+    private sealed class AccountResourceConflictException(string message) : InvalidOperationException(message);
+
+    private sealed class StartAdmissionLease(SemaphoreSlim gate) : IDisposable
+    {
+        private SemaphoreSlim? _gate = gate;
+        public void Dispose() => Interlocked.Exchange(ref _gate, null)?.Release();
+    }
+
     private readonly object _sync = new();
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.OrdinalIgnoreCase);
     private readonly RoadhogServiceOptions _paths;
     private readonly WorkerProcessLaunchOptions _launch;
     private readonly IRoadhogLogger _logger;
     private readonly IWorkerProcessExitReconciler _exitReconciler;
+    private readonly IProcessIdentityPresenceProbe _processPresenceProbe;
     private readonly string _root;
+    private readonly SemaphoreSlim _startAdmissionGate = new(1, 1);
     private readonly SemaphoreSlim _intentGate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
     private int _shuttingDown;
@@ -67,14 +78,31 @@ public sealed class WorkerProcessManager : IAsyncDisposable
     private static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true, WriteIndented = true };
 
     public WorkerProcessManager(RoadhogServiceOptions paths, IRoadhogLogger logger, WorkerProcessLaunchOptions? launch = null,
-        IWorkerProcessExitReconciler? exitReconciler = null)
+        IWorkerProcessExitReconciler? exitReconciler = null, IProcessIdentityPresenceProbe? processPresenceProbe = null)
     {
         _paths = paths;
         _logger = logger;
         _launch = launch ?? new();
         _exitReconciler = exitReconciler ?? new WindowsWorkerProcessExitReconciler();
+        _processPresenceProbe = processPresenceProbe ?? new WindowsProcessIdentityPresenceProbe();
         _root = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(paths.AccountConfigPath))!, "workers");
         Directory.CreateDirectory(_root);
+    }
+
+    public async Task<IDisposable> HoldStartAdmissionsAsync(CancellationToken cancellationToken = default)
+    {
+        ThrowIfUnavailable();
+        await _startAdmissionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ThrowIfUnavailable();
+            return new StartAdmissionLease(_startAdmissionGate);
+        }
+        catch
+        {
+            _startAdmissionGate.Release();
+            throw;
+        }
     }
 
     public async Task InitializeAsync(IReadOnlyList<AccountConfig> accounts, CancellationToken cancellationToken = default)
@@ -159,6 +187,10 @@ public sealed class WorkerProcessManager : IAsyncDisposable
                 if (!Guid.TryParse(config.InstanceId, out _) || !ids.Add(config.InstanceId)) throw new InvalidOperationException("账号实例标识无效或重复。");
                 if (_entries.TryGetValue(config.InstanceId, out var entry) && (entry.Desired || entry.Process is not null) &&
                     (entry.Config.AccountName != config.AccountName || entry.Config.HardwareKey != config.HardwareKey ||
+                     entry.Config.HardwareBindingKind != config.HardwareBindingKind ||
+                     entry.Config.HardwareBindingConfidence != config.HardwareBindingConfidence ||
+                     entry.Config.HardwareDeviceInstanceId != config.HardwareDeviceInstanceId ||
+                     entry.Config.HardwareLocationKey != config.HardwareLocationKey ||
                      entry.Config.VmmDeviceName != config.VmmDeviceName || entry.Config.LicenseCredentialPath != config.LicenseCredentialPath ||
                      entry.Config.BagCleanupNameListPath != config.BagCleanupNameListPath || entry.Config.RadarMapDirectory != config.RadarMapDirectory ||
                      entry.Config.OwnerLicenseGrantPath != config.OwnerLicenseGrantPath ||
@@ -190,13 +222,21 @@ public sealed class WorkerProcessManager : IAsyncDisposable
 
     public async Task<HardwareVerification> VerifyHardwareAsync(AccountConfig draft, CancellationToken cancellationToken)
     {
+        // The draft replaces Entry.Config temporarily. Hold admission until both the verification
+        // worker and the original config are restored so a concurrent save cannot persist a mixed state.
+        using var admission = await HoldStartAdmissionsAsync(cancellationToken).ConfigureAwait(false);
         var entry = Get(draft.InstanceId);
-        if (entry.Process is not null) throw new InvalidOperationException("请先停止此账号，再验证新的硬件绑定。");
-        var old = entry.Config;
-        lock (entry.Sync) entry.Config = draft.Clone();
+        AccountConfig old;
+        lock (entry.Sync)
+        {
+            if (entry.Desired || entry.Process is not null)
+                throw new InvalidOperationException("请先停止此账号，再验证新的硬件绑定。");
+            old = entry.Config;
+            entry.Config = draft.Clone();
+        }
         try
         {
-            var client = await GetClientAsync(entry, cancellationToken).ConfigureAwait(false);
+            var client = await GetClientCoreAsync(entry, cancellationToken).ConfigureAwait(false);
             var result = await client.CallAsync<OperationResult<HardwareVerification>>(WorkerCommands.VerifyHardware, [], cancellationToken).ConfigureAwait(false);
             if (!result.Success || result.Value is null || string.IsNullOrWhiteSpace(result.Value.CharacterName) ||
                 !result.Value.KmBoxConnected || string.IsNullOrWhiteSpace(result.Value.SessionId) || result.Value.SessionId != HardwareVerificationSession.CurrentId ||
@@ -207,8 +247,9 @@ public sealed class WorkerProcessManager : IAsyncDisposable
         }
         finally
         {
-            var stopped = await StopAsync(draft.InstanceId).ConfigureAwait(false);
-            lock (entry.Sync) entry.Config = old;
+            OperationResult stopped;
+            try { stopped = await StopAsync(draft.InstanceId).ConfigureAwait(false); }
+            finally { lock (entry.Sync) entry.Config = old; }
             if (!stopped.Success) throw new InvalidOperationException("验证结束后无法释放账号后台：" + stopped.Error);
         }
     }
@@ -217,26 +258,65 @@ public sealed class WorkerProcessManager : IAsyncDisposable
     {
         if (Volatile.Read(ref _shuttingDown) != 0 || Volatile.Read(ref _disposed) != 0) return OperationResult.Fail("主界面正在退出，不能启动账号。");
         var entry = Get(instanceId);
-        if (!HardwareVerificationSession.IsCurrent(entry.Config))
-        {
-            lock (entry.Sync) { entry.Desired = false; entry.State = "verification_required"; entry.Error = HardwareVerificationSession.RequiredMessage; }
-            return OperationResult.Fail(HardwareVerificationSession.RequiredMessage);
-        }
+        long stopGeneration;
+        lock (entry.Sync) stopGeneration = entry.StopGeneration;
         CancellationTokenSource operation;
-        lock (entry.Sync)
+        string? resourceConflict = null;
+        var persistClearedIntent = false;
+        // Reserve a saved device for one Start before either concurrent request records intent.
+        try { await _startAdmissionGate.WaitAsync(cancellationToken).ConfigureAwait(false); }
+        catch (OperationCanceledException) { return OperationResult.Fail("账号启动已取消。"); }
+        try
         {
-            if (Volatile.Read(ref _shuttingDown) != 0 || Volatile.Read(ref _disposed) != 0) return OperationResult.Fail("主界面正在退出，不能启动账号。");
-            if (entry.State == "stopping" || entry.StopTask is { IsCompleted: false }) return OperationResult.Fail("账号正在停止，请稍后再启动。");
-            if (entry.Desired && entry.State == "starting") return OperationResult.Ok();
-            if (entry.Desired && Alive(entry) && entry.Status?.IsRunning == true && !cleanup) return OperationResult.Ok();
-            entry.Desired = true;
-            entry.Operation.Cancel();
-            entry.RetiredOperations.Add(entry.Operation);
-            entry.Operation = new();
-            operation = entry.Operation;
-            entry.StartingRequest = true;
-            entry.State = "starting";
-            entry.Error = null;
+            lock (_sync)
+            lock (entry.Sync)
+            {
+                if (!_entries.TryGetValue(instanceId, out var current) || !ReferenceEquals(current, entry))
+                    return OperationResult.Fail("账号配置已删除，请刷新后重试。");
+                if (Volatile.Read(ref _shuttingDown) != 0 || Volatile.Read(ref _disposed) != 0) return OperationResult.Fail("主界面正在退出，不能启动账号。");
+                if (entry.StopGeneration != stopGeneration) return OperationResult.Fail("启动请求已被后续停止操作取消。");
+                if (!HardwareVerificationSession.IsCurrent(entry.Config))
+                {
+                    entry.Desired = false;
+                    entry.State = "verification_required";
+                    entry.Error = HardwareVerificationSession.RequiredMessage;
+                    return OperationResult.Fail(HardwareVerificationSession.RequiredMessage);
+                }
+                if (entry.State == "stopping" || entry.StopTask is { IsCompleted: false }) return OperationResult.Fail("账号正在停止，请稍后再启动。");
+                if (entry.Desired && entry.State == "starting") return OperationResult.Ok();
+                if (entry.Desired && Alive(entry) && entry.Status?.IsRunning == true && !cleanup) return OperationResult.Ok();
+                resourceConflict = FindResourceConflict(entry);
+                if (resourceConflict is not null)
+                {
+                    persistClearedIntent = entry.Desired;
+                    entry.Desired = false;
+                    entry.Operation.Cancel();
+                    entry.State = "failed";
+                    entry.Error = resourceConflict;
+                    operation = entry.Operation;
+                }
+                else
+                {
+                    entry.Desired = true;
+                    entry.Operation.Cancel();
+                    entry.RetiredOperations.Add(entry.Operation);
+                    entry.Operation = new();
+                    operation = entry.Operation;
+                    entry.StartingRequest = true;
+                    entry.State = "starting";
+                    entry.Error = null;
+                }
+            }
+        }
+        finally { _startAdmissionGate.Release(); }
+        if (resourceConflict is not null)
+        {
+            if (persistClearedIntent)
+            {
+                try { await SaveIntentAsync().ConfigureAwait(false); }
+                catch (Exception ex) { _logger.Error("account_process.conflict_intent_failed", ex); }
+            }
+            return OperationResult.Fail(resourceConflict);
         }
         try
         {
@@ -279,7 +359,9 @@ public sealed class WorkerProcessManager : IAsyncDisposable
     {
         ThrowIfUnavailable();
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(_launch.StartupTimeout);
+        // Discovery and OS-level lease checks have their own bounded cost. The child itself still
+        // gets only StartupTimeout in WaitForReadyAsync; allow cleanup checks before that budget.
+        deadline.CancelAfter(_launch.StartupTimeout + _launch.StopTimeout + TimeSpan.FromSeconds(5));
         cancellationToken = deadline.Token;
         if (!entry.Desired) return OperationResult.Fail("账号已停止。");
         // Recovery may have acquired the gate while a manual start persisted its intent.
@@ -298,7 +380,17 @@ public sealed class WorkerProcessManager : IAsyncDisposable
             Fail(entry, built.Error ?? "无法生成账号运行配置。");
             return OperationResult.Fail(entry.Error!);
         }
-        var client = await EnsureWorkerAsync(entry, cancellationToken).ConfigureAwait(false);
+        WorkerRpcClient client;
+        try { client = await EnsureWorkerAsync(entry, cancellationToken).ConfigureAwait(false); }
+        catch (AccountResourceConflictException ex)
+        {
+            lock (entry.Sync) entry.Desired = false;
+            var error = ex.Message;
+            try { await SaveIntentAsync().ConfigureAwait(false); }
+            catch (Exception persistenceError) { error += "；停止状态未能保存：" + persistenceError.Message; }
+            Fail(entry, error);
+            return OperationResult.Fail(error);
+        }
         if (entry.Status is { InitializationComplete: true, Authorized: false } unavailable)
         {
             // A missing/rejected credential is an actionable setup failure, not a reason to spawn another process repeatedly.
@@ -346,6 +438,7 @@ public sealed class WorkerProcessManager : IAsyncDisposable
         var entry = Get(instanceId);
         lock (entry.Sync)
         {
+            entry.StopGeneration++;
             if (entry.StopTask is { IsCompleted: false }) return entry.StopTask;
             entry.Desired = false;
             entry.Operation.Cancel();
@@ -428,6 +521,12 @@ public sealed class WorkerProcessManager : IAsyncDisposable
 
     private async Task<WorkerRpcClient> GetClientAsync(Entry entry, CancellationToken cancellationToken)
     {
+        using var admission = await HoldStartAdmissionsAsync(cancellationToken).ConfigureAwait(false);
+        return await GetClientCoreAsync(entry, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<WorkerRpcClient> GetClientCoreAsync(Entry entry, CancellationToken cancellationToken)
+    {
         ThrowIfUnavailable();
         CancellationToken operation;
         lock (entry.Sync)
@@ -467,16 +566,17 @@ public sealed class WorkerProcessManager : IAsyncDisposable
             return Client(entry);
         }
         ValidateHardware(entry.Config);
-        foreach (var other in Entries().Where(e => !ReferenceEquals(e, entry) && e.Config.KmBox is not null && !string.IsNullOrWhiteSpace(e.Config.VmmDeviceName)))
-        {
-            var a = entry.Config; var b = other.Config;
-            if (string.Equals(a.HardwareKey, b.HardwareKey, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(Hardware.DeviceLeaseStore.CanonicalVmmDeviceName(a.VmmDeviceName), Hardware.DeviceLeaseStore.CanonicalVmmDeviceName(b.VmmDeviceName), StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(a.KmBox!.IpAddress, b.KmBox!.IpAddress, StringComparison.OrdinalIgnoreCase) && a.KmBox.Port == b.KmBox.Port ||
-                string.Equals(a.KmBox!.Mac.Replace(":", "").Replace("-", ""), b.KmBox!.Mac.Replace(":", "").Replace("-", ""), StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(Path.GetFullPath(PathsFor(a).LicenseCredentialPath), Path.GetFullPath(PathsFor(b).LicenseCredentialPath), StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("账号与“" + b.AccountName + "”共用了设备或客户端授权，请先检查配置。");
-        }
+        if (FindResourceConflict(entry) is { } resourceConflict)
+            throw new AccountResourceConflictException(resourceConflict);
+        var activeLeases = new DeviceLeaseStore(_launch.LeasePath).ReadActive();
+        if (!activeLeases.Success || activeLeases.Value is null)
+            throw new InvalidOperationException("无法确认设备占用记录：" + activeLeases.Error);
+        var occupied = activeLeases.Value.FirstOrDefault(lease =>
+            string.Equals(lease.HardwareKey, entry.Config.HardwareKey, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(DeviceLeaseStore.CanonicalVmmDeviceName(lease.VmmDeviceName),
+                DeviceLeaseStore.CanonicalVmmDeviceName(entry.Config.VmmDeviceName), StringComparison.OrdinalIgnoreCase));
+        if (occupied is not null)
+            throw new AccountResourceConflictException($"DMA 设备仍由进程 {occupied.ProcessId} 占用，请先停止占用账号或重新选择设备。");
         var directory = InstanceDirectory(entry.Config.InstanceId);
         Directory.CreateDirectory(directory);
         var spec = new WorkerLaunchSpec
@@ -500,6 +600,8 @@ public sealed class WorkerProcessManager : IAsyncDisposable
         start.ArgumentList.Add("--account-worker"); start.ArgumentList.Add(launchPath);
         try
         {
+            // An error from an earlier failed launch must not classify this child's exit.
+            File.Delete(spec.ManifestPath + ".error");
             lock (_sync)
             {
                 ThrowIfUnavailable();
@@ -528,12 +630,17 @@ public sealed class WorkerProcessManager : IAsyncDisposable
             _logger.Info("account_process.started", new Dictionary<string, object?> { ["account"] = entry.Config.AccountName, ["pid"] = entry.Process!.Id });
             return Client(entry);
         }
-        catch
+        catch (Exception startupError)
         {
             // A responsive status pipe is not proof that initialization finished. Reclaim every failed startup.
-            await ShutdownCoreAsync(entry).ConfigureAwait(false);
+            Exception? cleanupError = null;
+            try { await ShutdownCoreAsync(entry).ConfigureAwait(false); }
+            catch (Exception ex) { cleanupError = ex; }
             ClearPending(entry.Config.InstanceId, spec.Token);
             try { File.Delete(launchPath); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            if (startupError is AccountResourceConflictException && cleanupError is not null)
+                throw new AccountResourceConflictException(startupError.Message + "；后台清理失败：" + cleanupError.Message);
+            if (cleanupError is not null) throw new AggregateException(startupError, cleanupError);
             throw;
         }
     }
@@ -549,6 +656,17 @@ public sealed class WorkerProcessManager : IAsyncDisposable
             {
                 var errorPath = Path.Combine(InstanceDirectory(entry.Config.InstanceId), "worker.json.error");
                 var reason = File.Exists(errorPath) ? await File.ReadAllTextAsync(errorPath, deadline.Token).ConfigureAwait(false) : "账号后台在初始化时退出。";
+                if (reason.StartsWith('{'))
+                {
+                    try
+                    {
+                        var failure = JsonSerializer.Deserialize<WorkerStartupFailure>(reason, Json);
+                        if (failure?.Code == WorkerStartupFailure.ResourceConflict)
+                            throw new AccountResourceConflictException(failure.Message);
+                        if (!string.IsNullOrWhiteSpace(failure?.Message)) reason = failure.Message;
+                    }
+                    catch (JsonException) { /* Older workers write plain text. */ }
+                }
                 throw new InvalidOperationException(reason);
             }
             using var attempt = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token);
@@ -840,9 +958,15 @@ public sealed class WorkerProcessManager : IAsyncDisposable
         } while (true);
         if (identityError is not null)
             throw new InvalidOperationException("无法确认账号后台身份，未操作任何未知进程：" + identityError);
-        // A live PID in a file is only a hint; never treat it as permission to kill without the authenticated identity response.
-        if (manifest is not null && IsRecordedProcessAlive(manifest))
-            throw new InvalidOperationException("后台记录指向仍存活的进程，但身份通信未通过验证；已拒绝自动接管或结束它。");
+        // A file is only a hint, never authority to terminate. A residual OS process still blocks replacement.
+        if (manifest is { ProcessId: > 0 } && manifest.ProcessStartedAtUtc != default)
+        {
+            var presence = _processPresenceProbe.Check(manifest.ProcessId, manifest.ProcessStartedAtUtc);
+            if (presence == ProcessIdentityPresence.Alive)
+                throw new InvalidOperationException("后台记录指向仍存活的进程，但身份通信未通过验证；已拒绝自动接管或结束它。");
+            if (presence == ProcessIdentityPresence.Unknown)
+                throw new InvalidOperationException("无法确认后台记录中的进程是否已退出；保留设备占用，请稍后重试。");
+        }
     }
 
     private T? ReadWorkerFile<T>(string path) where T : class
@@ -855,16 +979,6 @@ public sealed class WorkerProcessManager : IAsyncDisposable
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         { _logger.Warn("account_process.record_unreadable", new Dictionary<string, object?> { ["file"] = Path.GetFileName(path), ["error"] = ex.Message }); return null; }
-    }
-
-    private static bool IsRecordedProcessAlive(WorkerDescriptor descriptor)
-    {
-        try
-        {
-            using var process = Process.GetProcessById(descriptor.ProcessId);
-            return !process.HasExited && process.StartTime.ToUniversalTime() == descriptor.ProcessStartedAtUtc.UtcDateTime;
-        }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception) { return false; }
     }
 
     private void ClearPending(string instanceId, string token)
@@ -940,6 +1054,30 @@ public sealed class WorkerProcessManager : IAsyncDisposable
     private static void Forget(Entry entry)
     {
         lock (entry.Sync) { entry.Process?.Dispose(); entry.Process = null; entry.Descriptor = null; entry.Status = null; entry.RunningSince = null; entry.PollFailures = 0; }
+    }
+    private string? FindResourceConflict(Entry entry)
+    {
+        var account = entry.Config;
+        foreach (var other in Entries().Where(other => !ReferenceEquals(other, entry) && other.Config.KmBox is not null &&
+                                              !string.IsNullOrWhiteSpace(other.Config.VmmDeviceName)))
+        {
+            var saved = other.Config;
+            if (string.Equals(Path.GetFullPath(PathsFor(account).LicenseCredentialPath),
+                    Path.GetFullPath(PathsFor(saved).LicenseCredentialPath), StringComparison.OrdinalIgnoreCase))
+                return "账号与“" + saved.AccountName + "”共用了客户端授权，请先检查配置。";
+            if (!(other.Desired || other.Process is not null)) continue;
+            if (string.Equals(account.HardwareKey, saved.HardwareKey, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(DeviceLeaseStore.CanonicalVmmDeviceName(account.VmmDeviceName),
+                    DeviceLeaseStore.CanonicalVmmDeviceName(saved.VmmDeviceName), StringComparison.OrdinalIgnoreCase) ||
+                !string.IsNullOrWhiteSpace(account.HardwareDeviceInstanceId) &&
+                    string.Equals(account.HardwareDeviceInstanceId, saved.HardwareDeviceInstanceId, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(account.KmBox!.IpAddress, saved.KmBox!.IpAddress, StringComparison.OrdinalIgnoreCase) &&
+                    account.KmBox.Port == saved.KmBox.Port ||
+                string.Equals(account.KmBox.Mac.Replace(":", "").Replace("-", ""),
+                    saved.KmBox.Mac.Replace(":", "").Replace("-", ""), StringComparison.OrdinalIgnoreCase))
+                return "设备正被账号“" + saved.AccountName + "”占用，请先停止该账号或重新选择设备。";
+        }
+        return null;
     }
     private static void ValidateHardware(AccountConfig config)
     {
