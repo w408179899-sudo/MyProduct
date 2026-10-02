@@ -8,6 +8,8 @@ internal enum CleanupPreparationStage { None, ReturningToTown, Discarding }
 public sealed record CleanupRequest(ScriptSettings Settings, bool Manual, bool ResetsCooldown = true, bool AllowNpcSell = true)
 {
     // Execution progress belongs to this worker request, never to persisted settings.
+    public bool StandaloneShop { get; init; }
+    public string? Failure { get; set; }
     internal CleanupPreparationStage PreparationStage { get; set; }
     internal bool TownReturnCompleted { get; set; }
     internal bool FullCleanupStarted { get; set; }
@@ -20,15 +22,24 @@ public sealed class CleanupRequestMailbox
     private readonly object sync = new();
     private CleanupRequest? request;
     public CleanupRequest? Current { get { lock (sync) return request; } }
-    public OperationResult Request(ScriptSettings settings, bool manual, bool resetsCooldown = true, bool allowNpcSell = true)
+    public OperationResult Request(ScriptSettings settings, bool manual, bool resetsCooldown = true, bool allowNpcSell = true, bool standaloneShop = false)
     {
         lock (sync)
         {
             if (request != null) return OperationResult.Fail("清包流程已在等待或执行，请勿重复启动。");
             var copy = settings.Clone();
             copy.Maintenance.CleanupWorkflow = copy.Maintenance.CleanupWorkflow.ForTrigger(manual);
+            if (standaloneShop)
+            {
+                if (copy.Maintenance.CleanupWorkflow.StandaloneShopDiscount is < 4 or > 9)
+                    return OperationResult.Fail("摆摊折扣必须为 4～9 折。");
+                copy.Maintenance.CleanupWorkflow.NpcCleanup = false;
+                copy.Maintenance.CleanupWorkflow.Auction = false;
+                copy.Maintenance.CleanupWorkflow.TransferGold = false;
+                copy.Maintenance.CleanupWorkflow.PersonalShop = true;
+            }
             if (copy.Maintenance.CleanupWorkflow.Describe().Length == 0) return OperationResult.Fail("请先在清包页选择执行项目。");
-            request = new(copy, manual, resetsCooldown, allowNpcSell); return OperationResult.Ok();
+            request = new(copy, manual, resetsCooldown, allowNpcSell) { StandaloneShop = standaloneShop }; return OperationResult.Ok();
         }
     }
     public void Complete() { lock (sync) request = null; }

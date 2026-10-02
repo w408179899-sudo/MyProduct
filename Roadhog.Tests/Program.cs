@@ -1031,6 +1031,13 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ("cleanup workflow auction withdraw all register then settle", CleanupWorkflowTests.AuctionSubmissionAsync),
     ("cleanup workflow warehouse ownership quantity and cancellation", CleanupWorkflowTests.WarehousePurchaseAsync),
     ("cleanup workflow configured stall batches sale proof and purchased goods", CleanupWorkflowTests.ConfiguredStallAsync)
+    ,("standalone shop price filtering request and persistence", StandaloneShopTests.PriceAndRequestAsync)
+    ,("standalone shop batches confirmed prices sale proof and resume", CleanupWorkflowTests.DiscountedStallAsync)
+    ,("standalone shop empty and stop never resume", StandaloneShopTests.EmptyAndCancelAsync)
+    ,("standalone shop UI discount and button layout", StandaloneShopTests.UiAsync)
+    ,("standalone shop worker failure holds until stop", CleanupWorkflowTests.StandaloneShopWorkerFailureAsync)
+    ,("standalone shop worker IPC stopped and running dispatch", WorkerProcessManagerTests.StandaloneShopDispatchAsync)
+    ,("standalone shop workflow sells recalls verifies and returns to combat", CleanupWorkflowTests.StandaloneShopReturnAsync)
     ,("cleanup workflow purchase decoder guards", PersonalShopDecoderTests.TradingPurchaseDecodeAsync)
     ,("cleanup workflow auction listing and modal decoder guards", PersonalShopDecoderTests.AuctionListingsDecodeAsync)
     ,("auction inventory foreground reopening guards and cancellation", CleanupWorkflowTests.AuctionInventoryForegroundAsync)

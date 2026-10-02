@@ -391,7 +391,13 @@ public sealed class MultiAccountForm : Form
     private AccountSettingsForm CreateAccountSettingsForm(AccountConfig account) =>
         new(account.AccountName, _workspace.Processes.RuntimeFor(account.InstanceId), _workspace.Accounts,
             _workspace.Paths, _workspace.Profiles, new WindowsFolderLauncher(), _workspace.Options.PathLibraryDirectory,
-            account.CharacterName, _workspace.NameListsFor(account), _workspace.RadarMapsFor(account));
+            account.CharacterName, _workspace.NameListsFor(account), _workspace.RadarMapsFor(account),
+            async settings =>
+            {
+                await ReloadAccountsAsync();
+                return await _workspace.Processes.StartAsync(account.InstanceId, cancellationToken: _operations.Token,
+                    standaloneShopSettings: settings);
+            });
 
     private async Task ReloadAccountsAsync()
     {

@@ -609,6 +609,28 @@ internal static class WorkerProcessManagerTests
         Require(test.Spec(rejected).Token != launchToken && (await test.InfoAsync(rejected)).Running, "explicit retry uses a fresh authenticated worker");
     }
 
+    public static async Task StandaloneShopDispatchAsync()
+    {
+        await using var test = new TestEnvironment();
+        var account = test.Account(1);
+        var manager = await test.ManagerAsync(new[] { account });
+        var settings = new ScriptSettings();
+        settings.Maintenance.CleanupWorkflow.StandaloneShopDiscount = 8;
+        settings.Maintenance.BagCleanupStallItems.Add(new() { Name = "shop-only", UnitPrice = 777 });
+        Require((await manager.StartAsync(account.InstanceId, standaloneShopSettings: settings)).Success, "stopped account dispatches standalone shop through real worker IPC");
+        var files = Directory.GetFiles(test.Root, "standalone-shop.json", SearchOption.AllDirectories);
+        Require(files.Length == 1, "dedicated backend command invoked");
+        var received = JsonSerializer.Deserialize<AccountConfig>(await File.ReadAllTextAsync(files[0]))!;
+        Require(received.ScriptSettings!.Maintenance.CleanupWorkflow.StandaloneShopDiscount == 8 &&
+            received.ScriptSettings.Maintenance.BagCleanupStallItems.Single().Name == "shop-only", "discount and filters survive IPC");
+        await UntilAsync(() => View(manager, account).State == "running", "worker is running");
+        settings.Maintenance.CleanupWorkflow.StandaloneShopDiscount = 4;
+        Require((await manager.StartAsync(account.InstanceId, standaloneShopSettings: settings)).Success, "running account receives shop command instead of start no-op");
+        received = JsonSerializer.Deserialize<AccountConfig>(await File.ReadAllTextAsync(files[0]))!;
+        Require(received.ScriptSettings!.Maintenance.CleanupWorkflow.StandaloneShopDiscount == 4, "running request uses current selection");
+        Require((await manager.StopAsync(account.InstanceId)).Success, "stop shop worker");
+    }
+
     public static async Task ManualCancellationAsync()
     {
         await using var test = new TestEnvironment();
@@ -698,6 +720,12 @@ internal static class WorkerProcessManagerTests
             Authorized = scenario != "unauthorized", AuthorizationError = scenario == "unauthorized" ? "mock authorization denied" : null,
             IsRunning = _running, Snapshot = _states.Snapshot().SingleOrDefault()
         };
+
+        public async Task<OperationResult> StartStandaloneShopAsync(AccountConfig account, CancellationToken cancellationToken)
+        {
+            await File.WriteAllTextAsync(Path.Combine(spec.Paths.LogDirectory, "standalone-shop.json"), JsonSerializer.Serialize(account), cancellationToken);
+            return await StartAsync(account, true, cancellationToken);
+        }
 
         public async Task<OperationResult> StartAsync(AccountConfig account, bool cleanupFirst, CancellationToken cancellationToken)
         {

@@ -13,6 +13,8 @@ public interface IWorkerProcessBackend : IAsyncDisposable
     Task InitializeAsync(CancellationToken cancellationToken);
     WorkerStatus GetStatus();
     Task<OperationResult> StartAsync(AccountConfig account, bool cleanupFirst, CancellationToken cancellationToken);
+    Task<OperationResult> StartStandaloneShopAsync(AccountConfig account, CancellationToken cancellationToken) =>
+        Task.FromResult(OperationResult.Fail("账号后台不支持独立摆摊，请更新程序。"));
     Task<OperationResult> StopAsync(CancellationToken cancellationToken);
     Task<OperationResult> ReleaseInputAsync(CancellationToken cancellationToken) => Task.FromResult(OperationResult.Ok());
     Task<OperationResult<HardwareVerification>> VerifyHardwareAsync(CancellationToken cancellationToken);
@@ -121,7 +123,13 @@ internal sealed class RoadhogWorkerProcessBackend : IWorkerProcessBackend
         };
     }
 
-    public async Task<OperationResult> StartAsync(AccountConfig account, bool cleanupFirst, CancellationToken cancellationToken)
+    public Task<OperationResult> StartAsync(AccountConfig account, bool cleanupFirst, CancellationToken cancellationToken) =>
+        StartBusinessAsync(account, cleanupFirst, false, cancellationToken);
+
+    public Task<OperationResult> StartStandaloneShopAsync(AccountConfig account, CancellationToken cancellationToken) =>
+        StartBusinessAsync(account, true, true, cancellationToken);
+
+    private async Task<OperationResult> StartBusinessAsync(AccountConfig account, bool cleanupFirst, bool standaloneShop, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var hardware = ValidatePhysicalBinding();
@@ -133,7 +141,7 @@ internal sealed class RoadhogWorkerProcessBackend : IWorkerProcessBackend
         }
         if (_services.AccountConfigStore is WorkerAccountConfigStore store) store.Update(account);
         OperationResult StartBusiness() => cleanupFirst
-            ? _services.AccountOrchestrator.RequestCleanup(account)
+            ? _services.AccountOrchestrator.RequestCleanup(account, standaloneShop)
             : _services.AccountOrchestrator.Start(account);
         // Cleanup on an already running worker keeps its existing verified session.
         if (GetStatus().IsRunning) return StartBusiness();

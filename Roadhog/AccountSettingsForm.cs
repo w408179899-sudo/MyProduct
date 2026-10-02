@@ -235,8 +235,10 @@ namespace Roadhog
             string pathLibraryDirectory,
             string accountDisplayText = "",
             IBagCleanupNameListStore? bagCleanupNameListStore = null,
-            IRadarMapStore? radarMapStore = null)
+            IRadarMapStore? radarMapStore = null,
+            Func<ScriptSettings, Task<Core.Common.OperationResult>>? startStandaloneShop = null)
         {
+            _startStandaloneShop = startStandaloneShop;
             _account = account;
             _windowTitle = BuildWindowTitle(account, accountDisplayText);
             _runtime = runtime;
@@ -3574,6 +3576,8 @@ namespace Roadhog
 
             AddCategory("药品", 398);
             AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.Medicine), leftOptionX, leftComboX, 430);
+
+            BuildStandaloneShopControls(rulesPanel);
 
             bagCleanupWhitelistRadio = AddRadioButton(namesPanel, "白名单（不丢弃）", 0, 0, 128, true);
             bagCleanupWhitelistRadio.Name = "bagCleanupWhitelistRadio";

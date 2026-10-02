@@ -49,7 +49,7 @@ public sealed class AccountWorkerHost
         }
     }
 
-    public OperationResult Start(AccountConfig config, bool cleanupFirst = false)
+    public OperationResult Start(AccountConfig config, bool cleanupFirst = false, bool standaloneShop = false)
     {
         if (!config.Validate(out var error))
         {
@@ -65,9 +65,9 @@ public sealed class AccountWorkerHost
 
             var workerConfig = config.Clone();
             _cleanupRequests = new();
-            if (cleanupFirst)
+            if (cleanupFirst || standaloneShop)
             {
-                var request = _cleanupRequests.Request(workerConfig.ScriptSettings ?? new(), true);
+                var request = _cleanupRequests.Request(workerConfig.ScriptSettings ?? new(), true, standaloneShop: standaloneShop);
                 if (!request.Success) return request;
             }
             AccountName = workerConfig.AccountName;
@@ -196,13 +196,13 @@ public sealed class AccountWorkerHost
         }
     }
 
-    public OperationResult RequestCleanup(ScriptSettings settings)
+    public OperationResult RequestCleanup(ScriptSettings settings, bool standaloneShop = false)
     {
         lock (_syncRoot)
         {
             if (_task is not { IsCompleted: false } || _stopSource?.IsCancellationRequested != false)
                 return OperationResult.Fail("账号正在停止或未运行。");
-            return _cleanupRequests.Request(settings, true);
+            return _cleanupRequests.Request(settings, true, standaloneShop: standaloneShop);
         }
     }
 }

@@ -69,6 +69,7 @@ public static class WorkerCommands
     public const string Start = "$start";
     public const string Stop = "$stop";
     public const string Cleanup = "$cleanup";
+    public const string StandaloneShop = "$standaloneShop";
     public const string Shutdown = "$shutdown";
     public const string VerifyHardware = "$verifyHardware";
 }

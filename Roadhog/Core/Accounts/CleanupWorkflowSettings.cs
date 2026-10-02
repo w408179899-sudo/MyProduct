@@ -8,6 +8,7 @@ public sealed class CleanupWorkflowSettings
     public bool Auction { get; set; }
     public bool TransferGold { get; set; }
     public bool PersonalShop { get; set; }
+    public int StandaloneShopDiscount { get; set; } = 5;
     public string WarehouseName { get; set; } = string.Empty;
     public string WarehouseSelectionKey { get; set; } = string.Empty;
     // Retained for legacy JSON round-trips only; auction always withdraws every current listing.

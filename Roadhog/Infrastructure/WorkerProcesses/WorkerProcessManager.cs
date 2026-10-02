@@ -254,9 +254,11 @@ public sealed class WorkerProcessManager : IAsyncDisposable
         }
     }
 
-    public async Task<OperationResult> StartAsync(string instanceId, bool cleanup = false, CancellationToken cancellationToken = default)
+    public async Task<OperationResult> StartAsync(string instanceId, bool cleanup = false, CancellationToken cancellationToken = default, ScriptSettings? standaloneShopSettings = null)
     {
         if (Volatile.Read(ref _shuttingDown) != 0 || Volatile.Read(ref _disposed) != 0) return OperationResult.Fail("主界面正在退出，不能启动账号。");
+        standaloneShopSettings = standaloneShopSettings?.Clone();
+        cleanup |= standaloneShopSettings != null;
         var entry = Get(instanceId);
         long stopGeneration;
         lock (entry.Sync) stopGeneration = entry.StopGeneration;
@@ -283,7 +285,8 @@ public sealed class WorkerProcessManager : IAsyncDisposable
                     return OperationResult.Fail(HardwareVerificationSession.RequiredMessage);
                 }
                 if (entry.State == "stopping" || entry.StopTask is { IsCompleted: false }) return OperationResult.Fail("账号正在停止，请稍后再启动。");
-                if (entry.Desired && entry.State == "starting") return OperationResult.Ok();
+                if (entry.Desired && entry.State == "starting")
+                    return standaloneShopSettings != null ? OperationResult.Fail("账号正在启动，请稍后再提交摆摊任务。") : OperationResult.Ok();
                 if (entry.Desired && Alive(entry) && entry.Status?.IsRunning == true && !cleanup) return OperationResult.Ok();
                 resourceConflict = FindResourceConflict(entry);
                 if (resourceConflict is not null)
@@ -333,7 +336,7 @@ public sealed class WorkerProcessManager : IAsyncDisposable
             {
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(linked.Token);
                 deadline.CancelAfter(_launch.StartupTimeout + _launch.StopTimeout + TimeSpan.FromSeconds(5));
-                return await StartCoreAsync(entry, cleanup, deadline.Token).ConfigureAwait(false);
+                return await StartCoreAsync(entry, cleanup, deadline.Token, standaloneShopSettings).ConfigureAwait(false);
             }
             finally { entry.Gate.Release(); }
         }
@@ -355,7 +358,7 @@ public sealed class WorkerProcessManager : IAsyncDisposable
         finally { lock (entry.Sync) if (ReferenceEquals(entry.Operation, operation)) entry.StartingRequest = false; }
     }
 
-    private async Task<OperationResult> StartCoreAsync(Entry entry, bool cleanup, CancellationToken cancellationToken)
+    private async Task<OperationResult> StartCoreAsync(Entry entry, bool cleanup, CancellationToken cancellationToken, ScriptSettings? standaloneShopSettings = null)
     {
         ThrowIfUnavailable();
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -404,7 +407,8 @@ public sealed class WorkerProcessManager : IAsyncDisposable
         }
         try
         {
-            var result = await client.CallAsync<OperationResult>(cleanup ? WorkerCommands.Cleanup : WorkerCommands.Start,
+            if (standaloneShopSettings != null) built.Value.ScriptSettings = standaloneShopSettings.Clone();
+            var result = await client.CallAsync<OperationResult>(standaloneShopSettings != null ? WorkerCommands.StandaloneShop : cleanup ? WorkerCommands.Cleanup : WorkerCommands.Start,
                 [built.Value], cancellationToken).ConfigureAwait(false);
             if (!result.Success)
             {

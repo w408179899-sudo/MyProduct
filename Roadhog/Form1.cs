@@ -1374,7 +1374,15 @@ namespace Roadhog
                 _services.PathLibraryDirectory,
                 titleDisplayText,
                 _services.BagCleanupNameListStore,
-                _services.RadarMapStore);
+                _services.RadarMapStore,
+                async settings =>
+                {
+                    var loaded = await _services.AccountConfigStore.LoadAllAsync();
+                    var config = loaded.Value?.FirstOrDefault(c => string.Equals(c.AccountName, account, StringComparison.OrdinalIgnoreCase))?.Clone();
+                    if (!loaded.Success || config == null) return Core.Common.OperationResult.Fail(loaded.Error ?? "账号配置不存在。");
+                    config.ScriptSettings = settings;
+                    return _services.AccountOrchestrator.RequestCleanup(config, standaloneShop: true);
+                });
             settingsForm.ShowDialog(this);
         }
 

@@ -131,6 +131,12 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                         context.RuntimeStates.MarkWarning(context.Config.AccountName, "共享配置刷新失败：" + ex.Message);
                     }
                 }
+                if (context.CleanupRequests.Current is { StandaloneShop: true, Failure: not null } failedShop)
+                {
+                    context.RuntimeStates.MarkWarning(context.Config.AccountName, failedShop.Failure);
+                    await Task.Delay(context.Options.TickInterval, context.StopToken);
+                    continue;
+                }
                 if (await _stationaryCombat.TryTickTownReturnAsync(
                         context, semiAutoPlan, semiAutoState, stationaryCombatState).ConfigureAwait(false) is { } townReturnDelay)
                 {
@@ -184,12 +190,12 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                             else context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, "清包已排队，先处理当前战斗 / 复活");
                         }
                         catch (Exception ex) when (!context.StopToken.IsCancellationRequested &&
-                            ex is CleanupCombatInterruptionException or CleanupDeathInterruptionException)
+                            !cleanup.StandaloneShop && (ex is CleanupCombatInterruptionException or CleanupDeathInterruptionException))
                         {
                             if (ex is CleanupDeathInterruptionException) cleanup.TownReturnCompleted = false;
                             context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, ex.Message);
                         }
-                        catch (Exception ex) when (!context.StopToken.IsCancellationRequested && cleanup.PreparationStage != CleanupPreparationStage.None)
+                        catch (Exception ex) when (!context.StopToken.IsCancellationRequested && !cleanup.StandaloneShop && cleanup.PreparationStage != CleanupPreparationStage.None)
                         {
                             // Keep the same request and town-return progress. Re-read remaining items on retry;
                             // never replay completed trades or treat an unfinished discard as a successful cleanup.
@@ -203,6 +209,13 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                         }
                         catch (Exception ex) when (!context.StopToken.IsCancellationRequested)
                         {
+                            if (cleanup.StandaloneShop)
+                            {
+                                cleanup.Failure = "自动摆摊已暂停，未转入挂机；请停止账号后处理并重新启动：" + ex.Message;
+                                context.Logger.Error("standalone_shop.failed", ex, new Dictionary<string, object?> { ["account"] = context.Config.AccountName });
+                                context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, cleanup.Failure);
+                                continue;
+                            }
                             // Drop this execution, not the worker. Never immediately replay uncertain trade actions.
                             context.CleanupRequests.Complete();
                             nextCleanupCheck = DateTimeOffset.UtcNow.AddSeconds(30);

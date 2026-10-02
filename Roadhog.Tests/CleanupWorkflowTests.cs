@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Roadhog.Application;
 using Roadhog.Application.Trading;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
@@ -130,16 +131,23 @@ internal static partial class CleanupWorkflowTests
         }
     }
 
-    public static async Task ConfiguredStallAsync()
+    public static Task ConfiguredStallAsync() => ConfiguredStallCoreAsync(false);
+    public static Task DiscountedStallAsync() => ConfiguredStallCoreAsync(true);
+    public static Task StandaloneShopReturnAsync() => ConfiguredStallCoreAsync(true, integrated: true);
+
+    private static async Task ConfiguredStallCoreAsync(bool discounted, bool integrated = false)
     {
-        foreach (var scenario in new[] { "batches", "purchased_merge", "closed_early", "cancel_wait", "auto_stop_delayed", "empty_unconfirmed" })
+        foreach (var scenario in (integrated ? new[] { "auto_stop_delayed" } : discounted
+            ? new[] { "batches", "closed_early", "cancel_wait", "auto_stop_delayed", "empty_unconfirmed", "wrong_price" }
+            : new[] { "batches", "purchased_merge", "closed_early", "cancel_wait", "auto_stop_delayed", "empty_unconfirmed" }))
         {
             var api = new FakeGameApi { InventoryMoney = 100 }; var input = new RecordingKeyboardInput(); Cursor(api,input);
-            using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(integrated ? 15 : 3));
             var count = scenario == "batches" ? 12 : 1;
-            var plan = Enumerable.Range(0,count).Select(i => new PlannedShopItem(new InventoryItemSnapshot((uint)(20+i),(ulong)(11+i),"item"+i,3,i,false),(ulong)(17+i))).ToArray();
+            var plan = Enumerable.Range(0,count).Select(i => new PlannedShopItem(new InventoryItemSnapshot((uint)(20+i),(ulong)(11+i),"item"+i,3,i,false, VendorSellUnitPrice: (ulong)(17+i)*40),(ulong)(17+i))).ToArray();
             api.InventoryItems = plan.Select(p => scenario == "purchased_merge" ? p.Item with { Count = 8 } : p.Item).ToArray();
             var state = Shop() with { StartButton = new(700,100), StopButton = new(750,100) };
+            bool resumed=false;
             bool down=false; int starts=0, confirms=0, sellingReads=0, settlementReads=0; string typed="",field="";
             PersonalShopListing[]? pendingSale=null;
             api.PersonalShopRead = () =>
@@ -180,11 +188,17 @@ internal static partial class CleanupWorkflowTests
             };
             input.AfterPress = key =>
             {
-                if(key=="Y")state=state with{IsOpen=!state.IsOpen};
+                if (key == "F5" && integrated)
+                {
+                    Require(api.InventoryItems.Count == 0 && settlementReads >= 5 && !state.IsOpen, "return key only after sale settlement and shop close");
+                    api.Player = api.Player with { Position = new(1000, 0, 0) };
+                }
+                else if(key=="Y")state=state with{IsOpen=!state.IsOpen};
                 else if(key=="I")state=state with{InventoryOpen=!state.InventoryOpen};
                 else if(key=="A")typed="";
                 else if(key.StartsWith("D"))
                 {
+                    if (scenario == "wrong_price") { stop.Cancel(); return; }
                     typed+=key[1..];var n=ulong.Parse(typed);var e=state.Editor!;
                     e=field=="quantity"?e with{Quantity=n}:e with{UnitPrice=n};
                     state=state with{Editor=e with{TotalPrice=e.Quantity*e.UnitPrice}};
@@ -215,15 +229,51 @@ internal static partial class CleanupWorkflowTests
             };
             try
             {
-                await new ConfiguredPersonalShopSequence(input,Fast).RunAsync(api.Create(new(),new InMemoryRoadhogLogger(),stop.Token),plan,_=>{},stop.Token);
+                var reader = api.Create(new(),new InMemoryRoadhogLogger(),stop.Token);
+                if (discounted)
+                {
+                    var settings = new MaintenanceScriptSettings();
+                    settings.BagCleanupStallItems.Add(new() { Name = "item", UnitPrice = 99999 });
+                    Task Resume()
+                    {
+                        Require(confirms == count && starts == (count + 9) / 10 && api.InventoryItems.Count == 0,
+                            "resume only after every discounted batch has settled");
+                        resumed = true;
+                        return Task.CompletedTask;
+                    }
+                    if (integrated)
+                    {
+                        var config = new AccountConfig { AccountName = "standalone-return", ScriptSettings = new() { Maintenance = settings } };
+                        config.ScriptSettings.Paths.TownReturnKey = "F5";
+                        config.ScriptSettings.Paths.RevivePathName = "resume";
+                        var logger = new InMemoryRoadhogLogger();
+                        var context = new AccountWorkerContext(config, api, logger, new AccountRuntimeManager(logger), new(), stop.Token);
+                        Require(context.CleanupRequests.Request(config.ScriptSettings, true, standaloneShop: true).Success, "enqueue standalone request");
+                        var paths = new InMemorySharedPathStore(new Roadhog.Core.Paths.SharedPathDocument
+                        { Name = "resume", Points = new() { new() { X = 1000 }, new() { X = 0 } } });
+                        var runner = new CleanupWorkflowRunner(input, paths,
+                            (_, _, _) => throw new Exception("standalone shop must not use merchant, stall or auction paths"), new Journal());
+                        await runner.RunAsync(context, context.CleanupRequests.Current!, _ =>
+                        {
+                            Require(logger.Entries.Any(e => e.EventName == "bag_cleanup.return_to_revive.verify.ok"), "observed recall arrival before combat return callback");
+                            return Resume();
+                        });
+                    }
+                    else await DiscountedPersonalShopWorkflow.RunAsync(reader, settings,
+                        p => new ConfiguredPersonalShopSequence(input,Fast).RunAsync(reader,p,_=>{},stop.Token),
+                        Resume, _=>{}, stop.Token);
+                }
+                else await new ConfiguredPersonalShopSequence(input,Fast).RunAsync(reader,plan,_=>{},stop.Token);
                 Require(scenario is "batches" or "purchased_merge" or "auto_stop_delayed","closed UI cannot prove sold out");
                 Require(confirms==count&&starts==(count+9)/10,"all matching entries sold over batches");
                 if(scenario=="purchased_merge")Require(api.InventoryItems.Single().Count==5,"warehouse purchase excluded even when merged into same stack");
             }
             catch(InvalidOperationException)when(scenario=="closed_early"){}
-            catch(OperationCanceledException)when(scenario is "cancel_wait" or "empty_unconfirmed"){}
+            catch(OperationCanceledException)when(scenario is "cancel_wait" or "empty_unconfirmed" or "wrong_price"){}
             if(scenario=="auto_stop_delayed")Require(settlementReads>=5&&api.InventoryMoney==151&&api.InventoryItems.Count==0,"await inventory and money independently after automatic shop stop");
             if(scenario=="empty_unconfirmed")Require(starts==1&&api.InventoryMoney==100&&api.InventoryItems.Count==1,"empty shop alone never succeeds or submits another sale");
+            if (discounted) Require(resumed == (scenario is "batches" or "auto_stop_delayed"), "failed, cancelled or unsettled trades never resume grinding");
+            if (scenario == "wrong_price") Require(confirms == 0 && starts == 0, "unconfirmed price never registers or starts stall");
             Require(!down&&input.KeyUps.Contains("ControlKey"),"stall input released on every exit");
         }
     }

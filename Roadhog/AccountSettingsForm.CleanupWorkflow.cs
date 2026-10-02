@@ -40,6 +40,7 @@ public partial class AccountSettingsForm
     {
         var s = value ?? new();
         loadedCleanupWorkflow = s.Clone();
+        standaloneShopDiscount!.SelectedIndex = Math.Clamp(s.StandaloneShopDiscount, 4, 9) - 4;
         cleanupNpc!.Checked = s.NpcCleanup; cleanupAuction!.Checked = s.Auction;
         cleanupTransfer!.Checked = s.TransferGold; cleanupShop!.Checked = s.PersonalShop;
         warehouseName!.Text = s.WarehouseName; SetKeyButton(warehouseKey, s.WarehouseSelectionKey);
@@ -47,6 +48,7 @@ public partial class AccountSettingsForm
     private CleanupWorkflowSettings CaptureCleanupWorkflow()
     {
         var value = loadedCleanupWorkflow.Clone();
+        value.StandaloneShopDiscount = standaloneShopDiscount!.SelectedIndex + 4;
         value.NpcCleanup = cleanupNpc!.Checked; value.Auction = cleanupAuction!.Checked;
         value.TransferGold = cleanupTransfer!.Checked; value.PersonalShop = cleanupShop!.Checked;
         value.WarehouseName = warehouseName!.Text.Trim(); value.WarehouseSelectionKey = warehouseKey!.Tag as string ?? string.Empty;
