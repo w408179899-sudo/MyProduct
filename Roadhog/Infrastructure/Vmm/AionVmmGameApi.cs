@@ -837,9 +837,12 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         WorldObjectReadResult read,
         DateTimeOffset now)
     {
+        var original = read;
+        read = NormalizeWorldObjectRead(read);
         var channel = AionVmmSnapshotChannels.WorldObjects;
         var dataKey = channel.ResolveDataKey();
         var sessionKey = BuildStableSnapshotSessionKey(context);
+        _stableSnapshots.TryGet(sessionKey, channel, out IReadOnlyList<WorldObjectSnapshot>? previous);
         var error = string.IsNullOrWhiteSpace(read.Error)
             ? read.Diagnostics.FirstIssue ?? "World-object capture is incomplete."
             : read.Error;
@@ -847,23 +850,28 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         if (read.Completeness == WorldObjectReadCompleteness.Complete &&
             read.Observations.All(HasCompleteWorldObjectFields))
         {
-            return StabilizeRead(
+            var published = StabilizeRead(
                 context,
                 channel,
                 OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(read.Objects),
                 now);
+            LogWorldObjectPublication(context, original, read, "replace", previous, published.Value);
+            return published;
         }
 
         var failed = OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail(error);
         if (IsStableSnapshotSessionFailure(error))
         {
             _stableSnapshots.ClearSession(sessionKey);
+            LogWorldObjectPublication(context, original, read, "invalidate", previous, null);
             return failed;
         }
 
         if (read.Completeness == WorldObjectReadCompleteness.Failed)
         {
-            return StabilizeRead(context, channel, failed, now);
+            var held = StabilizeRead(context, channel, failed, now);
+            LogWorldObjectPublication(context, original, read, held.Success ? "hold" : "retry", previous, held.Value);
+            return held;
         }
 
         if (!_stableSnapshots.TryUpdate<IReadOnlyList<WorldObjectSnapshot>>(
@@ -875,7 +883,9 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                 out var age) ||
             merged is null)
         {
-            return StabilizeRead(context, channel, failed, now);
+            var held = StabilizeRead(context, channel, failed, now);
+            LogWorldObjectPublication(context, original, read, held.Success ? "hold" : "retry", previous, held.Value);
+            return held;
         }
 
         LogStableSnapshotFallback(
@@ -890,6 +900,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                 ["observedCount"] = read.Observations.Count,
                 ["returnedCount"] = merged.Count
             });
+        LogWorldObjectPublication(context, original, read, "merge", previous, merged);
         return OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(merged);
     }
 
@@ -979,6 +990,8 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         WorldObjectReadResult read,
         IReadOnlyList<WorldObjectSnapshot> previous)
     {
+        read = NormalizeWorldObjectRead(read);
+        if (read.Completeness == WorldObjectReadCompleteness.Failed) return previous;
         var previousByIdentity = previous
             .GroupBy(WorldObjectIdentityKey, StringComparer.Ordinal)
             .ToDictionary(static group => group.Key, static group => group.First(), StringComparer.Ordinal);
@@ -2753,6 +2766,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                         attempt = ReadWorldObjectsWithQuality(
                             process,
                             gameBase,
+                            moduleName,
                             npcCatalog,
                             context.BypassMemoryCache);
                     }
@@ -2803,7 +2817,8 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
             counters.HealthFieldReadFailures,
             counters.LootFieldReadFailures,
             counters.InteractionStateReadFailures,
-            attempt.FirstIssue);
+            attempt.FirstIssue,
+            attempt.TreeProof);
         var result = new WorldObjectReadResult(
             attempt.Completeness,
             attempt.Observations,
@@ -2840,6 +2855,9 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                 ["interactionStateReadFailures"] = result.Diagnostics.InteractionStateReadFailures,
                 ["localServerObjectIdAvailable"] = result.Diagnostics.LocalServerObjectIdAvailable,
                 ["firstIssue"] = result.Diagnostics.FirstIssue,
+                ["headerVerified"] = result.Diagnostics.TreeProof?.HeaderVerified ?? false,
+                ["linksVerified"] = result.Diagnostics.TreeProof?.LinksVerified ?? false,
+                ["finalReadVerified"] = result.Diagnostics.TreeProof?.FinalReadVerified ?? false,
                 ["error"] = result.Error
             });
         }
@@ -7858,10 +7876,10 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
     private static WorldObjectReadAttempt ReadWorldObjectsWithQuality(
         VmmProcess process,
         ulong gameBase,
+        string moduleName,
         NpcXmlCatalog npcCatalog,
         bool bypassMemoryCache)
     {
-        var observations = new List<WorldObjectObservation>();
         var counters = new WorldObjectReadCounters();
         var firstIssue = string.Empty;
         var structuralPartial = false;
@@ -7954,167 +7972,16 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
             SetFirstWorldObjectReadIssue(ref firstIssue, "local_server_object_id_unavailable");
         }
 
-        if (!TryReadPointer(
-                process,
-                gameBase + ServerObjectTreeRva,
-                out var serverTreeHeader,
-                bypassMemoryCache) ||
-            serverTreeHeader == 0)
-        {
-            return WorldObjectReadAttempt.Failed(
-                "failed to read ServerObject tree header at Game.dll+0x" + ServerObjectTreeRva.ToString("X"),
-                counters);
-        }
-
-        if (!TryReadPointer(
-                process,
-                serverTreeHeader + NodeLeftOffset,
-                out var node,
-                bypassMemoryCache))
-        {
-            return WorldObjectReadAttempt.Failed("failed to read ServerObject tree begin node", counters);
-        }
-
-        var termination = node == serverTreeHeader
-            ? WorldObjectTraversalTermination.EmptyTree
-            : WorldObjectTraversalTermination.NotStarted;
-        if (node != serverTreeHeader)
-        {
-            var visited = new HashSet<ulong>();
-            var guard = 0;
-            while (true)
-            {
-                if (node == serverTreeHeader)
-                {
-                    termination = WorldObjectTraversalTermination.ReachedTreeEnd;
-                    break;
-                }
-
-                if (node == 0)
-                {
-                    structuralPartial = true;
-                    termination = WorldObjectTraversalTermination.TraversalReadFailed;
-                    SetFirstWorldObjectReadIssue(ref firstIssue, "world_tree_node_became_null");
-                    break;
-                }
-
-                if (guard++ >= 100000)
-                {
-                    structuralPartial = true;
-                    termination = WorldObjectTraversalTermination.GuardLimitReached;
-                    SetFirstWorldObjectReadIssue(ref firstIssue, "world_tree_guard_limit_reached");
-                    break;
-                }
-
-                if (!visited.Add(node))
-                {
-                    structuralPartial = true;
-                    termination = WorldObjectTraversalTermination.CycleDetected;
-                    SetFirstWorldObjectReadIssue(ref firstIssue, "world_tree_cycle_detected");
-                    break;
-                }
-
-                if (!TryIsWorldTreeNilNode(
-                        process,
-                        node,
-                        serverTreeHeader,
-                        out var isNil,
-                        bypassMemoryCache))
-                {
-                    structuralPartial = true;
-                    termination = WorldObjectTraversalTermination.TraversalReadFailed;
-                    SetFirstWorldObjectReadIssue(ref firstIssue, "world_tree_nil_flag_read_failed");
-                    break;
-                }
-
-                if (isNil)
-                {
-                    termination = observations.Count == 0 && counters.ScannedServerObjects == 0
-                        ? WorldObjectTraversalTermination.EmptyTree
-                        : WorldObjectTraversalTermination.ReachedTreeEnd;
-                    break;
-                }
-
-                counters.ScannedServerObjects++;
-                if (!TryReadWorldObjectObservation(
-                        process,
-                        entityTreeHeader,
-                        node,
-                        localEntityId,
-                        localX,
-                        localY,
-                        localZ,
-                        localServerObjectId,
-                        localServerObjectIdAvailable,
-                        npcCatalog.Details,
-                        bypassMemoryCache,
-                        out var observation,
-                        ref counters,
-                        ref firstIssue))
-                {
-                    structuralPartial = true;
-                }
-
-                if (observation is not null)
-                {
-                    observations.Add(observation);
-                }
-
-                var advance = TryGetNextWorldTreeNode(
-                    process,
-                    serverTreeHeader,
-                    node,
-                    out var next,
-                    bypassMemoryCache);
-                if (advance != WorldTreeAdvanceStatus.Succeeded)
-                {
-                    structuralPartial = true;
-                    termination = advance == WorldTreeAdvanceStatus.GuardLimitReached
-                        ? WorldObjectTraversalTermination.GuardLimitReached
-                        : WorldObjectTraversalTermination.TraversalReadFailed;
-                    SetFirstWorldObjectReadIssue(
-                        ref firstIssue,
-                        advance == WorldTreeAdvanceStatus.GuardLimitReached
-                            ? "world_tree_advance_guard_limit_reached"
-                            : "world_tree_advance_read_failed");
-                    break;
-                }
-
-                if (next == node)
-                {
-                    structuralPartial = true;
-                    termination = WorldObjectTraversalTermination.SelfLoopDetected;
-                    SetFirstWorldObjectReadIssue(ref firstIssue, "world_tree_self_loop_detected");
-                    break;
-                }
-
-                node = next;
-            }
-        }
-
-        observations.Sort(static (left, right) =>
-        {
-            var leftDistance = left.Snapshot.DistanceToLocalPlayer ?? double.MaxValue;
-            var rightDistance = right.Snapshot.DistanceToLocalPlayer ?? double.MaxValue;
-            return leftDistance.CompareTo(rightDistance);
-        });
-
-        return new WorldObjectReadAttempt(
-            structuralPartial
-                ? WorldObjectReadCompleteness.Partial
-                : WorldObjectReadCompleteness.Complete,
-            observations,
-            counters,
-            termination,
-            localServerObjectIdAvailable,
-            firstIssue,
-            structuralPartial ? firstIssue : null);
+        return ReadVerifiedWorldObjects(process, gameBase, moduleName, entitySystem, entityTreeHeader,
+            localEntityId, localX, localY, localZ, localServerObjectId, localServerObjectIdAvailable,
+            npcCatalog, bypassMemoryCache, counters, structuralPartial, firstIssue);
     }
 
     private static bool TryReadWorldObjectObservation(
         VmmProcess process,
         ulong entityTreeHeader,
-        ulong node,
+        uint serverObjectId,
+        ushort entityId,
         ushort localEntityId,
         float localX,
         float localY,
@@ -8128,22 +7995,6 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         ref string firstIssue)
     {
         observation = null;
-        if (!TryReadUInt32(
-                process,
-                node + ServerNodeServerObjectIdOffset,
-                out var serverObjectId,
-                bypassMemoryCache) ||
-            !TryReadUInt16(
-                process,
-                node + ServerNodeEntityIdOffset,
-                out var entityId,
-                bypassMemoryCache))
-        {
-            counters.NodeIdentityReadFailures++;
-            SetFirstWorldObjectReadIssue(ref firstIssue, "world_node_identity_read_failed");
-            return false;
-        }
-
         if (entityId == 0 || entityId == localEntityId)
         {
             return true;
@@ -11045,7 +10896,8 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         WorldObjectTraversalTermination TraversalTermination,
         bool LocalServerObjectIdAvailable,
         string FirstIssue,
-        string? Error)
+        string? Error,
+        WorldObjectTreeProof? TreeProof = null)
     {
         public static WorldObjectReadAttempt Failed(
             string error,

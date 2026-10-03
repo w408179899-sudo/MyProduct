@@ -42,6 +42,21 @@ internal sealed record WorldObjectObservation(
     WorldObjectSnapshot Snapshot,
     WorldObjectFieldValidity Fields);
 
+/// <summary>
+/// Capture-local structural evidence. Only a verified traversal may prove that
+/// objects omitted by a capture are absent. This never crosses the provider API.
+/// </summary>
+internal sealed record WorldObjectTreeProof(
+    ulong Header,
+    ulong Root,
+    ulong FirstNode,
+    ulong LastNode,
+    int NodeCount,
+    bool HeaderVerified,
+    bool LinksVerified,
+    bool FinalReadVerified,
+    string? Error = null);
+
 internal sealed record WorldObjectReadDiagnostics(
     long CaptureSequence,
     DateTimeOffset StartedAt,
@@ -65,7 +80,8 @@ internal sealed record WorldObjectReadDiagnostics(
     int HealthFieldReadFailures,
     int LootFieldReadFailures,
     int InteractionStateReadFailures,
-    string? FirstIssue)
+    string? FirstIssue,
+    WorldObjectTreeProof? TreeProof = null)
 {
     public double DurationMilliseconds => Math.Max(0D, (CompletedAt - StartedAt).TotalMilliseconds);
 }

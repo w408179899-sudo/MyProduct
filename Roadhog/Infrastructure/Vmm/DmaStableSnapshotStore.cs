@@ -108,6 +108,24 @@ internal sealed class DmaStableSnapshotStore
         return false;
     }
 
+    // Provider diagnostics inspect the existing publication without refreshing
+    // its capture time or introducing another cache/publication path.
+    public bool TryGet<T>(string sessionKey, DmaSnapshotChannel<T> channel, out T? value)
+    {
+        var key = BuildKey(sessionKey, _channels.ResolveDataKey(channel, null));
+        lock (_syncRoot)
+        {
+            if (_entries.TryGetValue(key, out var entry) && entry.ValueType == typeof(T))
+            {
+                value = (T)entry.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
     public void ClearSession(string sessionKey)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionKey);

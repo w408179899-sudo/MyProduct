@@ -478,6 +478,25 @@ var tests = new (string Name, Func<Task> Run)[]
     ("dma world snapshot updates good fields and holds failed fields", TestDmaWorldSnapshotMergesFieldFailuresAsync),
     ("dma world dead self target publishes on cold start without weakening live threat protection", TestDmaWorldDeadSelfTargetColdStartAsync),
     ("dma world partial snapshot is published and failed read holds it", TestDmaWorldPartialSnapshotIsPublishedAndFailedReadHoldsItAsync),
+    ("world tree stable trees and bounded reads", WorldObjectTreeCaptureTests.StableTreesAndReadBudgetAsync),
+    ("world tree invalid structure", WorldObjectTreeCaptureTests.InvalidStructureAsync),
+    ("world tree partial coverage retains independent nodes", WorldObjectTreeCaptureTests.PartialCoverageRetainsIndependentNodesAsync),
+    ("world tree final guards and identity", WorldObjectTreeCaptureTests.FinalGuardsAndIdentityAsync),
+    ("world tree capture changes and mutable bytes", WorldObjectTreeCaptureTests.CaptureChangesAndMutableBytesAsync),
+    ("world tree guard limit and invalid headers", WorldObjectTreeCaptureTests.GuardLimitAndInvalidHeadersAsync),
+    ("world publication contradictory complete empty holds", WorldObjectPublicationTests.ContradictoryCompleteEmptyHoldsAsync),
+    ("world publication untrusted complete short merges without pruning", WorldObjectPublicationTests.UntrustedCompleteShortMergesWithoutPruningAsync),
+    ("world publication invalid complete field merge does not prune", WorldObjectPublicationTests.InvalidCompleteFieldMergeDoesNotPruneAsync),
+    ("world publication covered tree decode failures retain missing objects", WorldObjectPublicationTests.CoveredTreeDecodeFailuresRetainMissingObjectsAsync),
+    ("world publication trusted complete prunes immediately", WorldObjectPublicationTests.TrustedCompletePrunesImmediatelyAsync),
+    ("world publication trusted complete field merge prunes only absent objects", WorldObjectPublicationTests.TrustedCompleteFieldMergePrunesOnlyAbsentObjectsAsync),
+    ("world publication partial updates and retains omissions", WorldObjectPublicationTests.PartialUpdatesAndRetainsOmissionsAsync),
+    ("world publication failed capture holds all fields", WorldObjectPublicationTests.FailedCaptureHoldsAllFieldsAsync),
+    ("world publication cold start retries until trusted complete", WorldObjectPublicationTests.ColdStartRetriesUntilTrustedCompleteAsync),
+    ("world publication identity and session isolation", WorldObjectPublicationTests.IdentityAndSessionIsolationAsync),
+    ("world publication controller return home uses only trusted absence", WorldObjectPublicationTests.ControllerReturnHomeUsesOnlyTrustedAbsenceAsync),
+    ("world publication diagnostics explain hold and prune", WorldObjectPublicationTests.PublicationDiagnosticsExplainHoldAndPruneAsync),
+    ("world publication approach keeps direction until proven target absence", WorldObjectPublicationTests.ApproachKeepsDirectionUntilProvenTargetAbsenceAsync),
     ("dma inventory partial snapshot merges fields and complete traversal prunes", TestDmaInventorySnapshotMergesFieldsAndPrunesAsync),
     ("dma pet snapshot updates good health fields and holds failed fields", TestDmaPetSnapshotMergesHealthFailuresAsync),
     ("dma single pet snapshot publishes merged trusted health", TestDmaSinglePetSnapshotPublishesMergedTrustedHealthAsync),
@@ -35036,7 +35055,8 @@ static Task TestDmaWorldDeadSelfTargetColdStartAsync()
             target.ServerObjectId, target.TargetServerObjectId, target.CurrentHp, target.MaxHp, hpAvailable);
         return new(WorldObjectReadCompleteness.Complete,
             new[] { new WorldObjectObservation(target, new(hpAvailable, true, reliable, reliable, true, true)),
-                    new WorldObjectObservation(attacker, completeFields) }, CreateDmaWorldReadDiagnostics(now));
+                    new WorldObjectObservation(attacker, completeFields) },
+                    CreateDmaWorldReadDiagnostics(now, verified: true, nodeCount: 2, emittedCount: 2));
     }
     AssertFalse(api.StabilizeWorldObjectRead(context, Capture(corpse, false), now).Success,
         "cold start must not fabricate a corpse from missing health");
@@ -35159,7 +35179,7 @@ static Task TestDmaWorldPartialSnapshotIsPublishedAndFailedReadHoldsItAsync()
             new WorldObjectObservation(initialTarget, completeFields),
             new WorldObjectObservation(temporarilyMissing, completeFields)
         },
-        CreateDmaWorldReadDiagnostics(startedAt));
+        CreateDmaWorldReadDiagnostics(startedAt, verified: true, nodeCount: 2, emittedCount: 2));
 
     var initial = api.StabilizeWorldObjectRead(context, complete, startedAt);
     AssertFalse(!initial.Success, "complete world snapshot should publish");
@@ -35210,7 +35230,7 @@ static Task TestDmaWorldPartialSnapshotIsPublishedAndFailedReadHoldsItAsync()
     var completeEmpty = new WorldObjectReadResult(
         WorldObjectReadCompleteness.Complete,
         Array.Empty<WorldObjectObservation>(),
-        CreateDmaWorldReadDiagnostics(startedAt.AddHours(2)));
+        CreateDmaWorldReadDiagnostics(startedAt.AddHours(2), verified: true, nodeCount: 0, emittedCount: 0));
     var pruned = api.StabilizeWorldObjectRead(context, completeEmpty, startedAt.AddHours(2));
     AssertFalse(!pruned.Success || pruned.Value!.Count != 0, "complete empty world snapshot should prune prior objects");
 
@@ -35463,19 +35483,22 @@ static Task TestDmaPetPartialMissingLinkedActorRetainsIdentityAsync()
     return Task.CompletedTask;
 }
 
-static WorldObjectReadDiagnostics CreateDmaWorldReadDiagnostics(DateTimeOffset now)
+static WorldObjectReadDiagnostics CreateDmaWorldReadDiagnostics(
+    DateTimeOffset now, bool verified = false, int nodeCount = 1, int emittedCount = 1)
 {
     return new WorldObjectReadDiagnostics(
         CaptureSequence: 1,
         StartedAt: now,
         CompletedAt: now,
         BypassMemoryCache: false,
-        TraversalTermination: WorldObjectTraversalTermination.TraversalReadFailed,
+        TraversalTermination: verified
+            ? nodeCount == 0 ? WorldObjectTraversalTermination.EmptyTree : WorldObjectTraversalTermination.ReachedTreeEnd
+            : WorldObjectTraversalTermination.TraversalReadFailed,
         LocalServerObjectIdAvailable: true,
-        ScannedServerObjects: 1,
-        ResolvedEntities: 1,
-        NpcLikeEntities: 1,
-        EmittedObjects: 1,
+        ScannedServerObjects: nodeCount,
+        ResolvedEntities: nodeCount,
+        NpcLikeEntities: emittedCount,
+        EmittedObjects: emittedCount,
         NodeIdentityReadFailures: 0,
         EntityLookupFailures: 0,
         EntityTypeReadFailures: 0,
@@ -35484,11 +35507,16 @@ static WorldObjectReadDiagnostics CreateDmaWorldReadDiagnostics(DateTimeOffset n
         ActorIdentityMismatches: 0,
         StaticMetadataMisses: 0,
         StaticCatalogErrors: 0,
-        TargetFieldReadFailures: 1,
-        HealthFieldReadFailures: 1,
+        TargetFieldReadFailures: verified ? 0 : 1,
+        HealthFieldReadFailures: verified ? 0 : 1,
         LootFieldReadFailures: 0,
         InteractionStateReadFailures: 0,
-        FirstIssue: "injected partial read");
+        FirstIssue: verified ? null : "injected partial read",
+        TreeProof: verified ? new WorldObjectTreeProof(
+            0x500000, nodeCount == 0 ? 0x500000UL : 0x600000UL,
+            nodeCount == 0 ? 0x500000UL : 0x600000UL,
+            nodeCount == 0 ? 0x500000UL : 0x600100UL,
+            nodeCount, true, true, true) : null);
 }
 
 static SummonedPetRosterReadDiagnostics CreateDmaPetReadDiagnostics(DateTimeOffset now)
