@@ -218,7 +218,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
         if (player.IsDead && state.TopLevelState != StationaryCombatTopLevelState.DeathRecovery)
         {
-            semiAutoState.AttackWeave.Reset();
+            semiAutoState.ResetAttackWeaveStates();
             StopNextTargetPreAim(context, state, "player_dead", clearCandidate: true);
             await AbortDiscardForExternalInterruptionIfActiveAsync(context, state, "death_recovery")
                 .ConfigureAwait(false);
@@ -1239,7 +1239,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         context.RuntimeStates.ClearWarning(context.Config.AccountName);
         if (player.IsDead)
         {
-            semiAutoState.AttackWeave.Reset();
+            semiAutoState.ResetAttackWeaveStates();
         }
 
         if (player.IsDead && state.TopLevelState != StationaryCombatTopLevelState.DeathRecovery)
@@ -6843,7 +6843,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         {
             semiAutoState.ClearChain();
             semiAutoState.ClearPressedSkillCooldownTracking();
-            semiAutoState.AttackWeave.Reset();
+            semiAutoState.ResetAttackWeaveStates();
             semiAutoState.ResetOpeningSkill();
             semiAutoState.ResetAttackKeyPressThrottle();
             context.Logger.Info("stationary_combat.target.soft_restart.started", new Dictionary<string, object?>
@@ -6962,7 +6962,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         state.ClearTarget();
         semiAutoState.ClearChain();
         semiAutoState.ClearPressedSkillCooldownTracking();
-        semiAutoState.AttackWeave.Reset();
+        semiAutoState.ResetAttackWeaveStates();
         semiAutoState.ResetOpeningSkill();
         semiAutoState.ResetAttackKeyPressThrottle();
         await StopMovementAsync(context, state).ConfigureAwait(false);
@@ -7005,7 +7005,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         state.ClearTarget();
         semiAutoState.ClearChain();
         semiAutoState.ClearPressedSkillCooldownTracking();
-        semiAutoState.AttackWeave.Reset();
+        semiAutoState.ResetAttackWeaveStates();
         semiAutoState.ResetOpeningSkill();
         semiAutoState.ResetAttackKeyPressThrottle();
         await StopMovementAsync(context, state).ConfigureAwait(false);

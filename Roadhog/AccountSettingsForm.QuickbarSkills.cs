@@ -141,8 +141,8 @@ public sealed partial class AccountSettingsForm
         if (systemSkillPanel is not null) systemSkillPanel.Visible = false;
         if (conditionSkillPreemptsChainCheckBox is not null) conditionSkillPreemptsChainCheckBox.Enabled = !useQuickbar;
         if (chainWindowPerLinkTextBox is not null) chainWindowPerLinkTextBox.Enabled = !useQuickbar;
-        if (attackWeaveCheckBox is not null) attackWeaveCheckBox.Enabled = !useQuickbar;
-        if (attackWeaveDelayTextBox is not null) attackWeaveDelayTextBox.Enabled = !useQuickbar && attackWeaveCheckBox?.Checked == true;
+        if (attackWeaveCheckBox is not null) attackWeaveCheckBox.Enabled = true;
+        if (attackWeaveDelayTextBox is not null) attackWeaveDelayTextBox.Enabled = attackWeaveCheckBox?.Checked == true;
 
         // The opening editor is shared; switching engines retains the same controls and unsaved values.
         if (openingSkillRows?.Parent is Panel opening && (useQuickbar ? quickbarSkillPanel : autoSkillPanel) is { } owner && opening.Parent != owner)

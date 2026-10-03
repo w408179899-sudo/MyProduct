@@ -103,6 +103,7 @@ internal static class SkillTreeReleaseModeTests
                 source.QuickbarSkills.ExecutionTree.Clear();
                 source.Skills.ExecutionTree[0].Name = string.Empty; // Loading formats this for display; new-mode saving must retain the original configuration.
                 source.SemiAuto.AttackWeaveEnabled = true;
+                source.SemiAuto.AttackWeaveDelayMs = 725;
                 source.Skills.OpeningSkill = new() { Enabled = true, SkillId = 101, SkillName = "old", Key = "F1" };
                 source.Maintenance.MpMaintenanceRules.Add(new() { BelowPercent = 62, SkillId = 302, SkillName = "saved-mp", Key = "F4" });
                 source.Maintenance.StatusMaintenanceRules.Add(new() { SkillId = 303, SkillName = "saved-status", Key = "F5", AbnormalStatusId = 1 });
@@ -152,6 +153,10 @@ internal static class SkillTreeReleaseModeTests
                 var oldPanel = Find("autoSkillPanel");
                 var newPanel = Find("quickbarSkillPanel");
                 var opening = Find("openingSkillPanel");
+                var weave = (RoundedCheckBox)Find("attackWeaveCheckBox");
+                var weaveDelay = Find("attackWeaveDelayTextBox");
+                void ToggleWeave() => typeof(RoundedCheckBox)
+                    .GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(weave, new object[] { EventArgs.Empty });
                 var tabs = (TabControl)oldPanel.Parent!.Parent!.Parent!;
                 tabs.SelectedTab = (TabPage)oldPanel.Parent.Parent;
                 form.ShowInTaskbar = false;
@@ -162,14 +167,32 @@ internal static class SkillTreeReleaseModeTests
                     "legacy loads by default with no implicit new configuration");
                 mode.SelectedIndex = 1; Application.DoEvents();
                 Check(newPanel.Visible && !oldPanel.Visible && ReferenceEquals(opening.Parent, newPanel), "switch shows independent tree and shared opening editor");
-                Check(!Find("attackWeaveCheckBox").Enabled && !((Control)typeof(AccountSettingsForm)
-                    .GetField("conditionSkillPreemptsChainCheckBox", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form)!).Enabled,
-                    "new mode disables legacy selection and weaving options");
+                Check(!((Control)typeof(AccountSettingsForm)
+                    .GetField("conditionSkillPreemptsChainCheckBox", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form)!).Enabled &&
+                    !((Control)typeof(AccountSettingsForm)
+                        .GetField("chainWindowPerLinkTextBox", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form)!).Enabled,
+                    "new mode keeps legacy condition and chain-window options disabled");
+                Check(weave.Enabled && weave.Checked && weaveDelay.Enabled && weaveDelay.Text == "725",
+                    "new mode enables weaving and loads the saved delay");
+                ToggleWeave();
+                Check(weave.Enabled && !weave.Checked && !weaveDelay.Enabled,
+                    "turning off weaving in new mode disables only its delay input");
+                weaveDelay.Text = "530";
+                mode.SelectedIndex = 0; Application.DoEvents();
+                Check(weave.Enabled && !weave.Checked && !weaveDelay.Enabled && weaveDelay.Text == "530",
+                    "switching to legacy retains the unchecked switch and draft delay");
+                mode.SelectedIndex = 1; Application.DoEvents();
+                Check(weave.Enabled && !weave.Checked && !weaveDelay.Enabled && weaveDelay.Text == "530",
+                    "switching back to new mode retains the unchecked switch and draft delay");
                 var saveArgs = new object?[] { null };
                 Check((bool)Call("SaveCurrentSettings", saveArgs)!, "new mode with empty list saves");
                 var saved = configs.LoadAllAsync().GetAwaiter().GetResult().Value!.Single().ScriptSettings!;
                 Check(saved.SkillTreeReleaseMode == SkillTreeReleaseMode.QuickbarAvailability && saved.QuickbarSkills.ExecutionTree.Count == 0 &&
                     JsonSerializer.Serialize(saved.Skills.ExecutionTree) == oldTree, "saving new mode never normalizes or clears the untouched old tree");
+                Check(!saved.SemiAuto.AttackWeaveEnabled && saved.SemiAuto.AttackWeaveDelayMs == 530,
+                    "new-mode save persists the unchecked weaving switch and delay");
+                ToggleWeave();
+                Check(weave.Checked && weaveDelay.Enabled, "turning on weaving in new mode enables its delay input");
                 ((Button)Find("quickbarCopyLegacyTreeButton")).PerformClick();
                 Check(newSelected.Nodes.Count == 1 && newSelected.Nodes[0].Nodes.Count == 1 && oldSelected.Nodes.Count == 1,
                     "explicit copy retains chain structure without moving old controls");
@@ -274,17 +297,19 @@ internal static class SkillTreeReleaseModeTests
                 saved = configs.LoadAllAsync().GetAwaiter().GetResult().Value!.Single().ScriptSettings!;
                 Check(saved.QuickbarSkills.ExecutionTree.Select(node => node.SkillId).SequenceEqual(new uint[] { 202, 201 }) &&
                     JsonSerializer.Serialize(saved.Skills.ExecutionTree) == oldTree, "new priorities persist independently of the old chain tree");
-                Check(saved.SemiAuto.AttackWeaveEnabled && saved.Skills.OpeningSkill.SkillId == 101 &&
+                Check(saved.SemiAuto.AttackWeaveEnabled && saved.SemiAuto.AttackWeaveDelayMs == 530 && saved.Skills.OpeningSkill.SkillId == 101 &&
                     saved.Skills.OpeningSkill.ReleaseAll && saved.Skills.OpeningSkill.GetEffectiveSkills().Select(skill => skill.SkillId).SequenceEqual(new uint[] { 101, 201 }) &&
                     saved.Maintenance.HpMaintenanceRules.Single().BelowPercent == 61 && saved.Maintenance.MpMaintenanceRules.Single().SkillId == 302 &&
                     saved.Maintenance.StatusMaintenanceRules.Single().SkillId == 303 && saved.Maintenance.DpMaintenanceRules.Single().SkillId == 304 &&
                     saved.Team.Support.HealSkillRules.Single().SkillId == 601 && saved.Skills.Spiritmaster.PetHpMaintenanceRules.Single().SkillId == 402 &&
                     saved.Skills.Spiritmaster.PetBuffRules.Single().SkillId == 401 && saved.Team.Support.MentalCleanseSkillId == 501 &&
                     saved.Team.Support.PhysicalCleanseSkillId == 502 && saved.Team.Support.GroupCleanseSkillId == 503,
-                    "disabled legacy options and shared opening, maintenance and spiritmaster settings retain their values");
+                    "weaving and shared opening, maintenance and spiritmaster settings retain their values");
                 mode.SelectedIndex = 0; Application.DoEvents();
                 Check(oldPanel.Visible && !newPanel.Visible && ReferenceEquals(opening.Parent, oldPanel) && Find("attackWeaveCheckBox").Enabled,
                     "switching back restores old controls and the same opening editor");
+                Check(weave.Checked && weaveDelay.Enabled && weaveDelay.Text == "530",
+                    "switching back retains the enabled weaving switch and delay");
                 Check((bool)Call("SaveCurrentSettings", new object?[] { null })!, "return to old mode saves");
                 saved = configs.LoadAllAsync().GetAwaiter().GetResult().Value!.Single().ScriptSettings!;
                 Check(saved.SkillTreeReleaseMode == SkillTreeReleaseMode.Legacy && saved.QuickbarSkills.ExecutionTree[0].SkillId == 202,
@@ -292,6 +317,8 @@ internal static class SkillTreeReleaseModeTests
                 Call("ApplyScriptSettings", saved);
                 mode.SelectedIndex = 1; Application.DoEvents();
                 Check(newSelected.Nodes.Count == 2 && opening.Parent == newPanel, "reload and switch restore both trees");
+                Check(weave.Enabled && weave.Checked && weaveDelay.Enabled && weaveDelay.Text == "530",
+                    "reload and switch restore weaving settings in new mode");
                 form.Size = form.MinimumSize; Application.DoEvents();
                 foreach (var control in new[] { (Control)newSelected, Find("quickbarAvailableSkillTree"), opening })
                     Check(control.Right <= newPanel.Width && control.Bottom <= newPanel.Height, "new controls fit the scrollable panel at minimum window size");

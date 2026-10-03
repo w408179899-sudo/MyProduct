@@ -11,6 +11,7 @@ public sealed class QuickbarSkillCombatState
     }
 
     public QuickbarSkillClockBootstrap ClockBootstrap { get; }
+    public QuickbarAttackWeaveState AttackWeave { get; } = new();
     internal bool ClockBootstrapCompletionLogged { get; set; }
     private readonly Dictionary<string, DateTimeOffset> _retryAfter = new(StringComparer.Ordinal);
     private readonly Dictionary<string, QuickbarSkillNode> _acceptedChainOpportunities = new(StringComparer.Ordinal);
@@ -43,6 +44,7 @@ public sealed class QuickbarSkillCombatState
 
     public void Reset()
     {
+        AttackWeave.Reset();
         ActiveChainSource = null;
         PendingAction = null;
         EndChainTransition("reset");
@@ -74,6 +76,7 @@ public sealed class QuickbarSkillCombatState
             _targetServerObjectId != target.ServerObjectId || !string.Equals(layout, _bindingLayout, StringComparison.Ordinal));
         if (changed || !target.IsMonsterAlive)
         {
+            AttackWeave.Reset();
             ActiveChainSource = null;
             PendingAction = null;
             EndChainTransition("scope_changed");
@@ -278,8 +281,9 @@ public sealed class QuickbarSkillCombatState
 
     public void DropPendingAction() => PendingAction = null;
 
-    public void SuspendInputAttempts()
+    public void SuspendInputAttempts(bool preserveAttackWeave = false)
     {
+        if (!preserveAttackWeave) AttackWeave.Reset();
         if (PendingAction is { } pending) _transitionProcessedAttemptId = Math.Max(_transitionProcessedAttemptId, pending.AttemptId);
         PendingAction = null;
         _retryAfter.Clear();

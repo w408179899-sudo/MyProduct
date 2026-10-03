@@ -13,7 +13,8 @@ public sealed partial class SemiAutoCombatController
 
     // The legacy TickAsync body remains unchanged. This mode owns its attack
     // state and calls the existing maintenance/opening boundaries serially;
-    // legacy trigger prefixes, weave, retries and inferred chains never run here.
+    // legacy trigger prefixes, retries and inferred chains never run here.
+    // Optional weaving consumes this mode's own confirmed releases only.
     private async Task<TimeSpan> TickQuickbarSkillsAsync(
         AccountWorkerContext context,
         SemiAutoSkillPlan maintenancePlan,
@@ -25,6 +26,7 @@ public sealed partial class SemiAutoCombatController
     {
         var script = context.Config.ScriptSettings!;
         var settings = script.SemiAuto ?? new SemiAutoScriptSettings();
+        if (!settings.AttackWeaveEnabled) state.QuickbarSkills.AttackWeave.Reset();
         var sharedSkillSettings = script.Skills ?? new SkillScriptSettings();
         var tick = Ms(settings.TickIntervalMs, 40);
         var includeAlwaysStatusMaintenance = !ShouldSuppressAlwaysSupportStatusMaintenanceDuringCustomCombat(context);
@@ -53,7 +55,7 @@ public sealed partial class SemiAutoCombatController
             context.SkillBindings!, context.ReportMissingSkillBinding);
         if (!plan.HasCombatActions)
         {
-            state.QuickbarSkills.Reset();
+            if (!settings.AttackWeaveEnabled) state.QuickbarSkills.Reset();
             if (ShouldLog(state.LastPlanWarningAt, DateTimeOffset.Now))
             {
                 state.LastPlanWarningAt = DateTimeOffset.Now;
@@ -101,34 +103,40 @@ public sealed partial class SemiAutoCombatController
         // Ordinary skills and the unchanged maintenance rules share the existing
         // cooldown clock. Conditional skills still require the official bar signal.
         UpdateCooldownCalibration(context, state, skills, CurrentOsTick(), DateTimeOffset.Now);
+        if (settings.AttackWeaveEnabled &&
+            !await ObserveQuickbarOpeningWeaveAsync(context, state, settings, target, skills).ConfigureAwait(false))
+            return tick;
 
-        if (maintenancePlan.UsesSpiritmasterAutoLogic &&
-            await PressSpiritmasterOpeningAttackKeyIfNeededAsync(context, state, settings,
-                sharedSkillSettings.Spiritmaster, target).ConfigureAwait(false))
+        if (!state.QuickbarSkills.AttackWeave.IsWaiting)
         {
-            state.QuickbarSkills.SuspendInputAttempts();
-            return tick;
-        }
-        if (await PressOpeningSkillIfNeededAsync(context, state, settings, maintenancePlan, target, skills).ConfigureAwait(false))
-        {
-            state.QuickbarSkills.SuspendInputAttempts();
-            return tick;
-        }
-        if (await PressOpeningAttackKeyIfNeededAsync(context, state, settings, target).ConfigureAwait(false))
-        {
-            state.QuickbarSkills.SuspendInputAttempts();
-            return tick;
-        }
-
-        if (maintenancePlan.UsesSpiritmasterAutoLogic)
-        {
-            var spirit = await ReadSpiritmasterCombatContextAsync(context, target).ConfigureAwait(false);
-            if (spirit.CanUseSpiritmasterLogic &&
-                await TryHandleSpiritmasterSpecialAsync(context, state, settings, sharedSkillSettings.Spiritmaster,
-                    skills, spirit, suppressSpiritmasterPetSummon).ConfigureAwait(false))
+            if (maintenancePlan.UsesSpiritmasterAutoLogic &&
+                await PressSpiritmasterOpeningAttackKeyIfNeededAsync(context, state, settings,
+                    sharedSkillSettings.Spiritmaster, target).ConfigureAwait(false))
             {
-                state.QuickbarSkills.SuspendInputAttempts();
+                state.QuickbarSkills.SuspendInputAttempts(preserveAttackWeave: settings.AttackWeaveEnabled);
                 return tick;
+            }
+            if (await PressQuickbarOpeningSkillIfNeededAsync(context, state, settings, maintenancePlan, target, skills).ConfigureAwait(false))
+            {
+                state.QuickbarSkills.SuspendInputAttempts(preserveAttackWeave: settings.AttackWeaveEnabled);
+                return tick;
+            }
+            if (await PressOpeningAttackKeyIfNeededAsync(context, state, settings, target).ConfigureAwait(false))
+            {
+                state.QuickbarSkills.SuspendInputAttempts(preserveAttackWeave: settings.AttackWeaveEnabled);
+                return tick;
+            }
+
+            if (maintenancePlan.UsesSpiritmasterAutoLogic)
+            {
+                var spirit = await ReadSpiritmasterCombatContextAsync(context, target).ConfigureAwait(false);
+                if (spirit.CanUseSpiritmasterLogic &&
+                    await TryHandleSpiritmasterSpecialAsync(context, state, settings, sharedSkillSettings.Spiritmaster,
+                        skills, spirit, suppressSpiritmasterPetSummon).ConfigureAwait(false))
+                {
+                    state.QuickbarSkills.SuspendInputAttempts();
+                    return tick;
+                }
             }
         }
 
@@ -143,7 +151,7 @@ public sealed partial class SemiAutoCombatController
             return tick;
         }
 
-        if (!plan.HasCombatActions)
+        if (!plan.HasCombatActions && !state.QuickbarSkills.AttackWeave.IsWaiting)
             return Ms(settings.TargetIdleDelayMs, 200);
 
         jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);

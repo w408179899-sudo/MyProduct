@@ -8,7 +8,7 @@ using Roadhog.Core.Model;
 namespace Roadhog.Application.SemiAuto;
 
 /// <summary>Serial, bounded attack-skill executor. Maintenance remains in the existing combat controller.</summary>
-public sealed class QuickbarSkillCombatController
+public sealed partial class QuickbarSkillCombatController
 {
     private readonly IKeyboardInput _keyboard;
     private readonly TimeProvider _timeProvider;
@@ -74,6 +74,9 @@ public sealed class QuickbarSkillCombatController
         state.SupportsCombatState = false;
         try
         {
+            if (!settings.AttackWeaveEnabled) state.AttackWeave.Reset();
+            else if (state.AttackWeave.TryResetAfterIdle(_timeProvider))
+                logger?.Info("quickbar_skill.attack_weave.idle_reset");
             void ObserveClockCalibration()
             {
                 if (isCooldownClockCalibrated is null) return;
@@ -115,7 +118,7 @@ public sealed class QuickbarSkillCombatController
                         ["durationMs"] = current.WaitDuration.TotalMilliseconds, ["deadline"] = current.Deadline
                     });
             }
-            if (!target.IsMonsterAlive || !plan.HasCombatActions)
+            if (!target.IsMonsterAlive || (!plan.HasCombatActions && !state.AttackWeave.IsWaiting))
             {
                 var previous = state.ChainTransition;
                 state.Reset();
@@ -155,6 +158,7 @@ public sealed class QuickbarSkillCombatController
                 LogTransitionChange(previousTransition);
                 if (scopeChanged || value.Page != plan.Page)
                 {
+                    if (value.Page != plan.Page) state.AttackWeave.Reset();
                     state.YieldToWorker = true;
                     logger?.Info("quickbar_skill.scope.changed");
                     return false;
@@ -168,6 +172,9 @@ public sealed class QuickbarSkillCombatController
             state.LastAvailabilityVersion = published.Version;
             var availability = published.Value;
             if (!Observe(availability)) return RemainingDelay();
+            if (settings.AttackWeaveEnabled && await HandleAttackWeaveAsync(state, target, availability, availabilityReader, settings,
+                    Observe, readTargetBeforePress, logger, cancellationToken).ConfigureAwait(false))
+                return RemainingDelay();
 
             var observedSkills = new Dictionary<uint, SkillSnapshot>();
             IReadOnlySet<uint>? ordinaryReadyIds = null;
@@ -217,6 +224,9 @@ public sealed class QuickbarSkillCombatController
                 if (state.TryConfirmAction(availability, observedSkills.Values.ToArray(), now, _timeProvider))
                 {
                     logger?.Info("quickbar_skill.release.confirmed", Fields(pending.Node));
+                    if (settings.AttackWeaveEnabled && state.AttackWeave.TryConfirmMainRelease(
+                            pending.AttemptId, _timeProvider, settings.AttackWeaveDelayMs))
+                        LogAttackWeaveConfirmation(state, pending.Node.SkillId, settings, logger);
                     if (pending.IsClockBootstrap) FinishClockCandidate(pending.Node, "release_confirmed");
                 }
                 else if ((!pending.IsClockBootstrap && state.IsActionExpired(now)) ||
@@ -322,7 +332,13 @@ public sealed class QuickbarSkillCombatController
                 ObservePending();
             }
             await ObserveTransition().ConfigureAwait(false);
+            if (settings.AttackWeaveEnabled && await HandleAttackWeaveAsync(state, target, availability, availabilityReader, settings,
+                    Observe, readTargetBeforePress, logger, cancellationToken).ConfigureAwait(false))
+                return RemainingDelay();
             var decision = await SelectWithRoots().ConfigureAwait(false);
+            if (settings.AttackWeaveEnabled && await HandleAttackWeaveAsync(state, target, availability, availabilityReader, settings,
+                    Observe, readTargetBeforePress, logger, cancellationToken).ConfigureAwait(false))
+                return RemainingDelay();
 
             // At most three selection changes and one finite key per tick. A CD
             // transition can hand over to another skill in this same tick, while
@@ -358,9 +374,15 @@ public sealed class QuickbarSkillCombatController
                 RecomputeEligibility();
                 ObservePending();
                 await ObserveTransition().ConfigureAwait(false);
+                if (settings.AttackWeaveEnabled && await HandleAttackWeaveAsync(state, target, availability, availabilityReader, settings,
+                        Observe, readTargetBeforePress, logger, cancellationToken).ConfigureAwait(false))
+                    return RemainingDelay();
                 var rechecked = Select();
                 if (rechecked.Kind is not (QuickbarSkillDecisionKind.PressChain or QuickbarSkillDecisionKind.WaitForChain) && ordinaryReadiness is not null && !selectingRoots)
                     rechecked = await SelectWithRoots().ConfigureAwait(false);
+                if (settings.AttackWeaveEnabled && await HandleAttackWeaveAsync(state, target, availability, availabilityReader, settings,
+                        Observe, readTargetBeforePress, logger, cancellationToken).ConfigureAwait(false))
+                    return RemainingDelay();
                 if (rechecked.Node?.NodeKey != node.NodeKey || rechecked.Kind != decision.Kind)
                 {
                     decision = rechecked;
@@ -393,7 +415,11 @@ public sealed class QuickbarSkillCombatController
                     logger?.Warn("quickbar_skill.key.failed", Fields(node));
                 }
                 else
+                {
+                    if (settings.AttackWeaveEnabled)
+                        state.AttackWeave.MarkMainSkillKeyPressed(state.PendingAction!.AttemptId, _timeProvider);
                     logger?.Info("quickbar_skill.key.pressed", Fields(node));
+                }
                 return RemainingDelay();
             }
             return RemainingDelay();

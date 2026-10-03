@@ -67,7 +67,7 @@ public sealed partial class StationaryCombatController
         await StopMovementAsync(context, state, releaseRightMouse: true);
         StopPathFollowPoller(state);
         state.ClearTarget(); state.ClearLootAfterKill(); state.ClearStartupRecovery(); state.Gather.Reset();
-        semiAutoState.AttackWeave.Reset(); semiAutoState.ResetAttackKeyPressThrottle();
+        semiAutoState.ResetAttackWeaveStates(); semiAutoState.ResetAttackKeyPressThrottle();
         return true;
     }
 }

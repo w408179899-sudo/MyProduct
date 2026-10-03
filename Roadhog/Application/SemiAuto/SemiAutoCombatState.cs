@@ -10,6 +10,12 @@ public sealed class SemiAutoCombatState
 
     public AttackWeaveState AttackWeave { get; } = new();
 
+    public void ResetAttackWeaveStates()
+    {
+        AttackWeave.Reset();
+        quickbarSkills?.AttackWeave.Reset();
+    }
+
     public void FinishAttackWeavePause(DateTimeOffset now)
     {
         var pause = AttackWeave.FinishPair(now);

@@ -402,7 +402,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         }
         finally
         {
-            semiAutoState.AttackWeave.Reset();
+            semiAutoState.ResetAttackWeaveStates();
             semiAutoState.ResetAttackKeyPressThrottle();
             try
             {

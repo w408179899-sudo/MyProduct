@@ -530,6 +530,9 @@ public sealed partial class SemiAutoCombatController
         LockedTargetSnapshot target)
     {
         var settings = context.Config.ScriptSettings?.SemiAuto ?? new SemiAutoScriptSettings();
+        if (context.Config.ScriptSettings?.SkillTreeReleaseMode == SkillTreeReleaseMode.QuickbarAvailability &&
+            settings.AttackWeaveEnabled)
+            return await TickQuickbarOpeningAttackKeyLoopAsync(context, plan, state, target, settings).ConfigureAwait(false);
         state.AttackWeave.ObserveTarget(target);
         if (settings.AttackWeaveEnabled && !target.IsMonsterAlive)
         {
@@ -3248,7 +3251,9 @@ public sealed partial class SemiAutoCombatController
         SemiAutoScriptSettings settings,
         SemiAutoSkillPlan plan,
         LockedTargetSnapshot target,
-        IReadOnlyList<SkillSnapshot>? observedSnapshot = null)
+        IReadOnlyList<SkillSnapshot>? observedSnapshot = null,
+        bool useAttackWeave = true,
+        Action<SkillSnapshot>? onSkillPressed = null)
     {
         state.ObserveOpeningSkillTarget(target);
         if (!plan.HasOpeningSkill || !state.ShouldHandleOpeningSkill(target))
@@ -3293,7 +3298,7 @@ public sealed partial class SemiAutoCombatController
                 continue;
             }
 
-            if (settings.AttackWeaveEnabled && !state.AttackWeave.CanPress(skill.SkillId))
+            if (useAttackWeave && settings.AttackWeaveEnabled && !state.AttackWeave.CanPress(skill.SkillId))
                 return true;
 
             if (!await PressNodeKeyAsync(context, openingSkill, settings, "opening_skill").ConfigureAwait(false))
@@ -3303,7 +3308,8 @@ public sealed partial class SemiAutoCombatController
             }
 
             state.MarkOpeningSkillPressed();
-            TrackAttackWeaveSkill(state, settings, plan, skill);
+            if (useAttackWeave) TrackAttackWeaveSkill(state, settings, plan, skill);
+            onSkillPressed?.Invoke(skill);
             if (skill.CooldownDuration == 0)
             {
                 FinishOpeningSkillEntry(state, plan, target);
