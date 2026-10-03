@@ -7,14 +7,24 @@ namespace Roadhog.Application.SemiAuto;
 
 public sealed partial class QuickbarSkillCombatController
 {
-    internal static void LogAttackWeaveConfirmation(QuickbarSkillCombatState state, uint skillId,
-        SemiAutoScriptSettings settings, IRoadhogLogger? logger)
+    internal static void ObserveAttackWeaveCooldowns(QuickbarSkillCombatState state, IReadOnlyList<SkillSnapshot> skills,
+        TimeProvider timeProvider, SemiAutoScriptSettings settings, IRoadhogLogger? logger)
     {
+        var counted = state.AttackWeave.ObserveCooldowns(skills, timeProvider, settings.AttackWeaveDelayMs);
+        var confirmedCount = state.AttackWeave.ConfirmedCount - counted.Count;
+        foreach (var skillId in counted)
+            LogAttackWeaveConfirmation(state, skillId, settings, logger, ++confirmedCount);
+    }
+
+    internal static void LogAttackWeaveConfirmation(QuickbarSkillCombatState state, uint skillId,
+        SemiAutoScriptSettings settings, IRoadhogLogger? logger, int? confirmedCount = null)
+    {
+        var count = confirmedCount ?? state.AttackWeave.ConfirmedCount;
         logger?.Info("quickbar_skill.attack_weave.skill_confirmed", new Dictionary<string, object?>
         {
-            ["skillId"] = skillId, ["confirmedCount"] = state.AttackWeave.ConfirmedCount
+            ["skillId"] = skillId, ["confirmedCount"] = count, ["evidence"] = "cooldown_started"
         });
-        if (state.AttackWeave.IsWaiting)
+        if (count == 2)
             logger?.Info("quickbar_skill.attack_weave.wait_started", new Dictionary<string, object?>
             {
                 ["delayMs"] = Math.Clamp(settings.AttackWeaveDelayMs, 0, SemiAutoScriptSettings.MaximumAttackWeaveDelayMs)

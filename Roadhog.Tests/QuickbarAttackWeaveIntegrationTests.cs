@@ -4,6 +4,7 @@ using Roadhog.Application.SemiAuto;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Api;
+using Roadhog.Core.Common;
 using Roadhog.Core.Diagnostics;
 using Roadhog.Core.Model;
 using Roadhog.Infrastructure.Vmm;
@@ -89,6 +90,8 @@ internal static class QuickbarAttackWeaveIntegrationTests
             cooldown.Confirm(101, publishRelease: false);
             await cooldown.TickAsync();
             Equal(1, cooldown.State.QuickbarSkills.AttackWeave.ConfirmedCount, "forward opening cooldown confirms exactly one actual release");
+            await cooldown.TickAsync();
+            Equal(1, cooldown.State.QuickbarSkills.AttackWeave.ConfirmedCount, "repeated opening cooldown snapshot is counted only once");
             AssertLegacyWeaveUnused(cooldown);
         }
 
@@ -104,9 +107,20 @@ internal static class QuickbarAttackWeaveIntegrationTests
             Equal(0, precise.State.QuickbarSkills.AttackWeave.ConfirmedCount, "another skill's official release cannot confirm the opening");
             precise.Api.SkillAvailability = precise.Api.SkillAvailability with { LastReleasedSkillId = 101, LastReleasedSkillTime = 2 };
             await precise.TickAsync();
-            Equal(1, precise.State.QuickbarSkills.AttackWeave.ConfirmedCount, "exact opening ID and changed official release time confirm without cooldown movement");
+            Equal(0, precise.State.QuickbarSkills.AttackWeave.ConfirmedCount, "exact opening ID and changed release time do not count without cooldown movement");
             await precise.TickAsync();
-            Equal(1, precise.State.QuickbarSkills.AttackWeave.ConfirmedCount, "repeated official release timestamp never counts twice");
+            Equal(0, precise.State.QuickbarSkills.AttackWeave.ConfirmedCount, "repeated actor release evidence without cooldown movement never counts");
+            precise.Api.SkillAvailability = precise.Api.SkillAvailability with { LastReleasedSkillId = 999, LastReleasedSkillTime = 3 };
+            precise.Confirm(101);
+            await precise.TickAsync();
+            Equal(1, precise.State.QuickbarSkills.AttackWeave.ConfirmedCount, "foreign actor release does not block a pressed opening skill's forward cooldown");
+            Equal("D4", precise.Keyboard.Keys.Last(), "opening hands off while unrelated actor release evidence remains unchanged");
+            precise.Confirm(201);
+            await precise.TickAsync();
+            Equal(2, precise.State.QuickbarSkills.AttackWeave.ConfirmedCount, "opening and main-tree cooldown advances count despite a stale foreign actor record");
+            Check(precise.State.QuickbarSkills.AttackWeave.IsWaiting, "cooldown evidence schedules C independently of the original action confirmation");
+            Check(precise.State.QuickbarSkills.PendingAction is not null,
+                "original main action remains unconfirmed while independent cooldown counting already schedules C");
             AssertLegacyWeaveUnused(precise);
         }
     }
@@ -273,6 +287,78 @@ internal static class QuickbarAttackWeaveIntegrationTests
         AssertLegacyWeaveUnused(f);
     }
 
+    public static async Task OpeningFailedInputAndZeroDurationDoNotCountAsync()
+    {
+        using (var failed = new Fixture(true, 101, 102, 103))
+        {
+            failed.Keyboard.PressResult = key => key == "D1" ? OperationResult.Fail("opening transport failed") : OperationResult.Ok();
+            await failed.PrepareAsync();
+            await failed.TickAsync();
+            Sequence(new[] { "D1", "D2" }, failed.Keyboard.Keys, "failed first opening advances to a successfully delivered fallback");
+            failed.Confirm(101);
+            await failed.TickAsync();
+            Equal(0, failed.State.QuickbarSkills.AttackWeave.ConfirmedCount, "cooldown movement after a failed key cannot count an opening");
+            failed.Confirm(102);
+            await failed.TickAsync();
+            Equal(1, failed.State.QuickbarSkills.AttackWeave.ConfirmedCount, "the successfully delivered fallback counts from its own cooldown");
+            failed.Confirm(103);
+            await failed.TickAsync();
+            Equal(2, failed.State.QuickbarSkills.AttackWeave.ConfirmedCount, "the next successful opening completes the pair without the failed attempt");
+            Check(failed.State.QuickbarSkills.AttackWeave.IsWaiting, "two successful opening cooldown changes schedule C");
+            AssertLegacyWeaveUnused(failed);
+        }
+
+        using (var zero = new Fixture(true, 101))
+        {
+            zero.Api.Skills = zero.Api.Skills.Select(skill => skill.SkillId == 101 ? skill with { CooldownDuration = 0 } : skill).ToArray();
+            await zero.PrepareAsync();
+            await zero.TickAsync();
+            zero.Confirm(101);
+            await zero.TickAsync();
+            Equal(0, zero.State.QuickbarSkills.AttackWeave.ConfirmedCount, "zero-duration opening does not count even when its raw end value changes");
+            zero.Confirm(201);
+            await zero.TickAsync();
+            Equal(1, zero.State.QuickbarSkills.AttackWeave.ConfirmedCount, "only the main skill with a real cooldown contributes to the pair");
+            Check(!zero.State.QuickbarSkills.AttackWeave.IsWaiting, "zero-duration opening cannot complete a pair with one main release");
+            AssertLegacyWeaveUnused(zero);
+        }
+    }
+
+    public static async Task PendingOpeningCooldownDoesNotSurviveResetAsync()
+    {
+        foreach (var cause in new[] { "death", "maintenance", "disabled", "target_lost" })
+        {
+            using var f = new Fixture(true, 101);
+            f.Settings.Maintenance.StatusMaintenanceRules.Add(new()
+            {
+                SkillId = 901, SkillName = "maintenance", Key = "NumPad1", AbnormalStatusId = 900,
+                RunTiming = MaintenanceRuleRunTiming.Always
+            });
+            f.Api.PlayerAbnormalStatuses = Status(f.Api, active: true);
+            await f.PrepareAsync();
+            await f.TickAsync();
+            Equal("D1", f.Keyboard.Keys.Last(), cause + " starts with a delivered but unconfirmed opening");
+            Equal(0, f.State.QuickbarSkills.AttackWeave.ConfirmedCount, "key delivery alone reserves no confirmed count");
+            if (cause == "death") f.Api.Player = f.Api.Player with { CurrentHp = 0 };
+            else if (cause == "maintenance")
+            {
+                f.Api.PlayerAbnormalStatuses = Status(f.Api, active: false);
+                f.Keyboard.AfterPress = key =>
+                {
+                    if (key == "NumPad1") f.Api.PlayerAbnormalStatuses = Status(f.Api, active: true);
+                };
+            }
+            else if (cause == "disabled") f.Settings.SemiAuto.AttackWeaveEnabled = false;
+            else f.Api.TargetEntityId = 0;
+            await f.TickAsync();
+            f.Confirm(101);
+            await f.TickAsync();
+            Equal(0, f.State.QuickbarSkills.AttackWeave.ConfirmedCount, cause + " discards the old opening attempt before its late cooldown appears");
+            Check(!f.State.QuickbarSkills.AttackWeave.IsWaiting && !f.Keyboard.Keys.Contains("C"), cause + " leaves no phantom pair or delayed C");
+            AssertLegacyWeaveUnused(f);
+        }
+    }
+
     private static PlayerAbnormalStatusSnapshot Status(FakeGameApi api, bool active) => new(api.Player.EntityId,
         DateTimeOffset.Now, 0, active
             ? new[] { new AbnormalStatusEntrySnapshot(0, 900, PlayerAbnormalStatusSnapshot.BuffCategory, 0, 1, 0) }
@@ -345,7 +431,7 @@ internal static class QuickbarAttackWeaveIntegrationTests
         public async Task<TimeSpan> TickOpeningLoopAsync() => await Controller.TickOpeningAttackKeyLoopAsync(Context,
             _plan, State, (await Context.Snapshots.ReadLockedTargetAsync()).Value);
 
-        public void Confirm(uint id, bool publishRelease = true)
+        public void Confirm(uint id, bool publishRelease = false)
         {
             Api.Skills = Api.Skills.Select(skill => skill.SkillId == id
                 ? skill with { CooldownEndTime = unchecked((uint)Environment.TickCount64 + 10000u) }

@@ -15,8 +15,7 @@ public sealed partial class SemiAutoCombatController
         if (!weave.HasOpeningAttempt) return true;
         var availability = await ReadQuickbarWeaveAvailabilityAsync(context, state, target).ConfigureAwait(false);
         if (!QuickbarWeaveCombatMatches(target, availability, context.SkillBindings?.Page)) return false;
-        if (weave.TryConfirmOpeningRelease(skills, availability, _timeProvider, settings.AttackWeaveDelayMs) is { } skillId)
-            QuickbarSkillCombatController.LogAttackWeaveConfirmation(state.QuickbarSkills, skillId, settings, context.Logger);
+        QuickbarSkillCombatController.ObserveAttackWeaveCooldowns(state.QuickbarSkills, skills, _timeProvider, settings, context.Logger);
         return true;
     }
 
@@ -30,7 +29,7 @@ public sealed partial class SemiAutoCombatController
         var baseline = await ReadQuickbarWeaveAvailabilityAsync(context, state, target).ConfigureAwait(false);
         if (!QuickbarWeaveCombatMatches(target, baseline, context.SkillBindings?.Page)) return true;
         return await PressOpeningSkillIfNeededAsync(context, state, settings, plan, target, skills, useAttackWeave: false,
-            onSkillPressed: skill => state.QuickbarSkills.AttackWeave.TrackOpeningPress(skill, baseline,
+            onSkillPressed: skill => state.QuickbarSkills.AttackWeave.TrackOpeningPress(skill,
                 _timeProvider, ResolveOpeningSkillConfirmationTimeout())).ConfigureAwait(false);
     }
 

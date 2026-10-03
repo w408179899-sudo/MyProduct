@@ -118,7 +118,8 @@ public sealed partial class QuickbarSkillCombatController
                         ["durationMs"] = current.WaitDuration.TotalMilliseconds, ["deadline"] = current.Deadline
                     });
             }
-            if (!target.IsMonsterAlive || (!plan.HasCombatActions && !state.AttackWeave.IsWaiting))
+            if (!target.IsMonsterAlive || (!plan.HasCombatActions && !state.AttackWeave.IsWaiting &&
+                (!settings.AttackWeaveEnabled || !state.AttackWeave.HasPendingAttempts)))
             {
                 var previous = state.ChainTransition;
                 state.Reset();
@@ -172,6 +173,17 @@ public sealed partial class QuickbarSkillCombatController
             state.LastAvailabilityVersion = published.Version;
             var availability = published.Value;
             if (!Observe(availability)) return RemainingDelay();
+            if (settings.AttackWeaveEnabled)
+                ObserveAttackWeaveCooldowns(state, Array.Empty<SkillSnapshot>(), _timeProvider, settings, logger);
+            if (settings.AttackWeaveEnabled && state.AttackWeave.IsWaiting &&
+                state.AttackWeave.PendingSkillIds is { Count: > 0 } waitingIds)
+            {
+                // A later stage can enter CD during the pair's wait. Preserve its
+                // evidence for the next pair while keeping this tick input-free.
+                var waitingSkills = await readSkills(waitingIds).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                ObserveAttackWeaveCooldowns(state, waitingSkills, _timeProvider, settings, logger);
+            }
             if (settings.AttackWeaveEnabled && await HandleAttackWeaveAsync(state, target, availability, availabilityReader, settings,
                     Observe, readTargetBeforePress, logger, cancellationToken).ConfigureAwait(false))
                 return RemainingDelay();
@@ -203,10 +215,15 @@ public sealed partial class QuickbarSkillCombatController
                     ordinaryProposedIds = ordinaryReadiness(skills);
                 }
                 RecomputeEligibility();
+                if (settings.AttackWeaveEnabled)
+                    ObserveAttackWeaveCooldowns(state, skills, _timeProvider, settings, logger);
             }
             async Task Read(IReadOnlyCollection<uint> ids, bool rootsRead)
             {
-                var skills = await readSkills(ids).ConfigureAwait(false);
+                var requestedIds = settings.AttackWeaveEnabled && state.AttackWeave.HasPendingAttempts
+                    ? ids.Concat(state.AttackWeave.PendingSkillIds).Distinct().ToArray()
+                    : ids;
+                var skills = await readSkills(requestedIds).ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
                 ObserveSkills(skills, rootsRead);
             }
@@ -224,9 +241,6 @@ public sealed partial class QuickbarSkillCombatController
                 if (state.TryConfirmAction(availability, observedSkills.Values.ToArray(), now, _timeProvider))
                 {
                     logger?.Info("quickbar_skill.release.confirmed", Fields(pending.Node));
-                    if (settings.AttackWeaveEnabled && state.AttackWeave.TryConfirmMainRelease(
-                            pending.AttemptId, _timeProvider, settings.AttackWeaveDelayMs))
-                        LogAttackWeaveConfirmation(state, pending.Node.SkillId, settings, logger);
                     if (pending.IsClockBootstrap) FinishClockCandidate(pending.Node, "release_confirmed");
                 }
                 else if ((!pending.IsClockBootstrap && state.IsActionExpired(now)) ||
@@ -331,6 +345,8 @@ public sealed partial class QuickbarSkillCombatController
                 await Read(new[] { pending.Node.SkillId }, false).ConfigureAwait(false);
                 ObservePending();
             }
+            else if (settings.AttackWeaveEnabled && state.AttackWeave.HasPendingAttempts)
+                await Read(state.AttackWeave.PendingSkillIds, false).ConfigureAwait(false);
             await ObserveTransition().ConfigureAwait(false);
             if (settings.AttackWeaveEnabled && await HandleAttackWeaveAsync(state, target, availability, availabilityReader, settings,
                     Observe, readTargetBeforePress, logger, cancellationToken).ConfigureAwait(false))
@@ -417,7 +433,9 @@ public sealed partial class QuickbarSkillCombatController
                 else
                 {
                     if (settings.AttackWeaveEnabled)
-                        state.AttackWeave.MarkMainSkillKeyPressed(state.PendingAction!.AttemptId, _timeProvider);
+                        state.AttackWeave.TrackMainPress(observedSkills.GetValueOrDefault(node.SkillId),
+                            !isBootstrap || QuickbarSkillReleasePriority.GetMatchingSlot(node, availability) is { CanUse: true },
+                            _timeProvider, timeout);
                     logger?.Info("quickbar_skill.key.pressed", Fields(node));
                 }
                 return RemainingDelay();

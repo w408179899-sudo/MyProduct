@@ -121,6 +121,7 @@ internal static class QuickbarAttackWeaveTests
         f.Clock.Advance(80);
         await f.Tick();
         Equal(0, f.State.AttackWeave.ConfirmedCount, "three input attempts without execution evidence count zero");
+        f.SetCooldown(31, 31000);
         f.Reader.Value = Bar(counter: true, last: 31, time: 10);
         f.Clock.Advance(80);
         await f.Tick();
@@ -128,6 +129,7 @@ internal static class QuickbarAttackWeaveTests
         f.Clock.Advance(80);
         await f.Tick();
         Equal(1, f.State.AttackWeave.ConfirmedCount, "retrying the next conditional action cannot duplicate the first release");
+        f.SetCooldown(21, 21000);
         f.Reader.Value = Bar(last: 21, time: 20);
         f.Clock.Advance(80);
         await f.Tick();
@@ -293,6 +295,7 @@ internal static class QuickbarAttackWeaveTests
         var b = new Fixture();
         b.Reader.Value = Bar(ordinary: true);
         await b.Tick();
+        b.SetCooldown(31, 31000);
         b.Reader.Value = Bar(last: 31, time: 10);
         b.Clock.Advance(80);
         await b.Tick();
@@ -304,6 +307,7 @@ internal static class QuickbarAttackWeaveTests
         b.Reader.Value = Bar(counter: true, last: 31, time: 10);
         await b.Tick();
         b.Clock.Advance(80);
+        b.SetCooldown(21, 21000);
         b.Reader.Value = Bar(last: 21, time: 20);
         await b.Tick();
         Equal(1, b.State.AttackWeave.ConfirmedCount, "a 1500 millisecond idle gap starts a fresh successful pair");
@@ -322,8 +326,10 @@ internal static class QuickbarAttackWeaveTests
         slowRead.Reader.Value = Bar(ordinary: true);
         await slowRead.Tick();
         slowRead.Clock.Advance(80);
+        slowRead.SetCooldown(31, 31000);
         slowRead.Reader.Value = Bar(counter: true, last: 31, time: 10);
         await slowRead.Tick();
+        slowRead.SetCooldown(21, 21000);
         slowRead.Reader.Value = Bar(last: 21, time: 20);
         var delayedRead = slowRead.Reader.ReadCount + 1;
         slowRead.Reader.AfterRead = count => { if (count == delayedRead) slowRead.Clock.Advance(1501); };
@@ -339,6 +345,7 @@ internal static class QuickbarAttackWeaveTests
         failed.Keyboard.FailSkills = true;
         failed.Reader.Value = Bar(ordinary: true);
         await failed.Tick();
+        failed.SetCooldown(31, 31000);
         failed.Reader.Value = Bar(last: 31, time: 10);
         await failed.Tick();
         Equal(0, failed.State.AttackWeave.ConfirmedCount, "failed transport does not create a confirmation candidate");
@@ -347,15 +354,15 @@ internal static class QuickbarAttackWeaveTests
         f.Reader.Value = Bar(ordinary: true);
         await f.Tick();
         f.SetCooldown(31, 30000);
-        f.Reader.Value = Bar(last: 0, time: 10);
+        f.Reader.Value = Bar();
         await f.Tick();
-        Equal(1, f.State.AttackWeave.ConfirmedCount, "exact-skill cooldown advancement with a new release clock can confirm a cleared actor id");
-        f.Reader.Value = Bar(counter: true, last: 0, time: 10);
+        Equal(1, f.State.AttackWeave.ConfirmedCount, "exact-skill cooldown advancement counts even when the release record remains unchanged");
+        f.Reader.Value = Bar(counter: true);
         await f.Tick();
         f.SetCooldown(21, 40000);
-        f.Reader.Value = Bar(last: 0, time: 20);
+        f.Reader.Value = Bar();
         await f.Tick();
-        Equal(2, f.State.AttackWeave.ConfirmedCount, "two valid cooldown fallback confirmations form a pair");
+        Equal(2, f.State.AttackWeave.ConfirmedCount, "two exact cooldown advances form a pair without release-record evidence");
 
         f = new Fixture();
         f.Reader.Value = Bar(root: true);
@@ -365,13 +372,14 @@ internal static class QuickbarAttackWeaveTests
         await f.Tick(cooldown: skill => skill.SkillId == 11
             ? SemiAutoSkillCooldownReadiness.CoolingDown : SemiAutoSkillCooldownReadiness.Ready);
         Check(f.State.ChainTransition is { Confirmed: false }, "cooldown started can protect a chain before actual release is confirmed");
-        Equal(0, f.State.AttackWeave.ConfirmedCount, "cooldown-started handoff with an unchanged actor clock cannot count an unconfirmed release");
+        Equal(1, f.State.AttackWeave.ConfirmedCount, "cooldown-started handoff counts for weaving while the existing release-confirmation state stays unconfirmed");
 
         f = new Fixture(delayMs: 0);
         IReadOnlySet<uint> Ordinary(IReadOnlyList<SkillSnapshot> skills) => skills.Select(skill => skill.SkillId).ToHashSet();
         f.Reader.Value = Bar(ordinary: true);
         await f.Tick(ordinary: Ordinary);
         f.Clock.Advance(80);
+        f.SetCooldown(31, 31000);
         f.Reader.Value = Bar(counter: true, last: 31, time: 10);
         await f.Tick(ordinary: Ordinary);
         Equal(1, f.State.AttackWeave.ConfirmedCount, "production-style ordinary readiness retains the first confirmed release");
@@ -394,14 +402,238 @@ internal static class QuickbarAttackWeaveTests
             "late selection confirmation completes the pair before a later ordinary root can own input");
     }
 
+    public static async Task CooldownEvidenceIndependentOfReleaseAsync()
+    {
+        var f = new Fixture();
+        f.Reader.Value = Bar(ordinary: true);
+        await f.Tick();
+        f.Reader.Value = Bar(last: 31, time: 10);
+        await f.Tick();
+        Equal(0, f.State.AttackWeave.ConfirmedCount, "a precise release record without cooldown advancement does not count");
+        Check(f.State.PendingAction is null, "the unchanged release-confirmation path may finish before weaving has its own cooldown evidence");
+        f.Reader.Value = Bar(last: 99, time: 20);
+        await f.Tick();
+        Equal(0, f.State.AttackWeave.ConfirmedCount, "an unrelated release and a dark icon cannot replace cooldown evidence");
+        f.SetCooldown(31, 31000);
+        await f.Tick();
+        Equal(1, f.State.AttackWeave.ConfirmedCount, "late cooldown advancement counts the successful key even after its main pending action was cleared");
+        f.Reader.Value = Bar(counter: true, last: 99, time: 20);
+        await f.Tick();
+        f.SetCooldown(21, 21000);
+        f.Reader.Value = Bar(last: 99, time: 20);
+        await f.Tick();
+        Equal(2, f.State.AttackWeave.ConfirmedCount, "the conditional skill counts with an unchanged unrelated release record");
+        Sequence(new[] { "NumPadAdd", "D2" }, f.Keyboard.Keys, "cooldown-based counting keeps the configured pre-C wait");
+        f.Clock.Advance(530);
+        await f.Tick();
+        Equal(1, f.Keyboard.Keys.Count(key => key == "C"), "two cooldown-backed actions schedule one C");
+    }
+
+    public static async Task CooldownSkillFamiliesAsync()
+    {
+        var f = new Fixture(delayMs: 0, includeTrigger: true);
+        f.Reader.Value = Bar(ordinary: true);
+        await f.Tick();
+        f.SetCooldown(31, 31000);
+        f.Clock.Advance(80);
+        f.Reader.Value = Bar(trigger: true, last: 99, time: 1);
+        await f.Tick();
+        Equal(1, f.State.AttackWeave.ConfirmedCount, "ordinary action counts independently of another release record");
+        Equal("D3", f.Keyboard.Keys.Last(), "a configured trigger skill uses its own available shortcut");
+        f.SetCooldown(41, 41000);
+        f.Clock.Advance(80);
+        f.Reader.Value = Bar(counter: true, last: 98, time: 2);
+        await f.Tick();
+        Sequence(new[] { "NumPadAdd", "D3", "C" }, f.Keyboard.Keys, "ordinary and trigger cooldowns complete the first pair");
+        f.Clock.Advance(30);
+        await f.Tick();
+        f.SetCooldown(21, 21000);
+        f.Clock.Advance(80);
+        f.Reader.Value = Bar(root: true, last: 97, time: 3);
+        await f.Tick();
+        Equal(1, f.State.AttackWeave.ConfirmedCount, "conditional cooldown starts the next pair");
+        f.SetCooldown(11, 11000);
+        f.Clock.Advance(80);
+        f.Reader.Value = Bar(root: true, effective: 12, last: 11, time: 4);
+        await f.Tick();
+        Equal(2, f.Keyboard.Keys.Count(key => key == "C"), "the first chain stage counts alongside a conditional action");
+        f.Clock.Advance(30);
+        await f.Tick();
+        f.SetCooldown(12, 12000);
+        f.Clock.Advance(80);
+        f.Reader.Value = Bar(root: true, effective: 13, last: 12, time: 5);
+        await f.Tick();
+        Equal(1, f.State.AttackWeave.ConfirmedCount, "middle chain stage has its own counted cooldown");
+        f.SetCooldown(13, 13000);
+        f.Clock.Advance(80);
+        f.Reader.Value = Bar(last: 13, time: 6);
+        await f.Tick();
+        Sequence(new[] { "NumPadAdd", "D3", "C", "D2", "D1", "C", "D1", "D1", "C" }, f.Keyboard.Keys,
+            "ordinary, trigger, conditional and all three chain stages each contribute exactly one cooldown-backed action");
+    }
+
+    public static async Task CooldownLatePredecessorAsync()
+    {
+        var f = new Fixture();
+        f.Reader.Value = Bar(root: true);
+        await f.Tick();
+        f.Clock.Advance(80);
+        f.Reader.Value = Bar(root: true, effective: 12);
+        await f.Tick();
+        Sequence(new[] { "D1", "D1" }, f.Keyboard.Keys, "a genuinely open child can replace its predecessor before either cooldown is observed");
+        Equal(12u, f.State.PendingAction!.Node.SkillId, "main release confirmation now owns the child rather than the predecessor");
+        f.SetCooldown(12, 12000);
+        f.Reader.Value = Bar(effective: 12);
+        f.Clock.Advance(80);
+        await f.Tick();
+        Equal(1, f.State.AttackWeave.ConfirmedCount, "the child cooldown can be counted before the predecessor");
+        f.SetCooldown(11, 11000);
+        f.Clock.Advance(80);
+        await f.Tick();
+        Equal(2, f.State.AttackWeave.ConfirmedCount, "late predecessor cooldown retains its original successful-key baseline after the child took over");
+        f.Clock.Advance(530);
+        await f.Tick();
+        f.Clock.Advance(30);
+        f.Reader.Value = Bar(effective: 12, last: 11, time: 10);
+        await f.Tick();
+        f.Reader.Value = Bar(effective: 12, last: 12, time: 20);
+        await f.Tick();
+        Equal(0, f.State.AttackWeave.ConfirmedCount, "late release-confirmation records cannot count the already consumed cooldowns again");
+        Equal(1, f.Keyboard.Keys.Count(key => key == "C"), "out-of-order predecessor evidence still produces one C");
+    }
+
+    public static async Task CooldownRetryAndFailureAsync()
+    {
+        var f = new Fixture();
+        f.Reader.Value = Bar(ordinary: true);
+        await f.Tick();
+        var originalAttemptId = f.State.PendingAction!.AttemptId;
+        f.Clock.Advance(80);
+        await f.Tick();
+        f.Clock.Advance(80);
+        await f.Tick();
+        f.SetCooldown(31, 31000);
+        f.Clock.Advance(80);
+        await f.Tick();
+        Equal(1, f.State.AttackWeave.ConfirmedCount, "multiple successful key retries preserve one first cooldown baseline and count once");
+        Equal(originalAttemptId, f.State.PendingAction!.AttemptId,
+            "cooldown-only weaving leaves the original unconfirmed release attempt available for its normal retry path");
+        for (var retry = 0; retry < 3; retry++)
+        {
+            var keys = f.Keyboard.Keys.Count;
+            f.Clock.Advance(80);
+            await f.Tick();
+            Equal(keys + 1, f.Keyboard.Keys.Count, "the still-available ordinary skill really retries after its cooldown was counted");
+            Equal(originalAttemptId, f.State.PendingAction!.AttemptId, "successful retries retain the original main release-attempt identity");
+            Equal(1, f.State.AttackWeave.ConfirmedCount,
+                "re-registering a consumed skill uses its currently observed cooldown rather than the original pending-action baseline");
+        }
+        f.Reader.Value = Bar(last: 31, time: 10);
+        await f.Tick();
+        Equal(1, f.State.AttackWeave.ConfirmedCount, "late normal release confirmation cannot count the same cooldown again");
+
+        f = new Fixture();
+        f.Reader.Value = Bar(ordinary: true);
+        await f.Tick();
+        f.Keyboard.FailSkills = true;
+        f.Clock.Advance(80);
+        await f.Tick();
+        Check(f.State.PendingAction is null, "failed retry still follows the original main-action rejection path");
+        f.SetCooldown(31, 31000);
+        f.Reader.Value = Bar();
+        await f.Tick();
+        Equal(1, f.State.AttackWeave.ConfirmedCount, "a later failed retry cannot erase the first successful key awaiting cooldown evidence");
+
+        f = new Fixture();
+        f.Skills = f.Skills.Select(skill => skill.SkillId == 31 ? skill with { CooldownDuration = 0 } : skill).ToArray();
+        f.Reader.Value = Bar(ordinary: true);
+        await f.Tick();
+        f.SetCooldown(31, 31000);
+        f.Reader.Value = Bar(last: 31, time: 10);
+        await f.Tick();
+        Equal(0, f.State.AttackWeave.ConfirmedCount, "a zero-duration action cannot count even when both release record and end-time change");
+    }
+
+    public static async Task WaitingCooldownEvidenceBufferedAsync()
+    {
+        var f = new Fixture(delayMs: 10000);
+        f.Reader.Value = Bar(root: true);
+        await f.Tick();
+        f.Clock.Advance(80);
+        f.Reader.Value = Bar(root: true, effective: 12);
+        await f.Tick();
+        f.Clock.Advance(80);
+        f.Reader.Value = Bar(root: true, effective: 13);
+        await f.Tick();
+        Sequence(new[] { "D1", "D1", "D1" }, f.Keyboard.Keys, "three real available chain stages may be pressed before any delayed cooldown evidence arrives");
+        f.Reader.Value = Bar(effective: 13);
+        f.SetCooldown(11, 11000);
+        f.Clock.Advance(80);
+        await f.Tick();
+        Equal(1, f.State.AttackWeave.ConfirmedCount, "first late predecessor cooldown starts the pair");
+        f.SetCooldown(12, 12000);
+        f.Clock.Advance(80);
+        await f.Tick();
+        Equal(2, f.State.AttackWeave.ConfirmedCount, "second predecessor cooldown schedules the configured ten-second C wait");
+        f.Clock.Advance(2000);
+        f.SetCooldown(13, 13000);
+        var reads = f.SkillReads.Count;
+        await f.Tick();
+        Sequence(new[] { "13" }, f.SkillReads.Skip(reads), "the waiting path narrowly reads the remaining unconfirmed skill ID");
+        Equal(2, f.State.AttackWeave.ConfirmedCount, "third stage cooldown is buffered during the existing C wait rather than overflowing the pair");
+        Equal(3, f.Keyboard.Keys.Count, "buffering cooldown evidence during C wait cannot send another skill or early C");
+        f.Clock.Advance(8000);
+        await f.Tick();
+        Sequence(new[] { "D1", "D1", "D1", "C" }, f.Keyboard.Keys, "the first pair keeps its original ten-second deadline");
+        f.Clock.Advance(29);
+        await f.Tick();
+        Equal(0, f.State.AttackWeave.ConfirmedCount, "buffered third action waits through the post-C pause");
+        f.Clock.Advance(1);
+        await f.Tick();
+        Equal(1, f.State.AttackWeave.ConfirmedCount, "cooldown captured during waiting survives past its original eight-second attempt deadline into the next pair");
+        Equal(1, f.Keyboard.Keys.Count(key => key == "C"), "one buffered third action does not produce a second C by itself");
+    }
+
+    public static async Task EmptyPlanRetainsBufferedCooldownsAsync()
+    {
+        var emptyPlan = QuickbarSkillPlan.FromSettings(new() { ExecutionTree = new() }, new(Bindings(), Learned));
+        foreach (var enabled in new[] { true, false })
+        {
+            var f = new Fixture(enabled: enabled);
+            foreach (var id in new uint[] { 11, 12, 13 })
+                f.State.AttackWeave.TrackMainPress(f.Skills.Single(skill => skill.SkillId == id), true, f.Clock, TimeSpan.FromSeconds(8));
+            f.SetCooldown(11, 11000);
+            f.SetCooldown(12, 12000);
+            f.SetCooldown(13, 13000);
+            f.State.AttackWeave.ObserveCooldowns(f.Skills, f.Clock, 530);
+            f.State.AttackWeave.MarkAttackSucceeded(f.Clock);
+            f.Clock.Advance(30);
+            Check(!f.State.AttackWeave.IsWaiting && f.State.AttackWeave.HasPendingAttempts,
+                "empty-plan fixture enters after the post-C pause with only the third cooldown buffered");
+            await new QuickbarSkillCombatController(f.Keyboard, f.Clock).TickAsync(emptyPlan, f.State,
+                f.Target, f.Reader, ids =>
+                {
+                    Check(ids.All(id => id == 13), "empty-plan orchestration cannot widen a pending-cooldown query to unrelated skills");
+                    return Task.FromResult<IReadOnlyList<SkillSnapshot>>(f.Skills.Where(skill => ids.Contains(skill.SkillId)).ToArray());
+                }, f.Settings);
+            Equal(enabled ? 1 : 0, f.State.AttackWeave.ConfirmedCount,
+                "enabled empty-plan orchestration consumes the buffered third cooldown while disabled mode preserves its original reset behavior");
+            Equal(0, f.Keyboard.Keys.Count, "an empty plan cannot issue skill input or C from one buffered action");
+            Check(!f.State.AttackWeave.HasPendingAttempts,
+                "the buffered third cooldown is consumed once or cleared when weaving is disabled");
+        }
+    }
+
     private static async Task MixedPair(Fixture f)
     {
         f.Reader.Value = Bar(ordinary: true);
         await f.Tick();
         f.Clock.Advance(80);
+        f.SetCooldown(31, 31000);
         f.Reader.Value = Bar(counter: true, last: 31, time: 10);
         await f.Tick();
         f.Clock.Advance(80);
+        f.SetCooldown(21, 21000);
         f.Reader.Value = Bar(last: 21, time: 20);
         await f.Tick();
     }
@@ -411,9 +643,11 @@ internal static class QuickbarAttackWeaveTests
         f.Reader.Value = Bar(root: true);
         await f.Tick();
         f.Clock.Advance(80);
+        f.SetCooldown(11, 11000);
         f.Reader.Value = Bar(root: true, effective: 12, last: 11, time: 10);
         await f.Tick();
         f.Clock.Advance(80);
+        f.SetCooldown(12, 12000);
         f.Reader.Value = Bar(root: true, effective: 13, last: 12, time: 20);
         await f.Tick();
     }
@@ -424,32 +658,33 @@ internal static class QuickbarAttackWeaveTests
         new(id, "skill" + id, 1, 1, "skill" + id, 1, false, 30000, 0,
             XmlChainCategory: chain, XmlPrechainCategory: pre);
     private static readonly SkillSnapshot[] Learned =
-        { Skill(11, "a"), Skill(12, "b", "a"), Skill(13, pre: "b"), Skill(21) with { XmlCounterSkill = "Parry" }, Skill(31) };
+        { Skill(11, "a"), Skill(12, "b", "a"), Skill(13, pre: "b"), Skill(21) with { XmlCounterSkill = "Parry" }, Skill(31), Skill(41) with { XmlSelfConditionStatuses = "Ready" } };
     private static QuickbarSnapshot Bindings() => new(0, new QuickbarSlotSnapshot[]
-        { new(SkillQuickbar.Main, 0, 21, 11), new(SkillQuickbar.Main, 1, 21, 21), new(SkillQuickbar.Alt, 10, 21, 31) });
+        { new(SkillQuickbar.Main, 0, 21, 11), new(SkillQuickbar.Main, 1, 21, 21), new(SkillQuickbar.Main, 2, 21, 41), new(SkillQuickbar.Alt, 10, 21, 31) });
     private static LockedTargetSnapshot Target(uint server = 100) =>
         new(50, server, 1, LockedTargetSnapshot.MonsterObjectType, "dummy", 100, 100, null, 1, Start);
     private static SkillAvailabilityCombatSnapshot Guard(uint targetServer = 100, uint hp = 100) =>
         new(1, 10, 50, targetServer, hp, 100, 100, 100);
     private static SkillAvailabilitySnapshot Bar(bool root = false, bool counter = false, bool ordinary = false,
-        uint effective = 11, uint last = 0, uint time = 0) => new(0,
+        uint effective = 11, uint last = 0, uint time = 0, bool trigger = false) => new(0,
         new SkillAvailabilitySlotSnapshot[]
         {
             new(SkillQuickbar.Main, 0, 21, 11, effective, root),
             new(SkillQuickbar.Main, 1, 21, 21, 21, counter),
+            new(SkillQuickbar.Main, 2, 21, 41, 41, trigger),
             new(SkillQuickbar.Alt, 10, 21, 31, 31, ordinary)
-        }, last, time, BindingSignature: "main:0:11;main:1:21;alt:10:31",
+        }, last, time, BindingSignature: "main:0:11;main:1:21;main:2:41;alt:10:31",
         BindingSlots: new SkillAvailabilityBindingSnapshot[]
         {
             new(SkillQuickbar.Main, 0, 21, 11, effective),
             new(SkillQuickbar.Main, 1, 21, 21, 21),
+            new(SkillQuickbar.Main, 2, 21, 41, 41),
             new(SkillQuickbar.Alt, 10, 21, 31, 31)
         }, CombatState: Guard());
 
     private sealed class Fixture
     {
-        public QuickbarSkillPlan Plan { get; } = QuickbarSkillPlan.FromSettings(new()
-            { ExecutionTree = new() { Node(21), Node(11, Node(12, Node(13))), Node(31) } }, new(Bindings(), Learned));
+        public QuickbarSkillPlan Plan { get; }
         public Clock Clock { get; } = new();
         public QuickbarSkillCombatState State { get; }
         public Reader Reader { get; } = new();
@@ -461,8 +696,16 @@ internal static class QuickbarAttackWeaveTests
         public SemiAutoScriptSettings Settings { get; }
         private readonly QuickbarSkillCombatController controller;
 
-        public Fixture(bool enabled = true, int delayMs = 530)
+        public Fixture(bool enabled = true, int delayMs = 530, bool includeTrigger = false)
         {
+            var roots = new List<SkillConfigNode> { Node(21), Node(11, Node(12, Node(13))), Node(31) };
+            if (includeTrigger)
+            {
+                var trigger = Node(41);
+                trigger.Type = "触发技能";
+                roots.Insert(0, trigger);
+            }
+            Plan = QuickbarSkillPlan.FromSettings(new() { ExecutionTree = roots }, new(Bindings(), Learned));
             State = new(Clock);
             Settings = new() { AttackWeaveEnabled = enabled, AttackWeaveDelayMs = delayMs, KeyHoldMs = 1, ConfirmTimeoutMs = 8000 };
             controller = new(Keyboard, Clock);
