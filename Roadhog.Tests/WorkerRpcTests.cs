@@ -5,6 +5,8 @@ using System.Text.Json;
 using Roadhog.Application;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Common;
+using Roadhog.Core.Diagnostics;
+using Roadhog.Core.Model;
 using Roadhog.Infrastructure.WorkerProcesses;
 
 internal static class WorkerRpcTests
@@ -165,6 +167,36 @@ internal static class WorkerRpcTests
         await ExpectAsync<WorkerRpcException>(() => fixture.Client.CallAsync<object>("ReadPlayerAsync", Array.Empty<object?>(), fixture.Token), "argument count");
     }
 
+    public static async Task ExactSkillRanksAsync()
+    {
+        var api = new FakeGameApi { Skills = new[] { QuickbarSkillRankRuntimeTests.Rank(1227, 1), QuickbarSkillRankRuntimeTests.Rank(1271, 3) } };
+        var logger = new InMemoryRoadhogLogger();
+        var accounts = new AccountRuntimeManager(logger);
+        accounts.MarkStarting(new AccountConfig { AccountName = "account1", ProcessId = 3684, TargetProcessName = "Aion.bin", VmmDeviceName = "fpga://devindex=4" });
+        var runtime = new RoadhogRuntime(api, logger, accounts, null!);
+        var dispatcher = new RuntimeRpcDispatcher(runtime, "account1", "fpga://devindex=4");
+        await using var fixture = new ServerFixture(dispatcher.InvokeAsync);
+        var proxy = new RemoteRoadhogRuntime(fixture.Client, "account1");
+        var requested = new List<uint> { 1227, 1227, 0 };
+        var pending = proxy.RefreshSkillsByIdsAsync(requested, cancellationToken: fixture.Token);
+        requested.Clear();
+        var result = await pending;
+        Require(result.Single().SkillId == 1227 && result.Single().DisplayTier == 1,
+            "exact learned lower rank must survive proxy, RPC serialization and dispatcher");
+        Require(api.LastRequestedSkillIds!.SequenceEqual(new uint[] { 1227 }),
+            "proxy must capture mutable id collection and worker must normalize exact request");
+        Require(api.LastSkillsContext?.AccountName == "account1", "omitted proxy account must use worker binding");
+        Require(api.LastSkillsContext?.ProcessId == 3684 && api.LastSkillsContext.VmmDeviceName == "fpga://devindex=4",
+            "exact RPC refresh must preserve bound account process and DMA selection");
+        Require((await proxy.RefreshSkillsByIdsAsync(Array.Empty<uint>(), cancellationToken: fixture.Token)).Count == 0,
+            "empty exact request must remain empty through RPC");
+        await ExpectAsync<InvalidOperationException>(() => proxy.RefreshSkillsByIdsAsync(new uint[] { 1227 }, "account2", fixture.Token), "different account");
+        await ExpectAsync<WorkerRpcException>(() => fixture.Client.CallAsync<IReadOnlyList<SkillSnapshot>>(
+            nameof(IRoadhogRuntime.RefreshSkillsByIdsAsync), new object?[] { new uint[] { 1227 }, "account2" }, fixture.Token), "another account");
+        await ExpectAsync<WorkerRpcException>(() => fixture.Client.CallAsync<IReadOnlyList<SkillSnapshot>>(
+            nameof(IRoadhogRuntime.RefreshSkillsByIdsAsync), new object?[] { null, "account1" }, fixture.Token), "null");
+    }
+
     public static async Task LazyClientReconnectsAsync()
     {
         await using var first = new ServerFixture((_, _, _, _) => Task.FromResult<object?>(1));
@@ -221,7 +253,8 @@ internal static class WorkerRpcTests
             array.SetValue(Sample(type.GetElementType()!, depth + 1), 0);
             return array;
         }
-        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IReadOnlyList<>))
+        if (type.IsGenericType && (type.GetGenericTypeDefinition() == typeof(IReadOnlyList<>) ||
+            type.GetGenericTypeDefinition() == typeof(IReadOnlyCollection<>)))
         {
             var array = Array.CreateInstance(type.GenericTypeArguments[0], 1);
             array.SetValue(Sample(type.GenericTypeArguments[0], depth + 1), 0);

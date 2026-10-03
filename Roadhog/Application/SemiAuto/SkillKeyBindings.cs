@@ -49,6 +49,15 @@ public sealed class SkillKeyBindings
             ? new(child.SkillId, child.Name, parent.Key) : null;
     }
 
+    // Immutable XML metadata only. Live cooldown decisions still use the provider.
+    internal int? GetXmlChainTimeMs(uint skillId)
+    {
+        var text = _skills.FirstOrDefault(skill => skill.SkillId == skillId)?.XmlChainTime;
+        return int.TryParse(text, System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture, out var milliseconds) && milliseconds > 0
+            ? milliseconds : null;
+    }
+
     private static bool Matches(string? left, string? right) => !string.IsNullOrWhiteSpace(right) &&
         string.Equals(left?.Trim(), right.Trim(), StringComparison.Ordinal);
 

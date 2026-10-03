@@ -43,6 +43,10 @@ public interface IRoadhogRuntime
     Task<IReadOnlyList<SkillSnapshot>> RefreshSkillsAsync(
         string? accountName = null, CancellationToken cancellationToken = default);
 
+    /// <summary>Reads exact learned skill IDs, retaining lower ranks actually placed on the current bar.</summary>
+    Task<IReadOnlyList<SkillSnapshot>> RefreshSkillsByIdsAsync(
+        IReadOnlyCollection<uint> skillIds, string? accountName = null, CancellationToken cancellationToken = default);
+
     Task<QuickbarSnapshot> ReadQuickbarAsync(
         string? accountName = null, CancellationToken cancellationToken = default);
 

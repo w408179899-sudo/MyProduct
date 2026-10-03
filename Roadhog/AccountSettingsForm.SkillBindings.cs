@@ -48,6 +48,21 @@ public sealed partial class AccountSettingsForm
         foreach (var entry in skillBindingDisplays) entry.Refresh();
         selectedSkillTree?.Invalidate();
         systemSelectedSkillTree?.Invalidate();
+        quickbarSelectedSkillTree?.Invalidate();
+    }
+
+    private void RefreshSkillCandidateCombos()
+    {
+        RefreshManualSkillMappingCombos();
+        RefreshMaintenanceSkillCombos();
+        RefreshSpiritmasterSkillCombos();
+        RefreshOpeningSkillCombo();
+        foreach (var combo in new[] { teamMentalCleanseSkillCombo, teamPhysicalCleanseSkillCombo, teamGroupCleanseSkillCombo })
+            if (combo is { IsDisposed: false })
+            {
+                var selected = GetSelectedMaintenanceSkill(combo);
+                PopulateMaintenanceSkillCombo(combo, selected.SkillId, selected.SkillName);
+            }
     }
 
     private async Task RefreshSkillBindingsPreviewAsync()

@@ -11,7 +11,7 @@ namespace Roadhog.Infrastructure.Vmm;
 /// publications, retries below the business boundary, and exposes no partial,
 /// failed, or default-valued read result.
 /// </summary>
-internal sealed class RoadhogSnapshotReader : IRoadhogSnapshotReader
+internal sealed partial class RoadhogSnapshotReader : IRoadhogSnapshotReader
 {
     private static readonly TimeSpan RetryDelay = TimeSpan.FromMilliseconds(25);
     private static readonly TimeSpan FaultLogInterval = TimeSpan.FromSeconds(2);

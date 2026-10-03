@@ -28,6 +28,10 @@ public sealed class ScriptSettings
 
     public SkillScriptSettings Skills { get; set; } = new();
 
+    public SkillTreeReleaseMode SkillTreeReleaseMode { get; set; } = SkillTreeReleaseMode.Legacy;
+
+    public QuickbarSkillScriptSettings QuickbarSkills { get; set; } = new();
+
     public SemiAutoScriptSettings SemiAuto { get; set; } = new();
 
     public ScriptSettings Clone()
@@ -45,6 +49,8 @@ public sealed class ScriptSettings
             Maintenance = (Maintenance ?? new MaintenanceScriptSettings()).Clone(),
             Team = (Team ?? new TeamScriptSettings()).Clone(),
             Skills = (Skills ?? new SkillScriptSettings()).Clone(),
+            SkillTreeReleaseMode = SkillTreeReleaseMode,
+            QuickbarSkills = (QuickbarSkills ?? new QuickbarSkillScriptSettings()).Clone(),
             SemiAuto = (SemiAuto ?? new SemiAutoScriptSettings()).Clone()
         };
     }
@@ -952,6 +958,22 @@ public enum MaintenanceRuleRunTiming
     Always,
     InCombat,
     AfterCombat
+}
+
+public enum SkillTreeReleaseMode
+{
+    Legacy,
+    QuickbarAvailability
+}
+
+public sealed class QuickbarSkillScriptSettings
+{
+    public List<SkillConfigNode> ExecutionTree { get; set; } = new();
+
+    public QuickbarSkillScriptSettings Clone() => new()
+    {
+        ExecutionTree = ExecutionTree?.Where(node => node is not null).Select(node => node.Clone()).ToList() ?? new()
+    };
 }
 
 public sealed class SkillScriptSettings

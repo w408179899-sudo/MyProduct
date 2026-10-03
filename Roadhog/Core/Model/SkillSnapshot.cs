@@ -28,4 +28,6 @@ public sealed record SkillSnapshot(
     string? XmlEffects = null,
     int? XmlEffectRemainMs = null,
     int? XmlEffectCheckTimeMs = null,
-    string? XmlTargetValidStatuses = null);
+    string? XmlTargetValidStatuses = null,
+    string? XmlSelfConditionStatuses = null,
+    string? XmlUltraTransfer = null);

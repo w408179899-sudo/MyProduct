@@ -159,6 +159,7 @@ public sealed partial class AccountSettingsForm
                     row.Controls["openingSkillRemove"]!.Left = 732 + extra;
                 }
                 auto.Height = opening.Bottom + 14;
+                layoutQuickbarSkillPage?.Invoke();
             }
             finally { resizing = false; page.ResumeLayout(true); }
         }

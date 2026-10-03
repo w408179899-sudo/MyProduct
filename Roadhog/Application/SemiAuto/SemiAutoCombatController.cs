@@ -86,6 +86,12 @@ public sealed partial class SemiAutoCombatController
         Func<Task<bool>>? ensureHpMaintenanceTargetBeforeKeyPress = null,
         bool suppressSpiritmasterPetSummon = false)
     {
+        if (context.Config.ScriptSettings?.SkillTreeReleaseMode == SkillTreeReleaseMode.QuickbarAvailability)
+        {
+            return await TickQuickbarSkillsAsync(context, plan, state, requireCooldownCalibrationForMaintenance,
+                jumpAssist, ensureHpMaintenanceTargetBeforeKeyPress, suppressSpiritmasterPetSummon).ConfigureAwait(false);
+        }
+
         var settings = context.Config.ScriptSettings?.SemiAuto ?? new SemiAutoScriptSettings();
         var now = DateTimeOffset.Now;
         ResetAttackWeaveAfterIdle(context, state, settings);

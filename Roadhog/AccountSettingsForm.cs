@@ -581,6 +581,8 @@ namespace Roadhog
                     AddManualSkillMappingRow(manualSkillMappingList, mapping.SkillType, mapping.SkillName, mapping.Key);
                 }
             }
+
+            ApplyQuickbarSkillSettings(settings);
         }
 
         private bool SaveCurrentSettings(out string error)
@@ -962,14 +964,14 @@ namespace Roadhog
                     SpiritmasterAutoSkillLogicEnabled = spiritmasterAutoSkillCheckBox?.Checked ?? false,
                     Spiritmaster = CaptureSpiritmasterSettings(),
                     TriggerPrefixMode = "TopContiguousTriggerSkills",
-                    ExecutionTree = selectedSkillTree is null
-                        ? new List<SkillConfigNode>()
-                        : CaptureSkillTree(selectedSkillTree.Nodes),
+                    ExecutionTree = CaptureLegacyExecutionTree(),
                     ManualMappings = CaptureManualSkillMappings(),
                     SystemExecutionTree = systemSelectedSkillTree is null
                         ? new List<SkillConfigNode>()
                         : CaptureSkillTree(systemSelectedSkillTree.Nodes)
-                }
+                },
+                SkillTreeReleaseMode = CaptureSkillTreeReleaseMode(),
+                QuickbarSkills = CaptureQuickbarSkillSettings()
             };
 
             return settings;
@@ -5953,6 +5955,7 @@ namespace Roadhog
             };
 
             RefreshSpiritmasterAutoSkillCheckBoxState();
+            CreateQuickbarSkillModeEditor(page, optionsPanel);
             ConfigureSkillPageLayout(page, optionsPanel, autoPanel, manualPanel, systemPanel);
             return tab;
         }
@@ -7219,6 +7222,7 @@ namespace Roadhog
             }
 
             RefreshSpiritmasterAutoSkillCheckBoxState();
+            ApplySkillTreeReleaseModeVisibility();
         }
 
         private void ShowSpiritmasterSettingsDialog()
@@ -8331,12 +8335,7 @@ namespace Roadhog
                     PopulateSystemSkillTreeFromSkills(systemTree, currentManualSkills);
                 }
 
-                RefreshManualSkillMappingCombos();
-                RefreshMaintenanceSkillCombos();
-                RefreshSpiritmasterSkillCombos();
-                RefreshOpeningSkillCombo();
-                foreach (var combo in new[] { teamMentalCleanseSkillCombo, teamPhysicalCleanseSkillCombo, teamGroupCleanseSkillCombo })
-                    if (combo is not null) { var skill = GetSelectedMaintenanceSkill(combo); PopulateMaintenanceSkillCombo(combo, skill.SkillId, skill.SkillName); }
+                RefreshSkillCandidateCombos();
                 RefreshAutomaticSkillDisplays();
                 button.Text = "已刷新 " + currentManualSkills.Count;
                 await Task.Delay(700).ConfigureAwait(true);

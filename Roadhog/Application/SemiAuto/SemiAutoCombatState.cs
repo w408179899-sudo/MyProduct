@@ -4,6 +4,10 @@ namespace Roadhog.Application.SemiAuto;
 
 public sealed class SemiAutoCombatState
 {
+    private QuickbarSkillCombatState? quickbarSkills;
+    internal QuickbarSkillPlan? QuickbarPlan { get; set; }
+    public QuickbarSkillCombatState QuickbarSkills => quickbarSkills ??= new();
+
     public AttackWeaveState AttackWeave { get; } = new();
 
     public void FinishAttackWeavePause(DateTimeOffset now)

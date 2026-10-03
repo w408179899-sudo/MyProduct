@@ -3277,14 +3277,19 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                     return OperationResult<IReadOnlyList<SkillSnapshot>>.Fail("Module not found: " + moduleName);
                 }
 
-                if (!TryReadHighestLearnedSkills(process, gameBase, skillIdFilter, out var skills, out _, out var readError))
+                List<LearnedSkillInfo> skills;
+                string readError;
+                var skillsRead = skillIdFilter is null
+                    ? TryReadHighestLearnedSkills(process, gameBase, null, out skills, out _, out readError)
+                    : TryReadHighestRequestedLearnedSkills(process, gameBase, skillIdFilter, out skills, out readError);
+                if (!skillsRead)
                 {
                     return OperationResult<IReadOnlyList<SkillSnapshot>>.Fail(readError);
                 }
 
                 AttachSkillXmlStaticDetails(GetSkillXmlCatalog().Details, skills);
 
-                if (_options.GroupByDisplayName)
+                if (skillIdFilter is null && _options.GroupByDisplayName)
                 {
                     skills = SelectHighestDisplaySkillPerName(skills);
                 }
@@ -4584,6 +4589,9 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         detail.AuraFx = GetSkillXmlValue(element, "aura_fx", "aurafx");
         detail.CounterSkill = GetSkillXmlValue(element, "counter_skill", "counterskill");
         detail.TargetValidStatuses = FormatSkillXmlTargetValidStatuses(element);
+        detail.SelfConditionStatuses = FormatSkillXmlSelfConditionStatuses(element);
+        detail.UltraTransfer = int.TryParse(GetSkillXmlValue(element, "ultra_transfer", "ultratransfer"),
+            NumberStyles.Integer, CultureInfo.InvariantCulture, out var ultraTransfer) && ultraTransfer == 1 ? "1" : string.Empty;
         detail.CostDp = GetSkillXmlValue(element, "cost_dp", "costdp");
         detail.UltraSkill = GetSkillXmlValue(element, "ultra_skill", "ultraskill");
         detail.Effect1Type = GetSkillXmlValue(element, "effect1_type", "effect_1_type", "effect1type");
@@ -4675,6 +4683,35 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         return statuses.Count == 0
             ? string.Empty
             : string.Join(",", statuses.Distinct(StringComparer.OrdinalIgnoreCase));
+    }
+
+    private static readonly HashSet<string> SkillXmlEvadeConditionStatusNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Poison", "Bleed", "Paralyze", "Sleep", "Root", "Blind", "Charm", "Disease",
+        "Silence", "Fear", "Curse", "Confuse", "Stun", "Petrification", "Stumble", "Stagger",
+        "OpenAerial", "Snare", "Slow", "Spin", "Bind", "Deform", "Pulled", "NoFly",
+        "SimpleRoot", "BuffStun", "BuffSleep", "BuffSilence", "BuffBind", "Invisible",
+        "InvulnerableWing", "Sanctuary"
+    };
+
+    // Client XML parser sub_18053C3F0 builds its self-condition mask from
+    // effect type 164 (Evade), reserved1..7, through sub_18053C360's status table.
+    // This describes the opportunity class only; it never predicts actor state.
+    private static string FormatSkillXmlSelfConditionStatuses(XElement element)
+    {
+        var statuses = new List<string>();
+        for (var effect = 1; effect <= 4; effect++)
+        {
+            if (!string.Equals(GetSkillXmlValue(element, $"effect{effect}_type", $"effect_{effect}_type", $"effect{effect}type"),
+                    "Evade", StringComparison.OrdinalIgnoreCase)) continue;
+            for (var reserved = 1; reserved <= 7; reserved++)
+            {
+                var value = GetSkillXmlValue(element, $"effect{effect}_reserved{reserved}",
+                    $"effect_{effect}_reserved{reserved}", $"effect{effect}reserved{reserved}").Trim();
+                if (SkillXmlEvadeConditionStatusNames.Contains(value)) statuses.Add(value);
+            }
+        }
+        return string.Join(",", statuses.Distinct(StringComparer.OrdinalIgnoreCase));
     }
 
     private static bool TryGetSkillXmlValue(XElement element, out string value, params string[] names)
@@ -5222,6 +5259,8 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         var chainTime = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.ChainTime) : null;
         var counterSkill = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.CounterSkill) : null;
         var targetValidStatuses = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.TargetValidStatuses) : null;
+        var selfConditionStatuses = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.SelfConditionStatuses) : null;
+        var ultraTransfer = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.UltraTransfer) : null;
         var costDp = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.CostDp) : null;
         var skillCategory = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.SkillCategory) : null;
         var skillType = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.SkillType) : null;
@@ -5262,7 +5301,9 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
             effects,
             effectRemainMs,
             effectCheckTimeMs,
-            targetValidStatuses);
+            targetValidStatuses,
+            selfConditionStatuses,
+            ultraTransfer);
     }
 
     private static string? FormatSkillXmlEffects(SkillXmlStaticDetail detail)
@@ -11074,6 +11115,8 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         public string AuraFx;
         public string CounterSkill;
         public string TargetValidStatuses;
+        public string SelfConditionStatuses;
+        public string UltraTransfer;
         public string CostDp;
         public string UltraSkill;
         public string Effect1Type;

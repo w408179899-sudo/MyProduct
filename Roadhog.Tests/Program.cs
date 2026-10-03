@@ -285,6 +285,70 @@ var tests = new (string Name, Func<Task> Run)[]
     ("skill binding UI automatic skill buttons and manual keyboard coexist", SkillBindingTests.UiAsync),
     ("spirit settings layout resize add remove and save roundtrip", SkillBindingTests.SpiritLayoutAsync),
     ("skill binding combat maintenance and summon controllers send resolved keys", SkillBindingTests.ControllerAsync),
+    ("skill tree release mode legacy defaults and independent cloning", SkillTreeReleaseModeTests.CompatibilityAsync),
+    ("skill tree release mode account and profile persistence", SkillTreeReleaseModeTests.PersistenceAsync),
+    ("skill tree release mode UI switch copy refresh and layout isolation", SkillTreeReleaseModeTests.UiAsync),
+    ("skill tree release quickbar configured plan and exact bindings", QuickbarSkillEngineTests.PlanAsync),
+    ("skill tree release quickbar priority chain and probability selection", QuickbarSkillEngineTests.SelectionAsync),
+    ("skill tree release quickbar precise action confirmation", QuickbarSkillEngineTests.ConfirmationAsync),
+    ("skill tree release quickbar target page and binding lifecycle", QuickbarSkillEngineTests.ScopeAsync),
+    ("skill tree release quickbar bounded input and cancellation", QuickbarSkillEngineTests.ControllerAsync),
+    ("skill tree release quickbar ordinary cooldown and special availability", QuickbarSkillEngineTests.MixedReadinessAsync),
+    ("skill tree release quickbar chain polling read budget", QuickbarSkillEngineTests.ChainReadBudgetAsync),
+    ("skill tree release quickbar 80ms retries and same tick cooldown handoff", QuickbarSkillEngineTests.EightyMillisecondLoopAsync),
+    ("skill tree release quickbar lightweight combat guard", QuickbarSkillEngineTests.CombatGuardAsync),
+    ("skill tree release quickbar official release clock bootstrap", QuickbarSkillEngineTests.AvailabilityClockBootstrapAsync),
+    ("skill tree release quickbar conservative cold clock progress", QuickbarSkillEngineTests.ReleaseClockLowerBoundAsync),
+    ("skill tree release clock bootstrap skips dark conditions and missing actor clock", QuickbarSkillClockBootstrapTests.DarkConditionalFirstAndMissingClockAsync),
+    ("skill tree release clock bootstrap finite candidate budget and rotation", QuickbarSkillClockBootstrapTests.CandidateBudgetAndRotationAsync),
+    ("skill tree release clock bootstrap absolute monotonic total budget", QuickbarSkillClockBootstrapTests.MonotonicTotalBudgetAsync),
+    ("skill tree release clock bootstrap ready and cooling candidate priority", QuickbarSkillClockBootstrapTests.ReadyAndCoolingPriorityAsync),
+    ("skill tree release clock bootstrap readiness capability and proposal handoff", QuickbarSkillClockBootstrapTests.ReadinessCapabilityAndProposalHandoffAsync),
+    ("skill tree release clock bootstrap exact binding and configured scope", QuickbarSkillClockBootstrapTests.ExactBindingAndConfiguredScopeAsync),
+    ("skill tree release clock bootstrap active hostile attack eligibility", QuickbarSkillClockBootstrapTests.HostileAttackEligibilityAsync),
+    ("skill tree release clock bootstrap calibration restores chain priority", QuickbarSkillClockBootstrapTests.CalibrationRestoresChainPriorityAsync),
+    ("skill tree release clock bootstrap ready candidate keeps normal confirmation", QuickbarSkillClockBootstrapTests.ReadyCandidateKeepsNormalConfirmationAsync),
+    ("skill tree release clock bootstrap controller finite retry exhaustion", QuickbarSkillClockBootstrapTests.ControllerExhaustionDoesNotLoopAsync),
+    ("skill tree release clock bootstrap rechecks the actual key boundary", QuickbarSkillClockBootstrapTests.BoundaryRecheckAsync),
+    ("skill tree release clock bootstrap maintenance preserves absolute budget", QuickbarSkillClockBootstrapTests.MaintenancePreservesAbsoluteBudgetAsync),
+    ("skill tree release clock bootstrap scope and cancellation reset", QuickbarSkillClockBootstrapTests.ScopeAndCancellationResetAsync),
+    ("skill tree release clock bootstrap optional capability and legacy isolation", QuickbarSkillClockBootstrapTests.OptionalCapabilityAndLegacyIsolationAsync),
+    ("skill tree release quickbar retry cycle tolerates read duration variation", QuickbarSkillEngineTests.RetryCycleReadVariationAsync),
+    ("skill tree release chain CD precedes delayed actor and icon", QuickbarSkillChainHandoffTests.DelayedReleaseAndIconAsync),
+    ("skill tree release chain four stages across frames", QuickbarSkillChainHandoffTests.FourStagesAcrossFramesAsync),
+    ("skill tree release chain probability wait has an absolute deadline", QuickbarSkillChainHandoffTests.ProbabilityDeadlineAsync),
+    ("skill tree release chain cooling child releases roots", QuickbarSkillChainHandoffTests.CoolingChildReleasesRootsAsync),
+    ("skill tree release chain official empty frames stay empty", QuickbarSkillChainHandoffTests.OfficialEmptyFrameAsync),
+    ("skill tree release chain retry and confirmation preserve deadline", QuickbarSkillChainHandoffTests.FixedDeadlineAndRetryBaselineAsync),
+    ("skill tree release chain confirmed opportunity is not repeated", QuickbarSkillChainHandoffTests.ConfirmedOpportunityNotRepeatedAsync),
+    ("skill tree release chain scope and maintenance reset", QuickbarSkillChainHandoffTests.ScopeAndMaintenanceResetAsync),
+    ("skill tree release chain cancellation resets wait", QuickbarSkillChainHandoffTests.CancellationResetAsync),
+    ("skill tree release chain exact XML bounds the wait", QuickbarSkillChainHandoffTests.XmlChainWindowBoundAsync),
+    ("skill tree release chain deadline uses monotonic time", QuickbarSkillChainHandoffTests.MonotonicDeadlineAsync),
+    ("skill tree release chain another actual release ends provisional wait", QuickbarSkillChainHandoffTests.DifferentActualReleaseEndsProvisionalWaitAsync),
+    ("skill tree release chain late exact parent record preserves child handoff", QuickbarSkillChainHandoffTests.LateParentActorDoesNotBreakChildHandoffAsync),
+    ("skill tree release fast polling maintenance cadence", QuickbarSkillOuterPollingTests.MaintenanceCadenceAsync),
+    ("skill tree release fast polling death guard", QuickbarSkillOuterPollingTests.DeathGuardAsync),
+    ("skill tree release fast polling target guard", QuickbarSkillOuterPollingTests.TargetGuardAsync),
+    ("skill tree release fast polling HP threshold maintenance yield", QuickbarSkillOuterPollingTests.HpThresholdYieldAsync),
+    ("skill tree release fast polling cooling maintenance preserves attacks", QuickbarSkillOuterPollingTests.CoolingHpMaintenanceDoesNotStarveAsync),
+    ("skill tree release fast polling cold clock starts an expired ordinary skill", QuickbarSkillOuterPollingTests.ColdClockStartsExpiredOrdinarySkillAsync),
+    ("skill tree release integration legacy isolation", SkillTreeReleaseIntegrationTests.LegacyIsolationAsync),
+    ("skill tree release integration shared maintenance and routing", SkillTreeReleaseIntegrationTests.RoutingAndMaintenanceAsync),
+    ("skill tree release integration empty tree preserves combat maintenance", SkillTreeMaintenanceIntegrationTests.EmptyTreeMaintenanceAsync),
+    ("skill tree release provider supported signals and binding scope", SkillOpportunityTests.DecoderScopeAsync),
+    ("skill tree release provider self condition and transfer classification", SkillOpportunityTests.XmlSpecialClassificationAsync),
+    ("skill tree release provider partial and structural faults", SkillOpportunityTests.DecoderFaultsAsync),
+    ("skill tree release provider batch budget and combat fields", SkillOpportunityTests.BatchBudgetAndCombatMergeAsync),
+    ("skill tree release provider batched actor identity", SkillOpportunityTests.BatchedActorIdentityAsync),
+    ("skill tree release provider exact ordered skill lookup", LearnedSkillLookupTests.OrderedLookupAsync),
+    ("skill tree release provider exact skill lookup faults", LearnedSkillLookupTests.FaultsAsync),
+    ("skill tree release provider mandatory current cooldown fields", LearnedSkillLookupTests.CooldownFieldsAsync),
+    ("skill tree release provider field aware publication", SkillOpportunityTests.PublicationMergeAsync),
+    ("skill tree release provider official channel lifetime", SkillOpportunityTests.ChannelLifetimeAsync),
+    ("skill tree release provider cold retry and legacy compatibility", SkillOpportunityTests.ReaderRetryAndLegacyIsolationAsync),
+    ("skill tree release rank runtime exact IDs", QuickbarSkillRankRuntimeTests.ExactRankAsync),
+    ("skill tree release rank RPC account isolation", WorkerRpcTests.ExactSkillRanksAsync),
 
     ("auction registration fee confirmation validates identity price and submission", CleanupWorkflowTests.AuctionRegistrationFeeAsync),
     ("auction discount price floor rounding and validation", AuctionDiscountTests.PricesAsync),
@@ -34615,6 +34679,7 @@ static Task TestDmaSnapshotCatalogRegistersEveryBusinessChannelAsync()
         "player_abnormal_statuses",
         "quickbar",
         "revive_ui",
+        "skill_availability",
         "skills",
         "summoned_pet",
         "summoned_pet_roster",
@@ -35980,7 +36045,7 @@ sealed class InMemoryScriptProfileStore : IScriptProfileStore
     }
 }
 
-sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi, IChannelSwitchUiGameApi, IChannelTransitionGameApi, IInventoryInteractionGameApi, IReviveUiGameApi, IAuctionHouseGameApi, INpcTradeGameApi, IQuickbarGameApi
+sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi, IChannelSwitchUiGameApi, IChannelTransitionGameApi, IInventoryInteractionGameApi, IReviveUiGameApi, IAuctionHouseGameApi, INpcTradeGameApi, IQuickbarGameApi, ISkillAvailabilityGameApi
 #if DEBUG
     , IRoadhogApiAddressProbe
     , IRoadhogSnapshotDiagnostics
@@ -35994,6 +36059,15 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
         new RoadhogSnapshotReader(config, this, logger, cancellationToken);
 
     public QuickbarSnapshot Quickbar { get; set; } = new(0, Array.Empty<QuickbarSlotSnapshot>());
+    public SkillAvailabilitySnapshot SkillAvailability { get; set; } = new(0, Array.Empty<SkillAvailabilitySlotSnapshot>());
+    public Func<SkillAvailabilitySnapshot>? SkillAvailabilityRead { get; set; }
+    public int SkillAvailabilityReadCount { get; private set; }
+    public Task<OperationResult<SkillAvailabilitySnapshot>> ReadSkillAvailabilityAsync(GameApiReadContext context, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        SkillAvailabilityReadCount++;
+        return Task.FromResult(OperationResult<SkillAvailabilitySnapshot>.Ok(SkillAvailabilityRead?.Invoke() ?? SkillAvailability));
+    }
     public int QuickbarReadCount { get; private set; }
     public Func<QuickbarSnapshot>? QuickbarRead { get; set; }
     public Task<OperationResult<QuickbarSnapshot>> ReadQuickbarAsync(GameApiReadContext context, CancellationToken token = default)

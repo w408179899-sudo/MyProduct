@@ -294,6 +294,10 @@ internal static class AionVmmSnapshotChannels
     public static readonly DmaSnapshotChannel<QuickbarSnapshot> Quickbar =
         ChannelRegistry.Register<QuickbarSnapshot>("quickbar");
 
+    public static readonly DmaSnapshotChannel<SkillAvailabilityPublication> SkillAvailability =
+        ChannelRegistry.Register<SkillAvailabilityPublication>(
+            "skill_availability", mergePolicy: DmaSnapshotMergePolicy.FieldAware);
+
     public static readonly DmaSnapshotChannel<IReadOnlyList<InventoryItemSnapshot>> Inventory =
         ChannelRegistry.Register<IReadOnlyList<InventoryItemSnapshot>>(
             "inventory",

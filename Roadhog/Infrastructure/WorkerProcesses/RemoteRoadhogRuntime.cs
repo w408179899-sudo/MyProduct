@@ -72,6 +72,14 @@ public sealed class RemoteRoadhogRuntime : IRoadhogRuntime
     public Task<IReadOnlyList<SkillSnapshot>> RefreshSkillsAsync(string? accountName = null, CancellationToken cancellationToken = default) =>
         _client.CallAsync<IReadOnlyList<SkillSnapshot>>(nameof(RefreshSkillsAsync), new object?[] { Account(accountName) }, cancellationToken);
 
+    public Task<IReadOnlyList<SkillSnapshot>> RefreshSkillsByIdsAsync(IReadOnlyCollection<uint> skillIds,
+        string? accountName = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(skillIds);
+        return _client.CallAsync<IReadOnlyList<SkillSnapshot>>(nameof(RefreshSkillsByIdsAsync),
+            new object?[] { skillIds.ToArray(), Account(accountName) }, cancellationToken);
+    }
+
     public Task<QuickbarSnapshot> ReadQuickbarAsync(string? accountName = null, CancellationToken cancellationToken = default) =>
         _client.CallAsync<QuickbarSnapshot>(nameof(ReadQuickbarAsync), new object?[] { Account(accountName) }, cancellationToken);
 
