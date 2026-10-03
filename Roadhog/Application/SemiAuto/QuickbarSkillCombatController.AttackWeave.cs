@@ -59,7 +59,7 @@ public sealed partial class QuickbarSkillCombatController
         cancellationToken.ThrowIfCancellationRequested();
         if (result.Success)
         {
-            state.AttackWeave.Reset();
+            state.AttackWeave.MarkAttackSucceeded(_timeProvider);
             logger?.Info("quickbar_skill.attack_weave.pressed");
         }
         else logger?.Warn("quickbar_skill.attack_weave.press_failed", new Dictionary<string, object?> { ["error"] = result.Error });

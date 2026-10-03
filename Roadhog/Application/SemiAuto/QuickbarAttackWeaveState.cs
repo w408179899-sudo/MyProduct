@@ -11,10 +11,14 @@ public sealed class QuickbarAttackWeaveState
     private long waitStartedAt;
     private TimeSpan waitDuration;
     private long? lastAttackAttemptAt;
+    private long? postAttackStartedAt;
     private OpeningAttempt? openingAttempt;
 
+    public static readonly TimeSpan PostAttackDelay = TimeSpan.FromMilliseconds(30);
     public int ConfirmedCount { get; private set; }
-    public bool IsWaiting => ConfirmedCount == 2;
+    public bool IsWaiting => ConfirmedCount == 2 ||
+        (postAttackStartedAt is { } stamp && clock is { } timeProvider &&
+         timeProvider.GetElapsedTime(stamp) < PostAttackDelay);
     public bool HasOpeningAttempt => openingAttempt is not null;
 
     public bool TryResetAfterIdle(TimeProvider timeProvider)
@@ -75,11 +79,18 @@ public sealed class QuickbarAttackWeaveState
         return ConfirmRelease(timeProvider, delayMs) ? pending.SkillId : null;
     }
 
-    public bool ShouldPressAttack(TimeProvider timeProvider) => IsWaiting &&
+    public bool ShouldPressAttack(TimeProvider timeProvider) => ConfirmedCount == 2 &&
         timeProvider.GetElapsedTime(waitStartedAt) >= waitDuration &&
         (lastAttackAttemptAt is not { } stamp || timeProvider.GetElapsedTime(stamp) >= TimeSpan.FromMilliseconds(100));
 
     public void MarkAttackAttempt(TimeProvider timeProvider) => lastAttackAttemptAt = timeProvider.GetTimestamp();
+
+    public void MarkAttackSucceeded(TimeProvider timeProvider)
+    {
+        Reset();
+        clock = timeProvider;
+        postAttackStartedAt = timeProvider.GetTimestamp();
+    }
 
     public void Reset()
     {
@@ -87,6 +98,7 @@ public sealed class QuickbarAttackWeaveState
         lastSkillKeyAt = null;
         mainAttemptId = null;
         lastAttackAttemptAt = null;
+        postAttackStartedAt = null;
         openingAttempt = null;
         clock = null;
     }

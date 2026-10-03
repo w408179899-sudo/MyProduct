@@ -63,6 +63,7 @@ internal static class QuickbarAttackWeaveIntegrationTests
         f.Clock.Advance(1);
         await f.TickAsync();
         Sequence(new[] { "D1", "D2", "C" }, f.Keyboard.Keys, "the due turn sends only C");
+        f.Clock.Advance(30);
         await f.TickAsync();
         Sequence(new[] { "D1", "D2", "C", "D3" }, f.Keyboard.Keys, "ReleaseAll resumes its third opening without legacy CanPress reservations");
         f.Confirm(103);
@@ -210,6 +211,7 @@ internal static class QuickbarAttackWeaveIntegrationTests
         Sequence(new[] { "D1", "D2" }, f.Keyboard.Keys, "third opening waits even when no main actions exist");
         f.Clock.Advance(600);
         await f.TickAsync();
+        f.Clock.Advance(30);
         await f.TickAsync();
         Sequence(new[] { "D1", "D2", "C", "D3" }, f.Keyboard.Keys, "empty main tree still executes delayed C and resumes the third opening");
         AssertLegacyWeaveUnused(f);
@@ -253,6 +255,7 @@ internal static class QuickbarAttackWeaveIntegrationTests
         AssertLegacyWeaveUnused(f);
         f.Clock.Advance(600);
         await f.TickOpeningLoopAsync();
+        f.Clock.Advance(30);
         await f.TickOpeningLoopAsync();
         Sequence(new[] { "D1", "D2", "C", "D3" }, f.Keyboard.Keys, "stationary loop completes C before continuing the third opening");
         f.Confirm(103);

@@ -9,6 +9,58 @@ internal static class QuickbarAttackWeaveTests
 {
     private static readonly DateTimeOffset Start = DateTimeOffset.Parse("2026-10-03T10:00:00+08:00");
 
+    public static async Task PostAttackDelayAsync()
+    {
+        var f = new Fixture(delayMs: 800);
+        await ChainPair(f);
+        f.Clock.Advance(799);
+        await f.Tick();
+        Sequence(new[] { "D1", "D1" }, f.Keyboard.Keys, "the configured 800 millisecond wait before C remains unchanged");
+        f.Clock.Advance(1);
+        await f.Tick();
+        Sequence(new[] { "D1", "D1", "C" }, f.Keyboard.Keys, "C runs at the original 800 millisecond deadline");
+        Equal(0, f.State.AttackWeave.ConfirmedCount, "successful C finishes its pair before the post-attack pause");
+        Check(f.State.AttackWeave.IsWaiting, "successful C begins the fixed 30 millisecond post-attack pause");
+        f.Clock.ShiftWall(TimeSpan.FromHours(1));
+        await f.Tick();
+        Equal(3, f.Keyboard.Keys.Count, "a wall-clock jump cannot shorten the post-attack pause or repeat C");
+        var reads = f.Reader.ReadCount;
+        f.Clock.Advance(29);
+        await f.Tick();
+        Equal(reads + 1, f.Reader.ReadCount, "the fixed pause continues polling the official combat guard");
+        Sequence(new[] { "D1", "D1", "C" }, f.Keyboard.Keys, "neither the next skill nor another C runs after only 29 milliseconds");
+        f.Clock.Advance(1);
+        await f.Tick();
+        Sequence(new[] { "D1", "D1", "C", "D1" }, f.Keyboard.Keys, "the next available chain stage runs at 30 milliseconds after successful C");
+        Equal(13u, f.State.PendingAction!.Node.SkillId, "the pause preserves the real available continuation");
+        Check(!f.State.AttackWeave.IsWaiting, "the fixed post-attack pause ends at its own deadline");
+
+        f = new Fixture(delayMs: 0);
+        f.Keyboard.FailAttack = true;
+        await ChainPair(f);
+        Sequence(new[] { "D1", "D1", "C" }, f.Keyboard.Keys, "a failed zero-delay C is still an attack attempt");
+        Equal(2, f.State.AttackWeave.ConfirmedCount, "failed C does not enter the post-attack phase or finish the pair");
+        f.Clock.Advance(99);
+        await f.Tick();
+        Equal(3, f.Keyboard.Keys.Count, "the existing 100 millisecond C retry interval remains unchanged");
+        f.Clock.Advance(1);
+        f.Keyboard.FailAttack = false;
+        await f.Tick();
+        Sequence(new[] { "D1", "D1", "C", "C" }, f.Keyboard.Keys, "failed C retries after 100 milliseconds without waiting for a post-attack pause");
+        Equal(0, f.State.AttackWeave.ConfirmedCount, "successful retry begins the post-attack phase");
+        f.Clock.Advance(29);
+        await f.Tick();
+        Equal(4, f.Keyboard.Keys.Count, "the fixed 30 milliseconds start from successful retry rather than the failed attempt");
+        f.Clock.Advance(1);
+        await f.Tick();
+        Sequence(new[] { "D1", "D1", "C", "C", "D1" }, f.Keyboard.Keys, "skills resume 30 milliseconds after the successful retry");
+
+        f = new Fixture(enabled: false, delayMs: 800);
+        await ChainPair(f);
+        Sequence(new[] { "D1", "D1", "D1" }, f.Keyboard.Keys, "the unchecked option keeps the immediate chain flow without either attack pause");
+        Check(!f.State.AttackWeave.IsWaiting, "disabled mode cannot enter the new post-attack phase");
+    }
+
     public static async Task PairDelayAndMixedSkillsAsync()
     {
         var f = new Fixture();
@@ -28,7 +80,10 @@ internal static class QuickbarAttackWeaveTests
         await f.Tick();
         Sequence(new[] { "NumPadAdd", "D2", "C" }, f.Keyboard.Keys, "C runs once at the deadline");
         Equal(0, f.State.AttackWeave.ConfirmedCount, "successful C clears only the completed pair");
-        Check(!f.State.AttackWeave.IsWaiting, "successful C ends the pause");
+        Check(f.State.AttackWeave.IsWaiting, "successful C starts the fixed post-attack pause");
+        f.Clock.Advance(30);
+        await f.Tick();
+        Check(!f.State.AttackWeave.IsWaiting, "successful C ends its fixed pause after 30 milliseconds");
     }
 
     public static async Task ChainStagesAndExpiryAsync()
@@ -40,6 +95,7 @@ internal static class QuickbarAttackWeaveTests
         f.Clock.Advance(530);
         await f.Tick();
         Sequence(new[] { "D1", "D1", "C" }, f.Keyboard.Keys, "C owns its tick");
+        f.Clock.Advance(30);
         await f.Tick();
         Sequence(new[] { "D1", "D1", "C", "D1" }, f.Keyboard.Keys, "still available continuation retains its inherited shortcut");
         Equal(13u, f.State.PendingAction!.Node.SkillId, "the third configured stage follows the pause");
@@ -49,6 +105,7 @@ internal static class QuickbarAttackWeaveTests
         f.Reader.Value = Bar(counter: true, effective: 13, last: 12, time: 20);
         f.Clock.Advance(1600);
         await f.Tick();
+        f.Clock.Advance(30);
         await f.Tick();
         Sequence(new[] { "D1", "D1", "C", "D2" }, f.Keyboard.Keys, "expired dark continuation cannot be made usable by C");
         Check(f.State.ChainTransition is null, "C does not extend the real chain handoff window");
@@ -98,6 +155,7 @@ internal static class QuickbarAttackWeaveTests
         await f.Tick();
         Sequence(new[] { "NumPadAdd", "D2", "C", "C" }, f.Keyboard.Keys, "C retries at 100 milliseconds and owns that tick");
         Equal(0, f.State.AttackWeave.ConfirmedCount, "successful retry clears the pair");
+        f.Clock.Advance(30);
         await f.Tick();
         Equal("D1", f.Keyboard.Keys.Last(), "normal skill selection resumes after successful C");
     }
@@ -332,7 +390,7 @@ internal static class QuickbarAttackWeaveTests
         Sequence(new[] { "NumPadAdd", "D2", "C" }, f.Keyboard.Keys,
             "a confirmation first visible during slow ordinary-root selection gives zero-delay C the same tick");
         Equal(TimeSpan.Zero, delay, "a slow root snapshot read consumes the tick budget without sending an extra skill");
-        Check(f.State.PendingAction is null && !f.State.AttackWeave.IsWaiting,
+        Check(f.State.PendingAction is null && f.State.AttackWeave.IsWaiting && f.State.AttackWeave.ConfirmedCount == 0,
             "late selection confirmation completes the pair before a later ordinary root can own input");
     }
 

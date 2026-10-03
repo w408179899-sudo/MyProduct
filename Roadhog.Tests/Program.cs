@@ -289,6 +289,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("skill tree release mode account and profile persistence", SkillTreeReleaseModeTests.PersistenceAsync),
     ("skill tree release mode UI switch copy refresh and layout isolation", SkillTreeReleaseModeTests.UiAsync),
     ("quickbar attack weave pair delay ordinary and conditional skills", QuickbarAttackWeaveTests.PairDelayAndMixedSkillsAsync),
+    ("quickbar attack weave post C 30ms delay", QuickbarAttackWeaveTests.PostAttackDelayAsync),
     ("quickbar attack weave chain stages and real opportunity expiry", QuickbarAttackWeaveTests.ChainStagesAndExpiryAsync),
     ("quickbar attack weave skill retries count confirmed releases once", QuickbarAttackWeaveTests.RetryConfirmationAsync),
     ("quickbar attack weave zero delay and failed C retry", QuickbarAttackWeaveTests.AttackFailureAndZeroDelayAsync),
