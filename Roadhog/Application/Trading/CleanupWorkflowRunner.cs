@@ -46,23 +46,17 @@ public sealed partial class CleanupWorkflowRunner(IKeyboardInput input, ISharedP
         // does not authorize a town trip after that work has recovered capacity.
         if (request.StandaloneShop)
         {
-            await Load(settings.Paths.RevivePathName);
-            Require(!string.IsNullOrWhiteSpace(settings.Paths.TownReturnKey), "售罄后挂机需要配置回城按键和复活路径。");
             try
             {
                 await DiscountedPersonalShopWorkflow.RunAsync(context.Snapshots, settings.Maintenance,
                     plan => new ConfiguredPersonalShopSequence(input).RunAsync(context.Snapshots, plan, Report, token),
-                    async () =>
+                    () =>
                     {
-                        Report("全部售罄，回城并返回挂机点");
-                        var cleanup = new BagCleanupController(input, paths, executePath);
-                        await cleanup.ReturnToReviveRequestedAsync(context, Report);
-                        if (returnToCombat != null) await returnToCombat(context);
-                        else await Follow(settings.Paths.RevivePathName);
+                        Report("全部售罄，准备停止并重新启动脚本");
+                        return Task.CompletedTask;
                     }, Report, token);
             }
             finally { await actions.Reset(); }
-            Report("自动摆摊完成，继续挂机");
             return;
         }
         if (!request.Manual && !request.TownReturnCompleted)

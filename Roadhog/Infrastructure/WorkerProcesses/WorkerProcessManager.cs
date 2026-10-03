@@ -26,7 +26,7 @@ public sealed record WorkerProcessLaunchOptions
 }
 
 /// <summary>Owns processes and user intent. Game logic and hardware stay in the child process.</summary>
-public sealed class WorkerProcessManager : IAsyncDisposable
+public sealed partial class WorkerProcessManager : IAsyncDisposable
 {
     private sealed class Entry(AccountConfig config)
     {
@@ -254,14 +254,23 @@ public sealed class WorkerProcessManager : IAsyncDisposable
         }
     }
 
-    public async Task<OperationResult> StartAsync(string instanceId, bool cleanup = false, CancellationToken cancellationToken = default, ScriptSettings? standaloneShopSettings = null)
+    public Task<OperationResult> StartAsync(string instanceId, bool cleanup = false, CancellationToken cancellationToken = default, ScriptSettings? standaloneShopSettings = null) =>
+        StartAccountAsync(instanceId, cleanup, cancellationToken, standaloneShopSettings);
+
+    private async Task<OperationResult> StartAccountAsync(string instanceId, bool cleanup, CancellationToken cancellationToken,
+        ScriptSettings? standaloneShopSettings, long? expectedStopGeneration = null, CancellationTokenSource? expectedOperation = null)
     {
         if (Volatile.Read(ref _shuttingDown) != 0 || Volatile.Read(ref _disposed) != 0) return OperationResult.Fail("主界面正在退出，不能启动账号。");
         standaloneShopSettings = standaloneShopSettings?.Clone();
         cleanup |= standaloneShopSettings != null;
         var entry = Get(instanceId);
         long stopGeneration;
-        lock (entry.Sync) stopGeneration = entry.StopGeneration;
+        lock (entry.Sync)
+        {
+            if (expectedStopGeneration.HasValue && (entry.StopGeneration != expectedStopGeneration || !ReferenceEquals(entry.Operation, expectedOperation)))
+                return OperationResult.Fail("售罄后自动启动已被后续操作取消。");
+            stopGeneration = entry.StopGeneration;
+        }
         CancellationTokenSource operation;
         string? resourceConflict = null;
         var persistClearedIntent = false;
@@ -277,6 +286,8 @@ public sealed class WorkerProcessManager : IAsyncDisposable
                     return OperationResult.Fail("账号配置已删除，请刷新后重试。");
                 if (Volatile.Read(ref _shuttingDown) != 0 || Volatile.Read(ref _disposed) != 0) return OperationResult.Fail("主界面正在退出，不能启动账号。");
                 if (entry.StopGeneration != stopGeneration) return OperationResult.Fail("启动请求已被后续停止操作取消。");
+                if (expectedStopGeneration.HasValue && !ReferenceEquals(entry.Operation, expectedOperation))
+                    return OperationResult.Fail("售罄后自动启动已被后续操作取消。");
                 if (!HardwareVerificationSession.IsCurrent(entry.Config))
                 {
                     entry.Desired = false;
@@ -321,6 +332,7 @@ public sealed class WorkerProcessManager : IAsyncDisposable
             }
             return OperationResult.Fail(resourceConflict);
         }
+        var startedSuccessfully = false;
         try
         {
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, operation.Token, _lifetime.Token);
@@ -336,7 +348,9 @@ public sealed class WorkerProcessManager : IAsyncDisposable
             {
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(linked.Token);
                 deadline.CancelAfter(_launch.StartupTimeout + _launch.StopTimeout + TimeSpan.FromSeconds(5));
-                return await StartCoreAsync(entry, cleanup, deadline.Token, standaloneShopSettings).ConfigureAwait(false);
+                var result = await StartCoreAsync(entry, cleanup, deadline.Token, standaloneShopSettings).ConfigureAwait(false);
+                startedSuccessfully = result.Success;
+                return result;
             }
             finally { entry.Gate.Release(); }
         }
@@ -355,7 +369,22 @@ public sealed class WorkerProcessManager : IAsyncDisposable
             return OperationResult.Fail("账号启动已取消。");
         }
         catch (Exception ex) { Fail(entry, ex.Message); return OperationResult.Fail(ex.Message); }
-        finally { lock (entry.Sync) if (ReferenceEquals(entry.Operation, operation)) entry.StartingRequest = false; }
+        finally
+        {
+            var saveStoppedIntent = false;
+            lock (entry.Sync)
+            {
+                if (ReferenceEquals(entry.Operation, operation))
+                {
+                    entry.StartingRequest = false;
+                    if (expectedStopGeneration.HasValue && !startedSuccessfully && entry.Desired)
+                    { entry.Desired = false; operation.Cancel(); saveStoppedIntent = true; }
+                }
+            }
+            if (saveStoppedIntent)
+                try { await SaveIntentAsync().ConfigureAwait(false); }
+                catch (Exception ex) { _logger.Error("standalone_shop.restart.intent_failed", ex); }
+        }
     }
 
     private async Task<OperationResult> StartCoreAsync(Entry entry, bool cleanup, CancellationToken cancellationToken, ScriptSettings? standaloneShopSettings = null)
@@ -439,7 +468,11 @@ public sealed class WorkerProcessManager : IAsyncDisposable
     public Task<OperationResult> StopAsync(string instanceId, CancellationToken cancellationToken = default)
     {
         if (Volatile.Read(ref _disposed) != 0) return Task.FromResult(OperationResult.Fail("账号管理器已经关闭。"));
-        var entry = Get(instanceId);
+        return BeginStop(Get(instanceId));
+    }
+
+    private Task<OperationResult> BeginStop(Entry entry)
+    {
         lock (entry.Sync)
         {
             entry.StopGeneration++;
@@ -798,6 +831,7 @@ public sealed class WorkerProcessManager : IAsyncDisposable
     {
         if (Volatile.Read(ref _shuttingDown) != 0) return;
         if (!await entry.Gate.WaitAsync(0, _lifetime.Token).ConfigureAwait(false)) return;
+        Task? shopRestart = null;
         try
         {
             if (entry.StartingRequest) return;
@@ -820,6 +854,11 @@ public sealed class WorkerProcessManager : IAsyncDisposable
                         }
                         else if (!entry.Desired) entry.State = "idle";
                         else if (!status.Authorized) { entry.State = "failed"; entry.Error = status.AuthorizationError ?? "需要授权"; }
+                    }
+                    if (status.StandaloneShopRestartRequestId is { } requestId && requestId != Guid.Empty && status.IsRunning && status.Authorized)
+                    {
+                        shopRestart = RestartAfterStandaloneShopAsync(entry, requestId);
+                        return;
                     }
                     if (entry.Desired && entry.Config.AutoRecover && !status.IsRunning && status.Authorized && DateTimeOffset.UtcNow >= entry.RetryAt)
                     {
@@ -866,7 +905,12 @@ public sealed class WorkerProcessManager : IAsyncDisposable
                 Fail(entry, "后台初始化或启动超时，已回收并等待重试。");
         }
         catch (Exception ex) { Fail(entry, ex.Message); }
-        finally { entry.Gate.Release(); }
+        finally
+        {
+            entry.Gate.Release();
+            // Stop waits for this gate. The monitor owns the entire continuation, including disposal.
+            if (shopRestart is not null) await shopRestart.ConfigureAwait(false);
+        }
     }
 
     private async Task FlushNotificationsAsync(Entry entry, CancellationToken cancellationToken)

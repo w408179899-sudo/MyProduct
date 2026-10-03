@@ -35,7 +35,7 @@ public static class DiscountedPersonalShopWorkflow
     }
 
     public static async Task RunAsync(IRoadhogSnapshotReader snapshots, MaintenanceScriptSettings settings,
-        Func<IReadOnlyList<PlannedShopItem>, Task> sell, Func<Task> returnToCombat,
+        Func<IReadOnlyList<PlannedShopItem>, Task> sell, Func<Task> afterSoldOut,
         Action<string> report, CancellationToken token)
     {
         var inventory = (await snapshots.ReadInventoryAsync().WaitAsync(token)).Value;
@@ -44,6 +44,6 @@ public static class DiscountedPersonalShopWorkflow
         report($"自动摆摊：{settings.CleanupWorkflow.StandaloneShopDiscount} 折，共 {plan.Count} 项，等待全部售罄。");
         await sell(plan);
         token.ThrowIfCancellationRequested();
-        await returnToCombat();
+        await afterSoldOut();
     }
 }

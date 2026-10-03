@@ -7,6 +7,7 @@ internal enum CleanupPreparationStage { None, ReturningToTown, Discarding }
 
 public sealed record CleanupRequest(ScriptSettings Settings, bool Manual, bool ResetsCooldown = true, bool AllowNpcSell = true)
 {
+    public Guid RequestId { get; } = Guid.NewGuid();
     // Execution progress belongs to this worker request, never to persisted settings.
     public bool StandaloneShop { get; init; }
     public string? Failure { get; set; }
@@ -21,11 +22,14 @@ public sealed class CleanupRequestMailbox
 {
     private readonly object sync = new();
     private CleanupRequest? request;
+    private Guid? standaloneShopRestartRequestId;
     public CleanupRequest? Current { get { lock (sync) return request; } }
+    public Guid? StandaloneShopRestartRequestId { get { lock (sync) return standaloneShopRestartRequestId; } }
     public OperationResult Request(ScriptSettings settings, bool manual, bool resetsCooldown = true, bool allowNpcSell = true, bool standaloneShop = false)
     {
         lock (sync)
         {
+            if (standaloneShopRestartRequestId.HasValue) return OperationResult.Fail("摆摊已售罄，正在等待脚本停止并重新启动。");
             if (request != null) return OperationResult.Fail("清包流程已在等待或执行，请勿重复启动。");
             var copy = settings.Clone();
             copy.Maintenance.CleanupWorkflow = copy.Maintenance.CleanupWorkflow.ForTrigger(manual);
@@ -43,4 +47,15 @@ public sealed class CleanupRequestMailbox
         }
     }
     public void Complete() { lock (sync) request = null; }
+
+    public void CompleteStandaloneShopForRestart(CleanupRequest completed)
+    {
+        lock (sync)
+        {
+            if (!ReferenceEquals(request, completed) || !completed.StandaloneShop || completed.Failure != null)
+                throw new InvalidOperationException("自动摆摊完成请求与当前任务不一致。");
+            standaloneShopRestartRequestId = completed.RequestId;
+            request = null;
+        }
+    }
 }

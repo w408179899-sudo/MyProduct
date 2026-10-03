@@ -116,6 +116,12 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
             while (!context.StopToken.IsCancellationRequested)
             {
                 context.RuntimeStates.MarkHeartbeat(context.Config.AccountName);
+                if (context.CleanupRequests.StandaloneShopRestartRequestId.HasValue)
+                {
+                    // The manager owns Stop/Start. Keep the completed worker idle until cancellation.
+                    await Task.Delay(context.Options.TickInterval, context.StopToken).ConfigureAwait(false);
+                    continue;
+                }
                 if (sharedConfiguration is not null && DateTimeOffset.UtcNow >= nextSharedRefresh)
                 {
                     nextSharedRefresh = DateTimeOffset.UtcNow.AddSeconds(2);
@@ -178,9 +184,19 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                         {
                             if (await _stationaryCombat.PrepareCleanupTickAsync(context, semiAutoPlan, semiAutoState, stationaryCombatState))
                             {
+                                if (cleanup.StandaloneShop && jumpAssist is not null)
+                                    await jumpAssist.StopAsync("standalone_shop").ConfigureAwait(false);
                                 await _cleanupWorkflow.RunAsync(context, cleanup, c => _stationaryCombat.ReturnAfterCleanupAsync(
                                     c, semiAutoPlan, semiAutoState, stationaryCombatState));
                                 context.StopToken.ThrowIfCancellationRequested();
+                                if (cleanup.StandaloneShop)
+                                {
+                                    context.CleanupRequests.CompleteStandaloneShopForRestart(cleanup);
+                                    context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, "全部售罄，等待停止并重新启动脚本");
+                                    context.Logger.Info("standalone_shop.restart.requested", new Dictionary<string, object?>
+                                        { ["account"] = context.Config.AccountName, ["requestId"] = cleanup.RequestId });
+                                    continue;
+                                }
                                 context.CleanupRequests.Complete();
                                 context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, string.Empty);
                                 if (cleanup.ResetsCooldown && cleanup.FullCleanupStarted) lastCleanup = DateTimeOffset.UtcNow;

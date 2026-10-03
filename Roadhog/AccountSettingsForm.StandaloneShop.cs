@@ -19,7 +19,7 @@ public partial class AccountSettingsForm
         button.Name = "standaloneShopButton";
         button.Enabled = _startStandaloneShop != null;
         button.Click += async (_, _) => await StartStandaloneShopAsync(button);
-        AddLabel(rules, "仅摆摊过滤内物品；全部售罄后自动挂机", 12, 522, 380, 26);
+        AddLabel(rules, "仅摆摊过滤内物品；全部售罄后停止并重新启动脚本", 12, 522, 430, 26);
     }
 
     private async Task StartStandaloneShopAsync(Button button)
@@ -41,7 +41,7 @@ public partial class AccountSettingsForm
             var settings = LoadAccountConfigOrDefault().ScriptSettings!.Clone();
             var result = await _startStandaloneShop(settings);
             if (!IsDisposed) SetBagCleanupInventoryStatus(result.Success
-                ? "自动摆摊任务已提交，全部售罄后挂机；停止账号可取消。"
+                ? "自动摆摊任务已提交，全部售罄后停止并重新启动脚本；停止账号可取消。"
                 : "无法启动自动摆摊：" + result.Error, !result.Success);
         }
         catch (Exception ex) { if (!IsDisposed) SetBagCleanupInventoryStatus("无法启动自动摆摊：" + ex.Message, true); }

@@ -133,15 +133,17 @@ internal static partial class CleanupWorkflowTests
 
     public static Task ConfiguredStallAsync() => ConfiguredStallCoreAsync(false);
     public static Task DiscountedStallAsync() => ConfiguredStallCoreAsync(true);
-    public static Task StandaloneShopReturnAsync() => ConfiguredStallCoreAsync(true, integrated: true);
+    public static Task StandaloneShopCompletionAsync() => ConfiguredStallCoreAsync(true, integrated: true);
+    public static Task StandaloneShopWorkerCompletionAsync() => ConfiguredStallCoreAsync(true, integrated: true, worker: true);
 
-    private static async Task ConfiguredStallCoreAsync(bool discounted, bool integrated = false)
+    private static async Task ConfiguredStallCoreAsync(bool discounted, bool integrated = false, bool worker = false)
     {
         foreach (var scenario in (integrated ? new[] { "auto_stop_delayed" } : discounted
             ? new[] { "batches", "closed_early", "cancel_wait", "auto_stop_delayed", "empty_unconfirmed", "wrong_price" }
             : new[] { "batches", "purchased_merge", "closed_early", "cancel_wait", "auto_stop_delayed", "empty_unconfirmed" }))
         {
             var api = new FakeGameApi { InventoryMoney = 100 }; var input = new RecordingKeyboardInput(); Cursor(api,input);
+            if (worker) api.TargetEntityId = 0;
             using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(integrated ? 15 : 3));
             var count = scenario == "batches" ? 12 : 1;
             var plan = Enumerable.Range(0,count).Select(i => new PlannedShopItem(new InventoryItemSnapshot((uint)(20+i),(ulong)(11+i),"item"+i,3,i,false, VendorSellUnitPrice: (ulong)(17+i)*40),(ulong)(17+i))).ToArray();
@@ -188,12 +190,8 @@ internal static partial class CleanupWorkflowTests
             };
             input.AfterPress = key =>
             {
-                if (key == "F5" && integrated)
-                {
-                    Require(api.InventoryItems.Count == 0 && settlementReads >= 5 && !state.IsOpen, "return key only after sale settlement and shop close");
-                    api.Player = api.Player with { Position = new(1000, 0, 0) };
-                }
-                else if(key=="Y")state=state with{IsOpen=!state.IsOpen};
+                if (key == "F1" && worker) return;
+                if(key=="Y")state=state with{IsOpen=!state.IsOpen};
                 else if(key=="I")state=state with{InventoryOpen=!state.InventoryOpen};
                 else if(key=="A")typed="";
                 else if(key.StartsWith("D"))
@@ -243,9 +241,9 @@ internal static partial class CleanupWorkflowTests
                     }
                     if (integrated)
                     {
-                        var config = new AccountConfig { AccountName = "standalone-return", ScriptSettings = new() { Maintenance = settings } };
-                        config.ScriptSettings.Paths.TownReturnKey = "F5";
-                        config.ScriptSettings.Paths.RevivePathName = "resume";
+                        // Ordinary startup owns travel rules. A shop does not preflight unused recall paths.
+                        var config = new AccountConfig { AccountName = "standalone-restart", MainMode = AccountMainMode.SemiAuto,
+                            ScriptSettings = new() { MainMode = AccountMainMode.SemiAuto, Maintenance = settings } };
                         var logger = new InMemoryRoadhogLogger();
                         var context = new AccountWorkerContext(config, api, logger, new AccountRuntimeManager(logger), new(), stop.Token);
                         Require(context.CleanupRequests.Request(config.ScriptSettings, true, standaloneShop: true).Success, "enqueue standalone request");
@@ -253,11 +251,45 @@ internal static partial class CleanupWorkflowTests
                         { Name = "resume", Points = new() { new() { X = 1000 }, new() { X = 0 } } });
                         var runner = new CleanupWorkflowRunner(input, paths,
                             (_, _, _) => throw new Exception("standalone shop must not use merchant, stall or auction paths"), new Journal());
-                        await runner.RunAsync(context, context.CleanupRequests.Current!, _ =>
+                        if (!worker)
                         {
-                            Require(logger.Entries.Any(e => e.EventName == "bag_cleanup.return_to_revive.verify.ok"), "observed recall arrival before combat return callback");
-                            return Resume();
-                        });
+                            await runner.RunAsync(context, context.CleanupRequests.Current!, _ => throw new Exception("old worker must not return to combat"));
+                            await Resume();
+                        }
+                        else
+                        {
+                            var semi = new Roadhog.Application.SemiAuto.SemiAutoCombatController(input);
+                            var combat = new Roadhog.Application.StationaryCombat.StationaryCombatController(input, semi, paths);
+                            var loop = new DefaultAccountWorkerLoop(input, semi, combat, cleanupWorkflow: runner);
+                            var host = new AccountWorkerHost(api, logger, context.RuntimeStates, loop, new() { TickInterval = TimeSpan.FromMilliseconds(5) });
+                            try
+                            {
+                                Require(host.Start(config, standaloneShop: true).Success, "start real worker with standalone shop");
+                                while (!host.StandaloneShopRestartRequestId.HasValue)
+                                { stop.Token.ThrowIfCancellationRequested(); await Task.Delay(5, stop.Token); }
+                                await Resume();
+                                Require(!state.IsOpen && !down && input.KeyUps.Contains("ControlKey"), "completion signal follows shop closure and input release");
+                                var requestId = host.StandaloneShopRestartRequestId;
+                                var inputCount = input.Keys.Count + input.MouseCommands.Count + input.KeyUps.Count;
+                                await Task.Delay(300, stop.Token);
+                                Require(host.StandaloneShopRestartRequestId == requestId && host.IsRunning &&
+                                    inputCount == input.Keys.Count + input.MouseCommands.Count + input.KeyUps.Count,
+                                    "completed worker stays idle with a durable signal instead of resuming combat");
+                                Require(!host.RequestCleanup(config.ScriptSettings, standaloneShop: true).Success, "cannot enqueue during restart handoff");
+                                Require((await host.StopAsync()).Success && !host.IsRunning && host.StandaloneShopRestartRequestId == null,
+                                    "explicit Stop drains worker and clears completion visibility");
+                                Require(host.Start(config).Success, "ordinary Start creates fresh session");
+                                while (input.Keys.Count(k => k == "F1") < 2)
+                                { stop.Token.ThrowIfCancellationRequested(); await Task.Delay(5, stop.Token); }
+                                Require(host.StandaloneShopRestartRequestId == null, "new session never replays completed shop");
+                                Require((await host.StopAsync()).Success, "stop fresh ordinary session");
+                                Require(logger.Entries.Count(e => e.EventName == "standalone_shop.restart.requested") == 1,
+                                    "sold-out signal published once across Stop/Start");
+                            }
+                            finally { await host.StopAsync(); }
+                        }
+                        Require(!input.Keys.Any(k => k is "F5" or "F6") && !logger.Entries.Any(e => e.EventName == "bag_cleanup.return_to_revive.verify.ok"),
+                            "old shop worker does not recall or run return-to-combat");
                     }
                     else await DiscountedPersonalShopWorkflow.RunAsync(reader, settings,
                         p => new ConfiguredPersonalShopSequence(input,Fast).RunAsync(reader,p,_=>{},stop.Token),

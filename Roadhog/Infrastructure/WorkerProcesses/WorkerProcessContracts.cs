@@ -59,6 +59,7 @@ public sealed record WorkerStatus
     public bool Authorized { get; init; }
     public string? AuthorizationError { get; init; }
     public bool IsRunning { get; init; }
+    public Guid? StandaloneShopRestartRequestId { get; init; }
     public AccountRuntimeSnapshot? Snapshot { get; init; }
     public DateTimeOffset ReportedAtUtc { get; init; } = DateTimeOffset.UtcNow;
 }

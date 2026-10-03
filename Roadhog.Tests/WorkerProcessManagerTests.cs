@@ -8,7 +8,7 @@ using Roadhog.Infrastructure.Composition;
 using Roadhog.Infrastructure.Hardware;
 using Roadhog.Infrastructure.WorkerProcesses;
 
-internal static class WorkerProcessManagerTests
+internal static partial class WorkerProcessManagerTests
 {
     public static async Task<int> RunChildAsync(string[] args)
     {
@@ -701,6 +701,8 @@ internal static class WorkerProcessManagerTests
         private int _starts;
         private volatile bool _running;
         private volatile bool _initialized;
+        private Guid? _shopRestartRequestId;
+        private readonly object _shopSync = new();
 
         public async Task InitializeAsync(CancellationToken cancellationToken)
         {
@@ -715,11 +717,14 @@ internal static class WorkerProcessManagerTests
             _initialized = true;
         }
 
-        public WorkerStatus GetStatus() => new()
+        public WorkerStatus GetStatus()
         {
-            Authorized = scenario != "unauthorized", AuthorizationError = scenario == "unauthorized" ? "mock authorization denied" : null,
-            IsRunning = _running, Snapshot = _states.Snapshot().SingleOrDefault()
-        };
+            lock (_shopSync) return new()
+            {
+                Authorized = scenario != "unauthorized", AuthorizationError = scenario == "unauthorized" ? "mock authorization denied" : null,
+                IsRunning = _running, Snapshot = _states.Snapshot().SingleOrDefault(), StandaloneShopRestartRequestId = _shopRestartRequestId
+            };
+        }
 
         public async Task<OperationResult> StartStandaloneShopAsync(AccountConfig account, CancellationToken cancellationToken)
         {
@@ -730,6 +735,8 @@ internal static class WorkerProcessManagerTests
         public async Task<OperationResult> StartAsync(AccountConfig account, bool cleanupFirst, CancellationToken cancellationToken)
         {
             if (!_initialized) throw new InvalidOperationException("backend started before initialization");
+            if (!cleanupFirst && File.Exists(Path.Combine(spec.Paths.LogDirectory, "reject-normal-start")))
+                return OperationResult.Fail("mock normal restart rejected");
             if (scenario == "reject-start" && account.AccountName.EndsWith("1", StringComparison.Ordinal)
                 && !File.Exists(Path.Combine(spec.Paths.LogDirectory, "allow-start")))
                 return OperationResult.Fail("mock binding mismatch");
@@ -744,6 +751,9 @@ internal static class WorkerProcessManagerTests
             await File.WriteAllTextAsync(Path.Combine(spec.Paths.LogDirectory, "started"), _starts.ToString(), cancellationToken);
             _states.MarkStarting(account);
             _states.MarkRunning(account.AccountName, Environment.CurrentManagedThreadId);
+            lock (_shopSync) _shopRestartRequestId = null;
+            if (!cleanupFirst)
+                await File.WriteAllTextAsync(Path.Combine(spec.Paths.LogDirectory, "normal-start.json"), JsonSerializer.Serialize(account), cancellationToken);
             if (scenario == "player-info")
             {
                 var first = account.AccountName.EndsWith("1", StringComparison.Ordinal);
@@ -778,6 +788,12 @@ internal static class WorkerProcessManagerTests
         public async Task<object?> InvokeAsync(string method, JsonElement[] arguments, IProgress<string> progress, CancellationToken cancellationToken)
         {
             if (method == "mock.info") return new MockInfo(spec.Account.Clone(), spec.Paths, Volatile.Read(ref _starts), _running);
+            if (method == "mock.shop.sold-out")
+            {
+                lock (_shopSync) _shopRestartRequestId = arguments[0].GetGuid();
+                _states.MarkCleanupProgress(spec.Account.AccountName, "全部售罄，等待停止并重新启动脚本");
+                return OperationResult.Ok();
+            }
             if (method == "mock.exit")
             {
                 _ = Task.Run(async () => { await Task.Delay(arguments[0].GetInt32()); Environment.Exit(0); });
@@ -815,7 +831,7 @@ internal static class WorkerProcessManagerTests
             KmBox = new() { IpAddress = "127.0.0." + number, Port = _kmBoxPort, Mac = _hardwareScope + number }, AutoRecover = true
         };
 
-        public async Task<WorkerProcessManager> ManagerAsync(IReadOnlyList<AccountConfig> accounts, string scenario = "normal")
+        public async Task<WorkerProcessManager> ManagerAsync(IReadOnlyList<AccountConfig> accounts, string scenario = "normal", IWorkerProcessExitReconciler? exitReconciler = null)
         {
             var paths = new RoadhogServiceOptions
             {
@@ -834,7 +850,7 @@ internal static class WorkerProcessManagerTests
                 PrefixArguments = new[] { "--worker-scenario=" + scenario }, LeasePath = LeasePath,
                 StartupTimeout = TimeSpan.FromSeconds(5), StopTimeout = TimeSpan.FromMilliseconds(900),
                 PollInterval = TimeSpan.FromMilliseconds(50), RecoveryDelay = TimeSpan.FromMilliseconds(100)
-            });
+            }, exitReconciler);
             _managers.Add(manager);
             await manager.InitializeAsync(accounts);
             return manager;

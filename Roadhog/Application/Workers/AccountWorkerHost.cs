@@ -38,6 +38,16 @@ public sealed class AccountWorkerHost
 
     public string? AccountName { get; private set; }
 
+    public Guid? StandaloneShopRestartRequestId
+    {
+        get
+        {
+            lock (_syncRoot)
+                return _task is { IsCompleted: false } && _stopSource?.IsCancellationRequested == false
+                    ? _cleanupRequests.StandaloneShopRestartRequestId : null;
+        }
+    }
+
     public bool IsRunning
     {
         get

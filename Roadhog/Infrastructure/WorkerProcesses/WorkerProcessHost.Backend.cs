@@ -119,6 +119,7 @@ internal sealed class RoadhogWorkerProcessBackend : IWorkerProcessBackend
             Authorized = license.IsAuthorized,
             AuthorizationError = license.ErrorCode ?? (license.IsAuthorized ? null : license.Kind.ToString()),
             IsRunning = state?.Status is "starting" or "running" or "stopping",
+            StandaloneShopRestartRequestId = _services.AccountOrchestrator.GetStandaloneShopRestartRequestId(_spec.Account.AccountName),
             Snapshot = state
         };
     }

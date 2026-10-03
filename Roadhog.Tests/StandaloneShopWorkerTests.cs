@@ -31,6 +31,7 @@ internal static partial class CleanupWorkflowTests
             await Task.Delay(150, stop.Token);
             Require(context.CleanupRequests.Current is { StandaloneShop: true, Failure: not null } && !work.IsCompleted,
                 "failed request remains held in the same worker until explicit stop");
+            Require(context.CleanupRequests.StandaloneShopRestartRequestId == null, "failure never authorizes automatic Stop/Start");
             Require(game.Input.Keys.Count == keys && !game.Input.Keys.Any(k => k is "F6" or "F5"), "failure does not resume combat or recall");
             Require(logger.Entries.Count(e => e.EventName == "standalone_shop.failed") == 1 &&
                 !logger.Entries.Any(e => e.EventName == "cleanup_workflow.failed_continuing"), "failure is reported once without replay or ordinary cleanup fallback");
