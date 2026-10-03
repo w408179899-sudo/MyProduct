@@ -89,8 +89,8 @@ internal static class QuickbarSkillChainHandoffTests
         fixture.Reader.Value = Bar(last: 11, time: 1100);
         await fixture.TickAt(80);
         var deadline = fixture.State.ChainTransition?.Deadline ?? throw new Exception("missing probability handoff window");
-        Check(deadline - fixture.Clock.Now <= TimeSpan.FromMilliseconds(1200),
-            "an unopened probability continuation has at most1200ms to become available");
+        Check(deadline - fixture.Clock.Now <= TimeSpan.FromMilliseconds(1500),
+            "an unopened probability continuation has at most1500ms to become available");
 
         for (var elapsed = 160; Start.AddMilliseconds(elapsed) < deadline; elapsed += 80)
         {
@@ -299,7 +299,7 @@ internal static class QuickbarSkillChainHandoffTests
 
     public static async Task XmlChainWindowBoundAsync()
     {
-        foreach (var sample in new[] { (Xml: "240", ExpectedMs: 240), (Xml: "3000", ExpectedMs: 1200) })
+        foreach (var sample in new[] { (Xml: "240", ExpectedMs: 240), (Xml: "3000", ExpectedMs: 1500) })
         {
             var fixture = new Fixture(sample.Xml, obsoleteConfigDelay: 1);
             await fixture.TickAt(0);
@@ -308,7 +308,7 @@ internal static class QuickbarSkillChainHandoffTests
             await fixture.TickAt(80);
             var deadline = fixture.State.ChainTransition?.Deadline ?? throw new Exception("missing XML bounded handoff");
             Check(deadline - fixture.Clock.Now == TimeSpan.FromMilliseconds(sample.ExpectedMs),
-                "handoff starts at actual release/CD evidence and uses exact-skill XML capped at1200ms, without the old per-stage delay");
+                "handoff starts at actual release/CD evidence and uses exact-skill XML capped at1500ms, without the old per-stage delay");
             await fixture.TickAt(deadline.AddMilliseconds(-1));
             Check(fixture.Keyboard.SkillIds.SequenceEqual(new uint[] { 11 }), "the XML-bound wait remains active until its exact deadline");
             await fixture.TickAt(deadline);
@@ -358,9 +358,9 @@ internal static class QuickbarSkillChainHandoffTests
         Check(fixture.Keyboard.SkillIds.SequenceEqual(new uint[] { 11 }) && fixture.State.ChainTransition?.Deadline == deadline,
             "a forward wall-clock jump neither expires nor changes an80ms-old handoff");
         fixture.Clock.JumpWallClock(TimeSpan.FromDays(-6));
-        await fixture.TickAt(fixture.Clock.Now.AddMilliseconds(1119));
+        await fixture.TickAt(fixture.Clock.Now.AddMilliseconds(1419));
         Check(fixture.Keyboard.SkillIds.SequenceEqual(new uint[] { 11 }),
-            "a backward wall-clock jump cannot extend the handoff's monotonic1200ms limit");
+            "a backward wall-clock jump cannot extend the handoff's monotonic1500ms limit");
         await fixture.TickAt(fixture.Clock.Now.AddMilliseconds(1));
         Check(fixture.Keyboard.SkillIds.SequenceEqual(new uint[] { 11, 31 }) && fixture.State.ChainTransition is null,
             "root recovery follows elapsed monotonic time despite both wall-clock jumps");

@@ -198,7 +198,7 @@ its bounded failure limit. After a configured predecessor is accepted or its
 own cooldown advances, a finite chain handoff waits for the next displayed
 opportunity instead of immediately pressing another attack root. The handoff
 continues normal 80ms polls and all worker/life/maintenance guards. It lasts
-at most 1200ms, capped by a shorter positive child XML opportunity window.
+at most 1500ms, capped by a shorter positive child XML opportunity window.
 Startup bindings expose only this immutable XML duration; the legacy node's
 configured delay and startup cooldown values do not drive the new handoff.
 The deadline belongs to the original action and is not extended by retries,

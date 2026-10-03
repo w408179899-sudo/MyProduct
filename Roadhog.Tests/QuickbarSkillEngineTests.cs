@@ -82,7 +82,7 @@ internal static class QuickbarSkillEngineTests
         Check(QuickbarSkillReleasePriority.SelectNext(plan, state, childLit, Start).Node?.SkillId == 12, "current chain outranks earlier trigger roots");
         Check(QuickbarSkillReleasePriority.SelectNext(plan, state, Available(counter: true, effective: 12), Start).Kind == QuickbarSkillDecisionKind.WaitForChain, "dark displayed continuation protects the finite handoff gap");
         Check(QuickbarSkillReleasePriority.SelectNext(plan, state, Available(counter: true), Start).Kind == QuickbarSkillDecisionKind.WaitForChain, "unopened probability branch waits only within the finite transition window");
-        Check(QuickbarSkillReleasePriority.SelectNext(plan, state, Available(counter: true), Start.AddMilliseconds(1200)).Node?.SkillId == 21, "unopened probability branch returns to roots when the bounded window expires");
+        Check(QuickbarSkillReleasePriority.SelectNext(plan, state, Available(counter: true), Start.AddMilliseconds(1500)).Node?.SkillId == 21, "unopened probability branch returns to roots when the bounded window expires");
         Check(QuickbarSkillReleasePriority.SelectNext(plan, state, Available(root: true, effective: 999), Start).Kind == QuickbarSkillDecisionKind.WaitForChain, "unconfigured displayed child is never pressed while waiting");
         Check(QuickbarSkillReleasePriority.SelectNext(plan, state, childLit with { Page = 1 }, Start).Kind == QuickbarSkillDecisionKind.None, "different page cannot use startup keys");
         Check(QuickbarSkillReleasePriority.SelectNext(plan, state, Available(root: true, effective: 12, baseId: 41), Start).Kind == QuickbarSkillDecisionKind.WaitForChain, "changed source binding cannot press its replacement");
@@ -101,7 +101,7 @@ internal static class QuickbarSkillEngineTests
         state.TryConfirmAction(Available(last: 11, time: 10), Learned, Start);
         var ownDark = Available(counter: true) with { Slots = Available(counter: true).Slots.Append(new(SkillQuickbar.Main, 5, 21, 12, 12, false)).ToArray() };
         Check(QuickbarSkillReleasePriority.SelectNext(ownPlan, state, ownDark, Start).Kind == QuickbarSkillDecisionKind.WaitForChain, "independent dark shortcut receives the same finite handoff protection");
-        Check(QuickbarSkillReleasePriority.SelectNext(ownPlan, state, ownDark, Start.AddMilliseconds(1200)).Node?.SkillId == 21, "independent dark shortcut cannot hold unrelated roots indefinitely");
+        Check(QuickbarSkillReleasePriority.SelectNext(ownPlan, state, ownDark, Start.AddMilliseconds(1500)).Node?.SkillId == 21, "independent dark shortcut cannot hold unrelated roots indefinitely");
         return Task.CompletedTask;
     }
 
@@ -372,7 +372,7 @@ internal static class QuickbarSkillEngineTests
         await fixture.Tick(cooldown: skill => skill.SkillId == 11 ? SemiAutoSkillCooldownReadiness.CoolingDown : SemiAutoSkillCooldownReadiness.Ready);
         Check(fixture.Keyboard.Keys.SequenceEqual(new[] { "D1" }) && fixture.State.ActiveChainSource is null && fixture.State.ChainTransition?.Reason == "cooldown_started",
             "true CD progression protects the handoff without pretending the actor release was confirmed");
-        fixture.Clock.Advance(TimeSpan.FromMilliseconds(1200));
+        fixture.Clock.Advance(TimeSpan.FromMilliseconds(1500));
         await fixture.Tick(cooldown: skill => skill.SkillId == 11 ? SemiAutoSkillCooldownReadiness.CoolingDown : SemiAutoSkillCooldownReadiness.Ready);
         Check(fixture.Keyboard.Keys.SequenceEqual(new[] { "D1", "NumPadAdd" }) && fixture.State.ActiveChainSource is null,
             "unconfirmed provisional handoff is finite and then allows the next ready root");
@@ -394,7 +394,7 @@ internal static class QuickbarSkillEngineTests
         await fixture.Tick(cooldown: _ => SemiAutoSkillCooldownReadiness.Ready);
         fixture.Reader.Value = Available(root: true, counter: true, ordinary: true, last: 11, time: 2);
         await fixture.Tick(cooldown: _ => SemiAutoSkillCooldownReadiness.Ready);
-        fixture.Clock.Advance(TimeSpan.FromMilliseconds(1200));
+        fixture.Clock.Advance(TimeSpan.FromMilliseconds(1500));
         await fixture.Tick(cooldown: _ => SemiAutoSkillCooldownReadiness.Ready);
         fixture.Reader.Value = Available(root: true, counter: true, ordinary: true, last: 31, time: 3);
         await fixture.Tick(cooldown: _ => SemiAutoSkillCooldownReadiness.Ready);

@@ -39,7 +39,7 @@ public sealed class QuickbarSkillCombatState
     // At 80ms, allow the existing eight-second acceptance window. A handful
     // of retries is too short when another skill's animation is still running.
     public const int MaximumUnconfirmedAttempts = 100;
-    public static readonly TimeSpan MaximumChainTransitionWait = TimeSpan.FromMilliseconds(1200);
+    public static readonly TimeSpan MaximumChainTransitionWait = TimeSpan.FromMilliseconds(1500);
 
     public void Reset()
     {
