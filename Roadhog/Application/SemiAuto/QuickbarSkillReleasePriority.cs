@@ -21,7 +21,8 @@ public static class QuickbarSkillReleasePriority
         SkillAvailabilitySnapshot availability,
         DateTimeOffset now,
         IReadOnlySet<uint>? ordinaryReadyIds = null,
-        IReadOnlySet<uint>? coolingSkillIds = null)
+        IReadOnlySet<uint>? coolingSkillIds = null,
+        IReadOnlySet<uint>? suppressedRootSkillIds = null)
     {
         if (availability.Page != plan.Page)
             return QuickbarSkillReleaseDecision.None;
@@ -53,6 +54,7 @@ public static class QuickbarSkillReleasePriority
         // accepted, closes, enters CD, or reaches its finite failure budget. A
         // retry that is not due must not hand its baseline to a later root.
         if (state.PendingAction is { RetryStopped: false } pending && coolingSkillIds?.Contains(pending.Node.SkillId) != true &&
+            (pending.Node.NodeKey.Contains('/') || suppressedRootSkillIds?.Contains(pending.Node.SkillId) != true) &&
             (GetMatchingSlot(pending.Node, availability) is { CanUse: true } ||
              (!pending.Node.NodeKey.Contains('/') && IsOrdinaryRootReady(pending.Node, availability, ordinaryReadyIds))))
         {
@@ -65,6 +67,7 @@ public static class QuickbarSkillReleasePriority
         foreach (var includeYielded in new[] { false, true })
             foreach (var root in plan.Roots)
                 if ((includeYielded || !state.HasYieldedRoot(root)) &&
+                    suppressedRootSkillIds?.Contains(root.SkillId) != true &&
                     coolingSkillIds?.Contains(root.SkillId) != true &&
                     (GetMatchingSlot(root, availability) is { CanUse: true } || IsOrdinaryRootReady(root, availability, ordinaryReadyIds)) &&
                     !state.IsRepeatBlocked(root, now))

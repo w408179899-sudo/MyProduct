@@ -122,13 +122,15 @@ public static class SpiritmasterAutoSkillReleasePriority
             return false;
         }
 
-        return spiritSettings.DotSkills.Any(rule =>
-            (rule.SkillId != 0 && rule.SkillId == skill.SkillId) ||
-            EqualsSkillName(rule.SkillName, skill.Name) ||
-            EqualsSkillName(rule.SkillName, skill.DisplayBaseName) ||
-            EqualsSkillName(rule.SkillName, node?.Name) ||
-            EqualsSkillName(rule.SkillName, node?.BaseName));
+        return IsConfiguredDotSkill(skill.SkillId, spiritSettings,
+            skill.Name, skill.DisplayBaseName, node?.Name, node?.BaseName);
     }
+
+    internal static bool IsConfiguredDotSkill(
+        uint skillId, SpiritmasterSkillSettings spiritSettings, params string?[] names) =>
+        spiritSettings.DotSkills.Any(rule =>
+            (rule.SkillId != 0 && rule.SkillId == skillId) ||
+            names.Any(name => EqualsSkillName(rule.SkillName, name)));
 
     private static bool ShouldSkipRoot(
         SemiAutoSkillNode node,
@@ -155,26 +157,29 @@ public static class SpiritmasterAutoSkillReleasePriority
         SkillSnapshot skill,
         SemiAutoCombatState state,
         SpiritmasterCombatContext? spiritContext,
-        DateTimeOffset now)
+        DateTimeOffset now) =>
+        IsDotActiveOnTarget(skill.SkillId, state, spiritContext?.LockedTargetAbnormalStatuses);
+
+    internal static bool IsDotActiveOnTarget(
+        uint skillId, SemiAutoCombatState state, LockedTargetAbnormalStatusSnapshot? targetSnapshot)
     {
-        var targetSnapshot = spiritContext?.LockedTargetAbnormalStatuses;
         var targetId = ResolveTargetServerObjectId(targetSnapshot);
         if (targetId == 0)
         {
             return false;
         }
 
-        if (targetSnapshot?.HasAbnormalId(skill.SkillId) == true)
+        if (targetSnapshot?.HasAbnormalId(skillId) == true)
         {
-            state.RememberSpiritmasterDotAbnormalId(skill.SkillId, skill.SkillId);
+            state.RememberSpiritmasterDotAbnormalId(skillId, skillId);
             return true;
         }
 
-        if (state.TryGetSpiritmasterDotAbnormalId(skill.SkillId, out var learnedAbnormalId) &&
-            learnedAbnormalId != skill.SkillId &&
+        if (state.TryGetSpiritmasterDotAbnormalId(skillId, out var learnedAbnormalId) &&
+            learnedAbnormalId != skillId &&
             targetSnapshot?.HasAbnormalId(learnedAbnormalId) == true)
         {
-            state.RememberSpiritmasterDotAbnormalId(skill.SkillId, learnedAbnormalId);
+            state.RememberSpiritmasterDotAbnormalId(skillId, learnedAbnormalId);
             return true;
         }
 

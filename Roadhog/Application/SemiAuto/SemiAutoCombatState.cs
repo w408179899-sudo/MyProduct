@@ -486,6 +486,8 @@ public sealed class SemiAutoCombatState
             expiresAt);
     }
 
+    public void CancelSpiritmasterDotObservation() => pendingSpiritmasterDotObservation = null;
+
     public bool TryCompleteSpiritmasterDotObservation(
         uint targetServerObjectId,
         IEnumerable<AbnormalStatusEntrySnapshot> afterEntries,

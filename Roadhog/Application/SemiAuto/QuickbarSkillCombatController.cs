@@ -28,7 +28,9 @@ public sealed partial class QuickbarSkillCombatController
         Func<Task<LockedTargetSnapshot>>? readTargetBeforePress = null,
         Func<SkillAvailabilityCombatSnapshot, bool>? allowCombatSnapshot = null,
         Func<SkillSnapshot, SkillAvailabilitySnapshot, SemiAutoSkillCooldownReadiness>? availabilityCooldownReadiness = null,
-        Func<bool>? isCooldownClockCalibrated = null)
+        Func<bool>? isCooldownClockCalibrated = null,
+        Func<Task<IReadOnlySet<uint>>>? readSuppressedRootSkillIds = null,
+        Func<QuickbarSkillNode, Task>? onSkillPressed = null)
     {
         if (context.Snapshots is not ISkillAvailabilitySnapshotReader availability)
             throw new InvalidOperationException("技能栏可用模式需要技能可用状态读取接口。");
@@ -36,7 +38,8 @@ public sealed partial class QuickbarSkillCombatController
             async ids => (await context.Snapshots.ReadSkillsAsync(ids).ConfigureAwait(false)).Value,
             context.Config.ScriptSettings?.SemiAuto ?? new(), context.Logger, context.StopToken,
             readTargetBeforePress ?? (async () => (await context.Snapshots.ReadLockedTargetAsync().ConfigureAwait(false)).Value),
-            ordinaryReadiness, cooldownReadiness, allowCombatSnapshot, availabilityCooldownReadiness, isCooldownClockCalibrated);
+            ordinaryReadiness, cooldownReadiness, allowCombatSnapshot, availabilityCooldownReadiness, isCooldownClockCalibrated,
+            readSuppressedRootSkillIds, onSkillPressed);
     }
 
     /// <summary>Narrow mockable orchestration seam; every read returns an official published value.</summary>
@@ -54,7 +57,9 @@ public sealed partial class QuickbarSkillCombatController
         Func<SkillSnapshot, SemiAutoSkillCooldownReadiness>? cooldownReadiness = null,
         Func<SkillAvailabilityCombatSnapshot, bool>? allowCombatSnapshot = null,
         Func<SkillSnapshot, SkillAvailabilitySnapshot, SemiAutoSkillCooldownReadiness>? availabilityCooldownReadiness = null,
-        Func<bool>? isCooldownClockCalibrated = null)
+        Func<bool>? isCooldownClockCalibrated = null,
+        Func<Task<IReadOnlySet<uint>>>? readSuppressedRootSkillIds = null,
+        Func<QuickbarSkillNode, Task>? onSkillPressed = null)
     {
         var tickStarted = _timeProvider.GetTimestamp();
         var attemptTickStartedAt = _timeProvider.GetUtcNow();
@@ -193,6 +198,21 @@ public sealed partial class QuickbarSkillCombatController
             IReadOnlyList<SkillSnapshot>? rootsObserved = null;
             IReadOnlySet<uint>? ordinaryProposedIds = null;
             var coolingIds = new HashSet<uint>();
+            IReadOnlySet<uint>? suppressedRootSkillIds = null;
+            async Task RefreshRootSuppression()
+            {
+                if (readSuppressedRootSkillIds is null) return;
+                suppressedRootSkillIds = await readSuppressedRootSkillIds().ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (state.PendingAction is { } pending && !pending.Node.NodeKey.Contains('/') &&
+                    suppressedRootSkillIds.Contains(pending.Node.SkillId))
+                {
+                    // A target status stops retries; release confirmation still
+                    // requires the existing actor/CD evidence.
+                    state.StopPendingRetries();
+                    if (pending.IsClockBootstrap) FinishClockCandidate(pending.Node, "target_dot_active");
+                }
+            }
             var transitionsReadThisTick = new HashSet<long>();
             SemiAutoSkillCooldownReadiness? Readiness(SkillSnapshot skill) =>
                 availabilityCooldownReadiness?.Invoke(skill, availability) ?? cooldownReadiness?.Invoke(skill);
@@ -306,12 +326,15 @@ public sealed partial class QuickbarSkillCombatController
             QuickbarSkillReleaseDecision Select()
             {
                 var decision = QuickbarSkillReleasePriority.SelectNext(
-                    plan, state, availability, _timeProvider.GetUtcNow(), ordinaryReadyIds, coolingIds);
+                    plan, state, availability, _timeProvider.GetUtcNow(), ordinaryReadyIds, coolingIds, suppressedRootSkillIds);
                 ObserveClockCalibration();
                 if (isCooldownClockCalibrated is null || state.ClockBootstrap.IsCompleted || rootsObserved is null ||
                     decision.Kind is QuickbarSkillDecisionKind.PressChain or QuickbarSkillDecisionKind.WaitForChain ||
                     state.PendingAction is { IsClockBootstrap: false, RetryStopped: false }) return decision;
-                var candidate = state.ClockBootstrap.SelectCandidate(plan, availability, rootsObserved,
+                var bootstrapSkills = suppressedRootSkillIds is { Count: > 0 }
+                    ? rootsObserved.Where(skill => !suppressedRootSkillIds.Contains(skill.SkillId)).ToArray()
+                    : rootsObserved;
+                var candidate = state.ClockBootstrap.SelectCandidate(plan, availability, bootstrapSkills,
                     Readiness, isCooldownClockCalibrated());
                 ObserveClockCalibration();
                 if (candidate is null) return decision;
@@ -351,6 +374,7 @@ public sealed partial class QuickbarSkillCombatController
             if (settings.AttackWeaveEnabled && await HandleAttackWeaveAsync(state, target, availability, availabilityReader, settings,
                     Observe, readTargetBeforePress, logger, cancellationToken).ConfigureAwait(false))
                 return RemainingDelay();
+            await RefreshRootSuppression().ConfigureAwait(false);
             var decision = await SelectWithRoots().ConfigureAwait(false);
             if (settings.AttackWeaveEnabled && await HandleAttackWeaveAsync(state, target, availability, availabilityReader, settings,
                     Observe, readTargetBeforePress, logger, cancellationToken).ConfigureAwait(false))
@@ -367,6 +391,7 @@ public sealed partial class QuickbarSkillCombatController
                 else if (!observedSkills.ContainsKey(node.SkillId))
                     await Read(new[] { node.SkillId }, false).ConfigureAwait(false);
 
+                await RefreshRootSuppression().ConfigureAwait(false);
                 // Legacy mock/provider capability uses its official target reader.
                 // The new combined snapshot already contains the life and target guard.
                 if (availability.CombatState is null && readTargetBeforePress is not null)
@@ -437,6 +462,9 @@ public sealed partial class QuickbarSkillCombatController
                             !isBootstrap || QuickbarSkillReleasePriority.GetMatchingSlot(node, availability) is { CanUse: true },
                             _timeProvider, timeout);
                     logger?.Info("quickbar_skill.key.pressed", Fields(node));
+                    if (onSkillPressed is not null)
+                        await onSkillPressed(node).ConfigureAwait(false);
+                    cancellationToken.ThrowIfCancellationRequested();
                 }
                 return RemainingDelay();
             }

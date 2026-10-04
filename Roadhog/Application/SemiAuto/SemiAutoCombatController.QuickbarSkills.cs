@@ -66,12 +66,17 @@ public sealed partial class SemiAutoCombatController
 
         var target = await ReadLockedTargetAsync(context).ConfigureAwait(false);
         var killed = state.ObserveTarget(target, out var killedId, out var targetChanged);
-        if (targetChanged) state.QuickbarSkills.Reset();
+        if (targetChanged)
+        {
+            state.QuickbarSkills.Reset();
+            state.CancelSpiritmasterDotObservation();
+        }
         if (killed)
             context.RuntimeStates.MarkKill(context.Config.AccountName, killedId, target.ServerObjectId, target.CapturedAt);
         if (!target.IsMonsterAlive)
         {
             state.QuickbarSkills.Reset();
+            state.CancelSpiritmasterDotObservation();
             state.ResetOpeningAttackKey();
             state.ResetSpiritmasterOpeningAttackKey();
             state.ResetOpeningSkill();
@@ -107,6 +112,7 @@ public sealed partial class SemiAutoCombatController
             !await ObserveQuickbarOpeningWeaveAsync(context, state, settings, target, skills).ConfigureAwait(false))
             return tick;
 
+        SpiritmasterCombatContext? spiritContext = null;
         if (!state.QuickbarSkills.AttackWeave.IsWaiting)
         {
             if (maintenancePlan.UsesSpiritmasterAutoLogic &&
@@ -129,10 +135,10 @@ public sealed partial class SemiAutoCombatController
 
             if (maintenancePlan.UsesSpiritmasterAutoLogic)
             {
-                var spirit = await ReadSpiritmasterCombatContextAsync(context, target).ConfigureAwait(false);
-                if (spirit.CanUseSpiritmasterLogic &&
+                spiritContext = await ReadSpiritmasterCombatContextAsync(context, target).ConfigureAwait(false);
+                if (spiritContext.CanUseSpiritmasterLogic &&
                     await TryHandleSpiritmasterSpecialAsync(context, state, settings, sharedSkillSettings.Spiritmaster,
-                        skills, spirit, suppressSpiritmasterPetSummon).ConfigureAwait(false))
+                        skills, spiritContext, suppressSpiritmasterPetSummon).ConfigureAwait(false))
                 {
                     state.QuickbarSkills.SuspendInputAttempts();
                     return tick;
@@ -159,8 +165,9 @@ public sealed partial class SemiAutoCombatController
         if (context.Snapshots is not ISkillAvailabilitySnapshotReader availabilityReader)
             throw new InvalidOperationException("技能栏可用模式需要技能可用状态读取接口。");
 
-        // A bounded, serial fast segment avoids rerunning world/abnormal/full-table
-        // work every 80ms. It yields regularly to the existing worker lifecycle;
+        // A bounded, serial fast segment avoids rerunning world/full-table and
+        // maintenance work every 80ms. Configured DOT roots separately recheck
+        // target statuses. It yields regularly to the existing worker lifecycle;
         // every poll and press still obtains an official local life/target guard.
         // Candidates already checked by maintenance may be cooling or otherwise
         // unavailable. Only newly due resource rules interrupt this segment, so
@@ -169,6 +176,19 @@ public sealed partial class SemiAutoCombatController
             DueQuickbarMaintenanceKeys(maintenance, state, maintenancePlayer.MaxHp, maintenancePlayer.HpPercent,
                 maintenancePlayer.MaxMp, maintenancePlayer.MpPercent, maintenancePlayer.CurrentDp);
         var burstStart = _timeProvider.GetTimestamp();
+        QuickbarSpiritmasterDotPolicy? dotPolicy = null;
+        if (maintenancePlan.UsesSpiritmasterAutoLogic && sharedSkillSettings.Spiritmaster.DotSkills.Count > 0)
+        {
+            spiritContext ??= await ReadSpiritmasterCombatContextAsync(context, target).ConfigureAwait(false);
+            if (spiritContext.CanUseSpiritmasterLogic)
+                dotPolicy = new QuickbarSpiritmasterDotPolicy(state, plan, skills, sharedSkillSettings.Spiritmaster,
+                    target, () => ReadLockedTargetAbnormalStatusesAsync(context), _timeProvider, context.Logger,
+                    context.Config.AccountName);
+        }
+        Func<Task<IReadOnlySet<uint>>>? readSuppressedRootSkillIds = dotPolicy is { HasDotRoots: true }
+            ? dotPolicy.ReadSuppressedRootSkillIdsAsync : null;
+        Func<QuickbarSkillNode, Task>? onSkillPressed = readSuppressedRootSkillIds is not null
+            ? dotPolicy!.OnSkillPressedAsync : null;
         while (true)
         {
             context.StopToken.ThrowIfCancellationRequested();
@@ -182,7 +202,9 @@ public sealed partial class SemiAutoCombatController
                     combat.HpPercent, combat.MaxMp, combat.MpPercent, combat.CurrentDp)
                     .Any(key => !checkedMaintenanceCandidates.Contains(key)),
                 availabilityCooldownReadiness: (skill, bar) => GetQuickbarCooldownReadiness(skill, state, bar, _timeProvider),
-                isCooldownClockCalibrated: () => state.HasCooldownTickCalibration)
+                isCooldownClockCalibrated: () => state.HasCooldownTickCalibration,
+                readSuppressedRootSkillIds: readSuppressedRootSkillIds,
+                onSkillPressed: onSkillPressed)
                 .ConfigureAwait(false);
             if (state.QuickbarSkills.YieldToWorker || !state.QuickbarSkills.SupportsCombatState)
                 return delay;
