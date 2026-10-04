@@ -3307,15 +3307,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
 
                 AttachSkillXmlStaticDetails(GetSkillXmlCatalog().Details, skills);
 
-                if (skillIdFilter is null && _options.GroupByDisplayName)
-                {
-                    skills = SelectHighestDisplaySkillPerName(skills);
-                }
-
-                if (_options.FilterUtilitySkills)
-                {
-                    skills = FilterUsefulLearnedSkills(skills);
-                }
+                skills = SelectSkillsForRefresh(skills, skillIdFilter);
 
                 var snapshots = skills
                     .Select(ToSkillSnapshot)
@@ -5220,6 +5212,17 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         var result = selected.Values.ToList();
         result.Sort((left, right) => left.SkillId.CompareTo(right.SkillId));
         return result;
+    }
+
+    private List<LearnedSkillInfo> SelectSkillsForRefresh(
+        List<LearnedSkillInfo> skills, IReadOnlyCollection<uint>? skillIdFilter)
+    {
+        // Explicit identity requests serve bindings and configured references, including
+        // utility skills placed on the bar. Candidate-list filters apply only to full reads.
+        if (skillIdFilter is not null) return skills;
+        if (_options.GroupByDisplayName) skills = SelectHighestDisplaySkillPerName(skills);
+        if (_options.FilterUtilitySkills) skills = FilterUsefulLearnedSkills(skills);
+        return skills;
     }
 
     private static List<LearnedSkillInfo> FilterUsefulLearnedSkills(List<LearnedSkillInfo> skills)

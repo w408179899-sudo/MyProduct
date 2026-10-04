@@ -8358,18 +8358,12 @@ namespace Roadhog
 
             try
             {
-                currentManualSkills = await _runtime.RefreshSkillsAsync(_account).ConfigureAwait(true);
-                await RefreshSkillBindingsPreviewAsync().ConfigureAwait(true);
-                if (availableSkillTree is not null && skillAutoModeRadio?.Checked == true)
-                    PopulateAvailableSkillTreeFromSkills(availableSkillTree, currentManualSkills);
-                if (systemSkillTree is not null)
-                    PopulateSystemSkillTreeFromSkills(systemSkillTree, currentManualSkills);
-                var refreshResult = RefreshAndSaveConfiguredSkills();
+                var refreshResult = await RefreshConfiguredSkillsCoreAsync().ConfigureAwait(true);
                 RefreshAutomaticSkillDisplays();
                 if (!refreshResult.Saved)
                 {
-                    button.Text = "保存失败";
-                    MessageBox.Show(this, refreshResult.Error, "刷新技能后保存失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    button.Text = "刷新失败";
+                    MessageBox.Show(this, refreshResult.Error, "刷新配置技能未完成", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
 

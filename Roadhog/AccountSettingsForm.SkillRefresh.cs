@@ -1,9 +1,49 @@
+using Roadhog.Application.SemiAuto;
 using Roadhog.Core.Model;
 
 namespace Roadhog;
 
 public sealed partial class AccountSettingsForm
 {
+    private async Task<(int UpdatedCount, int DeletedCount, bool Saved, string Error)> RefreshConfiguredSkillsCoreAsync()
+    {
+        IReadOnlyList<SkillSnapshot> skills;
+        QuickbarSnapshot quickbar;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        try
+        {
+            skills = await _runtime.RefreshSkillsAsync(_account, timeout.Token).ConfigureAwait(true);
+            quickbar = await _runtime.ReadQuickbarAsync(_account, timeout.Token).ConfigureAwait(true);
+            var barIds = quickbar.Slots
+                .Where(slot => slot.ContentType == 21 && slot.SkillId != 0 && slot.Slot is >= 0 and < 12 &&
+                    slot.Bar is SkillQuickbar.Main or SkillQuickbar.Alt)
+                .Select(slot => slot.SkillId).Distinct().ToArray();
+            // The learned list may contain only IV while the bar deliberately holds III.
+            // Obtain III's real identity and metadata before replacing any configured reference.
+            var missingIds = barIds.Except(skills.Select(skill => skill.SkillId)).ToArray();
+            if (missingIds.Length > 0)
+                skills = skills.Concat(await _runtime.RefreshSkillsByIdsAsync(missingIds, _account, timeout.Token)
+                        .ConfigureAwait(true))
+                    .DistinctBy(skill => skill.SkillId).ToArray();
+            if (barIds.Except(skills.Select(skill => skill.SkillId)).Any())
+                return (0, 0, false, "技能栏中的部分技能无法匹配，配置未修改，请重试。");
+            timeout.Token.ThrowIfCancellationRequested();
+        }
+        catch (Exception exception)
+        {
+            return (0, 0, false, "刷新未完成，配置未修改：" + exception.Message);
+        }
+
+        // Commit the candidate set only after every supported bar skill can be resolved.
+        currentManualSkills = skills;
+        previewSkillBindings = new SkillKeyBindings(quickbar, skills);
+        if (availableSkillTree is not null && skillAutoModeRadio?.Checked == true)
+            PopulateAvailableSkillTreeFromSkills(availableSkillTree, skills);
+        if (systemSkillTree is not null)
+            PopulateSystemSkillTreeFromSkills(systemSkillTree, skills);
+        return RefreshAndSaveConfiguredSkills();
+    }
+
     private (int UpdatedCount, int DeletedCount, bool Saved, string Error) RefreshAndSaveConfiguredSkills()
     {
         if (previewSkillBindings is null)
