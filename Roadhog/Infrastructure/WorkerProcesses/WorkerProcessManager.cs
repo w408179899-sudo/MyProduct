@@ -296,7 +296,10 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                     return OperationResult.Fail(HardwareVerificationSession.RequiredMessage);
                 }
                 if (entry.State == "stopping" || entry.StopTask is { IsCompleted: false }) return OperationResult.Fail("账号正在停止，请稍后再启动。");
-                if (entry.Desired && entry.State == "starting")
+                // A monitor that already owns Gate can still be finishing an old
+                // generation while this request has reserved Start. Its display
+                // state is not the admission reservation.
+                if (entry.Desired && (entry.StartingRequest || entry.State == "starting"))
                     return standaloneShopSettings != null ? OperationResult.Fail("账号正在启动，请稍后再提交摆摊任务。") : OperationResult.Ok();
                 if (entry.Desired && Alive(entry) && entry.Status?.IsRunning == true && !cleanup) return OperationResult.Ok();
                 resourceConflict = FindResourceConflict(entry);
@@ -832,9 +835,22 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
         if (Volatile.Read(ref _shuttingDown) != 0) return;
         if (!await entry.Gate.WaitAsync(0, _lifetime.Token).ConfigureAwait(false)) return;
         Task? shopRestart = null;
+        CancellationToken pollOperation = default;
+        CancellationTokenSource? pollOperationSource = null;
+        long pollStopGeneration = 0;
+        // Called under Sync: cancellation of the current operation alone is
+        // not a newer generation (CancelShutdown can resume healthy polling).
+        bool Superseded() => entry.StartingRequest ||
+            !ReferenceEquals(entry.Operation, pollOperationSource) || entry.StopGeneration != pollStopGeneration;
         try
         {
-            if (entry.StartingRequest) return;
+            lock (entry.Sync)
+            {
+                if (entry.StartingRequest) return;
+                pollOperationSource = entry.Operation;
+                pollStopGeneration = entry.StopGeneration;
+                pollOperation = entry.Operation.Token;
+            }
             if (Alive(entry) && entry.Descriptor is not null)
             {
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
@@ -845,6 +861,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                     if (status.InstanceId != entry.Config.InstanceId || status.ProcessId != entry.Process!.Id) throw new IOException("账号后台身份不匹配。");
                     lock (entry.Sync)
                     {
+                        if (Superseded()) return;
                         entry.Status = status; entry.PollFailures = 0;
                         if (status.IsRunning)
                         {
@@ -862,7 +879,8 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                     }
                     if (entry.Desired && entry.Config.AutoRecover && !status.IsRunning && status.Authorized && DateTimeOffset.UtcNow >= entry.RetryAt)
                     {
-                        using var op = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token, entry.Operation.Token);
+                        lock (entry.Sync) if (Superseded()) return;
+                        using var op = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token, pollOperation);
                         await StartCoreAsync(entry, false, op.Token).ConfigureAwait(false);
                     }
                     await FlushNotificationsAsync(entry, timeout.Token).ConfigureAwait(false);
@@ -871,11 +889,15 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return; }
                 catch (Exception ex)
                 {
-                    entry.Error = "后台暂未响应：" + ex.Message;
-                    // IPC liveness is distinct from the game loop heartbeat; long game actions are not killed.
-                    if (++entry.PollFailures < 3) return;
+                    lock (entry.Sync)
+                    {
+                        if (Superseded()) return;
+                        entry.Error = "后台暂未响应：" + ex.Message;
+                        // IPC liveness is distinct from the game loop heartbeat; long game actions are not killed.
+                        if (++entry.PollFailures < 3) return;
+                    }
                     await ShutdownCoreAsync(entry).ConfigureAwait(false);
-                    Fail(entry, "后台失去响应，已结束此账号进程。");
+                    lock (entry.Sync) if (!Superseded()) Fail(entry, "后台失去响应，已结束此账号进程。");
                 }
             }
             if (!Alive(entry))
@@ -886,25 +908,33 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 if (ownedProcessExited && DateTimeOffset.UtcNow < entry.RetryAt) return;
                 var unexpectedlyExited = ownedProcessExited && entry.Desired;
                 await ShutdownCoreAsync(entry).ConfigureAwait(false);
-                if (!entry.Desired)
+                // Start reserves under Sync before waiting for Gate. A Poll
+                // already inside exit cleanup must yield that gate instead of
+                // replacing the new reservation with background recovery.
+                lock (entry.Sync)
                 {
-                    if (ownedProcessExited) lock (entry.Sync) { entry.State = "stopped"; entry.Error = null; }
-                    return;
+                    if (Superseded()) return;
+                    if (!entry.Desired)
+                    {
+                        if (ownedProcessExited) { entry.State = "stopped"; entry.Error = null; }
+                        return;
+                    }
+                    if (unexpectedlyExited) Fail(entry, "账号后台异常退出，等待恢复。");
+                    if (!entry.Config.AutoRecover) { entry.State = "failed"; entry.Error ??= "后台已退出，请手动重试。"; return; }
+                    if (DateTimeOffset.UtcNow < entry.RetryAt) return;
+                    entry.State = "recovering";
                 }
-                if (unexpectedlyExited) Fail(entry, "账号后台异常退出，等待恢复。");
-                if (!entry.Config.AutoRecover) { entry.State = "failed"; entry.Error ??= "后台已退出，请手动重试。"; return; }
-                if (DateTimeOffset.UtcNow < entry.RetryAt) return;
-                entry.State = "recovering";
-                using var op = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token, entry.Operation.Token);
+                using var op = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token, pollOperation);
                 await StartCoreAsync(entry, false, op.Token).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
         {
-            if (!_lifetime.IsCancellationRequested && !entry.Operation.IsCancellationRequested)
-                Fail(entry, "后台初始化或启动超时，已回收并等待重试。");
+            lock (entry.Sync)
+                if (!_lifetime.IsCancellationRequested && !pollOperation.IsCancellationRequested && !Superseded())
+                    Fail(entry, "后台初始化或启动超时，已回收并等待重试。");
         }
-        catch (Exception ex) { Fail(entry, ex.Message); }
+        catch (Exception ex) { lock (entry.Sync) if (!Superseded()) Fail(entry, ex.Message); }
         finally
         {
             entry.Gate.Release();

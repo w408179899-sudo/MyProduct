@@ -21,6 +21,14 @@ internal static class WorkerProcessRobustnessTests
             WriteMarker(Path.Combine(spec.Paths.ClientRoot, "factory-entered"), Environment.ProcessId.ToString());
             await Task.Delay(800);
         }
+        if (scenario == "gated-factory" && File.Exists(Path.Combine(spec.Paths.ClientRoot, "factory-pause")))
+        {
+            RecordWorker(spec);
+            WriteMarker(Path.Combine(spec.Paths.ClientRoot, "factory-entered"), Environment.ProcessId.ToString());
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(4));
+            while (!File.Exists(Path.Combine(spec.Paths.ClientRoot, "factory-release")))
+                await Task.Delay(10, deadline.Token);
+        }
         return await new WorkerProcessHost(launch =>
         {
             RecordWorker(launch);
@@ -73,6 +81,112 @@ internal static class WorkerProcessRobustnessTests
         }
         Require(seenIdentities.Count == 8, "every cycle owned an independent completed process identity");
         Require(new DeviceLeaseStore(test.LeasePath).ReadActive().Value?.Count == 0, "repeated stops leave no active DMA leases");
+    }
+
+    public static async Task ManualStartReservationWinsInFlightExitPollAsync()
+    {
+        await using var test = new EnvironmentScope();
+        var account = test.Account(1);
+        var neighbor = test.Account(2);
+        var reconciler = new PausingExitReconciler();
+        var manager = await test.ManagerAsync(new[] { account, neighbor }, "delayed-factory", exitReconciler: reconciler);
+        RequireSuccess(await Task.WhenAll(manager.StartAsync(account.InstanceId), manager.StartAsync(neighbor.InstanceId)),
+            "start reservation regression accounts");
+        var oldPid = (await RunningAsync(manager, account)).WorkerProcessId!.Value;
+        var neighborPid = (await RunningAsync(manager, neighbor)).WorkerProcessId;
+        reconciler.Pause(oldPid);
+        try
+        {
+            await KillAsync(oldPid);
+            await reconciler.Entered.WaitAsync(TimeSpan.FromSeconds(4));
+            // Poll already owns Gate and passed its first StartingRequest check.
+            // Reserve a manual Start while that old generation's cleanup awaits.
+            var primary = manager.StartAsync(account.InstanceId);
+            Require(View(manager, account).State == "starting", "manual start reserves before awaiting the poll gate");
+            RequireSuccess(await Task.WhenAll(Enumerable.Range(0, 6).Select(_ => manager.StartAsync(account.InstanceId))),
+                "duplicate starts preserve the manual reservation during exit cleanup");
+            var recoveryOverwroteReservation = false;
+            var duplicateDuringRecovery = Task.Run(async () =>
+            {
+                var watch = Stopwatch.StartNew();
+                while (!primary.IsCompleted && watch.Elapsed < TimeSpan.FromSeconds(4))
+                {
+                    if (View(manager, account).State == "recovering")
+                    {
+                        recoveryOverwroteReservation = true;
+                        return await manager.StartAsync(account.InstanceId);
+                    }
+                    await Task.Delay(1);
+                }
+                return OperationResult.Ok();
+            });
+            reconciler.Release();
+            RequireSuccess(await Task.WhenAll(primary, duplicateDuringRecovery).WaitAsync(TimeSpan.FromSeconds(5)),
+                "manual reservation survives a poll that was already inside old-worker cleanup");
+            Require(!recoveryOverwroteReservation, "old poll never publishes recovery over the admitted manual start");
+            var running = await RunningAsync(manager, account);
+            Require(running.WorkerProcessId != oldPid && !Alive(oldPid), "reserved start owns one new worker after old-worker exit");
+            Require((await InfoAsync(test, account)).Starts == 1, "the reserved generation enters the backend exactly once");
+            Require(View(manager, neighbor).WorkerProcessId == neighborPid && (await InfoAsync(test, neighbor)).Running,
+                "reservation fencing never restarts or stops the neighboring worker");
+        }
+        finally { reconciler.Release(); }
+    }
+
+    public static async Task CancelledShutdownResumesHealthyStatusPollingAsync()
+    {
+        await using var test = new EnvironmentScope();
+        var account = test.Account(1);
+        var manager = await test.ManagerAsync(new[] { account });
+        Require((await manager.StartAsync(account.InstanceId)).Success, "start healthy worker before cancelled shutdown");
+        var pid = (await RunningAsync(manager, account)).WorkerProcessId;
+        manager.BeginShutdown();
+        manager.CancelShutdown();
+        var resumedAt = DateTimeOffset.UtcNow;
+        await UntilAsync(() => View(manager, account).Worker is { } status && status.ReportedAtUtc > resumedAt,
+            "a cancelled but unreplaced operation must still publish fresh healthy worker status");
+        var firstReport = View(manager, account).Worker!.ReportedAtUtc;
+        await UntilAsync(() => View(manager, account).Worker is { } status && status.ReportedAtUtc > firstReport,
+            "healthy status polling keeps advancing after the first resumed report");
+        Require(View(manager, account) is { State: "running", DesiredRunning: true } &&
+            View(manager, account).WorkerProcessId == pid && (await InfoAsync(test, account)).Starts == 1,
+            "cancelled shutdown resumes status without starting or stopping the existing worker");
+    }
+
+    public static async Task StaleExitPollExceptionPreservesManualStartReservationAsync()
+    {
+        await using var test = new EnvironmentScope();
+        var account = test.Account(1);
+        var reconciler = new PausingExitReconciler { FailAfterRelease = true };
+        var manager = await test.ManagerAsync(new[] { account }, "gated-factory", exitReconciler: reconciler);
+        Require((await manager.StartAsync(account.InstanceId)).Success, "start worker before stale cleanup exception");
+        var oldPid = (await RunningAsync(manager, account)).WorkerProcessId!.Value;
+        WriteMarker(Path.Combine(test.Root, "factory-pause"), "pause replacement initialization");
+        reconciler.Pause(oldPid);
+        try
+        {
+            await KillAsync(oldPid);
+            await reconciler.Entered.WaitAsync(TimeSpan.FromSeconds(4));
+            var primary = manager.StartAsync(account.InstanceId);
+            Require(View(manager, account).State == "starting", "manual start reserves while the old exit poll awaits");
+            reconciler.Release();
+            // The replacement cannot finish until this test releases its factory.
+            // Inspect the reservation after the old Poll's injected IOException.
+            await UntilAsync(() => File.Exists(Path.Combine(test.Root, "factory-entered")),
+                "replacement reaches the controlled factory gate", 3000);
+            var reserved = View(manager, account);
+            Require(!primary.IsCompleted && reserved is { State: "starting", DesiredRunning: true, Error: null },
+                "a stale cleanup exception cannot publish failure or recovery over the new manual reservation");
+            WriteMarker(Path.Combine(test.Root, "factory-release"), "continue replacement initialization");
+            Require((await primary.WaitAsync(TimeSpan.FromSeconds(4))).Success, "manual start succeeds after the stale cleanup exception");
+            Require((await RunningAsync(manager, account)).WorkerProcessId != oldPid &&
+                (await InfoAsync(test, account)).Starts == 1, "the new reservation starts one independent worker");
+        }
+        finally
+        {
+            reconciler.Release();
+            WriteMarker(Path.Combine(test.Root, "factory-release"), "release failed-test cleanup");
+        }
     }
 
     public static async Task RepeatedRandomCrashesRemainIsolatedAsync()
@@ -453,6 +567,28 @@ internal static class WorkerProcessRobustnessTests
     }
 
     private sealed record ReconciliationCall(WorkerDescriptor Descriptor, string ExecutablePath);
+
+    private sealed class PausingExitReconciler : IWorkerProcessExitReconciler
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _pausedPid;
+        private int _failed;
+        public bool FailAfterRelease { get; init; }
+        public Task Entered => _entered.Task;
+        public void Pause(int pid) => Volatile.Write(ref _pausedPid, pid);
+        public void Release() => _release.TrySetResult();
+        public async Task ReconcileAsync(WorkerDescriptor descriptor, string executablePath, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Require(!Alive(descriptor.ProcessId), "reservation test pauses only after its owned worker has exited");
+            if (descriptor.ProcessId != Volatile.Read(ref _pausedPid)) return;
+            _entered.TrySetResult();
+            await _release.Task.WaitAsync(cancellationToken);
+            if (FailAfterRelease && Interlocked.Exchange(ref _failed, 1) == 0)
+                throw new IOException("injected stale exit-poll cleanup exception");
+        }
+    }
 
     private sealed class FakeExitReconciler : IWorkerProcessExitReconciler
     {
