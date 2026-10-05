@@ -14,6 +14,7 @@ public sealed class SkillKeyBindings
     private readonly IReadOnlyList<SkillSnapshot> _skills;
     private readonly Dictionary<uint, string> _keys;
     public int Page { get; }
+    public IReadOnlyList<uint> SkillIds { get; }
 
     public SkillKeyBindings(QuickbarSnapshot quickbar, IReadOnlyList<SkillSnapshot> skills)
     {
@@ -24,6 +25,7 @@ public sealed class SkillKeyBindings
         foreach (var slot in quickbar.Slots.OrderBy(s => s.Bar).ThenBy(s => s.Slot))
             if (slot.ContentType == 21 && slot.SkillId != 0 && slot.Slot is >= 0 and < 12 && slot.Bar is SkillQuickbar.Main or SkillQuickbar.Alt)
                 _keys.TryAdd(slot.SkillId, (slot.Bar == SkillQuickbar.Main ? MainKeys : AltKeys)[slot.Slot]);
+        SkillIds = Array.AsReadOnly(_keys.Keys.ToArray());
     }
 
     public BoundSkill? Resolve(uint id, string? name)
@@ -41,9 +43,16 @@ public sealed class SkillKeyBindings
     {
         var direct = Resolve(id, name);
         if (direct is not null || parent is null) return direct;
-        var child = _skills.FirstOrDefault(s => id != 0 ? s.SkillId == id : Matches(s.Name, name));
+        // Inheritance must not undo Resolve's protection against ambiguous names.
+        // Repeated snapshots of the same identity are harmless; different identities
+        // with the same name require an explicitly configured ID.
+        var children = _skills.Where(s => s.SkillId != 0 && (id != 0
+                ? s.SkillId == id : Matches(s.Name, name) || Matches(s.DisplayBaseName, name)))
+            .DistinctBy(s => s.SkillId).Take(2).ToArray();
+        if (children.Length != 1) return null;
+        var child = children[0];
         var source = _skills.FirstOrDefault(s => s.SkillId == parent.SkillId);
-        if (child is null || source is null || string.IsNullOrWhiteSpace(child.XmlPrechainCategory) || string.IsNullOrWhiteSpace(source.XmlChainCategory)) return null;
+        if (source is null || string.IsNullOrWhiteSpace(child.XmlPrechainCategory) || string.IsNullOrWhiteSpace(source.XmlChainCategory)) return null;
         var requirements = child.XmlPrechainCategory.Split(new[] { ',', ';', '|', ' ' }, StringSplitOptions.RemoveEmptyEntries);
         return requirements.Contains(source.XmlChainCategory, StringComparer.OrdinalIgnoreCase)
             ? new(child.SkillId, child.Name, parent.Key) : null;

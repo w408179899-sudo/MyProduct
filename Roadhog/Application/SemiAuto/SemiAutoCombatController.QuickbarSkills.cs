@@ -11,10 +11,8 @@ public sealed partial class SemiAutoCombatController
     private QuickbarSkillCombatController? quickbarSkillController;
     internal static readonly TimeSpan QuickbarCombatBurstBudget = TimeSpan.FromMilliseconds(320);
 
-    // The legacy TickAsync body remains unchanged. This mode owns its attack
-    // state and calls the existing maintenance/opening boundaries serially;
-    // legacy trigger prefixes, retries and inferred chains never run here.
-    // Optional weaving consumes this mode's own confirmed releases only.
+    // Attack execution uses the current bar state and its own serial state.
+    // Maintenance, opening and pet actions retain their shared boundaries.
     private async Task<TimeSpan> TickQuickbarSkillsAsync(
         AccountWorkerContext context,
         SemiAutoSkillPlan maintenancePlan,
@@ -71,8 +69,12 @@ public sealed partial class SemiAutoCombatController
             state.QuickbarSkills.Reset();
             state.CancelSpiritmasterDotObservation();
         }
-        if (killed)
-            context.RuntimeStates.MarkKill(context.Config.AccountName, killedId, target.ServerObjectId, target.CapturedAt);
+        if (killed && context.RuntimeStates.MarkKill(context.Config.AccountName, killedId, target.ServerObjectId, target.CapturedAt))
+            context.Logger.Info("semi_auto.target.kill_counted", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName, ["targetEntityId"] = killedId,
+                ["targetServerObjectId"] = target.ServerObjectId, ["targetName"] = target.Name
+            });
         if (!target.IsMonsterAlive)
         {
             state.QuickbarSkills.Reset();
@@ -88,11 +90,11 @@ public sealed partial class SemiAutoCombatController
         // The old attack tree is not an input to this mode. Only shared opening
         // and pet actions retain their old skill-read requirements.
         var sharedIds = maintenancePlan.UsesSpiritmasterAutoLogic
-            ? maintenancePlan.SkillReadIds
+            ? maintenancePlan.SharedSkillReadIds
             : maintenancePlan.OpeningSkills.Select(node => node.SkillId).Where(id => id != 0).ToArray();
         var exactIds = plan.SkillReadIds.Concat(sharedIds).Distinct().ToArray();
         var needsFullRead = maintenancePlan.OpeningSkills.Any(node => node.SkillId == 0) ||
-            (maintenancePlan.UsesSpiritmasterAutoLogic && maintenancePlan.RequiresFullSkillRead);
+            (maintenancePlan.UsesSpiritmasterAutoLogic && maintenancePlan.RequiresFullSharedSkillRead);
         var skills = needsFullRead
             ? (await context.Snapshots.ReadSkillsAsync().ConfigureAwait(false)).Value
             : exactIds.Length > 0
@@ -108,6 +110,7 @@ public sealed partial class SemiAutoCombatController
         // Ordinary skills and the unchanged maintenance rules share the existing
         // cooldown clock. Conditional skills still require the official bar signal.
         UpdateCooldownCalibration(context, state, skills, CurrentOsTick(), DateTimeOffset.Now);
+        InvalidateQuickbarCooldownCalibrationIfNeeded(context, state, plan, skills);
         if (settings.AttackWeaveEnabled &&
             !await ObserveQuickbarOpeningWeaveAsync(context, state, settings, target, skills).ConfigureAwait(false))
             return tick;
@@ -119,16 +122,19 @@ public sealed partial class SemiAutoCombatController
                 await PressSpiritmasterOpeningAttackKeyIfNeededAsync(context, state, settings,
                     sharedSkillSettings.Spiritmaster, target).ConfigureAwait(false))
             {
+                jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
                 state.QuickbarSkills.SuspendInputAttempts(preserveAttackWeave: settings.AttackWeaveEnabled);
                 return tick;
             }
             if (await PressQuickbarOpeningSkillIfNeededAsync(context, state, settings, maintenancePlan, target, skills).ConfigureAwait(false))
             {
+                jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
                 state.QuickbarSkills.SuspendInputAttempts(preserveAttackWeave: settings.AttackWeaveEnabled);
                 return tick;
             }
             if (await PressOpeningAttackKeyIfNeededAsync(context, state, settings, target).ConfigureAwait(false))
             {
+                jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
                 state.QuickbarSkills.SuspendInputAttempts(preserveAttackWeave: settings.AttackWeaveEnabled);
                 return tick;
             }
@@ -140,6 +146,7 @@ public sealed partial class SemiAutoCombatController
                     await TryHandleSpiritmasterSpecialAsync(context, state, settings, sharedSkillSettings.Spiritmaster,
                         skills, spiritContext, suppressSpiritmasterPetSummon).ConfigureAwait(false))
                 {
+                    jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
                     state.QuickbarSkills.SuspendInputAttempts();
                     return tick;
                 }
@@ -189,6 +196,18 @@ public sealed partial class SemiAutoCombatController
             ? dotPolicy.ReadSuppressedRootSkillIdsAsync : null;
         Func<QuickbarSkillNode, Task>? onSkillPressed = readSuppressedRootSkillIds is not null
             ? dotPolicy!.OnSkillPressedAsync : null;
+        QuickbarSpiritmasterPetPolicy? petPolicy = null;
+        if (maintenancePlan.UsesSpiritmasterAutoLogic)
+        {
+            var candidate = new QuickbarSpiritmasterPetPolicy(plan, skills, () => ReadSummonedPetRosterAsync(context));
+            if (candidate.HasCommands)
+            {
+                spiritContext ??= await ReadSpiritmasterCombatContextAsync(context, target).ConfigureAwait(false);
+                if (spiritContext.CanUseSpiritmasterLogic) petPolicy = candidate;
+            }
+        }
+        Func<Task<IReadOnlySet<uint>>>? readSuppressedSkillIds = petPolicy is { HasCommands: true }
+            ? petPolicy.ReadSuppressedSkillIdsAsync : null;
         while (true)
         {
             context.StopToken.ThrowIfCancellationRequested();
@@ -204,7 +223,8 @@ public sealed partial class SemiAutoCombatController
                 availabilityCooldownReadiness: (skill, bar) => GetQuickbarCooldownReadiness(skill, state, bar, _timeProvider),
                 isCooldownClockCalibrated: () => state.HasCooldownTickCalibration,
                 readSuppressedRootSkillIds: readSuppressedRootSkillIds,
-                onSkillPressed: onSkillPressed)
+                onSkillPressed: onSkillPressed,
+                readSuppressedSkillIds: readSuppressedSkillIds)
                 .ConfigureAwait(false);
             if (state.QuickbarSkills.YieldToWorker || !state.QuickbarSkills.SupportsCombatState)
                 return delay;
@@ -222,6 +242,38 @@ public sealed partial class SemiAutoCombatController
         var skills = (await context.Snapshots.ReadSkillsAsync(ids).ConfigureAwait(false)).Value;
         UpdateCooldownCalibration(context, state, skills, CurrentOsTick(), DateTimeOffset.Now);
         return skills;
+    }
+
+    private static void InvalidateQuickbarCooldownCalibrationIfNeeded(AccountWorkerContext context,
+        SemiAutoCombatState state, QuickbarSkillPlan plan,
+        IReadOnlyList<SkillSnapshot> skills)
+    {
+        var ids = plan.Roots.Select(node => node.SkillId).ToHashSet();
+        var candidates = skills.Where(skill => ids.Contains(skill.SkillId) &&
+            QuickbarSkillCombatController.IsOrdinarySkill(skill)).DistinctBy(skill => skill.SkillId).ToArray();
+        if (!state.TryInvalidateImplausibleCooldownTickCalibration(candidates, CurrentOsTick(), DateTimeOffset.Now,
+                SemiAutoSkillReleasePriority.CooldownReadyToleranceMs, out var invalidation)) return;
+
+        // A completed startup budget belongs to the previous clock calibration.
+        // An actual invalidation permits a fresh finite trial, without resetting
+        // accepted chain opportunities or claiming a skill was released.
+        state.QuickbarSkills.ClockBootstrap.Reset();
+        state.QuickbarSkills.ClockBootstrapCompletionLogged = false;
+        context.Logger.Warn("semi_auto.cooldown.calibration_invalidated", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["skill"] = invalidation.SkillName,
+            ["skillId"] = invalidation.SkillId,
+            ["durationMs"] = invalidation.CooldownDuration,
+            ["endTick"] = invalidation.CooldownEndTime,
+            ["effectiveEndTick"] = invalidation.EffectiveCooldownEndTime,
+            ["osTick"] = invalidation.OsTick,
+            ["estimatedGameTick"] = invalidation.EstimatedGameTick,
+            ["oldOffsetMs"] = invalidation.OldOffsetMs,
+            ["remainingMs"] = invalidation.RemainingMs,
+            ["suspiciousSkillCount"] = invalidation.SuspiciousSkillCount,
+            ["reason"] = invalidation.Reason
+        });
     }
 
     internal static SemiAutoSkillCooldownReadiness GetQuickbarCooldownReadiness(

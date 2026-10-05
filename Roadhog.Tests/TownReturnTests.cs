@@ -159,7 +159,8 @@ internal static class TownReturnTests
         try
         {
             await observed.Task.WaitAsync(TimeSpan.FromSeconds(8));
-            Check(h.Input.Keys.All(k => k == "F8") && !h.Input.KeyDowns.Contains("W"), "worker must not summon, attack or walk while recall owns it");
+            Check(h.Input.Keys.SequenceEqual(new[] { "F1", "F8" }) && !h.Input.KeyDowns.Contains("W"),
+                "one startup F1 precedes recall; no repeated startup, summon, attack or walking while recall owns the worker: " + string.Join(",", h.Input.Keys));
         }
         catch (TimeoutException)
         {

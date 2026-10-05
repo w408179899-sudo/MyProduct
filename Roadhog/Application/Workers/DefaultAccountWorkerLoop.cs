@@ -76,8 +76,9 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
             MainMode = context.Config.MainMode,
             CombatMode = context.Config.CombatMode
         };
-        var semiAutoPlan = SemiAutoSkillPlan.FromSettings(scriptSettings.Skills, context.SkillBindings, context.ReportMissingSkillBinding);
-        var semiAutoState = new SemiAutoCombatState();
+        var semiAutoPlan = SemiAutoSkillPlan.FromSharedSettings(scriptSettings.Skills, context.SkillBindings, context.ReportMissingSkillBinding);
+        var attackPlan = QuickbarSkillPlan.FromSettings(scriptSettings.QuickbarSkills, context.SkillBindings!, context.ReportMissingSkillBinding);
+        var semiAutoState = new SemiAutoCombatState { QuickbarPlan = attackPlan };
         var stationaryCombatState = new StationaryCombatState();
         var teamSupportState = new TeamSupportState();
         var teamOutputState = new TeamOutputState();
@@ -99,16 +100,15 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         context.Logger.Info("semi_auto.plan.loaded", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
-            ["mode"] = scriptSettings.Skills.Mode.ToString(),
-            ["topLevelSkillCount"] = semiAutoPlan.Roots.Count,
-            ["chainRootCount"] = semiAutoPlan.Roots.Count(root => root.Children.Count > 0),
-            ["triggerPrefixCount"] = semiAutoPlan.TriggerPrefixRoots.Count,
-            ["skillReadIdCount"] = semiAutoPlan.SkillReadIds.Count,
-            ["requiresFullSkillRead"] = semiAutoPlan.RequiresFullSkillRead,
-            ["hasExecutableSkills"] = semiAutoPlan.HasExecutableSkills,
+            ["mode"] = SkillTreeReleaseMode.QuickbarAvailability.ToString(),
+            ["topLevelSkillCount"] = attackPlan.Roots.Count,
+            ["chainRootCount"] = attackPlan.Roots.Count(root => root.Children.Count > 0),
+            ["skillReadIdCount"] = attackPlan.SkillReadIds.Concat(semiAutoPlan.SharedSkillReadIds).Distinct().Count(),
+            ["requiresFullSkillRead"] = semiAutoPlan.RequiresFullSharedSkillRead,
+            ["hasExecutableSkills"] = attackPlan.HasCombatActions,
             ["spiritmasterAutoLogic"] = semiAutoPlan.UsesSpiritmasterAutoLogic,
-            ["topLevelSkills"] = string.Join(" > ", semiAutoPlan.Roots.Select(root => root.Name + "[" + root.Type + "]@" + root.Key)),
-            ["chainRoots"] = string.Join(" > ", semiAutoPlan.Roots.Where(root => root.Children.Count > 0).Select(root => root.Name + "@" + root.Key))
+            ["topLevelSkills"] = string.Join(" > ", attackPlan.Roots.Select(root => root.Name + "@" + root.Key)),
+            ["chainRoots"] = string.Join(" > ", attackPlan.Roots.Where(root => root.Children.Count > 0).Select(root => root.Name + "@" + root.Key))
         });
 
         try

@@ -50,7 +50,9 @@ internal static partial class CleanupWorkflowTests
             game.WrongHover = false;
             await WaitFor("cleanup_workflow.complete");
             Require(game.Removed.SequenceEqual(new ulong[] { 100, 101, 102 }) && !game.Open, "automatic worker clears the last item before resuming");
-            Require(game.Input.Keys.All(k => k is "I" or "Escape"), "automatic retry never recalls, moves or opens NPC dialogue");
+            Require(game.Input.Keys.FirstOrDefault() == "F1" && game.Input.Keys.Skip(1).All(k => k is "I" or "Escape")
+                && !game.Input.KeyDowns.Any(k => k is "W" or "A" or "S" or "D"),
+                "one startup F1 is followed only by inventory operations; retry never repeats startup, recalls, moves or opens NPC dialogue: " + string.Join(",", game.Input.Keys));
         }
         finally
         {

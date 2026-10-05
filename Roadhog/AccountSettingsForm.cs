@@ -99,10 +99,10 @@ namespace Roadhog
         private double legacyStationaryGatherSearchRadiusMeters = 10.0D;
         private double gatherOccupiedCheckRadiusMeters = 5.0D;
         private RoundedCheckBox? openingAttackKeyCheckBox;
-        private RoundedCheckBox? conditionSkillPreemptsChainCheckBox;
+        private RoundedCheckBox? conditionSkillPreemptsChainCheckBox = null;
         private RoundedCheckBox? attackWeaveCheckBox;
         private RoundedTextBox? attackWeaveDelayTextBox;
-        private RoundedTextBox? chainWindowPerLinkTextBox;
+        private RoundedTextBox? chainWindowPerLinkTextBox = null;
         private RoundedCheckBox? spiritmasterAutoSkillCheckBox;
         private Button? spiritmasterSettingsButton;
         private RoundedCheckBox? openingSkillEnabledCheckBox;
@@ -205,14 +205,14 @@ namespace Roadhog
         private Button? teamMentalCleanseKeyButton;
         private Button? teamPhysicalCleanseKeyButton;
         private Button? teamGroupCleanseKeyButton;
-        private RadioButton? skillAutoModeRadio;
-        private Panel? autoSkillPanel;
-        private Panel? manualSkillPanel;
-        private Panel? systemSkillPanel;
-        private TreeView? availableSkillTree;
-        private TreeView? selectedSkillTree;
-        private TreeView? systemSkillTree;
-        private TreeView? systemSelectedSkillTree;
+        private RadioButton? skillAutoModeRadio = null;
+        private Panel? autoSkillPanel = null;
+        private Panel? manualSkillPanel = null;
+        private Panel? systemSkillPanel = null;
+        private TreeView? availableSkillTree = null;
+        private TreeView? selectedSkillTree = null;
+        private TreeView? systemSkillTree = null;
+        private TreeView? systemSelectedSkillTree = null;
         private FlowLayoutPanel? manualSkillMappingList;
         private FlowLayoutPanel? spiritmasterDotRuleList;
         private FlowLayoutPanel? spiritmasterSummonRuleList;
@@ -453,6 +453,7 @@ namespace Roadhog
 
         private void ApplyScriptSettings(ScriptSettings settings)
         {
+            settings = settings.Clone();
             SetText(profileNameTextBox, settings.ProfileName);
             UpdateCurrentProfileDisplay(settings.ProfileName);
             SelectProfileComboItem(settings.ProfileName, loadProfile: false);
@@ -661,23 +662,14 @@ namespace Roadhog
                 ? "default_profile"
                 : capturedSettings.ProfileName.Trim();
             capturedSettings.ProfileName = profileName;
-            var profileResult = _profileStore.SaveAsync(new ScriptProfileDocument
-            {
-                Name = profileName,
-                Settings = capturedSettings.Clone()
-            }).GetAwaiter().GetResult();
-            if (!profileResult.Success)
-            {
-                error = profileResult.Error ?? "保存方案失败。";
-                return false;
-            }
-
             account.AccountName = _account;
             account.Region = regionCombo?.Text.Trim() ?? account.Region;
             account.ScriptSettings = capturedSettings;
             ApplyScriptSettingsToLegacyFields(account, account.ScriptSettings);
 
-            var result = _configStore.UpsertAsync(account).GetAwaiter().GetResult();
+            var result = AccountSettingsPersistence.SaveAsync(_profileStore, _configStore,
+                new ScriptProfileDocument { Name = profileName, Settings = capturedSettings.Clone() },
+                account).GetAwaiter().GetResult();
             error = result.Error ?? "保存账号配置失败。";
             if (!result.Success)
             {
@@ -963,12 +955,11 @@ namespace Roadhog
                     OpeningSkill = CaptureOpeningSkill(),
                     SpiritmasterAutoSkillLogicEnabled = spiritmasterAutoSkillCheckBox?.Checked ?? false,
                     Spiritmaster = CaptureSpiritmasterSettings(),
-                    TriggerPrefixMode = "TopContiguousTriggerSkills",
+                    KeyOrder = loadedLegacySkillSettings.KeyOrder.ToList(),
+                    TriggerPrefixMode = loadedLegacySkillSettings.TriggerPrefixMode,
                     ExecutionTree = CaptureLegacyExecutionTree(),
-                    ManualMappings = CaptureManualSkillMappings(),
-                    SystemExecutionTree = systemSelectedSkillTree is null
-                        ? new List<SkillConfigNode>()
-                        : CaptureSkillTree(systemSelectedSkillTree.Nodes)
+                    ManualMappings = loadedLegacySkillSettings.ManualMappings.Select(mapping => mapping.Clone()).ToList(),
+                    SystemExecutionTree = loadedLegacySkillSettings.SystemExecutionTree.Select(node => node.Clone()).ToList()
                 },
                 SkillTreeReleaseMode = CaptureSkillTreeReleaseMode(),
                 QuickbarSkills = CaptureQuickbarSkillSettings()
@@ -1046,7 +1037,7 @@ namespace Roadhog
 
         private SkillConfigurationMode CaptureSkillConfigurationMode()
         {
-            return SkillConfigurationMode.Auto;
+            return loadedLegacySkillSettings.Mode;
         }
 
         private static void ApplyScriptSettingsToLegacyFields(AccountConfig account, ScriptSettings settings)
@@ -5836,127 +5827,29 @@ namespace Roadhog
             page.Controls.Add(optionsPanel);
             AddLabel(optionsPanel, "技能配置", 12, 4, 90, 24, _textGreen, FontStyle.Bold);
             AddLabel(optionsPanel, "按键自动匹配主栏 / Alt栏；移动技能后重启脚本", 168, 4, 630, 24);
-            var autoMode = AddRadioButton(optionsPanel, "自动技能", 12, 32, 120, true);
-            // Keep the existing mode state for loading/saving; there is no mode choice in this UI.
-            autoMode.Visible = false;
-            autoMode.BackColor = optionsPanel.BackColor;
-            skillAutoModeRadio = autoMode;
             openingAttackKeyCheckBox = AddCheckBox(optionsPanel, "开怪按C", 168, 32, 120, true);
             spiritmasterAutoSkillCheckBox = AddCheckBox(optionsPanel, "精灵专用", 324, 32, 120, false);
             spiritmasterAutoSkillCheckBox.Click += (_, _) => RefreshSpiritmasterAutoSkillCheckBoxState();
             spiritmasterSettingsButton = AddButton(optionsPanel, "精灵设置", 456, 29, 112, 30, (_, _) => ShowSpiritmasterSettingsDialog());
             spiritmasterSettingsButton.Visible = false;
-            conditionSkillPreemptsChainCheckBox = AddCheckBox(optionsPanel, "条件抢连招", 12, 74, 126, true);
-            AddLabel(optionsPanel, "连招段", 148, 74, 60, 24);
-            chainWindowPerLinkTextBox = AddTextBox(
-                optionsPanel,
-                SemiAutoScriptSettings.DefaultChainWindowPerLinkMs.ToString(),
-                212,
-                72,
-                64,
-                28);
-            AddLabel(optionsPanel, "ms", 284, 74, 32, 24);
 
-            attackWeaveCheckBox = AddCheckBox(optionsPanel, "卡刀（每2技能）", 416, 74, 148, false);
+            attackWeaveCheckBox = AddCheckBox(optionsPanel, "卡刀（每2技能）", 12, 74, 148, false);
             attackWeaveCheckBox.Name = "attackWeaveCheckBox";
-            AddLabel(optionsPanel, "等待", 576, 74, 40, 24);
+            AddLabel(optionsPanel, "等待", 172, 74, 40, 24);
             attackWeaveDelayTextBox = AddTextBox(
-                optionsPanel, SemiAutoScriptSettings.DefaultAttackWeaveDelayMs.ToString(), 620, 72, 64, 28);
+                optionsPanel, SemiAutoScriptSettings.DefaultAttackWeaveDelayMs.ToString(), 216, 72, 64, 28);
             attackWeaveDelayTextBox.Name = "attackWeaveDelayTextBox";
             attackWeaveDelayTextBox.Enabled = false;
             attackWeaveCheckBox.Click += (_, _) =>
                 attackWeaveDelayTextBox.Enabled = attackWeaveCheckBox.Checked;
-            AddLabel(optionsPanel, "ms", 692, 74, 32, 24);
+            AddLabel(optionsPanel, "ms", 288, 74, 32, 24);
             foreach (var option in optionsPanel.Controls.OfType<RoundedCheckBox>())
             {
                 option.BackColor = optionsPanel.BackColor;
             }
 
-            var autoPanel = CreateSkillModePanel(page, "autoSkillPanel", true);
-            autoSkillPanel = autoPanel;
-            var manualPanel = CreateSkillModePanel(page, "manualSkillPanel", false);
-            manualSkillPanel = manualPanel;
-            var systemPanel = CreateSkillModePanel(page, "systemSkillPanel", false);
-            systemSkillPanel = systemPanel;
-            foreach (var panel in new[] { autoPanel, manualPanel, systemPanel })
-            {
-                panel.Anchor = AnchorStyles.Top | AnchorStyles.Left;
-                panel.Location = new Point(12, 136);
-                panel.Size = new Size(828, 420);
-            }
-
-            AddLabel(autoPanel, "可用技能", 0, 2, 120, 24, _textGreen, FontStyle.Bold);
-            AddLabel(autoPanel, "技能执行顺序", 416, 2, 160, 24, _textGreen, FontStyle.Bold);
-
-            var availableTree = CreateSkillTree(autoPanel, "availableSkillTree", 0, 38, 316, 292);
-            availableSkillTree = availableTree;
-            var selectedTree = CreateSkillTree(autoPanel, "selectedSkillTree", 416, 38, 316, 292);
-            selectedSkillTree = selectedTree;
-            AddSkillTreeBindingDisplay(selectedTree);
-            PopulateAvailableSkillTree(availableTree);
-            PopulateSelectedSkillTree(selectedTree);
-
-            var refreshSkillsButton = AddButton(autoPanel, "刷新当前技能", 182, 0, 134, 30);
-            refreshSkillsButton.Click += async (_, _) =>
-                await RefreshCurrentSkillsAsync(refreshSkillsButton, availableTree, systemSkillTree).ConfigureAwait(true);
-
-            AddButton(autoPanel, "添加 >", 328, 169, 76, 30, (_, _) => AddSkillSelection(availableTree, selectedTree));
-
-            var refreshSelectedSkillsButton = AddButton(autoPanel, "刷新全部已配置技能", 588, 0, 144, 30);
-            refreshSelectedSkillsButton.Click += async (_, _) =>
-                await RefreshConfiguredSkillsAsync(refreshSelectedSkillsButton).ConfigureAwait(true);
-
-            AddButton(autoPanel, "置顶", 744, 69, 84, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Top));
-            AddButton(autoPanel, "上移", 744, 109, 84, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Up));
-            AddButton(autoPanel, "下移", 744, 149, 84, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Down));
-            AddButton(autoPanel, "置底", 744, 189, 84, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Bottom));
-            AddButton(autoPanel, "移除", 744, 229, 84, 30, (_, _) => RemoveSelectedSkill(selectedTree));
-            AddButton(autoPanel, "清空", 744, 269, 84, 30, (_, _) => selectedTree.Nodes.Clear());
-
-            CreateOpeningSkillEditor(autoPanel);
-            AddLabel(manualPanel, "手动分类 / 手动Mapping", 8, 6, 160, 24, _textGreen, FontStyle.Bold);
-
-            var mappingRows = CreateManualSkillMappingList(manualPanel);
-
-            AddButton(manualPanel, "新增Mapping", 176, 0, 116, 30, (_, _) => AddManualSkillMapping(mappingRows));
-            AddButton(manualPanel, "清空", 300, 0, 62, 30, (_, _) => mappingRows.Controls.Clear());
-
-            AddLabel(systemPanel, "系统分类", 8, 6, 120, 24, _textGreen, FontStyle.Bold);
-            AddLabel(systemPanel, "系统执行顺序", 378, 6, 140, 24, _textGreen, FontStyle.Bold);
-
-            var systemTree = CreateSkillTree(systemPanel, "systemSkillTree", 8, 34, 260, 260);
-            systemSkillTree = systemTree;
-            PopulateSystemSkillTree(systemTree);
-            var systemSelectedTree = CreateSkillTree(systemPanel, "systemSelectedSkillTree", 378, 34, 300, 260);
-            systemSelectedSkillTree = systemSelectedTree;
-            AddSkillTreeBindingDisplay(systemSelectedTree);
-            PopulateSelectedSkillTree(systemSelectedTree);
-
-            AddButton(systemPanel, "添加 >", 288, 102, 70, 30, (_, _) => AddSystemSkillSelection(systemTree, systemSelectedTree));
-            AddButton(systemPanel, "< 移除", 288, 140, 70, 30, (_, _) => RemoveSelectedSkill(systemSelectedTree));
-            AddButton(systemPanel, "全部 >>", 288, 178, 70, 30, (_, _) => AddAllSystemSkills(systemTree, systemSelectedTree));
-            AddButton(systemPanel, "清空", 288, 216, 70, 30, (_, _) => systemSelectedTree.Nodes.Clear());
-
-            AddButton(systemPanel, "置顶", 696, 102, 70, 30, (_, _) => MoveSelectedSkill(systemSelectedTree, SkillMove.Top));
-            AddButton(systemPanel, "上移", 696, 140, 70, 30, (_, _) => MoveSelectedSkill(systemSelectedTree, SkillMove.Up));
-            AddButton(systemPanel, "下移", 696, 178, 70, 30, (_, _) => MoveSelectedSkill(systemSelectedTree, SkillMove.Down));
-            AddButton(systemPanel, "置底", 696, 216, 70, 30, (_, _) => MoveSelectedSkill(systemSelectedTree, SkillMove.Bottom));
-
-            autoMode.CheckedChanged += (_, _) =>
-            {
-                if (autoMode.Checked)
-                {
-                    ShowSkillMode(SkillConfigurationMode.Auto);
-                    if (availableTree is not null && currentManualSkills.Count > 0)
-                    {
-                        PopulateAvailableSkillTreeFromSkills(availableTree, currentManualSkills);
-                    }
-                }
-            };
-
-            RefreshSpiritmasterAutoSkillCheckBoxState();
             CreateQuickbarSkillModeEditor(page, optionsPanel);
-            ConfigureSkillPageLayout(page, optionsPanel, autoPanel, manualPanel, systemPanel);
+            RefreshSpiritmasterAutoSkillCheckBoxState();
             return tab;
         }
 
@@ -7275,7 +7168,7 @@ namespace Roadhog
                 return;
             }
 
-            var enabled = skillAutoModeRadio?.Checked == true;
+            var enabled = true;
             spiritmasterAutoSkillCheckBox.Enabled = enabled;
             spiritmasterAutoSkillCheckBox.ForeColor = enabled ? _textGreen : Color.FromArgb(107, 114, 128);
             spiritmasterAutoSkillCheckBox.Cursor = enabled ? Cursors.Hand : Cursors.Default;
@@ -7672,7 +7565,7 @@ namespace Roadhog
             var chainRoots = visibleSkills
                 .Where(skill => !MatchesManualSkillType(skill, "连续技"))
                 .Where(skill => HasUsefulSkillValue(skill.XmlChainCategory))
-                .Where(skill => chainSkills.Any(child => SameSkillValue(child.XmlPrechainCategory, skill.XmlChainCategory)))
+                .Where(skill => chainSkills.Any(child => HasChainPredecessor(child, skill)))
                 .OrderBy(FormatManualSkillName, StringComparer.CurrentCulture)
                 .ToArray();
 
@@ -7686,7 +7579,7 @@ namespace Roadhog
                     rootSkill,
                     chainSkills,
                     emittedSkillKeys,
-                    new HashSet<string>(StringComparer.Ordinal));
+                    new HashSet<string>(StringComparer.Ordinal) { GetSkillKey(rootSkill) });
 
                 if (rootNode.Nodes.Count == 0)
                 {
@@ -7709,7 +7602,7 @@ namespace Roadhog
             return visibleSkills
                 .Where(skill => !MatchesManualSkillType(skill, "连续技"))
                 .Where(skill => HasUsefulSkillValue(skill.XmlChainCategory))
-                .Where(skill => chainSkills.Any(child => SameSkillValue(child.XmlPrechainCategory, skill.XmlChainCategory)))
+                .Where(skill => chainSkills.Any(child => HasChainPredecessor(child, skill)))
                 .Select(GetSkillKey)
                 .ToHashSet(StringComparer.Ordinal);
         }
@@ -7727,24 +7620,36 @@ namespace Roadhog
             }
 
             var children = chainSkills
-                .Where(skill => SameSkillValue(skill.XmlPrechainCategory, parentSkill.XmlChainCategory))
+                .Where(skill => HasChainPredecessor(skill, parentSkill))
+                .GroupBy(GetSkillKey, StringComparer.Ordinal)
+                .Select(group => group.First())
                 .OrderBy(FormatManualSkillName, StringComparer.CurrentCulture)
                 .ToArray();
 
             foreach (var childSkill in children)
             {
                 var childKey = GetSkillKey(childSkill);
-                if (!emittedSkillKeys.Add(childKey) || !pathSkillKeys.Add(childKey))
+                if (!pathSkillKeys.Add(childKey))
                 {
                     continue;
                 }
 
+                emittedSkillKeys.Add(childKey);
                 var childName = FormatManualSkillName(childSkill);
                 var childNode = parentNode.Nodes.Add(childName, childName);
                 childNode.Tag = CreateSkillTreeNodeData(childSkill);
                 AddChainChildren(childNode, childSkill, chainSkills, emittedSkillKeys, pathSkillKeys);
                 pathSkillKeys.Remove(childKey);
             }
+        }
+
+        private static bool HasChainPredecessor(SkillSnapshot child, SkillSnapshot parent)
+        {
+            return HasUsefulSkillValue(parent.XmlChainCategory) &&
+                   HasUsefulSkillValue(child.XmlPrechainCategory) &&
+                   child.XmlPrechainCategory!
+                       .Split(new[] { ',', ';', '|', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                       .Any(value => string.Equals(value, parent.XmlChainCategory!.Trim(), StringComparison.OrdinalIgnoreCase));
         }
 
         private static void AddSkillLeaves(TreeNode parentNode, IEnumerable<SkillSnapshot> skills)
@@ -8186,7 +8091,7 @@ namespace Roadhog
 
         private static TreeNode AddSkillSubtreeIfMissing(TreeNodeCollection targetNodes, TreeNode sourceNode)
         {
-            var targetNode = FindDirectNodeByText(targetNodes, sourceNode.Text);
+            var targetNode = FindDirectSkillNode(targetNodes, sourceNode);
             if (targetNode is null)
             {
                 targetNode = targetNodes.Add(sourceNode.Text, sourceNode.Text);
@@ -8202,11 +8107,14 @@ namespace Roadhog
             return targetNode;
         }
 
-        private static TreeNode? FindDirectNodeByText(TreeNodeCollection nodes, string text)
+        private static TreeNode? FindDirectSkillNode(TreeNodeCollection nodes, TreeNode source)
         {
+            var sourceId = (source.Tag as SkillTreeNodeData)?.SkillId ?? 0;
             foreach (TreeNode node in nodes)
             {
-                if (string.Equals(node.Text, text, StringComparison.Ordinal))
+                var targetId = (node.Tag as SkillTreeNodeData)?.SkillId ?? 0;
+                if (sourceId != 0 ? targetId == sourceId :
+                    targetId == 0 && string.Equals(node.Text, source.Text, StringComparison.Ordinal))
                 {
                     return node;
                 }
@@ -8352,7 +8260,11 @@ namespace Roadhog
 
         private async Task RefreshConfiguredSkillsAsync(Button button)
         {
+            if (configuredSkillRefreshInProgress) return;
+            configuredSkillRefreshInProgress = true;
             var originalText = button.Text;
+            foreach (var refreshButton in configuredSkillRefreshButtons)
+                if (!refreshButton.IsDisposed) refreshButton.Enabled = false;
             button.Enabled = false;
             button.Text = "刷新中...";
 
@@ -8372,6 +8284,9 @@ namespace Roadhog
             }
             finally
             {
+                configuredSkillRefreshInProgress = false;
+                foreach (var refreshButton in configuredSkillRefreshButtons)
+                    if (!refreshButton.IsDisposed) refreshButton.Enabled = true;
                 if (!button.IsDisposed)
                 {
                     button.Text = originalText;

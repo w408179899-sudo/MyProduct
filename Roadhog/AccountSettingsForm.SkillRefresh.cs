@@ -5,6 +5,9 @@ namespace Roadhog;
 
 public sealed partial class AccountSettingsForm
 {
+    private bool configuredSkillRefreshInProgress;
+    private readonly List<Button> configuredSkillRefreshButtons = new();
+
     private async Task<(int UpdatedCount, int DeletedCount, bool Saved, string Error)> RefreshConfiguredSkillsCoreAsync()
     {
         IReadOnlyList<SkillSnapshot> skills;
@@ -37,10 +40,8 @@ public sealed partial class AccountSettingsForm
         // Commit the candidate set only after every supported bar skill can be resolved.
         currentManualSkills = skills;
         previewSkillBindings = new SkillKeyBindings(quickbar, skills);
-        if (availableSkillTree is not null && skillAutoModeRadio?.Checked == true)
-            PopulateAvailableSkillTreeFromSkills(availableSkillTree, skills);
-        if (systemSkillTree is not null)
-            PopulateSystemSkillTreeFromSkills(systemSkillTree, skills);
+        if (quickbarAvailableSkillTree is not null)
+            PopulateAvailableSkillTreeFromSkills(quickbarAvailableSkillTree, skills);
         return RefreshAndSaveConfiguredSkills();
     }
 
@@ -67,10 +68,8 @@ public sealed partial class AccountSettingsForm
             deleted += result.DeletedCount;
         }
 
-        if (selectedSkillTree is not null)
-            Add(RefreshSelectedSkillTreeToHighestCurrentSkills(selectedSkillTree, barSkills));
-        if (systemSelectedSkillTree is not null)
-            Add(RefreshSelectedSkillTreeToHighestCurrentSkillsCore(systemSelectedSkillTree, barSkills, systemTree: true));
+        if (quickbarSelectedSkillTree is not null)
+            Add(RefreshConfiguredQuickbarSkillTree(quickbarSelectedSkillTree, barSkills));
 
         var candidates = BuildHighestSkillCandidates(barSkills.Where(skill => !ShouldHideManualSkillCandidate(skill)));
         var allCandidates = BuildHighestSkillCandidates(barSkills);

@@ -50,6 +50,8 @@ public sealed class SemiAutoCombatState
     private readonly Dictionary<uint, ChantStatusMaintenancePresence> chantStatusMaintenancePresence = new();
     private readonly Dictionary<uint, uint> spiritmasterDotAbnormalIds = new();
     private readonly Dictionary<uint, uint> spiritmasterPetBuffAbnormalIds = new();
+    private readonly Dictionary<uint, SpiritmasterPetBuffAttempt> spiritmasterPetBuffAttempts = new();
+    private uint spiritmasterPetBuffPetServerObjectId;
     private readonly Dictionary<uint, DateTimeOffset> spiritmasterPetHpCooldownUntil = new();
     private DateTimeOffset lastAttackKeyPressedAt = DateTimeOffset.MinValue;
     private DateTimeOffset lastSpiritmasterSummonAttemptAt = DateTimeOffset.MinValue;
@@ -314,15 +316,22 @@ public sealed class SemiAutoCombatState
             return false;
         }
 
-        if (globalInterval > TimeSpan.Zero &&
-            lastMaintenanceKeyPressedAt != DateTimeOffset.MinValue &&
-            now - lastMaintenanceKeyPressedAt < globalInterval)
+        if (GetRemainingMaintenanceGlobalInterval(now, globalInterval) > TimeSpan.Zero)
         {
             return false;
         }
 
         return !maintenanceKeyPressedAt.TryGetValue(key.Trim(), out var lastPressedAt) ||
                now - lastPressedAt >= interval;
+    }
+
+    public TimeSpan GetRemainingMaintenanceGlobalInterval(DateTimeOffset now, TimeSpan interval)
+    {
+        if (interval <= TimeSpan.Zero || lastMaintenanceKeyPressedAt == DateTimeOffset.MinValue)
+            return TimeSpan.Zero;
+
+        var remaining = interval - (now - lastMaintenanceKeyPressedAt);
+        return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
     }
 
     public void MarkMaintenanceKeyAttempted(string key, DateTimeOffset now)
@@ -541,6 +550,58 @@ public sealed class SemiAutoCombatState
         {
             spiritmasterPetBuffAbnormalIds[skillId] = abnormalId;
         }
+    }
+
+    internal bool ShouldAttemptSpiritmasterPetBuff(SkillSnapshot skill, uint petServerObjectId)
+    {
+        if (spiritmasterPetBuffPetServerObjectId != petServerObjectId)
+        {
+            spiritmasterPetBuffAttempts.Clear();
+            spiritmasterPetBuffPetServerObjectId = petServerObjectId;
+        }
+        if (skill.CooldownDuration == 0)
+        {
+            spiritmasterPetBuffAttempts.Remove(skill.SkillId);
+            return true;
+        }
+        if (!spiritmasterPetBuffAttempts.TryGetValue(skill.SkillId, out var attempt)) return true;
+        if (DidCooldownEndAdvance(attempt.BaselineCooldownEndTime, skill.CooldownEndTime))
+        {
+            spiritmasterPetBuffAttempts.Remove(skill.SkillId);
+            return true;
+        }
+        return attempt.TimeProvider.GetElapsedTime(attempt.StartedAt) >= attempt.Delay;
+    }
+
+    internal void MarkSpiritmasterPetBuffAttempt(SkillSnapshot skill, uint petServerObjectId,
+        TimeProvider timeProvider, TimeSpan confirmationWindow, TimeSpan retryInterval)
+    {
+        if (skill.CooldownDuration == 0) return;
+        if (spiritmasterPetBuffPetServerObjectId != petServerObjectId)
+        {
+            spiritmasterPetBuffAttempts.Clear();
+            spiritmasterPetBuffPetServerObjectId = petServerObjectId;
+        }
+        var count = spiritmasterPetBuffAttempts.TryGetValue(skill.SkillId, out var previous) && previous.AttemptCount < 3
+            ? previous.AttemptCount + 1 : 1;
+        var delay = confirmationWindow > retryInterval ? confirmationWindow : retryInterval;
+        if (count == 3)
+        {
+            // Three unconfirmed input attempts finish this batch. This is an
+            // input retry backoff, never a fabricated game cooldown or release.
+            var backoff = TimeSpan.FromMilliseconds(Math.Clamp((long)skill.CooldownDuration, 3000L, 30000L));
+            if (backoff > delay) delay = backoff;
+        }
+        spiritmasterPetBuffAttempts[skill.SkillId] = new(skill.CooldownEndTime, count,
+            timeProvider.GetTimestamp(), delay, timeProvider);
+    }
+
+    internal void ConfirmSpiritmasterPetBuff(uint skillId) => spiritmasterPetBuffAttempts.Remove(skillId);
+
+    internal void ClearSpiritmasterPetBuffAttempts()
+    {
+        spiritmasterPetBuffAttempts.Clear();
+        spiritmasterPetBuffPetServerObjectId = 0;
     }
 
     public bool ShouldPressSpiritmasterPetHpSkill(uint skillId, DateTimeOffset now)
@@ -1213,6 +1274,9 @@ public sealed class SemiAutoCombatState
         uint TargetServerObjectId,
         HashSet<uint> BeforeAbnormalIds,
         DateTimeOffset ExpiresAt);
+
+    private sealed record SpiritmasterPetBuffAttempt(uint BaselineCooldownEndTime, int AttemptCount,
+        long StartedAt, TimeSpan Delay, TimeProvider TimeProvider);
 }
 
 public readonly record struct SemiAutoCooldownTickCalibration(

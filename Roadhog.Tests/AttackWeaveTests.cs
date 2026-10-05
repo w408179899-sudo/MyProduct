@@ -698,19 +698,16 @@ internal static class AttackWeaveTests
                     new InMemorySharedPathStore(), new InMemoryScriptProfileStore(), new RecordingFolderLauncher(), "test-paths");
                 var check = Field<Control>(form, "attackWeaveCheckBox");
                 var input = Field<Control>(form, "attackWeaveDelayTextBox");
-                var condition = Field<Control>(form, "conditionSkillPreemptsChainCheckBox");
-                var panel = Field<Control>(form, "autoSkillPanel");
+                var panel = Field<Control>(form, "quickbarSkillPanel");
                 Check((bool)check.GetType().GetProperty("Checked")!.GetValue(check)!, "UI loads enabled setting");
                 Equal("725", input.Text, "UI loads saved delay");
                 Check(input.Enabled, "enabled switch enables delay field");
-                Equal(condition.Top, check.Top, "timing switches share one row");
-                var chainInput = Field<Control>(form, "chainWindowPerLinkTextBox");
-                Equal(chainInput.Top, input.Top, "timing inputs align");
-                Check(condition.Right < chainInput.Left && chainInput.Right < check.Left && check.Right < input.Left,
+                Equal(check.Top - 2, input.Top, "weaving switch and delay align");
+                Check(check.Right < input.Left,
                     "timing controls do not overlap");
                 Check(panel.Top > input.Parent!.Bottom, "skill lists sit below options");
-                var available = Field<TreeView>(form, "availableSkillTree");
-                var selected = Field<TreeView>(form, "selectedSkillTree");
+                var available = Field<TreeView>(form, "quickbarAvailableSkillTree");
+                var selected = Field<TreeView>(form, "quickbarSelectedSkillTree");
                 Equal(available.Size, selected.Size, "skill lists have equal sizes");
                 Equal(available.Top, selected.Top, "skill lists align");
                 var opener = form.Controls.Find("openingSkillPanel", true).Single();

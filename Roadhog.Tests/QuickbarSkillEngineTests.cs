@@ -174,7 +174,7 @@ internal static class QuickbarSkillEngineTests
         fixture.Clock.Advance(TimeSpan.FromMilliseconds(80));
         await fixture.Tick();
         Check(fixture.Keyboard.Keys.Count == 3 && fixture.State.PendingAction?.AttemptCount == 2, "still lit continuation retries after80ms without acceptance");
-        fixture.Clock.Now += TimeSpan.FromSeconds(6);
+        fixture.Clock.Advance(TimeSpan.FromSeconds(6));
         fixture.Reader.Value = Available(root: true, counter: true, effective: 13, last: 12, time: 20);
         await fixture.Tick();
         Check(fixture.State.ActiveChainSource?.SkillId == 12 && fixture.State.PendingAction?.Node.SkillId == 13 && fixture.Keyboard.Keys.Count == 4,
@@ -210,7 +210,7 @@ internal static class QuickbarSkillEngineTests
         await fixture.Tick();
         fixture.Reader.Value = Available();
         await fixture.Tick();
-        fixture.Clock.Now += TimeSpan.FromSeconds(9);
+        fixture.Clock.Advance(TimeSpan.FromSeconds(9));
         await fixture.Tick();
         Check(fixture.State.PendingAction is null && fixture.State.ActiveChainSource is null && fixture.Keyboard.Keys.Count == 1, "timeout does not falsely advance root or keep pressing");
     }
@@ -682,7 +682,8 @@ internal static class QuickbarSkillEngineTests
         public Task<PublishedGameSnapshot<SkillAvailabilitySnapshot>> ReadSkillAvailabilityAsync(long afterVersion = 0, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            AfterRead?.Invoke(++_reads);
+            _reads++;
+            AfterRead?.Invoke(_reads);
             return Task.FromResult(new PublishedGameSnapshot<SkillAvailabilitySnapshot>(_reads, Value));
         }
     }

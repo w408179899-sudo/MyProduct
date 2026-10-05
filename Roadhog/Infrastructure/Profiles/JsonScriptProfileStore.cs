@@ -66,10 +66,28 @@ public sealed class JsonScriptProfileStore : IScriptProfileStore
         string name,
         CancellationToken cancellationToken = default)
     {
+        var result = await LoadCoreAsync(name, validateStoredName: false, cancellationToken).ConfigureAwait(false);
+        if (!result.Success)
+            return OperationResult<ScriptProfileDocument>.Fail(result.Error ?? "Profile could not be loaded.");
+        return result.Value is { } document
+            ? OperationResult<ScriptProfileDocument>.Ok(document)
+            : OperationResult<ScriptProfileDocument>.Fail("Profile file was not found: " + NormalizeName(name));
+    }
+
+    public Task<OperationResult<ScriptProfileDocument?>> LoadOptionalAsync(
+        string name,
+        CancellationToken cancellationToken = default) =>
+        LoadCoreAsync(name, validateStoredName: true, cancellationToken);
+
+    private async Task<OperationResult<ScriptProfileDocument?>> LoadCoreAsync(
+        string name,
+        bool validateStoredName,
+        CancellationToken cancellationToken)
+    {
         var normalizedName = NormalizeName(name);
         if (string.IsNullOrWhiteSpace(normalizedName))
         {
-            return OperationResult<ScriptProfileDocument>.Fail("Profile name cannot be empty.");
+            return OperationResult<ScriptProfileDocument?>.Fail("Profile name cannot be empty.");
         }
 
         await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -79,21 +97,26 @@ public sealed class JsonScriptProfileStore : IScriptProfileStore
             var path = ResolvePath(normalizedName);
             if (!AtomicJsonFile.Exists(path))
             {
-                return OperationResult<ScriptProfileDocument>.Fail("Profile file was not found: " + normalizedName);
+                return OperationResult<ScriptProfileDocument?>.Ok(null);
             }
 
             var document = await ReadDocumentAsync(path, cancellationToken).ConfigureAwait(false);
             if (document is null)
             {
-                return OperationResult<ScriptProfileDocument>.Fail("Profile file is empty or invalid: " + normalizedName);
+                return OperationResult<ScriptProfileDocument?>.Fail("Profile file is empty or invalid: " + normalizedName);
             }
 
+            var storedName = string.IsNullOrWhiteSpace(document.Name) ? normalizedName : document.Name.Trim();
+            if (validateStoredName && !string.Equals(ToSafeFileName(storedName), ToSafeFileName(normalizedName),
+                    StringComparison.OrdinalIgnoreCase))
+                return OperationResult<ScriptProfileDocument?>.Fail("Profile file name does not match its document name: " + normalizedName);
+
             NormalizeDocument(document, normalizedName);
-            return OperationResult<ScriptProfileDocument>.Ok(document.Clone());
+            return OperationResult<ScriptProfileDocument?>.Ok(document.Clone());
         }
         catch (Exception ex)
         {
-            return OperationResult<ScriptProfileDocument>.Fail(ex.Message);
+            return OperationResult<ScriptProfileDocument?>.Fail(ex.Message);
         }
         finally
         {

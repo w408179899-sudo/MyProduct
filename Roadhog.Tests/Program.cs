@@ -53,6 +53,14 @@ if (args.Contains("--shared-cleanup-migration-audit"))
     return;
 }
 
+if (args.Contains("--skill-release-migration-audit"))
+{
+    var index = Array.IndexOf(args, "--skill-release-migration-audit");
+    try { await SkillReleaseMigrationAudit.RunAsync(args[index + 1], args[index + 2], args[index + 3]); }
+    catch (Exception exception) { Console.WriteLine("FAIL skill release migration audit: " + exception); Environment.ExitCode = 1; }
+    return;
+}
+
 if (args.Contains("--migration-snapshot-audit"))
 {
     try { await MigrationSnapshotTests.AuditCopyAsync(args[Array.IndexOf(args, "--migration-snapshot-audit") + 1]); }
@@ -173,6 +181,81 @@ if (KmboxKeyPressProbe.ShouldRun(args))
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("skill audit maintenance global wait boundary and key retry", MaintenanceGlobalIntervalWaitTests.RemainingIntervalAndKeyRetryAsync),
+    ("skill audit maintenance global wait early timer wake", MaintenanceGlobalIntervalWaitTests.EarlyWakeWaitsUntilReadyAsync),
+    ("skill audit maintenance global wait wall clock changes", MaintenanceGlobalIntervalWaitTests.WallClockChangesPreserveGateAsync),
+    ("skill audit maintenance global wait cancellation", MaintenanceGlobalIntervalWaitTests.CancellationStopsWaitAsync),
+    ("skill audit maintenance global wait updated and cleared anchors", MaintenanceGlobalIntervalWaitTests.UpdatedAndClearedAnchorsAsync),
+    ("skill audit pet buff pending yields to maintenance and attack", SpiritmasterPetBuffConfirmationTests.PendingBuffYieldsToMaintenanceAndAttackAsync),
+    ("skill audit pet buff multiple independent pending actions", SpiritmasterPetBuffConfirmationTests.MultipleBuffsKeepIndependentPendingActionsAsync),
+    ("skill audit pet buff bounded monotonic retry batch", SpiritmasterPetBuffConfirmationTests.RetryBatchIsBoundedAndMonotonicAsync),
+    ("skill audit pet buff real cooldown and trusted status confirmation", SpiritmasterPetBuffConfirmationTests.RealCooldownAndTrustedBuffStatusConfirmAsync),
+    ("skill audit pet buff zero duration and pet lifetime", SpiritmasterPetBuffConfirmationTests.ZeroCooldownAndPetLifetimeRemainIndependentAsync),
+    ("skill audit pet buff failed input death and cancellation", SpiritmasterPetBuffConfirmationTests.FailedInputYieldsAndDeadOrStoppedCannotPressAsync),
+    ("skill audit pet buff final pet read death and DP guard", SpiritmasterPetBuffConfirmationTests.DeathDuringFinalPetReadCannotPressAsync),
+    ("skill audit low rank HP MP DP action and confirmation", LowRankMaintenanceTests.HpMpAndDpUseExactRankThroughoutConfirmationAsync),
+    ("skill audit low rank status and trusted abnormal confirmation", LowRankMaintenanceTests.StatusUsesExactRankAndTrustedAbnormalConfirmationAsync),
+    ("skill audit low rank name only discovery and missing explicit identity", LowRankMaintenanceTests.NameOnlyFullReadIncludesPlacedRankAndExplicitMissingNeverPromotesAsync),
+    ("skill audit elemental all ranks preserve player HP safety", SpiritmasterElementalRankTests.EveryOfficialRankPreservesPlayerHpSafetyAsync),
+    ("skill audit elemental all ranks confirm pet HP and local hold", SpiritmasterElementalRankTests.EveryOfficialRankConfirmsPetHpAndKeepsLocalHoldAsync),
+    ("skill audit elemental all ranks final player HP and death guard", SpiritmasterElementalRankTests.EveryOfficialRankRechecksPlayerHpAfterPetReadAsync),
+    ("skill audit elemental unknown identity cannot inherit special behavior", SpiritmasterElementalRankTests.UnknownIdentityDoesNotBecomeElementalByNameAsync),
+    ("skill audit final child read stops target changes", QuickbarSkillFinalGuardTests.PostGuardChildReadStopsTargetChangeAsync),
+    ("skill audit final child read stops death", QuickbarSkillFinalGuardTests.PostGuardChildReadStopsDeathAsync),
+    ("skill audit final child read yields maintenance", QuickbarSkillFinalGuardTests.PostGuardChildReadYieldsToMaintenanceAsync),
+    ("skill audit final child read fallback target guard", QuickbarSkillFinalGuardTests.FallbackPostGuardChildReadStopsTargetChangeAsync),
+    ("skill audit final child read preserves valid releases", QuickbarSkillFinalGuardTests.PostGuardChildReadStillReleasesSameChildAsync),
+    ("skill audit final candidate change gets a fresh guard", QuickbarSkillFinalGuardTests.FinalCandidateChangeGetsFreshGuardAsync),
+    ("skill audit unchanged reads preserve original budget", QuickbarSkillFinalGuardTests.NoPostGuardReadKeepsReadBudgetAsync),
+    ("skill audit monotonic retry survives wall clock changes", QuickbarSkillMonotonicActionTests.RetryCadenceSurvivesWallClockJumpsAsync),
+    ("skill audit monotonic deadline survives wall clock changes", QuickbarSkillMonotonicActionTests.DeadlineSurvivesWallClockJumpsAsync),
+    ("skill audit monotonic failed input retry hold", QuickbarSkillMonotonicActionTests.FailedInputHoldSurvivesWallClockJumpsAsync),
+    ("skill audit monotonic maximum attempts remain finite", QuickbarSkillMonotonicActionTests.MaximumAttemptsStayFiniteAsync),
+    ("skill audit monotonic poll anchor survives delayed read", QuickbarSkillMonotonicActionTests.PollCycleAnchorSurvivesMidReadClockJumpAsync),
+    ("skill audit monotonic pure API compatibility and resets", QuickbarSkillMonotonicActionTests.PureApiCompatibilityAndLifecycleResetAsync),
+    ("skill audit monotonic chain bootstrap and weave boundaries", QuickbarSkillMonotonicActionTests.ChainBootstrapAndWeaveKeepMonotonicBoundariesAsync),
+    ("skill audit chain identity ambiguous names are rejected", SkillKeyBindingChainIdentityTests.AmbiguousNamesAsync),
+    ("skill audit chain identity explicit and unique names remain valid", SkillKeyBindingChainIdentityTests.UniqueAndExplicitIdentitiesAsync),
+    ("skill audit profile snapshot failure writes nothing", AccountSettingsPersistenceTests.SnapshotAndProfileFailureAsync),
+    ("skill audit profile unlisted read failures and malformed alias write nothing", AccountSettingsPersistenceTests.UnlistedReadFailureAndMalformedAliasAsync),
+    ("skill audit account save failure restores existing profile", AccountSettingsPersistenceTests.ExistingProfileRollbackAsync),
+    ("skill audit account save failure removes new profile and reports failed rollback", AccountSettingsPersistenceTests.NewProfileAndRollbackFailureAsync),
+    ("skill audit profile account save serialization and input isolation", AccountSettingsPersistenceTests.PairSerializationAndInputIsolationAsync),
+    ("skill audit real profile stores and filename alias rollback", AccountSettingsPersistenceTests.RealStoresAndFilenameAliasAsync),
+    ("skill audit profile physical key mismatch leaves files intact", AccountSettingsPersistenceTests.StoredNameMismatchLeavesFilesIntactAsync),
+    ("skill audit unrelated invalid profile does not block valid save", AccountSettingsPersistenceTests.UnrelatedInvalidProfileDoesNotBlockSaveAsync),
+    ("skill audit global refresh save failure preserves profile and draft", AccountSettingsPersistenceTests.RealStoreUiRefreshRollbackAsync),
+    ("skill audit ID only tree refresh preserves configured branches", ConfiguredSkillIdentityRefreshTests.IdOnlyRootRefreshAsync),
+    ("skill audit ID only tree multi rank and missing identity rules", ConfiguredSkillIdentityRefreshTests.IdOnlyMultiRankAndMissingIdentityAsync),
+    ("skill audit candidate tree shared children and predecessor tokens", SkillCandidateTreeTests.SharedChildrenAndPredecessorTokensAsync),
+    ("skill audit candidate tree duplicate metadata and cycles", SkillCandidateTreeTests.DuplicateMetadataAndCyclesAsync),
+    ("skill audit candidate addition preserves same name explicit identities", SkillCandidateTreeTests.SameNameDifferentIdentitiesCanBeAddedAsync),
+    ("skill audit jump assist bound lower rank cooldown", JumpAssistSkillRankTests.BoundLowerRankStopsTeamJumpAsync),
+    ("skill audit jump assist highest rank and unbound compatibility", JumpAssistSkillRankTests.HighestRankAndUnboundCompatibilityAsync),
+    ("skill release migration auto chain deep clone and DP compatibility", SkillTreeReleaseMigrationTests.AutoAndCloneAsync),
+    ("skill release migration existing new tree and explicit empty tree remain authoritative", SkillTreeReleaseMigrationTests.ExistingAndExplicitEmptyAsync),
+    ("skill release migration manual and system active sources", SkillTreeReleaseMigrationTests.AlternateLegacyModesAsync),
+    ("skill release migration null and malformed configuration", SkillTreeReleaseMigrationTests.NullAndMalformedNodesAsync),
+    ("skill release migration real stores profile precedence and save reload", SkillTreeReleaseMigrationTests.StoreLoadAndReloadAsync),
+    ("unified skill runtime legacy entry uses quickbar executor", UnifiedSkillRuntimeTests.LegacyEntryUsesQuickbarExecutorAsync),
+    ("unified skill runtime explicit empty tree remains empty", UnifiedSkillRuntimeTests.ExplicitEmptyTreeRemainsEmptyAsync),
+    ("unified skill runtime missing pet blocks commands and summon restores them", UnifiedSkillRuntimeTests.MissingPetSkipsRootAndSummonedPetRestoresItAsync),
+    ("unified skill runtime missing pet stops pending command retries", UnifiedSkillRuntimeTests.MissingPetStopsPendingCommandRetryAsync),
+    ("unified skill runtime missing pet child preserves ordinary sibling", UnifiedSkillRuntimeTests.MissingPetChildKeepsNonCommandSiblingAsync),
+    ("unified skill runtime blocked pet child cannot hold chain wait", UnifiedSkillRuntimeTests.MissingPetChildDoesNotHoldChainWaitAsync),
+    ("unified skill runtime final pet loss retracts command", UnifiedSkillRuntimeTests.FinalPetLossRetractsCommandAsync),
+    ("unified skill runtime target changes during final pet read", UnifiedSkillRuntimeTests.TargetChangeDuringFinalPetReadIsGuardedAsync),
+    ("unified skill runtime missing pet excluded from clock bootstrap", UnifiedSkillRuntimeTests.MissingPetExcludedFromClockBootstrapAsync),
+    ("unified skill runtime pet guard class scope and aliases", UnifiedSkillRuntimeTests.PetGuardScopeAndAliasesAsync),
+    ("unified skill runtime archived attacks never broaden shared reads", UnifiedSkillRuntimeTests.ArchivedAttackTreeDoesNotExpandSharedReadAsync),
+    ("unified skill runtime migrated manual and system modes use the spiritmaster checkbox", UnifiedSkillRuntimeTests.MigratedAlternateModesUseSpiritmasterCheckboxAsync),
+    ("unified skill runtime shared opening actions activate prepared team jump", UnifiedSkillRuntimeTests.SharedOpeningActivatesPreparedTeamJumpAsync),
+    ("unified skill runtime impossible cooldown invalidates and rebuilds clock", UnifiedSkillRuntimeTests.ImpossibleCooldownInvalidatesAndRebuildsAsync),
+    ("unified skill runtime zero duration cannot block clock invalidation", UnifiedSkillRuntimeTests.ZeroDurationDoesNotBlockClockInvalidationAsync),
+    ("unified skill runtime plausible cooldowns remain cooling", UnifiedSkillRuntimeTests.PlausibleCooldownsStayCoolingAsync),
+    ("unified skill runtime archived roots cannot invalidate active clock", UnifiedSkillRuntimeTests.ArchivedRootsCannotInvalidateCurrentClockAsync),
+    ("unified skill runtime observed ordinary cooldown survives zero read", UnifiedSkillRuntimeTests.ObservedOrdinaryCooldownSurvivesZeroReadAsync),
+    ("unified skill runtime near ready ordinary cooldown preserves tolerance", UnifiedSkillRuntimeTests.NearReadyOrdinaryCooldownKeepsToleranceAsync),
     ("legacy import preservation conflicting routes and profiles remain effective", LegacyImportPreservationTests.ConflictingRoutesAndProfilesRemainEffectiveAsync),
     ("legacy import preservation identical routes reuse and different profiles separate", LegacyImportPreservationTests.IdenticalRoutesReuseAndDifferentProfilesSeparateAsync),
     ("legacy import preservation alias names never steal source or existing names", LegacyImportPreservationTests.AliasNamesDoNotStealSourceOrExistingNamesAsync),
@@ -190,10 +273,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("kmbox cold reset handshake failure can retry", KmBoxColdResetTests.HandshakeFailureCanRetryAsync),
     ("kmbox cold reset cancellation cannot report success", KmBoxColdResetTests.CancellationDoesNotReportSuccessAsync),
     ("kmbox cold reset release failure reconnects", KmBoxColdResetTests.ReleaseFailureReconnectsAsync),
+    ("worker robustness repeated starts concurrent stops and generation isolation", WorkerProcessRobustnessTests.RepeatedStartStopAndConcurrentStopAsync),
     ("worker robustness manual start reservation wins in flight exit poll", WorkerProcessRobustnessTests.ManualStartReservationWinsInFlightExitPollAsync),
     ("worker robustness cancelled shutdown resumes healthy status polling", WorkerProcessRobustnessTests.CancelledShutdownResumesHealthyStatusPollingAsync),
     ("worker robustness stale exit poll exception preserves manual start reservation", WorkerProcessRobustnessTests.StaleExitPollExceptionPreservesManualStartReservationAsync),
-    ("worker robustness repeated starts concurrent stops and generation isolation", WorkerProcessRobustnessTests.RepeatedStartStopAndConcurrentStopAsync),
     ("worker robustness deterministic repeated crashes isolate three accounts", WorkerProcessRobustnessTests.RepeatedRandomCrashesRemainIsolatedAsync),
     ("worker robustness residual healthy polling never reconciles process exit", WorkerProcessRobustnessTests.HealthyPollingNeverReconcilesProcessExitAsync),
     ("worker robustness residual exit blocks replacement until cleanup succeeds", WorkerProcessRobustnessTests.ResidualExitBlocksReplacementUntilReconciledAsync),
@@ -288,9 +371,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("skill binding UI automatic skill buttons and manual keyboard coexist", SkillBindingTests.UiAsync),
     ("spirit settings layout resize add remove and save roundtrip", SkillBindingTests.SpiritLayoutAsync),
     ("skill binding combat maintenance and summon controllers send resolved keys", SkillBindingTests.ControllerAsync),
-    ("skill tree release mode legacy defaults and independent cloning", SkillTreeReleaseModeTests.CompatibilityAsync),
+    ("skill tree release mode legacy JSON normalizes to the single engine", SkillTreeReleaseModeTests.CompatibilityAsync),
     ("skill tree release mode account and profile persistence", SkillTreeReleaseModeTests.PersistenceAsync),
-    ("skill tree release mode UI switch copy refresh and layout isolation", SkillTreeReleaseModeTests.UiAsync),
+    ("skill tree release mode single editor refresh and layout", SkillTreeReleaseModeTests.UiAsync),
+    ("skill tree release mode archived manual and system fields survive UI save", SkillTreeReleaseModeTests.ArchivedModesUiAsync),
     ("quickbar attack weave pair delay ordinary and conditional skills", QuickbarAttackWeaveTests.PairDelayAndMixedSkillsAsync),
     ("quickbar attack weave post C 30ms delay", QuickbarAttackWeaveTests.PostAttackDelayAsync),
     ("quickbar attack weave CD counts independently of actor release", QuickbarAttackWeaveTests.CooldownEvidenceIndependentOfReleaseAsync),
@@ -325,6 +409,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("quickbar attack weave empty main tree still weaves opening skills", QuickbarAttackWeaveIntegrationTests.OpeningOnlyPlanStillWeavesAsync),
     ("quickbar attack weave disabling pending wait resumes same tick", QuickbarAttackWeaveIntegrationTests.DisablePendingWaitResumesSameTickAsync),
     ("quickbar attack weave stationary opening loop shares pair and handoff", QuickbarAttackWeaveIntegrationTests.StationaryOpeningLoopSharesPairAndHandoffAsync),
+    ("skill tree release quickbar configured plan and exact bindings", QuickbarSkillEngineTests.PlanAsync),
     ("quickbar spiritmaster DOT active target and actual status expiration", QuickbarSpiritmasterDotTests.ActiveStatusAndExpirationAsync),
     ("quickbar spiritmaster DOT immediate different abnormal ID learning", QuickbarSpiritmasterDotTests.ImmediateDifferentAbnormalLearningAsync),
     ("quickbar spiritmaster DOT late status stops unconfirmed retry", QuickbarSpiritmasterDotTests.LateStatusStopsUnconfirmedRetryAsync),
@@ -340,7 +425,6 @@ var tests = new (string Name, Func<Task> Run)[]
     ("quickbar spiritmaster DOT same ID chain keeps priority", QuickbarSpiritmasterDotTests.ActiveDotDoesNotBlockSameIdChainAsync),
     ("quickbar spiritmaster DOT wrong target snapshot cannot learn", QuickbarSpiritmasterDotTests.WrongTargetSnapshotCannotSuppressOrLearnAnotherSkillAsync),
     ("quickbar spiritmaster DOT configured name and no DOT read overhead", QuickbarSpiritmasterDotTests.ConfiguredNameAndNoDotReadAsync),
-    ("skill tree release quickbar configured plan and exact bindings", QuickbarSkillEngineTests.PlanAsync),
     ("skill tree release quickbar priority chain and probability selection", QuickbarSkillEngineTests.SelectionAsync),
     ("skill tree release quickbar precise action confirmation", QuickbarSkillEngineTests.ConfirmationAsync),
     ("skill tree release quickbar target page and binding lifecycle", QuickbarSkillEngineTests.ScopeAsync),
@@ -364,7 +448,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("skill tree release clock bootstrap rechecks the actual key boundary", QuickbarSkillClockBootstrapTests.BoundaryRecheckAsync),
     ("skill tree release clock bootstrap maintenance preserves absolute budget", QuickbarSkillClockBootstrapTests.MaintenancePreservesAbsoluteBudgetAsync),
     ("skill tree release clock bootstrap scope and cancellation reset", QuickbarSkillClockBootstrapTests.ScopeAndCancellationResetAsync),
-    ("skill tree release clock bootstrap optional capability and legacy isolation", QuickbarSkillClockBootstrapTests.OptionalCapabilityAndLegacyIsolationAsync),
+    ("skill tree release clock bootstrap optional capability and empty migrated plan", QuickbarSkillClockBootstrapTests.OptionalCapabilityAndEmptyPlanAsync),
     ("skill tree release quickbar retry cycle tolerates read duration variation", QuickbarSkillEngineTests.RetryCycleReadVariationAsync),
     ("skill tree release chain CD precedes delayed actor and icon", QuickbarSkillChainHandoffTests.DelayedReleaseAndIconAsync),
     ("skill tree release chain four stages across frames", QuickbarSkillChainHandoffTests.FourStagesAcrossFramesAsync),
@@ -385,7 +469,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("skill tree release fast polling HP threshold maintenance yield", QuickbarSkillOuterPollingTests.HpThresholdYieldAsync),
     ("skill tree release fast polling cooling maintenance preserves attacks", QuickbarSkillOuterPollingTests.CoolingHpMaintenanceDoesNotStarveAsync),
     ("skill tree release fast polling cold clock starts an expired ordinary skill", QuickbarSkillOuterPollingTests.ColdClockStartsExpiredOrdinarySkillAsync),
-    ("skill tree release integration legacy isolation", SkillTreeReleaseIntegrationTests.LegacyIsolationAsync),
+    ("skill tree release integration legacy marker uses the authoritative quickbar tree", SkillTreeReleaseIntegrationTests.LegacySettingUsesQuickbarAsync),
     ("skill tree release integration shared maintenance and routing", SkillTreeReleaseIntegrationTests.RoutingAndMaintenanceAsync),
     ("skill tree release integration empty tree preserves combat maintenance", SkillTreeMaintenanceIntegrationTests.EmptyTreeMaintenanceAsync),
     ("skill tree release provider supported signals and binding scope", SkillOpportunityTests.DecoderScopeAsync),
@@ -1003,7 +1087,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("skill tree assigns keys by root order and chain children inherit root key", TestSkillTreeKeyMappingAsync),
     ("available skill tree keeps chain roots in normal category", TestAvailableSkillTreeKeepsChainRootsInNormalCategoryAsync),
     ("manual skill category maps target valid status as condition", TestManualSkillCategoryMapsTargetValidStatusAsConditionAsync),
-    ("condition skill preempt switch persists from skill UI", TestConditionSkillPreemptSwitchPersistsFromSkillUiAsync),
+    ("retired condition preempt option stays archived during skill UI save", TestArchivedConditionPreemptSettingPreservedFromSkillUiAsync),
     ("return home when no target switch persists from summary UI", TestReturnHomeWhenNoTargetSwitchPersistsFromSummaryUiAsync),
     ("jump assist switch persists from summary UI", TestJumpAssistSwitchPersistsFromSummaryUiAsync),
     ("smart pre-aim responsive switch persists from summary UI", TestSmartPreAimResponsiveSwitchPersistsFromSummaryUiAsync),
@@ -1013,7 +1097,11 @@ var tests = new (string Name, Func<Task> Run)[]
     ("configured skill refresh exact bar ranks covers all references with spirit unopened", () => ConfiguredSkillQuickbarRefreshTests.AllReferencesAsync("unopened")),
     ("configured skill refresh exact bar ranks covers all references with spirit open", () => ConfiguredSkillQuickbarRefreshTests.AllReferencesAsync("open")),
     ("configured skill refresh exact bar ranks covers all references with spirit closed", () => ConfiguredSkillQuickbarRefreshTests.AllReferencesAsync("closed")),
-    ("configured skill refresh actual button saves bar rank and restores controls", ConfiguredSkillQuickbarRefreshTests.ButtonAsync),
+    ("configured skill refresh legacy button saves both independent bar-rank trees and restores controls", () => ConfiguredSkillQuickbarRefreshTests.ButtonAsync("legacy")),
+    ("configured skill refresh quickbar button saves both independent bar-rank trees and restores controls", () => ConfiguredSkillQuickbarRefreshTests.ButtonAsync("quickbar")),
+    ("configured skill refresh new root cleanup preserves valid off-bar chains", ConfiguredSkillQuickbarRefreshTests.NewRootCleanupAsync),
+    ("configured skill refresh empty new tree never copies legacy priorities", ConfiguredSkillQuickbarRefreshTests.EmptyNewTreeAsync),
+    ("configured skill refresh shared buttons prevent cross-mode reentry and release the gate", ConfiguredSkillQuickbarRefreshTests.ReentryAsync),
     ("configured skill refresh missing bar metadata leaves all drafts unchanged", () => ConfiguredSkillQuickbarRefreshTests.FailureAsync("missing")),
     ("configured skill refresh partial bar metadata leaves all drafts unchanged", () => ConfiguredSkillQuickbarRefreshTests.FailureAsync("partial")),
     ("configured skill refresh learned snapshot exception leaves all drafts unchanged", () => ConfiguredSkillQuickbarRefreshTests.FailureAsync("learned")),
@@ -1026,46 +1114,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("configured skill refresh utility slot does not block or add configured skills", ConfiguredSkillQuickbarRefreshTests.UtilityBarAsync),
     ("configured skill refresh provider exact IDs retain utility metadata while full filters stay compatible", ConfiguredSkillQuickbarRefreshTests.ProviderFiltersAsync),
     ("skill tree maps at most configured roots across the 24 supported keys", TestConfiguredRootKeyBoundaryAsync),
-    ("combat tick presses trigger prefix then first ready root", TestCombatTickPressesPrefixThenReadyRootAsync),
     ("ankle strike legacy trigger is treated as condition", TestAnkleStrikeLegacyTriggerIsTreatedAsConditionAsync),
-    ("combat tick requests only configured skill ids", TestCombatTickRequestsOnlyConfiguredSkillIdsAsync),
     ("observed configured cooldown advance calibrates clock", TestObservedConfiguredCooldownAdvanceCalibratesClockAsync),
     ("large cooldown offset jump is rejected", TestLargeCooldownOffsetJumpIsRejectedAsync),
-    ("uncalibrated nonzero cooldown falls back to first configured root", TestUncalibratedNonzeroCooldownFallsBackToFirstRootAsync),
-    ("uncalibrated unknown cooldown rotates after failed attempt", TestUncalibratedUnknownCooldownRotatesAfterFailedAttemptAsync),
-    ("calibrated nonzero cooldown skips cooling roots", TestCalibratedNonzeroCooldownSkipsCoolingRootsAsync),
-    ("calibrated cooldown tolerance treats near-ready as ready", TestCalibratedCooldownToleranceTreatsNearReadyAsReadyAsync),
-    ("observed cooldown survives zero end tick read", TestObservedCooldownSurvivesZeroEndTickReadAsync),
-    ("stale cooldown calibration invalidates impossible combat cooldowns", TestStaleCooldownCalibrationInvalidatesImpossibleCombatCooldownsAsync),
-    ("stale cooldown calibration skips zero-duration skills when invalidating", TestStaleCooldownCalibrationSkipsZeroDurationSkillsWhenInvalidatingAsync),
-    ("valid cooldown calibration keeps plausible combat cooldowns cooling", TestValidCooldownCalibrationKeepsPlausibleCombatCooldownsCoolingAsync),
-    ("invalidated cooldown calibration rebuilds after pressed skill advances", TestInvalidatedCooldownCalibrationRebuildsAfterPressedSkillAdvancesAsync),
     ("attack weave confirmation accounting", AttackWeaveTests.ConfirmationAccountingAsync),
-    ("attack weave six-stage chain resumes after every pair", AttackWeaveTests.SixStageChainAsync),
-    ("attack weave ordinary roots and chain share counter", AttackWeaveTests.MixedRootsAndChainAsync),
-    ("attack weave idle gap unblocks unconfirmed chain root", AttackWeaveTests.IdleGapUnblocksChainRootAsync),
-    ("attack weave idle gap clears both unconfirmed slots", AttackWeaveTests.IdleGapClearsBothUnconfirmedAttemptsAsync),
-    ("attack weave idle gap clears count without pending slot", AttackWeaveTests.IdleGapClearsCountWithoutPendingAttemptAsync),
-    ("attack weave idle gap preserves scheduled C and failed C retry", AttackWeaveTests.IdleGapPreservesScheduledAttackAsync),
-    ("attack weave idle gap tracks spiritmaster retries", AttackWeaveTests.IdleGapTracksSpiritmasterRetryAsync),
-    ("attack weave idle gap ignores maintenance keys", AttackWeaveTests.IdleGapIgnoresMaintenanceKeysAsync),
-    ("attack weave idle gap resets opening loop", AttackWeaveTests.IdleGapResetsOpeningLoopAsync),
-    ("attack weave skill retries are counted once", AttackWeaveTests.RetriesAndUnconfirmedAsync),
-    ("attack weave late chain confirmation waits before every third stage", AttackWeaveTests.LateChainConfirmationAsync),
-    ("attack weave late chain root and second stage both count", AttackWeaveTests.LateChainRootConfirmationAsync),
-    ("attack weave missing chain snapshot retains late confirmation", AttackWeaveTests.MissingChainSnapshotBeforeLateConfirmationAsync),
-    ("attack weave ended chain releases unconfirmed attempts", AttackWeaveTests.EndedChainReleasesUnconfirmedAttemptsAsync),
-    ("attack weave failed inputs and C retry", AttackWeaveTests.FailedInputAndAttackRetryAsync),
-    ("attack weave target transitions and disable cancel C", AttackWeaveTests.TargetAndDisableCancellationAsync),
-    ("attack weave stop and death cancel C", AttackWeaveTests.StopAndDeathAsync),
-    ("attack weave prefix and opening success accounting", AttackWeaveTests.PrefixAndOpeningAsync),
-    ("attack weave opening skill list resumes after pair and handoff", AttackWeaveTests.OpeningListAsync),
-    ("attack weave disabled preserves existing skill input", AttackWeaveTests.DisabledCompatibilityAsync),
-    ("attack weave opening C switch stays independent", AttackWeaveTests.OpeningAttackSwitchIsIndependentAsync),
-    ("attack weave preserves condition preempt priority", AttackWeaveTests.ConditionPriorityAsync),
-    ("attack weave spiritmaster retries count successful releases", AttackWeaveTests.SpiritmasterRetryAccountingAsync),
-    ("attack weave opening path handoff retains confirmed count", AttackWeaveTests.OpeningLoopHandoffAsync),
-    ("attack weave account isolation and configurable delay", AttackWeaveTests.AccountIsolationAndDelayAsync),
     ("attack weave settings persistence and visual layout", AttackWeaveTests.SettingsAndLayoutAsync),
     ("settings window large responsive layout and persistence", SettingsLayoutTests.ResponsiveAsync),
     ("opening attack key switch presses C once", TestOpeningAttackKeySwitchPressesCOnceAsync),
@@ -1130,7 +1182,6 @@ var tests = new (string Name, Func<Task> Run)[]
     ("maintenance sit re-enter blocks same tick potion", TestMaintenanceSitReenterBlocksSameTickPotionAsync),
     ("maintenance sit waits for harmful abnormal before comma", TestMaintenanceSitWaitsForHarmfulAbnormalAsync),
     ("semi auto skips sit maintenance", TestSemiAutoSkipsSitMaintenanceAsync),
-    ("poll result advances root order", TestPollResultAdvancesRootOrderAsync),
     ("manual skill mapping plan uses explicit order and keys", TestManualSkillMappingPlanAsync),
     ("system skill plan uses system execution tree only", TestSystemSkillPlanAsync),
     ("spiritmaster auto switch uses dedicated plan branch", TestSpiritmasterAutoSwitchPlanAsync),
@@ -1155,22 +1206,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("spiritmaster opening attack key presses twice before opening skill", TestSpiritmasterOpeningAttackKeyPressesTwiceBeforeOpeningSkillAsync),
     ("spiritmaster opening attack key waits before subsequent skills", () => TestSpiritmasterOpeningAttackDelayAsync(200)),
     ("spiritmaster opening attack key delay supports stop", () => TestSpiritmasterOpeningAttackDelayAsync(5000, true)),
-    ("spiritmaster waits for pressed skill cooldown before next root", TestSpiritmasterWaitsForPressedSkillCooldownBeforeNextRootAsync),
     ("spiritmaster combat runs global mp maintenance before skills", TestSpiritmasterCombatRunsGlobalMpMaintenanceBeforeSkillsAsync),
-    ("dp skill is skipped until dp value support exists", TestDpSkillSkippedAsync),
-    ("chain presses next stage without waiting for source cooldown", TestChainPressesNextStageWithoutSourceCooldownAsync),
-    ("chain presses configured child without cooldown filter", TestChainPressesConfiguredChildWithoutCooldownFilterAsync),
-    ("chain clears across target gap and target switch", TestChainClearsAcrossTargetGapAsync),
-    ("chain lock prevents root fallback while child is missing", TestChainLockPreventsRootFallbackWhileChildMissingAsync),
-    ("chain keeps root key and does not fall back in same tick when chain breaks", TestChainStrictOrderAsync),
-    ("condition skill preempts pending chain and clears it", TestConditionSkillPreemptsPendingChainAsync),
-    ("condition skill preempt switch keeps pending chain priority", TestConditionSkillPreemptSwitchKeepsPendingChainPriorityAsync),
-    ("condition skill waits for target status", TestConditionSkillWaitsForTargetStatusAsync),
-    ("condition node without status metadata stays blocked", TestConditionNodeWithoutStatusMetadataStaysBlockedAsync),
-    ("condition skill respects cooldown", TestConditionSkillRespectsCooldownAsync),
-    ("chain window uses configured chain depth", TestChainWindowUsesConfiguredDepthAsync),
-    ("chain window starts when root cooldown advances", TestChainWindowStartsFromRootCooldownAsync),
-    ("chain window does not reset after child advance", TestChainWindowDoesNotResetAfterChildAdvanceAsync),
     ("combat tick counts kill when monster target dies", TestCombatTickCountsKillAsync)
 };
 
@@ -19288,6 +19324,7 @@ static async Task TestWorkerContinuesLootDuringRevivePathLeaderSiphonAsync()
 
         // The worker resolves skill keys from the live quickbar before building its combat plan.
         gameApi.Quickbar = new QuickbarSnapshot(0, new[] { new QuickbarSlotSnapshot(SkillQuickbar.Main, 0, 21, 1) });
+        gameApi.SkillAvailability = new(0, new[] { new SkillAvailabilitySlotSnapshot(SkillQuickbar.Main, 0, 21, 1, 1, true) });
 
         var pathStore = new InMemorySharedPathStore(
             CreatePath("revive-a",
@@ -20320,7 +20357,7 @@ static async Task TestPathCombatSkipsSitMaintenanceWhileFightingAsync()
         .ConfigureAwait(false);
 
     AssertFalse(keyboard.Keys.Contains("OemComma"), "path combat fighting tick must not enter sit maintenance");
-    AssertFalse(!keyboard.Keys.Contains("D2"), "path combat should keep releasing combat skills while low hp");
+    AssertFalse(!keyboard.Keys.Contains("D1"), "path combat keeps releasing the first available configured skill while low hp");
     AssertFalse(!state.Fighting, "path combat should stay in fight");
     AssertFalse(semiAutoState.IsMaintenanceResting, "path combat should not mark maintenance rest while fighting");
 }
@@ -20333,7 +20370,12 @@ static async Task TestWorkerScrollsMouseBeforeStartupInputAndChecksAsync()
     var logger = new InMemoryRoadhogLogger();
     var gameApi = new FakeGameApi();
     var playerReadsDuringScroll = new List<int>();
-    keyboard.AfterScroll = _ => playerReadsDuringScroll.Add(gameApi.PlayerReadCount);
+    var keysDuringScroll = new List<string[]>();
+    keyboard.AfterScroll = _ =>
+    {
+        playerReadsDuringScroll.Add(gameApi.PlayerReadCount);
+        keysDuringScroll.Add(keyboard.Keys.ToArray());
+    };
     var semiAuto = new SemiAutoCombatController(keyboard);
     var stationary = new StationaryCombatController(keyboard, semiAuto);
     var worker = new DefaultAccountWorkerLoop(keyboard, semiAuto, stationary);
@@ -20358,15 +20400,20 @@ static async Task TestWorkerScrollsMouseBeforeStartupInputAndChecksAsync()
     await IgnoreCancellationAsync(runTask).ConfigureAwait(false);
 
     AssertEqual(10, keyboard.MouseCommands.Count, "worker startup should send exactly ten mouse wheel inputs");
+    AssertSequence(new[] { "F1" }, keyboard.Keys.ToArray(), "startup presses F1 exactly once before ordinary work");
+    AssertFalse(keysDuringScroll.Any(keys => !keys.SequenceEqual(new[] { "F1" })),
+        "F1 must precede the very first scroll, with no further key presses during camera initialization");
     AssertSequence(
         Enumerable.Repeat("wheel:-1", 10).ToArray(),
         keyboard.MouseCommands.ToArray(),
         "worker startup should scroll down ten times before ordinary work");
 
     var entries = logger.Entries.ToArray();
+    var f1Index = Array.FindIndex(entries, entry => entry.EventName == "worker.startup.f1");
     var scrollCompleteIndex = Array.FindIndex(entries, entry => entry.EventName == "worker.startup.scroll_complete");
     var startupKeyUpIndex = Array.FindIndex(entries, entry => entry.EventName == "worker.startup.key_up");
     AssertFalse(scrollCompleteIndex < 0, "worker startup should log completed mouse scrolling");
+    AssertFalse(f1Index < 0 || f1Index >= scrollCompleteIndex, "startup F1 precedes camera initialization");
     AssertFalse(startupKeyUpIndex <= scrollCompleteIndex, "worker startup should finish mouse scrolling before releasing W");
     AssertEqual(10, playerReadsDuringScroll.Count, "worker startup should observe all ten scroll attempts");
     AssertFalse(
@@ -20534,7 +20581,7 @@ static async Task TestWorkerEnsuresSpiritmasterPetBeforeNormalWorkAsync()
     cts.Cancel();
     await IgnoreCancellationAsync(runTask).ConfigureAwait(false);
 
-    AssertSequence(new[] { "NumPad6" }, keyboard.Keys.ToArray(), "worker should summon missing spiritmaster pet outside combat");
+    AssertSequence(new[] { "F1", "NumPad6" }, keyboard.Keys.ToArray(), "worker starts with one F1, then summons the missing pet before ordinary combat work");
     AssertFalse(
         logger.Entries.Any(entry => entry.EventName == "stationary_combat.position.missing"),
         "spiritmaster pet ensure should run before ordinary stationary validation");
@@ -21312,7 +21359,7 @@ static async Task TestStationaryCombatTabsUntilTargetVerifiedAsync()
 
         gameApi.TargetEntityId = 100;
         await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
-        AssertFalse(!keyboard.Keys.Contains("D2"), "verified target should enter semi-auto skill release");
+        AssertFalse(!keyboard.Keys.Contains("D1"), "verified target should enter semi-auto skill release");
     }
     finally
     {
@@ -21381,7 +21428,7 @@ static async Task TestStationaryCombatVerifiesAfterEachTabAsync()
             .ConfigureAwait(false);
 
         AssertFalse(!keyboard.Keys.Contains("Tab"), "acquire tick should press Tab");
-        AssertFalse(!keyboard.Keys.Contains("D2"), "same tick should release skills after after-tab verify succeeds");
+        AssertFalse(!keyboard.Keys.Contains("D1"), "same tick should release skills after after-tab verify succeeds");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.tab.verify"), "after-tab verify should be logged");
         AssertFalse(!logger.Entries.Any(entry =>
             entry.EventName == "stationary_combat.target.acquired" &&
@@ -21503,7 +21550,7 @@ static async Task TestStationaryCombatPreemptsRadarApproachForLockedLocalAttacke
     AssertEqual((ushort)200, result.State.CandidateEntityId, "locked local attacker candidate");
     AssertFalse(!result.State.CurrentTargetIsMaintenanceDefense, "locked local attacker should use maintenance defense semantics");
     AssertFalse(result.Keyboard.Keys.Contains("Tab"), "locked local attacker must not be tabbed away");
-    AssertFalse(!result.Keyboard.Keys.Contains("D2"), "locked local attacker should enter skill release on takeover");
+    AssertFalse(!result.Keyboard.Keys.Contains("D1"), "locked local attacker should enter skill release on takeover");
     AssertFalse(!result.Logger.Entries.Any(entry =>
         entry.EventName == "stationary_combat.target.switched_to_locked" &&
         string.Equals(Convert.ToString(entry.Fields["phase"]), "pre_move_defense", StringComparison.Ordinal) &&
@@ -21728,7 +21775,7 @@ static async Task TestStationaryCombatAcceptsCloserAggressiveWrongLockAfterTabAs
 
         AssertFalse(!keyboard.Keys.Contains("Tab"), "acquire tick should press Tab");
         AssertFalse(keyboard.Keys.Contains("W"), "closer aggressive wrong lock should not nudge forward");
-        AssertFalse(!keyboard.Keys.Contains("D2"), "closer aggressive wrong lock should enter skill release");
+        AssertFalse(!keyboard.Keys.Contains("D1"), "closer aggressive wrong lock should enter skill release");
         AssertFalse(!state.Fighting, "closer aggressive wrong lock should enter fight state");
         AssertEqual((ushort)200, state.CurrentTargetEntityId, "current target should switch to closer aggressive lock");
         AssertEqual((ushort)200, state.CandidateEntityId, "candidate should switch to closer aggressive lock");
@@ -21857,7 +21904,7 @@ static async Task TestStationaryCombatAlignedSmartPreAimAllowsOrdinaryAggressive
             .ConfigureAwait(false);
 
         AssertFalse(!keyboard.Keys.Contains("Tab"), "aligned pre-aim acquire tick should still press Tab for the selected target");
-        AssertFalse(!keyboard.Keys.Contains("D2"), "ordinary aggressive wrong lock C should enter skill release when aligned pre-aim no longer forces B");
+        AssertFalse(!keyboard.Keys.Contains("D1"), "ordinary aggressive wrong lock C should enter skill release when aligned pre-aim no longer forces B");
         AssertFalse(!state.Fighting, "ordinary aggressive wrong lock C should become the formal fight target");
         AssertEqual(ordinaryWrongLock.ServerObjectId, state.CurrentTargetServerObjectId, "current target should switch to ordinary aggressive wrong lock C");
         AssertEqual(ordinaryWrongLock.ServerObjectId, state.CandidateServerObjectId, "candidate should switch to ordinary aggressive wrong lock C");
@@ -22493,7 +22540,7 @@ static async Task TestStationaryCombatPendingTabVerifyBlocksPreAcquireAsync()
         gameApi.TargetEntityId = 100;
         await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
 
-        AssertFalse(!keyboard.Keys.Contains("D2"), "delayed tab match should enter semi-auto skill release");
+        AssertFalse(!keyboard.Keys.Contains("D1"), "delayed tab match should enter semi-auto skill release");
         AssertFalse(!logger.Entries.Any(entry =>
             entry.EventName == "stationary_combat.target.acquired" &&
             string.Equals(Convert.ToString(entry.Fields["phase"]), "after_tab", StringComparison.Ordinal)),
@@ -22576,7 +22623,7 @@ static async Task TestStationaryCombatKeepsRightMouseAfterAcquireAsync()
             rightMouseUpCountAfterApproach,
             keyboard.MouseCommands.Count(command => command == "up:Right"),
             "verified target should not send another right mouse up");
-        AssertFalse(!keyboard.Keys.Contains("D2"), "verified target should enter semi-auto skill release");
+        AssertFalse(!keyboard.Keys.Contains("D1"), "verified target should enter semi-auto skill release");
     }
     finally
     {
@@ -24069,7 +24116,7 @@ static async Task TestStationaryCombatKeepsFightWhenLockedServerIdMatchesAsync()
     AssertEqual((ushort)65519, state.CurrentTargetEntityId, "current target entity id should refresh from locked target");
     AssertEqual(serverObjectId, state.CurrentTargetServerObjectId, "current target server object id");
     AssertFalse(keyboard.Keys.Contains("Tab"), "same server object target should not tab reacquire");
-    AssertFalse(!keyboard.Keys.Contains("D2"), "same server object target should continue skill release");
+    AssertFalse(!keyboard.Keys.Contains("D1"), "same server object target should continue skill release");
     AssertFalse(
         logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.reacquire"),
         "same server object target should not log reacquire");
@@ -24402,7 +24449,7 @@ static async Task TestStationaryCombatPressesCUntilLockedTargetTargetsPlayerAsyn
     await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
 
     AssertEqual(1, keyboard.Keys.Count(key => key == "C"), "C should stop after the locked target targets player");
-    AssertFalse(!keyboard.Keys.Contains("D2"), "targeting player should enter skill release");
+    AssertFalse(!keyboard.Keys.Contains("D1"), "targeting player should enter skill release");
 }
 
 static async Task TestStationaryCombatAcceptsSelfTargetingLockedTargetAfterOpeningAttackAsync()
@@ -24466,7 +24513,7 @@ static async Task TestStationaryCombatAcceptsSelfTargetingLockedTargetAfterOpeni
     await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
 
     AssertFalse(keyboard.Keys.Contains("C"), "self-targeting locked target should not wait for player targeting via C loop");
-    AssertFalse(!keyboard.Keys.Contains("D2"), "self-targeting locked target should continue skill release after opening attack");
+    AssertFalse(!keyboard.Keys.Contains("D1"), "self-targeting locked target should continue skill release after opening attack");
     AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.opening_attack.wait_targeting"), "self-targeting locked target should not log opening attack wait");
     AssertFalse(!state.Fighting, "self-targeting locked target should remain in fight");
     AssertEqual((ushort)100, state.CurrentTargetEntityId, "current self-targeting locked target should remain selected");
@@ -24558,7 +24605,7 @@ static async Task TestStationaryCombatKeepsVerifiedLeaderMarkedTargetClaimedByOt
     AssertEqual((ushort)100, state.CurrentTargetEntityId, "verified leader marked target entity should remain current");
     AssertEqual(100u, state.CurrentTargetServerObjectId, "verified leader marked target server id should remain current");
     AssertFalse(state.IsTargetIgnored(100, 100), "verified leader marked target should not be ignored as claimed");
-    AssertFalse(!keyboard.Keys.Contains("D2"), "verified leader marked target should continue skill release");
+    AssertFalse(!keyboard.Keys.Contains("D1"), "verified leader marked target should continue skill release");
     AssertFalse(logger.Entries.Any(entry =>
         entry.EventName == "stationary_combat.opening_attack.wait_targeting"),
         "verified leader marked target claimed by another player should bypass opening attack wait");
@@ -24778,7 +24825,7 @@ static async Task TestStationaryCombatTreatsSelfTargetingMonsterAsUnclaimedAsync
     AssertFalse(!state.Fighting, "self-targeting monster should stay in combat");
     AssertEqual((ushort)100, state.CurrentTargetEntityId, "current self-targeting monster should remain selected");
     AssertFalse(state.IsTargetIgnored(100, targetServerObjectId), "self-targeting monster should not be ignored as claimed");
-    AssertFalse(!keyboard.Keys.Contains("D2"), "self-targeting monster should continue skill release");
+    AssertFalse(!keyboard.Keys.Contains("D1"), "self-targeting monster should continue skill release");
     AssertFalse(logger.Entries.Any(entry =>
         entry.EventName == "stationary_combat.target.ignored" &&
         string.Equals(Convert.ToString(entry.Fields["reason"]), "target_owned_by_other", StringComparison.Ordinal)),
@@ -24854,7 +24901,7 @@ static async Task TestStationaryCombatKeepsPreviouslyEngagedTargetWhileSelfTarge
     AssertEqual(targetServerObjectId, state.CurrentTargetServerObjectId, "current fight target server id should not switch");
     AssertFalse(state.IsTargetIgnored(100, targetServerObjectId), "previously engaged target should not be ignored as claimed");
     AssertFalse(keyboard.Keys.Contains("C"), "previously engaged self-targeting monster should not re-enter opening attack wait");
-    AssertFalse(!keyboard.Keys.Contains("D2"), "previously engaged self-targeting monster should continue skill release");
+    AssertFalse(!keyboard.Keys.Contains("D1"), "previously engaged self-targeting monster should continue skill release");
     AssertFalse(logger.Entries.Any(entry =>
         entry.EventName == "stationary_combat.target.ignored" &&
         string.Equals(Convert.ToString(entry.Fields["reason"]), "target_owned_by_other", StringComparison.Ordinal)),
@@ -25314,7 +25361,7 @@ static async Task TestStationaryCombatTreatsLockedZeroHpTargetAsCombatAsync()
     AssertFalse(!state.Fighting, "locked zero-hp monster snapshot should enter fighting state");
     AssertFalse(keyboard.KeyDowns.Contains("W"), "locked target should not start W movement");
     AssertFalse(keyboard.KeyUps.Contains("W"), "locked target should not pulse W before combat");
-    AssertFalse(!keyboard.Keys.Contains("D2"), "locked zero-hp monster snapshot should enter skill logic");
+    AssertFalse(!keyboard.Keys.Contains("D1"), "locked zero-hp monster snapshot should enter skill logic");
 }
 
 static async Task TestStationaryCombatLootsLockedDeadTargetDirectlyAsync()
@@ -26670,7 +26717,7 @@ static async Task TestStationaryCombatFinishesFightBeforeReturningHomeAsync()
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
 
     AssertFalse(keyboard.Keys.Contains("W"), "fighting outside radius should not return home before target dies");
-    AssertFalse(!keyboard.Keys.Contains("D2"), "fighting outside radius should keep releasing skills");
+    AssertFalse(!keyboard.Keys.Contains("D1"), "fighting outside radius should keep releasing skills");
 }
 
 static async Task TestStationaryCombatReacquiresAdoptedDefenseTargetWhenLockedOnPartyMemberAsync()
@@ -27790,7 +27837,7 @@ static async Task TestStationaryCombatSkipsSitMaintenanceWhileFightingAsync()
         .ConfigureAwait(false);
 
     AssertFalse(keyboard.Keys.Contains("OemComma"), "stationary fighting tick must not enter sit maintenance");
-    AssertFalse(!keyboard.Keys.Contains("D2"), "stationary combat should keep releasing combat skills while low hp");
+    AssertFalse(!keyboard.Keys.Contains("D1"), "stationary combat keeps releasing the first available configured skill while low hp");
     AssertFalse(!stationaryState.Fighting, "stationary combat should stay in fight");
     AssertFalse(semiAutoState.IsMaintenanceResting, "stationary combat should not mark maintenance rest while fighting");
 }
@@ -27991,7 +28038,7 @@ static Task TestManualSkillCategoryMapsTargetValidStatusAsConditionAsync()
     return Task.CompletedTask;
 }
 
-static Task TestConditionSkillPreemptSwitchPersistsFromSkillUiAsync()
+static Task TestArchivedConditionPreemptSettingPreservedFromSkillUiAsync()
 {
     Exception? failure = null;
     var thread = new Thread(() =>
@@ -27999,7 +28046,7 @@ static Task TestConditionSkillPreemptSwitchPersistsFromSkillUiAsync()
         try
         {
             var settings = CreateScriptSettings();
-            settings.SemiAuto.ConditionSkillPreemptsChain = true;
+            settings.SemiAuto.ConditionSkillPreemptsChain = false;
             var configStore = new InMemoryAccountConfigStore(new AccountConfig
             {
                 AccountName = "account1",
@@ -28007,13 +28054,12 @@ static Task TestConditionSkillPreemptSwitchPersistsFromSkillUiAsync()
             });
 
             using var form = CreateAccountSettingsFormForTestsWithStore(configStore);
-            AssertFalse(
-                !GetCheckBoxCheckedForTest(form, "conditionSkillPreemptsChainCheckBox"),
-                "condition preempt switch should load enabled state");
-
-            SetCheckBoxCheckedForTest(form, "conditionSkillPreemptsChainCheckBox", false);
+            var retiredField = typeof(AccountSettingsForm).GetField("conditionSkillPreemptsChainCheckBox",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            AssertFalse(retiredField?.GetValue(form) is System.Windows.Forms.Control control && control.Parent is not null,
+                "the retired condition preempt option is absent from the active editor");
             var saved = InvokeSaveCurrentSettingsForTest(form, out var error);
-            AssertFalse(!saved, "condition preempt switch save failed: " + error);
+            AssertFalse(!saved, "skill UI save failed: " + error);
 
             var load = configStore.LoadAllAsync().GetAwaiter().GetResult();
             AssertFalse(!load.Success, "saved config should load");
@@ -28022,7 +28068,7 @@ static Task TestConditionSkillPreemptSwitchPersistsFromSkillUiAsync()
                 .ScriptSettings;
             AssertFalse(
                 savedSettings?.SemiAuto.ConditionSkillPreemptsChain != false,
-                "condition preempt switch should persist disabled state");
+                "the archived condition policy remains unchanged during a normal save");
         }
         catch (Exception ex)
         {
@@ -28404,21 +28450,22 @@ static Task TestConfiguredSkillRefreshUpdatesAllReferencesAsync()
                 }), skills));
             var result = ((int UpdatedCount, int DeletedCount, bool Saved, string Error))InvokePrivateMethodForTest(
                 form, "RefreshAndSaveConfiguredSkills")!;
-            AssertEqual(7, result.UpdatedCount, "all configured references should refresh");
+            AssertEqual(5, result.UpdatedCount, "all active and shared configured references refresh");
             AssertEqual(2, result.DeletedCount, "missing configured skills should be cleared");
             AssertFalse(!result.Saved, "refresh should auto save configured skills: " + result.Error);
             var saved = store.LoadAllAsync().GetAwaiter().GetResult().Value!
                 .Single(account => account.AccountName == "account1").ScriptSettings!;
-            AssertEqual(1, saved.Skills.ExecutionTree.Count, "missing execution skill removed");
-            AssertEqual(1002U, saved.Skills.ExecutionTree[0].SkillId, "execution skill rank");
-            AssertEqual(1002U, saved.Skills.SystemExecutionTree[0].SkillId, "system execution skill rank");
+            AssertEqual(1, saved.QuickbarSkills.ExecutionTree.Count, "missing active execution skill removed");
+            AssertEqual(1002U, saved.QuickbarSkills.ExecutionTree[0].SkillId, "active execution skill rank");
+            AssertSequence(new uint[] { 1001, 9999 }, saved.Skills.ExecutionTree.Select(node => node.SkillId), "old execution archive preserved");
+            AssertEqual(1001U, saved.Skills.SystemExecutionTree[0].SkillId, "old system archive preserved");
             AssertEqual(1002U, saved.Skills.OpeningSkill.Skills![0].SkillId, "opening skill rank");
             AssertEqual(1, saved.Skills.OpeningSkill.Skills.Count, "missing opening skill removed");
             AssertEqual("NumPad1", saved.Skills.OpeningSkill.Skills[0].Key, "opening skill key retained");
             AssertEqual(1002U, saved.Maintenance.HpMaintenanceRules[0].SkillId, "maintenance skill rank");
             AssertEqual("NumPad2", saved.Maintenance.HpMaintenanceRules[0].Key, "maintenance key retained");
             AssertEqual(1002U, saved.Skills.Spiritmaster.DotSkills[0].SkillId, "spiritmaster skill rank");
-            AssertEqual("Test Strike II", saved.Skills.ManualMappings[0].SkillName, "manual mapping skill rank");
+            AssertEqual("Test Strike V", saved.Skills.ManualMappings[0].SkillName, "old manual mapping archive preserved");
             AssertEqual("NumPad3", saved.Skills.ManualMappings[0].Key, "manual mapping key retained");
             AssertEqual(1002U, saved.Team.Support.MentalCleanseSkillId, "team cleanse skill rank");
         }
@@ -28429,39 +28476,6 @@ static Task TestConfiguredSkillRefreshUpdatesAllReferencesAsync()
     thread.Join();
     if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
     return Task.CompletedTask;
-}
-
-static async Task TestCombatTickPressesPrefixThenReadyRootAsync()
-{
-    var settings = CreateScriptSettings();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi
-    {
-        Skills = CreateSkillSnapshots(new Dictionary<string, uint>
-        {
-            ["保护之盾 I"] = 1000,
-            ["盾牌重击 II"] = 0,
-            ["弱化之猛击 II"] = 0,
-            ["猛烈一击 III"] = 0,
-            ["挑衅猛击 I"] = 0,
-            ["闪光斩 I"] = 0,
-            ["暗黑之惩戒 II"] = 0
-        })
-    };
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    CalibrateCooldownClock(state);
-
-    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
-
-    AssertSequence(
-        WithPreSkillAttackKey("D2", "D3", "D4", "D5"),
-        keyboard.Keys.ToArray(),
-        "key press order");
-    AssertFalse(keyboard.Keys.Contains("D9"), "late trigger D9 should not be used as prefix");
-    AssertFalse(keyboard.Keys.Contains("D0"), "dp skill should not be pressed");
 }
 
 static async Task TestAnkleStrikeLegacyTriggerIsTreatedAsConditionAsync()
@@ -28491,20 +28505,11 @@ static async Task TestAnkleStrikeLegacyTriggerIsTreatedAsConditionAsync()
     var gameApi = new FakeGameApi
     {
         Skills = skills,
-        LockedTargetAbnormalStatuses = CreateLockedTargetAbnormalSnapshot(
-            Abnormal(8218, PlayerAbnormalStatusSnapshot.PhysicalDebuffCategory))
+        SkillAvailability = new(0, new[] { new SkillAvailabilitySlotSnapshot(SkillQuickbar.Main, 1, 21, 410, 410, true) })
     };
     var controller = new SemiAutoCombatController(keyboard);
     var state = new SemiAutoCombatState();
     CalibrateCooldownClock(state);
-    var chainRoot = plan.Roots.Single(node => node.SkillId == 6);
-    state.StartPendingChainAdvance(
-        chainRoot,
-        chainRoot.Children[0],
-        DateTimeOffset.Now.AddSeconds(5),
-        ActiveCooldownEnd(),
-        1200);
-
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
 
     var ankleStrike = plan.Roots.Single(node => node.SkillId == 410);
@@ -28512,53 +28517,12 @@ static async Task TestAnkleStrikeLegacyTriggerIsTreatedAsConditionAsync()
     AssertFalse(ankleStrike.IsTrigger, "ankle strike must not remain in the trigger prefix");
     AssertFalse(plan.TriggerPrefixRoots.Contains(ankleStrike), "ankle strike must be absent from trigger prefix roots");
     AssertFalse(!plan.SkillReadIds.Contains(410u), "ankle strike should be included in configured skill reads");
-    AssertSequence(new[] { "D2" }, keyboard.Keys.ToArray(), "matched ankle strike should preempt the pending chain without trigger prefix");
-    AssertFalse(state.HasChainWork, "matched ankle strike should clear the preempted chain");
+    AssertSequence(new[] { "D2" }, keyboard.Keys.ToArray(), "an official ankle strike opportunity uses its exact bar key without a trigger prefix");
+    AssertFalse(state.HasChainWork, "the retired condition chain dispatcher remains unused");
     AssertFalse(
         !logger.Entries.Any(entry =>
-            entry.EventName == "semi_auto.condition_skill.pressed" &&
-            string.Equals(Convert.ToString(entry.Fields["skill"]), "脚踝重击 I", StringComparison.Ordinal) &&
-            Convert.ToBoolean(entry.Fields["preemptedChain"])),
-        "ankle strike should log condition preemption");
-}
-
-static async Task TestCombatTickRequestsOnlyConfiguredSkillIdsAsync()
-{
-    var settings = CreateScriptSettings();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi
-    {
-        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-        {
-            [1] = 0,
-            [5] = 0,
-            [6] = 0,
-            [7] = 0,
-            [8] = 0,
-            [9] = 0,
-            [10] = 0,
-            [51] = 0,
-            [61] = 0,
-            [62] = 0
-        })
-        .Concat(new[] { new SkillSnapshot(999, "unconfigured", 1, 1, "unconfigured", 1, false, 0, 0) })
-        .ToArray()
-    };
-    var controller = new SemiAutoCombatController(keyboard);
-
-    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState()).ConfigureAwait(false);
-
-    AssertSequence(
-        new uint[] { 1, 5, 6, 7, 8, 9, 51, 61, 62 },
-        gameApi.LastRequestedSkillIds ?? Array.Empty<uint>(),
-        "configured skill read ids");
-    AssertFalse(gameApi.LastRequestedSkillIds?.Contains(2u) == true, "trigger skill D2 must not be read");
-    AssertFalse(gameApi.LastRequestedSkillIds?.Contains(3u) == true, "trigger skill D3 must not be read");
-    AssertFalse(gameApi.LastRequestedSkillIds?.Contains(4u) == true, "trigger skill D4 must not be read");
-    AssertFalse(gameApi.LastRequestedSkillIds?.Contains(10u) == true, "dp skill must not be read until dp value is supported");
-    AssertFalse(gameApi.LastRequestedSkillIds?.Contains(999u) == true, "unconfigured skill must not be read");
+            entry.EventName == "quickbar_skill.key.pressed" && Convert.ToUInt32(entry.Fields["skillId"]) == 410),
+        "ankle strike releases through the current availability executor");
 }
 
 static Task TestConfiguredRootKeyBoundaryAsync()
@@ -29391,7 +29355,8 @@ static async Task TestSpiritmasterPetBuffRejectsUnrelatedLearnedAbnormalIdAsync(
 
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
 
-    AssertSequence(new[] { "NumPad0" }, keyboard.Keys.ToArray(), "untrusted active pet abnormal status should not block repeat pet buff");
+    AssertFalse(keyboard.Keys.Contains("NumPad0"), "clearing main action tracking must not bypass the independent pet buff confirmation window");
+    AssertFalse(state.TryGetSpiritmasterPetBuffAbnormalId(1662, out _), "unrelated pet abnormal status remains untrusted while waiting for confirmation");
 }
 
 static async Task TestSpiritmasterDotHitBlocksRepeatOnNextTickAsync()
@@ -29544,47 +29509,6 @@ static Task TestSpiritmasterDotLearningPrefersSkillIdAsync()
         "remembered dot abnormal id");
 
     return Task.CompletedTask;
-}
-
-static async Task TestSpiritmasterWaitsForPressedSkillCooldownBeforeNextRootAsync()
-{
-    var settings = CreateSpiritmasterScriptSettings();
-    settings.SemiAuto.ConfirmTimeoutMs = 1000;
-    settings.Skills.ExecutionTree = new List<SkillConfigNode>
-    {
-        Node(1701, "First Skill", "active"),
-        Node(1702, "Second Skill", "active")
-    };
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi
-    {
-        Player = CreateSpiritmasterPlayer(),
-        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true),
-        Skills = CreateSpiritmasterSkillSnapshots(
-            new SkillSnapshot(1701, "First Skill", 1, 1, "First Skill", 1, false, 1_000, 0),
-            new SkillSnapshot(1702, "Second Skill", 1, 1, "Second Skill", 1, false, 1_000, 0))
-    };
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    CalibrateCooldownClock(state);
-    var context = CreateContext(settings, gameApi, logger);
-
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(new[] { "D1" }, keyboard.Keys.ToArray(), "first root should press first");
-
-    keyboard.Keys.Clear();
-    await Task.Delay(60).ConfigureAwait(false);
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(new[] { "D1" }, keyboard.Keys.ToArray(), "first root should retry until its cooldown advances");
-
-    keyboard.Keys.Clear();
-    gameApi.Skills = CreateSpiritmasterSkillSnapshots(
-        new SkillSnapshot(1701, "First Skill", 1, 1, "First Skill", 1, false, 1_000, ActiveCooldownEnd()),
-        new SkillSnapshot(1702, "Second Skill", 1, 1, "Second Skill", 1, false, 1_000, 0));
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(new[] { "D2" }, keyboard.Keys.ToArray(), "next root should run after first root cooldown confirms");
 }
 
 static async Task TestSpiritmasterCombatRunsGlobalMpMaintenanceBeforeSkillsAsync()
@@ -29748,279 +29672,6 @@ static Task TestLargeCooldownOffsetJumpIsRejectedAsync()
     return Task.CompletedTask;
 }
 
-static async Task TestUncalibratedNonzeroCooldownFallsBackToFirstRootAsync()
-{
-    var settings = CreateScriptSettings();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi
-    {
-        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-        {
-            [1] = StaleCooldownEnd(),
-            [5] = StaleCooldownEnd(),
-            [51] = StaleCooldownEnd(),
-            [6] = StaleCooldownEnd(),
-            [7] = StaleCooldownEnd(),
-            [8] = StaleCooldownEnd(),
-            [9] = StaleCooldownEnd(),
-            [10] = 0
-        })
-    };
-    var controller = new SemiAutoCombatController(keyboard);
-
-    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState()).ConfigureAwait(false);
-
-    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D1"), keyboard.Keys.ToArray(), "uncalibrated stale cooldown should not block all roots");
-}
-
-static async Task TestUncalibratedUnknownCooldownRotatesAfterFailedAttemptAsync()
-{
-    var settings = CreateScriptSettings();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi
-    {
-        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-        {
-            [1] = StaleCooldownEnd(),
-            [5] = StaleCooldownEnd(),
-            [51] = StaleCooldownEnd(),
-            [6] = StaleCooldownEnd(),
-            [7] = StaleCooldownEnd(),
-            [8] = StaleCooldownEnd(),
-            [9] = StaleCooldownEnd(),
-            [10] = StaleCooldownEnd()
-        })
-    };
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    var context = CreateContext(settings, gameApi, logger);
-
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D1"), keyboard.Keys.ToArray(), "first unknown root should be tried once");
-
-    keyboard.Keys.Clear();
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-
-    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D5"), keyboard.Keys.ToArray(), "failed unknown root should yield to the next unknown root");
-}
-
-static async Task TestCalibratedNonzeroCooldownSkipsCoolingRootsAsync()
-{
-    var settings = CreateScriptSettings();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi
-    {
-        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-        {
-            [1] = ActiveCooldownEnd(),
-            [5] = 0,
-            [51] = 0,
-            [6] = 0,
-            [7] = 0,
-            [8] = 0,
-            [9] = 0,
-            [10] = 0
-        })
-    };
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    CalibrateCooldownClock(state);
-
-    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
-
-    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D5"), keyboard.Keys.ToArray(), "calibrated active cooldown should skip D1");
-}
-
-static async Task TestCalibratedCooldownToleranceTreatsNearReadyAsReadyAsync()
-{
-    var settings = CreateScriptSettings();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi
-    {
-        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-        {
-            [1] = CooldownEndIn(SemiAutoSkillReleasePriority.CooldownReadyToleranceMs),
-            [5] = 0,
-            [51] = 0,
-            [6] = 0,
-            [7] = 0,
-            [8] = 0,
-            [9] = 0,
-            [10] = 0
-        })
-    };
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    CalibrateCooldownClock(state);
-
-    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
-
-    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D1"), keyboard.Keys.ToArray(), "near-ready calibrated cooldown should be treated as ready");
-}
-
-static async Task TestObservedCooldownSurvivesZeroEndTickReadAsync()
-{
-    var settings = CreateScriptSettings();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi();
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    CalibrateCooldownClock(state);
-
-    var observedCoolingSkill = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-    {
-        [1] = CooldownEndIn(30_000)
-    }).Single(skill => skill.SkillId == 1);
-    state.TryUpdateCooldownTickCalibration(
-        new[] { observedCoolingSkill },
-        unchecked((uint)Environment.TickCount64),
-        DateTimeOffset.Now,
-        out _);
-
-    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-    {
-        [1] = 0,
-        [5] = ActiveCooldownEnd(),
-        [51] = ActiveCooldownEnd(),
-        [6] = ActiveCooldownEnd(),
-        [61] = ActiveCooldownEnd(),
-        [62] = ActiveCooldownEnd(),
-        [7] = ActiveCooldownEnd(),
-        [8] = ActiveCooldownEnd(),
-        [9] = ActiveCooldownEnd(),
-        [10] = ActiveCooldownEnd()
-    });
-
-    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
-
-    AssertFalse(keyboard.Keys.Contains("D1"), "known future cooldown should block a zero end-tick read");
-}
-
-static async Task TestStaleCooldownCalibrationInvalidatesImpossibleCombatCooldownsAsync()
-{
-    var settings = CreateScriptSettings();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi
-    {
-        Skills = CreateSkillSnapshotsById(CreateCombatRootCooldowns(CooldownEndIn(130_000)))
-    };
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    CalibrateCooldownClock(state);
-
-    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
-
-    AssertFalse(state.HasCooldownTickCalibration, "impossible cooldowns should clear cooldown calibration");
-    AssertFalse(
-        !logger.Entries.Any(entry =>
-            entry.EventName == "semi_auto.cooldown.calibration_invalidated" &&
-            string.Equals(
-                entry.Fields.GetValueOrDefault("reason")?.ToString(),
-                "short_cooldown_impossible",
-                StringComparison.Ordinal)),
-        "impossible cooldowns should log calibration invalidation");
-    AssertSequence(
-        WithPreSkillAttackKey("D2", "D3", "D4", "D1"),
-        keyboard.Keys.ToArray(),
-        "invalidated cooldown calibration should fall back to first root");
-}
-
-static async Task TestStaleCooldownCalibrationSkipsZeroDurationSkillsWhenInvalidatingAsync()
-{
-    var settings = CreateScriptSettings();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var impossibleCooldownEnd = CooldownEndIn(130_000);
-    var gameApi = new FakeGameApi
-    {
-        Skills = CreateSkillSnapshotsById(CreateCombatRootCooldowns(impossibleCooldownEnd))
-            .Select(skill => skill.SkillId == 8
-                ? skill with { CooldownDuration = 0, CooldownEndTime = impossibleCooldownEnd }
-                : skill)
-            .ToArray()
-    };
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    CalibrateCooldownClock(state);
-
-    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
-
-    AssertFalse(state.HasCooldownTickCalibration, "zero-duration skill should not block stale cooldown invalidation");
-    AssertFalse(
-        !logger.Entries.Any(entry => entry.EventName == "semi_auto.cooldown.calibration_invalidated"),
-        "stale cooldowns should still log calibration invalidation");
-}
-
-static async Task TestValidCooldownCalibrationKeepsPlausibleCombatCooldownsCoolingAsync()
-{
-    var settings = CreateScriptSettings();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi
-    {
-        Skills = CreateSkillSnapshotsById(CreateCombatRootCooldowns(CooldownEndIn(500)))
-    };
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    CalibrateCooldownClock(state);
-
-    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
-
-    AssertFalse(!state.HasCooldownTickCalibration, "plausible cooldowns should keep cooldown calibration");
-    AssertFalse(
-        logger.Entries.Any(entry => entry.EventName == "semi_auto.cooldown.calibration_invalidated"),
-        "plausible cooldowns should not log calibration invalidation");
-}
-
-static async Task TestInvalidatedCooldownCalibrationRebuildsAfterPressedSkillAdvancesAsync()
-{
-    var settings = CreateScriptSettings();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var firstEndTick = CooldownEndIn(130_000);
-    var gameApi = new FakeGameApi
-    {
-        Skills = CreateSkillSnapshotsById(CreateCombatRootCooldowns(firstEndTick))
-    };
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    CalibrateCooldownClock(state);
-
-    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
-    AssertFalse(state.HasCooldownTickCalibration, "first tick should clear stale cooldown calibration");
-    AssertFalse(!keyboard.Keys.Contains("D1"), "first tick should press D1 after invalidating calibration");
-
-    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>(CreateCombatRootCooldowns(firstEndTick))
-    {
-        [1] = unchecked(firstEndTick + 1_000u)
-    });
-    keyboard.Keys.Clear();
-
-    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
-
-    AssertFalse(!state.HasCooldownTickCalibration, "advanced pressed skill cooldown should rebuild calibration");
-    AssertFalse(
-        !logger.Entries.Any(entry =>
-            entry.EventName == "semi_auto.cooldown.calibrated" &&
-            Convert.ToUInt32(entry.Fields.GetValueOrDefault("skillId")) == 1u),
-        "advanced pressed skill cooldown should log recalibration");
-}
-
 static async Task TestOpeningAttackKeySwitchPressesCOnceAsync()
 {
     var settings = CreateScriptSettings();
@@ -30066,7 +29717,8 @@ static async Task TestOpeningSkillListAsync(string scenario)
     if (scenario is "single" or "cooling") cooldowns[1801] = CooldownEndIn(60000);
     if (scenario == "cooling") cooldowns[1803] = CooldownEndIn(60000);
     SkillSnapshot Snapshot(uint id) => new(id, "Skill " + id, 1, 1, "Skill " + id, 1, false,
-        scenario == "zero" ? 0u : 60000u, cooldowns.GetValueOrDefault(id));
+        scenario == "zero" || (scenario == "target" && id == 1801) ? 0u : 60000u,
+        cooldowns.GetValueOrDefault(id));
     var api = new FakeGameApi { TargetEntityId = 100, TargetOwnServerObjectId = 5000 };
     void UpdateSkills() => api.Skills = new uint[] { 1801, 1802, 1803, 1804 }
         .Where(id => scenario != "cooling" || id != 1802).Select(Snapshot).ToArray();
@@ -32653,802 +32305,6 @@ static async Task TestSemiAutoSkipsSitMaintenanceAsync()
     AssertFalse(!keyboard.Keys.Any(key => key.StartsWith("D", StringComparison.OrdinalIgnoreCase)), "semi-auto should continue skill release");
 }
 
-static async Task TestPollResultAdvancesRootOrderAsync()
-{
-    var settings = CreateScriptSettings();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi
-    {
-        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-        {
-            [1] = 0,
-            [5] = 0,
-            [51] = 0,
-            [6] = 0,
-            [7] = 0,
-            [8] = 0,
-            [9] = 0,
-            [10] = 0
-        })
-    };
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    var context = CreateContext(settings, gameApi, logger);
-
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D1"), keyboard.Keys.ToArray(), "first ready root");
-
-    keyboard.Keys.Clear();
-    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-    {
-        [1] = ActiveCooldownEnd(),
-        [5] = 0,
-        [51] = 0,
-        [6] = 0,
-        [7] = 0,
-        [8] = 0,
-        [9] = 0,
-        [10] = 0
-    });
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D5"), keyboard.Keys.ToArray(), "second ready root");
-
-    keyboard.Keys.Clear();
-    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-    {
-        [1] = ActiveCooldownEnd(),
-        [5] = ActiveCooldownEnd(),
-        [51] = 0,
-        [6] = 0,
-        [7] = 0,
-        [8] = 0,
-        [9] = 0,
-        [10] = 0
-    });
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(WithPreSkillKey("D5"), keyboard.Keys.ToArray(), "chain child inherits D5 without trigger prefix");
-
-    keyboard.Keys.Clear();
-    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-    {
-        [1] = ActiveCooldownEnd(),
-        [5] = ActiveCooldownEnd(),
-        [51] = ActiveCooldownEnd(),
-        [6] = 0,
-        [7] = 0,
-        [8] = 0,
-        [9] = 0,
-        [10] = 0
-    });
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "confirmed terminal chain clears before ordinary fallback");
-
-    keyboard.Keys.Clear();
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D6"), keyboard.Keys.ToArray(), "poll-unavailable early roots allow D6");
-}
-
-static async Task TestDpSkillSkippedAsync()
-{
-    var settings = CreateScriptSettings();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi
-    {
-        Skills = CreateSkillSnapshots(new Dictionary<string, uint>
-        {
-            ["保护之盾 I"] = 1000,
-            ["盾牌重击 II"] = 1000,
-            ["弱化之猛击 II"] = 1000,
-            ["猛烈一击 III"] = 1000,
-            ["挑衅猛击 I"] = 1000,
-            ["闪光斩 I"] = 1000,
-            ["暗黑之惩戒 II"] = 0
-        })
-    };
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    CalibrateCooldownClock(state);
-
-    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
-
-    AssertSequence(WithTriggerFallbackAttackKey("D2", "D3", "D4"), keyboard.Keys.ToArray(), "trigger fallback should run when only dp is ready");
-    AssertFalse(keyboard.Keys.Contains("D0"), "dp skill should not be pressed by trigger fallback");
-}
-
-static async Task TestChainPressesNextStageWithoutSourceCooldownAsync()
-{
-    var settings = CreateScriptSettings();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi();
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    var context = CreateContext(settings, gameApi, logger);
-
-    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-    {
-        [1] = ActiveCooldownEnd(),
-        [5] = ActiveCooldownEnd(),
-        [6] = 0,
-        [61] = 0,
-        [62] = 0,
-        [7] = 0,
-        [8] = 0,
-        [9] = ActiveCooldownEnd(),
-        [10] = 0
-    });
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D6"), keyboard.Keys.ToArray(), "first stage root press");
-
-    keyboard.Keys.Clear();
-    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-    {
-        [1] = ActiveCooldownEnd(),
-        [5] = ActiveCooldownEnd(),
-        [6] = 0,
-        [61] = 0,
-        [62] = 0,
-        [7] = 0,
-        [8] = 0,
-        [9] = ActiveCooldownEnd(),
-        [10] = 0
-    });
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(WithPreSkillKey("D6"), keyboard.Keys.ToArray(), "chain next stage skips trigger prefix");
-    AssertEqual(plan.Roots.Single(root => root.SkillId == 6).Children[0].Name, LastPressedSkill(logger), "next stage skill");
-
-    keyboard.Keys.Clear();
-    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-    {
-        [1] = ActiveCooldownEnd(),
-        [5] = ActiveCooldownEnd(),
-        [6] = ActiveCooldownEnd(),
-        [61] = 0,
-        [62] = 0,
-        [7] = 0,
-        [8] = 0,
-        [9] = ActiveCooldownEnd(),
-        [10] = 0
-    });
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(WithPreSkillKey("D6"), keyboard.Keys.ToArray(), "unconfirmed second stage repeats");
-    AssertEqual(plan.Roots.Single(root => root.SkillId == 6).Children[0].Name, LastPressedSkill(logger), "unconfirmed second stage skill");
-
-    keyboard.Keys.Clear();
-    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-    {
-        [1] = ActiveCooldownEnd(),
-        [5] = ActiveCooldownEnd(),
-        [6] = ActiveCooldownEnd(),
-        [61] = ActiveCooldownEnd(),
-        [62] = 0,
-        [7] = 0,
-        [8] = 0,
-        [9] = ActiveCooldownEnd(),
-        [10] = 0
-    });
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(WithPreSkillKey("D6"), keyboard.Keys.ToArray(), "third stage skips trigger prefix after second stage confirms");
-    AssertEqual(plan.Roots.Single(root => root.SkillId == 6).Children[0].Children[0].Name, LastPressedSkill(logger), "third stage skill");
-}
-
-static async Task TestChainPressesConfiguredChildWithoutCooldownFilterAsync()
-{
-    var settings = CreateScriptSettings();
-    var robustRoot = settings.Skills.ExecutionTree.Single(node => node.SkillId == 6);
-    robustRoot.Children.Add(Node(63, "澶囩敤杩炴妧 I", "杩炵画鎶€"));
-
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi();
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    var context = CreateContext(settings, gameApi, logger);
-    var root = plan.Roots.Single(node => node.SkillId == 6);
-
-    state.StartPendingChainAdvance(root, root.Children[0], DateTimeOffset.Now.AddSeconds(5), 0);
-    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-    {
-        [1] = ActiveCooldownEnd(),
-        [5] = ActiveCooldownEnd(),
-        [6] = ActiveCooldownEnd(),
-        [61] = ActiveCooldownEnd(),
-        [62] = ActiveCooldownEnd(),
-        [63] = 0,
-        [7] = ActiveCooldownEnd(),
-        [8] = ActiveCooldownEnd(),
-        [9] = ActiveCooldownEnd(),
-        [10] = 0
-    }).Concat(new[]
-    {
-        new SkillSnapshot(63, "澶囩敤杩炴妧 I", 1, 1, "澶囩敤杩炴妧", 1, false, 0, 0)
-    }).ToArray();
-
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-
-    AssertSequence(WithPreSkillKey("D6"), keyboard.Keys.ToArray(), "chain child skips trigger prefix");
-    AssertEqual(root.Children[0].Name, LastPressedSkill(logger), "chain child ignores ordinary cooldown filter");
-}
-
-static async Task TestChainClearsAcrossTargetGapAsync()
-{
-    var settings = CreateScriptSettings();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi
-    {
-        TargetServerObjectId = 1000
-    };
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    var context = CreateContext(settings, gameApi, logger);
-
-    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-    {
-        [1] = ActiveCooldownEnd(),
-        [5] = ActiveCooldownEnd(),
-        [6] = 0,
-        [61] = 0,
-        [62] = ActiveCooldownEnd(),
-        [7] = 0,
-        [8] = 0,
-        [9] = ActiveCooldownEnd(),
-        [10] = 0
-    });
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D6"), keyboard.Keys.ToArray(), "source press before target gap");
-
-    keyboard.Keys.Clear();
-    gameApi.TargetCurrentHp = 0;
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertEqual(0, keyboard.Keys.Count, "dead target should not press");
-    AssertFalse(state.HasChainWork, "dead target should clear pending chain");
-    AssertFalse(
-        !logger.Entries.Any(entry =>
-            entry.EventName == "semi_auto.chain.ended" &&
-            string.Equals(Convert.ToString(entry.Fields["reason"]), "target_not_attackable", StringComparison.Ordinal)),
-        "dead target chain clear should be logged");
-
-    gameApi.TargetEntityId = 200;
-    gameApi.TargetServerObjectId = 2000;
-    gameApi.TargetCurrentHp = 1000;
-    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-    {
-        [1] = ActiveCooldownEnd(),
-        [5] = ActiveCooldownEnd(),
-        [6] = ActiveCooldownEnd(),
-        [61] = 0,
-        [62] = ActiveCooldownEnd(),
-        [7] = 0,
-        [8] = 0,
-        [9] = ActiveCooldownEnd(),
-        [10] = 0
-    });
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D7"), keyboard.Keys.ToArray(), "target switch should return to ordinary root selection");
-    AssertEqual(plan.Roots.Single(root => root.SkillId == 7).Name, LastPressedSkill(logger), "target switch fallback root skill");
-
-    var switchKeyboard = new RecordingKeyboardInput();
-    var switchLogger = new InMemoryRoadhogLogger();
-    var switchGameApi = new FakeGameApi
-    {
-        TargetEntityId = 100,
-        TargetServerObjectId = 1000,
-        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-        {
-            [1] = ActiveCooldownEnd(),
-            [5] = ActiveCooldownEnd(),
-            [6] = 0,
-            [61] = 0,
-            [62] = ActiveCooldownEnd(),
-            [7] = 0,
-            [8] = 0,
-            [9] = ActiveCooldownEnd(),
-            [10] = 0
-        })
-    };
-    var switchController = new SemiAutoCombatController(switchKeyboard);
-    var switchState = new SemiAutoCombatState();
-    var switchContext = CreateContext(settings, switchGameApi, switchLogger);
-
-    await switchController.TickAsync(switchContext, plan, switchState).ConfigureAwait(false);
-    AssertFalse(!switchState.HasChainWork, "source press should leave pending chain before live target switch");
-
-    switchKeyboard.Keys.Clear();
-    switchGameApi.TargetEntityId = 201;
-    switchGameApi.TargetServerObjectId = 2000;
-    switchGameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-    {
-        [1] = ActiveCooldownEnd(),
-        [5] = ActiveCooldownEnd(),
-        [6] = ActiveCooldownEnd(),
-        [61] = 0,
-        [62] = ActiveCooldownEnd(),
-        [7] = 0,
-        [8] = 0,
-        [9] = ActiveCooldownEnd(),
-        [10] = 0
-    });
-    await switchController.TickAsync(switchContext, plan, switchState).ConfigureAwait(false);
-
-    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D7"), switchKeyboard.Keys.ToArray(), "live target switch should clear pending chain before child press");
-    AssertFalse(switchState.HasChainWork, "live target switch should leave no pending chain after D7");
-    AssertFalse(
-        !switchLogger.Entries.Any(entry =>
-            entry.EventName == "semi_auto.chain.ended" &&
-            string.Equals(Convert.ToString(entry.Fields["reason"]), "target_changed", StringComparison.Ordinal)),
-        "live target switch chain clear should be logged");
-}
-
-static async Task TestChainLockPreventsRootFallbackWhileChildMissingAsync()
-{
-    var settings = CreateScriptSettings();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi();
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    var context = CreateContext(settings, gameApi, logger);
-    var root = plan.Roots.Single(node => node.SkillId == 6);
-
-    state.StartPendingChainAdvance(root, root.Children[0], DateTimeOffset.Now.AddSeconds(5), 0);
-    gameApi.Skills = Flatten(plan.Roots)
-        .Where(node => node.SkillId is 1 or 5 or 6 or 7 or 8 or 9 or 10)
-        .Select(node => new SkillSnapshot(
-            node.SkillId,
-            node.Name,
-            1,
-            1,
-            node.BaseName,
-            1,
-            false,
-            0,
-            0))
-        .ToArray();
-
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-
-    AssertEqual(0, keyboard.Keys.Count, "pending chain must not fall back to ready root when child is missing");
-    AssertFalse(!state.HasChainWork, "pending chain should remain locked while waiting for child snapshot");
-    AssertFalse(logger.Entries.Any(entry => entry.EventName == "semi_auto.chain.ended"), "missing child should not clear chain before timeout");
-}
-
-static async Task TestChainStrictOrderAsync()
-{
-    var settings = CreateScriptSettings();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi
-    {
-        Skills = CreateSkillSnapshots(new Dictionary<string, uint>
-        {
-            ["保护之盾 I"] = 1000,
-            ["盾牌重击 II"] = 1000,
-            ["弱化之猛击 II"] = 1000,
-            ["猛烈一击 III"] = 0,
-            ["会心一击 III"] = 0,
-            ["必灭一击 I"] = 1000,
-            ["挑衅猛击 I"] = 0,
-            ["闪光斩 I"] = 0,
-            ["暗黑之惩戒 II"] = 0
-        })
-    };
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    var context = CreateContext(settings, gameApi, logger);
-
-    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-    {
-        [1] = ActiveCooldownEnd(),
-        [5] = ActiveCooldownEnd(),
-        [6] = 0,
-        [61] = 0,
-        [62] = ActiveCooldownEnd(),
-        [7] = 0,
-        [8] = 0,
-        [9] = ActiveCooldownEnd(),
-        [10] = 0
-    });
-
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D6"), keyboard.Keys.ToArray(), "root chain start order");
-
-    keyboard.Keys.Clear();
-    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-    {
-        [1] = ActiveCooldownEnd(),
-        [5] = ActiveCooldownEnd(),
-        [6] = ActiveCooldownEnd(),
-        [61] = 0,
-        [62] = ActiveCooldownEnd(),
-        [7] = 0,
-        [8] = 0,
-        [9] = ActiveCooldownEnd(),
-        [10] = 0
-    });
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(WithPreSkillKey("D6"), keyboard.Keys.ToArray(), "chain second stage skips trigger prefix");
-
-    keyboard.Keys.Clear();
-    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-    {
-        [1] = ActiveCooldownEnd(),
-        [5] = ActiveCooldownEnd(),
-        [6] = ActiveCooldownEnd(),
-        [61] = ActiveCooldownEnd(),
-        [62] = ActiveCooldownEnd(),
-        [7] = 0,
-        [8] = 0,
-        [9] = ActiveCooldownEnd(),
-        [10] = 0
-    });
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(WithPreSkillKey("D6"), keyboard.Keys.ToArray(), "chain child should be attempted without ordinary cooldown filter");
-    AssertEqual(
-        plan.Roots.Single(root => root.SkillId == 6).Children[0].Children[0].Name,
-        LastPressedSkill(logger),
-        "third stage skill");
-}
-
-static async Task TestConditionSkillPreemptsPendingChainAsync()
-{
-    var settings = CreateConditionSkillSettings();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi
-    {
-        LockedTargetAbnormalStatuses = CreateLockedTargetAbnormalSnapshot(
-            Abnormal(8218, PlayerAbnormalStatusSnapshot.PhysicalDebuffCategory))
-    };
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    var root = plan.Roots.Single(node => node.SkillId == 6);
-    state.StartPendingChainAdvance(root, root.Children[0], DateTimeOffset.Now.AddSeconds(5), ActiveCooldownEnd(), 1200);
-    gameApi.Skills = WithConditionSkillStatus(
-        CreateSkillSnapshotsById(new Dictionary<uint, uint>
-        {
-            [1] = 0,
-            [5] = ActiveCooldownEnd(),
-            [6] = ActiveCooldownEnd(),
-            [61] = 0,
-            [62] = 0,
-            [7] = ActiveCooldownEnd(),
-            [8] = ActiveCooldownEnd(),
-            [9] = ActiveCooldownEnd()
-        }));
-
-    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
-
-    AssertSequence(new[] { "D1" }, keyboard.Keys.ToArray(), "condition skill should preempt chain without trigger prefix");
-    AssertFalse(state.HasChainWork, "condition preempt should clear pending chain");
-    AssertFalse(
-        !logger.Entries.Any(entry =>
-            entry.EventName == "semi_auto.chain.ended" &&
-            string.Equals(Convert.ToString(entry.Fields["reason"]), "condition_preempted", StringComparison.Ordinal)),
-        "condition preempt should log chain clear");
-    var conditionLog = logger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.condition_skill.pressed");
-    AssertFalse(conditionLog is null, "condition skill should log matched status");
-    AssertEqual("Stumble", Convert.ToString(conditionLog!.Fields["conditionStatus"]) ?? string.Empty, "matched condition status");
-    AssertEqual(8218L, Convert.ToInt64(conditionLog.Fields["conditionAbnormalId"]), "matched condition abnormal id");
-    AssertEqual(true, Convert.ToBoolean(conditionLog.Fields["preemptedChain"]), "condition preempt flag");
-}
-
-static async Task TestConditionSkillPreemptSwitchKeepsPendingChainPriorityAsync()
-{
-    var settings = CreateConditionSkillSettings();
-    settings.SemiAuto.ConditionSkillPreemptsChain = false;
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi
-    {
-        LockedTargetAbnormalStatuses = CreateLockedTargetAbnormalSnapshot(
-            Abnormal(8218, PlayerAbnormalStatusSnapshot.PhysicalDebuffCategory))
-    };
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    var root = plan.Roots.Single(node => node.SkillId == 6);
-    state.StartPendingChainAdvance(root, root.Children[0], DateTimeOffset.Now.AddSeconds(5), ActiveCooldownEnd(), 1200);
-    gameApi.Skills = WithConditionSkillStatus(
-        CreateSkillSnapshotsById(new Dictionary<uint, uint>
-        {
-            [1] = 0,
-            [5] = ActiveCooldownEnd(),
-            [6] = ActiveCooldownEnd(),
-            [61] = 0,
-            [62] = 0,
-            [7] = ActiveCooldownEnd(),
-            [8] = ActiveCooldownEnd(),
-            [9] = ActiveCooldownEnd()
-        }));
-
-    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
-
-    AssertSequence(new[] { "D6" }, keyboard.Keys.ToArray(), "disabled preempt should keep pending chain first");
-    AssertFalse(!state.HasChainWork, "pending chain should remain active after chain press");
-    AssertFalse(gameApi.LastLockedTargetAbnormalContext is not null, "disabled chain preempt should not read condition abnormal");
-}
-
-static async Task TestConditionSkillWaitsForTargetStatusAsync()
-{
-    var settings = CreateConditionSkillSettings();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi
-    {
-        LockedTargetAbnormalStatuses = CreateLockedTargetAbnormalSnapshot()
-    };
-    var controller = new SemiAutoCombatController(keyboard);
-    gameApi.Skills = WithConditionSkillStatus(
-        CreateSkillSnapshotsById(new Dictionary<uint, uint>
-        {
-            [1] = 0,
-            [5] = 0,
-            [6] = ActiveCooldownEnd(),
-            [7] = ActiveCooldownEnd(),
-            [8] = ActiveCooldownEnd(),
-            [9] = ActiveCooldownEnd()
-        }));
-
-    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState()).ConfigureAwait(false);
-
-    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D5"), keyboard.Keys.ToArray(), "condition skill should wait for matching target abnormal");
-    AssertFalse(keyboard.Keys.Contains("D1"), "condition skill must not fall through as ordinary root");
-    AssertFalse(logger.Entries.Any(entry => entry.EventName == "semi_auto.condition_skill.pressed"), "unmatched condition should not press");
-}
-
-static async Task TestConditionNodeWithoutStatusMetadataStaysBlockedAsync()
-{
-    var settings = CreateScriptSettings();
-    settings.Skills.ExecutionTree[0] = Node(410, "脚踝重击 I", "条件技能");
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi
-    {
-        LockedTargetAbnormalStatuses = CreateLockedTargetAbnormalSnapshot(
-            Abnormal(8218, PlayerAbnormalStatusSnapshot.PhysicalDebuffCategory)),
-        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-        {
-            [410] = 0,
-            [5] = ActiveCooldownEnd(),
-            [6] = ActiveCooldownEnd(),
-            [7] = ActiveCooldownEnd(),
-            [8] = ActiveCooldownEnd(),
-            [9] = ActiveCooldownEnd()
-        })
-    };
-
-    await new SemiAutoCombatController(keyboard)
-        .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState())
-        .ConfigureAwait(false);
-
-    AssertFalse(keyboard.Keys.Contains("D1"), "condition node without target status metadata must not press as an ordinary root");
-    AssertFalse(
-        logger.Entries.Any(entry => entry.EventName == "semi_auto.condition_skill.pressed"),
-        "condition node without target status metadata must not report a matched condition");
-}
-
-static async Task TestConditionSkillRespectsCooldownAsync()
-{
-    var settings = CreateConditionSkillSettings();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi
-    {
-        LockedTargetAbnormalStatuses = CreateLockedTargetAbnormalSnapshot(
-            Abnormal(8218, PlayerAbnormalStatusSnapshot.PhysicalDebuffCategory))
-    };
-    var controller = new SemiAutoCombatController(keyboard);
-    gameApi.Skills = WithConditionSkillStatus(
-        CreateSkillSnapshotsById(new Dictionary<uint, uint>
-        {
-            [1] = ActiveCooldownEnd(),
-            [5] = 0,
-            [6] = ActiveCooldownEnd(),
-            [7] = ActiveCooldownEnd(),
-            [8] = ActiveCooldownEnd(),
-            [9] = ActiveCooldownEnd()
-        }));
-
-    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState()).ConfigureAwait(false);
-
-    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D5"), keyboard.Keys.ToArray(), "cooling condition skill should yield to normal root");
-    AssertFalse(keyboard.Keys.Contains("D1"), "cooling condition skill should not press");
-}
-
-static async Task TestChainWindowUsesConfiguredDepthAsync()
-{
-    var twoStageWindow = await StartChainAndReadWindowAsync(CreateScriptSettings(), 5).ConfigureAwait(false);
-    AssertEqual(600, twoStageWindow, "two-stage chain window");
-
-    var threeStageWindow = await StartChainAndReadWindowAsync(CreateScriptSettings(), 6).ConfigureAwait(false);
-    AssertEqual(1200, threeStageWindow, "three-stage chain window");
-
-    var fourStageSettings = CreateScriptSettings();
-    var root = fourStageSettings.Skills.ExecutionTree.Single(node => node.SkillId == 6);
-    root.Children[0].Children[0].Children.Add(Node(64, "Fourth Chain Stage", "chain"));
-
-    var fourStageWindow = await StartChainAndReadWindowAsync(fourStageSettings, 6).ConfigureAwait(false);
-    AssertEqual(1800, fourStageWindow, "four-stage chain window");
-
-    var customSettings = CreateScriptSettings();
-    customSettings.SemiAuto.ChainWindowPerLinkMs = 800;
-    var customWindow = await StartChainAndReadWindowAsync(customSettings, 6).ConfigureAwait(false);
-    AssertEqual(1600, customWindow, "custom per-link chain window");
-}
-
-static async Task TestChainWindowStartsFromRootCooldownAsync()
-{
-    var settings = CreateScriptSettings();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi();
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    var context = CreateContext(settings, gameApi, logger);
-    var root = plan.Roots.Single(node => node.SkillId == 6);
-
-    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-    {
-        [1] = ActiveCooldownEnd(),
-        [5] = ActiveCooldownEnd(),
-        [6] = 0,
-        [61] = 0,
-        [62] = 0,
-        [7] = ActiveCooldownEnd(),
-        [8] = ActiveCooldownEnd(),
-        [9] = ActiveCooldownEnd()
-    });
-
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-
-    AssertFalse(!state.HasChainWork, "root press should create pending chain");
-    AssertFalse(state.HasPendingChainWindowStarted, "chain window must wait for root cooldown");
-    AssertEqual(1200, state.PendingChainWindowMs, "three-stage pending window");
-
-    keyboard.Keys.Clear();
-    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-    {
-        [1] = ActiveCooldownEnd(),
-        [5] = ActiveCooldownEnd(),
-        [6] = 0,
-        [61] = 0,
-        [62] = 0,
-        [7] = ActiveCooldownEnd(),
-        [8] = ActiveCooldownEnd(),
-        [9] = ActiveCooldownEnd()
-    });
-
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-
-    AssertFalse(state.HasPendingChainWindowStarted, "chain window must not start before root cooldown advances");
-    AssertEqual(root.Children[0].Name, LastPressedSkill(logger), "second stage can be attempted before root cooldown is confirmed");
-
-    keyboard.Keys.Clear();
-    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-    {
-        [1] = ActiveCooldownEnd(),
-        [5] = ActiveCooldownEnd(),
-        [6] = ActiveCooldownEnd(),
-        [61] = 0,
-        [62] = 0,
-        [7] = ActiveCooldownEnd(),
-        [8] = ActiveCooldownEnd(),
-        [9] = ActiveCooldownEnd()
-    });
-
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-
-    AssertFalse(!state.HasPendingChainWindowStarted, "chain window should start when root cooldown advances");
-    var remaining = state.PendingChainExpiresAt - DateTimeOffset.Now;
-    AssertFalse(remaining <= TimeSpan.Zero, "chain window should have positive remaining time");
-    AssertFalse(remaining > TimeSpan.FromMilliseconds(1200), "chain window should not exceed configured total");
-}
-
-static async Task TestChainWindowDoesNotResetAfterChildAdvanceAsync()
-{
-    var settings = CreateScriptSettings();
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi();
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    var context = CreateContext(settings, gameApi, logger);
-    var root = plan.Roots.Single(node => node.SkillId == 6);
-
-    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-    {
-        [1] = ActiveCooldownEnd(),
-        [5] = ActiveCooldownEnd(),
-        [6] = 0,
-        [61] = 0,
-        [62] = 0,
-        [7] = ActiveCooldownEnd(),
-        [8] = ActiveCooldownEnd(),
-        [9] = ActiveCooldownEnd()
-    });
-
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-
-    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-    {
-        [1] = ActiveCooldownEnd(),
-        [5] = ActiveCooldownEnd(),
-        [6] = ActiveCooldownEnd(),
-        [61] = 0,
-        [62] = 0,
-        [7] = ActiveCooldownEnd(),
-        [8] = ActiveCooldownEnd(),
-        [9] = ActiveCooldownEnd()
-    });
-
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-
-    AssertFalse(!state.HasPendingChainWindowStarted, "second stage should start root cooldown window");
-    var expiresAt = state.PendingChainExpiresAt;
-
-    keyboard.Keys.Clear();
-    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-    {
-        [1] = ActiveCooldownEnd(),
-        [5] = ActiveCooldownEnd(),
-        [6] = ActiveCooldownEnd(),
-        [61] = ActiveCooldownEnd(),
-        [62] = 0,
-        [7] = ActiveCooldownEnd(),
-        [8] = ActiveCooldownEnd(),
-        [9] = ActiveCooldownEnd()
-    });
-
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-
-    AssertEqual(expiresAt, state.PendingChainExpiresAt, "chain expiry must not reset after child advance");
-    AssertEqual(root.SkillId, state.PendingChainSourceNode?.SkillId ?? 0, "pending chain source should remain root");
-    AssertEqual(root.Children[0].Children[0].Name, LastPressedSkill(logger), "third stage skill");
-}
-
-static async Task<int> StartChainAndReadWindowAsync(ScriptSettings settings, uint readyRootSkillId)
-{
-    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
-    var keyboard = new RecordingKeyboardInput();
-    var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi();
-    var controller = new SemiAutoCombatController(keyboard);
-    var state = new SemiAutoCombatState();
-    var context = CreateContext(settings, gameApi, logger);
-
-    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-    {
-        [1] = ActiveCooldownEnd(),
-        [5] = readyRootSkillId == 5 ? 0 : ActiveCooldownEnd(),
-        [6] = readyRootSkillId == 6 ? 0 : ActiveCooldownEnd(),
-        [7] = ActiveCooldownEnd(),
-        [8] = ActiveCooldownEnd(),
-        [9] = ActiveCooldownEnd()
-    });
-
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-
-    AssertFalse(!state.HasChainWork, "ready chain root should create pending chain");
-    AssertFalse(state.HasPendingChainWindowStarted, "chain window should not start until root cooldown advances");
-    return state.PendingChainWindowMs;
-}
-
 static async Task TestCombatTickCountsKillAsync()
 {
     var settings = CreateScriptSettings();
@@ -33807,13 +32663,6 @@ static ScriptSettings CreateScriptSettings()
     };
 }
 
-static ScriptSettings CreateConditionSkillSettings()
-{
-    var settings = CreateScriptSettings();
-    settings.Skills.ExecutionTree[0] = Node(1, "共鸣烟雾 I", "条件技能");
-    return settings;
-}
-
 static SkillScriptSettings CreateSkillSettings()
 {
     return new SkillScriptSettings
@@ -34090,23 +32939,6 @@ static bool ContainsDirectTreeNode(System.Windows.Forms.TreeNodeCollection nodes
     return FindDirectTreeNode(nodes, text) is not null;
 }
 
-static IReadOnlyList<SkillSnapshot> CreateSkillSnapshots(IReadOnlyDictionary<string, uint> cooldowns)
-{
-    var plan = SemiAutoSkillPlan.FromSettings(CreateSkillSettings());
-    return Flatten(plan.Roots)
-        .Select(node => new SkillSnapshot(
-            node.SkillId,
-            node.Name,
-            1,
-            1,
-            node.BaseName,
-            1,
-            false,
-            cooldowns.ContainsKey(node.Name) ? 1000u : 0u,
-            cooldowns.TryGetValue(node.Name, out var cooldownEnd) ? NormalizeCooldownEnd(cooldownEnd) : 0u))
-        .ToArray();
-}
-
 static IReadOnlyList<SkillSnapshot> CreateSkillSnapshotsById(IReadOnlyDictionary<uint, uint> cooldowns)
 {
     var plan = SemiAutoSkillPlan.FromSettings(CreateSkillSettings());
@@ -34129,50 +32961,6 @@ static IReadOnlyList<SkillSnapshot> CreateSkillSnapshotsById(IReadOnlyDictionary
                 configured);
         })
         .ToArray();
-}
-
-static IReadOnlyList<SkillSnapshot> WithConditionSkillStatus(
-    IReadOnlyList<SkillSnapshot> skills,
-    string targetValidStatuses = "Stumble")
-{
-    return skills
-        .Select(skill => skill.SkillId == 1
-            ? skill with
-            {
-                Name = "共鸣烟雾 I",
-                DisplayBaseName = "共鸣烟雾",
-                XmlTags = AppendSkillTag(skill.XmlTags, "condition"),
-                XmlTargetValidStatuses = targetValidStatuses
-            }
-            : skill)
-        .ToArray();
-}
-
-static string AppendSkillTag(string? tags, string tag)
-{
-    if (string.IsNullOrWhiteSpace(tags))
-    {
-        return tag;
-    }
-
-    return tags
-        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-        .Any(value => string.Equals(value, tag, StringComparison.OrdinalIgnoreCase))
-        ? tags
-        : tags + "," + tag;
-}
-
-static IReadOnlyDictionary<uint, uint> CreateCombatRootCooldowns(uint cooldownEnd)
-{
-    return new Dictionary<uint, uint>
-    {
-        [1] = cooldownEnd,
-        [5] = cooldownEnd,
-        [6] = cooldownEnd,
-        [7] = cooldownEnd,
-        [8] = cooldownEnd,
-        [9] = cooldownEnd
-    };
 }
 
 static uint NormalizeCooldownEnd(uint cooldownEnd)
@@ -34280,6 +33068,8 @@ static AccountWorkerContext CreateContext(
     AccountWorkerOptions? options = null,
     CancellationToken stopToken = default)
 {
+    if (gameApi is FakeGameApi quickbarFixture)
+        QuickbarCombatTestFixture.AddBarForSharedTests(settings, quickbarFixture);
     var account = new AccountConfig
     {
         AccountName = "account1",
@@ -35622,21 +34412,6 @@ static async Task IgnoreCancellationAsync(Task task)
     }
 }
 
-static string[] WithPreSkillKey(params string[] keys)
-{
-    return keys.ToArray();
-}
-
-static string[] WithPreSkillAttackKey(params string[] keys)
-{
-    return keys.ToArray();
-}
-
-static string[] WithTriggerFallbackAttackKey(params string[] keys)
-{
-    return keys.ToArray();
-}
-
 static string[] RepeatedKey(string key, int count)
 {
     return Enumerable.Repeat(key, count).ToArray();
@@ -35704,12 +34479,6 @@ static void AssertFalse(bool value, string label)
     {
         throw new InvalidOperationException(label);
     }
-}
-
-static string LastPressedSkill(InMemoryRoadhogLogger logger)
-{
-    var entry = logger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.key.pressed");
-    return entry is null ? string.Empty : Convert.ToString(entry.Fields["skill"]) ?? string.Empty;
 }
 
 static InventoryWindowSnapshot CreateInventoryWindow(bool isOpen, double x, double y)
@@ -36129,6 +34898,15 @@ sealed class InMemoryScriptProfileStore : IScriptProfileStore
         return Task.FromResult(_profiles.TryGetValue(name, out var profile)
             ? OperationResult<ScriptProfileDocument>.Ok(profile.Clone())
             : OperationResult<ScriptProfileDocument>.Fail("Profile file was not found: " + name));
+    }
+
+    public Task<OperationResult<ScriptProfileDocument?>> LoadOptionalAsync(
+        string name,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(OperationResult<ScriptProfileDocument?>.Ok(
+            _profiles.TryGetValue(name, out var profile) ? profile.Clone() : null));
     }
 
     public Task<OperationResult> SaveAsync(

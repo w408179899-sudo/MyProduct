@@ -42,8 +42,15 @@ internal static partial class CleanupWorkflowTests
         var settings = config.ScriptSettings!;
         settings.Maintenance.CleanupWorkflow = new() { NpcCleanup = true, Auction = true, TransferGold = true, PersonalShop = true };
         settings.Maintenance.BagCleanupAuctionHouseItems.Add(new() { Name = "咒语书", UnitPrice = 10 });
+        // Auction-only inventory: under the current discard > sale > auction policy,
+        // a matching NPC-sale rule would legitimately require the merchant route.
+        settings.Maintenance.BagCleanupRules.Single(r => r.Key == BagCleanupRuleCatalog.SpellBook).Enabled = false;
         game.Api.InventoryItems = new[] { SaleItem() };
         game.Api.InventoryCapacity = 1;
+        Require(BagCleanupItemMatcher.SelectSellRegistrationItems(game.Api.InventoryItems, settings.Maintenance).Count == 0
+            && BagCleanupItemMatcher.SelectDiscardItems(game.Api.InventoryItems, settings.Maintenance).Count == 0
+            && CleanupTradePolicy.Rule(game.Api.InventoryItems.Single(), settings.Maintenance, true) is not null,
+            "fixture matches only auction, not NPC sale or discard");
         game.Api.AuctionRead = () => throw new Exception("automatic cleanup must not open or read auction UI");
         var logger = new InMemoryRoadhogLogger();
         using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -53,7 +60,7 @@ internal static partial class CleanupWorkflowTests
             (_, _, _) => throw new Exception("auction-only inventory must not cause automatic town travel"), new Journal());
         await runner.RunAsync(context, context.CleanupRequests.Current!);
         Require(!game.Input.Keys.Any(key => key is "F6" or "F5"), "full bag with auction items does not recall automatically");
-        Require(game.Removed.Count == 0 && game.Api.InventoryItems.Count == 1, "auction-reserved items remain protected");
+        Require(game.Removed.Count == 0 && game.Api.InventoryItems.Count == 1, "auction-only items remain untouched by automatic cleanup");
         Require(logger.Entries.Any(entry => entry.EventName == "cleanup_workflow.complete"), "automatic cleanup finishes without auction routes");
         Require(settings.Maintenance.CleanupWorkflow is { Auction: true, TransferGold: true, PersonalShop: true }, "saved manual stages stay selected");
     }

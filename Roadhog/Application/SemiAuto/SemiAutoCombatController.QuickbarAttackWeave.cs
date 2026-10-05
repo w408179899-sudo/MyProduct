@@ -25,10 +25,10 @@ public sealed partial class SemiAutoCombatController
     {
         if (!settings.AttackWeaveEnabled || !plan.HasOpeningSkill || !state.ShouldHandleOpeningSkill(target))
             return await PressOpeningSkillIfNeededAsync(context, state, settings, plan, target, skills,
-                useAttackWeave: false).ConfigureAwait(false);
+                onSkillPressed: null).ConfigureAwait(false);
         var baseline = await ReadQuickbarWeaveAvailabilityAsync(context, state, target).ConfigureAwait(false);
         if (!QuickbarWeaveCombatMatches(target, baseline, context.SkillBindings?.Page)) return true;
-        return await PressOpeningSkillIfNeededAsync(context, state, settings, plan, target, skills, useAttackWeave: false,
+        return await PressOpeningSkillIfNeededAsync(context, state, settings, plan, target, skills,
             onSkillPressed: skill => state.QuickbarSkills.AttackWeave.TrackOpeningPress(skill,
                 _timeProvider, ResolveOpeningSkillConfirmationTimeout())).ConfigureAwait(false);
     }
@@ -56,6 +56,7 @@ public sealed partial class SemiAutoCombatController
         SemiAutoCombatState state, LockedTargetSnapshot target, SemiAutoScriptSettings settings)
     {
         var tick = Ms(settings.TickIntervalMs, 40);
+        if (!settings.AttackWeaveEnabled) state.QuickbarSkills.AttackWeave.Reset();
         context.StopToken.ThrowIfCancellationRequested();
         if (!target.IsMonsterAlive)
         {

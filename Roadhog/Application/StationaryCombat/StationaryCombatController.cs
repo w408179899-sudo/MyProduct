@@ -4545,7 +4545,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 break;
             }
 
-            await Task.Delay(SemiAutoCombatController.MaintenanceGlobalKeyInterval, context.StopToken)
+            var maintenanceIntervalReady = await _semiAuto
+                .WaitForMaintenanceGlobalKeyIntervalAsync(semiAutoState, context.StopToken)
                 .ConfigureAwait(false);
 
             currentPlayer = await ReadPlayerAsync(context).ConfigureAwait(false);
@@ -4561,6 +4562,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 });
                 break;
             }
+            if (!maintenanceIntervalReady) break;
         }
 
         return handledAny;
@@ -12075,7 +12077,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         StationaryCombatState state,
         PlayerSnapshot player)
     {
-        if (!plan.UsesSpiritmasterAutoLogic ||
+        if (context.Config.ScriptSettings?.Skills.SpiritmasterAutoSkillLogicEnabled != true ||
             player.CharacterClassId is { } classId && classId != AionClassId.Spiritmaster)
         {
             state.LocalCombatSidePetServerObjectId = 0;

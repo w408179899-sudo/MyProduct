@@ -42,8 +42,13 @@ internal static class SkillTreeReleaseModeTests
             {"Skills":{"ExecutionTree":[{"SkillId":101,"Name":"old","Children":[{"SkillId":102,"Name":"old-chain"}]}]}}
             """)!;
         Check(legacy.SkillTreeReleaseMode == SkillTreeReleaseMode.Legacy && legacy.QuickbarSkills.ExecutionTree.Count == 0,
-            "missing mode defaults to legacy and never imports the old tree automatically");
-        Check(legacy.Skills.ExecutionTree.Single().Children.Single().SkillId == 102, "legacy tree remains unchanged");
+            "raw missing mode retains the compatibility marker until load normalization");
+        var migrated = legacy.Clone();
+        Check(migrated.SkillTreeReleaseMode == SkillTreeReleaseMode.QuickbarAvailability &&
+            migrated.QuickbarSkills.ExecutionTree.Single().Children.Single().SkillId == 102,
+            "normalizing a legacy-only document imports its complete attack chain into the sole engine");
+        Check(legacy.SkillTreeReleaseMode == SkillTreeReleaseMode.Legacy && legacy.QuickbarSkills.ExecutionTree.Count == 0 &&
+            legacy.Skills.ExecutionTree.Single().Children.Single().SkillId == 102, "normalization leaves the source archive unchanged");
         var source = Settings();
         source.SkillTreeReleaseMode = SkillTreeReleaseMode.QuickbarAvailability;
         var original = JsonSerializer.Serialize(source);
@@ -82,14 +87,66 @@ internal static class SkillTreeReleaseModeTests
             Check(JsonSerializer.Serialize(profile.Skills.ExecutionTree) == oldTree && JsonSerializer.Serialize(account.Skills.ExecutionTree) == oldTree,
                 "both stores preserve old tree while new mode is selected");
             account.SkillTreeReleaseMode = SkillTreeReleaseMode.Legacy;
-            Check((await configs.UpsertAsync(new AccountConfig { AccountName = "modes", ScriptSettings = account })).Success, "switch back persists");
+            Check((await configs.UpsertAsync(new AccountConfig { AccountName = "modes", ScriptSettings = account })).Success, "old mode marker normalizes on save");
             var back = (await configs.LoadAllAsync()).Value!.Single().ScriptSettings!;
-            Check(back.SkillTreeReleaseMode == SkillTreeReleaseMode.Legacy && back.QuickbarSkills.ExecutionTree.Single().Children.Single().SkillId == 202,
-                "returning to legacy retains the new tree for a later switch");
+            Check(back.SkillTreeReleaseMode == SkillTreeReleaseMode.QuickbarAvailability && back.QuickbarSkills.ExecutionTree.Single().Children.Single().SkillId == 202,
+                "a stale legacy marker cannot overwrite existing new priorities");
             Check(back.Maintenance.HpMaintenanceRules.Single().BelowPercent == 61 && back.Skills.Spiritmaster.PetBuffRules.Single().SkillId == 401,
                 "persistence does not replace maintenance or existing spiritmaster configuration");
         }
         finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    public static Task ArchivedModesUiAsync()
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                foreach (var legacyMode in new[] { SkillConfigurationMode.ManualMapping, SkillConfigurationMode.SystemClassification })
+                {
+                    var source = Settings();
+                    source.Skills.Mode = legacyMode;
+                    source.QuickbarSkills.ExecutionTree.Clear();
+                    source.Skills.SystemExecutionTree.Add(Node(701, "system-attack"));
+                    source.Skills.ManualMappings.Add(new() { SkillName = "manual-attack", SkillType = "主动技能", Key = "F1" });
+                    source.Skills.KeyOrder = new() { "F8", "NumPad1" };
+                    source.Skills.TriggerPrefixMode = "saved-prefix-mode";
+                    source.Skills.SpiritmasterAutoSkillLogicEnabled = true;
+                    source.Skills.OpeningSkill.Skills = new();
+                    var archive = JsonSerializer.Serialize(source.Skills);
+                    var store = new InMemoryAccountConfigStore(new AccountConfig { AccountName = "archive-ui", ScriptSettings = source });
+                    var log = new InMemoryRoadhogLogger();
+                    using var form = new AccountSettingsForm("archive-ui",
+                        new RoadhogRuntime(new FakeGameApi(), log, new AccountRuntimeManager(log), null!),
+                        store, new InMemorySharedPathStore(), new InMemoryScriptProfileStore(), new RecordingFolderLauncher(), "test-paths");
+                    var selected = (TreeView)form.Controls.Find("quickbarSelectedSkillTree", true).Single();
+                    Check(selected.Nodes.Count == 1, "old alternate mode has a migrated editable attack root");
+                    var spirit = (RoundedCheckBox)typeof(AccountSettingsForm)
+                        .GetField("spiritmasterAutoSkillCheckBox", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form)!;
+                    Check(spirit.Enabled && spirit.Checked, "archived manual/system mode cannot disable the shared spiritmaster switch");
+                    var args = new object?[] { null };
+                    Check((bool)typeof(AccountSettingsForm).GetMethod("SaveCurrentSettings", BindingFlags.Instance | BindingFlags.NonPublic)!
+                        .Invoke(form, args)!, "migrated alternate mode UI saves");
+                    var saved = store.LoadAllAsync().GetAwaiter().GetResult().Value!.Single().ScriptSettings!;
+                    Check(saved.SkillTreeReleaseMode == SkillTreeReleaseMode.QuickbarAvailability &&
+                        JsonSerializer.Serialize(saved.Skills) == archive,
+                        "single-editor save retains mode, key order, prefix, old trees and all shared skill settings");
+                    Check(legacyMode == SkillConfigurationMode.ManualMapping
+                        ? saved.QuickbarSkills.ExecutionTree.Single().Name == "manual-attack"
+                        : saved.QuickbarSkills.ExecutionTree.Single().SkillId == 701,
+                        "single-editor save retains the migrated manual/system skill identity");
+                    typeof(AccountSettingsForm).GetMethod("CloseSpiritmasterSettingsDialog", BindingFlags.Instance | BindingFlags.NonPublic)!
+                        .Invoke(form, null);
+                }
+                completion.SetResult();
+            }
+            catch (Exception exception) { completion.SetException(new InvalidOperationException(exception.ToString(), exception)); }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        return completion.Task;
     }
 
     public static Task UiAsync()
@@ -100,6 +157,7 @@ internal static class SkillTreeReleaseModeTests
             try
             {
                 var source = Settings();
+                source.SkillTreeReleaseMode = SkillTreeReleaseMode.QuickbarAvailability;
                 source.QuickbarSkills.ExecutionTree.Clear();
                 source.Skills.ExecutionTree[0].Name = string.Empty; // Loading formats this for display; new-mode saving must retain the original configuration.
                 source.SemiAuto.AttackWeaveEnabled = true;
@@ -147,43 +205,38 @@ internal static class SkillTreeReleaseModeTests
                     .GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.NonPublic)
                     .Single(method => method.Name == name && method.GetParameters().Length == args.Length).Invoke(form, args);
                 Control Find(string name) => form.Controls.Find(name, true).Single();
-                var mode = (RoundedComboBox)Find("skillTreeReleaseModeCombo");
-                var oldSelected = (TreeView)Find("selectedSkillTree");
                 var newSelected = (TreeView)Find("quickbarSelectedSkillTree");
-                var oldPanel = Find("autoSkillPanel");
                 var newPanel = Find("quickbarSkillPanel");
                 var opening = Find("openingSkillPanel");
                 var weave = (RoundedCheckBox)Find("attackWeaveCheckBox");
                 var weaveDelay = Find("attackWeaveDelayTextBox");
                 void ToggleWeave() => typeof(RoundedCheckBox)
                     .GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(weave, new object[] { EventArgs.Empty });
-                var tabs = (TabControl)oldPanel.Parent!.Parent!.Parent!;
-                tabs.SelectedTab = (TabPage)oldPanel.Parent.Parent;
+                var tabs = (TabControl)newPanel.Parent!.Parent!.Parent!;
+                tabs.SelectedTab = (TabPage)newPanel.Parent.Parent;
                 form.ShowInTaskbar = false;
                 form.StartPosition = FormStartPosition.Manual;
                 form.Location = new(-32000, -32000);
                 form.Show(); Application.DoEvents();
-                Check(mode.SelectedIndex == 0 && oldPanel.Visible && !newPanel.Visible && newSelected.Nodes.Count == 0,
-                    "legacy loads by default with no implicit new configuration");
-                mode.SelectedIndex = 1; Application.DoEvents();
-                Check(newPanel.Visible && !oldPanel.Visible && ReferenceEquals(opening.Parent, newPanel), "switch shows independent tree and shared opening editor");
-                Check(!((Control)typeof(AccountSettingsForm)
-                    .GetField("conditionSkillPreemptsChainCheckBox", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form)!).Enabled &&
-                    !((Control)typeof(AccountSettingsForm)
-                        .GetField("chainWindowPerLinkTextBox", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form)!).Enabled,
-                    "new mode keeps legacy condition and chain-window options disabled");
+                Check(newPanel.Visible && newSelected.Nodes.Count == 0 && ReferenceEquals(opening.Parent, newPanel),
+                    "the sole editor retains an explicitly empty new tree and the shared opening section");
+                foreach (var retired in new[] { "skillTreeReleaseModeCombo", "autoSkillPanel", "manualSkillPanel",
+                    "systemSkillPanel", "selectedSkillTree" })
+                    Check(form.Controls.Find(retired, true).Length == 0, "retired editor is not constructed: " + retired);
+                Check(Find("skillReleaseModeLabel").Text == "技能栏可用", "the supported engine has one static label");
+                Check(typeof(AccountSettingsForm).GetField("conditionSkillPreemptsChainCheckBox", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .GetValue(form) is null && typeof(AccountSettingsForm)
+                    .GetField("chainWindowPerLinkTextBox", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form) is null,
+                    "retired condition preemption and chain-window controls are not constructed");
                 Check(weave.Enabled && weave.Checked && weaveDelay.Enabled && weaveDelay.Text == "725",
                     "new mode enables weaving and loads the saved delay");
                 ToggleWeave();
                 Check(weave.Enabled && !weave.Checked && !weaveDelay.Enabled,
                     "turning off weaving in new mode disables only its delay input");
                 weaveDelay.Text = "530";
-                mode.SelectedIndex = 0; Application.DoEvents();
+                Application.DoEvents();
                 Check(weave.Enabled && !weave.Checked && !weaveDelay.Enabled && weaveDelay.Text == "530",
-                    "switching to legacy retains the unchecked switch and draft delay");
-                mode.SelectedIndex = 1; Application.DoEvents();
-                Check(weave.Enabled && !weave.Checked && !weaveDelay.Enabled && weaveDelay.Text == "530",
-                    "switching back to new mode retains the unchecked switch and draft delay");
+                    "the sole editor retains the unchecked switch and draft delay");
                 var saveArgs = new object?[] { null };
                 Check((bool)Call("SaveCurrentSettings", saveArgs)!, "new mode with empty list saves");
                 var saved = configs.LoadAllAsync().GetAwaiter().GetResult().Value!.Single().ScriptSettings!;
@@ -193,12 +246,15 @@ internal static class SkillTreeReleaseModeTests
                     "new-mode save persists the unchecked weaving switch and delay");
                 ToggleWeave();
                 Check(weave.Checked && weaveDelay.Enabled, "turning on weaving in new mode enables its delay input");
-                ((Button)Find("quickbarCopyLegacyTreeButton")).PerformClick();
-                Check(newSelected.Nodes.Count == 1 && newSelected.Nodes[0].Nodes.Count == 1 && oldSelected.Nodes.Count == 1,
-                    "explicit copy retains chain structure without moving old controls");
-                newSelected.Nodes.Clear();
+                var configuredRefresh = (Button)Find("quickbarRefreshConfiguredSkillsButton");
+                Check(configuredRefresh.Text == "刷新全部已配置技能" && configuredRefresh.Visible && configuredRefresh.Enabled &&
+                    form.Controls.Find("quickbarCopyLegacyTreeButton", true).Length == 0,
+                    "new mode exposes the shared configured-refresh action instead of a copy button");
+                Check(newSelected.Nodes.Count == 0 &&
+                    JsonSerializer.Serialize(((ScriptSettings)Call("CaptureScriptSettings")!).Skills.ExecutionTree) == oldTree,
+                    "showing the refresh action preserves an empty active tree and its untouched archive");
                 Call("PopulateSelectedSkillTreeFromConfig", newSelected, new List<SkillConfigNode> { Node(201, "new"), Node(202, "new-chain") });
-                var oldBeforeRefresh = JsonSerializer.Serialize(Call("CaptureSkillTree", oldSelected.Nodes));
+                var oldBeforeRefresh = JsonSerializer.Serialize(((ScriptSettings)Call("CaptureScriptSettings")!).Skills.ExecutionTree);
                 var newBeforeRefresh = JsonSerializer.Serialize(Call("CaptureSkillTree", newSelected.Nodes));
                 uint ComboSkillId(object item) => (uint)item.GetType().GetProperty("SkillId")!.GetValue(item)!;
                 uint[] ComboSkillIds(RoundedComboBox combo) => combo.Items.Cast<object>().Select(ComboSkillId).ToArray();
@@ -274,7 +330,7 @@ internal static class SkillTreeReleaseModeTests
                 Check(((string)Call("AutomaticKeyText", 1227u, "裂破击 I")!).Contains("6") &&
                     (string)Call("AutomaticKeyText", 1271u, "裂破击 III")! == "未放入两栏",
                     "slot 6 binds actual rank I and never substitutes rank III");
-                Check(JsonSerializer.Serialize(Call("CaptureSkillTree", oldSelected.Nodes)) == oldBeforeRefresh &&
+                Check(JsonSerializer.Serialize(((ScriptSettings)Call("CaptureScriptSettings")!).Skills.ExecutionTree) == oldBeforeRefresh &&
                     JsonSerializer.Serialize(Call("CaptureSkillTree", newSelected.Nodes)) == newBeforeRefresh, "new refresh neither deletes nor rewrites either configured tree");
                 Check(configs.LoadAllAsync().GetAwaiter().GetResult().Value!.Single().ScriptSettings!.QuickbarSkills.ExecutionTree.Count == 0,
                     "refresh does not save draft trees automatically");
@@ -287,7 +343,7 @@ internal static class SkillTreeReleaseModeTests
                 candidates = (List<SkillConfigNode>)Call("CaptureSkillTree", ((TreeView)Find("quickbarAvailableSkillTree")).Nodes)!;
                 Check(!Flatten(candidates).Any(node => node.SkillId == 1227) && Flatten(candidates).Any(node => node.SkillId == 1271),
                     "partial metadata never relabels the learned highest rank as the missing bound lower rank");
-                Check(JsonSerializer.Serialize(Call("CaptureSkillTree", oldSelected.Nodes)) == oldBeforeRefresh &&
+                Check(JsonSerializer.Serialize(((ScriptSettings)Call("CaptureScriptSettings")!).Skills.ExecutionTree) == oldBeforeRefresh &&
                     JsonSerializer.Serialize(Call("CaptureSkillTree", newSelected.Nodes)) == newBeforeRefresh,
                     "partial metadata retains both configured trees");
                 newSelected.SelectedNode = newSelected.Nodes[1];
@@ -305,20 +361,15 @@ internal static class SkillTreeReleaseModeTests
                     saved.Skills.Spiritmaster.PetBuffRules.Single().SkillId == 401 && saved.Team.Support.MentalCleanseSkillId == 501 &&
                     saved.Team.Support.PhysicalCleanseSkillId == 502 && saved.Team.Support.GroupCleanseSkillId == 503,
                     "weaving and shared opening, maintenance and spiritmaster settings retain their values");
-                mode.SelectedIndex = 0; Application.DoEvents();
-                Check(oldPanel.Visible && !newPanel.Visible && ReferenceEquals(opening.Parent, oldPanel) && Find("attackWeaveCheckBox").Enabled,
-                    "switching back restores old controls and the same opening editor");
-                Check(weave.Checked && weaveDelay.Enabled && weaveDelay.Text == "530",
-                    "switching back retains the enabled weaving switch and delay");
-                Check((bool)Call("SaveCurrentSettings", new object?[] { null })!, "return to old mode saves");
+                Check((bool)Call("SaveCurrentSettings", new object?[] { null })!, "repeated single-editor save succeeds");
                 saved = configs.LoadAllAsync().GetAwaiter().GetResult().Value!.Single().ScriptSettings!;
-                Check(saved.SkillTreeReleaseMode == SkillTreeReleaseMode.Legacy && saved.QuickbarSkills.ExecutionTree[0].SkillId == 202,
-                    "legacy save preserves hidden new priorities");
-                Call("ApplyScriptSettings", saved);
-                mode.SelectedIndex = 1; Application.DoEvents();
-                Check(newSelected.Nodes.Count == 2 && opening.Parent == newPanel, "reload and switch restore both trees");
+                Check(saved.SkillTreeReleaseMode == SkillTreeReleaseMode.QuickbarAvailability &&
+                    saved.QuickbarSkills.ExecutionTree[0].SkillId == 202 && JsonSerializer.Serialize(saved.Skills.ExecutionTree) == oldTree,
+                    "repeated saves preserve active priorities and the retired tree archive");
+                Call("ApplyScriptSettings", saved); Application.DoEvents();
+                Check(newSelected.Nodes.Count == 2 && opening.Parent == newPanel, "reload restores the sole tree and shared editor");
                 Check(weave.Enabled && weave.Checked && weaveDelay.Enabled && weaveDelay.Text == "530",
-                    "reload and switch restore weaving settings in new mode");
+                    "reload restores weaving settings in the sole editor");
                 form.Size = form.MinimumSize; Application.DoEvents();
                 foreach (var control in new[] { (Control)newSelected, Find("quickbarAvailableSkillTree"), opening })
                     Check(control.Right <= newPanel.Width && control.Bottom <= newPanel.Height, "new controls fit the scrollable panel at minimum window size");

@@ -318,7 +318,7 @@ internal static class QuickbarSkillClockBootstrapTests
             "explicit stop clears all finite bootstrap budget state for a new session");
     }
 
-    public static async Task OptionalCapabilityAndLegacyIsolationAsync()
+    public static async Task OptionalCapabilityAndEmptyPlanAsync()
     {
         var fixture = new Fixture();
         await fixture.Tick(enableBootstrap: false);
@@ -330,14 +330,14 @@ internal static class QuickbarSkillClockBootstrapTests
         var logger = new InMemoryRoadhogLogger();
         var settings = new ScriptSettings { SkillTreeReleaseMode = SkillTreeReleaseMode.Legacy };
         settings.Maintenance.SitMaintenanceEnabled = false;
-        settings.QuickbarSkills.ExecutionTree.Add(Node(11));
+        settings.SemiAuto.AttackKeyLoopEnabled = false;
         var context = new AccountWorkerContext(new AccountConfig { AccountName = "clock-bootstrap-legacy", ScriptSettings = settings },
             api, logger, new AccountRuntimeManager(logger), new(), stop.Token);
         var keyboard = new Keyboard();
         var state = new SemiAutoCombatState();
         await new SemiAutoCombatController(keyboard).TickAsync(context, SemiAutoSkillPlan.FromSettings(settings.Skills), state);
         Check(api.SkillAvailabilityReadCount == 0 && keyboard.Keys.Count == 0 && state.QuickbarSkills.ClockBootstrap.AttemptedCandidateCount == 0,
-            "legacy mode never reads quickbar opportunities or starts the new configured ordinary clock bootstrap");
+            "an empty migrated attack plan cannot spend clock bootstrap attempts or read opportunities");
     }
 
     private static void Check(bool value, string message)

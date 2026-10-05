@@ -173,7 +173,12 @@ internal static class SkillBindingTests
 
     public static async Task ControllerAsync()
     {
-        var api = new FakeGameApi { Quickbar = Bar(), Skills = Skills };
+        var api = new FakeGameApi
+        {
+            Quickbar = Bar(), Skills = Skills,
+            SkillAvailability = new(0, Bar().Slots.Where(slot => slot.ContentType == 21).Select(slot =>
+                new SkillAvailabilitySlotSnapshot(slot.Bar, slot.Slot, slot.ContentType, slot.SkillId, slot.SkillId, true)).ToArray())
+        };
         var settings = new ScriptSettings();
         settings.Maintenance.SitMaintenanceEnabled = false;
         settings.SemiAuto.AttackKeyLoopEnabled = false;

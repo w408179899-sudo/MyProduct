@@ -841,8 +841,24 @@ public sealed class CombatJumpAssistSession : IAsyncDisposable
         _sessionWakeSignal.Release();
     }
 
-    private async Task<IReadOnlyList<SkillSnapshot>> ReadSkillsAsync() =>
-        (await _context.Snapshots.ReadSkillsAsync().ConfigureAwait(false)).Value;
+    private async Task<IReadOnlyList<SkillSnapshot>> ReadSkillsAsync()
+    {
+        var skills = (await _context.Snapshots.ReadSkillsAsync().ConfigureAwait(false)).Value;
+        if (_context.SkillBindings is not { } bindings)
+        {
+            return skills;
+        }
+
+        var observedIds = skills.Select(skill => skill.SkillId).ToHashSet();
+        var missingIds = bindings.SkillIds.Where(id => !observedIds.Contains(id)).ToArray();
+        if (missingIds.Length == 0)
+        {
+            return skills;
+        }
+
+        var boundSkills = (await _context.Snapshots.ReadSkillsAsync(missingIds).ConfigureAwait(false)).Value;
+        return skills.Concat(boundSkills).DistinctBy(skill => skill.SkillId).ToArray();
+    }
 
     private async Task<IReadOnlyDictionary<uint, uint>> ReadTeamCooldownBaselineAsync()
     {

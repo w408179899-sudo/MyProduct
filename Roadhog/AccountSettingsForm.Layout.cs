@@ -102,15 +102,13 @@ public sealed partial class AccountSettingsForm
         ResizePath();
     }
 
-    private void ConfigureSkillPageLayout(Panel page, Panel options, Panel auto, Panel manual, Panel system)
+    private void ConfigureSkillPageLayout(Panel page, Panel options, Panel skills)
     {
         var optionsLayout = CaptureSettingsColumns(options, 828);
-        var manualLayout = CaptureSettingsColumns(manual, 828);
-        var systemLayout = CaptureSettingsColumns(system, 828);
         var resizing = false;
         void ResizeSkills()
         {
-            if (resizing || openingSkillRows?.Parent is not Panel opening || availableSkillTree is null || selectedSkillTree is null) return;
+            if (resizing || openingSkillRows?.Parent is not Panel opening || quickbarAvailableSkillTree is null || quickbarSelectedSkillTree is null) return;
             resizing = true;
             page.SuspendLayout();
             try
@@ -120,23 +118,24 @@ public sealed partial class AccountSettingsForm
                 var viewportHeight = page.ClientSize.Height + (page.HorizontalScroll.Visible ? SystemInformation.HorizontalScrollBarHeight : 0);
                 var minimumHeight = 136 + 38 + 292 + 16 + opening.Height + 14 + 16;
                 page.AutoScroll = viewportWidth < 852 || viewportHeight < minimumHeight;
-                if (!page.AutoScroll) auto.Top = 136;
+                if (!page.AutoScroll) skills.Top = 136;
                 var width = Math.Max(828, viewportWidth - 24);
-                options.Width = auto.Width = manual.Width = system.Width = width;
-                optionsLayout(width); manualLayout(width); systemLayout(width);
+                options.Width = skills.Width = width;
+                optionsLayout(width);
                 var treeWidth = (width - 196) / 2;
                 var rightX = treeWidth + 100;
                 var height = Math.Max(292, viewportHeight - 136 - 38 - 16 - opening.Height - 14 - 16);
-                availableSkillTree.SetBounds(0, 38, treeWidth, height);
-                selectedSkillTree.SetBounds(rightX, 38, treeWidth, height);
-                foreach (var label in auto.Controls.OfType<Label>())
+                quickbarAvailableSkillTree.SetBounds(0, 38, treeWidth, height);
+                quickbarSelectedSkillTree.SetBounds(rightX, 38, treeWidth, height);
+                quickbarSkillStatusLabel?.SetBounds(0, 38 + height + 1, width, 15);
+                foreach (var label in skills.Controls.OfType<Label>())
                     if (label.Text == "技能执行顺序") label.Left = rightX;
-                var buttons = auto.Controls.OfType<Button>().ToArray();
+                var buttons = skills.Controls.OfType<Button>().ToArray();
                 foreach (var button in buttons)
                 {
                     switch (button.Text)
                     {
-                        case "刷新当前技能": button.Left = treeWidth - button.Width; break;
+                        case "刷新技能栏": button.Left = treeWidth - button.Width; break;
                         case "刷新全部已配置技能": button.Left = rightX + treeWidth - button.Width; break;
                         case "添加 >": button.Location = new(treeWidth + 12, 38 + (height - button.Height) / 2); break;
                     }
@@ -158,8 +157,7 @@ public sealed partial class AccountSettingsForm
                     row.Controls["openingSkillDown"]!.Left = 664 + extra;
                     row.Controls["openingSkillRemove"]!.Left = 732 + extra;
                 }
-                auto.Height = opening.Bottom + 14;
-                layoutQuickbarSkillPage?.Invoke();
+                skills.Height = opening.Bottom + 14;
             }
             finally { resizing = false; page.ResumeLayout(true); }
         }

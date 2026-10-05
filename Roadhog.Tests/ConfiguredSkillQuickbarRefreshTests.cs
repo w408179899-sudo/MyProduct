@@ -37,7 +37,21 @@ internal static class ConfiguredSkillQuickbarRefreshTests
         };
         settings.Skills.ExecutionTree[1].Children.Add(Node(SecondHighId, "Second Strike"));
         settings.Skills.SystemExecutionTree = new() { Node(HighId, "Configured Strike") };
-        settings.QuickbarSkills.ExecutionTree = new() { Node(9904, "Independent New Tree") };
+        settings.QuickbarSkills.ExecutionTree = new()
+        {
+            Node(HighId, "Configured Strike"), Node(SecondHighId, "Second Strike")
+        };
+        var detached = new SkillConfigNode
+        {
+            SkillId = 3003, Name = "Detached Chain III", BaseName = "Detached Chain", Type = "连续技", ChainTimeMs = 1234,
+            Children = new()
+            {
+                new() { SkillId = 4003, Name = "Detached Final III", BaseName = "Detached Final", Type = "触发技能", ChainTimeMs = 2345 },
+                Node(SecondHighId, "Second Strike")
+            }
+        };
+        settings.QuickbarSkills.ExecutionTree[0].Children.Add(detached);
+        settings.QuickbarSkills.ExecutionTree[0].Children.Add(Node(SecondHighId, "Second Strike"));
         settings.Skills.ManualMappings = new()
         {
             new() { SkillType = "主动技能", SkillName = "Configured Strike IV", Key = "F4" }
@@ -114,9 +128,20 @@ internal static class ConfiguredSkillQuickbarRefreshTests
             "exact read is limited to missing supported skill IDs; duplicates, items and invalid slots are ignored");
         var saved = fixture.Saved();
         Same(saved, expected, "all maintenance, team, opening, mapping and five spirit families update while every unrelated draft field survives (" + spiritWindow + ")");
-        Check(saved.Skills.ExecutionTree.Select(node => node.SkillId).SequenceEqual(new[] { SecondLowId, LowId }) &&
-            saved.Skills.ExecutionTree[1].Children.Single().SkillId == SecondLowId,
-            "root order and existing child structure remain unchanged");
+        Check(saved.Skills.ExecutionTree.Select(node => node.SkillId).SequenceEqual(new[] { SecondHighId, HighId }) &&
+            saved.Skills.ExecutionTree[1].Children.Single().SkillId == SecondHighId &&
+            saved.Skills.SystemExecutionTree.Single().SkillId == HighId &&
+            saved.Skills.ManualMappings.Single().SkillName == "Configured Strike IV",
+            "retired attack trees and manual mappings remain unchanged compatibility archives");
+        Check(saved.QuickbarSkills.ExecutionTree.Select(node => node.SkillId).SequenceEqual(new[] { LowId, SecondLowId }),
+            "new priorities update independently instead of copying the differently ordered legacy tree");
+        var detached = saved.QuickbarSkills.ExecutionTree[0].Children[0];
+        Check(detached.SkillId == 3003 && detached.Name == "Detached Chain III" && detached.Type == "连续技" && detached.ChainTimeMs == 1234 &&
+            detached.Children[0].SkillId == 4003 && detached.Children[0].Name == "Detached Final III" &&
+            detached.Children[0].Type == "触发技能" && detached.Children[0].ChainTimeMs == 2345,
+            "three-level off-bar chains retain exact ranks and metadata instead of learned IV or deletion");
+        Check(detached.Children[1].SkillId == SecondLowId && saved.QuickbarSkills.ExecutionTree[0].Children[1].SkillId == SecondLowId,
+            "independently placed children update even below a preserved off-bar parent while sibling order survives");
         Check(saved.Skills.Spiritmaster.SummonSkills[1].SkillId == 0 && saved.Skills.Spiritmaster.SummonSkills[1].Key == "NumPad5" &&
             saved.Maintenance.MpMaintenanceRules[1].ActionType == MaintenanceRuleActionType.Potion &&
             saved.Maintenance.MpMaintenanceRules[1].Key == "F7", "manual summon and potion actions keep their original keys and modes");
@@ -137,19 +162,117 @@ internal static class ConfiguredSkillQuickbarRefreshTests
             "every snapshot read retains the selected account and bounded cancellation");
     });
 
-    public static Task ButtonAsync() => OnSta(() =>
+    public static Task ButtonAsync(string mode) => OnSta(() =>
     {
         using var fixture = new Fixture();
-        var button = fixture.Form.Controls.Find("autoSkillPanel", true).Single().Controls.OfType<Button>()
-            .Single(item => item.Text == "刷新全部已配置技能");
+        fixture.ShowSkillMode(mode == "quickbar");
+        var button = (Button)fixture.Form.Controls.Find("quickbarRefreshConfiguredSkillsButton", true).Single();
+        Check(button.Text == "刷新全部已配置技能" && button.Visible && button.Enabled,
+            "the sole visible editor exposes the configured-refresh action");
+        Check(fixture.Form.Controls.Find("quickbarCopyLegacyTreeButton", true).Length == 0,
+            "new mode no longer exposes a copy action");
+        var expected = fixture.Draft().Clone();
+        expected.SemiAuto = fixture.Saved().SemiAuto.Clone();
+        ReplaceReferences(expected);
         var original = button.Text;
-        var task = (Task)fixture.Call("RefreshConfiguredSkillsAsync", button)!;
+        button.PerformClick();
         Check(!button.Enabled, "actual refresh button is disabled while completing the action");
-        Pump(task);
+        PumpUntil(() => button.Enabled && button.Text == original && !fixture.Field<bool>("configuredSkillRefreshInProgress"));
         Check(button.Enabled && button.Text == original, "actual button restores its text and enabled state");
+        Same(fixture.Saved(), expected, "actual button refreshes the active tree and every shared reference while preserving retired archives");
         Check(fixture.Saved().Maintenance.StatusMaintenanceRules.Single().SkillId == LowId &&
             fixture.Saved().Skills.Spiritmaster.OpeningAttackSkillId == LowId,
             "actual button reaches the exact-rank refresh and save path");
+        static IEnumerable<TreeNode> Flatten(TreeNodeCollection nodes) => nodes.Cast<TreeNode>()
+            .SelectMany(node => new[] { node }.Concat(Flatten(node.Nodes)));
+        foreach (var tree in new[] { fixture.Field<TreeView>("quickbarAvailableSkillTree") })
+            Check(Flatten(tree.Nodes).Any(node => node.Text == "Configured Strike III"),
+                "configured refresh rebuilds the candidate tree with the actual placed lower rank");
+        var saved = fixture.Saved();
+        fixture.Call("ApplyScriptSettings", saved);
+        var reloaded = fixture.Draft();
+        Same(reloaded.Skills.ExecutionTree, saved.Skills.ExecutionTree, "legacy ranks and order reload after shared refresh");
+        Same(reloaded.QuickbarSkills, saved.QuickbarSkills, "new ranks, detached chain metadata and order reload after shared refresh");
+        fixture.ShowSkillMode(mode != "quickbar");
+        var switched = fixture.Draft();
+        Same(switched.Skills.ExecutionTree, saved.Skills.ExecutionTree, "switching modes does not copy or overwrite the old tree");
+        Same(switched.QuickbarSkills, saved.QuickbarSkills, "switching modes does not copy or overwrite the new tree");
+    });
+
+    public static Task NewRootCleanupAsync() => OnSta(() =>
+    {
+        var settings = Settings();
+        var missing = Node(9904, "Unplaced Root");
+        missing.Children.Add(Node(HighId, "Configured Strike"));
+        settings.QuickbarSkills.ExecutionTree.Insert(1, missing);
+        using var fixture = new Fixture(settings);
+        var result = fixture.Refresh();
+        Check(result.Saved && result.DeletedCount == 2, "unplaced new root removes its full subtree with accurate deletion count");
+        Check(fixture.Saved().QuickbarSkills.ExecutionTree.Select(node => node.SkillId).SequenceEqual(new[] { LowId, SecondLowId }),
+            "missing new root clears without importing legacy order or extra learned skills");
+        Check(fixture.Saved().QuickbarSkills.ExecutionTree[0].Children[0].Children[0].SkillId == 4003,
+            "clearing an unplaced root does not clear valid roots' off-bar chain descendants");
+        var refreshed = fixture.Saved();
+        for (var i = 0; i < 3; i++)
+        {
+            fixture.Call("ApplyScriptSettings", fixture.Saved());
+            Check((bool)fixture.Call("SaveCurrentSettings", new object?[] { null })!, "repeated reload and save succeeds");
+            Same(fixture.Saved().Skills.ExecutionTree, refreshed.Skills.ExecutionTree,
+                "repeated save never restores an older legacy baseline");
+            Same(fixture.Saved().QuickbarSkills, refreshed.QuickbarSkills,
+                "repeated save never revives a removed new root or copies the old tree");
+        }
+        fixture.Call("ApplyScriptSettings", fixture.Saved());
+        Same(fixture.Draft().QuickbarSkills, refreshed.QuickbarSkills, "reloading retains the cleaned independent new tree");
+    });
+
+    public static Task EmptyNewTreeAsync() => OnSta(() =>
+    {
+        var settings = Settings();
+        settings.SkillTreeReleaseMode = SkillTreeReleaseMode.QuickbarAvailability;
+        settings.QuickbarSkills.ExecutionTree.Clear();
+        using var fixture = new Fixture(settings);
+        Check(fixture.Refresh().Saved, "empty new tree can use the shared refresh action");
+        Check(fixture.Saved().QuickbarSkills.ExecutionTree.Count == 0 &&
+            fixture.Saved().Skills.ExecutionTree.Select(node => node.SkillId).SequenceEqual(new[] { SecondHighId, HighId }),
+            "global refresh preserves retired archives while an explicitly empty active tree remains empty");
+        var saved = fixture.Saved();
+        fixture.Call("ApplyScriptSettings", saved);
+        fixture.ShowSkillMode(false);
+        fixture.ShowSkillMode(true);
+        Check(fixture.Draft().QuickbarSkills.ExecutionTree.Count == 0,
+            "reload and mode roundtrip never seed an empty new tree from the old tree or candidate list");
+    });
+
+    public static Task ReentryAsync() => OnSta(() =>
+    {
+        using var fixture = new Fixture();
+        fixture.ShowSkillMode(false);
+        var quickbar = (Button)fixture.Form.Controls.Find("quickbarRefreshConfiguredSkillsButton", true).Single();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Runtime.LearnedReadGate = gate.Task;
+        var first = (Task)fixture.Call("RefreshConfiguredSkillsAsync", quickbar)!;
+        Check(!quickbar.Enabled && fixture.Runtime.LearnedReadCount == 1,
+            "starting a refresh disables the button before the asynchronous read completes");
+        fixture.ShowSkillMode(true);
+        quickbar.PerformClick();
+        var duplicate = (Task)fixture.Call("RefreshConfiguredSkillsAsync", quickbar)!;
+        Check(duplicate.IsCompletedSuccessfully && fixture.Runtime.LearnedReadCount == 1 &&
+            !quickbar.Enabled,
+            "redisplaying the editor, clicking the disabled button and reentering the handler cannot start a second read");
+        gate.SetResult();
+        Pump(first);
+        Check(quickbar.Enabled && quickbar.Text == "刷新全部已配置技能",
+            "the shared refresh restores the button after asynchronous completion");
+        var saved = fixture.Saved();
+        fixture.Runtime.LearnedReadGate = null;
+        quickbar.PerformClick();
+        Check(!quickbar.Enabled && fixture.Runtime.LearnedReadCount == 2,
+            "a completed action releases its gate and the real button can refresh again");
+        PumpUntil(() => quickbar.Enabled && quickbar.Text == "刷新全部已配置技能" &&
+            !fixture.Field<bool>("configuredSkillRefreshInProgress"));
+        Check(quickbar.Enabled, "retry restores the sole configured-refresh button");
+        Same(fixture.Saved(), saved, "subsequent refresh is idempotent across independent trees and shared settings");
     });
 
     public static Task FailureAsync(string stage) => OnSta(() =>
@@ -208,25 +331,32 @@ internal static class ConfiguredSkillQuickbarRefreshTests
             fixture.Runtime.Requests.Count == exactCount, "a higher rank actually placed on the bar replaces III without an unnecessary exact read");
         fixture.Runtime.Bar = new(1, Array.Empty<QuickbarSlotSnapshot>());
         var empty = fixture.Refresh();
-        Check(empty.Saved && empty.DeletedCount > 0 && fixture.Saved().Skills.ExecutionTree.Count == 0 &&
+        Check(empty.Saved && empty.DeletedCount > 0 && fixture.Saved().Skills.ExecutionTree.Count == 2 &&
+            fixture.Saved().QuickbarSkills.ExecutionTree.Count == 0 &&
             fixture.Saved().Skills.OpeningSkill.GetEffectiveSkills().Count == 0 &&
             fixture.Saved().Maintenance.StatusMaintenanceRules.Single().SkillId == 0,
             "confirmed empty bar retains existing remove/clear-and-save behavior");
         Check(fixture.Saved().Skills.Spiritmaster.SummonSkills[1].Key == "NumPad5" &&
             fixture.Runtime.Requests.Count == exactCount, "empty bars require no exact read and retain manual keys");
+        fixture.Call("ApplyScriptSettings", fixture.Saved());
+        Check((bool)fixture.Call("SaveCurrentSettings", new object?[] { null })!, "reload and save the empty active tree");
+        Check(fixture.Saved().Skills.ExecutionTree.Count == 2 && fixture.Saved().QuickbarSkills.ExecutionTree.Count == 0,
+            "reload and saving preserve archives without restoring them into the confirmed empty active tree");
     });
 
     public static Task CandidateCompatibilityAsync() => OnSta(() =>
     {
         using var fixture = new Fixture();
+        fixture.Runtime.Bar = new(0, Bar().Slots.Take(4).ToArray());
         fixture.Call("ShowSpiritmasterSettingsDialog");
         var draft = fixture.Draft();
         var saved = fixture.Saved();
         using var button = new Button { Text = "刷新技能" };
-        Pump((Task)fixture.Call("RefreshCurrentSkillsAsync", button, null, null)!);
+        Pump((Task)fixture.Call("RefreshQuickbarSkillCandidatesAsync", button)!);
         Same(fixture.Draft(), draft, "ordinary candidate refresh preserves draft ranks");
         Same(fixture.Saved(), saved, "ordinary candidate refresh does not save configuration");
-        Check(fixture.Runtime.Requests.Count == 0, "ordinary candidate refresh retains its previous read scope");
+        Check(fixture.Runtime.Requests.Single().SequenceEqual(new[] { LowId, SecondLowId }),
+            "candidate refresh obtains exact bound ranks without replacing configured references");
     });
 
     public static Task UtilityBarAsync() => OnSta(() =>
@@ -300,13 +430,13 @@ internal static class ConfiguredSkillQuickbarRefreshTests
         {
             foreach (var node in nodes)
             {
+                var replaced = node.SkillId is HighId or SecondHighId;
                 (node.SkillId, node.Name) = Replace(node.SkillId, node.Name);
-                node.ChainTimeMs = null;
+                if (replaced) node.ChainTimeMs = null;
                 Tree(node.Children);
             }
         }
-        Tree(settings.Skills.ExecutionTree);
-        Tree(settings.Skills.SystemExecutionTree);
+        Tree(settings.QuickbarSkills.ExecutionTree);
         foreach (var item in settings.Skills.OpeningSkill.Skills!)
             (item.SkillId, item.SkillName) = Replace(item.SkillId, item.SkillName);
         var first = settings.Skills.OpeningSkill.Skills[0];
@@ -329,7 +459,6 @@ internal static class ConfiguredSkillQuickbarRefreshTests
         (spirit.OpeningAttackSkillId, spirit.OpeningAttackSkillName) = Replace(spirit.OpeningAttackSkillId, spirit.OpeningAttackSkillName);
         foreach (var item in spirit.PetHpMaintenanceRules) (item.SkillId, item.SkillName) = Replace(item.SkillId, item.SkillName);
         foreach (var item in spirit.PetBuffRules) (item.SkillId, item.SkillName) = Replace(item.SkillId, item.SkillName);
-        foreach (var item in settings.Skills.ManualMappings) item.SkillName = "Configured Strike III";
     }
 
     private static QuickbarSnapshot Bar(uint first = LowId, uint second = SecondLowId) => new(0, new QuickbarSlotSnapshot[]
@@ -359,13 +488,46 @@ internal static class ConfiguredSkillQuickbarRefreshTests
         task.GetAwaiter().GetResult();
     }
 
+    private static void PumpUntil(Func<bool> completed)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!completed() && DateTime.UtcNow < deadline) { Application.DoEvents(); Thread.Sleep(5); }
+        Check(completed(), "actual UI refresh action must finish within the mock test deadline");
+    }
+
     private static Task OnSta(Action action)
     {
         var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var thread = new Thread(() =>
         {
-            try { action(); done.SetResult(); }
-            catch (Exception exception) { done.SetException(exception); }
+            Exception? failure = null;
+            try
+            {
+                using var dispatcher = new Form
+                {
+                    ShowInTaskbar = false, StartPosition = FormStartPosition.Manual,
+                    Location = new(-32000, -32000), Size = new(1, 1), Opacity = 0
+                };
+                dispatcher.Shown += (_, _) => dispatcher.BeginInvoke((Action)(() =>
+                {
+                    var previous = SynchronizationContext.Current;
+                    using var context = new WindowsFormsSynchronizationContext();
+                    SynchronizationContext.SetSynchronizationContext(context);
+                    try { action(); }
+                    catch (Exception exception) { failure = exception; }
+                    finally
+                    {
+                        SynchronizationContext.SetSynchronizationContext(previous);
+                        Application.ExitThread();
+                    }
+                }));
+                // Keep a real outer loop alive so nested DoEvents calls preserve the
+                // WinForms context used by delayed runtime and button continuations.
+                Application.Run(dispatcher);
+            }
+            catch (Exception exception) { failure = exception; }
+            if (failure is null) done.SetResult();
+            else done.SetException(new InvalidOperationException(failure.ToString(), failure));
         });
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
@@ -377,9 +539,9 @@ internal static class ConfiguredSkillQuickbarRefreshTests
         public AccountSettingsForm Form { get; }
         public InMemoryAccountConfigStore Store { get; }
         public PreviewRuntime Runtime { get; }
-        public Fixture()
+        public Fixture(ScriptSettings? settings = null)
         {
-            Store = new(new AccountConfig { AccountName = "configured-bar-refresh", ScriptSettings = Settings() });
+            Store = new(new AccountConfig { AccountName = "configured-bar-refresh", ScriptSettings = settings ?? Settings() });
             var logger = new InMemoryRoadhogLogger();
             var runtime = DispatchProxy.Create<IRoadhogRuntime, PreviewRuntime>();
             Runtime = (PreviewRuntime)runtime;
@@ -389,6 +551,15 @@ internal static class ConfiguredSkillQuickbarRefreshTests
             Form.ShowInTaskbar = false;
             Form.StartPosition = FormStartPosition.Manual;
             Form.Location = new(-32000, -32000);
+        }
+        public void ShowSkillMode(bool quickbar)
+        {
+            Control? page = Field<Panel>("quickbarSkillPanel");
+            while (page is not null && page is not TabPage) page = page.Parent;
+            Check(page is TabPage && page.Parent is TabControl, "skill mode fixture finds its real tab page");
+            ((TabControl)page!.Parent!).SelectedTab = (TabPage)page;
+            if (!Form.Visible) Form.Show();
+            Application.DoEvents();
         }
         public object? Call(string name, params object?[] args) => typeof(AccountSettingsForm)
             .GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
@@ -409,14 +580,25 @@ internal static class ConfiguredSkillQuickbarRefreshTests
     public class PreviewRuntime : DispatchProxy
     {
         public IRoadhogRuntime Inner { get; set; } = null!;
-        public IReadOnlyList<SkillSnapshot> LearnedSkills { get; set; } = new[] { Rank(HighId, 4), Rank(SecondHighId, 4, "Second Strike") };
+        public IReadOnlyList<SkillSnapshot> LearnedSkills { get; set; } = new[]
+        {
+            Rank(HighId, 4), Rank(SecondHighId, 4, "Second Strike"),
+            Rank(3004, 4, "Detached Chain"), Rank(4004, 4, "Detached Final")
+        };
         public IReadOnlyList<SkillSnapshot> ExactSkills { get; set; } = new[] { Rank(LowId, 3), Rank(SecondLowId, 3, "Second Strike") };
         public QuickbarSnapshot Bar { get; set; } = ConfiguredSkillQuickbarRefreshTests.Bar();
         public string? FailureStage { get; set; }
         public List<uint[]> Requests { get; } = new();
         public List<string?> Accounts { get; } = new();
+        public Task? LearnedReadGate { get; set; }
+        public int LearnedReadCount { get; private set; }
         public bool AllTokensCancelable { get; private set; } = true;
         public bool ReturnedBarAfterCancellation { get; private set; }
+        private async Task<IReadOnlyList<SkillSnapshot>> ReadLearnedAfterGateAsync(Task gate)
+        {
+            await gate.ConfigureAwait(false);
+            return LearnedSkills;
+        }
         private async Task<QuickbarSnapshot> ReadBarAfterCancellationAsync(CancellationToken token)
         {
             try { await Task.Delay(Timeout.InfiniteTimeSpan, token).ConfigureAwait(false); }
@@ -437,7 +619,11 @@ internal static class ConfiguredSkillQuickbarRefreshTests
                 if (stage == FailureStage || FailureStage == "cancelled" && stage == "exact")
                     throw FailureStage == "cancelled" ? new OperationCanceledException("mock cancellation") :
                         new InvalidOperationException("mock " + stage + " failure");
-                if (stage == "learned") return Task.FromResult(LearnedSkills);
+                if (stage == "learned")
+                {
+                    LearnedReadCount++;
+                    return LearnedReadGate is { } gate ? ReadLearnedAfterGateAsync(gate) : Task.FromResult(LearnedSkills);
+                }
                 if (stage == "bar" && FailureStage == "late-bar")
                     return ReadBarAfterCancellationAsync((CancellationToken)args[accountIndex + 1]!);
                 if (stage == "bar") return Task.FromResult(Bar);

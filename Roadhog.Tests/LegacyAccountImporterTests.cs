@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Common;
 using Roadhog.Core.Hardware;
@@ -15,9 +16,25 @@ internal static class LegacyAccountImporterTests
         using var fixture = new ImportFixture();
         var source = fixture.SourceAccount();
         source.ScriptSettings = new ScriptSettings { Combat = new CombatScriptSettings { StalledTargetExclusionSeconds = 137 } };
+        source.ScriptSettings.Skills.ExecutionTree.Add(new()
+        {
+            SkillId = 101, Name = "old attack III", BaseName = "old attack", Type = "Active", ChainTimeMs = 875,
+            Children = new() { new() { SkillId = 102, Name = "old chain II", BaseName = "old chain", Type = "Chain", ChainTimeMs = 1250 } }
+        });
+        source.ScriptSettings.Skills.SystemExecutionTree.Add(new() { SkillId = 201, Name = "archived system" });
+        source.ScriptSettings.Skills.ManualMappings.Add(new() { SkillName = "archived manual", Key = "F4" });
+        source.ScriptSettings.Skills.Spiritmaster.DotSkills.Add(new() { SkillId = 301, SkillName = "shared dot" });
         var originalSettings = JsonSerializer.Serialize(source.ScriptSettings);
+        var originalAttackTree = JsonSerializer.Serialize(source.ScriptSettings.Skills.ExecutionTree);
         source.KmBox = null;
         await fixture.SaveSourceAsync(source);
+        // The production store now writes normalized settings. Exercise a real old
+        // document with both new fields absent, using only this temporary fixture.
+        var oldDocument = JsonNode.Parse(await File.ReadAllTextAsync(fixture.AccountPath))!.AsObject();
+        var oldSettings = oldDocument["Accounts"]![0]![nameof(AccountConfig.ScriptSettings)]!.AsObject();
+        oldSettings.Remove(nameof(ScriptSettings.SkillTreeReleaseMode));
+        oldSettings.Remove(nameof(ScriptSettings.QuickbarSkills));
+        await File.WriteAllTextAsync(fixture.AccountPath, oldDocument.ToJsonString());
         await new JsonKmBoxNetDeviceConfigStore(Path.Combine(fixture.Source, "kmbox-net.json"))
             .SaveAsync(new KmBoxNetDeviceConfig { IpAddress = "127.0.0.2", Port = 5000, Mac = "aa-bb-01" });
         var credential = Path.Combine(fixture.Source, "license.dat");
@@ -31,7 +48,21 @@ internal static class LegacyAccountImporterTests
         var result = await new LegacyAccountImporter(fixture.Options).ImportAsync(fixture.AccountPath, new[] { existing });
         Require(result.Count == 1 && result[0].AccountName == source.AccountName + " (old-client)", "duplicate names need a readable source suffix");
         Require(Guid.TryParse(result[0].InstanceId, out _) && result[0].InstanceId != source.InstanceId, "imported accounts need a new instance identity");
-        Require(JsonSerializer.Serialize(result[0].ScriptSettings) == originalSettings, "business settings must remain unchanged");
+        static string BusinessFields(string settingsJson)
+        {
+            var settings = JsonNode.Parse(settingsJson)!.AsObject();
+            settings.Remove(nameof(ScriptSettings.SkillTreeReleaseMode));
+            settings.Remove(nameof(ScriptSettings.QuickbarSkills));
+            return settings.ToJsonString();
+        }
+        var importedSettings = result[0].ScriptSettings!;
+        Require(BusinessFields(JsonSerializer.Serialize(importedSettings)) == BusinessFields(originalSettings),
+            "every old skill archive and all other business settings must remain unchanged during import");
+        Require(importedSettings.SkillTreeReleaseMode == SkillTreeReleaseMode.QuickbarAvailability &&
+            JsonSerializer.Serialize(importedSettings.QuickbarSkills.ExecutionTree) == originalAttackTree,
+            "import normalizes the old mode and migrates its complete attack tree without changing ranks, order or chain parameters");
+        Require(JsonSerializer.Serialize(source.ScriptSettings) == originalSettings,
+            "migration must not mutate the caller's original settings object");
         Require(result[0].KmBox?.IpAddress == "127.0.0.2", "legacy sibling KMBox settings must migrate into the account");
         Require(result[0].LicenseCredentialPath == credential, "credential identity must remain at its original path");
         Require(await File.ReadAllTextAsync(fixture.AccountPath) == originalFile, "the old client configuration must remain unchanged");

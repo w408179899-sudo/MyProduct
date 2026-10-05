@@ -32,6 +32,12 @@ public sealed class SemiAutoSkillPlan
 
     public bool RequiresFullSkillRead { get; private init; }
 
+    public IReadOnlyList<uint> SharedSkillReadIds { get; private init; } = Array.Empty<uint>();
+
+    public bool RequiresFullSharedSkillRead { get; private init; }
+
+    private bool IsSharedPlan { get; init; }
+
     public bool HasExecutableSkills => Roots.Any(root => !root.IsTrigger && !root.IsDp);
 
     public bool HasOpeningSkill => OpeningSkill is not null;
@@ -55,10 +61,7 @@ public sealed class SemiAutoSkillPlan
 
         var triggerPrefix = BuildTriggerPrefixRoots(roots, settings.TriggerPrefixMode);
         var openingConfig = settings.OpeningSkill ?? new OpeningSkillConfig();
-        var openingSkills = openingConfig.Enabled
-            ? openingConfig.GetEffectiveSkills().Select(config => bindings is null
-                ? BuildOpeningSkill(config) : BuildBoundOpeningSkill(config, bindings, missing)).OfType<SemiAutoSkillNode>().ToArray()
-            : Array.Empty<SemiAutoSkillNode>();
+        var openingSkills = BuildOpeningSkills(openingConfig, bindings, missing);
 
         return new SemiAutoSkillPlan(roots, triggerPrefix, openingSkills, usesSpiritmasterAutoLogic)
         {
@@ -69,9 +72,49 @@ public sealed class SemiAutoSkillPlan
                 settings,
                 usesSpiritmasterAutoLogic,
                 out var requiresFullSkillRead),
-            RequiresFullSkillRead = requiresFullSkillRead
+            RequiresFullSkillRead = requiresFullSkillRead,
+            SharedSkillReadIds = BuildSkillReadIds(Array.Empty<SemiAutoSkillNode>(), openingSkills,
+                settings, usesSpiritmasterAutoLogic, out var requiresFullSharedSkillRead),
+            RequiresFullSharedSkillRead = requiresFullSharedSkillRead
         };
     }
+
+    // Runtime consumes only shared actions; the archived configuration mode no
+    // longer controls the single attack executor or the Spiritmaster checkbox.
+    public static SemiAutoSkillPlan FromSharedSettings(SkillScriptSettings settings,
+        SkillKeyBindings? bindings = null, Action<string>? missing = null)
+    {
+        var openingConfig = settings.OpeningSkill ?? new OpeningSkillConfig();
+        return CreateShared(settings, BuildOpeningSkills(openingConfig, bindings, missing), openingConfig.ReleaseAll);
+    }
+
+    internal SemiAutoSkillPlan ToSharedPlan(SkillScriptSettings settings) =>
+        IsSharedPlan && UsesSpiritmasterAutoLogic == settings.SpiritmasterAutoSkillLogicEnabled
+            ? this : CreateShared(settings, OpeningSkills, ReleaseAllOpeningSkills);
+
+    private static SemiAutoSkillPlan CreateShared(SkillScriptSettings settings,
+        IReadOnlyList<SemiAutoSkillNode> openingSkills, bool releaseAllOpeningSkills)
+    {
+        var usesSpiritmasterAutoLogic = settings.SpiritmasterAutoSkillLogicEnabled;
+        var ids = BuildSkillReadIds(Array.Empty<SemiAutoSkillNode>(), openingSkills, settings,
+            usesSpiritmasterAutoLogic, out var requiresFullRead);
+        return new(Array.Empty<SemiAutoSkillNode>(), Array.Empty<SemiAutoSkillNode>(), openingSkills,
+            usesSpiritmasterAutoLogic)
+        {
+            IsSharedPlan = true,
+            ReleaseAllOpeningSkills = releaseAllOpeningSkills,
+            SkillReadIds = ids,
+            RequiresFullSkillRead = requiresFullRead,
+            SharedSkillReadIds = ids,
+            RequiresFullSharedSkillRead = requiresFullRead
+        };
+    }
+
+    private static IReadOnlyList<SemiAutoSkillNode> BuildOpeningSkills(OpeningSkillConfig config,
+        SkillKeyBindings? bindings, Action<string>? missing) => config.Enabled
+        ? config.GetEffectiveSkills().Select(entry => bindings is null
+            ? BuildOpeningSkill(entry) : BuildBoundOpeningSkill(entry, bindings, missing)).OfType<SemiAutoSkillNode>().ToArray()
+        : Array.Empty<SemiAutoSkillNode>();
 
     private static IReadOnlyList<SemiAutoSkillNode> BuildBoundRoots(SkillScriptSettings settings, SkillKeyBindings bindings, Action<string>? missing)
     {

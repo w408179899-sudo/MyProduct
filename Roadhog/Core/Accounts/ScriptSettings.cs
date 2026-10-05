@@ -28,6 +28,8 @@ public sealed class ScriptSettings
 
     public SkillScriptSettings Skills { get; set; } = new();
 
+    // The raw default identifies old JSON that predates this property. Clone/load
+    // normalizes it to the sole supported engine without overwriting explicit empty trees.
     public SkillTreeReleaseMode SkillTreeReleaseMode { get; set; } = SkillTreeReleaseMode.Legacy;
 
     public QuickbarSkillScriptSettings QuickbarSkills { get; set; } = new();
@@ -36,7 +38,7 @@ public sealed class ScriptSettings
 
     public ScriptSettings Clone()
     {
-        return new ScriptSettings
+        var settings = new ScriptSettings
         {
             ProfileName = ProfileName,
             MainMode = MainMode,
@@ -53,6 +55,8 @@ public sealed class ScriptSettings
             QuickbarSkills = (QuickbarSkills ?? new QuickbarSkillScriptSettings()).Clone(),
             SemiAuto = (SemiAuto ?? new SemiAutoScriptSettings()).Clone()
         };
+        SkillTreeReleaseMigration.Migrate(settings);
+        return settings;
     }
 }
 
@@ -1006,9 +1010,9 @@ public sealed class SkillScriptSettings
             Spiritmaster = (Spiritmaster ?? new SpiritmasterSkillSettings()).Clone(),
             KeyOrder = KeyOrder?.ToList() ?? DefaultKeyOrder(),
             TriggerPrefixMode = TriggerPrefixMode,
-            ExecutionTree = ExecutionTree?.Select(node => node.Clone()).ToList() ?? new List<SkillConfigNode>(),
-            ManualMappings = ManualMappings?.Select(mapping => mapping.Clone()).ToList() ?? new List<ManualSkillMappingConfig>(),
-            SystemExecutionTree = SystemExecutionTree?.Select(node => node.Clone()).ToList() ?? new List<SkillConfigNode>()
+            ExecutionTree = ExecutionTree?.Where(node => node is not null).Select(node => node.Clone()).ToList() ?? new List<SkillConfigNode>(),
+            ManualMappings = ManualMappings?.Where(mapping => mapping is not null).Select(mapping => mapping.Clone()).ToList() ?? new List<ManualSkillMappingConfig>(),
+            SystemExecutionTree = SystemExecutionTree?.Where(node => node is not null).Select(node => node.Clone()).ToList() ?? new List<SkillConfigNode>()
         };
     }
 
@@ -1246,7 +1250,7 @@ public sealed class SkillConfigNode
             BaseName = BaseName,
             Type = Type,
             ChainTimeMs = ChainTimeMs,
-            Children = Children.Select(child => child.Clone()).ToList()
+            Children = Children?.Where(child => child is not null).Select(child => child.Clone()).ToList() ?? new()
         };
     }
 }

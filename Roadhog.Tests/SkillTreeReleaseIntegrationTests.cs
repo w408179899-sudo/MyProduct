@@ -47,11 +47,10 @@ internal static class SkillTreeReleaseIntegrationTests
         return context;
     }
 
-    public static async Task LegacyIsolationAsync()
+    public static async Task LegacySettingUsesQuickbarAsync()
     {
         var (api, settings) = Fixture();
         settings.SemiAuto.AttackWeaveEnabled = false;
-        api.SkillAvailabilityRead = () => throw new InvalidOperationException("new provider unavailable");
         var logger = new InMemoryRoadhogLogger();
         using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var context = await ContextAsync(api, settings, logger, stop.Token);
@@ -60,9 +59,9 @@ internal static class SkillTreeReleaseIntegrationTests
         var plan = SemiAutoSkillPlan.FromSettings(context.Config.ScriptSettings!.Skills, context.SkillBindings);
         var state = new SemiAutoCombatState();
         await controller.TickAsync(context, plan, state);
-        Check(keyboard.Keys.SequenceEqual(new[] { "D1" }), "legacy still releases its original tree");
-        Check(api.SkillAvailabilityReadCount == 0, "legacy never invokes a broken new availability provider");
-        Check(state.QuickbarPlan is null, "legacy does not construct a new plan");
+        Check(keyboard.Keys.SequenceEqual(new[] { "D2" }), "an old mode marker uses the existing authoritative quickbar tree");
+        Check(api.SkillAvailabilityReadCount > 0, "all main releases use the official availability provider");
+        Check(state.QuickbarPlan is not null, "an old mode marker cannot enter the retired dispatcher");
     }
 
     public static async Task RoutingAndMaintenanceAsync()
@@ -102,18 +101,18 @@ internal static class SkillTreeReleaseIntegrationTests
         await controller.TickAsync(context, plan, state);
         Check(keyboard.Keys.Count == 1 && state.QuickbarSkills.PendingAction is null, "actual release confirmation and cooldown prevent another press");
 
-        // Switching takes a new worker session. The saved old tree is still usable
-        // even when the new provider becomes permanently unavailable.
+        // Old serialized mode markers remain readable, but cannot revive the retired dispatcher.
         settings = context.Config.ScriptSettings.Clone();
         settings.SkillTreeReleaseMode = SkillTreeReleaseMode.Legacy;
         settings.SemiAuto.AttackWeaveEnabled = false;
-        api.SkillAvailabilityRead = () => throw new InvalidOperationException("new mode failed");
         var readsBeforeLegacy = api.SkillAvailabilityReadCount;
+        api.Skills = api.Skills.Select(skill => skill with { CooldownEndTime = 0 }).ToArray();
+        api.SkillAvailability = api.SkillAvailability with { LastReleasedSkillId = 0, LastReleasedSkillTime = 0 };
         var legacyContext = await ContextAsync(api, settings, logger, stop.Token);
         keyboard.Keys.Clear();
         await controller.TickAsync(legacyContext, SemiAutoSkillPlan.FromSettings(legacyContext.Config.ScriptSettings!.Skills,
             legacyContext.SkillBindings), new());
-        Check(keyboard.Keys.SequenceEqual(new[] { "D1" }), "switching back restores old tree while keeping active chant");
-        Check(api.SkillAvailabilityReadCount == readsBeforeLegacy, "returned legacy mode does not await the failed new reader");
+        Check(keyboard.Keys.SequenceEqual(new[] { "D2" }), "an old marker preserves the new tree and active shared chant");
+        Check(api.SkillAvailabilityReadCount > readsBeforeLegacy, "the only dispatcher continues reading official availability");
     }
 }

@@ -103,8 +103,8 @@ internal static class SettingsLayoutTests
                 }
                 tabs.SelectedTab = tabs.TabPages.Cast<TabPage>().Single(t => t.Text == "技能");
                 Application.DoEvents();
-                var left = (TreeView)Field("availableSkillTree");
-                var right = (TreeView)Field("selectedSkillTree");
+                var left = (TreeView)Field("quickbarAvailableSkillTree");
+                var right = (TreeView)Field("quickbarSelectedSkillTree");
                 var opening = form.Controls.Find("openingSkillPanel", true).Single();
                 Check(left.Size == right.Size && left.Width > 316 && left.Height > 292, "both skill trees use added width and height equally");
                 Check(opening.Top > right.Bottom && opening.Right == right.Parent!.ClientSize.Width, "opening section spans panel under both trees");
