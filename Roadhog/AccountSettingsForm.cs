@@ -7324,6 +7324,7 @@ namespace Roadhog
                 var visibleSkills = skills
                     .Where(skill => !ShouldHideManualSkillCandidate(skill))
                     .ToArray();
+                var chainRootKeys = GetChainRootSkillKeys(visibleSkills);
 
                 foreach (var category in ManualSkillCategories)
                 {
@@ -7337,7 +7338,8 @@ namespace Roadhog
                     {
                         AddSkillLeaves(
                             categoryNode,
-                            visibleSkills.Where(skill => MatchesManualSkillType(skill, category)));
+                            visibleSkills.Where(skill => MatchesManualSkillType(skill, category) &&
+                                                         !chainRootKeys.Contains(GetSkillKey(skill))));
                     }
 
                     if (categoryNode.Nodes.Count == 0)
@@ -7575,12 +7577,7 @@ namespace Roadhog
                 .Where(skill => MatchesManualSkillType(skill, "连续技"))
                 .ToArray();
             var emittedSkillKeys = new HashSet<string>(StringComparer.Ordinal);
-            var chainRoots = visibleSkills
-                .Where(skill => !MatchesManualSkillType(skill, "连续技"))
-                .Where(skill => HasUsefulSkillValue(skill.XmlChainCategory))
-                .Where(skill => chainSkills.Any(child => HasChainPredecessor(child, skill)))
-                .OrderBy(FormatManualSkillName, StringComparer.CurrentCulture)
-                .ToArray();
+            var chainRoots = GetChainRootSkills(visibleSkills);
 
             foreach (var rootSkill in chainRoots)
             {
@@ -7608,6 +7605,13 @@ namespace Roadhog
 
         private static HashSet<string> GetChainRootSkillKeys(IReadOnlyList<SkillSnapshot> visibleSkills)
         {
+            return GetChainRootSkills(visibleSkills)
+                .Select(GetSkillKey)
+                .ToHashSet(StringComparer.Ordinal);
+        }
+
+        private static IEnumerable<SkillSnapshot> GetChainRootSkills(IReadOnlyList<SkillSnapshot> visibleSkills)
+        {
             var chainSkills = visibleSkills
                 .Where(skill => MatchesManualSkillType(skill, "连续技"))
                 .ToArray();
@@ -7616,8 +7620,9 @@ namespace Roadhog
                 .Where(skill => !MatchesManualSkillType(skill, "连续技"))
                 .Where(skill => HasUsefulSkillValue(skill.XmlChainCategory))
                 .Where(skill => chainSkills.Any(child => HasChainPredecessor(child, skill)))
-                .Select(GetSkillKey)
-                .ToHashSet(StringComparer.Ordinal);
+                .GroupBy(GetSkillKey, StringComparer.Ordinal)
+                .Select(group => group.First())
+                .OrderBy(FormatManualSkillName, StringComparer.CurrentCulture);
         }
 
         private void AddChainChildren(
@@ -8623,7 +8628,7 @@ namespace Roadhog
                 return "连续技";
             }
 
-            if (IsNamedSkill(baseName, ActiveSkillBaseNames))
+            if (IsNamedSkill(baseName, ActiveSkillBaseNames) || HasManualSkillAttackEffect(skill))
             {
                 return "主动技能";
             }

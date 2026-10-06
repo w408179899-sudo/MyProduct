@@ -1095,7 +1095,13 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat mp sit maintenance preempts target and potion", TestStationaryCombatMpSitMaintenancePreemptsTargetAndPotionAsync),
     ("stationary combat skips sit maintenance while fighting", TestStationaryCombatSkipsSitMaintenanceWhileFightingAsync),
     ("skill tree assigns keys by root order and chain children inherit root key", TestSkillTreeKeyMappingAsync),
-    ("available skill tree keeps chain roots in normal category", TestAvailableSkillTreeKeepsChainRootsInNormalCategoryAsync),
+    ("available skill tree shows chain roots only in chain category", TestAvailableSkillTreeShowsChainRootsOnlyInChainCategoryAsync),
+    ("skill category real XML attacks keep damage intent ahead of attached statuses", SkillCategoryRegressionTests.RealXmlAttackCategoriesAsync),
+    ("skill category screenshot chains appear once with complete branches", SkillCategoryRegressionTests.ScreenshotChainsOnlyOnceAsync),
+    ("skill category non-damaging buffs and debuffs remain statuses", SkillCategoryRegressionTests.StatusWithoutDamageAsync),
+    ("skill category DP toggle condition counter and chain mechanics retain priority", SkillCategoryRegressionTests.MechanicPrecedenceAsync),
+    ("skill category openers without visible continuations remain active", SkillCategoryRegressionTests.RootWithoutVisibleChildAsync),
+    ("skill category selection and configuration round trip preserve chain identities", SkillCategoryRegressionTests.ConfiguredTreeRoundTripAsync),
     ("manual skill category maps target valid status as condition", TestManualSkillCategoryMapsTargetValidStatusAsConditionAsync),
     ("retired condition preempt option stays archived during skill UI save", TestArchivedConditionPreemptSettingPreservedFromSkillUiAsync),
     ("return home when no target switch persists from summary UI", TestReturnHomeWhenNoTargetSwitchPersistsFromSummaryUiAsync),
@@ -27944,7 +27950,7 @@ static Task TestSkillTreeKeyMappingAsync()
     return Task.CompletedTask;
 }
 
-static Task TestAvailableSkillTreeKeepsChainRootsInNormalCategoryAsync()
+static Task TestAvailableSkillTreeShowsChainRootsOnlyInChainCategoryAsync()
 {
     Exception? failure = null;
     var thread = new Thread(() =>
@@ -27980,17 +27986,27 @@ static Task TestAvailableSkillTreeKeepsChainRootsInNormalCategoryAsync()
                 XmlPrechainCategory: "test_counter_chain",
                 XmlChainTime: "5000");
 
-            InvokePopulateAvailableSkillTree(form, tree, new[] { rootSkill, chainSkill });
+            var standaloneSkill = rootSkill with
+            {
+                SkillId = 1004,
+                Name = "Standalone Counter III",
+                DisplayBaseName = "Standalone Counter",
+                XmlChainCategory = null
+            };
+            InvokePopulateAvailableSkillTree(form, tree, new[] { rootSkill, chainSkill, standaloneSkill });
 
             var rootCategory = GetManualSkillCategoryForTest(rootSkill);
             var chainCategory = GetManualSkillCategoryForTest(chainSkill);
             AssertFalse(string.Equals(rootCategory, chainCategory, StringComparison.Ordinal), "root and child should belong to different manual categories");
 
             var rootCategoryNode = FindDirectTreeNode(tree.Nodes, rootCategory);
-            AssertFalse(rootCategoryNode is null, "available tree should keep chain root in its normal category");
+            AssertFalse(rootCategoryNode is null, "normal category should keep the standalone counter skill");
             AssertFalse(
-                !ContainsDirectTreeNode(rootCategoryNode!.Nodes, rootSkill.Name),
-                "normal category should contain the chain root skill");
+                !ContainsDirectTreeNode(rootCategoryNode!.Nodes, standaloneSkill.Name),
+                "standalone counter should remain in its normal category");
+            AssertFalse(
+                ContainsDirectTreeNode(rootCategoryNode.Nodes, rootSkill.Name),
+                "normal category should omit a root already shown with its chain branch");
 
             var chainCategoryNode = FindDirectTreeNode(tree.Nodes, chainCategory);
             AssertFalse(chainCategoryNode is null, "available tree should still expose chain category");
