@@ -39,6 +39,7 @@ internal sealed class ChannelSwitchSequence(IKeyboardInput input, IRoadhogLogger
     ChannelTransitionWaiter? transitionWaiter = null)
 {
     private readonly TimeSpan _settle = settleDelay ?? TimeSpan.FromMilliseconds(150);
+    private readonly TimeSpan _mouseStepDelay = settleDelay ?? TimeSpan.FromMilliseconds(70);
 
     public async Task<OperationResult> RunAsync(IRoadhogSnapshotReader snapshots, string account, int target, CancellationToken token,
         Func<IRoadhogSnapshotReader, Task<bool>>? canUseMouseAsync = null, Action? submitted = null)
@@ -197,7 +198,7 @@ internal sealed class ChannelSwitchSequence(IKeyboardInput input, IRoadhogLogger
                 if (axis == MenuAxis.Vertical) { if (Math.Abs(dx) > 1) dy = 0; else dx = 0; }
                 var scale = Math.Min(1d, 70d / Math.Max(Math.Abs(dx), Math.Abs(dy)));
                 Check(await input.MoveMouseRelativeAsync((int)Math.Round(dx * scale), (int)Math.Round(dy * scale), token).ConfigureAwait(false));
-                await Task.Delay(_settle, token).ConfigureAwait(false);
+                await Task.Delay(_mouseStepDelay, token).ConfigureAwait(false);
             }
             throw new InvalidOperationException("鼠标未到达目标控件。");
         }
