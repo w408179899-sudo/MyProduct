@@ -4,6 +4,8 @@ namespace Roadhog.Core.Api;
 
 public interface IRoadhogSnapshotReader
 {
+    Task<PublishedGameSnapshot<EquipmentUpgradeInventory>> ReadEquipmentUpgradeInventoryAsync(long afterVersion = 0) => throw new NotSupportedException();
+    Task<PublishedGameSnapshot<EquipmentUpgradeUi>> ReadEquipmentUpgradeUiAsync(long afterVersion = 0) => throw new NotSupportedException();
     Task<PublishedGameSnapshot<QuickbarSnapshot>> ReadQuickbarAsync(long afterVersion = 0);
 
     Task<PublishedGameSnapshot<PlayerSnapshot>> ReadPlayerAsync(long afterVersion = 0);

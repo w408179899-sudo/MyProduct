@@ -11,6 +11,17 @@ namespace Roadhog.Infrastructure.WorkerProcesses;
 
 public sealed class RemoteRoadhogRuntime : IRoadhogRuntime
 {
+    public Task<EquipmentUpgradeInventory> RefreshEquipmentUpgradeAsync(string accountName, CancellationToken token) =>
+        _client.CallAsync<EquipmentUpgradeInventory>(nameof(RefreshEquipmentUpgradeAsync), new object?[] { Account(accountName) }, token);
+
+    public Task<OperationResult<Roadhog.Application.EquipmentUpgrade.EquipmentUpgradeResult>> RunEquipmentUpgradeAsync(string accountName,
+        EquipmentUpgradeSettings settings, EquipmentUpgradeKind kind, IProgress<string>? progress, CancellationToken token) =>
+        _client.CallAsync<OperationResult<Roadhog.Application.EquipmentUpgrade.EquipmentUpgradeResult>>(nameof(RunEquipmentUpgradeAsync),
+            new object?[] { Account(accountName), settings.Clone(), kind }, token, progress);
+    public Task<OperationResult<Roadhog.Application.EquipmentUpgrade.EquipmentUpgradeResult>> RunEquipmentUpgradeBatchAsync(string accountName,
+        EquipmentUpgradeSettings settings, IProgress<string>? progress, CancellationToken token) =>
+        _client.CallAsync<OperationResult<Roadhog.Application.EquipmentUpgrade.EquipmentUpgradeResult>>(nameof(RunEquipmentUpgradeBatchAsync),
+            new object?[] { Account(accountName), settings.Clone() }, token, progress);
     private readonly WorkerRpcClient _client;
     private readonly string _accountName;
     private readonly Action<string, object?[]>? _notify;

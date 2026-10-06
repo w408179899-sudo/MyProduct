@@ -26,6 +26,8 @@ public sealed class ScriptSettings
 
     public TeamScriptSettings Team { get; set; } = new();
 
+    public EquipmentUpgradeSettings EquipmentUpgrade { get; set; } = new();
+
     public SkillScriptSettings Skills { get; set; } = new();
 
     // The raw default identifies old JSON that predates this property. Clone/load
@@ -50,6 +52,7 @@ public sealed class ScriptSettings
             Paths = (Paths ?? new PathScriptSettings()).Clone(),
             Maintenance = (Maintenance ?? new MaintenanceScriptSettings()).Clone(),
             Team = (Team ?? new TeamScriptSettings()).Clone(),
+            EquipmentUpgrade = (EquipmentUpgrade ?? new()).Clone(),
             Skills = (Skills ?? new SkillScriptSettings()).Clone(),
             SkillTreeReleaseMode = SkillTreeReleaseMode,
             QuickbarSkills = (QuickbarSkills ?? new QuickbarSkillScriptSettings()).Clone(),

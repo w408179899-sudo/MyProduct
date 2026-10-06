@@ -233,6 +233,11 @@ internal static class AionVmmSnapshotChannels
 {
     private static readonly DmaSnapshotChannelRegistry ChannelRegistry = new();
 
+    public static readonly DmaSnapshotChannel<EquipmentUpgradeInventory> EquipmentUpgradeInventory =
+        ChannelRegistry.Register<EquipmentUpgradeInventory>("equipment_upgrade_inventory", mergePolicy: DmaSnapshotMergePolicy.FieldAware);
+    public static readonly DmaSnapshotChannel<EquipmentUpgradeUi> EquipmentUpgradeUi =
+        ChannelRegistry.Register<EquipmentUpgradeUi>("equipment_upgrade_ui");
+
     public static readonly DmaSnapshotChannel<PlayerSnapshot> Player =
         ChannelRegistry.Register<PlayerSnapshot>("player");
 

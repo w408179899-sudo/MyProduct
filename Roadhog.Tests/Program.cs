@@ -505,6 +505,14 @@ var tests = new (string Name, Func<Task> Run)[]
     ("food maintenance editor checkboxes round trip", FoodMaintenanceTests.UiAsync),
     ("food maintenance actual worker waits for combat to end", FoodMaintenanceTests.WorkerAsync),
     ("food maintenance selected quickbar priority guards and bag fallback", FoodMaintenanceTests.QuickbarAsync),
+    ("equipment upgrade loops failures full sockets and level ten", EquipmentUpgradeTests.LoopsAsync),
+    ("equipment upgrade per-equipment material choices", EquipmentUpgradeTests.PerEquipmentMaterialsAsync),
+    ("equipment upgrade batch plan and completion space loop", EquipmentUpgradeTests.BatchAsync),
+    ("equipment upgrade batch RPC stop and real interval", EquipmentUpgradeTests.BatchRpcStopAsync),
+    ("equipment upgrade live equipment level and enchant priority", EquipmentUpgradeTests.PriorityAsync),
+    ("equipment upgrade guards cancellation and persistence", EquipmentUpgradeTests.GuardsAsync),
+    ("equipment upgrade UI persistence and RPC account isolation", EquipmentUpgradeTests.UiAndRpcAsync),
+    ("equipment upgrade decoder inventory modal binding and faults", PersonalShopDecoderTests.EquipmentUpgradeAsync),
     ("inventory discard hover modal guards and release", InventoryDiscardTests.HoverModalAndReleaseAsync),
     ("inventory discard confirmation layers and no blind retry", InventoryDiscardTests.ConfirmLayersAndRejectionAsync),
     ("inventory discard official snapshot lifecycle", InventoryDiscardTests.OfficialLifecycleAsync),
@@ -33573,6 +33581,8 @@ static Task TestDmaSnapshotCatalogRegistersEveryBusinessChannelAsync()
         "channel",
         "channel_switch_ui",
         "channel_transition",
+        "equipment_upgrade_inventory",
+        "equipment_upgrade_ui",
         "gather",
         "inventory",
         "inventory_capacity",
@@ -34958,8 +34968,14 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
     , IRoadhogApiAddressProbe
     , IRoadhogSnapshotDiagnostics
 #endif
-    , IRoadhogSnapshotReaderFactory
+    , IRoadhogSnapshotReaderFactory, IEquipmentUpgradeGameApi
 {
+    public Func<EquipmentUpgradeInventory>? EquipmentInventoryRead { get; set; }
+    public Func<EquipmentUpgradeUi>? EquipmentUiRead { get; set; }
+    public Task<OperationResult<EquipmentUpgradeInventory>> ReadEquipmentUpgradeInventoryAsync(GameApiReadContext context, CancellationToken token) =>
+        Task.FromResult(OperationResult<EquipmentUpgradeInventory>.Ok(EquipmentInventoryRead!()));
+    public Task<OperationResult<EquipmentUpgradeUi>> ReadEquipmentUpgradeUiAsync(GameApiReadContext context, CancellationToken token) =>
+        Task.FromResult(OperationResult<EquipmentUpgradeUi>.Ok(EquipmentUiRead!()));
     public IRoadhogSnapshotReader Create(
         AccountConfig config,
         IRoadhogLogger logger,

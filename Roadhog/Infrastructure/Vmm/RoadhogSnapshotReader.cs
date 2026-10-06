@@ -149,6 +149,16 @@ internal sealed partial class RoadhogSnapshotReader : IRoadhogSnapshotReader
             () => _gameApi is IInventoryInteractionGameApi api ? api.ReadPersonalShopAsync(_readContext, _stopToken)
                 : Missing<PersonalShopSnapshot>("Personal shop channel is unavailable."), afterVersion);
 
+    public Task<PublishedGameSnapshot<EquipmentUpgradeInventory>> ReadEquipmentUpgradeInventoryAsync(long afterVersion = 0) =>
+        ReadUntilPublishedAsync("equipment_upgrade_inventory",
+            () => _gameApi is IEquipmentUpgradeGameApi api ? api.ReadEquipmentUpgradeInventoryAsync(_readContext, _stopToken)
+                : Missing<EquipmentUpgradeInventory>("Equipment channel is unavailable."), afterVersion);
+
+    public Task<PublishedGameSnapshot<EquipmentUpgradeUi>> ReadEquipmentUpgradeUiAsync(long afterVersion = 0) =>
+        ReadUntilPublishedAsync("equipment_upgrade_ui",
+            () => _gameApi is IEquipmentUpgradeGameApi api ? api.ReadEquipmentUpgradeUiAsync(_readContext, _stopToken)
+                : Missing<EquipmentUpgradeUi>("Equipment UI channel is unavailable."), afterVersion);
+
     public Task<PublishedGameSnapshot<AuctionHouseSnapshot>> ReadAuctionHouseAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync("auction_house",
             () => _gameApi is IAuctionHouseGameApi api ? api.ReadAuctionHouseAsync(_readContext, _stopToken)

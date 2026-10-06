@@ -15,6 +15,11 @@ namespace Roadhog.Application;
 /// </summary>
 public interface IRoadhogRuntime
 {
+    Task<EquipmentUpgradeInventory> RefreshEquipmentUpgradeAsync(string accountName, CancellationToken token) => throw new NotSupportedException();
+    Task<OperationResult<Roadhog.Application.EquipmentUpgrade.EquipmentUpgradeResult>> RunEquipmentUpgradeBatchAsync(string accountName,
+        EquipmentUpgradeSettings settings, IProgress<string>? progress, CancellationToken token) => throw new NotSupportedException();
+    Task<OperationResult<Roadhog.Application.EquipmentUpgrade.EquipmentUpgradeResult>> RunEquipmentUpgradeAsync(string accountName,
+        EquipmentUpgradeSettings settings, EquipmentUpgradeKind kind, IProgress<string>? progress, CancellationToken token) => throw new NotSupportedException();
     void ApplyRadarObstacleSettings(string accountName, RadarObstacleScriptSettings settings);
 
     void NotifyRadarMapSaved(uint mapId);
