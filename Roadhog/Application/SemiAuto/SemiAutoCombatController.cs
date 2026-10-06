@@ -2266,7 +2266,8 @@ public sealed partial class SemiAutoCombatController
 
             var pressed = await PressSpiritmasterRawKeyAsync(context, settings, rule.Key, "pet_buff").ConfigureAwait(false);
             state.MarkSpiritmasterPetBuffAttempt(skill, currentPet.ServerObjectId, _timeProvider,
-                ResolveCooldownConfirmationWindow(settings, useSpiritmasterMinimum: true), MaintenanceKeyRetryInterval);
+                ResolveCooldownConfirmationWindow(settings, useSpiritmasterMinimum: true),
+                TimeSpan.FromMilliseconds(250), pressed);
             if (!pressed) continue;
 
             MarkSpiritmasterSkillPressed(state, settings, skill);

@@ -34,6 +34,7 @@ public sealed partial class SemiAutoCombatController
         var maintenancePlayer = hasMaintenance ? await ReadPlayerAsync(context).ConfigureAwait(false) : null;
         if (maintenancePlayer?.IsDead == true)
         {
+            state.ClearSpiritmasterPetBuffAttempts();
             state.QuickbarSkills.Reset();
             return tick;
         }
@@ -111,6 +112,16 @@ public sealed partial class SemiAutoCombatController
         // cooldown clock. Conditional skills still require the official bar signal.
         UpdateCooldownCalibration(context, state, skills, CurrentOsTick(), DateTimeOffset.Now);
         InvalidateQuickbarCooldownCalibrationIfNeeded(context, state, plan, skills);
+        // A pet buff has a cast time. Reserve its finite confirmation window
+        // before opening/attack input, even when the monster target changed.
+        if (maintenancePlan.UsesSpiritmasterAutoLogic && state.HasSpiritmasterPetBuffConfirmation &&
+            await ContinueSpiritmasterPetBuffConfirmationAsync(context, state, settings, sharedSkillSettings.Spiritmaster,
+                skills, maintenance, maintenancePlan, jumpAssist, requireCooldownCalibrationForMaintenance,
+                ensureHpMaintenanceTargetBeforeKeyPress).ConfigureAwait(false))
+        {
+            state.QuickbarSkills.SuspendInputAttempts();
+            return tick;
+        }
         if (settings.AttackWeaveEnabled &&
             !await ObserveQuickbarOpeningWeaveAsync(context, state, settings, target, skills).ConfigureAwait(false))
             return tick;

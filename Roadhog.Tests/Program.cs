@@ -193,6 +193,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("skill audit pet buff zero duration and pet lifetime", SpiritmasterPetBuffConfirmationTests.ZeroCooldownAndPetLifetimeRemainIndependentAsync),
     ("skill audit pet buff failed input death and cancellation", SpiritmasterPetBuffConfirmationTests.FailedInputYieldsAndDeadOrStoppedCannotPressAsync),
     ("skill audit pet buff final pet read death and DP guard", SpiritmasterPetBuffConfirmationTests.DeathDuringFinalPetReadCannotPressAsync),
+    ("skill audit pet buff cast window and release evidence", SpiritmasterPetBuffConfirmationTests.CastWindowProtectsBothBuffsAndReleasesOnEvidenceAsync),
+    ("skill audit pet buff cast priority and pending death", SpiritmasterPetBuffConfirmationTests.PendingCastAllowsHpButBlocksOpeningAndHandlesDeathAsync),
     ("skill audit low rank HP MP DP action and confirmation", LowRankMaintenanceTests.HpMpAndDpUseExactRankThroughoutConfirmationAsync),
     ("skill audit low rank status and trusted abnormal confirmation", LowRankMaintenanceTests.StatusUsesExactRankAndTrustedAbnormalConfirmationAsync),
     ("skill audit low rank name only discovery and missing explicit identity", LowRankMaintenanceTests.NameOnlyFullReadIncludesPlacedRankAndExplicitMissingNeverPromotesAsync),
