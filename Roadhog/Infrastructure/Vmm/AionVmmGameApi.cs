@@ -774,7 +774,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                observation.Fields.IsEquipped &&
                observation.Fields.ItemType &&
                observation.Fields.QualityRank &&
-               observation.Fields.VendorSellUnitPrice;
+               observation.Fields.VendorSellUnitPrice && observation.Fields.Food;
     }
 
     internal static IReadOnlyList<InventoryItemSnapshot> MergeInventoryRead(
@@ -806,6 +806,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                 IsEquipped = observation.Fields.IsEquipped ? current.IsEquipped : lastGood!.IsEquipped,
                 ItemType = observation.Fields.ItemType ? current.ItemType : lastGood!.ItemType,
                 QualityRank = observation.Fields.QualityRank ? current.QualityRank : lastGood!.QualityRank,
+                Food = observation.Fields.Food ? current.Food : lastGood!.Food,
                 VendorSellUnitPrice = observation.Fields.VendorSellUnitPrice
                     ? current.VendorSellUnitPrice
                     : lastGood!.VendorSellUnitPrice
@@ -2962,6 +2963,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
 
                 var qualityByTemplate = new Dictionary<uint, (bool Success, byte Rank)>();
                 var staticChunkCache = new Dictionary<uint, byte[]>();
+                var foodByTemplate = new Dictionary<uint, (bool Valid, FoodItemDefinition? Value)>();
                 for (var i = 0; i < items.Count; i++)
                 {
                     var item = items[i];
@@ -2973,6 +2975,13 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                         staticChunkCache,
                         out item.QualityRank);
                     items[i] = item;
+                    if (!foodByTemplate.ContainsKey(item.TemplateId))
+                    {
+                        FoodItemDefinition? food = null;
+                        var valid = item.ItemTypeValid && (item.ItemType != 15 ||
+                            TryReadFoodDefinition(process, gameBase, item.TemplateId, staticChunkCache, out food));
+                        foodByTemplate[item.TemplateId] = (valid, food);
+                    }
                 }
 
                 var observations = items
@@ -2986,7 +2995,8 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                             IsEquippedInventoryItem(item),
                             item.ItemType,
                             item.QualityRank,
-                            item.VendorSellUnitPrice),
+                            item.VendorSellUnitPrice,
+                            foodByTemplate[item.TemplateId].Value),
                         new InventoryItemFieldValidity(
                             item.TemplateIdValid,
                             item.CountValid,
@@ -2995,7 +3005,8 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                             item.IsInEquipmentArrayValid && item.SlotValid,
                             item.ItemTypeValid,
                             item.QualityRankValid,
-                            item.VendorSellUnitPriceValid)))
+                            item.VendorSellUnitPriceValid,
+                            foodByTemplate[item.TemplateId].Valid)))
                     .ToArray();
 
                 _logger.Info("vmm.inventory.read", new Dictionary<string, object?>

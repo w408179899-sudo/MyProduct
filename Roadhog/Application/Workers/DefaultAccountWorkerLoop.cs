@@ -7,6 +7,7 @@ using Roadhog.Core.Accounts;
 using Roadhog.Core.Input;
 using Roadhog.Application.Trading;
 using Roadhog.Application.BagCleanup;
+using Roadhog.Application.Food;
 
 namespace Roadhog.Application.Workers;
 
@@ -83,6 +84,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         var teamSupportState = new TeamSupportState();
         var teamOutputState = new TeamOutputState();
         var fixedChannelState = new FixedChannelState();
+        var foodMaintenance = new FoodMaintenanceController(_keyboard);
         context.WorkflowOwnsCleanup = _cleanupWorkflow != null;
         var nextCleanupCheck = DateTimeOffset.MinValue;
         var nextSharedRefresh = DateTimeOffset.MinValue;
@@ -116,6 +118,11 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
             while (!context.StopToken.IsCancellationRequested)
             {
                 context.RuntimeStates.MarkHeartbeat(context.Config.AccountName);
+                var foodCombatActive = FoodMaintenanceController.HasWork(stationaryCombatState);
+                if (scriptSettings.MainMode == AccountMainMode.SemiAuto &&
+                    (scriptSettings.Maintenance.AutoDrinkEnabled || scriptSettings.Maintenance.AutoFoodEnabled))
+                    foodCombatActive |= (await context.Snapshots.ReadLockedTargetAsync().ConfigureAwait(false)).Value.IsMonsterAlive;
+                foodMaintenance.ObserveCombat(scriptSettings.Maintenance, foodCombatActive);
                 if (context.CleanupRequests.StandaloneShopRestartRequestId.HasValue)
                 {
                     // The manager owns Stop/Start. Keep the completed worker idle until cancellation.
@@ -354,6 +361,13 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                         if (jumpAssist is not null && !stationaryCombatState.Fighting)
                             await jumpAssist.StopAsync("fixed_channel_wait").ConfigureAwait(false);
                         delay = channelWaitDelay;
+                    }
+                    else if (await foodMaintenance.TickAsync(context, stationaryCombatState,
+                        () => _stationaryCombat.PrepareForChannelSwitchAttemptAsync(context, semiAutoState, stationaryCombatState, "food_maintenance"),
+                        () => foodCombatActive || context.CleanupRequests.Current != null || fixedChannelState.WaitingForPeace ||
+                              fixedChannelState.AwaitingConfirmation).ConfigureAwait(false))
+                    {
+                        delay = context.Options.TickInterval;
                     }
                     else if (await _semiAuto
                                  .EnsureSpiritmasterPetAsync(

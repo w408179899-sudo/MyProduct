@@ -92,12 +92,13 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
     public async Task PrepareForChannelSwitchAttemptAsync(
         AccountWorkerContext context,
         SemiAutoCombatState semiAutoState,
-        StationaryCombatState state)
+        StationaryCombatState state,
+        string reason = "fixed_channel_attempt")
     {
         semiAutoState.ResetAttackKeyPressThrottle();
         if (state.JumpAssist is not null)
-            await state.JumpAssist.StopAsync("fixed_channel_attempt").ConfigureAwait(false);
-        StopNextTargetPreAim(context, state, "fixed_channel_attempt", clearCandidate: true);
+            await state.JumpAssist.StopAsync(reason).ConfigureAwait(false);
+        StopNextTargetPreAim(context, state, reason, clearCandidate: true);
         await StopMovementAsync(context, state, releaseRightMouse: true).ConfigureAwait(false);
         StopPathFollowPoller(state);
     }

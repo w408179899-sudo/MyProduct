@@ -113,6 +113,21 @@ internal static class SkillBindingTests
         var decoded = new QuickbarDecoder(memory.Read).Read(Memory.Module);
         Check(decoded.Slots.Count == 24 && decoded.Slots[3].SkillId == 101 && decoded.Slots[12 + 4].SkillId == 102, "both current bars decoded");
         Check(decoded.Slots[0].ContentType == 0 && decoded.Slots[0].SkillId == 0, "empty preserved");
+        memory.SetItem(160002117, 3352900281);
+        var item = new QuickbarDecoder(memory.Read).Read(Memory.Module).Slots[0];
+        Check(item.ContentType == 1 && item.SkillId == 0 && item.ItemTemplateId == 160002117 && item.ItemInstanceId == 3352900281,
+            "item template and instance stay distinct from skill identity");
+        memory.SetItem(160002117, 0);
+        Check(new QuickbarDecoder(memory.Read).Read(Memory.Module).Slots[0].ItemInstanceId == 0,
+            "depleted item binding preserves template with zero instance");
+        foreach (var fault in new[] { "item-template", "item-instance", "item-short" })
+        {
+            memory = new Memory { Fault = fault };
+            memory.SetItem(160002117, 3352900281);
+            var rejected = false;
+            try { new QuickbarDecoder(memory.Read).Read(Memory.Module); } catch (InvalidDataException) { rejected = true; }
+            Check(rejected, "reject " + fault);
+        }
         foreach (var fault in new[] { "short", "page", "type", "mismatch", "changed", "pointer" })
         {
             memory = new Memory { Fault = fault };
@@ -375,9 +390,21 @@ internal static class SkillBindingTests
                 }
             }
         }
+        public void SetItem(uint template, uint instance)
+        {
+            var table = blocks[Module + 0xD61260];
+            BitConverter.GetBytes(1u).CopyTo(table, 0);
+            BitConverter.GetBytes(template).CopyTo(table, 4);
+            BitConverter.GetBytes(instance).CopyTo(table, 8);
+            blocks[0x201000 + 952] = BitConverter.GetBytes(instance).Concat(BitConverter.GetBytes(1u)).ToArray();
+            blocks[0x201000 + 960] = BitConverter.GetBytes(template);
+        }
         public byte[] Read(ulong address, int count)
         {
             var value = blocks[address].ToArray();
+            if (address == 0x201000 + 960 && Fault == "item-short") return new byte[1];
+            if (address == 0x201000 + 960 && Fault == "item-template") return BitConverter.GetBytes(123u);
+            if (address == 0x201000 + 952 && Fault == "item-instance") BitConverter.GetBytes(123u).CopyTo(value, 0);
             if (Fault == "short" && count == 384) return new byte[1];
             if (address == Module + 0xD4AE0C && (Fault == "page" || Fault == "changed" && ++pageReads > 1)) return BitConverter.GetBytes(Fault == "page" ? 10 : 1);
             if (address == 0x200000 + 0x1000 + 3 * 0x600 + 952)

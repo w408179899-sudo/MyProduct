@@ -9,7 +9,8 @@ public sealed record InventoryItemSnapshot(
     bool IsEquipped,
     uint ItemType = 0,
     byte QualityRank = 0,
-    ulong VendorSellUnitPrice = 0)
+    ulong VendorSellUnitPrice = 0,
+    FoodItemDefinition? Food = null)
 {
     public ulong VendorSellStackTotal =>
         Count == 0 || VendorSellUnitPrice == 0
@@ -18,3 +19,5 @@ public sealed record InventoryItemSnapshot(
                 ? ulong.MaxValue
                 : VendorSellUnitPrice * Count;
 }
+
+public sealed record FoodItemDefinition(string UseSkillName, int Level, int RequiredLevel);

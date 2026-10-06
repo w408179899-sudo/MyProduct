@@ -643,6 +643,13 @@ public sealed class MaintenanceScriptSettings
 
     public bool SitMaintenanceEnabled { get; set; } = true;
 
+    public bool AutoDrinkEnabled { get; set; } = true;
+
+    public bool AutoFoodEnabled { get; set; } = true;
+
+    public List<FoodQuickbarPreference> PreferredDrinks { get; set; } = new();
+    public List<FoodQuickbarPreference> PreferredFoods { get; set; } = new();
+
     public int SitMpBelowPercent { get; set; } = 10;
 
     public int SitMpRecoverToPercent { get; set; } = 90;
@@ -698,6 +705,10 @@ public sealed class MaintenanceScriptSettings
         return new MaintenanceScriptSettings
         {
             SitMaintenanceEnabled = SitMaintenanceEnabled,
+            AutoDrinkEnabled = AutoDrinkEnabled,
+            AutoFoodEnabled = AutoFoodEnabled,
+            PreferredDrinks = (PreferredDrinks ?? new()).Select(p => p with { }).ToList(),
+            PreferredFoods = (PreferredFoods ?? new()).Select(p => p with { }).ToList(),
             SitMpBelowPercent = SitMpBelowPercent,
             SitMpRecoverToPercent = SitMpRecoverToPercent,
             SitHpBelowPercent = SitHpBelowPercent,

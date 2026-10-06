@@ -49,7 +49,18 @@ internal sealed class QuickbarDecoder(Func<ulong, int, byte[]> read)
                 var tableId = BitConverter.ToUInt32(table, offset + 4);
                 if (type > 55 || type != tableType || type == 21 && (id == 0 || id != tableId))
                     throw new InvalidDataException("Quickbar table and controls disagree.");
-                slots.Add(new((SkillQuickbar)bar, slot, type, type == 21 ? id : 0));
+                uint itemTemplateId = 0;
+                if (type == 1)
+                {
+                    // sub_180274520/2756F0: item table stores template then instance;
+                    // control +952/+960 store instance/template. Validated on Tone 2026-10-06.
+                    itemTemplateId = BitConverter.ToUInt32(Capture(control + 960, 4));
+                    if (itemTemplateId == 0 || itemTemplateId != tableId ||
+                        id != BitConverter.ToUInt32(table, offset + 8))
+                        throw new InvalidDataException("Quickbar item table and controls disagree.");
+                }
+                slots.Add(new((SkillQuickbar)bar, slot, type, type == 21 ? id : 0,
+                    itemTemplateId, type == 1 ? id : 0));
             }
         }
         foreach (var guard in guards)

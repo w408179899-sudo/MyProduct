@@ -16,6 +16,10 @@ public sealed class SkillKeyBindings
     public int Page { get; }
     public IReadOnlyList<uint> SkillIds { get; }
 
+    public static string? GetSlotKey(SkillQuickbar bar, int slot) =>
+        slot is >= 0 and < 12 && bar is SkillQuickbar.Main or SkillQuickbar.Alt
+            ? (bar == SkillQuickbar.Main ? MainKeys : AltKeys)[slot] : null;
+
     public SkillKeyBindings(QuickbarSnapshot quickbar, IReadOnlyList<SkillSnapshot> skills)
     {
         Page = quickbar.Page;
@@ -24,7 +28,7 @@ public sealed class SkillKeyBindings
         // Prefer main bar, then the leftmost occurrence. Never bind items or Ctrl/hidden pages.
         foreach (var slot in quickbar.Slots.OrderBy(s => s.Bar).ThenBy(s => s.Slot))
             if (slot.ContentType == 21 && slot.SkillId != 0 && slot.Slot is >= 0 and < 12 && slot.Bar is SkillQuickbar.Main or SkillQuickbar.Alt)
-                _keys.TryAdd(slot.SkillId, (slot.Bar == SkillQuickbar.Main ? MainKeys : AltKeys)[slot.Slot]);
+                _keys.TryAdd(slot.SkillId, GetSlotKey(slot.Bar, slot.Slot)!);
         SkillIds = Array.AsReadOnly(_keys.Keys.ToArray());
     }
 

@@ -123,6 +123,8 @@ namespace Roadhog
         private RoundedCheckBox? deathStopPathCheckBox;
         private RoundedTextBox? revivePathAggressiveClearRadiusTextBox;
         private RoundedCheckBox? sitMaintenanceCheckBox;
+        private RoundedCheckBox? autoDrinkCheckBox;
+        private RoundedCheckBox? autoFoodCheckBox;
         private RoundedTextBox? sitMpBelowTextBox;
         private RoundedTextBox? sitMpRecoverToTextBox;
         private RoundedTextBox? sitHpBelowTextBox;
@@ -520,6 +522,10 @@ namespace Roadhog
             SelectConfiguredPath(SharedPathKind.Stall, paths.StallPathName);
 
             SetChecked(sitMaintenanceCheckBox, settings.Maintenance.SitMaintenanceEnabled);
+            SetChecked(autoDrinkCheckBox, settings.Maintenance.AutoDrinkEnabled);
+            SetChecked(autoFoodCheckBox, settings.Maintenance.AutoFoodEnabled);
+            drinkPreferencePicker?.Load(settings.Maintenance.PreferredDrinks);
+            foodPreferencePicker?.Load(settings.Maintenance.PreferredFoods);
             SetText(sitMpBelowTextBox, settings.Maintenance.SitMpBelowPercent.ToString());
             SetText(sitMpRecoverToTextBox, settings.Maintenance.SitMpRecoverToPercent.ToString());
             SetText(sitHpBelowTextBox, settings.Maintenance.SitHpBelowPercent.ToString());
@@ -923,6 +929,10 @@ namespace Roadhog
                 Maintenance = new MaintenanceScriptSettings
                 {
                     SitMaintenanceEnabled = sitMaintenanceCheckBox?.Checked ?? true,
+                    AutoDrinkEnabled = autoDrinkCheckBox?.Checked ?? false,
+                    AutoFoodEnabled = autoFoodCheckBox?.Checked ?? false,
+                    PreferredDrinks = drinkPreferencePicker?.Capture() ?? new(),
+                    PreferredFoods = foodPreferencePicker?.Capture() ?? new(),
                     SitMpBelowPercent = ReadPercent(sitMpBelowTextBox, 10),
                     SitMpRecoverToPercent = ReadPercent(sitMpRecoverToTextBox, 90),
                     SitHpBelowPercent = ReadPercent(sitHpBelowTextBox, 25),
@@ -3351,6 +3361,9 @@ namespace Roadhog
 
             AddLabel(page, "坐地板维护", 12, 8, 82, 24, _textGreen, FontStyle.Bold);
             sitMaintenanceCheckBox = AddCheckBox(page, "启用", 96, 6, 70, true);
+            autoDrinkCheckBox = AddCheckBox(page, "自动饮品", 194, 6, 100, true);
+            autoFoodCheckBox = AddCheckBox(page, "自动食物", 474, 6, 100, true);
+            CreateFoodPreferencePickers(page);
 
             AddLabel(page, "血量低于", 12, 44, 66, 24);
             sitHpBelowTextBox = AddTextBox(page, "25", 80, 42, 70, 28);
