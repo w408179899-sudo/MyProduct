@@ -28,7 +28,7 @@ public static class FoodQuickbarBindings
         IReadOnlyList<InventoryItemSnapshot> inventory, FoodCatalog catalog, FoodKind kind, int playerLevel,
         IReadOnlyList<FoodQuickbarPreference> preferences)
     {
-        var selected = preferences.Select(p => p.TemplateId).ToHashSet();
+        var selected = preferences.Take(1).Select(p => p.TemplateId).ToHashSet();
         var candidates = Candidates(quickbar, inventory, catalog, kind, playerLevel)
             .Where(c => selected.Contains(c.Item.TemplateId)).ToArray();
         var item = catalog.Select(candidates.Select(c => c.Item), kind, playerLevel);

@@ -10,13 +10,14 @@ public sealed class FoodUseSequence(IKeyboardInput input, FoodCatalog catalog,
     Func<int, CancellationToken, Task>? delay = null, int timeoutMs = 12000)
 {
     public async Task<bool> RunAsync(IRoadhogSnapshotReader snapshots, FoodKind kind, InventoryItemSnapshot item,
-        Func<Task<bool>> canUse, CancellationToken token, FoodQuickbarBinding? binding = null)
+        Func<Task<bool>> canUse, CancellationToken token, FoodQuickbarBinding? binding = null,
+        FoodInventorySession? sharedInventory = null)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(timeoutMs);
         var ct = deadline.Token;
         var initial = (await snapshots.ReadChannelTransitionAsync().WaitAsync(ct)).Value;
-        var openedHere = false;
+        var inventorySession = sharedInventory ?? new FoodInventorySession(snapshots, input, token);
         async Task Pause(int ms) => await (delay?.Invoke(ms, ct) ?? Task.Delay(ms, ct));
         async Task Guard()
         {
@@ -66,7 +67,7 @@ public sealed class FoodUseSequence(IKeyboardInput input, FoodCatalog catalog,
             {
                 if (!(await Bag()).IsOpen)
                 {
-                    await Key(); openedHere = true;
+                    await Key(); inventorySession.RecordOpened(initial);
                     while (!(await Bag()).IsOpen) await Pause(100);
                 }
                 var bag = await Bag();
@@ -97,22 +98,7 @@ public sealed class FoodUseSequence(IKeyboardInput input, FoodCatalog catalog,
         }
         finally
         {
-            // Restore only a bag opened by this action. Do not send keys into a different scene/modal.
-            if (openedHere && !token.IsCancellationRequested)
-            {
-                try
-                {
-                    using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(1));
-                    var scene = (await snapshots.ReadChannelTransitionAsync().WaitAsync(cleanup.Token)).Value;
-                    var bag = (await snapshots.ReadInventoryInteractionAsync().WaitAsync(cleanup.Token)).Value;
-                    if (scene.IsReady && scene.Player!.CharacterName == initial.Player?.CharacterName &&
-                        scene.Channel!.MapId == initial.Channel!.MapId && scene.Channel.Index == initial.Channel.Index &&
-                        !scene.Player.IsDead && bag.IsOpen &&
-                        !bag.OtherModalOpen && !bag.ShopIsOpen && !bag.IsSelling && bag.DiscardDialog == null)
-                        await input.PressKeyAsync("I", TimeSpan.FromMilliseconds(60), cleanup.Token);
-                }
-                catch (Exception) { /* Never mask the action result or block death recovery. */ }
-            }
+            if (sharedInventory == null) await inventorySession.DisposeAsync();
         }
     }
 }

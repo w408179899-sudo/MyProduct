@@ -3361,8 +3361,8 @@ namespace Roadhog
 
             AddLabel(page, "坐地板维护", 12, 8, 82, 24, _textGreen, FontStyle.Bold);
             sitMaintenanceCheckBox = AddCheckBox(page, "启用", 96, 6, 70, true);
-            autoDrinkCheckBox = AddCheckBox(page, "自动饮品", 194, 6, 100, true);
-            autoFoodCheckBox = AddCheckBox(page, "自动食物", 474, 6, 100, true);
+            autoDrinkCheckBox = AddCheckBox(page, "自动饮品", 12, 112, 100, true);
+            autoFoodCheckBox = AddCheckBox(page, "自动食物", 12, 146, 100, true);
             CreateFoodPreferencePickers(page);
 
             AddLabel(page, "血量低于", 12, 44, 66, 24);
@@ -3384,7 +3384,7 @@ namespace Roadhog
             var sections = new FlowLayoutPanel
             {
                 Name = "maintenanceSections",
-                Location = new Point(12, 128),
+                Location = new Point(12, 198),
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 MinimumSize = new Size(828, 0),
@@ -8246,6 +8246,7 @@ namespace Roadhog
             {
                 currentManualSkills = await _runtime.RefreshSkillsAsync(_account).ConfigureAwait(true);
                 await RefreshSkillBindingsPreviewAsync().ConfigureAwait(true);
+                await RefreshFoodCandidatesAsync().ConfigureAwait(true);
                 if (availableTree is not null && skillAutoModeRadio?.Checked == true)
                 {
                     PopulateAvailableSkillTreeFromSkills(availableTree, currentManualSkills);

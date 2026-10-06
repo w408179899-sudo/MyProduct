@@ -129,6 +129,37 @@ internal static class FoodMaintenanceTests
             "unconfirmed drink does not starve independent food category");
         Check(!await controller.TickAsync(bothContext, new(), () => Task.CompletedTask, () => false) && independent.Clicks == 2,
             "failed category retry is throttled");
+        Check(independent.Input.Keys.SequenceEqual(new[] { "I", "I" }) && !independent.Open,
+            "first category failure still shares one inventory session with second category");
+
+        foreach (var scenario in new[] { "both", "already-open", "combat-after-drink", "cancel-after-drink" })
+        {
+            var batch = new Simulation { Open = scenario == "already-open" };
+            batch.Api.InventoryItems = batch.Api.InventoryItems.Concat(new[] {
+                Item(160003559, "shop_food_phyAttack_msboost", 3) with { Slot = 1 } }).ToArray();
+            using var cancel = new CancellationTokenSource();
+            var batchContext = new AccountWorkerContext(new AccountConfig { AccountName = "batch", ScriptSettings = new() { Maintenance = both } },
+                batch.Api, logger, new AccountRuntimeManager(logger), new(), cancel.Token);
+            var batchState = new StationaryCombatState();
+            var clicked = batch.Input.AfterMouseDown;
+            batch.Input.AfterMouseDown = button =>
+            {
+                clicked?.Invoke(button);
+                if (scenario == "combat-after-drink") batchState.Fighting = true;
+                if (scenario == "cancel-after-drink") cancel.Cancel();
+            };
+            var batchController = new FoodMaintenanceController(batch.Input);
+            batchController.ObserveCombat(both, true);
+            try { await batchController.TickAsync(batchContext, batchState, () => Task.CompletedTask, () => false); }
+            catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
+            var interrupted = scenario is "combat-after-drink" or "cancel-after-drink";
+            Check(batch.Clicks == (interrupted ? 1 : 2), scenario + " respects per-item safety");
+            var keys = scenario == "already-open" ? Array.Empty<string>() :
+                scenario == "cancel-after-drink" ? new[] { "I" } : new[] { "I", "I" };
+            Check(batch.Input.Keys.SequenceEqual(keys), scenario + " opens and closes at most once per round");
+            Check(batch.Open == (scenario is "already-open" or "cancel-after-drink"), scenario + " preserves inventory ownership");
+            Check(batch.Input.MouseCommands.Last() == "up:Right", scenario + " releases right mouse");
+        }
 
         foreach (var mode in new[] { AccountMainMode.CustomCombat, AccountMainMode.SemiAuto })
         {
@@ -186,25 +217,35 @@ internal static class FoodMaintenanceTests
                 var serialized = JsonSerializer.Deserialize<ScriptSettings>(JsonSerializer.Serialize(result))!.Clone();
                 serialized.Maintenance.PreferredDrinks.Clear();
                 Check(result.Maintenance.PreferredDrinks.Count == 1, "preference clone owns its list");
-                Check(form.Controls.Find("drinkPreferenceButton", true).Length == 1 &&
-                    form.Controls.Find("foodPreferenceButton", true).Length == 1, "both dropdown controls exist");
                 var drink1 = Item(160002117, "food_hpregen_mpregen", 4);
                 var drink2 = Item(160003553, "shop_food_hpregen_mpregen", 3);
                 var food = Item(160002158, "combo_food_msboost_Maccuracy", 3);
                 var items = new[] { drink1, drink2, food };
-                var quickbar = new QuickbarSnapshot(0, items.Select((i, slot) =>
-                    new QuickbarSlotSnapshot(SkillQuickbar.Main, slot, 1, 0, i.TemplateId, (uint)i.InstanceId)).ToArray());
+                var quickbar = new QuickbarSnapshot(0, new[] {
+                    new QuickbarSlotSnapshot(SkillQuickbar.Main, 1, 1, 0, drink2.TemplateId, (uint)drink2.InstanceId),
+                    new QuickbarSlotSnapshot(SkillQuickbar.Main, 2, 1, 0, food.TemplateId, (uint)food.InstanceId) });
                 t.GetMethod("UpdateFoodCandidates", flags)!.Invoke(form, new object[] { quickbar, items });
-                var picker = t.GetField("drinkPreferencePicker", flags)!.GetValue(form)!;
-                picker.GetType().GetMethod("PopulateChoices", flags)!.Invoke(picker, null);
-                var choices = (CheckedListBox)picker.GetType().GetField("list", flags)!.GetValue(picker)!;
-                Check(choices.Items.Count == 2 && choices.CheckedItems.Count == 1, "dropdown separates categories and restores selection");
-                choices.SetItemChecked(1, true);
+                var combo = form.Controls.Find("drinkPreferenceCombo", true).Single().Controls.OfType<ComboBox>().Single();
+                var key = (Button)form.Controls.Find("drinkPreferenceKey", true).Single();
+                Check(combo.Items.Count == 3 && combo.SelectedIndex == 2 && combo.Text.Contains(drink1.TemplateId.ToString()),
+                    "single-select lists bag items even without quickbar binding and shows saved item");
+                Check(!key.Enabled && key.Text == "\u672a\u653e\u5165\u6280\u80fd\u680f", "unbound selected food displays missing quickbar message");
+                combo.SelectedIndex = 1;
                 result = (ScriptSettings)collect.Invoke(form, null)!;
-                Check(result.Maintenance.PreferredDrinks.Count == 2, "checking a second item saves both preferences");
-                choices.SetItemChecked(0, false);
+                Check(result.Maintenance.PreferredDrinks.Single().TemplateId == drink2.TemplateId && key.Text.Contains("2"),
+                    "selecting another item replaces selection and shows automatic key");
+                t.GetMethod("UpdateFoodCandidates", flags)!.Invoke(form, new object[] {
+                    new QuickbarSnapshot(0, Array.Empty<QuickbarSlotSnapshot>()), Array.Empty<InventoryItemSnapshot>() });
                 result = (ScriptSettings)collect.Invoke(form, null)!;
-                Check(result.Maintenance.PreferredDrinks.Single().TemplateId == drink2.TemplateId, "unchecking removes only that item");
+                Check(result.Maintenance.PreferredDrinks.Single().TemplateId == drink2.TemplateId && combo.Text.Contains(drink2.TemplateId.ToString()),
+                    "selection remains visible after item is consumed or moved off bar");
+                combo.SelectedIndex = 0;
+                result = (ScriptSettings)collect.Invoke(form, null)!;
+                Check(result.Maintenance.PreferredDrinks.Count == 0, "automatic bag choice clears explicit selection");
+                load.Invoke(form, new object[] { new ScriptSettings { Maintenance = new() {
+                    PreferredDrinks = new() { preference, new(drink2.TemplateId, drink2.Name) } } } });
+                result = (ScriptSettings)collect.Invoke(form, null)!;
+                Check(result.Maintenance.PreferredDrinks.Single() == preference, "legacy multiple selections migrate to first item");
                 done.SetResult();
             }
             catch (Exception ex) { done.SetException(ex); }

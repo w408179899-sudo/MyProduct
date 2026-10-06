@@ -54,6 +54,7 @@ public sealed class FoodMaintenanceController(IKeyboardInput input,
             return !world.Any(i => i.IsAlive && (i.IsTargetingLocalPlayer || (petId != 0 && i.TargetServerObjectId == petId)));
         }
         var used = false;
+        await using var inventorySession = new FoodInventorySession(context.Snapshots, input, context.StopToken);
         try
         {
             var catalog = FoodCatalog.Default;
@@ -81,7 +82,8 @@ public sealed class FoodMaintenanceController(IKeyboardInput input,
                     await prepareInput();
                     if (!await Safe()) return used;
                     var success = await new FoodUseSequence(input, catalog, delay, useTimeoutMs)
-                        .RunAsync(context.Snapshots, kind, item, Safe, context.StopToken, binding: binding);
+                        .RunAsync(context.Snapshots, kind, item, Safe, context.StopToken, binding: binding,
+                            sharedInventory: inventorySession);
                     used |= success;
                     if (success) context.Logger.Info("food.used", new Dictionary<string, object?>
                     {
