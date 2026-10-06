@@ -646,7 +646,7 @@ public sealed class MaintenanceScriptSettings
 
     public bool SitMaintenanceEnabled { get; set; } = true;
 
-    public bool AutoDrinkEnabled { get; set; } = true;
+    public bool AutoDrinkEnabled { get; set; }
 
     public bool AutoFoodEnabled { get; set; } = true;
 

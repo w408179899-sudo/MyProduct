@@ -116,9 +116,9 @@ internal static class FoodMaintenanceTests
         var copy = JsonSerializer.Deserialize<ScriptSettings>(JsonSerializer.Serialize(new ScriptSettings {
             Maintenance = new() { AutoDrinkEnabled = true, AutoFoodEnabled = true } }))!.Clone();
         Check(copy.Maintenance.AutoDrinkEnabled && copy.Maintenance.AutoFoodEnabled, "both switches survive JSON and clone");
-        Check(new MaintenanceScriptSettings().AutoDrinkEnabled && new MaintenanceScriptSettings().AutoFoodEnabled, "enabled defaults");
+        Check(!new MaintenanceScriptSettings().AutoDrinkEnabled && new MaintenanceScriptSettings().AutoFoodEnabled, "only food enabled by default");
         var legacy = JsonSerializer.Deserialize<MaintenanceScriptSettings>("{}")!;
-        Check(legacy.AutoDrinkEnabled && legacy.AutoFoodEnabled, "missing old configuration fields default on");
+        Check(!legacy.AutoDrinkEnabled && legacy.AutoFoodEnabled, "missing old configuration fields default to food only");
         var disabled = JsonSerializer.Deserialize<MaintenanceScriptSettings>(
             "{\"AutoDrinkEnabled\":false,\"AutoFoodEnabled\":false}")!.Clone();
         Check(!disabled.AutoDrinkEnabled && !disabled.AutoFoodEnabled, "explicit disabled choices survive load and clone");
@@ -331,7 +331,7 @@ internal static class FoodMaintenanceTests
             var test = new Simulation();
             test.Api.InventoryItems = available ? new[] { middle, high } : new[] { middle };
             test.Api.Quickbar = new(2, new[] { slot });
-            var settings = new MaintenanceScriptSettings { AutoFoodEnabled = false, PreferredDrinks = preferences };
+            var settings = new MaintenanceScriptSettings { AutoDrinkEnabled = true, AutoFoodEnabled = false, PreferredDrinks = preferences };
             var logger = new InMemoryRoadhogLogger();
             var context = new AccountWorkerContext(new AccountConfig { AccountName = "priority", ScriptSettings = new() { Maintenance = settings } },
                 test.Api, logger, new AccountRuntimeManager(logger), new(), CancellationToken.None);
