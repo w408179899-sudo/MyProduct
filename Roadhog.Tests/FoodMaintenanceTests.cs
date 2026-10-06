@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using System.Text.Json;
 using System.Windows.Forms;
 using Roadhog;
@@ -71,7 +71,15 @@ internal static class FoodMaintenanceTests
         var game = new Simulation();
         Check(await game.Run(), "use confirms category status");
         Check(game.Clicks == 1 && !game.Open && game.Input.Keys.SequenceEqual(new[] { "I", "I" }), "one click and restore bag");
+        Check(game.Input.MouseCommands.Count(c => c == "up:Right") == 1, "single click releases right mouse");
         Check(!await game.Run() && game.Clicks == 1, "existing same-category status never consumes again");
+        foreach (var offset in new[] { 0, 1, 15 })
+        {
+            var stale = new Simulation { RequireHoverReentry = true };
+            stale.Api.InventoryUiCursor = new(100 + offset, 100);
+            Check(await stale.Run() && stale.LeftItem && stale.Clicks == 1 && !stale.Open,
+                "reopened bag requires leaving the item and reentering before one click");
+        }
         var opened = new Simulation { Open = true };
         Check(await opened.Run() && opened.Open && opened.Input.Keys.Count == 0, "preserve user-opened bag");
         foreach (var failure in new[] { "combat", "modal", "moved", "changed", "scene", "hp", "hover", "no-status" })
@@ -79,7 +87,7 @@ internal static class FoodMaintenanceTests
             var bad = new Simulation { Failure = failure };
             try { await bad.Run(); throw new Exception("unexpected success: " + failure); }
             catch (Exception ex) when (ex is InvalidOperationException or OperationCanceledException) { }
-            Check(bad.Clicks == (failure == "no-status" ? 1 : 0), failure + " guards input, including no blind retry");
+            Check(bad.Clicks == (failure == "no-status" ? 1 : 0), failure + " guards input, including no extra click batch");
         }
         var cancel = new Simulation(); using var stop = new CancellationTokenSource();
         cancel.Input.AfterMouseDown = _ => stop.Cancel();
@@ -341,6 +349,9 @@ internal static class FoodMaintenanceTests
         public RecordingKeyboardInput Input = new();
         public bool Open;
         public int Clicks;
+        public bool RequireHoverReentry;
+        public bool LeftItem;
+        private bool hoverRefreshed;
         public int Hotkeys;
         public string Failure = "";
         private bool moved;
@@ -357,7 +368,7 @@ internal static class FoodMaintenanceTests
             Api.InventoryInteractionRead = () => new(Open, false, false,
                 Api.InventoryItems.Select(i => new InventoryUiItem((uint)i.InstanceId, i.TemplateId, i.Count,
                     new(moved && Failure == "moved" ? 300 : 100 + i.Slot * 60, 100))).ToArray(),
-                Failure == "hover" ? 0 : (uint)(Api.InventoryItems.FirstOrDefault(i =>
+                Failure == "hover" || (RequireHoverReentry && !hoverRefreshed) ? 0 : (uint)(Api.InventoryItems.FirstOrDefault(i =>
                     Api.InventoryUiCursor == new GameUiPoint(100 + i.Slot * 60, 100))?.InstanceId ?? 0),
                 0, null, null, Failure == "modal");
             Input.AfterPress = key =>
@@ -371,6 +382,11 @@ internal static class FoodMaintenanceTests
             Input.AfterMove = (x, y) =>
             {
                 Api.InventoryUiCursor = new(Api.InventoryUiCursor.X + x, Api.InventoryUiCursor.Y + y);
+                if (RequireHoverReentry)
+                {
+                    if (Math.Abs(Api.InventoryUiCursor.X - 100) > 32 || Math.Abs(Api.InventoryUiCursor.Y - 100) > 32) LeftItem = true;
+                    else if (LeftItem) hoverRefreshed = true;
+                }
                 moved = true;
                 if (Failure == "changed") Api.InventoryItems = new[] { item with { Count = 1 } };
                 if (Failure == "hp") Api.Player = Api.Player with { CurrentHp = 80 };

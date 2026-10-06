@@ -74,7 +74,18 @@ public sealed class FoodUseSequence(IKeyboardInput input, FoodCatalog catalog,
                 GameUiPoint? Locate(InventoryInteractionSnapshot b) => b.Items.SingleOrDefault(i =>
                     i.InstanceId == item.InstanceId && i.TemplateId == item.TemplateId && i.Quantity == item.Count)?.Point;
                 var point = Locate(bag) ?? throw new InvalidOperationException("料理不在可见背包中。");
-                await new FeedbackMouseMover(input, snapshots, delay).MoveAsync(point, ct);
+                var mover = new FeedbackMouseMover(input, snapshots, delay);
+                var beforeMove = (await snapshots.ReadUiCursorAsync().WaitAsync(ct)).Value;
+                // Reopening the bag under a stationary cursor may not refresh the game's hover object.
+                // Leave the item before returning, including when the cursor is near its center.
+                if (Math.Abs(beforeMove.Position.X - point.X) <= 32 &&
+                    Math.Abs(beforeMove.Position.Y - point.Y) <= 32)
+                {
+                    var away = new GameUiPoint(point.X + (point.X + 64 < beforeMove.Width ? 64 : -64), point.Y);
+                    await mover.MoveAsync(away, ct);
+                    await Guard();
+                }
+                await mover.MoveAsync(point, ct);
                 while ((await Bag()).HoveredInstanceId != item.InstanceId) await Pause(100);
                 if (await HasStatus()) return false;
                 var inventory = (await snapshots.ReadInventoryAsync().WaitAsync(ct)).Value;
