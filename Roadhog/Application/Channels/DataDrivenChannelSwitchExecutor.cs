@@ -66,13 +66,7 @@ internal sealed class ChannelSwitchSequence(IKeyboardInput input, IRoadhogLogger
                     await Click(s => s.MenuButton);
                     ui = await Wait(s => s.ServiceItem != null);
                 }
-                stage = "展开服务菜单";
-                await Move(s => s.ServiceItem);
-                ui = await Wait(s => s.SwitchChannelItem != null);
-                // Enter the submenu horizontally before moving down, so other main menu rows cannot steal hover.
-                await Move(s => s.SwitchChannelItem is { } p ? new ChannelUiPoint(p.X, s.Cursor.Y) : null);
-                stage = "打开频道移动窗口";
-                await Click(s => s.SwitchChannelItem);
+                await OpenChannelMenu();
                 ui = await Wait(s => s.DialogOpen);
             }
             stage = "选择目标频道";
@@ -142,7 +136,51 @@ internal sealed class ChannelSwitchSequence(IKeyboardInput input, IRoadhogLogger
                 await Task.Delay(_settle, deadline.Token).ConfigureAwait(false);
             }
         }
-        async Task Move(Func<ChannelSwitchUiSnapshot, ChannelUiPoint?> locate)
+        async Task OpenChannelMenu()
+        {
+            for (var attempt = 1; attempt <= 3; attempt++)
+            {
+                try
+                {
+                    stage = "展开服务菜单";
+                    var state = await Ui();
+                    if (state.DialogOpen) return;
+                    if (state.ServiceItem is null)
+                    {
+                        await Click(s => s.MenuButton);
+                        await Wait(s => s.ServiceItem != null);
+                    }
+                    await Move(s => s.ServiceItem);
+                    state = await Wait(s => s.SwitchChannelItem != null);
+                    var service = state.ServiceItem ?? throw new MenuHoverLostException();
+                    var item = state.SwitchChannelItem!;
+                    // Freeze the corridor: observed cursor drift must not redefine its height.
+                    await Move(s => MenuPoint(s, new(item.X, service.Y), service, item), MenuAxis.Horizontal);
+                    stage = "打开频道移动窗口";
+                    await Click(s => MenuPoint(s, item, service, item), axis: MenuAxis.Vertical);
+                    return;
+                }
+                catch (MenuHoverLostException) when (attempt < 3)
+                {
+                    LogRetry(attempt, "submenu_lost");
+                }
+                catch (OperationCanceledException) when (!token.IsCancellationRequested && attempt < 3)
+                {
+                    LogRetry(attempt, "hover_timeout");
+                }
+            }
+
+            ChannelUiPoint MenuPoint(ChannelSwitchUiSnapshot state, ChannelUiPoint point,
+                ChannelUiPoint service, ChannelUiPoint item)
+            {
+                if (state.ServiceItem != service || state.SwitchChannelItem != item)
+                    throw new MenuHoverLostException();
+                return point;
+            }
+            void LogRetry(int attempt, string reason) => logger.Info("channel_switch.menu_retry",
+                new Dictionary<string, object?> { ["account"] = account, ["attempt"] = attempt, ["reason"] = reason });
+        }
+        async Task Move(Func<ChannelSwitchUiSnapshot, ChannelUiPoint?> locate, MenuAxis axis = MenuAxis.Free)
         {
             for (var attempt = 0; attempt < 40; attempt++)
             {
@@ -153,16 +191,20 @@ internal sealed class ChannelSwitchSequence(IKeyboardInput input, IRoadhogLogger
                     throw new InvalidOperationException("目标控件位于游戏窗口外。");
                 var dx = point.X - state.Cursor.X;
                 var dy = point.Y - state.Cursor.Y;
-                if (Math.Abs(dx) <= 2 && Math.Abs(dy) <= 2) return;
-                Check(await input.MoveMouseRelativeAsync(Math.Clamp(dx, -100, 100), Math.Clamp(dy, -100, 100), token).ConfigureAwait(false));
+                if (Math.Abs(dx) <= 1 && Math.Abs(dy) <= 1) return;
+                // Correct cross-axis drift before continuing along the menu corridor.
+                if (axis == MenuAxis.Horizontal) { if (Math.Abs(dy) > 1) dx = 0; else dy = 0; }
+                if (axis == MenuAxis.Vertical) { if (Math.Abs(dx) > 1) dy = 0; else dx = 0; }
+                var scale = Math.Min(1d, 70d / Math.Max(Math.Abs(dx), Math.Abs(dy)));
+                Check(await input.MoveMouseRelativeAsync((int)Math.Round(dx * scale), (int)Math.Round(dy * scale), token).ConfigureAwait(false));
                 await Task.Delay(_settle, token).ConfigureAwait(false);
             }
             throw new InvalidOperationException("鼠标未到达目标控件。");
         }
         async Task Click(Func<ChannelSwitchUiSnapshot, ChannelUiPoint?> locate, TimeSpan? afterClickDelay = null,
-            Action? beforePress = null)
+            Action? beforePress = null, MenuAxis axis = MenuAxis.Free)
         {
-            await Move(locate);
+            await Move(locate, axis);
             // Re-check the semantic control at the final cursor position, immediately before pressing.
             var state = await Ui();
             var point = locate(state);
@@ -179,6 +221,9 @@ internal sealed class ChannelSwitchSequence(IKeyboardInput input, IRoadhogLogger
             await Task.Delay(afterClickDelay ?? _settle, token).ConfigureAwait(false);
         }
     }
+
+    private enum MenuAxis { Free, Horizontal, Vertical }
+    private sealed class MenuHoverLostException() : InvalidOperationException("服务子菜单已收起或位置已变化。");
 
     private static void Check(OperationResult result)
     {

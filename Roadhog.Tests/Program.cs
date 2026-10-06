@@ -553,6 +553,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("fixed channel disabled unavailable and death allow normal work", FixedChannelSchedulingTests.DisabledUnavailableAndDeathAsync),
     ("fixed channel map change and input failure remain retryable", FixedChannelSchedulingTests.MapAndFailureAsync),
     ("channel ui sequence selects and verifies using cursor feedback", ChannelSwitchTests.SequenceAsync),
+    ("channel ui menu straight corridor corrects drift and bounds hover recovery", ChannelSwitchTests.MenuCorridorRecoveryAsync),
     ("vmm lifetime failed initialization disposes without null reference", VmmConnectionLifetimeTests.PartialDisposeAsync),
     ("vmm lifetime failed initialization survives finalizer in child process", VmmConnectionLifetimeTests.FinalizerProcessAsync),
     ("vmm lifetime retirement waits for reads and rejects queued readers", VmmConnectionLifetimeTests.RetirementAsync),

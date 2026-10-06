@@ -66,6 +66,58 @@ internal static class ChannelSwitchTests
         Require(game.Input.MouseCommands.Count(c => c.StartsWith("move:")) > 5, "must converge using scaled cursor feedback");
     }
 
+    public static async Task MenuCorridorRecoveryAsync()
+    {
+        foreach (var losses in new[] { 0, 1, 3 })
+        {
+            var game = new SimulatedUi();
+            var move = game.Input.AfterMove!;
+            var lost = 0;
+            var drifted = false;
+            var corrected = false;
+            var first = true;
+            game.Input.AfterMove = (dx, dy) =>
+            {
+                if (first)
+                {
+                    first = false;
+                    Require(dx == 44 && dy == 70, "initial movement must preserve direction instead of clamping each axis");
+                }
+                var before = game.Snapshot();
+                if (game.Service && dx > 10 && before.Cursor.X < 874)
+                {
+                    Require(dy == 0, "submenu entry must move horizontally");
+                    if (lost < losses)
+                    {
+                        move(dx, dy);
+                        game.Service = false;
+                        lost++;
+                        return;
+                    }
+                    if (!drifted)
+                    {
+                        move(dx, dy + 8);
+                        drifted = true;
+                        return;
+                    }
+                }
+                if (drifted && !corrected && game.Service)
+                {
+                    Require(dx == 0 && dy < 0, "vertical drift must be corrected against the frozen service height");
+                    corrected = true;
+                }
+                move(dx, dy);
+            };
+            var result = await game.Run(3);
+            if (losses < 3)
+                Require(result.Success && game.Submits == 1 && corrected && lost == losses,
+                    result.Error ?? "menu must recover and submit exactly once");
+            else
+                Require(!result.Success && game.Submits == 0 && lost == 3,
+                    "persistent hover loss must stop after three attempts without submitting");
+        }
+    }
+
     public static async Task OpenDropdownAsync()
     {
         var game = new SimulatedUi { Dialog = true, Expanded = true, Selected = 2 };
