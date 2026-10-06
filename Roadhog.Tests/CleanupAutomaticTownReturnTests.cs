@@ -65,6 +65,75 @@ internal static partial class CleanupWorkflowTests
         Require(settings.Maintenance.CleanupWorkflow is { Auction: true, TransferGold: true, PersonalShop: true }, "saved manual stages stay selected");
     }
 
+    public static async Task AutomaticSaleAndAuctionPriorityAsync()
+    {
+        foreach (var scenario in new[] { "category-sale", "name-sale", "missing-merchant", "capacity-recovered" })
+        {
+            var game = new InventoryDiscardTests.Simulation(0);
+            var config = AutomaticCleanupConfig(game);
+            var settings = config.ScriptSettings!;
+            settings.Maintenance.CleanupWorkflow = new() { NpcCleanup = true, Auction = true, TransferGold = true, PersonalShop = true };
+            settings.Maintenance.BagCleanupAuctionHouseItems.Add(new() { Name = "咒语书", UnitPrice = 10 });
+            if (scenario == "name-sale")
+            {
+                settings.Maintenance.BagCleanupRules.Single(r => r.Key == BagCleanupRuleCatalog.SpellBook).Enabled = false;
+                settings.Maintenance.BagCleanupSellItemNameKeywords.Add("咒语书");
+            }
+            game.Api.InventoryItems = new[] { SaleItem() };
+            game.Api.InventoryCapacity = scenario == "capacity-recovered" ? 10 : 1;
+            Require(BagCleanupItemMatcher.SelectSellRegistrationItems(game.Api.InventoryItems, settings.Maintenance).Count == 1,
+                "overlapping fixture must match NPC sale as well as auction");
+            game.Api.AuctionRead = () => throw new Exception("automatic request cannot read auction UI even when sale and auction overlap");
+            var logger = new InMemoryRoadhogLogger();
+            using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var context = new AccountWorkerContext(config, game.Api, logger, new AccountRuntimeManager(logger), new(), stop.Token);
+            var press = game.Input.AfterPress;
+            game.Input.AfterPress = key =>
+            {
+                press?.Invoke(key);
+                if (key == "F6") game.Api.Player = game.Api.Player with { Position = new(1000, 0, 0) };
+            };
+            var followed = new List<string>();
+            var runner = new CleanupWorkflowRunner(game.Input,
+                scenario == "missing-merchant" ? new InMemorySharedPathStore() : AutomaticCleanupPaths(),
+                (_, path, _) =>
+                {
+                    followed.Add(path);
+                    Require(path == "merchant" && game.Input.Keys.Contains("F6") && game.Api.Player.Position!.Value.X == 1000,
+                        "NPC path starts only after verified recall, never an auction or stall path");
+                    stop.Cancel(); // End at the path boundary; NPC selling has its own integration tests.
+                    return Task.FromCanceled<OperationResult>(stop.Token);
+                }, new Journal());
+            Require(context.CleanupRequests.Request(settings, manual: false).Success, "enqueue through the worker's automatic request boundary");
+            var request = context.CleanupRequests.Current!;
+            if (scenario == "missing-merchant")
+            {
+                var rejected = false;
+                try { await runner.RunAsync(context, request); }
+                catch (InvalidOperationException ex) when (ex.Message.Contains("merchant")) { rejected = true; }
+                Require(rejected && followed.Count == 0 && !game.Input.Keys.Contains("F6"),
+                    "a genuine NPC sale without a configured route fails before recall");
+            }
+            else if (scenario == "capacity-recovered")
+            {
+                await runner.RunAsync(context, request);
+                Require(followed.Count == 0 && !game.Input.Keys.Contains("F6")
+                    && logger.Entries.Any(e => e.EventName == "cleanup_workflow.complete"),
+                    "sale matches do not force a town trip when the bag has enough space");
+            }
+            else
+            {
+                try { await runner.RunAsync(context, request); }
+                catch (OperationCanceledException) when (stop.IsCancellationRequested && followed.Count == 1) { }
+                Require(followed.SequenceEqual(new[] { "merchant" }) && game.Input.Keys.Count(k => k == "F6") == 1,
+                    "a full bag with overlapping sale and auction rules takes the NPC sale route exactly once");
+            }
+            Require(request.Settings.Maintenance.CleanupWorkflow is { Auction: false, TransferGold: false, PersonalShop: false }
+                && settings.Maintenance.CleanupWorkflow is { Auction: true, TransferGold: true, PersonalShop: true },
+                "automatic stage selection preserves the saved manual workflow");
+        }
+    }
+
     public static async Task AutomaticDiscardWithSaleStaysLocalAsync()
     {
         var game = new InventoryDiscardTests.Simulation(2);

@@ -10,16 +10,16 @@ public partial class AccountSettingsForm
 
     private void BuildStandaloneShopControls(Panel rules)
     {
-        rules.Height = Math.Max(rules.Height, 552);
-        AddLabel(rules, "摆摊折扣", 12, 490, 80, 28);
-        standaloneShopDiscount = AddCombo(rules, 94, 490, 80, 28, "4 折", "5 折", "6 折", "7 折", "8 折", "9 折");
+        rules.Height = Math.Max(rules.Height, 416);
+        AddLabel(rules, "摆摊折扣", 12, 354, 80, 28);
+        standaloneShopDiscount = AddCombo(rules, 94, 354, 80, 28, "4 折", "5 折", "6 折", "7 折", "8 折", "9 折");
         standaloneShopDiscount.Name = "standaloneShopDiscount";
         standaloneShopDiscount.SelectedIndex = 1;
-        var button = AddButton(rules, "自动摆摊", 190, 488, 120, 30);
+        var button = AddButton(rules, "自动摆摊", 190, 352, 120, 30);
         button.Name = "standaloneShopButton";
         button.Enabled = _startStandaloneShop != null;
         button.Click += async (_, _) => await StartStandaloneShopAsync(button);
-        AddLabel(rules, "仅摆摊过滤内物品；全部售罄后停止并重新启动脚本", 12, 522, 430, 26);
+        AddLabel(rules, "仅摆摊过滤内物品；全部售罄后停止并重新启动脚本", 12, 386, 430, 26);
     }
 
     private async Task StartStandaloneShopAsync(Button button)

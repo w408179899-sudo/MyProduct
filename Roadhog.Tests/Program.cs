@@ -1230,6 +1230,7 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
 {
     ("cleanup workflow configuration policy and exclusive requests", CleanupWorkflowTests.ConfigurationAndPolicyAsync),
     ("automatic cleanup skips auction even with a full bag", CleanupWorkflowTests.AutomaticCleanupSkipsAuctionAsync),
+    ("automatic cleanup overlapping sale and auction honors sale priority capacity and route validation", CleanupWorkflowTests.AutomaticSaleAndAuctionPriorityAsync),
     ("cleanup workflow auction withdraw all register then settle", CleanupWorkflowTests.AuctionSubmissionAsync),
     ("cleanup workflow warehouse ownership quantity and cancellation", CleanupWorkflowTests.WarehousePurchaseAsync),
     ("cleanup workflow configured stall batches sale proof and purchased goods", CleanupWorkflowTests.ConfiguredStallAsync)

@@ -167,6 +167,7 @@ namespace Roadhog
         private bool loadingBagCleanupNameListEditor;
         private bool bagCleanupNameListMutationInFlight;
         private readonly Dictionary<string, BagCleanupRuleControls> bagCleanupRuleControls = new(StringComparer.OrdinalIgnoreCase);
+        private List<BagCleanupRuleConfig> bagCleanupLoadedRules = BagCleanupRuleCatalog.CreateDefaultRules();
         private RoundedComboBox? teamRoleCombo;
         private Panel? teamLeaderPanel;
         private Panel? teamOutputPanel;
@@ -3564,24 +3565,17 @@ namespace Roadhog
             AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.BlueEquipment), rightOptionX, rightComboX, 68);
             AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteEquipment), leftOptionX, leftComboX, 98);
 
-            AddCategory("魔石", 134);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteManastone), leftOptionX, leftComboX, 166);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenManastone), rightOptionX, rightComboX, 166);
+            AddCategory("书卷", 134);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.Stigma), leftOptionX, leftComboX, 166);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.RecipeScroll), rightOptionX, rightComboX, 166);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.SkillBook), leftOptionX, leftComboX, 196);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.SpellBook), rightOptionX, rightComboX, 196);
 
-            AddCategory("书卷", 202);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.Stigma), leftOptionX, leftComboX, 234);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.RecipeScroll), rightOptionX, rightComboX, 234);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.SkillBook), leftOptionX, leftComboX, 264);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.SpellBook), rightOptionX, rightComboX, 264);
-
-            AddCategory("提炼石", 300);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteExtractionStone), leftOptionX, leftComboX, 332);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenExtractionStone), rightOptionX, rightComboX, 332);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.BlueExtractionStone), leftOptionX, leftComboX, 362);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GoldExtractionStone), rightOptionX, rightComboX, 362);
-
-            AddCategory("药品", 398);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.Medicine), leftOptionX, leftComboX, 430);
+            AddCategory("提炼石", 232);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteExtractionStone), leftOptionX, leftComboX, 264);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenExtractionStone), rightOptionX, rightComboX, 264);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.BlueExtractionStone), leftOptionX, leftComboX, 294);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GoldExtractionStone), rightOptionX, rightComboX, 294);
 
             BuildStandaloneShopControls(rulesPanel);
 
@@ -4210,7 +4204,8 @@ namespace Roadhog
 
         private void ApplyBagCleanupRules(IEnumerable<BagCleanupRuleConfig>? rules)
         {
-            foreach (var rule in BagCleanupRuleCatalog.MergeWithDefaults(rules))
+            bagCleanupLoadedRules = BagCleanupRuleCatalog.MergeWithDefaults(rules);
+            foreach (var rule in bagCleanupLoadedRules)
             {
                 if (!bagCleanupRuleControls.TryGetValue(rule.Key, out var controls))
                 {
@@ -4224,7 +4219,7 @@ namespace Roadhog
 
         private List<BagCleanupRuleConfig> CaptureBagCleanupRules()
         {
-            var rules = BagCleanupRuleCatalog.CreateDefaultRules();
+            var rules = BagCleanupRuleCatalog.MergeWithDefaults(bagCleanupLoadedRules);
             foreach (var rule in rules)
             {
                 if (!bagCleanupRuleControls.TryGetValue(rule.Key, out var controls))
