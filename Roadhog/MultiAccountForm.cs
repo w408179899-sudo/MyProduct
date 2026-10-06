@@ -24,7 +24,10 @@ public sealed class MultiAccountForm : Form
     private readonly RoundedComboBox _filter = new();
     private readonly NotifyIcon _tray = new();
     private readonly HashSet<string> _busy = new(StringComparer.OrdinalIgnoreCase);
+    private readonly TableLayoutPanel _layout = new();
     private List<AccountConfig> _accounts = [];
+    private int _fittedRowCount = -1;
+    private bool _hasFittedAccountRows;
     private bool _exiting;
     private bool _allowClose;
     private bool _initialized;
@@ -37,7 +40,7 @@ public sealed class MultiAccountForm : Form
         _workspace = workspace ?? new();
         Text = "Roadhog · 多账号管理";
         Font = new Font("Microsoft YaHei UI", 9F);
-        Size = new Size(1120, 590); MinimumSize = new Size(920, 450);
+        Width = 1120; MinimumSize = new Size(920, 260);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = SettingsPalette.Page;
         ForeColor = SettingsPalette.Text;
@@ -50,7 +53,8 @@ public sealed class MultiAccountForm : Form
 
     private void BuildUi()
     {
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 1, RowCount = 5 };
+        var root = _layout;
+        root.Dock = DockStyle.Fill; root.Padding = new Padding(16); root.ColumnCount = 1; root.RowCount = 5;
         root.RowStyles.Add(new(SizeType.Absolute, 48)); root.RowStyles.Add(new(SizeType.Absolute, 42));
         root.RowStyles.Add(new(SizeType.Percent, 100)); root.RowStyles.Add(new(SizeType.Absolute, 64)); root.RowStyles.Add(new(SizeType.Absolute, 30));
         Controls.Add(root);
@@ -126,9 +130,42 @@ public sealed class MultiAccountForm : Form
         _message.Text = "“设备/角色”可编辑 DMA、KMBox 并测试读取角色；关闭窗口收进托盘。";
         root.Controls.Add(_message, 0, 4);
         _tray.Icon = Icon; _tray.Text = "Roadhog 多账号管理"; _tray.Visible = true;
+        FitHeightToRows();
         _tray.DoubleClick += (_, _) => RestoreWindow();
         var menu = new ContextMenuStrip(); menu.Items.Add("显示主界面", null, (_, _) => RestoreWindow());
         menu.Items.Add("退出程序", null, async (_, _) => await ExitAsync()); _tray.ContextMenuStrip = menu;
+    }
+
+    private void FitHeightToRows()
+    {
+        if (_fittedRowCount == _grid.Rows.Count) return;
+        _fittedRowCount = _grid.Rows.Count;
+
+        var fixedHeight = _layout.Padding.Vertical;
+        for (var i = 0; i < _layout.RowStyles.Count; i++)
+            if (i != 2 && _layout.RowStyles[i].SizeType == SizeType.Absolute)
+                fixedHeight += (int)_layout.RowStyles[i].Height;
+
+        var rowsHeight = _grid.ColumnHeadersHeight + _grid.Rows.Cast<DataGridViewRow>()
+            .Where(row => row.Visible).Sum(row => row.Height);
+        var desiredClientHeight = fixedHeight + rowsHeight;
+        var nonClientHeight = Height - ClientSize.Height;
+        var workArea = Screen.FromControl(this).WorkingArea;
+        var minimumClientHeight = fixedHeight + _grid.ColumnHeadersHeight;
+        desiredClientHeight = Math.Min(desiredClientHeight,
+            Math.Max(minimumClientHeight, workArea.Height - nonClientHeight));
+
+        if (ClientSize.Height != desiredClientHeight)
+        {
+            ClientSize = new Size(ClientSize.Width, desiredClientHeight);
+            if (!_hasFittedAccountRows && _grid.Rows.Count > 0 && Visible)
+            {
+                var bounds = Screen.FromControl(this).WorkingArea;
+                Location = new Point(bounds.Left + (bounds.Width - Width) / 2,
+                    bounds.Top + (bounds.Height - Height) / 2);
+            }
+        }
+        if (_grid.Rows.Count > 0) _hasFittedAccountRows = true;
     }
 
     private Button Button(string text, Func<Task> action, bool exitAction = false)
@@ -266,6 +303,7 @@ public sealed class MultiAccountForm : Form
             if (view.Config.InstanceId == selected) row.Selected = true;
         }
         ShowDetail();
+        FitHeightToRows();
     }
 
     private string StateText(AccountProcessView view) => DiscoveryMessage(view) is { } discovery
