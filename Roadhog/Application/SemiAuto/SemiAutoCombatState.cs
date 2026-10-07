@@ -51,6 +51,7 @@ public sealed class SemiAutoCombatState
     private readonly Dictionary<uint, uint> spiritmasterDotAbnormalIds = new();
     private readonly Dictionary<uint, uint> spiritmasterPetBuffAbnormalIds = new();
     private readonly Dictionary<uint, SpiritmasterPetBuffAttempt> spiritmasterPetBuffAttempts = new();
+    private bool spiritmasterPetBuffYieldInput;
     private uint spiritmasterPetBuffPetServerObjectId;
     private readonly Dictionary<uint, DateTimeOffset> spiritmasterPetHpCooldownUntil = new();
     private DateTimeOffset lastAttackKeyPressedAt = DateTimeOffset.MinValue;
@@ -559,24 +560,14 @@ public sealed class SemiAutoCombatState
             spiritmasterPetBuffAttempts.Clear();
             spiritmasterPetBuffPetServerObjectId = petServerObjectId;
         }
-        if (skill.CooldownDuration == 0)
-        {
-            spiritmasterPetBuffAttempts.Remove(skill.SkillId);
-            return true;
-        }
         if (!spiritmasterPetBuffAttempts.TryGetValue(skill.SkillId, out var attempt)) return true;
-        if (DidCooldownEndAdvance(attempt.BaselineCooldownEndTime, skill.CooldownEndTime))
-        {
-            spiritmasterPetBuffAttempts.Remove(skill.SkillId);
-            return true;
-        }
         return attempt.TimeProvider.GetElapsedTime(attempt.StartedAt) >= attempt.Delay;
     }
 
     internal void MarkSpiritmasterPetBuffAttempt(SkillSnapshot skill, uint petServerObjectId,
-        TimeProvider timeProvider, TimeSpan confirmationWindow, TimeSpan retryInterval, bool inputAccepted)
+        TimeProvider timeProvider, TimeSpan confirmationWindow, TimeSpan retryInterval, bool inputAccepted,
+        int pressCount = 1)
     {
-        if (skill.CooldownDuration == 0) return;
         if (spiritmasterPetBuffPetServerObjectId != petServerObjectId)
         {
             spiritmasterPetBuffAttempts.Clear();
@@ -584,9 +575,11 @@ public sealed class SemiAutoCombatState
         }
         var count = spiritmasterPetBuffAttempts.TryGetValue(skill.SkillId, out var previous) && previous.AttemptCount < 3
             ? previous.AttemptCount + 1 : 1;
-        // Leave a small input opportunity after confirmation expires, including
-        // for another buff, rather than letting a missing buff own every tick.
-        var delay = inputAccepted ? confirmationWindow + retryInterval : retryInterval;
+        // Like status maintenance, a missing buff gets one finite burst per
+        // three seconds. The clock is monotonic and starts after the last input.
+        var delay = inputAccepted
+            ? (confirmationWindow > TimeSpan.FromSeconds(3) ? confirmationWindow : TimeSpan.FromSeconds(3))
+            : retryInterval;
         if (count == 3)
         {
             // Three unconfirmed input attempts finish this batch. This is an
@@ -595,13 +588,14 @@ public sealed class SemiAutoCombatState
             if (backoff > delay) delay = backoff;
         }
         spiritmasterPetBuffAttempts[skill.SkillId] = new(skill.CooldownEndTime, count,
-            timeProvider.GetTimestamp(), delay, timeProvider, inputAccepted ? confirmationWindow : TimeSpan.Zero);
+            timeProvider.GetTimestamp(), delay, timeProvider, inputAccepted ? confirmationWindow : TimeSpan.Zero, pressCount);
     }
 
+    // Keep expired windows observable until the controller reports their result.
     internal bool HasSpiritmasterPetBuffConfirmation => spiritmasterPetBuffAttempts.Values.Any(attempt =>
-        attempt.TimeProvider.GetElapsedTime(attempt.StartedAt) < attempt.ConfirmationWindow);
+        attempt.ConfirmationWindow > TimeSpan.Zero);
 
-    internal bool IsAwaitingSpiritmasterPetBuffConfirmation(uint skillId, SkillSnapshot? skill, uint petServerObjectId)
+    internal bool IsAwaitingSpiritmasterPetBuffConfirmation(uint skillId, uint petServerObjectId)
     {
         if (spiritmasterPetBuffPetServerObjectId != petServerObjectId)
         {
@@ -609,13 +603,38 @@ public sealed class SemiAutoCombatState
             return false;
         }
         if (!spiritmasterPetBuffAttempts.TryGetValue(skillId, out var attempt)) return false;
-        if (skill is not null && (skill.CooldownDuration == 0 ||
-            DidCooldownEndAdvance(attempt.BaselineCooldownEndTime, skill.CooldownEndTime)))
+        return attempt.TimeProvider.GetElapsedTime(attempt.StartedAt) < attempt.ConfirmationWindow;
+    }
+
+    internal bool TryCompleteSpiritmasterPetBuffConfirmation(uint skillId, SkillSnapshot? skill,
+        uint petServerObjectId, bool statusConfirmed, out SpiritmasterPetBuffConfirmationResult result)
+    {
+        result = default;
+        if (spiritmasterPetBuffPetServerObjectId != petServerObjectId)
         {
-            ConfirmSpiritmasterPetBuff(skillId);
+            ClearSpiritmasterPetBuffAttempts();
             return false;
         }
-        return attempt.TimeProvider.GetElapsedTime(attempt.StartedAt) < attempt.ConfirmationWindow;
+        if (!spiritmasterPetBuffAttempts.TryGetValue(skillId, out var attempt) ||
+            attempt.ConfirmationWindow <= TimeSpan.Zero) return false;
+        var elapsed = attempt.TimeProvider.GetElapsedTime(attempt.StartedAt);
+        if (!statusConfirmed && elapsed < attempt.ConfirmationWindow) return false;
+        result = new(statusConfirmed, attempt.AttemptCount, attempt.PressCount, elapsed,
+            skill is not null && DidCooldownEndAdvance(attempt.BaselineCooldownEndTime, skill.CooldownEndTime));
+        if (statusConfirmed) spiritmasterPetBuffAttempts.Remove(skillId);
+        else
+        {
+            spiritmasterPetBuffAttempts[skillId] = attempt with { ConfirmationWindow = TimeSpan.Zero };
+            spiritmasterPetBuffYieldInput = true;
+        }
+        return true;
+    }
+
+    internal bool ConsumeSpiritmasterPetBuffYield()
+    {
+        var shouldYield = spiritmasterPetBuffYieldInput;
+        spiritmasterPetBuffYieldInput = false;
+        return shouldYield;
     }
 
     internal void ConfirmSpiritmasterPetBuff(uint skillId) => spiritmasterPetBuffAttempts.Remove(skillId);
@@ -624,6 +643,7 @@ public sealed class SemiAutoCombatState
     {
         spiritmasterPetBuffAttempts.Clear();
         spiritmasterPetBuffPetServerObjectId = 0;
+        spiritmasterPetBuffYieldInput = false;
     }
 
     public bool ShouldPressSpiritmasterPetHpSkill(uint skillId, DateTimeOffset now)
@@ -1298,8 +1318,11 @@ public sealed class SemiAutoCombatState
         DateTimeOffset ExpiresAt);
 
     private sealed record SpiritmasterPetBuffAttempt(uint BaselineCooldownEndTime, int AttemptCount,
-        long StartedAt, TimeSpan Delay, TimeProvider TimeProvider, TimeSpan ConfirmationWindow);
+        long StartedAt, TimeSpan Delay, TimeProvider TimeProvider, TimeSpan ConfirmationWindow, int PressCount);
 }
+
+internal readonly record struct SpiritmasterPetBuffConfirmationResult(bool Confirmed, int AttemptCount,
+    int PressCount, TimeSpan Elapsed, bool CooldownAdvanced);
 
 public readonly record struct SemiAutoCooldownTickCalibration(
     uint SkillId,

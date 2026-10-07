@@ -3,6 +3,10 @@ using static SharedSkillAuditFixture;
 
 internal static class SpiritmasterPetBuffConfirmationTests
 {
+    private static void BuffSequence(IEnumerable<string> expected, IEnumerable<string> actual, string message) =>
+        Sequence(expected.SelectMany(key => key is "NumPad1" or "NumPad2"
+            ? Enumerable.Repeat(key, 3) : new[] { key }), actual, message);
+
     public static async Task PendingBuffYieldsToMaintenanceAndAttackAsync()
     {
         foreach (var resource in new[] { "hp", "mp" })
@@ -18,14 +22,14 @@ internal static class SpiritmasterPetBuffConfirmationTests
             await f.TickAsync();
             if (resource == "mp")
             {
-                Sequence(new[] { "NumPad1" }, f.Keyboard.Keys, "mana recovery waits for the pet cast window");
+                BuffSequence(new[] { "NumPad1" }, f.Keyboard.Keys, "mana recovery waits for the pet cast window");
                 f.Clock.Advance(1500);
                 await f.TickAsync();
             }
             f.Api.Player = f.Api.Player with { CurrentHp = 100, CurrentMp = 100 };
             f.SetPet(11, 50, 1662);
             await f.TickAsync();
-            Sequence(new[] { "NumPad1", key, "D1" }, f.Keyboard.Keys,
+            BuffSequence(new[] { "NumPad1", key, "D1" }, f.Keyboard.Keys,
                 "HP recovery may preempt; MP and attacks resume after confirmation or timeout");
             Check(f.Logged("semi_auto.maintenance.key_pressed", "confirmedSkillId", id),
                 "yielded maintenance confirms the actual selected lower rank");
@@ -40,15 +44,17 @@ internal static class SpiritmasterPetBuffConfirmationTests
         await f.PrepareAsync();
         await f.TickAsync();
         await f.TickAsync();
-        Sequence(new[] { "NumPad1" }, f.Keyboard.Keys, "second buff cannot interrupt the first cast");
+        BuffSequence(new[] { "NumPad1" }, f.Keyboard.Keys, "second buff cannot interrupt the first cast");
         f.Clock.Advance(1500);
         await f.TickAsync();
+        Check(f.Keyboard.Keys.Last() == "D1", "an unconfirmed first buff yields normal attack before the second buff");
         await f.TickAsync();
-        Sequence(new[] { "NumPad1", "NumPad2" }, f.Keyboard.Keys, "attack cannot interrupt the second cast");
+        BuffSequence(new[] { "NumPad1", "D1", "NumPad2" }, f.Keyboard.Keys, "attack cannot interrupt the second cast");
         f.SetPet(11, 50, 1662, 1787);
         await f.TickAsync();
-        Sequence(new[] { "NumPad1", "NumPad2", "D1" }, f.Keyboard.Keys,
-            "second buff never overwrites the first buff's confirmation reservation");
+        Check(!f.State.HasSpiritmasterPetBuffConfirmation &&
+            f.Keyboard.Keys.Count(key => key == "NumPad1") == 3 && f.Keyboard.Keys.Count(key => key == "NumPad2") == 3,
+            "matching statuses end both independent confirmations without another pet burst");
     }
 
     public static async Task RetryBatchIsBoundedAndMonotonicAsync()
@@ -59,16 +65,18 @@ internal static class SpiritmasterPetBuffConfirmationTests
         await f.PrepareAsync();
         await f.TickAsync();
         f.Clock.ShiftUtc(TimeSpan.FromHours(-1));
-        f.Clock.Advance(1750);
+        f.Clock.Advance(3000);
         await f.TickAsync();
-        f.Clock.Advance(1750);
         await f.TickAsync();
-        f.Clock.Advance(1750);
+        f.Clock.Advance(3000);
         await f.TickAsync();
-        Check(f.Keyboard.Keys.Count == 3, "three unconfirmed inputs back off instead of continuously reclaiming ticks");
-        f.Clock.Advance(1250);
         await f.TickAsync();
-        Check(f.Keyboard.Keys.Count == 4, "retry resumes three seconds after the third input, not thirty, despite UTC rollback");
+        f.Clock.Advance(2999);
+        await f.TickAsync();
+        Check(f.Keyboard.Keys.Count == 9, "three unconfirmed bursts remain bounded by the same three-second guard");
+        f.Clock.Advance(1);
+        await f.TickAsync();
+        Check(f.Keyboard.Keys.Count == 12, "retry resumes three seconds after the last input despite UTC rollback");
         Check(f.Api.Skills.Single(skill => skill.SkillId == 1662).CooldownEndTime == 0,
             "retry scheduling never invents game cooldown movement");
         Check(!f.Logger.Entries.Any(entry => entry.EventName == "semi_auto.cooldown.calibrated"),
@@ -89,7 +97,7 @@ internal static class SpiritmasterPetBuffConfirmationTests
                 ? skill with { CooldownEndTime = 0 } : skill).ToArray();
             cooling.Clock.Advance(3000);
             await cooling.TickAsync();
-            Sequence(new[] { "NumPad1" }, cooling.Keyboard.Keys, "real cooldown confirmation retains the existing cooldown hold");
+            BuffSequence(new[] { "NumPad1" }, cooling.Keyboard.Keys, "real cooldown confirmation retains the existing cooldown hold");
         }
         using (var status = new SharedSkillAuditFixture())
         {
@@ -101,7 +109,7 @@ internal static class SpiritmasterPetBuffConfirmationTests
             await status.TickAsync();
             status.SetPet(11, 50);
             await status.TickAsync();
-            Sequence(new[] { "NumPad1", "NumPad1" }, status.Keyboard.Keys,
+            BuffSequence(new[] { "NumPad1", "NumPad1" }, status.Keyboard.Keys,
                 "trusted matching buff status confirms the action and a later missing status starts a new action");
         }
     }
@@ -117,7 +125,11 @@ internal static class SpiritmasterPetBuffConfirmationTests
             await zero.PrepareAsync();
             await zero.TickAsync();
             await zero.TickAsync();
-            Sequence(new[] { "NumPad1", "NumPad1" }, zero.Keyboard.Keys, "zero cooldown preserves the existing status-only rule");
+            BuffSequence(new[] { "NumPad1" }, zero.Keyboard.Keys, "zero cooldown still protects the status-only cast");
+            zero.Clock.Advance(3000);
+            await zero.TickAsync();
+            await zero.TickAsync();
+            BuffSequence(new[] { "NumPad1", "NumPad1" }, zero.Keyboard.Keys, "missing zero-cooldown status retries after the maintenance guard");
         }
         using (var replacement = new SharedSkillAuditFixture())
         {
@@ -127,7 +139,7 @@ internal static class SpiritmasterPetBuffConfirmationTests
             await replacement.TickAsync();
             replacement.SetPet(12, 50);
             await replacement.TickAsync();
-            Sequence(new[] { "NumPad1", "NumPad1" }, replacement.Keyboard.Keys,
+            BuffSequence(new[] { "NumPad1", "NumPad1" }, replacement.Keyboard.Keys,
                 "replacement pet does not inherit the previous pet's input confirmation window");
         }
     }
@@ -198,16 +210,22 @@ internal static class SpiritmasterPetBuffConfirmationTests
             var key = id == 1662 ? "NumPad1" : "NumPad2";
             f.Clock.Advance(648);
             await f.TickAsync();
-            Sequence(new[] { key }, f.Keyboard.Keys, "reported 648ms attack must not interrupt a one-second pet cast");
+            BuffSequence(new[] { key }, f.Keyboard.Keys, "reported 648ms attack must not interrupt a one-second pet cast");
             f.Clock.ShiftUtc(TimeSpan.FromHours(1));
             f.Clock.Advance(851);
             await f.TickAsync();
-            Sequence(new[] { key }, f.Keyboard.Keys, "wall clock changes cannot end the 1500ms confirmation window");
-            if (evidence == "cooldown") f.Confirm(id);
+            BuffSequence(new[] { key }, f.Keyboard.Keys, "wall clock changes cannot end the 1500ms confirmation window");
+            if (evidence == "cooldown")
+            {
+                f.Confirm(id);
+                await f.TickAsync();
+                BuffSequence(new[] { key }, f.Keyboard.Keys, "cooldown alone does not end status confirmation before its deadline");
+                f.Clock.Advance(1);
+            }
             else if (evidence == "status") f.SetPet(11, 50, id);
             else f.Clock.Advance(1);
             await f.TickAsync();
-            Sequence(new[] { key, "D1" }, f.Keyboard.Keys, "real evidence or bounded timeout releases attack input: " + evidence);
+            BuffSequence(new[] { key, "D1" }, f.Keyboard.Keys, "trusted status or bounded timeout releases attack input: " + evidence);
         }
     }
 
@@ -221,11 +239,11 @@ internal static class SpiritmasterPetBuffConfirmationTests
             f.Settings.Skills.Spiritmaster.OpeningAttackKey = "F8";
             f.Api.TargetOwnServerObjectId++;
             await f.TickAsync();
-            Sequence(new[] { "NumPad1" }, f.Keyboard.Keys, "target changes and opening pet commands cannot interrupt the cast");
+            BuffSequence(new[] { "NumPad1" }, f.Keyboard.Keys, "target changes and opening pet commands cannot interrupt the cast");
             f.ConfigureResource("hp");
             f.Keyboard.AfterPress = key => { if (key == "D2") f.Confirm(LowHpId); };
             await f.TickAsync();
-            Sequence(new[] { "NumPad1", "D2" }, f.Keyboard.Keys, "urgent HP recovery still preempts during the cast");
+            BuffSequence(new[] { "NumPad1", "D2" }, f.Keyboard.Keys, "urgent HP recovery still preempts during the cast");
         }
         using (var f = new SharedSkillAuditFixture())
         {
@@ -234,7 +252,7 @@ internal static class SpiritmasterPetBuffConfirmationTests
             await f.TickAsync();
             f.Observer.BeforePetRead = _ => f.Api.Player = f.Api.Player with { CurrentHp = 0 };
             await f.TickAsync();
-            Sequence(new[] { "NumPad1" }, f.Keyboard.Keys, "death during confirmation read cannot issue another input");
+            BuffSequence(new[] { "NumPad1" }, f.Keyboard.Keys, "death during confirmation read cannot issue another input");
             Check(!f.State.HasSpiritmasterPetBuffConfirmation, "death clears the cast reservation");
         }
     }

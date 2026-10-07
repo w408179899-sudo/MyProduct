@@ -31,13 +31,34 @@ public sealed partial class SemiAutoCombatController
         foreach (var rule in spiritSettings.PetBuffRules.Where(rule => !string.IsNullOrWhiteSpace(rule.Key)))
         {
             var skill = ResolveSpiritmasterConfiguredSkill(rule.SkillId, rule.SkillName, skills);
-            if (skill is not null && HasSpiritmasterPetBuff(state, rule, skill, roster.LocalPlayerPet.AbnormalStatuses))
+            var skillId = skill?.SkillId ?? rule.SkillId;
+            var statusConfirmed = skill is not null &&
+                HasSpiritmasterPetBuff(state, rule, skill, roster.LocalPlayerPet.AbnormalStatuses);
+            if (state.TryCompleteSpiritmasterPetBuffConfirmation(skillId, skill, pet.ServerObjectId,
+                    statusConfirmed, out var result))
             {
-                state.ConfirmSpiritmasterPetBuff(skill.SkillId);
+                context.Logger.Info(result.Confirmed
+                    ? "semi_auto.spiritmaster.pet_buff_confirmed"
+                    : "semi_auto.spiritmaster.pet_buff_unconfirmed", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["key"] = rule.Key,
+                    ["skillId"] = skillId,
+                    ["skillName"] = skill?.Name ?? rule.SkillName,
+                    ["petServerObjectId"] = pet.ServerObjectId,
+                    ["pressCount"] = result.PressCount,
+                    ["attemptCount"] = result.AttemptCount,
+                    ["confirmElapsedMs"] = (long)result.Elapsed.TotalMilliseconds,
+                    ["cooldownAdvanced"] = result.CooldownAdvanced,
+                    ["petAbnormalIds"] = FormatAbnormalIdList(roster.LocalPlayerPet.AbnormalStatuses.Select(entry => entry.AbnormalId))
+                });
+            }
+            if (statusConfirmed)
+            {
+                state.ConfirmSpiritmasterPetBuff(skillId);
                 continue;
             }
-            awaiting |= state.IsAwaitingSpiritmasterPetBuffConfirmation(skill?.SkillId ?? rule.SkillId,
-                skill, pet.ServerObjectId);
+            awaiting |= state.IsAwaitingSpiritmasterPetBuffConfirmation(skillId, pet.ServerObjectId);
         }
         if (!awaiting) return false;
 

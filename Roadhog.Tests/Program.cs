@@ -195,6 +195,21 @@ var tests = new (string Name, Func<Task> Run)[]
     ("skill audit pet buff final pet read death and DP guard", SpiritmasterPetBuffConfirmationTests.DeathDuringFinalPetReadCannotPressAsync),
     ("skill audit pet buff cast window and release evidence", SpiritmasterPetBuffConfirmationTests.CastWindowProtectsBothBuffsAndReleasesOnEvidenceAsync),
     ("skill audit pet buff cast priority and pending death", SpiritmasterPetBuffConfirmationTests.PendingCastAllowsHpButBlocksOpeningAndHandlesDeathAsync),
+    ("pet buff maintenance finite three-press burst", SpiritmasterPetBuffMaintenanceTests.MissingStatusStartsBoundedBurstAsync),
+    ("pet buff maintenance cooldown is not status confirmation", SpiritmasterPetBuffMaintenanceTests.CooldownAloneDoesNotReleaseStatusConfirmationAsync),
+    ("pet buff maintenance three-second retry guard", SpiritmasterPetBuffMaintenanceTests.MissingStatusRetryWaitsThreeSecondsAsync),
+    ("pet buff maintenance zero cooldown cast protection", SpiritmasterPetBuffMaintenanceTests.ZeroCooldownStillProtectsTheCastAsync),
+    ("pet buff maintenance existing and unrelated statuses", SpiritmasterPetBuffMaintenanceTests.ExistingStatusesSkipAndUnrelatedStatusesRemainUntrustedAsync),
+    ("pet buff maintenance stops burst on status or cooling", SpiritmasterPetBuffMaintenanceTests.BurstStopsOnMatchingStatusOrCoolingAsync),
+    ("pet buff maintenance burst lifecycle and DP guards", SpiritmasterPetBuffMaintenanceTests.BurstLifecycleAndDpGuardsAsync),
+    ("pet buff maintenance partial failure and cancellation", SpiritmasterPetBuffMaintenanceTests.PartialFailureAndCancellationKeepInputsBoundedAsync),
+    ("pet buff maintenance last input clock boundaries", SpiritmasterPetBuffMaintenanceTests.LastInputAnchorsCastAndRetryWithUtcChangesAsync),
+    ("pet buff maintenance missing skill bounded confirmation", SpiritmasterPetBuffMaintenanceTests.MissingSkillDuringBurstAndConfirmationCannotAuthorizeInputsAsync),
+    ("pet buff maintenance late pet replacement cannot learn", SpiritmasterPetBuffMaintenanceTests.LatePetReplacementCannotLearnTheOldBuffAsync),
+    ("pet buff maintenance independent accounts", SpiritmasterPetBuffMaintenanceTests.AccountReservationsRemainIndependentAsync),
+    ("pet buff maintenance failed delivery bounded backoff", SpiritmasterPetBuffMaintenanceTests.FailedDeliveryBatchBacksOffWithoutInventingCooldownAsync),
+    ("pet buff maintenance long deadline and final death guard", SpiritmasterPetBuffMaintenanceTests.LongWindowAndDeathDuringSkillReadRemainSafeAsync),
+    ("pet buff maintenance two timeouts yield to mana and attack", SpiritmasterPetBuffMaintenanceTests.TwoUnconfirmedBuffsYieldToManaAndAttackAsync),
     ("skill audit low rank HP MP DP action and confirmation", LowRankMaintenanceTests.HpMpAndDpUseExactRankThroughoutConfirmationAsync),
     ("skill audit low rank status and trusted abnormal confirmation", LowRankMaintenanceTests.StatusUsesExactRankAndTrustedAbnormalConfirmationAsync),
     ("skill audit low rank name only discovery and missing explicit identity", LowRankMaintenanceTests.NameOnlyFullReadIncludesPlacedRankAndExplicitMissingNeverPromotesAsync),
@@ -29309,7 +29324,7 @@ static async Task TestSpiritmasterTickGatesPetBuffByDpAsync()
     keyboard.Keys.Clear();
     gameApi.Player = CreateSpiritmasterPlayer(currentDp: 2000);
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
-    AssertSequence(new[] { "NumPad9" }, keyboard.Keys.ToArray(), "sufficient dp should press pet buff key");
+    AssertSequence(RepeatedKey("NumPad9", 3), keyboard.Keys.ToArray(), "sufficient dp should press a bounded pet buff burst");
 }
 
 static async Task TestSpiritmasterPetBuffSuppressesRepeatedUnknownCooldownAsync()
@@ -29336,7 +29351,7 @@ static async Task TestSpiritmasterPetBuffSuppressesRepeatedUnknownCooldownAsync(
     var state = new SemiAutoCombatState();
 
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
-    AssertSequence(new[] { "NumPad0" }, keyboard.Keys.ToArray(), "first pet buff attempt should press configured key");
+    AssertSequence(RepeatedKey("NumPad0", 3), keyboard.Keys.ToArray(), "first pet buff attempt should press a bounded configured burst");
 
     keyboard.Keys.Clear();
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
@@ -29377,7 +29392,7 @@ static async Task TestSpiritmasterPetBuffRejectsUnrelatedLearnedAbnormalIdAsync(
 
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
 
-    AssertSequence(new[] { "NumPad0" }, keyboard.Keys.ToArray(), "first pet buff attempt should press configured key");
+    AssertSequence(RepeatedKey("NumPad0", 3), keyboard.Keys.ToArray(), "first pet buff attempt should press a bounded configured burst");
     AssertFalse(
         logger.Entries.Any(entry => entry.EventName == "semi_auto.spiritmaster.pet_buff_learned"),
         "unrelated pet abnormal status must not be learned");

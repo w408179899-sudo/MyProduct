@@ -62,15 +62,18 @@ public sealed partial class SemiAutoCombatController
 
     private readonly IKeyboardInput _keyboard;
     private readonly TimeProvider _timeProvider;
+    private readonly Func<TimeSpan, CancellationToken, Task> _petBuffDelay;
     private AbnormalStatusCatalog? _abnormalStatusCatalog;
 
     public SemiAutoCombatController(
         IKeyboardInput keyboard,
         AbnormalStatusCatalog? abnormalStatusCatalog = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        Func<TimeSpan, CancellationToken, Task>? petBuffDelay = null)
     {
         _keyboard = keyboard;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _petBuffDelay = petBuffDelay ?? ((delay, token) => Task.Delay(delay, token));
         _abnormalStatusCatalog = abnormalStatusCatalog;
     }
 
@@ -2204,6 +2207,10 @@ public sealed partial class SemiAutoCombatController
         OwnedSummonedPetSnapshot localPet,
         PlayerSnapshot? player)
     {
+        // A timed-out cast must leave an input opportunity for normal
+        // maintenance/attack before either missing pet buff can start again.
+        if (state.ConsumeSpiritmasterPetBuffYield()) return false;
+
         foreach (var rule in spiritSettings.PetBuffRules.Where(rule => !string.IsNullOrWhiteSpace(rule.Key)))
         {
             var skill = ResolveSpiritmasterConfiguredSkill(rule.SkillId, rule.SkillName, skills);
@@ -2264,11 +2271,17 @@ public sealed partial class SemiAutoCombatController
             var beforeIds = currentRoster.LocalPlayerPet.AbnormalStatuses.Select(entry => entry.AbnormalId)
                 .Where(id => id != 0).ToHashSet();
 
-            var pressed = await PressSpiritmasterRawKeyAsync(context, settings, rule.Key, "pet_buff").ConfigureAwait(false);
+            var burst = await PressSpiritmasterPetBuffBurstAsync(context, state, settings, rule, skill,
+                currentPet.ServerObjectId, requiredDp).ConfigureAwait(false);
+            if (!burst.PetStillValid)
+            {
+                state.ClearSpiritmasterPetBuffAttempts();
+                return true;
+            }
             state.MarkSpiritmasterPetBuffAttempt(skill, currentPet.ServerObjectId, _timeProvider,
                 ResolveCooldownConfirmationWindow(settings, useSpiritmasterMinimum: true),
-                TimeSpan.FromMilliseconds(250), pressed);
-            if (!pressed) continue;
+                TimeSpan.FromMilliseconds(250), burst.PressCount > 0, burst.PressCount);
+            if (burst.PressCount == 0) continue;
 
             MarkSpiritmasterSkillPressed(state, settings, skill);
             await TryLearnSpiritmasterPetBuffAfterPressAsync(
@@ -2276,7 +2289,8 @@ public sealed partial class SemiAutoCombatController
                     state,
                     rule,
                     skill,
-                    beforeIds)
+                    beforeIds,
+                    currentPet.ServerObjectId)
                 .ConfigureAwait(false);
             context.Logger.Info("semi_auto.spiritmaster.pet_buff_key_pressed", new Dictionary<string, object?>
             {
@@ -2284,7 +2298,11 @@ public sealed partial class SemiAutoCombatController
                 ["key"] = rule.Key,
                 ["skillId"] = skill.SkillId,
                 ["skillName"] = skill.Name,
-                ["requiredDp"] = requiredDp
+                ["requiredDp"] = requiredDp,
+                ["petServerObjectId"] = currentPet.ServerObjectId,
+                ["pressCount"] = burst.PressCount,
+                ["pressIntervalMs"] = (long)StatusMaintenancePressBurstInterval.TotalMilliseconds,
+                ["confirmWindowMs"] = (long)ResolveCooldownConfirmationWindow(settings, useSpiritmasterMinimum: true).TotalMilliseconds
             });
             return true;
         }
@@ -2297,9 +2315,16 @@ public sealed partial class SemiAutoCombatController
         SemiAutoCombatState state,
         SpiritmasterPetBuffRuleConfig rule,
         SkillSnapshot skill,
-        HashSet<uint> beforeIds)
+        HashSet<uint> beforeIds,
+        uint petServerObjectId)
     {
         var roster = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
+        if (roster.LocalPlayerPet.Pet is not { IsSummoned: true, IsAlive: true } pet ||
+            pet.ServerObjectId != petServerObjectId)
+        {
+            state.ClearSpiritmasterPetBuffAttempts();
+            return;
+        }
         var afterEntries = roster.LocalPlayerPet.AbnormalStatuses;
         var rejectedCandidateAbnormalIds = new HashSet<uint>();
         var learned = 0u;

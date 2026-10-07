@@ -22,6 +22,8 @@ internal sealed class SharedSkillAuditFixture : IDisposable
     public InMemoryRoadhogLogger Logger { get; } = new();
     public SemiAutoCombatState State { get; } = new();
     public TestClock Clock { get; } = new();
+    public List<TimeSpan> PetBuffDelays { get; } = new();
+    public Action<int>? BeforePetBuffDelay { get; set; }
     public AccountWorkerContext Context { get; }
     public SemiAutoCombatController Controller { get; }
     public ScriptSettings Settings => Context.Config.ScriptSettings!;
@@ -63,7 +65,15 @@ internal sealed class SharedSkillAuditFixture : IDisposable
         factory = new(Api);
         Context = new(new AccountConfig { AccountName = "shared-skill-audit", ScriptSettings = settings },
             factory, Logger, new AccountRuntimeManager(Logger), new(), stop.Token);
-        Controller = new(Keyboard, timeProvider: Clock);
+        Controller = new(Keyboard, timeProvider: Clock, petBuffDelay: (delay, token) =>
+        {
+            token.ThrowIfCancellationRequested();
+            PetBuffDelays.Add(delay);
+            BeforePetBuffDelay?.Invoke(PetBuffDelays.Count);
+            token.ThrowIfCancellationRequested();
+            Clock.Advance((int)delay.TotalMilliseconds);
+            return Task.CompletedTask;
+        });
         var marker = Skill(900001, "clock evidence", 1, 1000);
         var osTick = unchecked((uint)Environment.TickCount64);
         State.MarkSkillPressed(marker, DateTimeOffset.Now.AddSeconds(1));
