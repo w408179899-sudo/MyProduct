@@ -519,7 +519,7 @@ public sealed class SemiAutoCombatState
         var learned = afterEntries.Any(entry => entry.AbnormalId == observation.SkillId)
             ? observation.SkillId
             : 0;
-        if (learned == 0)
+        if (learned == 0 && SpiritmasterAutoSkillReleasePriority.AllowsDifferentDotAbnormalId(observation.SkillId))
         {
             learned = afterEntries
                 .Where(entry => entry.AbnormalId != 0 && !observation.BeforeAbnormalIds.Contains(entry.AbnormalId))

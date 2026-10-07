@@ -5,6 +5,8 @@ namespace Roadhog.Application.SemiAuto;
 
 public static class SpiritmasterAutoSkillReleasePriority
 {
+    private const uint ErosionVSkillId = 1389;
+
     public static SemiAutoSkillReleaseDecision SelectNext(
         SemiAutoSkillPlan plan,
         SemiAutoCombatState state,
@@ -132,6 +134,10 @@ public static class SpiritmasterAutoSkillReleasePriority
             (rule.SkillId != 0 && rule.SkillId == skillId) ||
             names.Any(name => EqualsSkillName(rule.SkillName, name)));
 
+    // Erosion V has a verified same-ID target status. Another attack's delayed
+    // debuff must not become its status; other DOT mappings retain their behavior.
+    internal static bool AllowsDifferentDotAbnormalId(uint skillId) => skillId != ErosionVSkillId;
+
     private static bool ShouldSkipRoot(
         SemiAutoSkillNode node,
         SkillSnapshot skill,
@@ -175,7 +181,8 @@ public static class SpiritmasterAutoSkillReleasePriority
             return true;
         }
 
-        if (state.TryGetSpiritmasterDotAbnormalId(skillId, out var learnedAbnormalId) &&
+        if (AllowsDifferentDotAbnormalId(skillId) &&
+            state.TryGetSpiritmasterDotAbnormalId(skillId, out var learnedAbnormalId) &&
             learnedAbnormalId != skillId &&
             targetSnapshot?.HasAbnormalId(learnedAbnormalId) == true)
         {

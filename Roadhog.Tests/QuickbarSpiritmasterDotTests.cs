@@ -10,6 +10,7 @@ using Roadhog.Infrastructure.Vmm;
 internal static class QuickbarSpiritmasterDotTests
 {
     private const uint DotId = 1389;
+    private const uint DifferentStatusDotId = 113580;
     private const uint OtherId = 1600;
     private const uint LearnedId = 113582;
 
@@ -30,19 +31,19 @@ internal static class QuickbarSpiritmasterDotTests
 
     public static async Task ImmediateDifferentAbnormalLearningAsync()
     {
-        using var f = new Fixture();
+        using var f = new Fixture(DifferentStatusDotId);
         f.SetAbnormal(4000);
         f.Keyboard.AfterPress = key =>
         {
             if (key != "D1") return;
             f.SetAbnormal(4000, LearnedId);
-            f.Confirm(DotId);
+            f.Confirm(DifferentStatusDotId);
         };
         await f.PrepareAsync();
         await f.TickAsync();
-        Learned(f, LearnedId, "successful DOT input learns a new abnormal ID from the same target");
+        Learned(f, LearnedId, "other DOT skills still learn a new abnormal ID from the same target", DifferentStatusDotId);
         var learned = f.Logger.Entries.Single(entry => entry.EventName == "semi_auto.spiritmaster.dot_learned");
-        Equal(DotId, (uint)learned.Fields["skillId"]!, "learning identifies the requested DOT skill");
+        Equal(DifferentStatusDotId, (uint)learned.Fields["skillId"]!, "learning identifies the requested DOT skill");
         Equal(LearnedId, (uint)learned.Fields["abnormalId"]!, "learning excludes the preexisting abnormal ID");
         Equal(f.Api.TargetOwnServerObjectId, (uint)learned.Fields["targetServerObjectId"]!, "learning records the target server identity");
         await f.TickAsync();
@@ -53,7 +54,7 @@ internal static class QuickbarSpiritmasterDotTests
 
     public static async Task LateStatusStopsUnconfirmedRetryAsync()
     {
-        using var f = new Fixture();
+        using var f = new Fixture(DifferentStatusDotId);
         f.SetAbnormal(4000);
         await f.PrepareAsync();
         await f.TickAsync();
@@ -61,7 +62,7 @@ internal static class QuickbarSpiritmasterDotTests
         f.Clock.Advance(3500);
         f.SetAbnormal(4000, LearnedId);
         await f.TickAsync();
-        Learned(f, LearnedId, "a target abnormal appearing after the old three-second window is still learned");
+        Learned(f, LearnedId, "other DOT skills still learn a late target abnormal", DifferentStatusDotId);
         Sequence(new[] { "D1", "D2" }, f.Keyboard.Keys, "late actual DOT suppresses the pending retry and permits another root");
         Check(!f.Logger.Entries.Any(entry => entry.EventName == "quickbar_skill.release.confirmed"),
             "an abnormal-status hit never invents actor or cooldown confirmation");
@@ -69,7 +70,7 @@ internal static class QuickbarSpiritmasterDotTests
 
     public static async Task UnconfirmedRetryPreservesBaselineAsync()
     {
-        using var f = new Fixture();
+        using var f = new Fixture(DifferentStatusDotId);
         f.SetAbnormal(4000);
         var attempts = 0;
         f.Keyboard.AfterPress = key =>
@@ -84,7 +85,7 @@ internal static class QuickbarSpiritmasterDotTests
         f.Clock.Advance(1);
         await f.TickAsync();
         Sequence(new[] { "D1", "D1" }, f.Keyboard.Keys, "absence of DOT never suppresses an eligible unconfirmed retry");
-        Learned(f, LearnedId, "the second successful key retains the first pre-press abnormal baseline");
+        Learned(f, LearnedId, "the second successful key retains the first pre-press abnormal baseline", DifferentStatusDotId);
         await f.TickAsync();
         Sequence(new[] { "D1", "D1", "D2" }, f.Keyboard.Keys, "the newly learned actual status stops the next retry");
         Check(!f.Logger.Entries.Any(entry => entry.EventName == "quickbar_skill.release.confirmed"),
@@ -304,6 +305,97 @@ internal static class QuickbarSpiritmasterDotTests
         Equal(0, reads, "no DOT roots adds no abnormal-status reads");
     }
 
+    public static async Task ErosionOpeningStatusDoesNotStopUnconfirmedRetryAsync()
+    {
+        foreach (var unrelatedId in new uint[] { 1603, 65536, LearnedId })
+        {
+            using var f = new Fixture();
+            f.SetAbnormal(4000);
+            await f.PrepareAsync();
+            await f.TickEngineAsync();
+            f.Clock.Advance(3500);
+            f.SetAbnormal(4000, unrelatedId);
+            await f.TickEngineAsync();
+            Sequence(new[] { "D1", "D1" }, f.Keyboard.Keys,
+                "a delayed opener or unrelated status must not hand an unconfirmed Erosion to another root");
+            Check(f.State.QuickbarSkills.PendingAction is { Node.SkillId: DotId, AttemptCount: 2, RetryStopped: false },
+                "Erosion retains its finite retry budget when only another status appears");
+            Check(!f.State.TryGetSpiritmasterDotAbnormalId(DotId, out _), "Erosion does not learn the unrelated status");
+            Check(!f.Logger.Entries.Any(entry => entry.EventName == "semi_auto.spiritmaster.dot_learned"),
+                "an unrelated status cannot produce an Erosion learning event");
+
+            f.SetAbnormal(4000, unrelatedId, DotId);
+            await f.TickEngineAsync();
+            Sequence(new[] { "D1", "D1", "D2" }, f.Keyboard.Keys,
+                "the actual Erosion status still stops redundant retries and permits another root");
+            Learned(f, DotId, "Erosion remembers only its actual status ID");
+            Check(!f.Logger.Entries.Any(entry => entry.EventName == "quickbar_skill.release.confirmed"),
+                "a target status still does not fabricate release confirmation");
+        }
+    }
+
+    public static async Task ErosionConfirmedReleaseDoesNotLearnOpeningStatusAsync()
+    {
+        using var f = new Fixture();
+        f.SetAbnormal(4000);
+        f.Keyboard.AfterPress = key =>
+        {
+            if (key != "D1") return;
+            f.SetAbnormal(4000, 1603);
+            f.Confirm(DotId);
+        };
+        await f.PrepareAsync();
+        await f.TickAsync();
+        await f.TickAsync();
+        Sequence(new[] { "D1", "D2" }, f.Keyboard.Keys, "confirmed Erosion still hands off normally");
+        Check(f.Logger.Entries.Any(entry => entry.EventName == "quickbar_skill.release.confirmed" &&
+            Equals(entry.Fields["skillId"], DotId)), "the existing release evidence still confirms Erosion");
+        Check(!f.State.TryGetSpiritmasterDotAbnormalId(DotId, out _),
+            "even a confirmed Erosion cannot attribute the opener's status to itself");
+        var policy = f.CreatePolicy(() => Task.FromResult(f.Api.LockedTargetAbnormalStatuses!));
+        Check(!(await policy.ReadSuppressedRootSkillIdsAsync()).Contains(DotId),
+            "the opener alone cannot authorize target-status suppression after release confirmation");
+    }
+
+    public static async Task ErosionIgnoresWrongLearnedIdAndStatusExpirationAsync()
+    {
+        using var f = new Fixture();
+        f.State.RememberSpiritmasterDotAbnormalId(DotId, 1603);
+        f.SetAbnormal(1603);
+        await f.PrepareAsync();
+        await f.TickEngineAsync();
+        Sequence(new[] { "D1" }, f.Keyboard.Keys, "a previously learned opener cannot suppress Erosion");
+
+        f.SetAbnormal(1603, DotId);
+        await f.TickEngineAsync();
+        Sequence(new[] { "D1", "D2" }, f.Keyboard.Keys, "actual Erosion remains authoritative beside the opener");
+        Learned(f, DotId, "the actual status replaces the incorrect learned association");
+        f.Confirm(OtherId);
+        f.SetAbnormal(1603);
+        f.Clock.Advance(80);
+        await f.TickEngineAsync();
+        Sequence(new[] { "D1", "D2", "D1" }, f.Keyboard.Keys,
+            "Erosion becomes eligible again when its own status disappears even if the opener remains");
+    }
+
+    public static async Task ErosionLegacySelectionIgnoresWrongLearnedIdAsync()
+    {
+        using var f = new Fixture();
+        f.Settings.Skills.ExecutionTree = new() { Node(DotId), Node(OtherId) };
+        f.State.RememberSpiritmasterDotAbnormalId(DotId, 1603);
+        f.SetAbnormal(1603);
+        await f.PrepareAsync();
+        var plan = SemiAutoSkillPlan.FromSettings(f.Settings.Skills, f.Context.SkillBindings);
+        SemiAutoSkillReleaseDecision Select() => SpiritmasterAutoSkillReleasePriority.SelectNext(
+            plan, f.State, f.Api.Skills, f.Settings.SemiAuto, f.Settings.Skills.Spiritmaster,
+            new SpiritmasterCombatContext(f.Api.Player, null, f.Api.LockedTargetAbnormalStatuses), f.Clock.GetUtcNow());
+        Equal(DotId, Select().Node!.SkillId, "legacy selection ignores the learned opener and keeps Erosion eligible");
+        f.SetAbnormal(1603, DotId);
+        Equal(OtherId, Select().Node!.SkillId, "legacy selection still skips the actual Erosion status");
+        f.SetAbnormal(1603);
+        Equal(DotId, Select().Node!.SkillId, "legacy selection resumes Erosion after its actual status disappears");
+    }
+
     private static string Name(uint id) => "skill" + id;
     private static SkillConfigNode Node(uint id, params SkillConfigNode[] children) => new()
     {
@@ -327,25 +419,25 @@ internal static class QuickbarSpiritmasterDotTests
         private SemiAutoSkillPlan maintenancePlan = null!;
         private uint releaseTime;
 
-        public Fixture()
+        public Fixture(uint dotId = DotId)
         {
             var settings = new ScriptSettings { SkillTreeReleaseMode = SkillTreeReleaseMode.QuickbarAvailability };
             settings.Skills.Mode = SkillConfigurationMode.Auto;
             settings.Skills.SpiritmasterAutoSkillLogicEnabled = true;
-            settings.Skills.Spiritmaster.DotSkills.Add(new() { SkillId = DotId, SkillName = Name(DotId) });
+            settings.Skills.Spiritmaster.DotSkills.Add(new() { SkillId = dotId, SkillName = Name(dotId) });
             settings.Skills.OpeningSkill.Enabled = false;
             settings.SemiAuto.AttackKeyLoopEnabled = false;
             settings.SemiAuto.AttackWeaveEnabled = false;
             settings.Maintenance.SitMaintenanceEnabled = false;
-            settings.QuickbarSkills.ExecutionTree = new() { Node(DotId), Node(OtherId) };
+            settings.QuickbarSkills.ExecutionTree = new() { Node(dotId), Node(OtherId) };
             Api.Player = Api.Player with { CharacterClassId = AionClassId.Spiritmaster };
             Api.TargetOwnServerObjectId = 1000;
-            Api.Skills = new[] { DotId, OtherId }.Select(id => new SkillSnapshot(id, Name(id), 1, 1, Name(id), 1, false,
+            Api.Skills = new[] { dotId, OtherId }.Select(id => new SkillSnapshot(id, Name(id), 1, 1, Name(id), 1, false,
                 10000, 0, XmlActivation: "Active", XmlSkillType: "Magical", XmlSubType: "Attack",
                 XmlTargetRelationRestriction: "Enemy", XmlEffects: "SpellATK_Instant", XmlEffectRemainMs: 15000)).ToArray();
             Api.Quickbar = new(0, new QuickbarSlotSnapshot[]
             {
-                new(SkillQuickbar.Main, 0, 21, DotId), new(SkillQuickbar.Main, 1, 21, OtherId)
+                new(SkillQuickbar.Main, 0, 21, dotId), new(SkillQuickbar.Main, 1, 21, OtherId)
             });
             Api.SkillAvailability = new(0, Api.Quickbar.Slots.Select(slot =>
                 new SkillAvailabilitySlotSnapshot(slot.Bar, slot.Slot, 21, slot.SkillId, slot.SkillId, true)).ToArray(),
@@ -424,9 +516,9 @@ internal static class QuickbarSpiritmasterDotTests
             return Task.FromResult(new PublishedGameSnapshot<SkillAvailabilitySnapshot>(++version, api.SkillAvailability));
         }
     }
-    private static void Learned(Fixture f, uint expected, string message)
+    private static void Learned(Fixture f, uint expected, string message, uint skillId = DotId)
     {
-        Check(f.State.TryGetSpiritmasterDotAbnormalId(DotId, out var learned), message + ": missing learned ID");
+        Check(f.State.TryGetSpiritmasterDotAbnormalId(skillId, out var learned), message + ": missing learned ID");
         Equal(expected, learned, message);
     }
     private static void Check(bool value, string message) { if (!value) throw new InvalidOperationException(message); }
