@@ -63,6 +63,19 @@ public sealed class SkillKeyBindings
     }
 
     // Immutable XML metadata only. Live cooldown decisions still use the provider.
+    internal bool IsTriggerOrConditionSkill(uint skillId)
+    {
+        var skill = _skills.FirstOrDefault(skill => skill.SkillId == skillId);
+        if (skill is null) return false;
+        static bool HasValue(string? value) => !string.IsNullOrWhiteSpace(value) &&
+            !string.Equals(value, "NONE", StringComparison.OrdinalIgnoreCase) && value != "0";
+        var tags = (skill.XmlTags ?? "").Split(new[] { ',', ';', '|', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        return HasValue(skill.XmlCounterSkill) || HasValue(skill.XmlTargetValidStatuses) ||
+            HasValue(skill.XmlSelfConditionStatuses) || skill.XmlUltraTransfer == "1" ||
+            tags.Contains("counter", StringComparer.OrdinalIgnoreCase) ||
+            tags.Contains("condition", StringComparer.OrdinalIgnoreCase);
+    }
+
     internal int? GetXmlChainTimeMs(uint skillId)
     {
         var text = _skills.FirstOrDefault(skill => skill.SkillId == skillId)?.XmlChainTime;

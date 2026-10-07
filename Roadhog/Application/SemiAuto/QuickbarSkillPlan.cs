@@ -9,15 +9,17 @@ public sealed class QuickbarSkillPlan
     private static readonly string[] MainKeys = { "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "D0", "OemMinus", "OemPlus" };
     private static readonly string[] AltKeys = { "NumPad1", "NumPad2", "NumPad3", "NumPad4", "NumPad5", "NumPad6", "NumPad7", "NumPad8", "NumPad9", "NumPad0", "NumPadAdd", "NumPadSubtract" };
 
-    private QuickbarSkillPlan(int page, IReadOnlyList<QuickbarSkillNode> roots)
+    private QuickbarSkillPlan(int page, IReadOnlyList<QuickbarSkillNode> roots, bool triggerConditionSkillsPreemptChain)
     {
         Page = page;
         Roots = roots;
+        TriggerConditionSkillsPreemptChain = triggerConditionSkillsPreemptChain;
         SkillReadIds = Flatten(roots).Select(node => node.SkillId).Distinct().ToArray();
     }
 
     public int Page { get; }
     public IReadOnlyList<QuickbarSkillNode> Roots { get; }
+    public bool TriggerConditionSkillsPreemptChain { get; }
     public IReadOnlyList<uint> SkillReadIds { get; }
     public bool HasCombatActions => Roots.Count > 0;
 
@@ -40,9 +42,10 @@ public sealed class QuickbarSkillPlan
             var sameSlot = parent is not null && parent.Bar == bar && parent.Slot == slot;
             var anchor = sameSlot ? parent!.BaseSkillId : bound.SkillId;
             var children = new List<QuickbarSkillNode>();
-            var node = new QuickbarSkillNode(bound.SkillId, bound.Name, bound.Key, bar, slot, anchor, path, children.AsReadOnly(),
-                bindings.GetXmlChainTimeMs(bound.SkillId));
             var bindingNode = new SemiAutoSkillNode(bound.SkillId, bound.Name, config.BaseName, config.Type, config.ChainTimeMs, bound.Key, bindingParent);
+            var node = new QuickbarSkillNode(bound.SkillId, bound.Name, bound.Key, bar, slot, anchor, path, children.AsReadOnly(),
+                bindings.GetXmlChainTimeMs(bound.SkillId), bindingNode.IsTrigger || bindingNode.IsCondition ||
+                bindings.IsTriggerOrConditionSkill(bound.SkillId));
             for (var index = 0; index < (config.Children?.Count ?? 0); index++)
                 if (config.Children![index] is { } child && Build(child, node, bindingNode, path + "/" + index) is { } next)
                     children.Add(next);
@@ -53,7 +56,7 @@ public sealed class QuickbarSkillPlan
         for (var index = 0; index < (settings.ExecutionTree?.Count ?? 0); index++)
             if (settings.ExecutionTree![index] is { } config && Build(config, null, null, index.ToString()) is { } node)
                 roots.Add(node);
-        return new QuickbarSkillPlan(bindings.Page, roots.AsReadOnly());
+        return new QuickbarSkillPlan(bindings.Page, roots.AsReadOnly(), settings.TriggerConditionSkillsPreemptChain);
     }
 
     internal static bool TryLocateKey(string key, out SkillQuickbar bar, out int slot)
@@ -85,4 +88,5 @@ public sealed record QuickbarSkillNode(
     uint BaseSkillId,
     string NodeKey,
     IReadOnlyList<QuickbarSkillNode> Children,
-    int? ChainTimeMs = null);
+    int? ChainTimeMs = null,
+    bool IsTriggerOrCondition = false);

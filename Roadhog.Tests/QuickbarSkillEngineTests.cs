@@ -18,7 +18,7 @@ internal static class QuickbarSkillEngineTests
     private static QuickbarSnapshot Bindings(int page = 0) => new(page, new QuickbarSlotSnapshot[]
         { new(SkillQuickbar.Main, 0, 21, 11), new(SkillQuickbar.Main, 1, 21, 21), new(SkillQuickbar.Alt, 10, 21, 31) });
     private static QuickbarSkillPlan Plan() => QuickbarSkillPlan.FromSettings(new()
-        { ExecutionTree = new() { Node(21), Node(11, Node(12, Node(13))), Node(31) } }, new(Bindings(), Learned));
+        { TriggerConditionSkillsPreemptChain = false, ExecutionTree = new() { Node(21), Node(11, Node(12, Node(13))), Node(31) } }, new(Bindings(), Learned));
     private static LockedTargetSnapshot Target(uint server = 100, ushort entity = 50) =>
         new(entity, server, 1, LockedTargetSnapshot.MonsterObjectType, "dummy", 100, 100, null, 1, Start);
     private static SkillAvailabilitySnapshot Available(bool root = false, bool counter = false, bool ordinary = false,
@@ -95,7 +95,7 @@ internal static class QuickbarSkillEngineTests
         Check(state.TryConfirmAction(Available(last: 13, time: 30), Learned, Start) && state.ActiveChainSource is null, "accepted final completes chain");
 
         var ownBar = Bindings() with { Slots = Bindings().Slots.Append(new(SkillQuickbar.Main, 5, 21, 12)).ToArray() };
-        var ownPlan = QuickbarSkillPlan.FromSettings(new() { ExecutionTree = new() { Node(11, Node(12)), Node(21) } }, new(ownBar, Learned));
+        var ownPlan = QuickbarSkillPlan.FromSettings(new() { TriggerConditionSkillsPreemptChain = false, ExecutionTree = new() { Node(11, Node(12)), Node(21) } }, new(ownBar, Learned));
         state = new();
         state.BeginAction(ownPlan.Roots[0], Skill(11), Available(root: true), Start, TimeSpan.FromSeconds(8));
         state.TryConfirmAction(Available(last: 11, time: 10), Learned, Start);
@@ -217,7 +217,7 @@ internal static class QuickbarSkillEngineTests
 
     public static async Task MixedReadinessAsync()
     {
-        var plan = QuickbarSkillPlan.FromSettings(new() { ExecutionTree = new() { Node(11, Node(12, Node(13))), Node(21), Node(31) } }, new(Bindings(), Learned));
+        var plan = QuickbarSkillPlan.FromSettings(new() { TriggerConditionSkillsPreemptChain = false, ExecutionTree = new() { Node(11, Node(12, Node(13))), Node(21), Node(31) } }, new(Bindings(), Learned));
         var state = new QuickbarSkillCombatState();
         var ready = new HashSet<uint> { 11, 31 };
         var hybrid = HybridAvailable(counter: true);

@@ -12,6 +12,7 @@ public sealed partial class AccountSettingsForm
     private TreeView? quickbarAvailableSkillTree;
     private TreeView? quickbarSelectedSkillTree;
     private Label? quickbarSkillStatusLabel;
+    private RoundedCheckBox? triggerConditionSkillsPreemptChainCheckBox;
     private QuickbarSkillScriptSettings currentQuickbarSkillSettings = new();
     private SkillScriptSettings loadedLegacySkillSettings = new();
 
@@ -22,6 +23,15 @@ public sealed partial class AccountSettingsForm
         var modeTip = new ToolTip();
         modeTip.SetToolTip(modeLabel, QuickbarPollingHint + "\n" + SkillModeApplyHint);
         modeLabel.Disposed += (_, _) => modeTip.Dispose();
+
+        triggerConditionSkillsPreemptChainCheckBox = AddCheckBox(options,
+            "触发／条件技优先于连续技后段", 336, 74, 360, true);
+        triggerConditionSkillsPreemptChainCheckBox.Name = "triggerConditionSkillsPreemptChainCheckBox";
+        triggerConditionSkillsPreemptChainCheckBox.BackColor = options.BackColor;
+        var priorityTip = new ToolTip();
+        priorityTip.SetToolTip(triggerConditionSkillsPreemptChainCheckBox,
+            "勾选：可用的触发技、条件技先放，同类按配置顺序选择；取消：连续技后段优先。\n" + SkillModeApplyHint);
+        triggerConditionSkillsPreemptChainCheckBox.Disposed += (_, _) => priorityTip.Dispose();
 
         var panel = CreateSkillModePanel(page, "quickbarSkillPanel", true);
         quickbarSkillPanel = panel;
@@ -62,6 +72,7 @@ public sealed partial class AccountSettingsForm
     private void ApplyQuickbarSkillSettings(ScriptSettings settings)
     {
         currentQuickbarSkillSettings = (settings.QuickbarSkills ?? new()).Clone();
+        SetChecked(triggerConditionSkillsPreemptChainCheckBox, currentQuickbarSkillSettings.TriggerConditionSkillsPreemptChain);
         loadedLegacySkillSettings = settings.Skills.Clone();
         if (quickbarSelectedSkillTree is not null)
             PopulateSelectedSkillTreeFromConfig(quickbarSelectedSkillTree, currentQuickbarSkillSettings.ExecutionTree);
@@ -70,9 +81,15 @@ public sealed partial class AccountSettingsForm
 
     private static SkillTreeReleaseMode CaptureSkillTreeReleaseMode() => SkillTreeReleaseMode.QuickbarAvailability;
 
-    private QuickbarSkillScriptSettings CaptureQuickbarSkillSettings() => quickbarSelectedSkillTree is null
-        ? currentQuickbarSkillSettings.Clone()
-        : new() { ExecutionTree = CaptureSkillTree(quickbarSelectedSkillTree.Nodes) };
+    private QuickbarSkillScriptSettings CaptureQuickbarSkillSettings()
+    {
+        var settings = currentQuickbarSkillSettings.Clone();
+        settings.TriggerConditionSkillsPreemptChain = triggerConditionSkillsPreemptChainCheckBox?.Checked
+            ?? settings.TriggerConditionSkillsPreemptChain;
+        if (quickbarSelectedSkillTree is not null)
+            settings.ExecutionTree = CaptureSkillTree(quickbarSelectedSkillTree.Nodes);
+        return settings;
+    }
 
     private List<SkillConfigNode> CaptureLegacyExecutionTree()
     {

@@ -351,6 +351,7 @@ public sealed partial class QuickbarSkillCombatController
                 ObserveClockCalibration();
                 if (isCooldownClockCalibrated is null || state.ClockBootstrap.IsCompleted || rootsObserved is null ||
                     decision.Kind is QuickbarSkillDecisionKind.PressChain or QuickbarSkillDecisionKind.WaitForChain ||
+                    (plan.TriggerConditionSkillsPreemptChain && decision.Node is { IsTriggerOrCondition: true }) ||
                     state.PendingAction is { IsClockBootstrap: false, RetryStopped: false }) return decision;
                 var bootstrapSkills = suppressedRootSkillIds is { Count: > 0 } || suppressedSkillIds is { Count: > 0 }
                     ? rootsObserved.Where(skill => suppressedRootSkillIds?.Contains(skill.SkillId) != true &&

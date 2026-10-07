@@ -986,10 +986,13 @@ public enum SkillTreeReleaseMode
 
 public sealed class QuickbarSkillScriptSettings
 {
+    public bool TriggerConditionSkillsPreemptChain { get; set; } = true;
+
     public List<SkillConfigNode> ExecutionTree { get; set; } = new();
 
     public QuickbarSkillScriptSettings Clone() => new()
     {
+        TriggerConditionSkillsPreemptChain = TriggerConditionSkillsPreemptChain,
         ExecutionTree = ExecutionTree?.Where(node => node is not null).Select(node => node.Clone()).ToList() ?? new()
     };
 }

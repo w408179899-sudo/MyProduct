@@ -32,6 +32,31 @@ public static class QuickbarSkillReleasePriority
             suppressedSkillIds?.Contains(node.SkillId) != true &&
             coolingSkillIds?.Contains(node.SkillId) != true && !state.IsRepeatBlocked(node, now);
 
+        if (plan.TriggerConditionSkillsPreemptChain)
+        {
+            bool IsSpecialOpen(QuickbarSkillNode node) => node.IsTriggerOrCondition &&
+                GetMatchingSlot(node, availability) is { CanUse: true } &&
+                coolingSkillIds?.Contains(node.SkillId) != true && suppressedSkillIds?.Contains(node.SkillId) != true &&
+                (node.NodeKey.Contains('/') || suppressedRootSkillIds?.Contains(node.SkillId) != true);
+            QuickbarSkillReleaseDecision PressSpecial(QuickbarSkillNode node) =>
+                new(node.NodeKey.Contains('/') ? QuickbarSkillDecisionKind.PressChain : QuickbarSkillDecisionKind.PressRoot, node);
+
+            // An inserted opportunity keeps its first confirmation baseline and
+            // 80ms retry cadence, even while the original continuation stays lit.
+            if (state.PendingAction is { RetryStopped: false } specialPending && IsSpecialOpen(specialPending.Node))
+                return state.IsRepeatBlocked(specialPending.Node, now)
+                    ? QuickbarSkillReleaseDecision.None : PressSpecial(specialPending.Node);
+
+            foreach (var root in plan.Roots)
+            {
+                if (!state.HasYieldedRoot(root) && IsSpecialOpen(root) && !state.IsRepeatBlocked(root, now))
+                    return PressSpecial(root);
+                foreach (var child in Descendants(new[] { root }))
+                    if (IsSpecialOpen(child) && !state.IsRepeatBlocked(child, now))
+                        return PressSpecial(child);
+            }
+        }
+
         // CD-first handoffs carry their own current stage while the precise
         // actor record may still describe the previously confirmed predecessor.
         if ((state.ChainTransition?.Source ?? state.ActiveChainSource) is { } source)

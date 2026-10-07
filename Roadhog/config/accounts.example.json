@@ -22,6 +22,10 @@
       "maintenancePathName": "",
       "skillProfileName": "",
       "scriptSettings": {
+        "quickbarSkills": {
+          "triggerConditionSkillsPreemptChain": true,
+          "executionTree": []
+        },
         "profileName": "default_profile",
         "mainMode": "SemiAuto",
         "combatMode": "Stationary",

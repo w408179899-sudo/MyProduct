@@ -43,6 +43,8 @@ internal static class SkillTreeReleaseModeTests
             """)!;
         Check(legacy.SkillTreeReleaseMode == SkillTreeReleaseMode.Legacy && legacy.QuickbarSkills.ExecutionTree.Count == 0,
             "raw missing mode retains the compatibility marker until load normalization");
+        Check(legacy.QuickbarSkills.TriggerConditionSkillsPreemptChain,
+            "missing priority switch defaults to checked for existing configurations");
         var migrated = legacy.Clone();
         Check(migrated.SkillTreeReleaseMode == SkillTreeReleaseMode.QuickbarAvailability &&
             migrated.QuickbarSkills.ExecutionTree.Single().Children.Single().SkillId == 102,
@@ -50,6 +52,7 @@ internal static class SkillTreeReleaseModeTests
         Check(legacy.SkillTreeReleaseMode == SkillTreeReleaseMode.Legacy && legacy.QuickbarSkills.ExecutionTree.Count == 0 &&
             legacy.Skills.ExecutionTree.Single().Children.Single().SkillId == 102, "normalization leaves the source archive unchanged");
         var source = Settings();
+        source.QuickbarSkills.TriggerConditionSkillsPreemptChain = false;
         source.SkillTreeReleaseMode = SkillTreeReleaseMode.QuickbarAvailability;
         var original = JsonSerializer.Serialize(source);
         var copy = source.Clone();
@@ -57,11 +60,13 @@ internal static class SkillTreeReleaseModeTests
         copy.Skills.ExecutionTree[0].Children[0].Name = "changed-old";
         Check(JsonSerializer.Serialize(source) == original, "both trees are deep clones with independent children");
         Check(copy.SkillTreeReleaseMode == SkillTreeReleaseMode.QuickbarAvailability, "clone retains selected engine");
+        Check(!copy.QuickbarSkills.TriggerConditionSkillsPreemptChain, "clone retains an explicitly unchecked priority switch");
         var options = new JsonSerializerOptions { Converters = { new JsonStringEnumConverter() } };
         var roundtrip = JsonSerializer.Deserialize<ScriptSettings>(JsonSerializer.Serialize(source, options), options)!;
         Check(roundtrip.SkillTreeReleaseMode == SkillTreeReleaseMode.QuickbarAvailability &&
             roundtrip.QuickbarSkills.ExecutionTree.Single().Children.Single().SkillId == 202 &&
             roundtrip.Skills.ExecutionTree.Single().Children.Single().SkillId == 102, "JSON retains engine and separate chain trees");
+        Check(!roundtrip.QuickbarSkills.TriggerConditionSkillsPreemptChain, "JSON retains unchecked priority instead of restoring the default");
         source.QuickbarSkills = null!;
         Check(source.Clone().QuickbarSkills.ExecutionTree.Count == 0, "null new configuration normalizes to empty");
         return Task.CompletedTask;
@@ -76,6 +81,7 @@ internal static class SkillTreeReleaseModeTests
             var configs = new JsonAccountConfigStore(Path.Combine(directory, "accounts.json"));
             var profiles = new JsonScriptProfileStore(Path.Combine(directory, "profiles"));
             var settings = Settings();
+            settings.QuickbarSkills.TriggerConditionSkillsPreemptChain = false;
             settings.SkillTreeReleaseMode = SkillTreeReleaseMode.QuickbarAvailability;
             var oldTree = JsonSerializer.Serialize(settings.Skills.ExecutionTree);
             Check((await profiles.SaveAsync(new ScriptProfileDocument { Name = "skill-mode", Settings = settings })).Success, "profile saves new mode");
@@ -84,6 +90,8 @@ internal static class SkillTreeReleaseModeTests
             var account = (await configs.LoadAllAsync()).Value!.Single().ScriptSettings!;
             Check(profile.SkillTreeReleaseMode == SkillTreeReleaseMode.QuickbarAvailability &&
                 account.SkillTreeReleaseMode == SkillTreeReleaseMode.QuickbarAvailability, "account and profile independently restore new mode");
+            Check(!profile.QuickbarSkills.TriggerConditionSkillsPreemptChain && !account.QuickbarSkills.TriggerConditionSkillsPreemptChain,
+                "account and profile stores retain the unchecked priority switch");
             Check(JsonSerializer.Serialize(profile.Skills.ExecutionTree) == oldTree && JsonSerializer.Serialize(account.Skills.ExecutionTree) == oldTree,
                 "both stores preserve old tree while new mode is selected");
             account.SkillTreeReleaseMode = SkillTreeReleaseMode.Legacy;
@@ -209,6 +217,7 @@ internal static class SkillTreeReleaseModeTests
                 var newPanel = Find("quickbarSkillPanel");
                 var opening = Find("openingSkillPanel");
                 var weave = (RoundedCheckBox)Find("attackWeaveCheckBox");
+                var priority = (RoundedCheckBox)Find("triggerConditionSkillsPreemptChainCheckBox");
                 var weaveDelay = Find("attackWeaveDelayTextBox");
                 void ToggleWeave() => typeof(RoundedCheckBox)
                     .GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(weave, new object[] { EventArgs.Empty });
@@ -230,6 +239,10 @@ internal static class SkillTreeReleaseModeTests
                     "retired condition preemption and chain-window controls are not constructed");
                 Check(weave.Enabled && weave.Checked && weaveDelay.Enabled && weaveDelay.Text == "725",
                     "new mode enables weaving and loads the saved delay");
+                Check(priority.Enabled && priority.Visible && priority.Checked &&
+                    priority.Parent == weave.Parent && !priority.Bounds.IntersectsWith(weaveDelay.Bounds),
+                    "priority switch defaults to checked and fits beside weaving without overlap");
+                priority.Checked = false;
                 ToggleWeave();
                 Check(weave.Enabled && !weave.Checked && !weaveDelay.Enabled,
                     "turning off weaving in new mode disables only its delay input");
@@ -244,6 +257,10 @@ internal static class SkillTreeReleaseModeTests
                     JsonSerializer.Serialize(saved.Skills.ExecutionTree) == oldTree, "saving new mode never normalizes or clears the untouched old tree");
                 Check(!saved.SemiAuto.AttackWeaveEnabled && saved.SemiAuto.AttackWeaveDelayMs == 530,
                     "new-mode save persists the unchecked weaving switch and delay");
+                Check(!saved.QuickbarSkills.TriggerConditionSkillsPreemptChain, "UI save retains the unchecked priority switch");
+                Call("ApplyQuickbarSkillSettings", saved);
+                Check(!priority.Checked, "UI restores the saved unchecked priority switch");
+                priority.Checked = true;
                 ToggleWeave();
                 Check(weave.Checked && weaveDelay.Enabled, "turning on weaving in new mode enables its delay input");
                 var configuredRefresh = (Button)Find("quickbarRefreshConfiguredSkillsButton");
@@ -353,6 +370,7 @@ internal static class SkillTreeReleaseModeTests
                 saved = configs.LoadAllAsync().GetAwaiter().GetResult().Value!.Single().ScriptSettings!;
                 Check(saved.QuickbarSkills.ExecutionTree.Select(node => node.SkillId).SequenceEqual(new uint[] { 202, 201 }) &&
                     JsonSerializer.Serialize(saved.Skills.ExecutionTree) == oldTree, "new priorities persist independently of the old chain tree");
+                Check(saved.QuickbarSkills.TriggerConditionSkillsPreemptChain, "UI saves the priority switch after checking it again");
                 Check(saved.SemiAuto.AttackWeaveEnabled && saved.SemiAuto.AttackWeaveDelayMs == 530 && saved.Skills.OpeningSkill.SkillId == 101 &&
                     saved.Skills.OpeningSkill.ReleaseAll && saved.Skills.OpeningSkill.GetEffectiveSkills().Select(skill => skill.SkillId).SequenceEqual(new uint[] { 101, 201 }) &&
                     saved.Maintenance.HpMaintenanceRules.Single().BelowPercent == 61 && saved.Maintenance.MpMaintenanceRules.Single().SkillId == 302 &&

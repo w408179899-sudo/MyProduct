@@ -382,6 +382,7 @@ internal static class QuickbarSkillClockBootstrapTests
             var bindings = new QuickbarSnapshot(0, boundIds.Select((id, slot) => new QuickbarSlotSnapshot(SkillQuickbar.Main, slot, 21, id)).ToArray());
             Plan = QuickbarSkillPlan.FromSettings(new()
             {
+                TriggerConditionSkillsPreemptChain = false,
                 ExecutionTree = (roots.Length == 0 ? new uint[] { 21, 22, 11, 31, 41, 51 } : roots)
                     .Select(id => id == 11 ? Node(11, Node(12)) : Node(id)).ToList()
             }, new(bindings, Skills.Values.ToArray()));
