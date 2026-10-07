@@ -11881,6 +11881,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
         var remainingX = Math.Abs(plannedDx);
         var remainingY = Math.Abs(plannedDy);
+        const int adjustStepPixels = 2;
         var pollWait = TimeSpan.FromMilliseconds(options.AngleAdjustPollWaitMs);
         while (remainingX > 0 || remainingY > 0)
         {
@@ -11909,7 +11910,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 break;
             }
 
-            var movedOnePixel = false;
+            var movedPixels = false;
             if (remainingX > 0 && Math.Abs(snapshot.YawError) > yawTolerance)
             {
                 var currentDx = CalculateCameraDragDx(
@@ -11919,12 +11920,12 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                     applyMinCorrection: false,
                     out _,
                     out _);
-                var stepX = currentDx < 0 ? -1 : 1;
+                var stepX = (currentDx < 0 ? -1 : 1) * Math.Min(adjustStepPixels, remainingX);
                 var previousReadCount = snapshot.ReadCount;
                 await SendCameraCombinedMoveStepAsync(context, stepX, 0, options).ConfigureAwait(false);
                 result.MovedDx += stepX;
-                remainingX--;
-                movedOnePixel = true;
+                remainingX -= Math.Abs(stepX);
+                movedPixels = true;
                 TryMarkPathFollowArrivedNow(poller, out _, out _);
                 await TryWaitForPathFollowPollSnapshotAsync(poller, previousReadCount, pollWait, context).ConfigureAwait(false);
             }
@@ -11958,17 +11959,17 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                     applyMinCorrection: false,
                     out _,
                     out _);
-                var stepY = currentDy < 0 ? -1 : 1;
+                var stepY = (currentDy < 0 ? -1 : 1) * Math.Min(adjustStepPixels, remainingY);
                 var previousReadCount = snapshot.ReadCount;
                 await SendCameraCombinedMoveStepAsync(context, 0, stepY, options).ConfigureAwait(false);
                 result.MovedDy += stepY;
-                remainingY--;
-                movedOnePixel = true;
+                remainingY -= Math.Abs(stepY);
+                movedPixels = true;
                 TryMarkPathFollowArrivedNow(poller, out _, out _);
                 await TryWaitForPathFollowPollSnapshotAsync(poller, previousReadCount, pollWait, context).ConfigureAwait(false);
             }
 
-            if (!movedOnePixel)
+            if (!movedPixels)
             {
                 break;
             }
