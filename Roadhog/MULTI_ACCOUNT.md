@@ -39,6 +39,20 @@
 
 `AccountConfig.BagCleanupNameListPath`、`RadarMapDirectory`、`OwnerLicenseGrantPath` 可覆盖该账号的默认共享来源，空值继续使用全局来源。这些字段及 `LicenseCredentialPath` 的相对路径均以主 `accounts.json` 所在目录为基准，方便整体移动配置包。运行中的账号须先停止才能切换资源来源。设置窗口、手动启动和进程恢复统一使用对应账号的资源。
 
+### 将已有绕障地图合并为共享目录
+
+`tools/share_radar_maps.py` 是显式迁移工具，不改变旧配置导入时保留各账号地图的默认行为。它按地图 ID 合并公共目录及所有账号当前引用目录的障碍线段；相同或反向线段只保留一次，坐标保持原值，不同线段的重复 ID 会生成独立 ID。版本、MapId、坐标、MapCode 冲突及运行时线段数量限制在写入前检查。
+
+```powershell
+python tools/share_radar_maps.py prepare "客户端/config" "新的计划目录"
+# 核对计划后，通过“退出程序”正常退出主界面和后台。
+python tools/share_radar_maps.py apply "客户端/config" "新的计划目录"
+```
+
+`apply` 拒绝在该客户端仍运行时修改配置，也拒绝覆盖准备后变化的配置或地图。原文件备份至 `config/shared-radar-backups/<批次>`，各账号原地图目录保持完整；先原子写入公共地图，最后仅将账号的 `RadarMapDirectory` 切换到 `radar-maps`。客户端重新启动后，编辑器和所有后台读取同一目录，地图保存沿用已有文件监视与 revision 刷新机制。
+
+写入失败会恢复原文件。需要人工回退时，先正常退出客户端，再执行 `python tools/share_radar_maps.py rollback "备份批次目录"`；若迁移后又修改过配置或共享地图，工具会拒绝覆盖新修改。迁移工具的故障、并集、隔离配置和回退测试可通过 `python -m unittest discover -s tools -p test_share_radar_maps.py -v` 运行。
+
 迁移记录会列出原来已经缺失的路径；不会猜测补齐，也不会让其他账号的同名文件意外替代。未绑定硬件的占位账号只保留在原始备份。迁移依据已保存配置，未保存的界面改动不在副本内。启用迁移客户端前须停止对应旧客户端，避免争用同一设备。
 
 ## 重新读取并保存硬件配置
