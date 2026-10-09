@@ -3620,7 +3620,7 @@ namespace Roadhog
             bagCleanupExcludedItemListBox = CreateFilterListBox(namesPanel, 0, 316, 408, 138);
             bagCleanupExcludedItemListBox.BackColor = Color.White;
             bagCleanupTradeItemGrid = CreateBagCleanupTradeItemGrid(namesPanel);
-            bagCleanupRemoveNameButton = AddButton(namesPanel, "移除", 248, 276, 72, 30);
+            bagCleanupRemoveNameButton = AddButton(namesPanel, "移除选中", 248, 276, 72, 30);
             bagCleanupRemoveNameButton.Click += async (_, _) =>
                 await RemoveSelectedBagCleanupNameAsync().ConfigureAwait(true);
             bagCleanupClearNamesButton = AddButton(namesPanel, "清空", 336, 276, 72, 30);

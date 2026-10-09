@@ -22,6 +22,7 @@ public partial class AccountSettingsForm
             RowHeadersVisible = false,
             AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
             SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+            MultiSelect = true,
             EditMode = DataGridViewEditMode.EditOnEnter,
             EnableHeadersVisualStyles = false,
             ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
@@ -36,6 +37,7 @@ public partial class AccountSettingsForm
         grid.Columns.Add(new DataGridViewTextBoxColumn
         {
             Name = "ItemName", HeaderText = "物品名称 / 关键字", ReadOnly = true,
+            ToolTipText = "按住 Ctrl 点击名称可多选；按住 Shift 可连续选择，再点击“移除选中”。",
             FillWeight = 64, SortMode = DataGridViewColumnSortMode.NotSortable
         });
         grid.Columns.Add(new DataGridViewTextBoxColumn

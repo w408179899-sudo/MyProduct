@@ -2,6 +2,7 @@ using Roadhog;
 using Roadhog.Application;
 using Roadhog.Application.AbnormalStatuses;
 using Roadhog.Application.BagCleanup;
+using System.Text.Json;
 using Roadhog.Application.Channels;
 using Roadhog.Application.Input;
 using Roadhog.Application.JumpAssist;
@@ -943,6 +944,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("maintenance foldouts show all rows and preserve settings", TestMaintenanceFoldoutsAsync),
     ("bag cleanup name-list ui auto saves both lists and rolls back failures", TestBagCleanupNameListUiAutoSavesAndRollsBackAsync),
     ("bag cleanup name-list stall and auction configuration stays independent and persists", TestBagCleanupTradingNameListsAsync),
+    ("bag cleanup all five name lists batch remove selected entries and roll back failures", TestBagCleanupBatchRemoveNameListsAsync),
     ("bag cleanup name-list prices validate auto save and roll back in the grid", TestBagCleanupTradePricesAsync),
     ("account config persists stationary combat position", TestAccountConfigPersistsStationaryCombatPositionAsync),
     ("revive path aggressive clear radius defaults persists and saves from ui", TestRevivePathAggressiveClearRadiusDefaultsCloneJsonAndUiAsync),
@@ -13028,6 +13030,84 @@ static Task TestSharedCleanupEditorAsync()
         finally { DeleteDirectoryIfExists(directory); }
     });
     thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
+    if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    return Task.CompletedTask;
+}
+
+static Task TestBagCleanupBatchRemoveNameListsAsync()
+{
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        try
+        {
+            var radioNames = new[] { "bagCleanupWhitelistRadio", "bagCleanupBlacklistRadio", "bagCleanupSellRadio", "bagCleanupAuctionHouseRadio", "bagCleanupStallRadio" };
+            foreach (var radioName in radioNames)
+            {
+                var original = new BagCleanupNameListsDocument
+                {
+                    Whitelist = new() { "keep-a", "keep-b", "keep-c", "keep-d" },
+                    Blacklist = new() { "discard-a", "discard-b", "discard-c", "discard-d" },
+                    Sell = new() { "sell-a", "sell-b", "sell-c", "sell-d" },
+                    AuctionHouse = new() { new() { Name = "auction-a", UnitPrice = 11 }, new() { Name = "auction-b", UnitPrice = 12 }, new() { Name = "auction-c", UnitPrice = 13 }, new() { Name = "auction-d", UnitPrice = 14 } },
+                    Stall = new() { new() { Name = "stall-a", UnitPrice = 21 }, new() { Name = "stall-b", UnitPrice = 22 }, new() { Name = "stall-c", UnitPrice = 23 }, new() { Name = "stall-d", UnitPrice = 24 } }
+                };
+                var configStore = new InMemoryAccountConfigStore(new AccountConfig { AccountName = "account1", ScriptSettings = CreateScriptSettings() });
+                var store = new InMemoryBagCleanupNameListStore(original);
+                using var form = CreateAccountSettingsFormForTestsWithStore(configStore, bagCleanupNameListStore: store);
+                ((System.Windows.Forms.RadioButton)GetPrivateFieldForTest(form, radioName)).Checked = true;
+                var grid = (System.Windows.Forms.DataGridView)GetPrivateFieldForTest(form, "bagCleanupTradeItemGrid");
+                var list = (System.Windows.Forms.ListBox)GetPrivateFieldForTest(form, "bagCleanupExcludedItemListBox");
+                var trade = radioName is "bagCleanupAuctionHouseRadio" or "bagCleanupStallRadio";
+                void SelectEntries()
+                {
+                    if (trade)
+                    {
+                        AssertFalse(!grid.MultiSelect, radioName + " supports multiple selection");
+                        grid.CurrentCell = grid.Rows[0].Cells[0];
+                        grid.ClearSelection();
+                        grid.Rows[0].Selected = true;
+                        grid.Rows[2].Selected = true;
+                        AssertEqual(2, grid.SelectedRows.Count, "two nonadjacent trading rows selected");
+                    }
+                    else
+                    {
+                        AssertEqual(System.Windows.Forms.SelectionMode.MultiExtended, list.SelectionMode, radioName + " supports Ctrl/Shift selection");
+                        list.ClearSelected();
+                        list.SetSelected(0, true);
+                        list.SetSelected(2, true);
+                        AssertEqual(2, list.SelectedItems.Count, "two nonadjacent names selected");
+                    }
+                }
+                SelectEntries();
+                store.FailSaves = true;
+                InvokePrivateTaskForTest(form, "RemoveSelectedBagCleanupNameAsync");
+                AssertEqual(JsonSerializer.Serialize(original), JsonSerializer.Serialize(store.Document), radioName + " failed batch removal preserves saved lists");
+                AssertEqual(JsonSerializer.Serialize(original), JsonSerializer.Serialize((BagCleanupNameListsDocument)InvokePrivateMethodForTest(form, "CaptureBagCleanupNameLists")!), radioName + " failed batch removal restores all UI values");
+                store.FailSaves = false;
+                SelectEntries();
+                var saveCount = store.SaveCount;
+                InvokePrivateTaskForTest(form, "RemoveSelectedBagCleanupNameAsync");
+                AssertEqual(saveCount + 1, store.SaveCount, "batch removal saves once");
+                var expected = original.Clone();
+                switch (radioName)
+                {
+                    case "bagCleanupWhitelistRadio": expected.Whitelist.RemoveAt(2); expected.Whitelist.RemoveAt(0); break;
+                    case "bagCleanupBlacklistRadio": expected.Blacklist.RemoveAt(2); expected.Blacklist.RemoveAt(0); break;
+                    case "bagCleanupSellRadio": expected.Sell.RemoveAt(2); expected.Sell.RemoveAt(0); break;
+                    case "bagCleanupAuctionHouseRadio": expected.AuctionHouse.RemoveAt(2); expected.AuctionHouse.RemoveAt(0); break;
+                    case "bagCleanupStallRadio": expected.Stall.RemoveAt(2); expected.Stall.RemoveAt(0); break;
+                }
+                AssertEqual(JsonSerializer.Serialize(expected), JsonSerializer.Serialize(store.Document), radioName + " removes only selected entries and preserves other lists and prices");
+                using var reopened = CreateAccountSettingsFormForTestsWithStore(configStore, bagCleanupNameListStore: store);
+                AssertEqual(JsonSerializer.Serialize(expected), JsonSerializer.Serialize((BagCleanupNameListsDocument)InvokePrivateMethodForTest(reopened, "CaptureBagCleanupNameLists")!), radioName + " batch removal persists after reopening");
+            }
+        }
+        catch (Exception ex) { failure = ex; }
+    });
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    thread.Join();
     if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
     return Task.CompletedTask;
 }
