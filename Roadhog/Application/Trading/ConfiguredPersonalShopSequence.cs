@@ -9,9 +9,11 @@ public sealed record PlannedShopItem(InventoryItemSnapshot Item, ulong UnitPrice
 
 public sealed class ConfiguredPersonalShopSequence(IKeyboardInput input, Func<int, CancellationToken, Task>? delay = null)
 {
-    public async Task RunAsync(IRoadhogSnapshotReader snapshots, IReadOnlyList<PlannedShopItem> plan, Action<string> report, CancellationToken token)
+    public async Task RunAsync(IRoadhogSnapshotReader snapshots, IReadOnlyList<PlannedShopItem> plan, Action<string> report, CancellationToken token,
+        int? advertisementDiscount = null)
     {
         var actions = new TradingActions(input, snapshots, token, delay);
+        var expectedAdvertisement = advertisementDiscount is { } d ? PersonalShopAdvertisement.Text(d) : null;
         async Task<PersonalShopSnapshot> Ui() => (await snapshots.ReadPersonalShopAsync().WaitAsync(token)).Value;
         async Task<IReadOnlyList<InventoryItemSnapshot>> Bag() => (await snapshots.ReadInventoryAsync().WaitAsync(token)).Value;
         async Task<ulong> Money() => (await snapshots.ReadInventoryMoneyAsync().WaitAsync(token)).Value;
@@ -23,10 +25,15 @@ public sealed class ConfiguredPersonalShopSequence(IKeyboardInput input, Func<in
                 var ui = await Ui();
                 Require(!ui.IsSelling && ui.Editor == null && ui.Listings.Count == 0 && !ui.OtherModalOpen, "已有摊位或登记内容，停止以免混入本次计划。");
                 if (!ui.IsOpen) { await actions.Key("Y"); await actions.Wait(Ui, s => s.IsOpen); }
+                if (advertisementDiscount is { } discount)
+                    await PersonalShopAdvertisement.EnsureAsync(actions, Ui, discount, report);
+                ui = await Ui();
                 if (!ui.InventoryOpen) { await actions.Key("I"); await actions.Wait(Ui, s => s.InventoryOpen); }
                 var registered = new List<PersonalShopListing>();
                 foreach (var entry in batch)
                 {
+                    Require(expectedAdvertisement == null || (await Ui()).AdvertisementText == expectedAdvertisement,
+                        "摊位文字与本次折扣不一致，停止登记。");
                     var item = entry.Item; var price = entry.UnitPrice; Require(price > 0, "摆摊单价必须大于零。");
                     var current = (await Bag()).SingleOrDefault(i => i.InstanceId == item.InstanceId && i.TemplateId == item.TemplateId);
                     Require(current != null && current.Count >= item.Count, "计划摆摊物品已变化。");
@@ -56,7 +63,9 @@ public sealed class ConfiguredPersonalShopSequence(IKeyboardInput input, Func<in
                     var now = bag.SingleOrDefault(i => i.InstanceId == p.Item.InstanceId)?.Count ?? 0;
                     return before >= p.Item.Count && now <= before - p.Item.Count;
                 });
-                await actions.Click(Ui, s => s.StartButton, s => s.IsOpen && !s.IsSelling && s.Editor == null && !s.InventoryOpen && s.Listings.Count == registered.Count && registered.All(s.Listings.Contains));
+                await actions.Click(Ui, s => s.StartButton, s => s.IsOpen && !s.IsSelling && s.Editor == null && !s.InventoryOpen &&
+                    (expectedAdvertisement == null || s.AdvertisementText == expectedAdvertisement) &&
+                    s.Listings.Count == registered.Count && registered.All(s.Listings.Contains));
                 await actions.Wait(Ui, s => s.IsSelling);
                 var started = DateTimeOffset.UtcNow; var nextReport = DateTimeOffset.MinValue;
                 while (true)

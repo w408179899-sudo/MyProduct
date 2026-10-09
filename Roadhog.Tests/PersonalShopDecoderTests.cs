@@ -93,6 +93,45 @@ internal static partial class PersonalShopDecoderTests
         return Task.CompletedTask;
     }
 
+    public static Task AdvertisementAndFaultsAsync()
+    {
+        var m = new Fixture();
+        var state = m.Decoder().Read(Fixture.Game);
+        Require(state.AdvertisementText == "50%" && state.AdvertisementInput == new Roadhog.Core.Model.GameUiPoint(140, 396),
+            "advertisement text and input follow the moved parent geometry");
+        Require(state.AdvertisementBlurPoint == null, "occupied listing cannot be used to release focus");
+        m.U(Fixture.List + 0x370, Fixture.Vector);
+        Require(m.Decoder().Read(Fixture.Game).AdvertisementBlurPoint == new Roadhog.Core.Model.GameUiPoint(56, 170),
+            "blur uses first cell center from current parent and grid layout");
+        m.ShortAddress = Fixture.List + 0x2E0;
+        Reject(() => m.Decoder().Read(Fixture.Game), "short first-cell geometry cannot publish click point");
+        m.ShortAddress = null;
+        m.AdText("");
+        Require(m.Decoder().Read(Fixture.Game).AdvertisementText == "", "valid empty text is published");
+        m.AdText("40%");
+        Require(m.Decoder().Read(Fixture.Game).AdvertisementText == "40%", "changed text publishes immediately");
+        m.U(Fixture.Ad + 0x28, 1);
+        Require(m.Decoder().Read(Fixture.Game).AdvertisementInput == null, "disabled advertisement cannot be clicked");
+        m.U(Fixture.Ad + 0x28, 3);
+        m.I(Fixture.Shop + 0x4D8, 1);
+        Require(m.Decoder().Read(Fixture.Game) is { AdvertisementText: "40%", AdvertisementInput: null }, "selling blocks text editing");
+        m.I(Fixture.Shop + 0x4D8, 0);
+        m.ShortAddress = Fixture.Ad + 0x320;
+        Reject(() => m.Decoder().Read(Fixture.Game), "short advertisement cannot masquerade as empty or correct text");
+        m.ShortAddress = null;
+        var reads = 0;
+        var changed = new InventoryInteractionDecoder((a, n) =>
+        {
+            var bytes = m.Read(a, n);
+            if (a == Fixture.Ad + 0x320 && ++reads > 1) bytes[0] ^= 1;
+            return bytes;
+        });
+        Reject(() => changed.Read(Fixture.Game), "text changes during capture cannot publish mixed state");
+        m.Children(Fixture.Shop, Fixture.Button);
+        Reject(() => m.Decoder().Read(Fixture.Game), "open shop missing advertisement cannot publish empty text");
+        return Task.CompletedTask;
+    }
+
     private static void Require(bool condition, string message) { if (!condition) throw new Exception(message); }
     private static void Reject(Action action, string message)
     {
@@ -102,7 +141,8 @@ internal static partial class PersonalShopDecoderTests
     private sealed class Fixture
     {
         internal const ulong Game = 0x10000000, Shop = 0x20000000, Button = 0x21000000, List = 0x22000000,
-            Vector = 0x23000000, Item = 0x24000000, Head = 0x25000000, Node = 0x26000000;
+            Vector = 0x23000000, Item = 0x24000000, Head = 0x25000000, Node = 0x26000000,
+            Ad = 0x29000000, AdVtable = 0x2A000000, AdGetter = 0x2B000000;
         private readonly Dictionary<ulong, byte> _memory = new();
         internal ulong? ShortAddress;
         internal Fixture()
@@ -111,14 +151,24 @@ internal static partial class PersonalShopDecoderTests
             U(Game + 0xD63ED0, Shop);
             Widget(Shop, "personal_shop_dialog", 28, 120, 324.8, 322.4, 2.4, 13.6);
             Widget(Button, "start", 212, 285.6, 54.4, 20.8, 0, 0);
-            const ulong children = 0x27000000, child = 0x28000000;
-            U(Shop + 0x238, children); U(children, child); U(child, children); U(child + 0x10, Button);
+            Widget(Ad, "ad_editbox", 10, 250, 200, 24, 0, 0);
+            Widget(List, "sell_item_list", 10, 20, 200, 200, 0, 0);
+            D(List + 0x2F0, 32); D(List + 0x2F8, 32);
+            Children(Shop, Button, Ad, List);
+            U(Ad, AdVtable); U(AdVtable + 632, AdGetter);
+            Put(AdGetter, new byte[] { 0x48, 0x8D, 0x81, 0x20, 0x03, 0, 0, 0xC3 });
+            AdText("50%");
             U(Shop + 0x4F0, List); U(Shop + 0x4E0, Head);
             U(List + 0x368, Vector); U(List + 0x370, Vector + 8); U(Vector, Item);
             I(Item + 0xA0, 123); I(Item + 0xA8, 567); U(Item + 0xB0, 26);
             U(Head + 8, Node); I(Node + 0x20, 123); U(Node + 0x28, 1);
         }
         internal InventoryInteractionDecoder Decoder() => new(Read);
+        internal void AdText(string value)
+        {
+            Put(Ad + 0x320, Encoding.Unicode.GetBytes(value));
+            U(Ad + 0x330, (ulong)value.Length); U(Ad + 0x338, 7);
+        }
         internal byte[] Read(ulong a, int n) => Enumerable.Range(0, a == ShortAddress ? n - 1 : n).Select(i => _memory.GetValueOrDefault(a + (ulong)i)).ToArray();
         internal void Put(ulong a, byte[] value) { for (var i = 0; i < value.Length; i++) _memory[a + (ulong)i] = value[i]; }
         internal void U(ulong a, ulong value) => Put(a, BitConverter.GetBytes(value));

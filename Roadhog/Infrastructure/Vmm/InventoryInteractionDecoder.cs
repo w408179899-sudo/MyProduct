@@ -39,6 +39,9 @@ internal sealed partial class InventoryInteractionDecoder(Func<ulong, int, byte[
         var listings = new List<PersonalShopListing>();
         PersonalShopEditor? editor = null;
         GameUiPoint? start = null;
+        string advertisement = "";
+        GameUiPoint? advertisementInput = null;
+        GameUiPoint? advertisementBlur = null;
         var open = false; var selling = false;
         if (shop != 0)
         {
@@ -47,6 +50,16 @@ internal sealed partial class InventoryInteractionDecoder(Func<ulong, int, byte[
             var active = BitConverter.ToUInt32(Guard(shop + 0x4D8, 4));
             Require(active <= 1, "Invalid shop active flag.");
             selling = active == 1;
+            if (open)
+            {
+                var ad = Nodes(shop).SingleOrDefault(n => n.Name == "ad_editbox");
+                Require(ad != null, "Missing personal shop advertisement input.");
+                advertisement = AuctionText(ad!.Address);
+                // Use the existing guarded text decoder and current widget geometry.
+                // The inventory and modal editors can cover this input.
+                Guard(ad.Address + 0x28, 8);
+                if (!bagOpen && !editorVisible && !selling) advertisementInput = ad.Point(this);
+            }
             // The bag can cover Start; price editing and selling make it unavailable.
             if (open && !bagOpen && !editorVisible && !selling)
                 start = Nodes(shop).SingleOrDefault(n => n.Name == "start")?.Point(this);
@@ -69,6 +82,11 @@ internal sealed partial class InventoryInteractionDecoder(Func<ulong, int, byte[
                 listings.Add(new(id, template, quantity, Price(head, id)));
             }
             Require(listings.Select(i => i.InstanceId).Distinct().Count() == listings.Count, "Duplicate listings.");
+            if (open && !bagOpen && !editorVisible && !selling && listings.Count == 0)
+            {
+                var grid = Nodes(shop).SingleOrDefault(n => n.Name == "sell_item_list");
+                if (grid is { Enabled: true }) advertisementBlur = FirstGridCell(grid);
+            }
             var pending = BitConverter.ToUInt32(Guard(shop + 0x510, 4));
             var dialog = GU(shop + 0x520);
             if (dialog != 0 && Visible(dialog))
@@ -95,7 +113,7 @@ internal sealed partial class InventoryInteractionDecoder(Func<ulong, int, byte[
         var stop = open && selling ? Nodes(shop).SingleOrDefault(n => n.Name == "stop")?.Point(this) : null;
         if (otherModal)
         {
-            start = stop = null; bagItems.Clear();
+            start = stop = advertisementInput = advertisementBlur = null; bagItems.Clear();
             if (editor != null) editor = editor with { PriceInput = null, QuantityInput = null, ConfirmButton = null };
             purchase = purchase with { BuyButton = null, Items = purchase.Items.Select(i => i with { Point = null }).ToArray(), HoveredInstanceId = null,
                 Basket = purchase.Basket.Select(i => i with { Point = null }).ToArray(), HoveredBasketInstanceId = null,
@@ -103,7 +121,8 @@ internal sealed partial class InventoryInteractionDecoder(Func<ulong, int, byte[
         }
         VerifyGuards();
         return new(open, selling, bagOpen, bagItems.AsReadOnly(), hover, listings.AsReadOnly(), editor, start)
-        { StopButton = stop, Purchase = purchase, OtherModalOpen = otherModal };
+        { StopButton = stop, Purchase = purchase, OtherModalOpen = otherModal,
+            AdvertisementText = advertisement, AdvertisementInput = advertisementInput, AdvertisementBlurPoint = advertisementBlur };
     }
 
     private (List<InventoryUiItem> Items, uint Hover) ReadBagItems(ulong bag)
@@ -142,6 +161,16 @@ internal sealed partial class InventoryInteractionDecoder(Func<ulong, int, byte[
         }
         Require(bagItems.Select(i => i.InstanceId).Distinct().Count() == bagItems.Count, "Duplicate inventory instances.");
         return (bagItems, hover);
+    }
+
+    private GameUiPoint? FirstGridCell(Node grid)
+    {
+        var layout = Guard(grid.Address + 0x2E0, 0x98);
+        double G(int off) => Number(BitConverter.ToDouble(layout, off - 0x2E0));
+        var w = G(0x2F8); var h = G(0x2F0);
+        Require(w > 0 && h > 0, "Invalid personal shop cell dimensions.");
+        return Point(grid.X + G(0x328) + G(0x340) + w / 2,
+            grid.Y + G(0x330) + G(0x338) + h / 2);
     }
 
     private void VerifyGuards()

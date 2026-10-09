@@ -12,6 +12,9 @@ public sealed record PersonalShopSnapshot(bool IsOpen, bool IsSelling, bool Inve
     IReadOnlyList<PersonalShopListing> Listings, PersonalShopEditor? Editor,
     GameUiPoint? StartButton)
 {
+    public string AdvertisementText { get; init; } = "";
+    public GameUiPoint? AdvertisementInput { get; init; }
+    public GameUiPoint? AdvertisementBlurPoint { get; init; }
     public GameUiPoint? StopButton { get; init; }
     public ShopPurchaseSnapshot Purchase { get; init; } = ShopPurchaseSnapshot.Closed;
     public bool OtherModalOpen { get; init; }

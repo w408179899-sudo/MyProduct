@@ -94,6 +94,42 @@ public sealed class TradingActions(IKeyboardInput input, IRoadhogSnapshotReader 
         await Alive();
         await new FeedbackMouseMover(input, snapshots, delay).MoveAsync(point, token);
     }
+    public async Task Percentage(Func<Task<PersonalShopSnapshot>> read, Func<PersonalShopSnapshot, GameUiPoint?> locate,
+        Func<PersonalShopSnapshot, bool> guard, uint percentage)
+    {
+        await Click(read, locate, guard, RoadhogMouseButton.Left);
+        await Pause(100);
+        var state = await read();
+        Require(guard(state), "清除摊位文字时界面改变。");
+        // This edit box does not reliably support Ctrl+A. Clear only the observed
+        // text, with a confirmed decrease after each Backspace and one focus click.
+        while (state.AdvertisementText.Length > 0)
+        {
+            var length = state.AdvertisementText.Length;
+            await Key("Back");
+            state = await Wait(read, s => guard(s) && s.AdvertisementText.Length < length);
+            await Pause(60);
+        }
+        foreach (var digit in percentage.ToString(System.Globalization.CultureInfo.InvariantCulture))
+        {
+            Require(guard(await read()), "输入摊位文字时界面改变。");
+            await Key("D" + digit);
+            await Pause(100);
+        }
+        Require(guard(await read()), "输入摊位文字时界面改变。");
+        await Key("Space");
+        await Pause(100);
+        try
+        {
+            Check(await input.KeyDownAsync("ShiftKey", token));
+            await Pause(100);
+            Require(guard(await read()), "输入百分号时界面改变。");
+            await Key("D5");
+            await Pause(100);
+        }
+        finally { await input.KeyUpAsync("ShiftKey", CancellationToken.None); }
+        await Pause(100);
+    }
     public async Task Scroll(GameUiPoint point, int delta)
     {
         await Move(point); await Alive(); Check(await input.ScrollMouseAsync(delta, token));

@@ -93,6 +93,12 @@ if (args.Contains("--account-worker"))
     return;
 }
 
+if (args.Contains("--standalone-shop-probe"))
+{
+    Environment.ExitCode = await StandaloneShopLiveProbe.RunAsync(args);
+    return;
+}
+
 if (args.Contains("--personal-shop-probe") || args.Contains("--inventory-discard-probe"))
 {
     Environment.ExitCode = PersonalShopLiveProbe.RunAsync(args).GetAwaiter().GetResult();
@@ -547,6 +553,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("inventory discard production decoder geometry and read faults", PersonalShopDecoderTests.InventoryDiscardGeometryAndFaultsAsync),
     ("personal shop UI button uses unsaved rules and blocks double click", TestPersonalShopButtonAsync),
     ("personal shop production decoder field faults", PersonalShopDecoderTests.DecodeAndFaultsAsync),
+    ("personal shop advertisement geometry text and read faults", PersonalShopDecoderTests.AdvertisementAndFaultsAsync),
+    ("personal shop advertisement mouse focus discount and confirmation", PersonalShopAdvertisementTests.FocusAndConfirmationAsync),
     ("personal shop production batch guards and valid absence", PersonalShopDecoderTests.BatchesAndClosedStateAsync),
     ("personal shop full production sequence and stack quantities", PersonalShopTests.FullSequenceAsync),
     ("personal shop filtering and ten-slot capacity", PersonalShopTests.FilteringAndCapacityAsync),

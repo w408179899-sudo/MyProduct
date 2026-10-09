@@ -49,7 +49,7 @@ public sealed partial class CleanupWorkflowRunner(IKeyboardInput input, ISharedP
             try
             {
                 await DiscountedPersonalShopWorkflow.RunAsync(context.Snapshots, settings.Maintenance,
-                    plan => new ConfiguredPersonalShopSequence(input).RunAsync(context.Snapshots, plan, Report, token),
+                    plan => new ConfiguredPersonalShopSequence(input).RunAsync(context.Snapshots, plan, Report, token, flow.StandaloneShopDiscount),
                     () =>
                     {
                         Report("全部售罄，准备停止并重新启动脚本");
