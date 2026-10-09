@@ -148,7 +148,7 @@ internal static partial class CleanupWorkflowTests
             var count = scenario == "batches" ? 12 : 1;
             var plan = Enumerable.Range(0,count).Select(i => new PlannedShopItem(new InventoryItemSnapshot((uint)(20+i),(ulong)(11+i),"item"+i,3,i,false, VendorSellUnitPrice: (ulong)(17+i)*40),(ulong)(17+i))).ToArray();
             api.InventoryItems = plan.Select(p => scenario == "purchased_merge" ? p.Item with { Count = 8 } : p.Item).ToArray();
-            var state = Shop() with { StartButton = new(700,100), StopButton = new(750,100), AdvertisementText = "50 %", AdvertisementBlurPoint = new(650,200) };
+            var state = Shop() with { StartButton = new(700,100), StopButton = new(750,100), AdvertisementText = new string('5', 36), AdvertisementBlurPoint = new(650,200) };
             bool resumed=false;
             bool down=false; int starts=0, confirms=0, sellingReads=0, settlementReads=0; string typed="",field="";
             PersonalShopListing[]? pendingSale=null;

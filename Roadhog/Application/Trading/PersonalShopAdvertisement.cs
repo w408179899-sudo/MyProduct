@@ -8,7 +8,7 @@ public static class PersonalShopAdvertisement
     public static string Text(int discount)
     {
         if (discount is < 4 or > 9) throw new ArgumentOutOfRangeException(nameof(discount));
-        return (discount * 10).ToString(System.Globalization.CultureInfo.InvariantCulture) + " %";
+        return new string((char)('0' + discount), 36);
     }
 
     public static async Task EnsureAsync(TradingActions actions, Func<Task<PersonalShopSnapshot>> read,
@@ -27,8 +27,8 @@ public static class PersonalShopAdvertisement
                 await actions.Wait(read, s => Idle(s) && !s.InventoryOpen);
             }
             report("设置摊位文字：" + expected);
-            await actions.Percentage(read, s => s.AdvertisementInput,
-                s => Idle(s) && !s.InventoryOpen, (uint)(discount * 10));
+            await actions.AdvertisementDigits(read, s => s.AdvertisementInput,
+                s => Idle(s) && !s.InventoryOpen, expected);
             state = await actions.Wait(read, s => Idle(s) && s.AdvertisementText == expected);
         }
         if (!state.InventoryOpen)
