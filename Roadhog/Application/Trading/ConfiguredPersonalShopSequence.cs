@@ -40,7 +40,8 @@ public sealed class ConfiguredPersonalShopSequence(IKeyboardInput input, Func<in
                     Require(current != null && current.Count >= item.Count, "计划摆摊物品已变化。");
                     report($"摆摊登记：{item.Name}，{item.Count} 个，单价 {price:N0}");
                     GameUiPoint? Locate(PersonalShopSnapshot s) => s.BagItems.SingleOrDefault(i => i.InstanceId == item.InstanceId && i.TemplateId == item.TemplateId && i.Quantity == current!.Count)?.Point;
-                    await actions.Move(Locate(await Ui()) ?? throw new InvalidOperationException("摆摊物品不在可见背包中。"));
+                    await new Roadhog.Application.Input.InventoryItemMouseMover(input, snapshots, delay)
+                        .MoveAsync(Locate(await Ui()) ?? throw new InvalidOperationException("摆摊物品不在可见背包中。"), token, actions.Alive);
                     await actions.Wait(Ui, s => s.HoveredInstanceId == item.InstanceId);
                     await actions.Click(Ui, Locate, s => s.IsOpen && !s.IsSelling && s.Editor == null && s.InventoryOpen && !s.OtherModalOpen && s.HoveredInstanceId == item.InstanceId, RoadhogMouseButton.Right);
                     bool Editor(PersonalShopSnapshot s) => s.IsOpen && !s.IsSelling && !s.OtherModalOpen && s.Editor?.InstanceId == item.InstanceId;

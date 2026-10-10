@@ -532,6 +532,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("food maintenance catalog categories and lowest usable rank", FoodMaintenanceTests.CatalogAsync),
     ("food maintenance provider decode and field-aware publication", FoodMaintenanceTests.ProviderAsync),
     ("food maintenance input guards confirmation and cancellation", FoodMaintenanceTests.SequenceAsync),
+    ("inventory item mouse reset fixed point hover exit guards stop and legacy entries", InventoryItemMouseMoverTests.ResetAndGuardsAsync),
     ("food maintenance post-combat scheduling and persistence", FoodMaintenanceTests.ControllerAsync),
     ("food maintenance editor checkboxes round trip", FoodMaintenanceTests.UiAsync),
     ("food maintenance actual worker waits for combat to end", FoodMaintenanceTests.WorkerAsync),
@@ -1279,11 +1280,14 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ("cleanup workflow warehouse ownership quantity and cancellation", CleanupWorkflowTests.WarehousePurchaseAsync),
     ("cleanup workflow configured stall batches sale proof and purchased goods", CleanupWorkflowTests.ConfiguredStallAsync)
     ,("grocery shop configuration daily scheduling and exclusive requests", GroceryShopTests.ConfigurationAndScheduleAsync)
+    ,("grocery shop schedule never early with absent old and current success records", GroceryShopTests.ScheduleNeverEarlyAsync)
+    ,("grocery shop schedule observed retries midnight reset and session isolation", GroceryShopTests.ScheduleObservedRetriesAsync)
     ,("grocery shop backpack exhausts discard rechecks capacity and protects scroll", GroceryShopTests.BackpackDiscardGateAsync)
     ,("grocery shop backpack discard failures attack death stop and retry block departure", GroceryShopTests.BackpackDiscardInterruptionAsync)
     ,("grocery shop backpack worker retries local failure resumes combat without stall", GroceryShopTests.BackpackDiscardWorkerRetryAsync)
     ,("grocery shop actual sellout persistence restart and account isolation", GroceryShopTests.SuccessPersistenceAsync)
     ,("grocery shop scroll confirmation attack loading timeout death and cancellation", GroceryShopTests.ReturnConfirmationAsync)
+    ,("grocery shop unknown return interruption bounded retry missing moved item loading combat and stop", GroceryShopTests.UnknownReturnInterruptionRetryAsync)
     ,("grocery shop missing scroll empty plan and invalid route guards", GroceryShopTests.FlowGuardsAsync)
     ,("grocery shop actual discounted sellout protects scroll and persists before restart", GroceryShopTests.SaleCompletionAsync)
     ,("grocery shop worker returns to combat retries bag and schedule then signals restart", GroceryShopTests.WorkerRetryAndCompletionAsync)
@@ -9387,11 +9391,11 @@ static async Task TestRuntimeRegistersConfiguredBagCleanupSellItemsAsync()
         AssertSequence(
             new[]
             {
-                "move:-2000,-2000", "move:30,86", "down:Right", "up:Right",
-                "move:-2000,-2000", "move:357,157", "down:Right", "up:Right",
-                "move:-2000,-2000", "move:234,237", "down:Right", "up:Right",
-                "move:-2000,-2000", "move:357,308", "down:Right", "up:Right",
-                "move:-2000,-2000", "move:357,455", "down:Right", "up:Right"
+                "move:-2000,-2000", "move:680,468", "move:-650,-382", "down:Right", "up:Right",
+                "move:-2000,-2000", "move:680,468", "move:-323,-311", "down:Right", "up:Right",
+                "move:-2000,-2000", "move:680,468", "move:-446,-231", "down:Right", "up:Right",
+                "move:-2000,-2000", "move:680,468", "move:-323,-160", "down:Right", "up:Right",
+                "move:-2000,-2000", "move:680,468", "move:-323,-13", "down:Right", "up:Right"
             },
             keyboard.MouseCommands.ToArray(),
             "fixed top-left registration should use the calibrated bag points");
@@ -9418,7 +9422,7 @@ static async Task TestRuntimeRegistersConfiguredBagCleanupSellItemsAsync()
             gameApi.LastInventoryWindowRectSource ?? InventoryWindowRectSource.LegacyDialogRect,
             "experimental registration should request root widget Rect");
         AssertSequence(
-            new[] { "move:-2000,-2000", "move:430,276", "down:Right", "up:Right" },
+            new[] { "move:-2000,-2000", "move:680,468", "move:-250,-192", "down:Right", "up:Right" },
             keyboard.MouseCommands.ToArray(),
             "experimental sell registration should use the window-relative bag point");
     }

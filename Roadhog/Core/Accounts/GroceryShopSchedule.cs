@@ -10,19 +10,22 @@ public static class GroceryShopSchedule
             .Distinct().Order().Select(t => t.ToString("HH:mm", CultureInfo.InvariantCulture)).ToArray();
     }
 
-    // Daily schedules use China time. A late sellout covers all earlier due slots,
-    // including those that occurred while the account was still selling.
+    // Generate only today's elapsed slots. Carry an earlier slot only when the
+    // running worker actually observed it; never infer a missed trip from yesterday.
     public static DateTimeOffset? LatestDue(CleanupWorkflowSettings settings, DateTimeOffset now,
-        DateTimeOffset? lastSoldOut)
+        DateTimeOffset? lastSoldOut, DateTimeOffset? pendingDue = null)
     {
         if (settings.Mode != CleanupMode.GroceryShop || !settings.GroceryScheduleEnabled) return null;
         var local = now.ToOffset(TimeSpan.FromHours(8));
-        DateTimeOffset? latest = null;
-        foreach (var text in Normalize(settings.GroceryScheduleTimes))
+        var times = Normalize(settings.GroceryScheduleTimes);
+        DateTimeOffset? latest = pendingDue.HasValue && pendingDue <= local &&
+            times.Contains(pendingDue.Value.ToOffset(local.Offset).ToString("HH:mm", CultureInfo.InvariantCulture))
+            ? pendingDue : null;
+        foreach (var text in times)
         {
             var time = TimeOnly.ParseExact(text, "HH:mm", CultureInfo.InvariantCulture);
             var candidate = new DateTimeOffset(local.Year, local.Month, local.Day, time.Hour, time.Minute, 0, local.Offset);
-            if (candidate > local) candidate = candidate.AddDays(-1);
+            if (candidate > local) continue;
             if (latest == null || candidate > latest) latest = candidate;
         }
         return latest.HasValue && (!lastSoldOut.HasValue || latest > lastSoldOut) ? latest : null;

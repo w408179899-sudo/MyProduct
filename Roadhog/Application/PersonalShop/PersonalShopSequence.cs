@@ -50,9 +50,7 @@ public sealed class PersonalShopSequence(IKeyboardInput input, IRoadhogLogger lo
                 GameUiPoint? Locate(PersonalShopSnapshot value) => value.BagItems.SingleOrDefault(i =>
                     i.InstanceId == item.InstanceId && i.TemplateId == item.TemplateId && i.Quantity == item.Count)?.Point;
                 var point = Locate(ui) ?? throw new InvalidOperationException("物品不在可见背包格子中。");
-                // Reopening inventory can leave hover empty until a real mouse event arrives.
-                await Move(new(point.X + (point.X >= 5 ? -5 : 5), point.Y + (point.Y >= 5 ? -5 : 5)));
-                await Move(point);
+                await new Roadhog.Application.Input.InventoryItemMouseMover(input, snapshots, delay).MoveAsync(point, token);
                 await Pause(350, token);
                 await Click(Locate, RoadhogMouseButton.Right, u => u.HoveredInstanceId == item.InstanceId && u.IsOpen && !u.IsSelling && u.Editor == null);
                 await Pause(300, token);

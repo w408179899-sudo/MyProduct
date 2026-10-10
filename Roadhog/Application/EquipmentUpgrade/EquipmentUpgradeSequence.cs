@@ -132,7 +132,7 @@ public sealed class EquipmentUpgradeSequence(IKeyboardInput input, IRoadhogLogge
                     ?? throw new InvalidOperationException("目标物品不在可见背包内或数量已变化。");
             }
             var point = Locate(await Ui());
-            await mover.MoveAsync(point, token); await Pause(180, token);
+            await new InventoryItemMouseMover(input, snapshots, delay).MoveAsync(point, token); await Pause(180, token);
             var value = await Ui();
             Require(Locate(value) == point && value.HoveredInstanceId == item.InstanceId, "鼠标悬停物品与目标不符。");
             await Click(point, button);

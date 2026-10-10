@@ -70,6 +70,7 @@ internal static class FoodMaintenanceTests
     {
         var game = new Simulation();
         Check(await game.Run(), "use confirms category status");
+        Check(game.CursorVisits.Contains(new GameUiPoint(680, 468)), "drink approaches via fixed reset point");
         Check(game.Clicks == 1 && !game.Open && game.Input.Keys.SequenceEqual(new[] { "I", "I" }), "one click and restore bag");
         Check(game.Input.MouseCommands.Count(c => c == "up:Right") == 1, "single click releases right mouse");
         Check(!await game.Run() && game.Clicks == 1, "existing same-category status never consumes again");
@@ -162,6 +163,8 @@ internal static class FoodMaintenanceTests
             catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
             var interrupted = scenario is "combat-after-drink" or "cancel-after-drink";
             Check(batch.Clicks == (interrupted ? 1 : 2), scenario + " respects per-item safety");
+            Check(batch.CursorVisits.Count(p => p == new GameUiPoint(680, 468)) == batch.Clicks,
+                "each drink and food bag click first visits fixed point");
             var keys = scenario == "already-open" ? Array.Empty<string>() :
                 scenario == "cancel-after-drink" ? new[] { "I" } : new[] { "I", "I" };
             Check(batch.Input.Keys.SequenceEqual(keys), scenario + " opens and closes at most once per round");
@@ -351,6 +354,7 @@ internal static class FoodMaintenanceTests
         public int Clicks;
         public bool RequireHoverReentry;
         public bool LeftItem;
+        public readonly List<GameUiPoint> CursorVisits = new();
         private bool hoverRefreshed;
         public int Hotkeys;
         public string Failure = "";
@@ -382,6 +386,7 @@ internal static class FoodMaintenanceTests
             Input.AfterMove = (x, y) =>
             {
                 Api.InventoryUiCursor = new(Api.InventoryUiCursor.X + x, Api.InventoryUiCursor.Y + y);
+                CursorVisits.Add(Api.InventoryUiCursor);
                 if (RequireHoverReentry)
                 {
                     if (Math.Abs(Api.InventoryUiCursor.X - 100) > 32 || Math.Abs(Api.InventoryUiCursor.Y - 100) > 32) LeftItem = true;

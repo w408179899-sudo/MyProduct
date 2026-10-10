@@ -597,8 +597,8 @@ public sealed partial class RoadhogRuntime : IRoadhogRuntime
                 ["rectSource"] = coordinateWindow?.RectSource.ToString() ?? InventoryWindowRectSource.LegacyDialogRect.ToString()
             });
 
-            var move = await ScreenPointMouseMover
-                .MoveToAsync(
+            var move = await InventoryItemMouseMover
+                .MoveScreenPointAsync(
                     _keyboardInput,
                     point.X,
                     point.Y,

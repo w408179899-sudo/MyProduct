@@ -129,7 +129,7 @@ public sealed class AuctionHouseTestSequence(IKeyboardInput input, IRoadhogLogge
                 var bag = (await snapshots.ReadInventoryInteractionAsync().WaitAsync(token)).Value;
                 var entry = bag.Items.SingleOrDefault(i => i.InstanceId == item.InstanceId && i.TemplateId == item.TemplateId && i.Quantity == item.Count)
                     ?? throw new InvalidOperationException("目标物品不在可见背包中。");
-                await new FeedbackMouseMover(input, snapshots, delay).MoveAsync(entry.Point, token);
+                await new InventoryItemMouseMover(input, snapshots, delay).MoveAsync(entry.Point, token, CheckPlayer);
                 bool MatchesBag(InventoryInteractionSnapshot s) => s.IsOpen && !s.OtherModalOpen && s.DiscardDialog == null &&
                     !s.ShopIsOpen && !s.IsSelling && s.HoveredInstanceId == item.InstanceId && s.Items.Contains(entry);
                 await WaitBag(MatchesBag);

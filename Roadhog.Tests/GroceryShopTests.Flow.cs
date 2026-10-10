@@ -47,12 +47,15 @@ internal static partial class GroceryShopTests
         public string Scenario = "success";
         public int ScrollClicks, Follows, Confirms, ShopStarts, Discards;
         public readonly List<string> Events = new();
+        public readonly List<GameUiPoint> CursorVisits = new();
+        public Action? AfterScrollClick;
         public bool FailDiscard;
         public bool AllowPreDiscard;
         public Action? AfterPreDiscardClose;
         public DateTimeOffset? FirstDiscardAt;
         private uint heldDiscard, pendingDiscard;
         private bool down;
+        private int lastRightClickVisit;
         private DateTimeOffset? castAt;
         private string field = "", typed = "";
         private int sellingReads;
@@ -70,7 +73,11 @@ internal static partial class GroceryShopTests
             settings.Paths.GroceryStallPathName = Route.Name;
             settings.Paths.GroceryReturnItemName = "伏魔殿回程卷轴";
             Api.InventoryItems = new[] { new InventoryItemSnapshot(1, 11, settings.Paths.GroceryReturnItemName, 2, 0, false), new InventoryItemSnapshot(2, 12, "goods", 3, 1, false, VendorSellUnitPrice: 20000) };
-            Input.AfterMove = (x, y) => Api.InventoryUiCursor = new(Api.InventoryUiCursor.X + x, Api.InventoryUiCursor.Y + y);
+            Input.AfterMove = (x, y) =>
+            {
+                Api.InventoryUiCursor = new(Api.InventoryUiCursor.X + x, Api.InventoryUiCursor.Y + y);
+                CursorVisits.Add(Api.InventoryUiCursor);
+            };
             Api.TransitionRead = () =>
             {
                 if (castAt.HasValue)
@@ -137,6 +144,11 @@ internal static partial class GroceryShopTests
             };
             Input.AfterMouseDown = button =>
             {
+                if (button == RoadhogMouseButton.Right)
+                {
+                    Check(CursorVisits.Skip(lastRightClickVisit).Contains(new(680, 468)), "every scroll or stall bag click first visits fixed point");
+                    lastRightClickVisit = CursorVisits.Count;
+                }
                 down = true;
                 if (button == RoadhogMouseButton.Left && !shop.IsOpen && pendingDiscard == 0)
                     heldDiscard = Cells().FirstOrDefault(i => i.Point == Api.InventoryUiCursor)?.InstanceId ?? 0;
@@ -148,7 +160,8 @@ internal static partial class GroceryShopTests
                 if (button == RoadhogMouseButton.Right)
                 {
                     var item = Api.InventoryItems.Single(i => point == new GameUiPoint(400 + i.Slot * 20, 300));
-                    if (item.Name == settings.Paths.GroceryReturnItemName) { ScrollClicks++; castAt = Now; Events.Add("scroll"); }
+                    if (item.Name == settings.Paths.GroceryReturnItemName)
+                    { ScrollClicks++; castAt = Now; Events.Add("scroll"); AfterScrollClick?.Invoke(); }
                     else shop = shop with { Editor = new((uint)item.InstanceId, true, 1, item.Count, item.Count, new(500, 100), new(600, 100)) { QuantityInput = new(550, 100) } };
                 }
                 else if (heldDiscard != 0 && point == new GameUiPoint(500, 380))
@@ -213,7 +226,8 @@ internal static partial class GroceryShopTests
             catch (GroceryTripDepartureFailedException) when (scenario == "timeout") { }
             catch (CleanupDeathInterruptionException) when (scenario == "death") { }
             catch (OperationCanceledException) when (scenario is "cancel" or "wrong_landing") { }
-            Check(trip.ScrollClicks == 1, "never replay scroll within one attempt: " + scenario);
+            Check(trip.ScrollClicks == (scenario == "timeout" ? GroceryReturnSequence.MaxScrollClicks : 1),
+                "retry only cancelled non-departures, never loading or combat: " + scenario);
             Check(trip.Input.KeyUps.Contains("ControlKey") && trip.Input.MouseCommands.Last() == "up:Right", "always release held inputs: " + scenario);
             if (scenario is "attack" or "hp_attack" or "timeout") Check(!trip.BagOpen && trip.Input.Keys.Contains("Escape"), "cancel cast and close bag before normal combat");
             if (scenario == "slow_loading") Check(!trip.Input.Keys.Contains("Escape"), "stale attackers cannot cancel after loading starts");
@@ -281,7 +295,8 @@ internal static partial class GroceryShopTests
             catch (GroceryTripDepartureFailedException) when (scenario == "timeout") { }
             catch (CleanupDeathInterruptionException) when (scenario == "death") { }
             catch (OperationCanceledException) when (scenario == "cancel") { }
-            Check(trip.ScrollClicks == 1 && trip.Discards == 0 && trip.Follows == 0 && trip.ShopStarts == 0 && trip.Success.Saves == 0,
+            Check(trip.ScrollClicks == (scenario == "timeout" ? GroceryReturnSequence.MaxScrollClicks : 1) &&
+                trip.Discards == 0 && trip.Follows == 0 && trip.ShopStarts == 0 && trip.Success.Saves == 0,
                 "unsuccessful recall cannot discard, walk, sell or record success: " + scenario);
             Check(trip.Api.InventoryItems.Any(i => i.Name == "junk0") && !trip.Events.Contains("discard"), "discard candidates survive interrupted recall");
         }
@@ -320,6 +335,46 @@ internal static partial class GroceryShopTests
         try { await failed.Runner().RunAsync(failedContext, failedContext.CleanupRequests.Current!); throw new Exception("save failure ignored"); }
         catch (IOException) { }
         Check(!failedContext.CleanupRequests.Current!.SoldOutConfirmed && !failedContext.CleanupRequests.Current.RequestsRestart && failed.Success.Saves == 0, "record failure cannot falsely complete or restart");
+    }
+
+    public static async Task ScheduleObservedRetriesAsync()
+    {
+        using var trip = new Trip();
+        var context = trip.Context; var runner = trip.Runner();
+        var flow = trip.Config.ScriptSettings!.Maintenance.CleanupWorkflow;
+        flow.GroceryScheduleEnabled = true;
+        flow.GroceryScheduleTimes = new() { "10:10" };
+        Check(!await runner.GroceryScheduleDueAsync(context, At(10, 1)), "script3 reproduction: no completion record and future 10:10 cannot depart at 10:01");
+        Check(trip.Logger.Entries.All(e => e.EventName != "grocery_shop.schedule.due"), "future schedule does not create a due event");
+        Check(await runner.GroceryScheduleDueAsync(context, At(10, 10)), "exact minute creates today's pending task");
+        Check(await runner.GroceryScheduleDueAsync(context, At(10, 11)), "failed or missing-scroll attempt does not consume pending time");
+        Check(trip.Logger.Entries.Count(e => e.EventName == "grocery_shop.schedule.due") == 1 &&
+            Equals(trip.Logger.Entries.Single(e => e.EventName == "grocery_shop.schedule.due").Fields["dueAt"], At(10, 10)),
+            "log actual due date once instead of logging every retry");
+        Check(await runner.GroceryScheduleDueAsync(context, At(0).AddDays(1)), "running session preserves actually observed task across midnight");
+        Check(!await runner.GroceryScheduleDueAsync(trip.Context, At(0).AddDays(1)), "new worker session cannot invent yesterday's task from absent success");
+        flow.GroceryScheduleEnabled = false;
+        Check(!await runner.GroceryScheduleDueAsync(context, At(0).AddDays(1)), "disable cancels pending scheduling");
+        flow.GroceryScheduleEnabled = true;
+        Check(!await runner.GroceryScheduleDueAsync(context, At(0).AddDays(1)), "re-enable before first daily time does not resurrect yesterday");
+        Check(await runner.GroceryScheduleDueAsync(context, At(10, 10).AddDays(1)), "next daily time triggers normally");
+        flow.GroceryScheduleTimes = new() { "12:00", "19:00" };
+        Check(!await runner.GroceryScheduleDueAsync(context, At(10, 11).AddDays(1)), "replacing time drops removed pending slot rather than making new future slots due");
+        Check(await runner.GroceryScheduleDueAsync(context, At(12).AddDays(1)), "new first time becomes due at noon");
+        Check(await runner.GroceryScheduleDueAsync(context, At(19).AddDays(1)), "new later due slot coalesces existing retry");
+        trip.Success.Last = At(20).AddDays(1);
+        Check(!await runner.GroceryScheduleDueAsync(context, At(20).AddDays(1)), "actual 20h completion covers both 12h and 19h pending slots");
+        Check(!await runner.GroceryScheduleDueAsync(context, At(0).AddDays(2)), "completed slots do not return across midnight");
+        Check(await runner.GroceryScheduleDueAsync(context, At(12).AddDays(2)), "actual success does not suppress next day's schedule");
+        flow.Mode = CleanupMode.Normal;
+        Check(!await runner.GroceryScheduleDueAsync(context, At(0).AddDays(3)), "normal cleanup clears grocery pending scheduling");
+        flow.Mode = CleanupMode.GroceryShop;
+        Check(!await runner.GroceryScheduleDueAsync(context, At(0).AddDays(3)), "switching back before first time cannot infer a past-day task");
+        Check(trip.Success.Saves == 0 && trip.ScrollClicks == 0 && trip.Input.MouseCommands.Count == 0,
+            "schedule observation neither records success nor sends game input");
+        trip.Stop.Cancel();
+        try { await runner.GroceryScheduleDueAsync(context, At(12).AddDays(3)); throw new Exception("stopped schedule observation accepted"); }
+        catch (OperationCanceledException) { }
     }
 
     public static async Task WorkerRetryAndCompletionAsync()

@@ -2,19 +2,31 @@ using Roadhog.Application.BagCleanup;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Model;
+using System.Runtime.CompilerServices;
 using static Roadhog.Application.Trading.TradingActions;
 
 namespace Roadhog.Application.Trading;
 
 public sealed partial class CleanupWorkflowRunner
 {
+    private sealed class GroceryScheduleState { public DateTimeOffset? PendingDue; }
+    private readonly ConditionalWeakTable<AccountWorkerContext, GroceryScheduleState> groceryScheduleStates = new();
+
     public async Task<bool> GroceryScheduleDueAsync(AccountWorkerContext context, DateTimeOffset now)
     {
         var settings = context.Config.ScriptSettings!.Maintenance.CleanupWorkflow;
-        if (settings.Mode != CleanupMode.GroceryShop || !settings.GroceryScheduleEnabled) return false;
+        if (settings.Mode != CleanupMode.GroceryShop || !settings.GroceryScheduleEnabled)
+        { groceryScheduleStates.Remove(context); return false; }
         Require(grocerySuccessStore != null, "杂货摆摊成功记录存储未配置。");
         var last = await grocerySuccessStore!.LoadAsync(context.Config.InstanceId, context.StopToken);
-        return GroceryShopSchedule.LatestDue(settings, now, last) != null;
+        context.StopToken.ThrowIfCancellationRequested();
+        var state = groceryScheduleStates.GetValue(context, _ => new());
+        var due = GroceryShopSchedule.LatestDue(settings, now, last, state.PendingDue);
+        if (due.HasValue && due != state.PendingDue)
+            context.Logger.Info("grocery_shop.schedule.due", new Dictionary<string, object?>
+                { ["account"] = context.Config.AccountName, ["dueAt"] = due.Value, ["now"] = now, ["lastSoldOut"] = last });
+        state.PendingDue = due;
+        return due.HasValue;
     }
 
     private async Task RunGroceryShopAsync(AccountWorkerContext context, CleanupRequest request, Action<string> report)

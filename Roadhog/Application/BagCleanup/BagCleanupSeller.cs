@@ -235,8 +235,8 @@ public sealed class BagCleanupSeller
                 ["rectSource"] = window?.RectSource.ToString() ?? InventoryWindowRectSource.LegacyDialogRect.ToString()
             });
 
-            var move = await ScreenPointMouseMover
-                .MoveToAsync(
+            var move = await InventoryItemMouseMover
+                .MoveScreenPointAsync(
                     _input,
                     point.X,
                     point.Y,

@@ -159,7 +159,8 @@ public sealed class TradingActions(IKeyboardInput input, IRoadhogSnapshotReader 
         Require(await guard(), "登记前交易页面变化。");
         GameUiPoint? Locate(InventoryInteractionSnapshot s) => s.Items.SingleOrDefault(i => i.InstanceId == item.InstanceId && i.TemplateId == item.TemplateId && i.Quantity == item.Count)?.Point;
         var point = Locate(await Bag()) ?? throw new InvalidOperationException("目标物品不在可见背包中。");
-        await new FeedbackMouseMover(input, snapshots, delay).MoveAsync(point, token);
+        await new InventoryItemMouseMover(input, snapshots, delay).MoveAsync(point, token,
+            async () => { await Alive(); Require(await guard(), "移动到物品前交易页面变化。"); });
         await Wait(Bag, s => s.HoveredInstanceId == item.InstanceId);
         Require(await guard(), "登记前交易页面变化。");
         async Task<InventoryInteractionSnapshot> GuardedBag()
