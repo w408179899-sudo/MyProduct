@@ -49,12 +49,16 @@ internal static partial class GroceryShopTests
         public readonly List<string> Events = new();
         public readonly List<GameUiPoint> CursorVisits = new();
         public Action? AfterScrollClick;
+        public Action<int>? BeforeDelay;
         public bool FailDiscard;
+        public int HoverFailuresRemaining;
+        public int HoverFailureAfterDiscards;
         public bool AllowPreDiscard;
         public Action? AfterPreDiscardClose;
         public DateTimeOffset? FirstDiscardAt;
         private uint heldDiscard, pendingDiscard;
         private bool down;
+        private bool failingHover;
         private int lastRightClickVisit;
         private DateTimeOffset? castAt;
         private string field = "", typed = "";
@@ -106,8 +110,17 @@ internal static partial class GroceryShopTests
                 return new(true, Api.Player, Api.Channel, Now);
             };
             InventoryUiItem[] Cells() => Api.InventoryItems.Select(i => new InventoryUiItem((uint)i.InstanceId, i.TemplateId, i.Count, new(400 + i.Slot * 20, 300))).ToArray();
-            Api.InventoryInteractionRead = () => new(shop.InventoryOpen, false, false, Cells(), Cells().FirstOrDefault(i => i.Point == Api.InventoryUiCursor)?.InstanceId ?? 0,
-                pendingDiscard, pendingDiscard == 0 ? null : new(pendingDiscard, InventoryDiscardConfirmKind.Normal, 356, new(800, 380), null), new(500, 380), false);
+            Api.InventoryInteractionRead = () =>
+            {
+                var cells = Cells();
+                var hovered = cells.FirstOrDefault(i => i.Point == Api.InventoryUiCursor)?.InstanceId ?? 0;
+                if (!failingHover && shop.InventoryOpen && HoverFailuresRemaining > 0 && hovered >= 100 &&
+                    Discards >= HoverFailureAfterDiscards && Events.Contains("sold_out"))
+                { HoverFailuresRemaining--; failingHover = true; }
+                if (failingHover) hovered = 0;
+                return new(shop.InventoryOpen, false, false, cells, hovered,
+                    pendingDiscard, pendingDiscard == 0 ? null : new(pendingDiscard, InventoryDiscardConfirmKind.Normal, 356, new(800, 380), null), new(500, 380), false);
+            };
             Api.PersonalShopRead = () =>
             {
                 if (shop.IsSelling && ++sellingReads == 5)
@@ -130,6 +143,7 @@ internal static partial class GroceryShopTests
                 if (key == "I")
                 {
                     shop = shop with { InventoryOpen = !shop.InventoryOpen };
+                    if (!shop.InventoryOpen) failingHover = false;
                     if (shop.InventoryOpen) Events.Add("open_bag");
                     else if (AllowPreDiscard && ScrollClicks == 0 && Events.Contains("pre_discard")) AfterPreDiscardClose?.Invoke();
                 }
@@ -203,7 +217,7 @@ internal static partial class GroceryShopTests
             Api.InventoryItems = Api.InventoryItems.Concat(Enumerable.Range(0, count)
                 .Select(i => new InventoryItemSnapshot((uint)(100 + i), (uint)(100 + i), "junk" + i, 1, 2 + i, false))).ToArray();
         }
-        public Task Delay(int ms, CancellationToken token) { token.ThrowIfCancellationRequested(); Now = Now.AddMilliseconds(ms); return Task.CompletedTask; }
+        public Task Delay(int ms, CancellationToken token) { BeforeDelay?.Invoke(ms); token.ThrowIfCancellationRequested(); Now = Now.AddMilliseconds(ms); return Task.CompletedTask; }
         public CleanupWorkflowRunner Runner() => new(Input, new InMemorySharedPathStore(Route), (_, name, points) =>
         {
             Check(Api.Channel.MapId == Route.MapId && !BagOpen && points.SequenceEqual(Route.Points.Select(p => p.ToVector3())), "confirm landing and close bag before full ordered route");
@@ -273,8 +287,15 @@ internal static partial class GroceryShopTests
         trip.AddDiscardCandidates();
         var context = trip.Context;
         context.CleanupRequests.Request(trip.Config.ScriptSettings!, true, groceryTrigger: GroceryShopTrigger.Manual);
-        try { await trip.Runner().RunAsync(context, context.CleanupRequests.Current!); throw new Exception("discard failure ignored"); }
-        catch (InvalidOperationException) { }
+        trip.BeforeDelay = ms =>
+        {
+            if (ms != 2000 || !trip.Logger.Entries.Any(e => e.EventName == "grocery_shop.final_discard.retry")) return;
+            Check(!context.CleanupRequests.Current!.RequestsRestart && !trip.BagOpen,
+                "persistent failure remains pending after cancelling input and closing the bag");
+            trip.Stop.Cancel();
+        };
+        try { await trip.Runner().RunAsync(context, context.CleanupRequests.Current!); throw new Exception("discard retry ignored cancellation"); }
+        catch (OperationCanceledException) { }
         Check(trip.Events.Contains("sold_out") && trip.Success.Last >= At(20) && trip.Success.Last == trip.FirstDiscardAt && trip.Success.Saves == 1,
             "discard failure retains the actual successful sale record");
         Check(trip.Discards == 0 && trip.Api.InventoryItems.Any(i => i.Name == "junk0") && !trip.BagOpen &&

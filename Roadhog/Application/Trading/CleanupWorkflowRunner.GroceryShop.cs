@@ -87,7 +87,7 @@ public sealed partial class CleanupWorkflowRunner
             var soldOutAt = groceryClock?.Invoke() ?? DateTimeOffset.UtcNow;
             await grocerySuccessStore!.RecordAsync(context.Config.InstanceId, soldOutAt, token);
             report("杂货摆摊全部售罄，开始按配置丢弃剩余背包物品");
-            await new BagCleanupController(input, paths, executePath).RunDiscardRequestedAsync(context, report);
+            await RunPostSaleDiscardAsync(context, report);
             token.ThrowIfCancellationRequested();
             request.SoldOutConfirmed = true;
             report("杂货摆摊售罄时间已保存，丢弃完成，准备停止并重新启动脚本");
@@ -95,6 +95,32 @@ public sealed partial class CleanupWorkflowRunner
                 { ["account"] = context.Config.AccountName, ["soldOutAt"] = soldOutAt });
         }
         finally { await actions.Reset(); }
+    }
+
+    private async Task RunPostSaleDiscardAsync(AccountWorkerContext context, Action<string> report)
+    {
+        var cleanup = new BagCleanupController(input, paths, executePath);
+        var token = context.StopToken;
+        var retry = 0;
+        while (true)
+        {
+            token.ThrowIfCancellationRequested();
+            try
+            {
+                // Each attempt re-reads the bag; already discarded items cannot be selected again.
+                await cleanup.RunDiscardRequestedAsync(context, report);
+                return;
+            }
+            catch (Exception ex) when (!token.IsCancellationRequested &&
+                ex is not (OperationCanceledException or CleanupCombatInterruptionException or CleanupDeathInterruptionException))
+            {
+                // The discard controller cancels pending input and closes the bag before returning failure.
+                context.Logger.Warn("grocery_shop.final_discard.retry", new Dictionary<string, object?>
+                { ["account"] = context.Config.AccountName, ["retry"] = ++retry, ["error"] = ex.Message });
+                report("售空后丢弃未完成，2 秒后重试剩余物品");
+                await (groceryDelay?.Invoke(2000, token) ?? Task.Delay(2000, token));
+            }
+        }
     }
 
     private async Task<IReadOnlyList<InventoryItemSnapshot>?> PrepareBackpackGroceryAsync(AccountWorkerContext context, CleanupRequest request, Action<string> report)
