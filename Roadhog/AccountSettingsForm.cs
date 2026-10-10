@@ -1961,7 +1961,8 @@ namespace Roadhog
                 Name = "pathTabs",
                 SelectedIndex = 0,
                 Size = new Size(850, 462),
-                SizeMode = TabSizeMode.Fixed
+                SizeMode = TabSizeMode.Normal,
+                Padding = new Point(18, 3)
             };
 
             pathTabs.DrawItem += GreenTabs_DrawItem;
@@ -1970,7 +1971,7 @@ namespace Roadhog
             pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Maintenance, "清包路径", "清包路径", false));
             pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Gather, "采集路径", "采集路线点配置", false));
             pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Auction, "拍卖行路径", "从挂机点到交易中介，完成后原路返回", false));
-            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Stall, "摆摊路径", "从挂机点到仓库 / 摆摊位置，完成后回城走复活路径", false));
+            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Stall, "转移到仓库号路径", "从挂机点到仓库 / 摆摊位置，完成后回城走复活路径", false));
             pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.GroceryStall, "杂货摆摊路径", "使用所选卷轴回程，确认落点后走到终点摆摊", false));
             page.Controls.Add(pathTabs);
             page.AutoScroll = true;
@@ -3595,21 +3596,7 @@ namespace Roadhog
 
             BuildStandaloneShopControls(rulesPanel);
 
-            bagCleanupWhitelistRadio = AddRadioButton(namesPanel, "不丢弃", 0, 0, 128, true);
-            bagCleanupWhitelistRadio.Name = "bagCleanupWhitelistRadio";
-            bagCleanupBlacklistRadio = AddRadioButton(namesPanel, "丢弃", 128, 0, 112, false);
-            bagCleanupBlacklistRadio.Name = "bagCleanupBlacklistRadio";
-            bagCleanupSellRadio = AddRadioButton(namesPanel, "出售", 240, 0, 54, false);
-            bagCleanupSellRadio.Name = "bagCleanupSellRadio";
-            bagCleanupSellRadio.CheckedChanged += (_, _) => RefreshBagCleanupNameListEditor();
-            bagCleanupStallRadio = AddRadioButton(namesPanel, "摆摊", 354, 0, 54, false);
-            bagCleanupStallRadio.Name = "bagCleanupStallRadio";
-            bagCleanupAuctionHouseRadio = AddRadioButton(namesPanel, "拍卖行", 294, 0, 60, false);
-            bagCleanupAuctionHouseRadio.Name = "bagCleanupAuctionHouseRadio";
-            bagCleanupWhitelistRadio.CheckedChanged += (_, _) => RefreshBagCleanupNameListEditor();
-            bagCleanupBlacklistRadio.CheckedChanged += (_, _) => RefreshBagCleanupNameListEditor();
-            bagCleanupStallRadio.CheckedChanged += (_, _) => RefreshBagCleanupNameListEditor();
-            bagCleanupAuctionHouseRadio.CheckedChanged += (_, _) => RefreshBagCleanupNameListEditor();
+            BuildBagCleanupNameListTabs(namesPanel);
 
             var refreshInventoryButton = AddButton(namesPanel, "刷新背包", 300, 36, 108, 30);
             refreshInventoryButton.Click += async (_, _) =>

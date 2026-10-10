@@ -13381,7 +13381,7 @@ static Task TestBagCleanupNameListUiAutoSavesAndRollsBackAsync()
     AssertEqual(0, inventoryList.CheckedItems.Count, "successful checked add should clear inventory checks");
 
     blacklistRadio.Checked = true;
-    AssertEqual("加入处理（丢弃）", addButton.Text, "blacklist radio should change add action text");
+    AssertEqual("加入丢弃", addButton.Text, "blacklist radio should change add action text");
     AssertSequence(new[] { "shared-discard" }, listBox.Items.Cast<string>().ToArray(), "blacklist radio should show blacklist");
     InvokePrivateMethodForTest(
         form,

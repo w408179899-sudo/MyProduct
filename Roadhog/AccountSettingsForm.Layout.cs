@@ -4,6 +4,51 @@ public sealed partial class AccountSettingsForm
 {
     private Action? layoutSkillPage;
 
+    private void BuildBagCleanupNameListTabs(Panel parent)
+    {
+        var tabs = new TableLayoutPanel
+        {
+            Name = "bagCleanupNameListTabs", Location = Point.Empty, Size = new Size(408, 30),
+            ColumnCount = 5, RowCount = 1, Margin = Padding.Empty, Padding = Padding.Empty,
+            BackColor = _pageBackground
+        };
+        for (var i = 0; i < 5; i++) tabs.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20));
+        tabs.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        parent.Controls.Add(tabs);
+
+        RadioButton AddTab(string text, string name, int column, bool selected = false)
+        {
+            var tab = AddRadioButton(tabs, text, 0, 0, 80, selected);
+            tab.Name = name;
+            tabs.SetCellPosition(tab, new TableLayoutPanelCellPosition(column, 0));
+            tab.Dock = DockStyle.Fill;
+            tab.Margin = new Padding(2, 0, 2, 0);
+            tab.Appearance = Appearance.Button;
+            tab.TextAlign = ContentAlignment.MiddleCenter;
+            tab.FlatStyle = FlatStyle.Flat;
+            tab.FlatAppearance.BorderColor = Color.FromArgb(168, 218, 186);
+            tab.FlatAppearance.CheckedBackColor = _primaryGreen;
+            tab.FlatAppearance.MouseOverBackColor = _inputBackground;
+            tab.FlatAppearance.MouseDownBackColor = _softGreen;
+            void UpdateSelectionStyle()
+            {
+                tab.BackColor = tab.Checked ? _primaryGreen : Color.White;
+                tab.ForeColor = tab.Checked ? Color.White : _textGreen;
+                tab.FlatAppearance.MouseOverBackColor = tab.Checked ? _primaryGreen : _inputBackground;
+                tab.FlatAppearance.MouseDownBackColor = tab.Checked ? _primaryGreen : _softGreen;
+            }
+            tab.CheckedChanged += (_, _) => { UpdateSelectionStyle(); RefreshBagCleanupNameListEditor(); };
+            UpdateSelectionStyle();
+            return tab;
+        }
+
+        bagCleanupWhitelistRadio = AddTab("不丢弃", "bagCleanupWhitelistRadio", 0, true);
+        bagCleanupBlacklistRadio = AddTab("丢弃", "bagCleanupBlacklistRadio", 1);
+        bagCleanupSellRadio = AddTab("出售", "bagCleanupSellRadio", 2);
+        bagCleanupAuctionHouseRadio = AddTab("拍卖行", "bagCleanupAuctionHouseRadio", 3);
+        bagCleanupStallRadio = AddTab("摆摊", "bagCleanupStallRadio", 4);
+    }
+
     // Expand static form columns without scaling fonts, row heights or button heights.
     // Dynamic flow layouts retain their own layout rules.
     private void ConfigureWideSettingsPage(Panel page, int designWidth, bool expandLists = true)
