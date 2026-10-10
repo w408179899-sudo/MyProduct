@@ -11,6 +11,41 @@ using Roadhog.Infrastructure.Vmm;
 
 internal static class InventoryDiscardTests
 {
+    public static async Task DragSkipsFixedPointAsync()
+    {
+        foreach (var start in new[] { new GameUiPoint(500, 500), new GameUiPoint(80, 100) })
+        {
+            var game = new Simulation(1, start) { Open = true };
+            var visits = new List<GameUiPoint>();
+            var leftItem = false;
+            var move = game.Input.AfterMove;
+            game.Input.AfterMove = (x, y) =>
+            {
+                move?.Invoke(x, y);
+                var cursor = game.Api.UiCursorRead!().Position;
+                visits.Add(cursor);
+                if (Math.Abs(cursor.X - 80) > 1 || Math.Abs(cursor.Y - 100) > 1) leftItem = true;
+            };
+            var read = game.Api.InventoryInteractionRead;
+            game.Api.InventoryInteractionRead = () =>
+            {
+                var ui = read!();
+                return start == new GameUiPoint(80, 100) && !leftItem ? ui with { HoveredInstanceId = 0 } : ui;
+            };
+            var logger = new InMemoryRoadhogLogger();
+            var actions = new InventoryDiscardActions(game.Input, game.Api.Create(new AccountConfig(), logger, CancellationToken.None),
+                logger, "test", (_, ct) => Task.Delay(1, ct));
+            var item = game.Api.InventoryItems.Single();
+            await actions.DragAsync(item, CancellationToken.None);
+            await actions.ConfirmAsync(item, InventoryDiscardConfirmKind.Normal, CancellationToken.None);
+            Require(game.Drags == 1 && game.Confirms == 1 && game.Removed.SequenceEqual(new ulong[] { item.InstanceId }),
+                "drag still confirms the intended item, including after reopening beneath the cursor");
+            Require(!visits.Any(p => Math.Abs(p.X - 680) <= 1 && Math.Abs(p.Y - 468) <= 1),
+                "discard drag and confirmation must not detour through the inventory click reset point");
+            Require(!game.LeftHeld && game.Input.MouseCommands.Last() == "up:Left", "completed discard releases drag and confirmation inputs");
+        }
+    }
+
     public static async Task AutomaticDelayedTwelfthDialogAsync()
     {
         var game = new Simulation(13);
@@ -202,8 +237,9 @@ internal static class InventoryDiscardTests
         // Slot locations shift after every deletion, proving each item is located again by identity.
         private GameUiPoint Point(InventoryItemSnapshot item) => new(80 + Array.IndexOf(Api.InventoryItems.ToArray(), item) * 40, 100);
         private bool At(GameUiPoint point) => Math.Abs(point.X - _cursor.X) <= 1 && Math.Abs(point.Y - _cursor.Y) <= 1;
-        internal Simulation(int count)
+        internal Simulation(int count, GameUiPoint? initialCursor = null)
         {
+            _cursor = initialCursor ?? _cursor;
             Api.InventoryItems = Enumerable.Range(0, count).Select(i => new InventoryItemSnapshot(567, (uint)(100 + i), "item" + i, 1, i, false, 7, 1)).ToArray();
             Api.InventoryInteractionRead = Snapshot;
             Api.UiCursorRead = () => new(1024, 768, _cursor);

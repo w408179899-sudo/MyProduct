@@ -529,6 +529,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("npc sale production decoder basket and controls", PersonalShopDecoderTests.NpcTradeAsync),
     ("inventory discard UI button uses unsaved rules and caps three items", TestInventoryDiscardButtonAsync),
     ("inventory discard three-item limit and configured rules", InventoryDiscardTests.LimitAndRulesAsync),
+    ("inventory discard drag skips fixed click reset point and refreshes hover", InventoryDiscardTests.DragSkipsFixedPointAsync),
     ("food maintenance catalog categories and lowest usable rank", FoodMaintenanceTests.CatalogAsync),
     ("food maintenance provider decode and field-aware publication", FoodMaintenanceTests.ProviderAsync),
     ("food maintenance input guards confirmation and cancellation", FoodMaintenanceTests.SequenceAsync),

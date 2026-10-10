@@ -19,7 +19,8 @@ public sealed class InventoryDiscardActions(IKeyboardInput input, IRoadhogSnapsh
         RequireIdle(ui);
         var point = Locate(ui, item);
         var drop = ui.DropPoint ?? throw new InvalidOperationException("没有找到背包外可用的空白释放位置。");
-        await new InventoryItemMouseMover(input, snapshots, delay).MoveAsync(point, token);
+        await mover.MoveAsync(new(point.X + (point.X >= 5 ? -5 : 5), point.Y + (point.Y >= 5 ? -5 : 5)), token);
+        await mover.MoveAsync(point, token);
         await Pause(350, token);
         ui = await Ui(token); RequireIdle(ui);
         var currentPoint = Locate(ui, item);
