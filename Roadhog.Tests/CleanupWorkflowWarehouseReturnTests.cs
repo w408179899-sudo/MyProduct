@@ -8,11 +8,14 @@ internal static partial class GroceryShopTests
 {
     public static async Task WarehouseReturnGuardsAsync()
     {
+        foreach (var auction in new[] { false, true })
         foreach (var scenario in new[] { "attack", "hp_attack", "death", "cancel", "wrong_landing", "timeout" })
         {
             using var trip = new Trip { Scenario = scenario };
             var settings = trip.Config.ScriptSettings!;
-            settings.Maintenance.CleanupWorkflow = new() { NpcCleanup = false, PersonalShop = true };
+            settings.Maintenance.CleanupWorkflow = new() { NpcCleanup = false, PersonalShop = !auction, Auction = auction };
+            settings.Paths.AuctionPathName = trip.Route.Name;
+            if (auction) settings.Paths.AuctionReturnItemName = settings.Paths.GroceryReturnItemName;
             settings.Paths.StallPathName = trip.Route.Name;
             settings.Paths.StallReturnItemName = settings.Paths.GroceryReturnItemName;
             settings.Paths.RevivePathName = "revive";

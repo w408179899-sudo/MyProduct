@@ -14,6 +14,7 @@ public partial class AccountSettingsForm
     private RoundedTextBox? groceryStallPathNameTextBox;
     private RoundedComboBox? groceryReturnItemCombo;
     private RoundedComboBox? stallReturnItemCombo;
+    private RoundedComboBox? auctionReturnItemCombo;
     private RadioButton? normalCleanupModeRadio, groceryCleanupModeRadio;
     private Panel? groceryOptionsPanel;
     private Label? cleanupModeHintLabel;
@@ -29,9 +30,14 @@ public partial class AccountSettingsForm
         stallReturnItemCombo = BuildReturnScrollPathOptions(page, SharedPathKind.Stall,
             "stallReturnItemCombo", "stallRefreshScrollButton");
 
-    private RoundedComboBox BuildReturnScrollPathOptions(Panel page, SharedPathKind kind, string comboName, string buttonName)
+    private void BuildAuctionReturnOptions(Panel page) =>
+        auctionReturnItemCombo = BuildReturnScrollPathOptions(page, SharedPathKind.Auction,
+            "auctionReturnItemCombo", "auctionRefreshScrollButton", 150, "未选卷轴沿用回城按键");
+
+    private RoundedComboBox BuildReturnScrollPathOptions(Panel page, SharedPathKind kind, string comboName, string buttonName,
+        int top = 110, string hint = "缺少所选卷轴不出发")
     {
-        var options = new Panel { Location = new Point(12, 110), Size = new Size(800, 36), BackColor = _softGreen };
+        var options = new Panel { Location = new Point(12, top), Size = new Size(800, 36), BackColor = _softGreen };
         page.Controls.Add(options);
         AddLabel(options, "回程卷轴", 8, 6, 90, 24);
         var scrollCombo = AddCombo(options, 102, 3, 408, 28);
@@ -61,7 +67,7 @@ public partial class AccountSettingsForm
             catch (Exception ex) { if (!IsDisposed) SetPathStatus(editor, "刷新卷轴失败：" + ex.Message, true); }
             finally { if (!refresh.IsDisposed) refresh.Enabled = true; }
         };
-        AddLabel(options, "缺少所选卷轴不出发", 652, 7, 145, 22);
+        AddLabel(options, hint, 652, 7, 145, 22);
         return scrollCombo;
     }
 

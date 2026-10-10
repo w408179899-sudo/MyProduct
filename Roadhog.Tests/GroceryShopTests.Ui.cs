@@ -41,6 +41,7 @@ internal static partial class GroceryShopTests
                 var settings = new ScriptSettings();
                 settings.Paths.GroceryReturnItemName = returnBook;
                 settings.Paths.StallReturnItemName = returnOrb;
+                settings.Paths.AuctionReturnItemName = names[2];
                 var store = new InMemoryAccountConfigStore(new AccountConfig { AccountName = "grocery-refresh", ProcessId = 712, ScriptSettings = settings });
                 using var form = new AccountSettingsForm("grocery-refresh",
                     new RoadhogRuntime(api, logger, new AccountRuntimeManager(logger), null!, store), store,
@@ -95,6 +96,22 @@ internal static partial class GroceryShopTests
                 api.InventoryItems = Array.Empty<InventoryItemSnapshot>();
                 Refresh();
                 Check(scroll.Items.Count == 0 && scroll.Text == returnBook, "warehouse refresh also preserves selection for an empty bag");
+
+                refresh = Find<Button>("auctionRefreshScrollButton");
+                scroll = Find<RoundedComboBox>("auctionReturnItemCombo");
+                for (Control? control = refresh.Parent; control != null; control = control.Parent)
+                    if (control is TabPage page) ((TabControl)page.Parent!).SelectedTab = page;
+                System.Windows.Forms.Application.DoEvents();
+                api.InventoryItems = items;
+                Refresh();
+                Check(scroll.Items.Cast<string>().SequenceEqual(names.Order()) && scroll.Text == names[2],
+                    "auction path refresh uses the same return-only group and retains its own saved selection");
+                scroll.Text = names[3];
+                captured = (ScriptSettings)typeof(AccountSettingsForm).GetMethod("CaptureScriptSettings", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(form, null)!;
+                Check(captured.Paths.AuctionReturnItemName == names[3] && captured.Paths.StallReturnItemName == returnBook && captured.Paths.GroceryReturnItemName == returnOrb,
+                    "all three paths retain independent return scrolls");
+                api.InventoryItems = Array.Empty<InventoryItemSnapshot>(); Refresh();
+                Check(scroll.Items.Count == 0 && scroll.Text == names[3], "auction refresh retains selection when the bag is empty");
                 form.Close(); completion.SetResult();
             }
             catch (Exception ex) { completion.SetException(ex); }
@@ -115,6 +132,7 @@ internal static partial class GroceryShopTests
                 settings.Paths.GroceryStallPathName = "grocery";
                 settings.Paths.GroceryReturnItemName = "伏魔殿回程卷轴";
                 settings.Paths.StallReturnItemName = "仓库回程卷轴";
+                settings.Paths.AuctionReturnItemName = "拍卖行回程卷轴";
                 settings.Maintenance.CleanupWorkflow.GroceryScheduleTimes = new() { "12:00", "19:00" };
                 settings.Maintenance.CleanupWorkflow.Auction = true;
                 settings.Maintenance.CleanupWorkflow.TransferGold = true;
@@ -174,6 +192,9 @@ internal static partial class GroceryShopTests
                 var warehouseScroll = Find<RoundedComboBox>("stallReturnItemCombo");
                 Check(warehouseScroll.Text == "仓库回程卷轴", "load independent warehouse scroll");
                 warehouseScroll.Text = "仓库传送石";
+                var auctionScroll = Find<RoundedComboBox>("auctionReturnItemCombo");
+                Check(auctionScroll.Text == "拍卖行回程卷轴", "load auction return scroll");
+                auctionScroll.Text = "拍卖行传送石";
                 manual.PerformClick(); System.Windows.Forms.Application.DoEvents();
                 Check(submitted is { } && submitted.Maintenance.CleanupWorkflow.Mode == CleanupMode.GroceryShop && submitted.Paths.GroceryReturnItemName == "贝达尔回程卷轴", "manual command captures current path scroll and forces grocery mode");
                 var saved = store.LoadAllAsync().GetAwaiter().GetResult().Value!.Single().ScriptSettings!;
@@ -226,8 +247,9 @@ internal static partial class GroceryShopTests
                     ((ListBox)reopened.Controls.Find("groceryScheduleTimes", true).Single()).Items.Cast<string>().SequenceEqual(new[] { "12:00", "19:00" }),
                     "reopening restores the saved radio mode and time list");
                 var restored = (ScriptSettings)typeof(AccountSettingsForm).GetMethod("CaptureScriptSettings", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(reopened, null)!;
-                Check(restored.Paths.StallReturnItemName == "仓库传送石" && restored.Paths.GroceryReturnItemName == "贝达尔回程卷轴",
-                    "save and reopen preserve independent warehouse and grocery scroll selections");
+                Check(restored.Paths.StallReturnItemName == "仓库传送石" && restored.Paths.GroceryReturnItemName == "贝达尔回程卷轴" &&
+                    restored.Paths.AuctionReturnItemName == "拍卖行传送石",
+                    "save and reopen preserve independent auction, warehouse and grocery scroll selections");
                 Check(restored.Maintenance.CleanupWorkflow is { Mode: CleanupMode.GroceryShop, GroceryScheduleEnabled: true, Auction: true, TransferGold: true, WarehouseName: "warehouse", WarehouseSelectionKey: "F7" },
                     "reopening retains normal workflow settings while grocery controls are visible");
                 reopened.Close(); completion.SetResult();

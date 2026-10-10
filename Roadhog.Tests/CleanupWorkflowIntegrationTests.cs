@@ -45,10 +45,11 @@ internal static partial class CleanupWorkflowTests
             if (button == RoadhogMouseButton.Right)
             {
                 var item = BagItems().Single(i => i.Point == api.InventoryUiCursor);
-                Require(item.InstanceId == 12 && bagOpen, "only the configured warehouse scroll is used");
+                Require(item.InstanceId is 12 or 13 && bagOpen, "only the configured return scroll is used");
                 scrollClicks++;
-                api.InventoryItems = api.InventoryItems.Select(i => i.InstanceId == 12 ? i with { Count = i.Count - 1 } : i).Where(i => i.Count > 0).ToArray();
-                api.Channel = api.Channel with { MapId = 2 }; api.Player = api.Player with { Position = new(100, 0, 0) };
+                api.InventoryItems = api.InventoryItems.Select(i => i.InstanceId == item.InstanceId ? i with { Count = i.Count - 1 } : i).Where(i => i.Count > 0).ToArray();
+                api.Channel = api.Channel with { MapId = item.InstanceId == 13 ? 3u : 2u };
+                api.Player = api.Player with { Position = new(item.InstanceId == 13 ? 200 : 100, 0, 0) };
                 return;
             }
             if(api.InventoryUiCursor==new GameUiPoint(100,100))auction=auction with{ActiveTab=2};
@@ -91,6 +92,64 @@ internal static partial class CleanupWorkflowTests
         await runner.RunAsync(context,new(settings,true));
         Require(travel.SequenceEqual(new[]{"stall:100>170","revive:1000>0"}) && scrollClicks == 2 && input.Keys.Count(k => k == "F5") == 1,
             "warehouse-only departure uses scroll directly without an initial cleanup return key");
+
+        var auctionScrollSettings = settings.Clone();
+        auctionScrollSettings.Maintenance.CleanupWorkflow = new() { NpcCleanup = false, Auction = true };
+        auctionScrollSettings.Paths.AuctionReturnItemName = "warehouse-scroll";
+        auctionScrollSettings.Maintenance.BagCleanupAuctionHouseItems.Add(new() { Name = "warehouse-scroll", UnitPrice = 20 });
+        var scrollAuctionPath = Path("auction",100,130); scrollAuctionPath.MapId = 2;
+        var scrollAuctionPaths = new InMemorySharedPathStore(scrollAuctionPath,Path("revive",1000,0));
+        var auctionScrollRunner = new CleanupWorkflowRunner(input, scrollAuctionPaths, (c, name, points) =>
+        {
+            if (name == "auction" && points[0].X == 100)
+                Require(scrollClicks == 3 && !bagOpen && api.Channel.MapId == 2 && api.Player.Position == new Vector3Snapshot(100,0,0),
+                    "auction route waits for confirmed scroll landing and closed bag");
+            return Follow(c, name, points);
+        }, new Journal(), groceryDelay: Fast);
+        auction = Auction(); api.InventoryItems = new[] { reserved, scroll };
+        api.Channel = api.Channel with { MapId = 1 }; api.Player = api.Player with { Position = new(500,0,0) };
+        travel.Clear();
+        await auctionScrollRunner.RunAsync(context,new(auctionScrollSettings,true));
+        Require(travel.SequenceEqual(new[]{"auction:100>130","auction:130>100","revive:1000>0"}) &&
+            input.Keys.Count(k => k == "F5") == 1 && input.Keys.Count(k => k == "F6") == 3,
+            "auction scroll skips initial cleanup key and returns to revive map after reverse route");
+        Require(api.InventoryItems.Single(i => i.InstanceId == 12).Count == 1,
+            "unused auction return scroll is protected from listing even when its rule has a price");
+        foreach (var invalid in new[] { "missing_scroll", "missing_map" })
+        {
+            var invalidSettings = auctionScrollSettings.Clone();
+            if (invalid == "missing_scroll") invalidSettings.Paths.AuctionReturnItemName = "absent-scroll";
+            var invalidPath = scrollAuctionPath.Clone(); if (invalid == "missing_map") invalidPath.MapId = null;
+            var invalidRunner = new CleanupWorkflowRunner(input, new InMemorySharedPathStore(invalidPath,Path("revive",1000,0)), Follow, new Journal(), groceryDelay: Fast);
+            var inputCount = input.Keys.Count + input.MouseCommands.Count;
+            try { await invalidRunner.RunAsync(context,new(invalidSettings,true)); throw new Exception("invalid auction departure accepted: " + invalid); }
+            catch (InvalidOperationException) { }
+            Require(input.Keys.Count + input.MouseCommands.Count == inputCount, "invalid auction scroll/map executes no input: " + invalid);
+        }
+
+        var combinedSettings = settings.Clone();
+        combinedSettings.Maintenance.CleanupWorkflow.Auction = true;
+        combinedSettings.Paths.AuctionReturnItemName = "auction-scroll";
+        combinedSettings.Maintenance.BagCleanupAuctionHouseItems.Add(new() { Name = "scroll", UnitPrice = 20 });
+        var combinedAuctionPath = Path("auction",200,230); combinedAuctionPath.MapId = 3;
+        var auctionScroll = new InventoryItemSnapshot(3,13,"auction-scroll",2,2,false,18,UseGroup:36);
+        api.InventoryItems = new[] { reserved, scroll, auctionScroll }; auction = Auction();
+        api.Channel = api.Channel with { MapId = 1 }; api.Player = api.Player with { Position = new(500,0,0) };
+        travel.Clear();
+        var combinedRunner = new CleanupWorkflowRunner(input,
+            new InMemorySharedPathStore(combinedAuctionPath,warehousePath,Path("revive",1000,0)), (c,name,points) =>
+            {
+                if (name == "auction" && points[0].X == 200)
+                    Require(api.Channel.MapId == 3 && api.Player.Position == new Vector3Snapshot(200,0,0) && !bagOpen,
+                        "auction scroll confirms its independent destination before walking");
+                return Follow(c,name,points);
+            }, new Journal(), groceryDelay: Fast);
+        await combinedRunner.RunAsync(context,new(combinedSettings,true));
+        Require(travel.SequenceEqual(new[]{"auction:200>230","auction:230>200","stall:100>170","revive:1000>0"}) &&
+            scrollClicks == 5 && input.Keys.Count(k => k == "F5") == 1 && input.Keys.Count(k => k == "F6") == 4,
+            "combined workflow uses auction scroll then warehouse scroll and recalls only after both stages");
+        Require(api.InventoryItems.Single(i => i.InstanceId == 12).Count == 1 && api.InventoryItems.Single(i => i.InstanceId == 13).Count == 1,
+            "both selected return scrolls remain protected from broad auction and stall rules");
 
         var keysBeforeInvalid = input.Keys.Count; var clicksBeforeInvalid = input.MouseCommands.Count;
         foreach (var invalid in new[] { "empty_selection", "missing_scroll", "missing_map" })

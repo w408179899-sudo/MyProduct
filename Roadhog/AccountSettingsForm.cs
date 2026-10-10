@@ -503,6 +503,7 @@ namespace Roadhog
             SetText(maintenancePathNameTextBox, paths.MaintenancePathName);
             SetText(gatherPathNameTextBox, paths.GatherPathName);
             SetText(auctionPathNameTextBox, paths.AuctionPathName);
+            SetComboText(auctionReturnItemCombo, paths.AuctionReturnItemName);
             SetText(stallPathNameTextBox, paths.StallPathName);
             SetComboText(stallReturnItemCombo, paths.StallReturnItemName);
             SetText(groceryStallPathNameTextBox, paths.GroceryStallPathName);
@@ -919,6 +920,7 @@ namespace Roadhog
                     MaintenancePathName = GetText(maintenancePathNameTextBox, string.Empty),
                     GatherPathName = GetText(gatherPathNameTextBox, string.Empty),
                     AuctionPathName = GetText(auctionPathNameTextBox, string.Empty),
+                    AuctionReturnItemName = auctionReturnItemCombo?.Text.Trim() ?? string.Empty,
                     StallPathName = GetText(stallPathNameTextBox, string.Empty),
                     StallReturnItemName = stallReturnItemCombo?.Text.Trim() ?? string.Empty,
                     GroceryStallPathName = GetText(groceryStallPathNameTextBox, string.Empty),
@@ -1997,7 +1999,7 @@ namespace Roadhog
             tab.Controls.Add(page);
 
             page.AutoScroll = true;
-            var contentOffset = kind == SharedPathKind.Maintenance ? 72 : kind is SharedPathKind.Auction or SharedPathKind.Stall or SharedPathKind.GroceryStall ? 40 : 0;
+            var contentOffset = kind == SharedPathKind.Maintenance ? 72 : kind == SharedPathKind.Auction ? 80 : kind is SharedPathKind.Stall or SharedPathKind.GroceryStall ? 40 : 0;
             page.AutoScrollMinSize = new Size(824, kind == SharedPathKind.Maintenance ? 488 : 430 + contentOffset);
             var editor = new PathEditorControls(kind);
             pathEditors[kind] = editor;
@@ -2090,6 +2092,7 @@ namespace Roadhog
                 page.Controls.Add(auctionOptions);
                 AddPathNpcSelection(auctionOptions, editor, "拍卖NPC", 4);
                 AddLabel(auctionOptions, "随路径保存，执行前核对交易中介身份", 452, 6, 340, 24);
+                BuildAuctionReturnOptions(page);
             }
 
             if (kind == SharedPathKind.GroceryStall) BuildGroceryPathOptions(page);

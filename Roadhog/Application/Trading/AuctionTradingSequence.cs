@@ -11,15 +11,17 @@ public sealed class AuctionTradingSequence(IKeyboardInput input, IAuctionListing
     Func<int, CancellationToken, Task>? delay = null)
 {
     public Task RunAsync(IRoadhogSnapshotReader snapshots, string account, MaintenanceScriptSettings settings,
-        Action<string> report, CancellationToken token, string? configuredNpcName = null) =>
-        RunCoreAsync(snapshots, account, settings, report, token, configuredNpcName, withdrawAll: true);
+        Action<string> report, CancellationToken token, string? configuredNpcName = null,
+        IReadOnlyCollection<string>? preservedItemNames = null) =>
+        RunCoreAsync(snapshots, account, settings, report, token, configuredNpcName, withdrawAll: true, preservedItemNames);
 
     internal Task ContinueRegistrationAsync(IRoadhogSnapshotReader snapshots, string account, MaintenanceScriptSettings settings,
         Action<string> report, CancellationToken token) =>
         RunCoreAsync(snapshots, account, settings, report, token, null, withdrawAll: false);
 
     private async Task RunCoreAsync(IRoadhogSnapshotReader snapshots, string account, MaintenanceScriptSettings settings,
-        Action<string> report, CancellationToken token, string? configuredNpcName, bool withdrawAll)
+        Action<string> report, CancellationToken token, string? configuredNpcName, bool withdrawAll,
+        IReadOnlyCollection<string>? preservedItemNames = null)
     {
         var actions = new TradingActions(input, snapshots, token, delay);
         var broker = new AuctionBrokerSelector(input, snapshots, configuredNpcName, token, delay);
@@ -103,7 +105,8 @@ public sealed class AuctionTradingSequence(IKeyboardInput input, IAuctionListing
                 await actions.Wait(Ui, s => s.IsOpen && s.ActiveTab == 1 && s.ListingsLoaded && s.Listings.Count == 0 && s.WithdrawConfirmation == null);
             }
             report("拍卖行：按配置登录物品");
-            var plan = (await Bag()).Where(i => CleanupTradePolicy.Rule(i, settings, true) != null).ToArray();
+            var plan = (await Bag()).Where(i => preservedItemNames?.Contains(i.Name, StringComparer.OrdinalIgnoreCase) != true &&
+                CleanupTradePolicy.Rule(i, settings, true) != null).ToArray();
             var bagPrepared = false;
             foreach (var planned in plan)
             {

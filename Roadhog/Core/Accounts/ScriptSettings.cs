@@ -359,6 +359,7 @@ public sealed class PathScriptSettings
     public string GatherPathName { get; set; } = string.Empty;
 
     public string AuctionPathName { get; set; } = string.Empty;
+    public string AuctionReturnItemName { get; set; } = string.Empty;
     public string StallPathName { get; set; } = string.Empty;
     public string StallReturnItemName { get; set; } = string.Empty;
     public string GroceryStallPathName { get; set; } = string.Empty;
@@ -393,6 +394,7 @@ public sealed class PathScriptSettings
             MaintenancePathName = MaintenancePathName,
             GatherPathName = GatherPathName,
             AuctionPathName = AuctionPathName,
+            AuctionReturnItemName = AuctionReturnItemName,
             StallPathName = StallPathName,
             StallReturnItemName = StallReturnItemName,
             GroceryStallPathName = GroceryStallPathName,
