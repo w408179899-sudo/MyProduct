@@ -43,6 +43,10 @@ internal static partial class CleanupWorkflowTests
         var config=new AccountConfig{AccountName="flow",ScriptSettings=new()};var settings=config.ScriptSettings;
         settings.Paths.AuctionPathName="auction";settings.Paths.StallPathName="stall";settings.Paths.RevivePathName="revive";settings.Paths.TownReturnKey="F6";settings.Paths.BagCleanupTownReturnKey="F5";
         settings.Maintenance.CleanupWorkflow=new(){NpcCleanup=false,Auction=true,TransferGold=true,PersonalShop=true,WarehouseName="warehouse",WarehouseSelectionKey="F7"};
+        var reserved = new InventoryItemSnapshot(1, 11, "auction goods", 3, 0, false);
+        api.InventoryItems = new[] { reserved };
+        settings.Maintenance.BagCleanupAuctionHouseItems.Add(new() { Name = "auction", UnitPrice = null });
+        settings.Maintenance.BagCleanupStallItems.Add(new() { Name = "goods", UnitPrice = 20 });
         var context=new AccountWorkerContext(config,api,logger,new AccountRuntimeManager(logger),new(),stop.Token);
         var travel=new List<string>();
         Task<OperationResult> Follow(AccountWorkerContext c,string name,IReadOnlyList<Vector3Snapshot> points)
@@ -53,6 +57,8 @@ internal static partial class CleanupWorkflowTests
         await runner.RunAsync(context,new(settings,true));
         Require(travel.SequenceEqual(new[]{"auction:0>30","auction:30>0","stall:0>70","revive:1000>0"}),"independent hub routes; stall never reverses and recall precedes revive");
         Require(input.Keys.Count(k=>k=="F5")==1&&input.Keys.Count(k=>k=="F6")==1&&api.InventoryMoney==0,"manual recall before auction and final recall after stall both verified");
+        Require(api.InventoryItems.Single() == reserved && !input.Keys.Contains("Y"),
+            "full cleanup retains skipped auction items without opening the configured stall");
         settings.Paths.StallPathName="missing";var before=input.MouseCommands.Count;var keys=input.Keys.Count;
         try{await runner.RunAsync(context,new(settings,true));throw new Exception("missing later route accepted");}
         catch(InvalidOperationException){}

@@ -22,6 +22,7 @@ internal static partial class CleanupWorkflowTests
             var settings = new MaintenanceScriptSettings
             {
                 BagCleanupExcludedItemNames = new() { "item", "unconfigured" },
+                BagCleanupStallItems = new() { new() { Name = "item", UnitPrice = 1 } },
                 BagCleanupAuctionHouseItems = new() { new() { Name = "item", UnitPrice = 17,
                     PriceLookupMethod = scenario == "search" ? AuctionPriceLookupMethod.SearchCalculation : scenario is "minimum" or "no_quote" ? AuctionPriceLookupMethod.DialogMinimum : AuctionPriceLookupMethod.Manual } }
             };
@@ -160,6 +161,13 @@ internal static partial class CleanupWorkflowTests
             if (expectedCollects == 1) Require(events[^1] == "collect", "collection is the final trade action");
             if (allOrders || scenario == "unconfigured") Require(api.InventoryItems.Single().Name == "unconfigured", "unmatched withdrawn item stays in bag");
             if (scenario == "full") Require(api.InventoryItems.Count == 1 && state.Listings.Count == 15, "fifteen listing limit still collects after retaining overflow");
+            if (scenario is "full" or "search" or "no_quote" or "discount_no_quote")
+            {
+                Require(api.InventoryItems.Count > 0 && api.InventoryItems.All(i => CleanupTradePolicy.Rule(i, settings, false) is null),
+                    "auction overflow and skipped pricing remain excluded from configured stall: " + scenario);
+                Require(DiscountedPersonalShopWorkflow.Plan(api.InventoryItems, settings, _ => { }).Count == 0,
+                    "auction leftovers remain excluded from discounted stall: " + scenario);
+            }
             if (scenario == "continue_registration") Require(withdrawals == 0 && state.Listings.Any(l => l.ListingId == 80) && state.Listings.Count == 2,
                 "explicit continuation preserves completed listings and registers only remaining inventory");
             Require(!down && input.KeyUps.Contains("ControlKey"), "release all inputs on every exit");

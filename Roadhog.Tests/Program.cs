@@ -906,6 +906,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("bag cleanup matcher groups weapon armor and accessory as equipment", TestBagCleanupMatcherGroupsEquipmentTypesAsync),
     ("bag cleanup matcher excludes manastones from equipment rules", BagCleanupManastoneTests.EquipmentRulesExcludeManastonesAsync),
     ("bag cleanup matcher prioritizes NPC sales before configured stall", BagCleanupTradingPriorityTests.NpcSaleBeforeStallAsync),
+    ("bag cleanup auction collection never enters configured stall", BagCleanupTradingPriorityTests.AuctionItemsNeverStallAsync),
     ("bag cleanup matcher maps stigma item type", TestBagCleanupMatcherMapsStigmaItemTypeAsync),
     ("bag cleanup matcher whitelist permits NPC selling", TestBagCleanupMatcherWhitelistPermitsNpcSellingAsync),
     ("bag cleanup matcher maps skill book item type", TestBagCleanupMatcherMapsSkillBookItemTypeAsync),

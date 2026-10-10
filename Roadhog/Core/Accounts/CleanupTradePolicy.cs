@@ -10,9 +10,10 @@ public static class CleanupTradePolicy
     {
         if (item.IsEquipped || item.Slot < 0 || item.Count == 0) return null;
         var auctionRule = settings.BagCleanupAuctionHouseItems.FirstOrDefault(r => Matches(item.Name, r.Name));
-        // The workflow passes the fresh remaining bag to each stage. A previous-stage
-        // rule must not reserve an unsold item away from the later stage.
-        return auction ? auctionRule : settings.BagCleanupStallItems.FirstOrDefault(r => Matches(item.Name, r.Name));
+        if (auction) return auctionRule;
+        // Auction membership reserves the item even if listing is skipped or the auction stage is disabled.
+        if (auctionRule is not null) return null;
+        return settings.BagCleanupStallItems.FirstOrDefault(r => Matches(item.Name, r.Name));
     }
     public static ulong PurchaseQuantity(ulong gold, ulong unitPrice, ulong stock, ulong modalMaximum) =>
         unitPrice == 0 ? 0 : Math.Min(gold / unitPrice, Math.Min(stock, modalMaximum));

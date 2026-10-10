@@ -138,7 +138,7 @@ internal static class SharedCleanupConfigurationTests
         Require(sell.Select(i => i.InstanceId).SequenceEqual(new ulong[] { 3, 4 }), "name-only sale works, whitelist only protects from discard");
         var remainingAfterCap = items.Except(discard).Where(i => !i.IsEquipped).ToArray();
         Require(remainingAfterCap.All(i => CleanupTradePolicy.Rule(i, settings, true) != null), "unsold items can proceed to auction");
-        Require(remainingAfterCap.All(i => CleanupTradePolicy.Rule(i, settings, false) != null), "remaining auction matches can proceed to stall");
+        Require(remainingAfterCap.All(i => CleanupTradePolicy.Rule(i, settings, false) is null), "remaining auction matches stay reserved after NPC sale cap");
         Require(settings.Clone().BagCleanupSellItemNameKeywords.Single() == "sale", "sale list clones independently");
         return Task.CompletedTask;
     }

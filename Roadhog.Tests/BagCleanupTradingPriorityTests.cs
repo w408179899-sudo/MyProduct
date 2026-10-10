@@ -3,6 +3,34 @@ using Roadhog.Core.Model;
 
 internal static class BagCleanupTradingPriorityTests
 {
+    public static Task AuctionItemsNeverStallAsync()
+    {
+        var settings = new MaintenanceScriptSettings
+        {
+            BagCleanupAuctionHouseItems = new() { new() { Name = "  AUCTION  ", UnitPrice = 30 } },
+            BagCleanupStallItems = new() { new() { Name = "sword", UnitPrice = 20 } }
+        };
+        var reserved = new InventoryItemSnapshot(1, 11, "auction sword", 3, 0, false);
+        var ordinary = reserved with { InstanceId = 12, Name = "ordinary sword", Slot = 1 };
+        foreach (var method in Enum.GetValues<AuctionPriceLookupMethod>())
+        {
+            var rule = settings.BagCleanupAuctionHouseItems.Single();
+            rule.PriceLookupMethod = method;
+            rule.UnitPrice = null;
+            settings.CleanupWorkflow.Auction = false;
+            Require(CleanupTradePolicy.Rule(reserved, settings, true) == rule,
+                "auction keyword remains reserved regardless of lookup method, missing price or disabled stage");
+            Require(new[] { reserved, ordinary }.Where(i => CleanupTradePolicy.Rule(i, settings, false) is not null)
+                    .Select(i => i.InstanceId).SequenceEqual(new ulong[] { 12 }),
+                "remaining auction matches never enter configured stall while ordinary matches still do");
+        }
+        settings.BagCleanupAuctionHouseItems.Clear();
+        settings.BagCleanupAuctionHouseItems.Add(new() { Name = "  " });
+        Require(CleanupTradePolicy.Rule(reserved, settings, false)?.UnitPrice == 20,
+            "removing auction membership restores stall eligibility and blank keywords reserve nothing");
+        return Task.CompletedTask;
+    }
+
     public static Task NpcSaleBeforeStallAsync()
     {
         var settings = new MaintenanceScriptSettings

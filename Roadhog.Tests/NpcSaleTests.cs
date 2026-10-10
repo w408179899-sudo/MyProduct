@@ -148,8 +148,10 @@ internal static class NpcSaleTests
                     "empty rejected basket with unchanged items and money ends NPC stage normally without resubmitting");
                 Require(state.SellBatchCount == 0 && logger.Entries.Any(e => e.EventName == "bag_cleanup.sell.no_sale"),
                     "rejection is distinct from successful sale");
-                Require(api.InventoryItems.Count(i => CleanupTradePolicy.Rule(i, settings.Maintenance, false) != null) == 5,
-                    "unsold configured goods remain eligible for the later stall");
+                Require(api.InventoryItems.Where(i => CleanupTradePolicy.Rule(i, settings.Maintenance, false) != null)
+                        .Select(i => i.InstanceId).OrderBy(id => id)
+                        .SequenceEqual(nameListOnly ? new ulong[] { 30 } : new ulong[] { 11, 12, 13, 14, 30 }),
+                    "NPC sale cap preserves stall-only goods while auction matches remain reserved");
             }
             else
             {

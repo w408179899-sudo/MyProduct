@@ -30,6 +30,7 @@ internal static class StandaloneShopTests
         var settings = new ScriptSettings();
         settings.Maintenance.CleanupWorkflow = new() { NpcCleanup = true, Auction = true, TransferGold = true, StandaloneShopDiscount = 9 };
         settings.Maintenance.BagCleanupStallItems.Add(new() { Name = "石", UnitPrice = 99999 });
+        settings.Maintenance.BagCleanupAuctionHouseItems.Add(new() { Name = "拍卖", UnitPrice = null });
         settings.Maintenance.BagCleanupExcludedItemNames.Add("石");
         settings.Maintenance.BagCleanupDiscardItemNameKeywords.Add("石");
         var item = new InventoryItemSnapshot(1, 11, "魔石", 3, 0, false, VendorSellUnitPrice: 20000);
@@ -37,13 +38,17 @@ internal static class StandaloneShopTests
         var plan = DiscountedPersonalShopWorkflow.Plan(new[] { item, item with { InstanceId = 12, Name = "书" },
             item with { InstanceId = 13, IsEquipped = true }, item with { InstanceId = 14, Slot = -1 },
             item with { InstanceId = 15, Count = 0 }, item with { InstanceId = 16, VendorSellUnitPrice = 0 },
-            item with { InstanceId = 17, VendorSellUnitPrice = 1 } }, settings.Maintenance, reports.Add);
+            item with { InstanceId = 17, VendorSellUnitPrice = 1 },
+            item with { InstanceId = 18, Name = "拍卖魔石" } }, settings.Maintenance, reports.Add);
         Check(plan.Count == 1 && plan[0].UnitPrice == 900 && plan[0].Item.Count == 3 && reports.Count == 2,
-            "stall keyword only, ignore fixed price and other lists, exclude invalid inventory and price");
+            "discounted stall excludes auction matches and invalid inventory or prices while keeping ordinary stall matches");
         var mailbox = new CleanupRequestMailbox();
         Check(mailbox.Request(settings, true, standaloneShop: true).Success, "request accepted");
         var request = mailbox.Current!;
         Check(request.StandaloneShop && request.Settings.Maintenance.CleanupWorkflow is { PersonalShop: true, NpcCleanup: false, Auction: false, TransferGold: false }, "only standalone shop enabled");
+        Check(DiscountedPersonalShopWorkflow.Plan(new[] { item, item with { InstanceId = 18, Name = "拍卖魔石" } },
+            request.Settings.Maintenance, _ => { }).Select(p => p.Item.InstanceId).SequenceEqual(new ulong[] { 11 }),
+            "standalone request masks auction stage without losing auction collection protection");
         Check(!mailbox.Request(settings, true, standaloneShop: true).Success, "duplicate task rejected");
         Check(settings.Maintenance.CleanupWorkflow is { PersonalShop: false, NpcCleanup: true, Auction: true, TransferGold: true }, "saved cleanup stages unchanged");
         settings.Maintenance.CleanupWorkflow.StandaloneShopDiscount = 4;
