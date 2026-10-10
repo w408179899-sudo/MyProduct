@@ -254,15 +254,20 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
         }
     }
 
-    public Task<OperationResult> StartAsync(string instanceId, bool cleanup = false, CancellationToken cancellationToken = default, ScriptSettings? standaloneShopSettings = null) =>
-        StartAccountAsync(instanceId, cleanup, cancellationToken, standaloneShopSettings);
+    public Task<OperationResult> StartAsync(string instanceId, bool cleanup = false, CancellationToken cancellationToken = default,
+        ScriptSettings? standaloneShopSettings = null, ScriptSettings? groceryShopSettings = null) =>
+        StartAccountAsync(instanceId, cleanup, cancellationToken, standaloneShopSettings, groceryShopSettings: groceryShopSettings);
 
     private async Task<OperationResult> StartAccountAsync(string instanceId, bool cleanup, CancellationToken cancellationToken,
-        ScriptSettings? standaloneShopSettings, long? expectedStopGeneration = null, CancellationTokenSource? expectedOperation = null)
+        ScriptSettings? standaloneShopSettings, long? expectedStopGeneration = null, CancellationTokenSource? expectedOperation = null,
+        ScriptSettings? groceryShopSettings = null)
     {
         if (Volatile.Read(ref _shuttingDown) != 0 || Volatile.Read(ref _disposed) != 0) return OperationResult.Fail("主界面正在退出，不能启动账号。");
         standaloneShopSettings = standaloneShopSettings?.Clone();
-        cleanup |= standaloneShopSettings != null;
+        groceryShopSettings = groceryShopSettings?.Clone();
+        if (standaloneShopSettings != null && groceryShopSettings != null) return OperationResult.Fail("不能同时提交两种摆摊任务。");
+        if (groceryShopSettings != null) groceryShopSettings.Maintenance.CleanupWorkflow.Mode = CleanupMode.GroceryShop;
+        cleanup |= standaloneShopSettings != null || groceryShopSettings != null;
         var entry = Get(instanceId);
         long stopGeneration;
         lock (entry.Sync)
@@ -300,7 +305,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 // generation while this request has reserved Start. Its display
                 // state is not the admission reservation.
                 if (entry.Desired && (entry.StartingRequest || entry.State == "starting"))
-                    return standaloneShopSettings != null ? OperationResult.Fail("账号正在启动，请稍后再提交摆摊任务。") : OperationResult.Ok();
+                    return standaloneShopSettings != null || groceryShopSettings != null ? OperationResult.Fail("账号正在启动，请稍后再提交摆摊任务。") : OperationResult.Ok();
                 if (entry.Desired && Alive(entry) && entry.Status?.IsRunning == true && !cleanup) return OperationResult.Ok();
                 resourceConflict = FindResourceConflict(entry);
                 if (resourceConflict is not null)
@@ -351,7 +356,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
             {
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(linked.Token);
                 deadline.CancelAfter(_launch.StartupTimeout + _launch.StopTimeout + TimeSpan.FromSeconds(5));
-                var result = await StartCoreAsync(entry, cleanup, deadline.Token, standaloneShopSettings).ConfigureAwait(false);
+                var result = await StartCoreAsync(entry, cleanup, deadline.Token, standaloneShopSettings, groceryShopSettings).ConfigureAwait(false);
                 startedSuccessfully = result.Success;
                 return result;
             }
@@ -390,7 +395,8 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
         }
     }
 
-    private async Task<OperationResult> StartCoreAsync(Entry entry, bool cleanup, CancellationToken cancellationToken, ScriptSettings? standaloneShopSettings = null)
+    private async Task<OperationResult> StartCoreAsync(Entry entry, bool cleanup, CancellationToken cancellationToken,
+        ScriptSettings? standaloneShopSettings = null, ScriptSettings? groceryShopSettings = null)
     {
         ThrowIfUnavailable();
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -440,6 +446,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
         try
         {
             if (standaloneShopSettings != null) built.Value.ScriptSettings = standaloneShopSettings.Clone();
+            if (groceryShopSettings != null) built.Value.ScriptSettings = groceryShopSettings.Clone();
             var result = await client.CallAsync<OperationResult>(standaloneShopSettings != null ? WorkerCommands.StandaloneShop : cleanup ? WorkerCommands.Cleanup : WorkerCommands.Start,
                 [built.Value], cancellationToken).ConfigureAwait(false);
             if (!result.Success)

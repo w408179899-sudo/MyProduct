@@ -239,9 +239,11 @@ namespace Roadhog
             string accountDisplayText = "",
             IBagCleanupNameListStore? bagCleanupNameListStore = null,
             IRadarMapStore? radarMapStore = null,
-            Func<ScriptSettings, Task<Core.Common.OperationResult>>? startStandaloneShop = null)
+            Func<ScriptSettings, Task<Core.Common.OperationResult>>? startStandaloneShop = null,
+            Func<ScriptSettings, Task<Core.Common.OperationResult>>? startGroceryShop = null)
         {
             _startStandaloneShop = startStandaloneShop;
+            _startGroceryShop = startGroceryShop;
             _account = account;
             _windowTitle = BuildWindowTitle(account, accountDisplayText);
             _runtime = runtime;
@@ -336,7 +338,7 @@ namespace Roadhog
             if (!string.IsNullOrWhiteSpace(nameListLoadError))
             {
                 SetBagCleanupInventoryStatus(
-                    "黑白名单读取失败，背包清理启动时将被禁用: " + nameListLoadError,
+                    "清包名单读取失败，背包清理启动时将被禁用: " + nameListLoadError,
                     true);
             }
         }
@@ -502,6 +504,8 @@ namespace Roadhog
             SetText(gatherPathNameTextBox, paths.GatherPathName);
             SetText(auctionPathNameTextBox, paths.AuctionPathName);
             SetText(stallPathNameTextBox, paths.StallPathName);
+            SetText(groceryStallPathNameTextBox, paths.GroceryStallPathName);
+            SetComboText(groceryReturnItemCombo, paths.GroceryReturnItemName);
             SetKeyButton(townReturnKeyButton, paths.TownReturnKey);
             SetKeyButton(
                 bagCleanupTownReturnKeyButton,
@@ -524,6 +528,7 @@ namespace Roadhog
             SelectConfiguredPath(SharedPathKind.Gather, paths.GatherPathName);
             SelectConfiguredPath(SharedPathKind.Auction, paths.AuctionPathName);
             SelectConfiguredPath(SharedPathKind.Stall, paths.StallPathName);
+            SelectConfiguredPath(SharedPathKind.GroceryStall, paths.GroceryStallPathName);
 
             SetChecked(sitMaintenanceCheckBox, settings.Maintenance.SitMaintenanceEnabled);
             SetChecked(autoDrinkCheckBox, settings.Maintenance.AutoDrinkEnabled);
@@ -633,6 +638,8 @@ namespace Roadhog
             var account = LoadAccountConfigOrDefault();
             var previousSettings = BuildEffectiveScriptSettings(account);
             var capturedSettings = CaptureScriptSettings();
+            try { GroceryShopSchedule.Normalize(capturedSettings.Maintenance.CleanupWorkflow.GroceryScheduleTimes); }
+            catch (FormatException) { error = "杂货摆摊定时时间必须为 HH:mm。"; return false; }
             capturedSettings.Maintenance.AutoEquip = previousSettings.Maintenance.AutoEquip;
             capturedSettings.Maintenance.AutoDecompose = previousSettings.Maintenance.AutoDecompose;
             capturedSettings.SemiAuto = previousSettings.SemiAuto.Clone();
@@ -912,6 +919,8 @@ namespace Roadhog
                     GatherPathName = GetText(gatherPathNameTextBox, string.Empty),
                     AuctionPathName = GetText(auctionPathNameTextBox, string.Empty),
                     StallPathName = GetText(stallPathNameTextBox, string.Empty),
+                    GroceryStallPathName = GetText(groceryStallPathNameTextBox, string.Empty),
+                    GroceryReturnItemName = groceryReturnItemCombo?.Text.Trim() ?? string.Empty,
                     TownReturnKey = townReturnKeyButton?.Tag as string ?? string.Empty,
                     BagCleanupTownReturnKey = bagCleanupTownReturnKeyButton?.Tag as string ?? string.Empty,
                     BagCleanupReturnByReversePath = bagCleanupReturnByReversePathCheckBox?.Checked ?? true,
@@ -1774,7 +1783,7 @@ namespace Roadhog
             if (!string.IsNullOrWhiteSpace(nameListLoadError))
             {
                 SetBagCleanupInventoryStatus(
-                    "黑白名单读取失败，背包清理启动时将被禁用: " + nameListLoadError,
+                    "清包名单读取失败，背包清理启动时将被禁用: " + nameListLoadError,
                     true);
             }
             SetProfileStatus("已加载方案: " + result.Value.Name, false);
@@ -1962,6 +1971,7 @@ namespace Roadhog
             pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Gather, "采集路径", "采集路线点配置", false));
             pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Auction, "拍卖行路径", "从挂机点到交易中介，完成后原路返回", false));
             pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Stall, "摆摊路径", "从挂机点到仓库 / 摆摊位置，完成后回城走复活路径", false));
+            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.GroceryStall, "杂货摆摊路径", "使用所选卷轴回程，确认落点后走到终点摆摊", false));
             page.Controls.Add(pathTabs);
             page.AutoScroll = true;
             page.AutoScrollMinSize = new Size(836, 520);
@@ -1984,7 +1994,7 @@ namespace Roadhog
             tab.Controls.Add(page);
 
             page.AutoScroll = true;
-            var contentOffset = kind == SharedPathKind.Maintenance ? 72 : kind == SharedPathKind.Auction ? 40 : 0;
+            var contentOffset = kind == SharedPathKind.Maintenance ? 72 : kind is SharedPathKind.Auction or SharedPathKind.GroceryStall ? 40 : 0;
             page.AutoScrollMinSize = new Size(824, kind == SharedPathKind.Maintenance ? 488 : 430 + contentOffset);
             var editor = new PathEditorControls(kind);
             pathEditors[kind] = editor;
@@ -2006,6 +2016,7 @@ namespace Roadhog
             }
             else if (kind == SharedPathKind.Auction) { auctionPathNameTextBox = pathNameTextBox; }
             else if (kind == SharedPathKind.Stall) { stallPathNameTextBox = pathNameTextBox; }
+            else if (kind == SharedPathKind.GroceryStall) { groceryStallPathNameTextBox = pathNameTextBox; }
             else if (kind == SharedPathKind.Gather)
             {
                 gatherPathNameTextBox = pathNameTextBox;
@@ -2078,6 +2089,7 @@ namespace Roadhog
                 AddLabel(auctionOptions, "随路径保存，执行前核对交易中介身份", 452, 6, 340, 24);
             }
 
+            if (kind == SharedPathKind.GroceryStall) BuildGroceryPathOptions(page);
             editor.SummaryLabel = AddLabel(page, "点数  0  |  总距  0.0  |  跳过  0", 12, 112 + contentOffset, 300, 24, _textGreen, FontStyle.Bold);
             editor.StatusLabel = AddLabel(page, "等待读取坐标", 350, 112 + contentOffset, 462, 24);
 
@@ -3514,7 +3526,7 @@ namespace Roadhog
             var optionsPanel = new Panel
             {
                 BackColor = _inputBackground,
-                Location = new Point(12, 10),
+                Location = new Point(12, 56),
                 Size = new Size(828, 64)
             };
             page.Controls.Add(optionsPanel);
@@ -3583,9 +3595,9 @@ namespace Roadhog
 
             BuildStandaloneShopControls(rulesPanel);
 
-            bagCleanupWhitelistRadio = AddRadioButton(namesPanel, "白名单（不丢弃）", 0, 0, 128, true);
+            bagCleanupWhitelistRadio = AddRadioButton(namesPanel, "不丢弃", 0, 0, 128, true);
             bagCleanupWhitelistRadio.Name = "bagCleanupWhitelistRadio";
-            bagCleanupBlacklistRadio = AddRadioButton(namesPanel, "黑名单（丢弃）", 128, 0, 112, false);
+            bagCleanupBlacklistRadio = AddRadioButton(namesPanel, "丢弃", 128, 0, 112, false);
             bagCleanupBlacklistRadio.Name = "bagCleanupBlacklistRadio";
             bagCleanupSellRadio = AddRadioButton(namesPanel, "出售", 240, 0, 54, false);
             bagCleanupSellRadio.Name = "bagCleanupSellRadio";
@@ -3616,7 +3628,7 @@ namespace Roadhog
             bagCleanupInventoryCheckedListBox.Name = "bagCleanupInventoryCheckedListBox";
             bagCleanupInventoryStatusLabel = AddLabel(namesPanel, "等待刷新背包", 0, 244, 408, 24);
 
-            bagCleanupNameListTitleLabel = AddLabel(namesPanel, "白名单：以下物品不丢弃", 0, 280, 236, 24, _textGreen, FontStyle.Bold);
+            bagCleanupNameListTitleLabel = AddLabel(namesPanel, "不丢弃：以下物品保留", 0, 280, 236, 24, _textGreen, FontStyle.Bold);
             bagCleanupExcludedItemListBox = CreateFilterListBox(namesPanel, 0, 316, 408, 138);
             bagCleanupExcludedItemListBox.BackColor = Color.White;
             bagCleanupTradeItemGrid = CreateBagCleanupTradeItemGrid(namesPanel);
@@ -3627,6 +3639,7 @@ namespace Roadhog
             bagCleanupClearNamesButton.Click += async (_, _) =>
                 await ClearSelectedBagCleanupNameListAsync().ConfigureAwait(true);
 
+            layoutCleanupPage?.Invoke();
             ConfigureWideSettingsPage(page, 852);
             return tab;
         }
@@ -5007,8 +5020,8 @@ namespace Roadhog
                     return ("出售名单", "加入出售", "出售：丢弃后剩余物品卖给 NPC", "已自动保存出售名单");
                 if (bagCleanupBlacklistRadio?.Checked == true)
                 {
-                    return ("黑名单", "加入处理（丢弃）",
-                        "黑名单：以下物品强制丢弃", "已自动保存黑名单，将走丢弃逻辑");
+                    return ("丢弃", "加入丢弃",
+                        "丢弃：以下物品强制丢弃", "已自动保存丢弃名单，将走丢弃逻辑");
                 }
 
                 if (bagCleanupStallRadio?.Checked == true)
@@ -5023,8 +5036,8 @@ namespace Roadhog
                         "拍卖行：选择查价方式；测试不提交出售", "已自动保存拍卖行名单");
                 }
 
-                return ("白名单", "加入不丢弃",
-                    "白名单：以下物品不丢弃", "已自动保存白名单，不会丢弃");
+                return ("不丢弃", "加入不丢弃",
+                    "不丢弃：以下物品保留", "已自动保存不丢弃名单，不会丢弃");
             }
         }
 

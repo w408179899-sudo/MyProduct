@@ -556,6 +556,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("personal shop advertisement geometry text and read faults", PersonalShopDecoderTests.AdvertisementAndFaultsAsync),
     ("personal shop advertisement mouse focus discount and confirmation", PersonalShopAdvertisementTests.FocusAndConfirmationAsync),
     ("personal shop production batch guards and valid absence", PersonalShopDecoderTests.BatchesAndClosedStateAsync),
+    ("personal shop stance conditional X confirmed transition timeout cancellation and identity", PersonalShopStanceTests.ConfiguredAsync),
+    ("personal shop stance test button preparation", PersonalShopStanceTests.TestButtonAsync),
     ("personal shop full production sequence and stack quantities", PersonalShopTests.FullSequenceAsync),
     ("personal shop filtering and ten-slot capacity", PersonalShopTests.FilteringAndCapacityAsync),
     ("personal shop hover and existing shop guards", PersonalShopTests.WrongHoverAndExistingShopAsync),
@@ -679,7 +681,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat consumes waypoint arrival and commits clear target", TestStationaryCombatConsumesWaypointArrivalAndCommitsClearTargetAsync),
     ("path recorder enforces five meter minimum", TestPathRecorderMinimumDistanceAsync),
     ("path editing boundaries distances actions and undo", PathEditingTests.BufferEditsAsync),
-    ("path editing all six tabs selection and undo", PathEditingTests.AllTabsAsync),
+    ("path editing all seven tabs selection and undo", PathEditingTests.AllTabsAsync),
     ("path editing JSON save reload preserves metadata", PathEditingTests.SaveReloadAsync),
     ("path editing invalid input and busy guards", PathEditingTests.ValidationAndBusyAsync),
     ("path editing failed delayed saves and navigation choices", PathEditingTests.SaveFailureAndChoicesAsync),
@@ -1276,6 +1278,22 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ("cleanup workflow auction withdraw all register then settle", CleanupWorkflowTests.AuctionSubmissionAsync),
     ("cleanup workflow warehouse ownership quantity and cancellation", CleanupWorkflowTests.WarehousePurchaseAsync),
     ("cleanup workflow configured stall batches sale proof and purchased goods", CleanupWorkflowTests.ConfiguredStallAsync)
+    ,("grocery shop configuration daily scheduling and exclusive requests", GroceryShopTests.ConfigurationAndScheduleAsync)
+    ,("grocery shop backpack exhausts discard rechecks capacity and protects scroll", GroceryShopTests.BackpackDiscardGateAsync)
+    ,("grocery shop backpack discard failures attack death stop and retry block departure", GroceryShopTests.BackpackDiscardInterruptionAsync)
+    ,("grocery shop backpack worker retries local failure resumes combat without stall", GroceryShopTests.BackpackDiscardWorkerRetryAsync)
+    ,("grocery shop actual sellout persistence restart and account isolation", GroceryShopTests.SuccessPersistenceAsync)
+    ,("grocery shop scroll confirmation attack loading timeout death and cancellation", GroceryShopTests.ReturnConfirmationAsync)
+    ,("grocery shop missing scroll empty plan and invalid route guards", GroceryShopTests.FlowGuardsAsync)
+    ,("grocery shop actual discounted sellout protects scroll and persists before restart", GroceryShopTests.SaleCompletionAsync)
+    ,("grocery shop worker returns to combat retries bag and schedule then signals restart", GroceryShopTests.WorkerRetryAndCompletionAsync)
+    ,("grocery shop UI multiple times route scroll and temporary manual action", GroceryShopTests.UiConfigurationAndManualAsync)
+    ,("grocery shop UI scroll refresh uses return group and excludes speed buffs", GroceryShopTests.UiScrollRefreshByItemTypeAsync)
+    ,("grocery shop provider return use group identity and trusted merge", GroceryShopTests.ReturnUseGroupProviderAsync)
+    ,("grocery shop final discard follows full sellout before restart", GroceryShopTests.DiscardAfterSelloutAsync)
+    ,("grocery shop failed final discard retains sale time and blocks restart", GroceryShopTests.PostSaleDiscardFailureAsync)
+    ,("grocery shop interrupted return cannot execute discard", GroceryShopTests.InterruptedBeforeDiscardAsync)
+    ,("grocery shop stopped and running manual command worker IPC", WorkerProcessManagerTests.GroceryShopDispatchAsync)
     ,("standalone shop price filtering request and persistence", StandaloneShopTests.PriceAndRequestAsync)
     ,("standalone shop batches confirmed prices sale proof and resume", CleanupWorkflowTests.DiscountedStallAsync)
     ,("standalone shop empty and stop never resume", StandaloneShopTests.EmptyAndCancelAsync)
@@ -1486,7 +1504,7 @@ static Task TestPathTabOpensConfiguredPathFolderAsync()
     var pathLibraryDirectory = Path.Combine("test-runtime", "config", "paths");
     using var form = CreateAccountSettingsFormForTests(launcher, pathLibraryDirectory);
     var editors = (System.Collections.IDictionary)GetPrivateFieldForTest(form, "pathEditors");
-    AssertEqual(6, editors.Count, "all six path kinds expose a separate folder button");
+    AssertEqual(7, editors.Count, "all seven path kinds expose a separate folder button");
     foreach (var editor in editors.Values.Cast<object>())
     {
         var more = (System.Windows.Forms.Button)editor.GetType().GetProperty("MoreButton")!.GetValue(editor)!;

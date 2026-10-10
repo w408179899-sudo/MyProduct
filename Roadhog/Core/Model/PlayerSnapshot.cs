@@ -36,6 +36,8 @@ public sealed record PlayerSnapshot(
 
     public int StanceLowNibble => unchecked((int)(StanceFlags & 0xFU));
 
+    public bool IsCombatStance => (StanceFlags & 0x20U) != 0;
+
     public bool HasRestState => StanceFlags != 0 || MotionMode != 0;
 
     public bool IsResting => MotionMode == 1U && StanceLowNibble == 5;

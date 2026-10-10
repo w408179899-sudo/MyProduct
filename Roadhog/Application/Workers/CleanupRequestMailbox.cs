@@ -4,12 +4,17 @@ using Roadhog.Core.Common;
 namespace Roadhog.Application.Workers;
 
 internal enum CleanupPreparationStage { None, ReturningToTown, Discarding }
+public enum GroceryShopTrigger { None, Backpack, Scheduled, Manual }
 
 public sealed record CleanupRequest(ScriptSettings Settings, bool Manual, bool ResetsCooldown = true, bool AllowNpcSell = true)
 {
     public Guid RequestId { get; } = Guid.NewGuid();
     // Execution progress belongs to this worker request, never to persisted settings.
     public bool StandaloneShop { get; init; }
+    public GroceryShopTrigger GroceryTrigger { get; init; }
+    public bool GroceryShop => GroceryTrigger != GroceryShopTrigger.None;
+    public bool SoldOutConfirmed { get; internal set; }
+    public bool RequestsRestart => StandaloneShop || GroceryShop && SoldOutConfirmed;
     public string? Failure { get; set; }
     internal CleanupPreparationStage PreparationStage { get; set; }
     internal bool TownReturnCompleted { get; set; }
@@ -25,14 +30,27 @@ public sealed class CleanupRequestMailbox
     private Guid? standaloneShopRestartRequestId;
     public CleanupRequest? Current { get { lock (sync) return request; } }
     public Guid? StandaloneShopRestartRequestId { get { lock (sync) return standaloneShopRestartRequestId; } }
-    public OperationResult Request(ScriptSettings settings, bool manual, bool resetsCooldown = true, bool allowNpcSell = true, bool standaloneShop = false)
+    public OperationResult Request(ScriptSettings settings, bool manual, bool resetsCooldown = true, bool allowNpcSell = true, bool standaloneShop = false,
+        GroceryShopTrigger groceryTrigger = GroceryShopTrigger.None)
     {
         lock (sync)
         {
             if (standaloneShopRestartRequestId.HasValue) return OperationResult.Fail("摆摊已售罄，正在等待脚本停止并重新启动。");
             if (request != null) return OperationResult.Fail("清包流程已在等待或执行，请勿重复启动。");
+            if (standaloneShop && groceryTrigger != GroceryShopTrigger.None)
+                return OperationResult.Fail("不能同时提交两种摆摊任务。");
             var copy = settings.Clone();
             copy.Maintenance.CleanupWorkflow = copy.Maintenance.CleanupWorkflow.ForTrigger(manual);
+            if (!standaloneShop && groceryTrigger == GroceryShopTrigger.None && copy.Maintenance.CleanupWorkflow.Mode == CleanupMode.GroceryShop)
+                groceryTrigger = manual ? GroceryShopTrigger.Manual : GroceryShopTrigger.Backpack;
+            if (groceryTrigger != GroceryShopTrigger.None)
+            {
+                if (copy.Maintenance.CleanupWorkflow.StandaloneShopDiscount is < 4 or > 9)
+                    return OperationResult.Fail("摆摊折扣必须为 4～9 折。");
+                try { GroceryShopSchedule.Normalize(copy.Maintenance.CleanupWorkflow.GroceryScheduleTimes); }
+                catch (FormatException) { return OperationResult.Fail("定时时间必须为 HH:mm。"); }
+                copy.Maintenance.CleanupWorkflow.Mode = CleanupMode.GroceryShop;
+            }
             if (standaloneShop)
             {
                 if (copy.Maintenance.CleanupWorkflow.StandaloneShopDiscount is < 4 or > 9)
@@ -43,7 +61,7 @@ public sealed class CleanupRequestMailbox
                 copy.Maintenance.CleanupWorkflow.PersonalShop = true;
             }
             if (copy.Maintenance.CleanupWorkflow.Describe().Length == 0) return OperationResult.Fail("请先在清包页选择执行项目。");
-            request = new(copy, manual, resetsCooldown, allowNpcSell) { StandaloneShop = standaloneShop }; return OperationResult.Ok();
+            request = new(copy, manual, resetsCooldown, allowNpcSell) { StandaloneShop = standaloneShop, GroceryTrigger = groceryTrigger }; return OperationResult.Ok();
         }
     }
     public void Complete() { lock (sync) request = null; }
@@ -52,7 +70,7 @@ public sealed class CleanupRequestMailbox
     {
         lock (sync)
         {
-            if (!ReferenceEquals(request, completed) || !completed.StandaloneShop || completed.Failure != null)
+            if (!ReferenceEquals(request, completed) || !completed.RequestsRestart || completed.Failure != null)
                 throw new InvalidOperationException("自动摆摊完成请求与当前任务不一致。");
             standaloneShopRestartRequestId = completed.RequestId;
             request = null;

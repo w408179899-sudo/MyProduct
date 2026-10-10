@@ -5,6 +5,7 @@ namespace Roadhog.Infrastructure.Vmm;
 
 internal sealed partial class AionVmmGameApi
 {
+    private const int ItemStaticUseGroupOffset = 328;
     // Item static schema verified against Tone's drink/food samples; see docs/food-maintenance.md.
     private static bool TryReadFoodDefinition(VmmProcess process, ulong gameBase, uint id,
         Dictionary<uint, byte[]> chunks, out FoodItemDefinition? food)
@@ -27,7 +28,7 @@ internal sealed partial class AionVmmGameApi
     {
         food = null;
         if (record.Length < 499) return false;
-        var group = BitConverter.ToUInt32(record.Slice(328, 4));
+        var group = BitConverter.ToUInt32(record.Slice(ItemStaticUseGroupOffset, 4));
         if (group is not (21 or 22)) return true;
         var pointer = BitConverter.ToUInt64(record.Slice(280, 8));
         var name = pointer == 0 ? null : readName(pointer);

@@ -774,7 +774,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                observation.Fields.IsEquipped &&
                observation.Fields.ItemType &&
                observation.Fields.QualityRank &&
-               observation.Fields.VendorSellUnitPrice && observation.Fields.Food;
+               observation.Fields.VendorSellUnitPrice && observation.Fields.Food && observation.Fields.UseGroup;
     }
 
     internal static IReadOnlyList<InventoryItemSnapshot> MergeInventoryRead(
@@ -796,6 +796,12 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
             {
                 continue;
             }
+            // Use-group metadata belongs to the template. A changed template cannot inherit an old group.
+            if (!observation.Fields.UseGroup && observation.Fields.TemplateId && lastGood?.TemplateId != current.TemplateId)
+            {
+                if (lastGood is not null) merged[current.InstanceId] = lastGood;
+                continue;
+            }
 
             merged[current.InstanceId] = current with
             {
@@ -807,6 +813,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                 ItemType = observation.Fields.ItemType ? current.ItemType : lastGood!.ItemType,
                 QualityRank = observation.Fields.QualityRank ? current.QualityRank : lastGood!.QualityRank,
                 Food = observation.Fields.Food ? current.Food : lastGood!.Food,
+                UseGroup = observation.Fields.UseGroup ? current.UseGroup : lastGood!.UseGroup,
                 VendorSellUnitPrice = observation.Fields.VendorSellUnitPrice
                     ? current.VendorSellUnitPrice
                     : lastGood!.VendorSellUnitPrice
@@ -2964,6 +2971,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                 var qualityByTemplate = new Dictionary<uint, (bool Success, byte Rank)>();
                 var staticChunkCache = new Dictionary<uint, byte[]>();
                 var foodByTemplate = new Dictionary<uint, (bool Valid, FoodItemDefinition? Value)>();
+                var useGroupByTemplate = new Dictionary<uint, (bool Valid, uint? Value)>();
                 for (var i = 0; i < items.Count; i++)
                 {
                     var item = items[i];
@@ -2982,6 +2990,18 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                             TryReadFoodDefinition(process, gameBase, item.TemplateId, staticChunkCache, out food));
                         foodByTemplate[item.TemplateId] = (valid, food);
                     }
+                    if (!useGroupByTemplate.ContainsKey(item.TemplateId))
+                    {
+                        uint? group = null;
+                        var valid = item.ItemTypeValid;
+                        if (valid && item.ItemType == 18)
+                        {
+                            uint value = 0;
+                            valid = item.TemplateIdValid && TryReadItemUseGroup(process, gameBase, item.TemplateId, staticChunkCache, out value);
+                            if (valid) group = value;
+                        }
+                        useGroupByTemplate[item.TemplateId] = (valid, group);
+                    }
                 }
 
                 var observations = items
@@ -2996,7 +3016,8 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                             item.ItemType,
                             item.QualityRank,
                             item.VendorSellUnitPrice,
-                            foodByTemplate[item.TemplateId].Value),
+                            foodByTemplate[item.TemplateId].Value,
+                            useGroupByTemplate[item.TemplateId].Value),
                         new InventoryItemFieldValidity(
                             item.TemplateIdValid,
                             item.CountValid,
@@ -3006,7 +3027,8 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                             item.ItemTypeValid,
                             item.QualityRankValid,
                             item.VendorSellUnitPriceValid,
-                            foodByTemplate[item.TemplateId].Valid)))
+                            foodByTemplate[item.TemplateId].Valid,
+                            useGroupByTemplate[item.TemplateId].Valid)))
                     .ToArray();
 
                 _logger.Info("vmm.inventory.read", new Dictionary<string, object?>

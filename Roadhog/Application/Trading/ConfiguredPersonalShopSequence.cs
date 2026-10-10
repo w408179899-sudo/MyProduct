@@ -24,6 +24,7 @@ public sealed class ConfiguredPersonalShopSequence(IKeyboardInput input, Func<in
             {
                 var ui = await Ui();
                 Require(!ui.IsSelling && ui.Editor == null && ui.Listings.Count == 0 && !ui.OtherModalOpen, "已有摊位或登记内容，停止以免混入本次计划。");
+                await PersonalShopStance.EnsureNormalAsync(actions, snapshots, report, token);
                 if (!ui.IsOpen) { await actions.Key("Y"); await actions.Wait(Ui, s => s.IsOpen); }
                 if (advertisementDiscount is { } discount)
                     await PersonalShopAdvertisement.EnsureAsync(actions, Ui, discount, report);

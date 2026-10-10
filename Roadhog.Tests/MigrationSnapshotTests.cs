@@ -199,7 +199,7 @@ internal static class MigrationSnapshotTests
         Require((await new JsonRadarMapStore(files.Options.RadarMapDirectory).SaveAsync(new() { MapId = 47, MapCode = "global" })).Success,
             "create conflicting global radar map");
         var pathProperties = typeof(PathScriptSettings).GetProperties().Where(property => property.Name.EndsWith("PathName", StringComparison.Ordinal)).ToArray();
-        Require(pathProperties.Length == 6, "every currently supported path reference participates in the snapshot test");
+        Require(pathProperties.Length == 7, "all seven supported path references including grocery participate in the snapshot test");
         for (var number = 1; number <= 6; number++)
         {
             var account = files.Account(number);

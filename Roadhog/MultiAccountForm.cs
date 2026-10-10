@@ -435,6 +435,12 @@ public sealed class MultiAccountForm : Form
                 await ReloadAccountsAsync();
                 return await _workspace.Processes.StartAsync(account.InstanceId, cancellationToken: _operations.Token,
                     standaloneShopSettings: settings);
+            },
+            async settings =>
+            {
+                await ReloadAccountsAsync();
+                return await _workspace.Processes.StartAsync(account.InstanceId, cancellationToken: _operations.Token,
+                    groceryShopSettings: settings);
             });
 
     private async Task ReloadAccountsAsync()

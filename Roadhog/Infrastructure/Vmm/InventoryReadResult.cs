@@ -18,7 +18,8 @@ internal sealed record InventoryItemFieldValidity(
     bool ItemType,
     bool QualityRank,
     bool VendorSellUnitPrice,
-    bool Food = true);
+    bool Food = true,
+    bool UseGroup = true);
 
 internal sealed record InventoryItemObservation(
     InventoryItemSnapshot Snapshot,

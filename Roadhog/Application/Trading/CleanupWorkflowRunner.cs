@@ -10,7 +10,9 @@ namespace Roadhog.Application.Trading;
 
 public sealed partial class CleanupWorkflowRunner(IKeyboardInput input, ISharedPathStore paths,
     BagCleanupPathExecutor executePath, IAuctionListingJournal journal,
-    Func<AccountConfig, ISharedAccountConfiguration?>? sharedConfigurationFactory = null)
+    Func<AccountConfig, ISharedAccountConfiguration?>? sharedConfigurationFactory = null,
+    IGroceryShopSuccessStore? grocerySuccessStore = null,
+    Func<int, CancellationToken, Task>? groceryDelay = null, Func<DateTimeOffset>? groceryClock = null)
 {
     public async Task RunAsync(AccountWorkerContext source, CleanupRequest request, Func<AccountWorkerContext, Task>? returnToCombat = null)
     {
@@ -42,8 +44,13 @@ public sealed partial class CleanupWorkflowRunner(IKeyboardInput input, ISharedP
             context.RuntimeStates.MarkHeartbeat(context.Config.AccountName);
             context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, text);
         }
-        // Automatic requests first exhaust local discard work. A full bag at enqueue time
-        // does not authorize a town trip after that work has recovered capacity.
+        // Backpack grocery requests first exhaust local discard; scheduled/manual departures
+        // bypass that gate. Every completed grocery sale retains final discard before restart.
+        if (request.GroceryShop)
+        {
+            await RunGroceryShopAsync(context, request, Report);
+            return;
+        }
         if (request.StandaloneShop)
         {
             try

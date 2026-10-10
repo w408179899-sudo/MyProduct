@@ -7,5 +7,6 @@ public enum SharedPathKind
     Maintenance,
     Gather,
     Auction,
-    Stall
+    Stall,
+    GroceryStall
 }

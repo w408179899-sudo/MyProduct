@@ -19,7 +19,8 @@ public partial class AccountSettingsForm
         button.Name = "standaloneShopButton";
         button.Enabled = _startStandaloneShop != null;
         button.Click += async (_, _) => await StartStandaloneShopAsync(button);
-        AddLabel(rules, "仅摆摊过滤内物品；全部售罄后停止并重新启动脚本", 12, 386, 430, 26);
+        var hint = AddLabel(rules, "仅摆摊名单物品，全部售罄后重启脚本", 12, 386, 392, 26);
+        hint.Name = "standaloneShopHintLabel";
     }
 
     private async Task StartStandaloneShopAsync(Button button)

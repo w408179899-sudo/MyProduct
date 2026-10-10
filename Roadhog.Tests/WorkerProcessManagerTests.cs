@@ -649,6 +649,33 @@ internal static partial class WorkerProcessManagerTests
         Require(View(manager, account).WorkerProcessId is null, "manual cancellation allows graceful exit");
     }
 
+    public static async Task GroceryShopDispatchAsync()
+    {
+        await using var test = new TestEnvironment();
+        var account = test.Account(1);
+        var manager = await test.ManagerAsync(new[] { account });
+        var settings = new ScriptSettings();
+        settings.Paths.GroceryStallPathName = "grocery";
+        settings.Paths.GroceryReturnItemName = "伏魔殿回程卷轴";
+        settings.Maintenance.CleanupWorkflow.StandaloneShopDiscount = 8;
+        Require((await manager.StartAsync(account.InstanceId, groceryShopSettings: settings)).Success, "stopped grocery command launches worker");
+        var file = Directory.GetFiles(test.Root, "grocery-shop.json", SearchOption.AllDirectories).Single();
+        var received = JsonSerializer.Deserialize<AccountConfig>(await File.ReadAllTextAsync(file))!;
+        Require(received.ScriptSettings!.Maintenance.CleanupWorkflow.Mode == CleanupMode.GroceryShop && received.ScriptSettings.Paths.GroceryReturnItemName == settings.Paths.GroceryReturnItemName,
+            "manual override and return scroll survive worker IPC");
+        Require(settings.Maintenance.CleanupWorkflow.Mode == CleanupMode.Normal, "dispatch cannot mutate caller preferences");
+        await UntilAsync(() => View(manager, account).State == "running", "grocery worker running");
+        var pid = View(manager, account).WorkerProcessId;
+        settings.Maintenance.CleanupWorkflow.StandaloneShopDiscount = 4;
+        settings.Paths.GroceryStallPathName = "updated-route";
+        Require((await manager.StartAsync(account.InstanceId, groceryShopSettings: settings)).Success, "running grocery command submits current selection");
+        received = JsonSerializer.Deserialize<AccountConfig>(await File.ReadAllTextAsync(file))!;
+        Require(received.ScriptSettings!.Maintenance.CleanupWorkflow.StandaloneShopDiscount == 4 && received.ScriptSettings.Paths.GroceryStallPathName == "updated-route" && View(manager, account).WorkerProcessId == pid,
+            "running command uses fresh settings without spawning another process");
+        Require(!(await manager.StartAsync(account.InstanceId, standaloneShopSettings: settings, groceryShopSettings: settings)).Success, "reject conflicting shop commands");
+        Require((await manager.StopAsync(account.InstanceId)).Success, "stop grocery worker");
+    }
+
     private static AccountProcessView View(WorkerProcessManager manager, AccountConfig account) => manager.Snapshot().Single(view => view.Config.InstanceId == account.InstanceId);
 
     private static async Task UntilAsync(Func<bool> condition, string reason, int timeoutMs = 10000)
@@ -754,6 +781,8 @@ internal static partial class WorkerProcessManagerTests
             lock (_shopSync) _shopRestartRequestId = null;
             if (!cleanupFirst)
                 await File.WriteAllTextAsync(Path.Combine(spec.Paths.LogDirectory, "normal-start.json"), JsonSerializer.Serialize(account), cancellationToken);
+            if (cleanupFirst && account.ScriptSettings?.Maintenance.CleanupWorkflow.Mode == CleanupMode.GroceryShop)
+                await File.WriteAllTextAsync(Path.Combine(spec.Paths.LogDirectory, "grocery-shop.json"), JsonSerializer.Serialize(account), cancellationToken);
             if (scenario == "player-info")
             {
                 var first = account.AccountName.EndsWith("1", StringComparison.Ordinal);

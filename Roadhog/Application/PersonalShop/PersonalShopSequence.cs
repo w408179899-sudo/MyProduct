@@ -34,6 +34,8 @@ public sealed class PersonalShopSequence(IKeyboardInput input, IRoadhogLogger lo
             foreach (var key in new[] { "W", "A", "S", "D", "ControlKey" }) Check(await input.KeyUpAsync(key, token).ConfigureAwait(false));
             Check(await input.MouseUpAsync(RoadhogMouseButton.Right, token).ConfigureAwait(false));
             Check(await input.MouseUpAsync(RoadhogMouseButton.Left, token).ConfigureAwait(false));
+            await Roadhog.Application.Trading.PersonalShopStance.EnsureNormalAsync(
+                new(input, snapshots, token, delay), snapshots, Report, token);
             Report("打开摊位和背包");
             if (!ui.IsOpen) { await Key("Y"); await Pause(300, token); ui = await Wait(u => u.IsOpen); }
             if (!ui.InventoryOpen) { await Key("I"); await Pause(300, token); ui = await Wait(u => u.InventoryOpen); }
