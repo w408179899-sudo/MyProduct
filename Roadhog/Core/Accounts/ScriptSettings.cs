@@ -360,6 +360,7 @@ public sealed class PathScriptSettings
 
     public string AuctionPathName { get; set; } = string.Empty;
     public string StallPathName { get; set; } = string.Empty;
+    public string StallReturnItemName { get; set; } = string.Empty;
     public string GroceryStallPathName { get; set; } = string.Empty;
     public string GroceryReturnItemName { get; set; } = string.Empty;
 
@@ -393,6 +394,7 @@ public sealed class PathScriptSettings
             GatherPathName = GatherPathName,
             AuctionPathName = AuctionPathName,
             StallPathName = StallPathName,
+            StallReturnItemName = StallReturnItemName,
             GroceryStallPathName = GroceryStallPathName,
             GroceryReturnItemName = GroceryReturnItemName,
             TownReturnKey = TownReturnKey,

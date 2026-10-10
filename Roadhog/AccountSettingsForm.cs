@@ -504,6 +504,7 @@ namespace Roadhog
             SetText(gatherPathNameTextBox, paths.GatherPathName);
             SetText(auctionPathNameTextBox, paths.AuctionPathName);
             SetText(stallPathNameTextBox, paths.StallPathName);
+            SetComboText(stallReturnItemCombo, paths.StallReturnItemName);
             SetText(groceryStallPathNameTextBox, paths.GroceryStallPathName);
             SetComboText(groceryReturnItemCombo, paths.GroceryReturnItemName);
             SetKeyButton(townReturnKeyButton, paths.TownReturnKey);
@@ -919,6 +920,7 @@ namespace Roadhog
                     GatherPathName = GetText(gatherPathNameTextBox, string.Empty),
                     AuctionPathName = GetText(auctionPathNameTextBox, string.Empty),
                     StallPathName = GetText(stallPathNameTextBox, string.Empty),
+                    StallReturnItemName = stallReturnItemCombo?.Text.Trim() ?? string.Empty,
                     GroceryStallPathName = GetText(groceryStallPathNameTextBox, string.Empty),
                     GroceryReturnItemName = groceryReturnItemCombo?.Text.Trim() ?? string.Empty,
                     TownReturnKey = townReturnKeyButton?.Tag as string ?? string.Empty,
@@ -1971,7 +1973,7 @@ namespace Roadhog
             pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Maintenance, "清包路径", "清包路径", false));
             pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Gather, "采集路径", "采集路线点配置", false));
             pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Auction, "拍卖行路径", "从挂机点到交易中介，完成后原路返回", false));
-            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Stall, "转移到仓库号路径", "从挂机点到仓库 / 摆摊位置，完成后回城走复活路径", false));
+            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Stall, "转移到仓库号路径", "使用所选卷轴回程，确认落点后走到仓库号位置", false));
             pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.GroceryStall, "杂货摆摊路径", "使用所选卷轴回程，确认落点后走到终点摆摊", false));
             page.Controls.Add(pathTabs);
             page.AutoScroll = true;
@@ -1995,7 +1997,7 @@ namespace Roadhog
             tab.Controls.Add(page);
 
             page.AutoScroll = true;
-            var contentOffset = kind == SharedPathKind.Maintenance ? 72 : kind is SharedPathKind.Auction or SharedPathKind.GroceryStall ? 40 : 0;
+            var contentOffset = kind == SharedPathKind.Maintenance ? 72 : kind is SharedPathKind.Auction or SharedPathKind.Stall or SharedPathKind.GroceryStall ? 40 : 0;
             page.AutoScrollMinSize = new Size(824, kind == SharedPathKind.Maintenance ? 488 : 430 + contentOffset);
             var editor = new PathEditorControls(kind);
             pathEditors[kind] = editor;
@@ -2091,6 +2093,7 @@ namespace Roadhog
             }
 
             if (kind == SharedPathKind.GroceryStall) BuildGroceryPathOptions(page);
+            if (kind == SharedPathKind.Stall) BuildWarehousePathOptions(page);
             editor.SummaryLabel = AddLabel(page, "点数  0  |  总距  0.0  |  跳过  0", 12, 112 + contentOffset, 300, 24, _textGreen, FontStyle.Bold);
             editor.StatusLabel = AddLabel(page, "等待读取坐标", 350, 112 + contentOffset, 462, 24);
 

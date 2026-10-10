@@ -66,6 +66,13 @@ public sealed partial class CleanupWorkflowRunner(IKeyboardInput input, ISharedP
             finally { await actions.Reset(); }
             return;
         }
+        // Preserve the selected scroll before automatic cleanup can discard locally.
+        if ((flow.TransferGold || flow.PersonalShop) && !string.IsNullOrWhiteSpace(settings.Paths.StallReturnItemName))
+        {
+            settings.Paths.StallReturnItemName = settings.Paths.StallReturnItemName.Trim();
+            if (!settings.Maintenance.BagCleanupExcludedItemNames.Contains(settings.Paths.StallReturnItemName, StringComparer.OrdinalIgnoreCase))
+                settings.Maintenance.BagCleanupExcludedItemNames.Add(settings.Paths.StallReturnItemName);
+        }
         if (!request.Manual && !request.TownReturnCompleted)
         {
             bool needsTown;
@@ -85,16 +92,25 @@ public sealed partial class CleanupWorkflowRunner(IKeyboardInput input, ISharedP
         }
         // Validate all town stages before recalling. Manual requests also validate before discarding.
         var inventory = (await context.Snapshots.ReadInventoryAsync().WaitAsync(token)).Value;
-        if (flow.NpcCleanup && request.AllowNpcSell && BagCleanupItemMatcher.SelectSellRegistrationItems(inventory, settings.Maintenance).Count > 0)
+        var hasNpcSale = flow.NpcCleanup && request.AllowNpcSell &&
+            BagCleanupItemMatcher.SelectSellRegistrationItems(inventory, settings.Maintenance).Count > 0;
+        var hasWarehouseStage = flow.TransferGold || flow.PersonalShop;
+        var needsInitialTownReturn = !request.TownReturnCompleted && (hasNpcSale || flow.Auction || !hasWarehouseStage);
+        if (hasNpcSale)
             Require(!string.IsNullOrWhiteSpace((await Load(settings.Paths.MaintenancePathName)).CleanupNpcName), "清包路径缺少 NPC 名字。");
         if (flow.Auction) await Load(settings.Paths.AuctionPathName);
         if (flow.TransferGold || flow.PersonalShop)
         {
-            await Load(settings.Paths.StallPathName); await Load(settings.Paths.RevivePathName);
+            var destination = await Load(settings.Paths.StallPathName);
+            Require(destination.MapId is > 0, "转移到仓库号路径需要录制地图及卷轴落点入口。");
+            Require(!string.IsNullOrWhiteSpace(settings.Paths.StallReturnItemName), "请在转移到仓库号路径配置回程卷轴。");
+            Require(GroceryReturnSequence.FindScroll(inventory, settings.Paths.StallReturnItemName) is not null,
+                "背包没有配置的仓库回程卷轴：" + settings.Paths.StallReturnItemName);
+            await Load(settings.Paths.RevivePathName);
             Require(!string.IsNullOrWhiteSpace(settings.Paths.TownReturnKey), "摆摊区域结束后需要回城按键和复活路径。");
         }
         if (flow.TransferGold) Require(!string.IsNullOrWhiteSpace(flow.WarehouseName) && !string.IsNullOrWhiteSpace(flow.WarehouseSelectionKey), "请填写仓库角色名和选仓库号按键。");
-        if (!request.TownReturnCompleted)
+        if (needsInitialTownReturn)
         {
             Require(!string.IsNullOrWhiteSpace(settings.Paths.BagCleanupTownReturnKey) || !string.IsNullOrWhiteSpace(settings.Paths.TownReturnKey), "清包前需要配置清包回城按键。");
             await Load(settings.Paths.RevivePathName);
@@ -103,15 +119,14 @@ public sealed partial class CleanupWorkflowRunner(IKeyboardInput input, ISharedP
         try
         {
             var cleanup = new BagCleanupController(input, paths, executePath);
-            request.PreparationStage = !request.TownReturnCompleted
+            request.PreparationStage = needsInitialTownReturn
                 ? CleanupPreparationStage.ReturningToTown : flow.NpcCleanup ? CleanupPreparationStage.Discarding : CleanupPreparationStage.None;
             await actions.Reset();
-            if (!request.TownReturnCompleted)
+            if (needsInitialTownReturn)
             {
-                var entryPath = flow.NpcCleanup && request.AllowNpcSell &&
-                    BagCleanupItemMatcher.SelectSellRegistrationItems(inventory, settings.Maintenance).Count > 0
+                var entryPath = hasNpcSale
                     ? settings.Paths.MaintenancePathName : flow.Auction ? settings.Paths.AuctionPathName
-                    : flow.TransferGold || flow.PersonalShop ? settings.Paths.StallPathName : settings.Paths.RevivePathName;
+                    : settings.Paths.RevivePathName;
                 await cleanup.ReturnToTownRequestedAsync(context, Report, entryPath);
                 request.TownReturnCompleted = true;
             }
@@ -132,9 +147,14 @@ public sealed partial class CleanupWorkflowRunner(IKeyboardInput input, ISharedP
             }
             if (flow.TransferGold || flow.PersonalShop)
             {
+                await new GroceryReturnSequence(input, groceryDelay, groceryClock).RunAsync(context,
+                    await Load(settings.Paths.StallPathName), settings.Paths.StallReturnItemName, Report,
+                    "仓库回程", "cleanup_workflow.warehouse_return.retry");
+                request.TownReturnCompleted = true;
                 // Freeze quantities before buying, so purchased warehouse goods cannot enter this run's stall.
                 inventory = (await context.Snapshots.ReadInventoryAsync().WaitAsync(token)).Value;
-                var stallPlan = inventory.Select(i => (Item: i, Rule: CleanupTradePolicy.Rule(i, settings.Maintenance, false)))
+                var stallPlan = inventory.Where(i => !string.Equals(i.Name, settings.Paths.StallReturnItemName, StringComparison.OrdinalIgnoreCase))
+                    .Select(i => (Item: i, Rule: CleanupTradePolicy.Rule(i, settings.Maintenance, false)))
                     .Where(p => p.Rule?.EffectiveUnitPrice is > 0).Select(p => new PlannedShopItem(p.Item, checked((ulong)p.Rule!.EffectiveUnitPrice!.Value))).ToArray();
                 await Follow(settings.Paths.StallPathName);
                 if (flow.TransferGold) await new WarehousePurchaseSequence(input).RunAsync(context.Snapshots, flow, Report, token);

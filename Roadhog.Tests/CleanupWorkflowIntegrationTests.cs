@@ -8,6 +8,7 @@ using Roadhog.Application.StationaryCombat;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Common;
 using Roadhog.Core.Diagnostics;
+using Roadhog.Core.Input;
 using Roadhog.Core.Model;
 using Roadhog.Core.Paths;
 
@@ -21,44 +22,89 @@ internal static partial class CleanupWorkflowTests
         var logger = new InMemoryRoadhogLogger();
         using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(8));
         var auction = Auction();var shop = Shop();
+        var bagOpen = false;
+        var scrollClicks = 0;
+        InventoryUiItem[] BagItems() => api.InventoryItems.Select(i => new InventoryUiItem((uint)i.InstanceId,
+            i.TemplateId, i.Count, new(500 + i.Slot * 30, 300))).ToArray();
+        api.InventoryInteractionRead = () => new(bagOpen, false, false, BagItems(),
+            BagItems().FirstOrDefault(i => i.Point == api.InventoryUiCursor)?.InstanceId ?? 0, 0, null, new(500, 380), false);
         api.AuctionRead=()=>auction;api.PersonalShopRead=()=>shop;
         input.AfterPress=key=>
         {
             if(key=="Space"){auction=auction with{IsOpen=false};shop=shop with{Purchase=ShopPurchaseSnapshot.Closed};}
             else if(key=="C")shop=shop with{Purchase=new(true,7,new[]{new ShopPurchaseItem(8,20,1,30,new(500,300))},Array.Empty<ShopPurchaseItem>(),0,null,new(700,300))};
-            else if(key=="F5")api.Player=api.Player with{Position=new(0,0,0)};
-            else if(key=="F6")api.Player=api.Player with{Position=new(1000,0,0)};
+            else if(key=="I")bagOpen=!bagOpen;
+            else if(key=="F5"){api.Player=api.Player with{Position=new(0,0,0)};api.Channel=api.Channel with{MapId=1};}
+            else if(key=="F6"){api.Player=api.Player with{Position=new(1000,0,0)};api.Channel=api.Channel with{MapId=1};}
             else throw new Exception("unexpected route key "+key);
         };
         bool down=false;input.AfterMouseDown=_=>down=true;
-        input.AfterMouseUp=_=>
+        input.AfterMouseUp=button=>
         {
             if(!down)return;down=false;
+            if (button == RoadhogMouseButton.Right)
+            {
+                var item = BagItems().Single(i => i.Point == api.InventoryUiCursor);
+                Require(item.InstanceId == 12 && bagOpen, "only the configured warehouse scroll is used");
+                scrollClicks++;
+                api.InventoryItems = api.InventoryItems.Select(i => i.InstanceId == 12 ? i with { Count = i.Count - 1 } : i).Where(i => i.Count > 0).ToArray();
+                api.Channel = api.Channel with { MapId = 2 }; api.Player = api.Player with { Position = new(100, 0, 0) };
+                return;
+            }
             if(api.InventoryUiCursor==new GameUiPoint(100,100))auction=auction with{ActiveTab=2};
             else if(api.InventoryUiCursor==new GameUiPoint(200,100))auction=auction with{ActiveTab=1};
             else throw new Exception("unexpected route click");
         };
-        SharedPathDocument Path(string name,double start,double end)=>new(){Name=name,Points=new(){new(){X=start},new(){X=end}}};
-        var paths=new InMemorySharedPathStore(Path("auction",0,30),Path("stall",0,70),Path("revive",1000,0));
+        SharedPathDocument Path(string name,double start,double end)=>new(){Name=name,MapId=1,Points=new(){new(){X=start},new(){X=end}}};
+        var warehousePath = Path("stall",100,170); warehousePath.MapId = 2;
+        var paths=new InMemorySharedPathStore(Path("auction",0,30),warehousePath,Path("revive",1000,0));
         var config=new AccountConfig{AccountName="flow",ScriptSettings=new()};var settings=config.ScriptSettings;
         settings.Paths.AuctionPathName="auction";settings.Paths.StallPathName="stall";settings.Paths.RevivePathName="revive";settings.Paths.TownReturnKey="F6";settings.Paths.BagCleanupTownReturnKey="F5";
+        settings.Paths.StallReturnItemName = "warehouse-scroll";
         settings.Maintenance.CleanupWorkflow=new(){NpcCleanup=false,Auction=true,TransferGold=true,PersonalShop=true,WarehouseName="warehouse",WarehouseSelectionKey="F7"};
         var reserved = new InventoryItemSnapshot(1, 11, "auction goods", 3, 0, false);
-        api.InventoryItems = new[] { reserved };
+        var scroll = new InventoryItemSnapshot(2, 12, "warehouse-scroll", 2, 1, false, 18, UseGroup: 36);
+        api.InventoryItems = new[] { reserved, scroll };
         settings.Maintenance.BagCleanupAuctionHouseItems.Add(new() { Name = "auction", UnitPrice = null });
         settings.Maintenance.BagCleanupStallItems.Add(new() { Name = "goods", UnitPrice = 20 });
+        settings.Maintenance.BagCleanupStallItems.Add(new() { Name = "warehouse-scroll", UnitPrice = 20 });
         var context=new AccountWorkerContext(config,api,logger,new AccountRuntimeManager(logger),new(),stop.Token);
         var travel=new List<string>();
         Task<OperationResult> Follow(AccountWorkerContext c,string name,IReadOnlyList<Vector3Snapshot> points)
         {
+            if (name == "stall") Require(scrollClicks > 0 && !bagOpen && api.Channel.MapId == 2 && api.Player.Position == new Vector3Snapshot(100,0,0),
+                "warehouse route starts only after observed scroll landing and bag closure");
             travel.Add(name+":"+points[0].X+">"+points[^1].X);api.Player=api.Player with{Position=points[^1]};return Task.FromResult(OperationResult.Ok());
         }
-        var runner=new CleanupWorkflowRunner(input,paths,Follow,new Journal());
+        var runner=new CleanupWorkflowRunner(input,paths,Follow,new Journal(), groceryDelay: Fast);
         await runner.RunAsync(context,new(settings,true));
-        Require(travel.SequenceEqual(new[]{"auction:0>30","auction:30>0","stall:0>70","revive:1000>0"}),"independent hub routes; stall never reverses and recall precedes revive");
+        Require(travel.SequenceEqual(new[]{"auction:0>30","auction:30>0","stall:100>170","revive:1000>0"}),"auction precedes scroll travel to the independent warehouse route");
         Require(input.Keys.Count(k=>k=="F5")==1&&input.Keys.Count(k=>k=="F6")==1&&api.InventoryMoney==0,"manual recall before auction and final recall after stall both verified");
-        Require(api.InventoryItems.Single() == reserved && !input.Keys.Contains("Y"),
-            "full cleanup retains skipped auction items without opening the configured stall");
+        Require(api.InventoryItems.Single(i => i.InstanceId == 11) == reserved && api.InventoryItems.Single(i => i.InstanceId == 12).Count == 1 && !input.Keys.Contains("Y"),
+            "full cleanup retains skipped auction items and unused scrolls without opening the configured stall");
+
+        settings.Maintenance.CleanupWorkflow.Auction = false;
+        settings.Paths.BagCleanupTownReturnKey = string.Empty;
+        api.InventoryItems = new[] { reserved, scroll };
+        api.Channel = api.Channel with { MapId = 1 }; api.Player = api.Player with { Position = new(500,0,0) };
+        travel.Clear();
+        await runner.RunAsync(context,new(settings,true));
+        Require(travel.SequenceEqual(new[]{"stall:100>170","revive:1000>0"}) && scrollClicks == 2 && input.Keys.Count(k => k == "F5") == 1,
+            "warehouse-only departure uses scroll directly without an initial cleanup return key");
+
+        var keysBeforeInvalid = input.Keys.Count; var clicksBeforeInvalid = input.MouseCommands.Count;
+        foreach (var invalid in new[] { "empty_selection", "missing_scroll", "missing_map" })
+        {
+            var badSettings = settings.Clone();
+            if (invalid == "empty_selection") badSettings.Paths.StallReturnItemName = " ";
+            if (invalid == "missing_scroll") badSettings.Paths.StallReturnItemName = "absent-scroll";
+            var badPath = warehousePath.Clone(); if (invalid == "missing_map") badPath.MapId = null;
+            var invalidRunner = new CleanupWorkflowRunner(input, new InMemorySharedPathStore(badPath,Path("revive",1000,0)), Follow, new Journal(), groceryDelay: Fast);
+            try { await invalidRunner.RunAsync(context, new(badSettings,true)); throw new Exception("invalid warehouse departure accepted: " + invalid); }
+            catch (InvalidOperationException) { }
+            Require(input.Keys.Count == keysBeforeInvalid && input.MouseCommands.Count == clicksBeforeInvalid,
+                "invalid warehouse scroll/map configuration executes no input: " + invalid);
+        }
         settings.Paths.StallPathName="missing";var before=input.MouseCommands.Count;var keys=input.Keys.Count;
         try{await runner.RunAsync(context,new(settings,true));throw new Exception("missing later route accepted");}
         catch(InvalidOperationException){}

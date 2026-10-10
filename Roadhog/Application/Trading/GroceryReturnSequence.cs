@@ -20,7 +20,8 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
         bag.Where(i => !i.IsEquipped && i.Slot >= 0 && i.Count > 0 &&
             string.Equals(i.Name, name.Trim(), StringComparison.OrdinalIgnoreCase)).OrderBy(i => i.Slot).FirstOrDefault();
 
-    public async Task RunAsync(AccountWorkerContext context, SharedPathDocument destination, string itemName, Action<string> report)
+    public async Task RunAsync(AccountWorkerContext context, SharedPathDocument destination, string itemName, Action<string> report,
+        string tripName = "杂货回程", string retryEventName = "grocery_shop.return.retry")
     {
         var token = context.StopToken;
         var actions = new TradingActions(input, context.Snapshots, token, delay);
@@ -29,8 +30,8 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
         async Task<ChannelTransitionSnapshot> Scene() => (await context.Snapshots.ReadChannelTransitionAsync().WaitAsync(token)).Value;
         async Task<InventoryInteractionSnapshot> Bag() => (await context.Snapshots.ReadInventoryInteractionAsync().WaitAsync(token)).Value;
         var departure = await Scene();
-        Require(departure.IsReady && !departure.Player!.IsDead, "杂货回程前角色尚未就绪。");
-        Require(destination.MapId is > 0 && destination.PointCount > 0, "杂货摆摊路径需要录制地图及入口坐标。");
+        Require(departure.IsReady && !departure.Player!.IsDead, tripName + "前角色尚未就绪。");
+        Require(destination.MapId is > 0 && destination.PointCount > 0, tripName + "路径需要录制地图及入口坐标。");
         var item = FindScroll((await context.Snapshots.ReadInventoryAsync().WaitAsync(token)).Value, itemName)
             ?? throw new GroceryTripDepartureFailedException("背包没有配置的回程卷轴：" + itemName);
         var transition = new TownReturnTransition();
@@ -55,7 +56,7 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
             if (!string.IsNullOrWhiteSpace(attacker) || scene.Player!.CurrentHp < hp)
             {
                 await actions.Key("Escape");
-                throw new GroceryTripInterruptedException("杂货回程被攻击打断，先战斗：" + attacker);
+                throw new GroceryTripInterruptedException(tripName + "被攻击打断，先战斗：" + attacker);
             }
             hp = scene.Player!.CurrentHp;
         }
@@ -130,12 +131,12 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
                             { continue; }
                             clicks++;
                             clickedAt = Now();
-                            context.Logger.Info("grocery_shop.return.retry", new Dictionary<string, object?>
+                            context.Logger.Info(retryEventName, new Dictionary<string, object?>
                                 { ["account"] = context.Config.AccountName, ["clicks"] = clicks, ["instanceId"] = item.InstanceId });
                         }
                     }
                 }
-                report(transition.SawLoading ? "杂货回程正在加载地图，等待落点确认" : "杂货回程等待传送和正确落点");
+                report(transition.SawLoading ? tripName + "正在加载地图，等待落点确认" : tripName + "等待传送和正确落点");
                 await actions.Pause(100);
             }
         }

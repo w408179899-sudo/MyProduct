@@ -1321,6 +1321,7 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("cleanup workflow auction listing and modal decoder guards", PersonalShopDecoderTests.AuctionListingsDecodeAsync)
     ,("auction inventory foreground reopening guards and cancellation", CleanupWorkflowTests.AuctionInventoryForegroundAsync)
     ,("cleanup workflow hub routes return order and preflight", CleanupWorkflowTests.PathsAndPreflightAsync)
+    ,("cleanup workflow warehouse scroll interruption guards and automatic protection", GroceryShopTests.WarehouseReturnGuardsAsync)
     ,("cleanup workflow worker insertion stop and session isolation", CleanupWorkflowTests.WorkerSessionAsync)
     ,("cleanup workflow settings UI persistence and path editors", CleanupWorkflowTests.SettingsUiAsync)
     ,("cleanup workflow actual combat drain worker resume and stop", CleanupWorkflowTests.ActualWorkerAndCombatAsync)

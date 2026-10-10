@@ -33,9 +33,12 @@ internal static partial class CleanupWorkflowTests
         var config = new AccountConfig { ScriptSettings = new() };
         var s = config.ScriptSettings;
         s.Paths.AuctionPathName = "auction"; s.Paths.StallPathName = "stall";
+        s.Paths.StallReturnItemName = "warehouse-scroll"; s.Paths.GroceryReturnItemName = "grocery-scroll";
         s.Maintenance.CleanupWorkflow = new() { Auction = true, TransferGold = true, PersonalShop = true, WarehouseName = "warehouse", WarehouseSelectionKey = "F7", OldListingAction = AuctionOldListingAction.Reprice, OldListingHours = 36 };
         var clone = JsonSerializer.Deserialize<AccountConfig>(JsonSerializer.Serialize(config.Clone()))!;
         Require(clone.ScriptSettings!.Paths.AuctionPathName == "auction" && clone.ScriptSettings.Paths.StallPathName == "stall" && clone.ScriptSettings.Maintenance.CleanupWorkflow.OldListingHours == 36, "paths and workflow survive clone and persistence");
+        Require(clone.ScriptSettings.Paths.StallReturnItemName == "warehouse-scroll" && clone.ScriptSettings.Paths.GroceryReturnItemName == "grocery-scroll",
+            "warehouse and grocery return scroll selections persist independently");
         clone.ScriptSettings.Maintenance.CleanupWorkflow.WarehouseName = "changed";
         Require(s.Maintenance.CleanupWorkflow.WarehouseName == "warehouse", "workflow copies do not share mutations");
         var mailbox = new CleanupRequestMailbox();

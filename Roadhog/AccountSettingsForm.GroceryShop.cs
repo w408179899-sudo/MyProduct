@@ -13,6 +13,7 @@ public partial class AccountSettingsForm
     private readonly Func<ScriptSettings, Task<OperationResult>>? _startGroceryShop;
     private RoundedTextBox? groceryStallPathNameTextBox;
     private RoundedComboBox? groceryReturnItemCombo;
+    private RoundedComboBox? stallReturnItemCombo;
     private RadioButton? normalCleanupModeRadio, groceryCleanupModeRadio;
     private Panel? groceryOptionsPanel;
     private Label? cleanupModeHintLabel;
@@ -20,32 +21,40 @@ public partial class AccountSettingsForm
     private ListBox? groceryScheduleTimes;
     private DateTimePicker? groceryScheduleTime;
 
-    private void BuildGroceryPathOptions(Panel page)
+    private void BuildGroceryPathOptions(Panel page) =>
+        groceryReturnItemCombo = BuildReturnScrollPathOptions(page, SharedPathKind.GroceryStall,
+            "groceryReturnItemCombo", "groceryRefreshScrollButton");
+
+    private void BuildWarehousePathOptions(Panel page) =>
+        stallReturnItemCombo = BuildReturnScrollPathOptions(page, SharedPathKind.Stall,
+            "stallReturnItemCombo", "stallRefreshScrollButton");
+
+    private RoundedComboBox BuildReturnScrollPathOptions(Panel page, SharedPathKind kind, string comboName, string buttonName)
     {
         var options = new Panel { Location = new Point(12, 110), Size = new Size(800, 36), BackColor = _softGreen };
         page.Controls.Add(options);
         AddLabel(options, "回程卷轴", 8, 6, 90, 24);
-        groceryReturnItemCombo = AddCombo(options, 102, 3, 408, 28);
-        groceryReturnItemCombo.Name = "groceryReturnItemCombo";
-        groceryReturnItemCombo.DropDownStyle = ComboBoxStyle.DropDown;
+        var scrollCombo = AddCombo(options, 102, 3, 408, 28);
+        scrollCombo.Name = comboName;
+        scrollCombo.DropDownStyle = ComboBoxStyle.DropDown;
         var refresh = AddButton(options, "刷新背包卷轴", 520, 2, 126, 30);
-        refresh.Name = "groceryRefreshScrollButton";
+        refresh.Name = buttonName;
         refresh.Click += async (_, _) =>
         {
             refresh.Enabled = false;
-            var editor = pathEditors[SharedPathKind.GroceryStall];
+            var editor = pathEditors[kind];
             SetPathStatus(editor, "正在刷新背包返程物品…", false);
             try
             {
-                var selected = groceryReturnItemCombo.Text;
+                var selected = scrollCombo.Text;
                 var items = await _runtime.RefreshInventoryAsync(_account);
                 if (IsDisposed) return;
                 var names = items.Where(i => !i.IsEquipped && i.Count > 0 && i.Slot >= 0 &&
                     i.ItemType == GroceryScrollItemType && i.UseGroup == GroceryReturnUseGroup && !string.IsNullOrWhiteSpace(i.Name))
                     .Select(i => i.Name).Distinct().Order().ToArray();
-                groceryReturnItemCombo.Items.Clear();
-                groceryReturnItemCombo.Items.AddRange(names);
-                SetComboText(groceryReturnItemCombo, selected);
+                scrollCombo.Items.Clear();
+                scrollCombo.Items.AddRange(names);
+                SetComboText(scrollCombo, selected);
                 SetPathStatus(editor, names.Length == 0 ? "背包中没有返程物品"
                     : $"已刷新 {names.Length} 种返程物品", false);
             }
@@ -53,6 +62,7 @@ public partial class AccountSettingsForm
             finally { if (!refresh.IsDisposed) refresh.Enabled = true; }
         };
         AddLabel(options, "缺少所选卷轴不出发", 652, 7, 145, 22);
+        return scrollCombo;
     }
 
     private void BuildGroceryShopControls(Panel page)

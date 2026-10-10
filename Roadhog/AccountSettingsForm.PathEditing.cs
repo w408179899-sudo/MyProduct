@@ -51,7 +51,7 @@ public sealed partial class AccountSettingsForm
     private void AddPathPointEditControls(Control page, PathEditorControls editor, int top)
     {
         editor.Page = page;
-        var toolbarTop = 147 + (editor.Kind == SharedPathKind.Maintenance ? 72 : editor.Kind is SharedPathKind.Auction or SharedPathKind.GroceryStall ? 40 : 0);
+        var toolbarTop = 147 + (editor.Kind == SharedPathKind.Maintenance ? 72 : editor.Kind is SharedPathKind.Auction or SharedPathKind.Stall or SharedPathKind.GroceryStall ? 40 : 0);
         editor.SelectionLabel = AddLabel(page, "未选择坐标", 195, toolbarTop, 145, 24, _textGreen, FontStyle.Bold);
         AddLabel(page, "下方坐标经按钮应用后生效", 345, toolbarTop, 270, 24);
         editor.ReadPositionButton = AddButton(page, "读取当前位置", 670, top, 142, 28,
