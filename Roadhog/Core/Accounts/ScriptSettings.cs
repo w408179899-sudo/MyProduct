@@ -8,6 +8,8 @@ public sealed class ScriptSettings
 
     public string ProfileName { get; set; } = "default_profile";
 
+    public bool GenerateLogFiles { get; set; } = true;
+
     public AccountMainMode MainMode { get; set; } = AccountMainMode.CustomCombat;
 
     public AccountCombatMode CombatMode { get; set; } = AccountCombatMode.Stationary;
@@ -43,6 +45,7 @@ public sealed class ScriptSettings
         var settings = new ScriptSettings
         {
             ProfileName = ProfileName,
+            GenerateLogFiles = GenerateLogFiles,
             MainMode = MainMode,
             CombatMode = CombatMode,
             FixedChannelNumber = FixedChannelNumber,

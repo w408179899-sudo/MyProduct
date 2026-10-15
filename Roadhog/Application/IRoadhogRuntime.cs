@@ -20,6 +20,8 @@ public interface IRoadhogRuntime
         EquipmentUpgradeSettings settings, IProgress<string>? progress, CancellationToken token) => throw new NotSupportedException();
     Task<OperationResult<Roadhog.Application.EquipmentUpgrade.EquipmentUpgradeResult>> RunEquipmentUpgradeAsync(string accountName,
         EquipmentUpgradeSettings settings, EquipmentUpgradeKind kind, IProgress<string>? progress, CancellationToken token) => throw new NotSupportedException();
+    void ApplyFileLoggingSettings(string accountName, bool enabled);
+
     void ApplyRadarObstacleSettings(string accountName, RadarObstacleScriptSettings settings);
 
     void NotifyRadarMapSaved(uint mapId);

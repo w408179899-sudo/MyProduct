@@ -85,6 +85,11 @@ public sealed partial class RoadhogRuntime : IRoadhogRuntime
 
     public AccountOrchestrator Orchestrator { get; }
 
+    public void ApplyFileLoggingSettings(string accountName, bool enabled)
+    {
+        if (_logger is IFileLoggingControl control) control.SetFileLoggingEnabled(enabled);
+    }
+
     public void ApplyRadarObstacleSettings(string accountName, RadarObstacleScriptSettings settings)
     {
         _stationaryObstacleNavigator?.SetSettingsOverride(accountName, settings);

@@ -4,7 +4,7 @@ using Roadhog.Core.Diagnostics;
 
 namespace Roadhog.Infrastructure.Diagnostics;
 
-public sealed class FileRoadhogLogger : IRoadhogLogger
+public sealed class FileRoadhogLogger : IRoadhogLogger, IFileLoggingControl
 {
     public const long DefaultMaxLogFileBytes = 1024L * 1024L;
 
@@ -32,13 +32,25 @@ public sealed class FileRoadhogLogger : IRoadhogLogger
     private string? _currentDateStamp;
     private string? _latestSourceLogPath;
     private bool _expiredLogCleanupAttempted;
+    private bool _enabled;
 
-    public FileRoadhogLogger(string logDirectory, long maxLogFileBytes = DefaultMaxLogFileBytes)
+    public FileRoadhogLogger(string logDirectory, long maxLogFileBytes = DefaultMaxLogFileBytes, bool enabled = true)
     {
         _logDirectory = string.IsNullOrWhiteSpace(logDirectory)
             ? Path.Combine(AppContext.BaseDirectory, "logs")
             : logDirectory;
         _maxLogFileBytes = Math.Max(1L, maxLogFileBytes);
+        _enabled = enabled;
+    }
+
+    public void SetFileLoggingEnabled(bool enabled)
+    {
+        lock (_syncRoot)
+        {
+            if (_enabled == enabled) return;
+            _enabled = enabled;
+            _lastNoisyInfoWrites.Clear();
+        }
     }
 
     public void Info(string eventName, IReadOnlyDictionary<string, object?>? fields = null)
@@ -70,11 +82,11 @@ public sealed class FileRoadhogLogger : IRoadhogLogger
     {
         try
         {
-            var now = DateTimeOffset.Now;
-            var normalizedFields = NormalizeFields(fields);
-
             lock (_syncRoot)
             {
+                if (!_enabled) return;
+                var now = DateTimeOffset.Now;
+                var normalizedFields = NormalizeFields(fields);
                 if (ShouldSkipNoisyInfo(level, eventName, normalizedFields, now))
                 {
                     return;

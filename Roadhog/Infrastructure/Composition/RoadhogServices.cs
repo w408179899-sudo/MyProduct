@@ -135,8 +135,13 @@ public sealed class RoadhogServices : IDisposable
         }
         var effectiveKmBoxConfig = KmBoxNetDeviceConfig.FromOptions(options.KmBoxNetInput);
 
+        IAccountConfigStore accountConfigStore = options.AccountOverride is { } accountOverride
+            ? new Roadhog.Infrastructure.WorkerProcesses.WorkerAccountConfigStore(accountOverride)
+            : new JsonAccountConfigStore(options.AccountConfigPath);
+        var initialAccount = options.AccountOverride ?? accountConfigStore.LoadAllAsync().GetAwaiter().GetResult().Value?.FirstOrDefault();
+        var generateLogFiles = initialAccount?.ScriptSettings?.GenerateLogFiles ?? true;
         IRoadhogLogger logger = options.EnableLogging
-            ? new FileRoadhogLogger(options.LogDirectory)
+            ? new FileRoadhogLogger(options.LogDirectory, enabled: generateLogFiles)
             : NoOpRoadhogLogger.Instance;
         logger.Info("roadhog.services.created", new Dictionary<string, object?>
         {
@@ -173,9 +178,6 @@ public sealed class RoadhogServices : IDisposable
         var snapshotReaders = new RoadhogSnapshotReaderFactory(gameApi, accounts.CreatePlayerInfoObserver);
         var hardwareResolver = new WindowsHardwareDeviceResolver(options.HardwareResolver);
         var processResolver = new AionProcessResolver(options.ProcessResolver);
-        IAccountConfigStore accountConfigStore = options.AccountOverride is { } accountOverride
-            ? new Roadhog.Infrastructure.WorkerProcesses.WorkerAccountConfigStore(accountOverride)
-            : new JsonAccountConfigStore(options.AccountConfigPath);
         var configDirectory = Path.GetDirectoryName(Path.GetFullPath(options.AccountConfigPath)) ??
                               Path.Combine(AppContext.BaseDirectory, "config");
         var sharedConfigurationPath = SharedAccountConfigurationStore.PathFor(options.AccountConfigPath);

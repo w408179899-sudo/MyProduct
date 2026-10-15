@@ -54,6 +54,9 @@ public sealed class RemoteRoadhogRuntime : IRoadhogRuntime
         _client.CallAsync<object?>(method, arguments, deadline.Token).GetAwaiter().GetResult();
     }
 
+    public void ApplyFileLoggingSettings(string accountName, bool enabled) =>
+        Send(nameof(ApplyFileLoggingSettings), new object?[] { Account(accountName), enabled });
+
     public void ApplyRadarObstacleSettings(string accountName, RadarObstacleScriptSettings settings) =>
         Send(nameof(ApplyRadarObstacleSettings), new object?[] { Account(accountName), settings.Clone() });
 

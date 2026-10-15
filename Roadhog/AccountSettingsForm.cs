@@ -71,6 +71,7 @@ namespace Roadhog
         private RoundedTextBox? cameraYawPixelsPerDegreeTextBox;
         private RoundedTextBox? cameraPitchPixelsPerDegreeTextBox;
         private RoundedCheckBox? enableLootCheckBox;
+        private RoundedCheckBox? generateLogFilesCheckBox;
         private RoundedCheckBox? jumpAssistEnabledCheckBox;
         private RoundedCheckBox? contestMonsterCheckBox;
         private RoundedCheckBox? counterEnemyRaceCheckBox;
@@ -462,6 +463,7 @@ namespace Roadhog
         {
             LoadEquipmentUpgradeSettings(settings.EquipmentUpgrade ?? new());
             settings = settings.Clone();
+            SetChecked(generateLogFilesCheckBox, settings.GenerateLogFiles);
             SetText(profileNameTextBox, settings.ProfileName);
             UpdateCurrentProfileDisplay(settings.ProfileName);
             SelectProfileComboItem(settings.ProfileName, loadProfile: false);
@@ -698,6 +700,7 @@ namespace Roadhog
             RefreshProfileLibrary();
             SelectProfileComboItem(profileName, loadProfile: false);
             UpdateCurrentProfileDisplay(profileName);
+            _runtime.ApplyFileLoggingSettings(_account, capturedSettings.GenerateLogFiles);
             _runtime.ApplyRadarObstacleSettings(_account, capturedSettings.Combat.RadarObstacleAvoidance);
             currentRadarSettings = capturedSettings.Combat.RadarObstacleAvoidance.Clone();
             RefreshRadarStatus();
@@ -875,6 +878,7 @@ namespace Roadhog
             var settings = new ScriptSettings
             {
                 ProfileName = GetText(profileNameTextBox, "default_profile"),
+                GenerateLogFiles = generateLogFilesCheckBox?.Checked ?? true,
                 MainMode = ParseMainMode(mainModeCombo?.Text),
                 CombatMode = ParseCombatMode(combatModeCombo?.Text),
                 FixedChannelNumber = fixedChannelCombo?.SelectedIndex is >= ScriptSettings.MinimumFixedChannelNumber and <= ScriptSettings.MaximumFixedChannelNumber
@@ -1341,7 +1345,7 @@ namespace Roadhog
             var tab = CreateBaseTab("总览");
             var page = CreatePagePanel();
             page.AutoScroll = true;
-            page.AutoScrollMinSize = new Size(852, 538);
+            page.AutoScrollMinSize = new Size(852, 624);
             tab.Controls.Add(page);
 
             Panel AddSection(string title, int top, int height)
@@ -1369,6 +1373,9 @@ namespace Roadhog
             AddLabel(modePanel, "保存后重启账号生效", 608, 2, 202, 24).BringToFront();
             var behaviorPanel = AddSection("选怪与拾取", 240, 148);
             var environmentPanel = AddSection("镜头与频道", 400, 126);
+            var loggingPanel = AddSection("日志", 538, 74);
+            generateLogFilesCheckBox = AddCheckBox(loggingPanel, "生成日志文件", 12, 32, 180, true);
+            generateLogFilesCheckBox.Name = "generateLogFilesCheckBox";
 
             currentProfileLabel = AddLabel(profilePanel, "当前方案: default_profile", 124, 2, 304, 24, _textGreen, FontStyle.Bold);
             currentProfileLabel.BackColor = _inputBackground;

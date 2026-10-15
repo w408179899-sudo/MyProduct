@@ -133,6 +133,7 @@ internal sealed class RoadhogWorkerProcessBackend : IWorkerProcessBackend
     private async Task<OperationResult> StartBusinessAsync(AccountConfig account, bool cleanupFirst, bool standaloneShop, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        _services.Runtime.ApplyFileLoggingSettings(account.AccountName, account.ScriptSettings?.GenerateLogFiles ?? true);
         var hardware = ValidatePhysicalBinding();
         if (!hardware.Success) return hardware;
         lock (_stopSync)
