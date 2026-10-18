@@ -4,7 +4,7 @@ namespace Roadhog.Core.Paths;
 
 public static class NearbyPathEntry
 {
-    public const double DistanceLimit = 10;
+    public const double DistanceLimit = 100;
     public const double HeightTolerance = 2;
 
     public static int Find(ChannelTransitionSnapshot scene, SharedPathDocument path) =>

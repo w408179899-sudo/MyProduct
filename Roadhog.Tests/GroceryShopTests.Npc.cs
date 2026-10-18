@@ -54,6 +54,7 @@ internal static partial class GroceryShopTests
         foreach (var scenario in new[] { "sold_out", "no_goods", "arrival_no_goods", "pre_discard", "missing_map", "short_scroll", "failed_submit" })
         {
             using var trip = new Trip();
+            trip.Route.Points[1].X = 1200; // This fixture requires a separate NPC return beyond 100 m.
             var settings = trip.Config.ScriptSettings!;
             settings.Maintenance.CleanupWorkflow.GroceryPostSaleAction = GroceryPostSaleAction.NpcSell;
             settings.Paths.BagCleanupReturnItemName = settings.Paths.GroceryReturnItemName;

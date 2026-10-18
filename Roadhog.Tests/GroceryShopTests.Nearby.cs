@@ -18,8 +18,8 @@ internal static partial class GroceryShopTests
         path.Points = new() { new() { X = 1000 }, new() { X = 1100 }, new() { X = 1200 } };
         foreach (var (x, z, map, expected) in new (float, float, uint?, int)[]
         {
-            (1000, 0, 2, 0), (1109.999f, 0, 2, 1), (1201, 2, 2, 2),
-            (1110, 0, 2, -1), (1110.001f, 0, 2, -1), (1101, 2.001f, 2, -1),
+            (1000, 0, 2, 0), (1299.999f, 0, 2, 2), (1201, 2, 2, 2),
+            (1300, 0, 2, -1), (1300.001f, 0, 2, -1), (1101, 2.001f, 2, -1),
             (1101, 0, 1, -1), (1101, 0, null, -1), (float.NaN, 0, 2, -1)
         }) Check(NearbyPathEntry.Find(map, new(x, 0, z), path) == expected, $"nearby boundary {x}/{z}/{map}");
         path.MapId = null;
@@ -128,7 +128,7 @@ internal static partial class GroceryShopTests
     {
         foreach (var (x, z, map, expectedClicks) in new (float, float, uint, int)[]
         {
-            (1029.999f, 0, 2, 0), (1030, 0, 2, 1), (1031, 0, 2, 1),
+            (1119.999f, 0, 2, 0), (1120, 0, 2, 1), (1121, 0, 2, 1),
             (1020, 2, 2, 0), (1020, 2.001f, 2, 1), (1020, 0, 1, 1)
         })
         {
@@ -149,6 +149,7 @@ internal static partial class GroceryShopTests
         foreach (var kind in new[] { "first_near", "second_near", "both_near" })
         {
             using var trip = new Trip();
+            trip.Route.Points[1].X = 1200; // Keep the remote leg outside the 100 m entry radius.
             var settings = trip.Config.ScriptSettings!;
             settings.Maintenance.CleanupWorkflow.GroceryPostSaleAction = GroceryPostSaleAction.NpcSell;
             settings.Paths.BagCleanupReturnItemName = settings.Paths.GroceryReturnItemName;
@@ -158,9 +159,9 @@ internal static partial class GroceryShopTests
             if (kind != "second_near")
             {
                 trip.Api.Channel = trip.Api.Channel with { MapId = 2 };
-                trip.Api.Player = trip.Api.Player with { Position = new(1021, 0, 0) };
+                trip.Api.Player = trip.Api.Player with { Position = new(1201, 0, 0) };
             }
-            if (kind != "first_near") trip.NpcRoute.Points[1].X = 1021;
+            if (kind != "first_near") trip.NpcRoute.Points[1].X = 1201;
             if (kind == "both_near") trip.Api.InventoryItems = trip.Api.InventoryItems.Where(i => i.InstanceId != 11).ToArray();
             var routeCalls = 0;
             var runner = new CleanupWorkflowRunner(trip.Input, new InMemorySharedPathStore(trip.Route, trip.NpcRoute), (_, name, points) =>
