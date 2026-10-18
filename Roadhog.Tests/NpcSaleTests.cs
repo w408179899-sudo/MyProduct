@@ -49,14 +49,19 @@ internal static class NpcSaleTests
 
     public static Task FlowAsync() => FlowCoreAsync(false);
     public static Task SharedSellListAsync() => FlowCoreAsync(true);
+    public static Task GroceryDiscardBatchesAsync() => FlowCoreAsync(false, true);
 
-    private static async Task FlowCoreAsync(bool nameListOnly)
+    private static async Task FlowCoreAsync(bool nameListOnly, bool discardBatches = false)
     {
         foreach (var scenario in nameListOnly ? new[] { "complete", "sale_limit" } : new[] { "complete", "delayed_sale", "sale_limit", "partial_sale", "uncleared_basket", "read_failure", "existing_basket", "wrong_npc", "foreign_item", "wrong_quantity", "hover_changed", "money_only", "stop" })
         {
             var api = new FakeGameApi { TargetName = "merchant", TargetOwnServerObjectId = 42, InventoryMoney = 100 };
             var input = new RecordingKeyboardInput();
-            input.AfterMove = (x, y) => api.InventoryUiCursor = new(api.InventoryUiCursor.X + x, api.InventoryUiCursor.Y + y);
+            input.AfterMove = (x, y) =>
+            {
+                api.InventoryUiCursor = new(api.InventoryUiCursor.X + x, api.InventoryUiCursor.Y + y);
+                Require(api.InventoryUiCursor != new GameUiPoint(680, 468), "NPC sale movement does not detour through the reset point");
+            };
             var prices = new ulong[] { 30, 10, 10, 20 };
             var items = Enumerable.Range(0, 4).Select(i => new InventoryItemSnapshot(21, (ulong)(11 + i), "equipment",
                 i == 2 ? 3u : 1u, i, false, i == 0 ? 3u : i == 1 ? 2u : i == 2 ? 7u : 6u, 1, prices[i])).ToArray();
@@ -76,6 +81,13 @@ internal static class NpcSaleTests
                 new() { Name = "equipment", UnitPrice = 1 },
                 new() { Name = "protected", UnitPrice = 1 }
             };
+            if (discardBatches)
+            {
+                settings.Maintenance.BagCleanupRules[0].Action = BagCleanupAction.Discard;
+                settings.Maintenance.BagCleanupExcludedItemNames.Add("protected");
+                Require(BagCleanupItemMatcher.SelectSellRegistrationItems(api.InventoryItems, settings.Maintenance).Count == 0,
+                    "discard candidates cannot use the ordinary sell selector");
+            }
             var ui = new NpcTradeSnapshot(true, new Dictionary<string, GameUiPoint> { ["出售道具"] = new(169, 293) }, false, -1, 0, false, Array.Empty<NpcTradeItem>(), null, false);
             bool open = true, held = false;
             var submits = 0; var rights = 0;
@@ -118,7 +130,7 @@ internal static class NpcSaleTests
                         Basket = scenario == "existing_basket" ? new[] { new NpcTradeItem(999, 22, 1) } : Array.Empty<NpcTradeItem>() };
                 else if (cursor == new GameUiPoint(280, 400))
                 {
-                    Require(open && ui.Basket.Count == 1, "sell one stack at a time while the bag stays open");
+                    Require(open && ui.Basket.Count == (discardBatches && submits == 0 ? 3 : 1), "configured stack batch size while the bag stays open");
                     submits++;
                     if (scenario == "delayed_sale") { pending = ui.Basket.ToArray(); settlementReads = 0; }
                     if (scenario is not ("sale_limit" or "partial_sale" or "uncleared_basket" or "delayed_sale" or "read_failure")) api.InventoryMoney += 50;
@@ -133,18 +145,20 @@ internal static class NpcSaleTests
             var context = new AccountWorkerContext(new() { ScriptSettings = settings }, api, logger, new AccountRuntimeManager(logger), new(), stop.Token);
             var state = new BagCleanupState(); state.Start(0, 0);
             Exception? failure = null;
-            try { await new NpcSaleSequence(input, Fast, confirmationTimeoutMs: 150).RunAsync(context, "merchant", state); }
+            try { await new NpcSaleSequence(input, Fast, confirmationTimeoutMs: 150).RunAsync(context, "merchant", state,
+                discardBatches ? bag => BagCleanupItemMatcher.SelectDiscardItems(bag, settings.Maintenance) : null,
+                discardBatches ? 3 : 1); }
             catch (Exception ex) { failure = ex; }
             if (scenario is "complete" or "delayed_sale")
             {
-                Require(failure == null && submits == 4 && rights == 4 && api.InventoryItems.Single() == reserved && state.TotalMoneyDelta == 200 && !open,
-                    "four verified single-item sales preserve other items and close the bag at the end");
+                Require(failure == null && submits == (discardBatches ? 2 : 4) && rights == 4 && api.InventoryItems.Single() == reserved && state.TotalMoneyDelta == (discardBatches ? 100UL : 200UL) && !open,
+                    "verified batches including remainder preserve other items and close the bag at the end");
                 Require(order.SequenceEqual(new uint[] { 12, 13, 14, 11 }), "ascending NPC unit value, then bag slot, regardless of weapon type or stack total");
                 Require(input.Keys.Count(k => k == "I") == 3, "one initial close/open pair plus final close, without per-item toggles");
             }
             else if (scenario == "sale_limit")
             {
-                Require(failure == null && submits == 1 && rights == 1 && api.InventoryMoney == 100 && api.InventoryItems.Count == 5 && !open,
+                Require(failure == null && submits == 1 && rights == (discardBatches ? 3 : 1) && api.InventoryMoney == 100 && api.InventoryItems.Count == 5 && !open,
                     "empty rejected basket with unchanged items and money ends NPC stage normally without resubmitting");
                 Require(state.SellBatchCount == 0 && logger.Entries.Any(e => e.EventName == "bag_cleanup.sell.no_sale"),
                     "rejection is distinct from successful sale");

@@ -4,7 +4,8 @@ public sealed record NpcTradeItem(uint InstanceId, uint TemplateId, ulong Quanti
 
 public sealed record NpcTradeSnapshot(bool DialogOpen, IReadOnlyDictionary<string, GameUiPoint> DialogEntries,
     bool IsOpen, int Mode, uint NpcServerObjectId, bool InventoryOpen,
-    IReadOnlyList<NpcTradeItem> Basket, GameUiPoint? SellButton, bool OtherModalOpen)
+    IReadOnlyList<NpcTradeItem> Basket, GameUiPoint? SellButton, bool OtherModalOpen,
+    GameUiPoint? RegisterAllJunkButton = null)
 {
     public bool IsSelling => IsOpen && Mode == 1;
     public GameUiPoint? SellEntry => DialogEntries.TryGetValue("出售道具", out var point) ||

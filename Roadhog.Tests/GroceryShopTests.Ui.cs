@@ -133,6 +133,7 @@ internal static partial class GroceryShopTests
                 settings.Paths.GroceryReturnItemName = "伏魔殿回程卷轴";
                 settings.Paths.StallReturnItemName = "仓库回程卷轴";
                 settings.Paths.AuctionReturnItemName = "拍卖行回程卷轴";
+                settings.Paths.BagCleanupTownReturnKey = "OemMinus";
                 settings.Maintenance.CleanupWorkflow.GroceryScheduleTimes = new() { "12:00", "19:00" };
                 settings.Maintenance.CleanupWorkflow.Auction = true;
                 settings.Maintenance.CleanupWorkflow.TransferGold = true;
@@ -195,9 +196,17 @@ internal static partial class GroceryShopTests
                 var auctionScroll = Find<RoundedComboBox>("auctionReturnItemCombo");
                 Check(auctionScroll.Text == "拍卖行回程卷轴", "load auction return scroll");
                 auctionScroll.Text = "拍卖行传送石";
+                var cleanupScroll = Find<RoundedComboBox>("bagCleanupReturnItemCombo");
+                Check(cleanupScroll.Text == "" && Find<RoundedComboBox>("groceryPostSaleActionCombo").SelectedIndex == 0,
+                    "legacy configuration keeps discard as the default and its old return key");
+                cleanupScroll.Text = "清包回程物品";
+                Find<RoundedComboBox>("groceryPostSaleActionCombo").SelectedIndex = 1;
                 manual.PerformClick(); System.Windows.Forms.Application.DoEvents();
                 Check(submitted is { } && submitted.Maintenance.CleanupWorkflow.Mode == CleanupMode.GroceryShop && submitted.Paths.GroceryReturnItemName == "贝达尔回程卷轴", "manual command captures current path scroll and forces grocery mode");
                 var saved = store.LoadAllAsync().GetAwaiter().GetResult().Value!.Single().ScriptSettings!;
+                Check(saved.Paths.BagCleanupReturnItemName == "清包回程物品" && saved.Paths.BagCleanupTownReturnKey == "OemMinus" &&
+                    saved.Maintenance.CleanupWorkflow.GroceryPostSaleAction == GroceryPostSaleAction.NpcSell,
+                    "capture independent cleanup scroll and NPC branch while preserving legacy key");
                 Check(saved.Maintenance.CleanupWorkflow.Mode == CleanupMode.GroceryShop && saved.Paths.GroceryStallPathName == "grocery" && saved.Paths.GroceryReturnItemName == "贝达尔回程卷轴", "manual command retains selected mode and captures current path options");
                 Check(manual.Bottom <= manual.Parent!.Height && list.Bottom < manual.Parent.Height, "new controls fit their scrolling parent");
                 Find<RoundedCheckBox>("groceryScheduleEnabled").Checked = true;
@@ -247,6 +256,9 @@ internal static partial class GroceryShopTests
                     ((ListBox)reopened.Controls.Find("groceryScheduleTimes", true).Single()).Items.Cast<string>().SequenceEqual(new[] { "12:00", "19:00" }),
                     "reopening restores the saved radio mode and time list");
                 var restored = (ScriptSettings)typeof(AccountSettingsForm).GetMethod("CaptureScriptSettings", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(reopened, null)!;
+                Check(restored.Paths.BagCleanupReturnItemName == "清包回程物品" && restored.Paths.BagCleanupTownReturnKey == "OemMinus" &&
+                    restored.Maintenance.CleanupWorkflow.GroceryPostSaleAction == GroceryPostSaleAction.NpcSell,
+                    "reopening retains NPC branch and cleanup return item");
                 Check(restored.Paths.StallReturnItemName == "仓库传送石" && restored.Paths.GroceryReturnItemName == "贝达尔回程卷轴" &&
                     restored.Paths.AuctionReturnItemName == "拍卖行传送石",
                     "save and reopen preserve independent auction, warehouse and grocery scroll selections");

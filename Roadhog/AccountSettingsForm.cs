@@ -114,7 +114,7 @@ namespace Roadhog
         private RoundedTextBox? auctionPathNameTextBox;
         private RoundedTextBox? stallPathNameTextBox;
         private Button? townReturnKeyButton;
-        private Button? bagCleanupTownReturnKeyButton;
+        private string legacyBagCleanupTownReturnKey = string.Empty;
         private RoundedCheckBox? bagCleanupReturnByReversePathCheckBox;
         private RoundedTextBox? pathRecordingMinimumDistanceTextBox;
         private RoundedTextBox? deathReviveClickPointTextBox;
@@ -511,11 +511,8 @@ namespace Roadhog
             SetText(groceryStallPathNameTextBox, paths.GroceryStallPathName);
             SetComboText(groceryReturnItemCombo, paths.GroceryReturnItemName);
             SetKeyButton(townReturnKeyButton, paths.TownReturnKey);
-            SetKeyButton(
-                bagCleanupTownReturnKeyButton,
-                string.IsNullOrWhiteSpace(paths.BagCleanupTownReturnKey)
-                    ? paths.TownReturnKey
-                    : paths.BagCleanupTownReturnKey);
+            legacyBagCleanupTownReturnKey = paths.BagCleanupTownReturnKey;
+            SetComboText(bagCleanupReturnItemCombo, paths.BagCleanupReturnItemName);
             SetChecked(bagCleanupReturnByReversePathCheckBox, paths.BagCleanupReturnByReversePath);
             SetText(
                 pathRecordingMinimumDistanceTextBox,
@@ -930,7 +927,8 @@ namespace Roadhog
                     GroceryStallPathName = GetText(groceryStallPathNameTextBox, string.Empty),
                     GroceryReturnItemName = groceryReturnItemCombo?.Text.Trim() ?? string.Empty,
                     TownReturnKey = townReturnKeyButton?.Tag as string ?? string.Empty,
-                    BagCleanupTownReturnKey = bagCleanupTownReturnKeyButton?.Tag as string ?? string.Empty,
+                    BagCleanupTownReturnKey = legacyBagCleanupTownReturnKey,
+                    BagCleanupReturnItemName = bagCleanupReturnItemCombo?.Text.Trim() ?? string.Empty,
                     BagCleanupReturnByReversePath = bagCleanupReturnByReversePathCheckBox?.Checked ?? true,
                     RecordingMinimumDistance = ReadDouble(
                         pathRecordingMinimumDistanceTextBox,
@@ -2006,8 +2004,8 @@ namespace Roadhog
             tab.Controls.Add(page);
 
             page.AutoScroll = true;
-            var contentOffset = kind == SharedPathKind.Maintenance ? 72 : kind == SharedPathKind.Auction ? 80 : kind is SharedPathKind.Stall or SharedPathKind.GroceryStall ? 40 : 0;
-            page.AutoScrollMinSize = new Size(824, kind == SharedPathKind.Maintenance ? 488 : 430 + contentOffset);
+            var contentOffset = kind == SharedPathKind.Maintenance ? 112 : kind == SharedPathKind.Auction ? 80 : kind is SharedPathKind.Stall or SharedPathKind.GroceryStall ? 40 : 0;
+            page.AutoScrollMinSize = new Size(824, kind == SharedPathKind.Maintenance ? 528 : 430 + contentOffset);
             var editor = new PathEditorControls(kind);
             pathEditors[kind] = editor;
 
@@ -2069,17 +2067,6 @@ namespace Roadhog
                     2,
                     194,
                     true);
-                AddLabel(maintenanceOptions, "清包返程按键", 230, 4, 96, 22, _textGreen, FontStyle.Bold);
-                bagCleanupTownReturnKeyButton = AddButton(maintenanceOptions, "选择按键", 330, 2, 106, 28);
-                bagCleanupTownReturnKeyButton.Click += (_, _) =>
-                {
-                    var selectedKey = ShowKeyboardPicker(bagCleanupTownReturnKeyButton.Tag as string);
-                    if (!string.IsNullOrWhiteSpace(selectedKey))
-                    {
-                        SetKeyButton(bagCleanupTownReturnKeyButton, selectedKey);
-                    }
-                };
-
                 AddLabel(maintenanceOptions, "回程按键", 490, 4, 70, 22, _textGreen, FontStyle.Bold);
                 townReturnKeyButton = AddButton(maintenanceOptions, "选择按键", 566, 2, 104, 28);
                 townReturnKeyButton.Click += (_, _) =>
@@ -2092,6 +2079,8 @@ namespace Roadhog
                 };
 
                 AddPathNpcSelection(maintenanceOptions, editor, "清包NPC", 36);
+                bagCleanupReturnItemCombo = BuildReturnScrollPathOptions(page, SharedPathKind.Maintenance,
+                    "bagCleanupReturnItemCombo", "bagCleanupRefreshScrollButton", 182, "未选物品沿用原清包按键");
             }
             else if (kind == SharedPathKind.Auction)
             {

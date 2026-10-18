@@ -99,6 +99,12 @@ if (args.Contains("--standalone-shop-probe"))
     return;
 }
 
+if (args.Contains("--grocery-npc-probe"))
+{
+    Environment.ExitCode = await GroceryNpcLiveProbe.RunAsync(args);
+    return;
+}
+
 if (args.Contains("--personal-shop-probe") || args.Contains("--inventory-discard-probe"))
 {
     Environment.ExitCode = PersonalShopLiveProbe.RunAsync(args).GetAwaiter().GetResult();
@@ -524,7 +530,11 @@ var tests = new (string Name, Func<Task> Run)[]
     ("auction discount legacy persistence shared changes and regions", AuctionDiscountTests.CompatibilityAsync),
     ("auction registration fee production decoder and modal guards", PersonalShopDecoderTests.AuctionRegistrationDecodeAsync),
     ("npc sale official snapshot lifecycle and decoder guards", NpcSaleTests.SnapshotAsync),
+    ("npc sale eligibility predicate identity partial merge and cold start guards", NpcSellEligibilityTests.DecoderAndMergeAsync),
+    ("npc sale grocery candidate eligibility without item type exclusion", NpcSellEligibilityTests.CandidatePolicyAsync),
     ("npc sale single entries by vendor value with hover identity and submit verification", NpcSaleTests.FlowAsync),
+    ("npc sale grocery discard candidates three stacks remainder and unsafe settlement guards", NpcSaleTests.GroceryDiscardBatchesAsync),
+    ("npc sale bulk junk before manual batches with empty rejection and protection guards", NpcJunkSaleTests.FlowAsync),
     ("shared cleanup sale list executes NPC sale and stops at cap with auction overlap", NpcSaleTests.SharedSellListAsync),
     ("npc sale production decoder basket and controls", PersonalShopDecoderTests.NpcTradeAsync),
     ("inventory discard UI button uses unsaved rules and caps three items", TestInventoryDiscardButtonAsync),
@@ -1304,6 +1314,9 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("grocery shop UI scroll refresh uses return group and excludes speed buffs", GroceryShopTests.UiScrollRefreshByItemTypeAsync)
     ,("grocery shop provider return use group identity and trusted merge", GroceryShopTests.ReturnUseGroupProviderAsync)
     ,("grocery shop final discard follows full sellout before restart", GroceryShopTests.DiscardAfterSelloutAsync)
+    ,("grocery shop NPC branch empty stall three item batches guards and local discard", GroceryShopTests.NpcPostSaleAsync)
+    ,("grocery shop cleanup return item supersedes legacy keys with landing verification", GroceryShopTests.CleanupItemReturnAsync)
+    ,("grocery shop return at same map entrance skips unobservable recall", GroceryShopTests.AlreadyAtReturnEntranceAsync)
     ,("grocery shop failed final discard retains sale time blocks restart and cancels retry", GroceryShopTests.PostSaleDiscardFailureAsync)
     ,("grocery shop final discard retries hover failures without repeating discarded items or sale", GroceryShopTests.PostSaleDiscardRetryAsync)
     ,("grocery shop worker retries final discard before publishing restart", GroceryShopTests.PostSaleDiscardWorkerRetryAsync)

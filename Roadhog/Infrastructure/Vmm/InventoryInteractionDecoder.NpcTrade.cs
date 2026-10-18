@@ -23,7 +23,7 @@ internal sealed partial class InventoryInteractionDecoder
                     entries.TryAdd(text, point);
         }
         int mode = -1; uint npc = 0;
-        var basket = new List<NpcTradeItem>(); GameUiPoint? sell = null;
+        var basket = new List<NpcTradeItem>(); GameUiPoint? sell = null; GameUiPoint? registerJunk = null;
         if (open)
         {
             mode = BitConverter.ToInt32(Guard(window + 1252, 4));
@@ -46,21 +46,24 @@ internal sealed partial class InventoryInteractionDecoder
                 }
                 Require(basket.Select(i => i.InstanceId).Distinct().Count() == basket.Count, "Duplicate NPC sell basket item.");
                 sell = nodes.SingleOrDefault(n => n.Name == "ok")?.Point(this);
-                if (bagOpen && sell != null)
+                registerJunk = nodes.SingleOrDefault(n => n.Name == "sell_junk")?.Point(this);
+                if (bagOpen && (sell != null || registerJunk != null))
                 {
                     Require(Name(bag) == "inventory_dialog", "Unexpected inventory window during NPC sale.");
                     var bounds = Guard(bag + 0x58, 32);
                     double D(int offset) => Number(BitConverter.ToDouble(bounds, offset));
                     var x = D(0); var y = D(8); var width = D(16); var height = D(24);
                     Require(width > 0 && height > 0, "Invalid inventory bounds during NPC sale.");
-                    if (sell.X >= x && sell.X <= x + width && sell.Y >= y && sell.Y <= y + height) sell = null;
+                    bool Covered(GameUiPoint? point) => point != null && point.X >= x && point.X <= x + width && point.Y >= y && point.Y <= y + height;
+                    if (Covered(sell)) sell = null;
+                    if (Covered(registerJunk)) registerJunk = null;
                 }
             }
         }
         var modalOpen = false;
         for (int id = 336; id <= 365; id++) if (Open(Root(id))) modalOpen = true;
-        if (modalOpen) { entries.Clear(); sell = null; }
+        if (modalOpen) { entries.Clear(); sell = null; registerJunk = null; }
         VerifyGuards();
-        return new(dialogOpen, entries, open, mode, npc, bagOpen, basket.AsReadOnly(), sell, modalOpen);
+        return new(dialogOpen, entries, open, mode, npc, bagOpen, basket.AsReadOnly(), sell, modalOpen, registerJunk);
     }
 }

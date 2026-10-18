@@ -774,7 +774,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                observation.Fields.IsEquipped &&
                observation.Fields.ItemType &&
                observation.Fields.QualityRank &&
-               observation.Fields.VendorSellUnitPrice && observation.Fields.Food && observation.Fields.UseGroup;
+               observation.Fields.VendorSellUnitPrice && observation.Fields.Food && observation.Fields.UseGroup && observation.Fields.CanSellToNpc;
     }
 
     internal static IReadOnlyList<InventoryItemSnapshot> MergeInventoryRead(
@@ -797,7 +797,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                 continue;
             }
             // Use-group metadata belongs to the template. A changed template cannot inherit an old group.
-            if (!observation.Fields.UseGroup && observation.Fields.TemplateId && lastGood?.TemplateId != current.TemplateId)
+            if ((!observation.Fields.UseGroup || !observation.Fields.CanSellToNpc) && observation.Fields.TemplateId && lastGood?.TemplateId != current.TemplateId)
             {
                 if (lastGood is not null) merged[current.InstanceId] = lastGood;
                 continue;
@@ -814,6 +814,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                 QualityRank = observation.Fields.QualityRank ? current.QualityRank : lastGood!.QualityRank,
                 Food = observation.Fields.Food ? current.Food : lastGood!.Food,
                 UseGroup = observation.Fields.UseGroup ? current.UseGroup : lastGood!.UseGroup,
+                CanSellToNpc = observation.Fields.CanSellToNpc ? current.CanSellToNpc : lastGood!.CanSellToNpc,
                 VendorSellUnitPrice = observation.Fields.VendorSellUnitPrice
                     ? current.VendorSellUnitPrice
                     : lastGood!.VendorSellUnitPrice
@@ -3017,7 +3018,8 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                             item.QualityRank,
                             item.VendorSellUnitPrice,
                             foodByTemplate[item.TemplateId].Value,
-                            useGroupByTemplate[item.TemplateId].Value),
+                            useGroupByTemplate[item.TemplateId].Value,
+                            item.CanSellToNpc),
                         new InventoryItemFieldValidity(
                             item.TemplateIdValid,
                             item.CountValid,
@@ -3028,7 +3030,8 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                             item.QualityRankValid,
                             item.VendorSellUnitPriceValid,
                             foodByTemplate[item.TemplateId].Valid,
-                            useGroupByTemplate[item.TemplateId].Valid)))
+                            useGroupByTemplate[item.TemplateId].Valid,
+                            item.CanSellToNpcValid)))
                     .ToArray();
 
                 _logger.Info("vmm.inventory.read", new Dictionary<string, object?>
@@ -4987,6 +4990,17 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         }
 
         info.ItemTypeValid = TryReadUInt32(process, item + InventoryItemTypeOffset, out info.ItemType);
+        if (info.TemplateIdValid)
+        {
+            try
+            {
+                info.CanSellToNpc = InventoryNpcSellEligibilityDecoder.Read((address, size) =>
+                    TryReadBytes(process, address, size, out var bytes, bypassMemoryCache: true) ? bytes : Array.Empty<byte>(),
+                    item, instanceId, info.TemplateId);
+                info.CanSellToNpcValid = true;
+            }
+            catch (InvalidDataException) { info.CanSellToNpcValid = false; }
+        }
         info.EquipmentMaskValid = TryReadUInt32(process, item + InventoryItemEquipmentMaskOffset, out info.EquipmentMask);
         info.VendorSellUnitPriceValid = TryReadUInt64(
             process,
@@ -10742,6 +10756,8 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         public bool QualityRankValid;
         public bool EquipmentMaskValid;
         public bool VendorSellUnitPriceValid;
+        public bool CanSellToNpc;
+        public bool CanSellToNpcValid;
         public bool SlotValid;
         public bool IsInEquipmentArrayValid;
     }

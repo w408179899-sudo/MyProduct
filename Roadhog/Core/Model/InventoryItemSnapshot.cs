@@ -11,7 +11,8 @@ public sealed record InventoryItemSnapshot(
     byte QualityRank = 0,
     ulong VendorSellUnitPrice = 0,
     FoodItemDefinition? Food = null,
-    uint? UseGroup = null)
+    uint? UseGroup = null,
+    bool CanSellToNpc = true)
 {
     public ulong VendorSellStackTotal =>
         Count == 0 || VendorSellUnitPrice == 0

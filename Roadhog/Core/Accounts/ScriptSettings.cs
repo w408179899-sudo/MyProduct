@@ -367,6 +367,7 @@ public sealed class PathScriptSettings
     public string StallReturnItemName { get; set; } = string.Empty;
     public string GroceryStallPathName { get; set; } = string.Empty;
     public string GroceryReturnItemName { get; set; } = string.Empty;
+    public string BagCleanupReturnItemName { get; set; } = string.Empty;
 
     public string TownReturnKey { get; set; } = string.Empty;
 
@@ -402,6 +403,7 @@ public sealed class PathScriptSettings
             StallReturnItemName = StallReturnItemName,
             GroceryStallPathName = GroceryStallPathName,
             GroceryReturnItemName = GroceryReturnItemName,
+            BagCleanupReturnItemName = BagCleanupReturnItemName,
             TownReturnKey = TownReturnKey,
             BagCleanupTownReturnKey = BagCleanupTownReturnKey,
             BagCleanupReturnByReversePath = BagCleanupReturnByReversePath,

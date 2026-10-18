@@ -15,6 +15,8 @@ public partial class AccountSettingsForm
     private RoundedComboBox? groceryReturnItemCombo;
     private RoundedComboBox? stallReturnItemCombo;
     private RoundedComboBox? auctionReturnItemCombo;
+    private RoundedComboBox? bagCleanupReturnItemCombo;
+    private RoundedComboBox? groceryPostSaleActionCombo;
     private RadioButton? normalCleanupModeRadio, groceryCleanupModeRadio;
     private Panel? groceryOptionsPanel;
     private Label? cleanupModeHintLabel;
@@ -90,7 +92,7 @@ public partial class AccountSettingsForm
         groceryOptionsPanel = new Panel
         {
             Name = "groceryOptionsPanel", Location = new Point(12, 124),
-            Size = new Size(828, 104), BackColor = _softGreen, Visible = false
+            Size = new Size(828, 144), BackColor = _softGreen, Visible = false
         };
         page.Controls.Add(groceryOptionsPanel);
         var manual = AddButton(groceryOptionsPanel, "手动杂货摆摊", 420, 2, 144, 30);
@@ -148,7 +150,13 @@ public partial class AccountSettingsForm
             var pathTabs = (TabControl)Controls.Find("pathTabs", true).Single();
             pathTabs.SelectedTab = pathTabs.TabPages.Cast<TabPage>().Single(p => p.Text == "杂货摆摊路径");
         };
-        AddLabel(groceryOptionsPanel, "回程 → 路线摆摊 → 全部售罄 → 丢弃 → 重启", 8, 76, 556, 22);
+        AddLabel(groceryOptionsPanel, "回程 → 路线摆摊 → 剩余物品处理 → 重启", 8, 76, 556, 22);
+        AddLabel(groceryOptionsPanel, "售空后处理", 8, 112, 90, 24);
+        groceryPostSaleActionCombo = AddCombo(groceryOptionsPanel, 102, 108, 218, 28);
+        groceryPostSaleActionCombo.Name = "groceryPostSaleActionCombo";
+        groceryPostSaleActionCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        groceryPostSaleActionCombo.Items.AddRange(new object[] { "原地丢弃（原流程）", "前往 NPC 出售（三条一批）" });
+        AddLabel(groceryOptionsPanel, "NPC 出售使用清包路径、清包 NPC 和清包回程物品", 334, 112, 480, 24);
     }
 
     private void LoadGroceryShopControls(CleanupWorkflowSettings settings)
@@ -156,6 +164,7 @@ public partial class AccountSettingsForm
         if (settings.Mode == CleanupMode.GroceryShop) groceryCleanupModeRadio!.Checked = true;
         else normalCleanupModeRadio!.Checked = true;
         groceryScheduleEnabled!.Checked = settings.GroceryScheduleEnabled;
+        groceryPostSaleActionCombo!.SelectedIndex = settings.GroceryPostSaleAction == GroceryPostSaleAction.NpcSell ? 1 : 0;
         groceryScheduleTimes!.Items.Clear();
         groceryScheduleTimes.Items.AddRange(GroceryShopSchedule.Normalize(settings.GroceryScheduleTimes).Cast<object>().ToArray());
     }
@@ -164,6 +173,7 @@ public partial class AccountSettingsForm
     {
         settings.Mode = groceryCleanupModeRadio!.Checked ? CleanupMode.GroceryShop : CleanupMode.Normal;
         settings.GroceryScheduleEnabled = groceryScheduleEnabled!.Checked;
+        settings.GroceryPostSaleAction = groceryPostSaleActionCombo!.SelectedIndex == 1 ? GroceryPostSaleAction.NpcSell : GroceryPostSaleAction.Discard;
         settings.GroceryScheduleTimes = groceryScheduleTimes!.Items.Cast<string>().ToList();
     }
 
@@ -180,7 +190,7 @@ public partial class AccountSettingsForm
             settings.Maintenance.CleanupWorkflow.Mode = CleanupMode.GroceryShop;
             var result = await _startGroceryShop(settings);
             if (!IsDisposed) SetBagCleanupInventoryStatus(result.Success
-                ? "手动杂货摆摊已提交，售罄后丢弃并重启。"
+                ? "手动杂货摆摊已提交，完成所选剩余物品处理后重启。"
                 : "无法启动杂货摆摊：" + result.Error, !result.Success);
         }
         catch (Exception ex) { if (!IsDisposed) SetBagCleanupInventoryStatus("无法启动杂货摆摊：" + ex.Message, true); }

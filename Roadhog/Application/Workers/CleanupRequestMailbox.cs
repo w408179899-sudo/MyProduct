@@ -14,7 +14,9 @@ public sealed record CleanupRequest(ScriptSettings Settings, bool Manual, bool R
     public GroceryShopTrigger GroceryTrigger { get; init; }
     public bool GroceryShop => GroceryTrigger != GroceryShopTrigger.None;
     public bool SoldOutConfirmed { get; internal set; }
-    public bool RequestsRestart => StandaloneShop || GroceryShop && SoldOutConfirmed;
+    public bool GroceryProcessingCompleted { get; internal set; }
+    internal bool GroceryNpcStageStarted { get; set; }
+    public bool RequestsRestart => StandaloneShop || GroceryShop && (SoldOutConfirmed || GroceryProcessingCompleted);
     public string? Failure { get; set; }
     internal CleanupPreparationStage PreparationStage { get; set; }
     internal bool TownReturnCompleted { get; set; }

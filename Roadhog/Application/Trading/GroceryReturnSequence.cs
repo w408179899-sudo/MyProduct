@@ -40,14 +40,25 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
         {
             var scene = await Scene();
             if (scene.IsReady && scene.Player!.IsDead) throw new CleanupDeathInterruptionException();
-            if (transition.Observe(scene) != TownReturnPhase.WaitingForDeparture) return false;
+            var observed = transition.Observe(scene);
+            if (observed != TownReturnPhase.WaitingForDeparture)
+            {
+                context.Logger.Warn("grocery_shop.return.before_click_scene_changed", new Dictionary<string, object?>
+                { ["account"] = context.Config.AccountName, ["phase"] = observed.ToString(), ["position"] = scene.Player?.Position,
+                    ["departure"] = departure.Player?.Position, ["mapId"] = scene.Channel?.MapId, ["ready"] = scene.IsReady });
+                return false;
+            }
             Require(scene.IsReady && !scene.Player!.IsDead && scene.Channel!.MapId == departure.Channel!.MapId &&
                 scene.Channel.Index == departure.Channel.Index &&
                 scene.Player!.CharacterName == departure.Player!.CharacterName && scene.Player.EntityId == departure.Player.EntityId,
                 "使用卷轴前角色场景改变。");
             await CheckAttack(scene);
             var ui = await Bag();
-            return !ui.ShopIsOpen && !ui.IsSelling && ui.DiscardDialog == null && !ui.OtherModalOpen;
+            var idle = !ui.ShopIsOpen && !ui.IsSelling && ui.DiscardDialog == null && !ui.OtherModalOpen;
+            if (!idle) context.Logger.Warn("grocery_shop.return.before_click_ui_changed", new Dictionary<string, object?>
+            { ["account"] = context.Config.AccountName, ["shopOpen"] = ui.ShopIsOpen, ["selling"] = ui.IsSelling,
+                ["discardDialog"] = ui.DiscardDialog != null, ["otherModal"] = ui.OtherModalOpen });
+            return idle;
         }
         var hp = departure.Player!.CurrentHp;
         async Task CheckAttack(ChannelTransitionSnapshot scene)
@@ -63,6 +74,23 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
         try
         {
             await actions.Reset();
+            var entry = destination.Points[0];
+            var start = departure.Player!.Position!.Value;
+            // A same-city recall at the entrance may have no loading frame or 5 m displacement.
+            // Use the confirmed current entrance instead of consuming scrolls without observable travel.
+            if (departure.Channel!.MapId == destination.MapId &&
+                Math.Pow(start.X - entry.X, 2) + Math.Pow(start.Y - entry.Y, 2) <= 25 &&
+                Math.Abs(start.Z - entry.Z) <= 2)
+            {
+                var ui = await Bag();
+                Require(!ui.ShopIsOpen && !ui.IsSelling && ui.DiscardDialog == null && !ui.OtherModalOpen,
+                    "已在回程入口，但存在其他背包操作。");
+                await CheckAttack(departure);
+                report("已在所选路线入口，无需使用回程卷轴");
+                context.Logger.Info("grocery_shop.return.already_at_entry", new Dictionary<string, object?>
+                    { ["account"] = context.Config.AccountName, ["path"] = destination.Name, ["position"] = start });
+                return;
+            }
             Require(await BeforeClick(), "使用卷轴前存在其他背包操作。");
             if (!(await Bag()).IsOpen)
             {

@@ -1,4 +1,5 @@
 using Roadhog.Application.Travel;
+using Roadhog.Application.Trading;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Api;
@@ -262,7 +263,7 @@ public sealed partial class BagCleanupController
         }
 
         var paths = context.Config.ScriptSettings?.Paths ?? new PathScriptSettings();
-        if (string.IsNullOrWhiteSpace(ResolveBagCleanupTownReturnKey(paths)))
+        if (string.IsNullOrWhiteSpace(paths.BagCleanupReturnItemName) && string.IsNullOrWhiteSpace(ResolveBagCleanupTownReturnKey(paths)))
         {
             return RecoverableFailure(
                 context,
@@ -957,6 +958,16 @@ public sealed partial class BagCleanupController
         BagCleanupState state)
     {
         var paths = context.Config.ScriptSettings?.Paths ?? new PathScriptSettings();
+        if (!string.IsNullOrWhiteSpace(paths.BagCleanupReturnItemName))
+        {
+            var route = await _pathStore.LoadAsync(state.ReturnDestinationPathName ?? paths.MaintenancePathName, context.StopToken);
+            TradingActions.Require(route.Success && route.Value is { MapId: > 0, PointCount: > 0 }, "清包回程物品需要带地图和落点入口的路径。");
+            await new GroceryReturnSequence(_input).RunAsync(context, route.Value!, paths.BagCleanupReturnItemName,
+                message => context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, message),
+                "清包回程", "cleanup_workflow.return.retry");
+            state.Advance(BagCleanupStep.LoadCleanupPath);
+            return BagCleanupTickResult.Running("town_return_item_confirmed");
+        }
         var key = ResolveBagCleanupTownReturnKey(paths);
         if (string.IsNullOrWhiteSpace(key))
         {

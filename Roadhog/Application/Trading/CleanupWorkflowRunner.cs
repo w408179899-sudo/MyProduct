@@ -45,7 +45,7 @@ public sealed partial class CleanupWorkflowRunner(IKeyboardInput input, ISharedP
             context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, text);
         }
         // Backpack grocery requests first exhaust local discard; scheduled/manual departures
-        // bypass that gate. Every completed grocery sale retains final discard before restart.
+        // bypass that gate. Remaining items use the selected post-sale action before restart.
         if (request.GroceryShop)
         {
             await RunGroceryShopAsync(context, request, Report);
@@ -70,6 +70,8 @@ public sealed partial class CleanupWorkflowRunner(IKeyboardInput input, ISharedP
         settings.Paths.AuctionReturnItemName = (settings.Paths.AuctionReturnItemName ?? string.Empty).Trim();
         settings.Paths.StallReturnItemName = (settings.Paths.StallReturnItemName ?? string.Empty).Trim();
         var preservedScrollNames = new List<string>();
+        if (!string.IsNullOrWhiteSpace(settings.Paths.BagCleanupReturnItemName))
+            preservedScrollNames.Add(settings.Paths.BagCleanupReturnItemName.Trim());
         if (usesAuctionScroll) preservedScrollNames.Add(settings.Paths.AuctionReturnItemName);
         if ((flow.TransferGold || flow.PersonalShop) && !string.IsNullOrWhiteSpace(settings.Paths.StallReturnItemName))
             preservedScrollNames.Add(settings.Paths.StallReturnItemName);
@@ -130,7 +132,15 @@ public sealed partial class CleanupWorkflowRunner(IKeyboardInput input, ISharedP
         if (flow.TransferGold) Require(!string.IsNullOrWhiteSpace(flow.WarehouseName) && !string.IsNullOrWhiteSpace(flow.WarehouseSelectionKey), "请填写仓库角色名和选仓库号按键。");
         if (needsInitialTownReturn)
         {
-            Require(!string.IsNullOrWhiteSpace(settings.Paths.BagCleanupTownReturnKey) || !string.IsNullOrWhiteSpace(settings.Paths.TownReturnKey), "清包前需要配置清包回城按键。");
+            if (!string.IsNullOrWhiteSpace(settings.Paths.BagCleanupReturnItemName))
+            {
+                var entryPath = hasNpcSale ? settings.Paths.MaintenancePathName
+                    : flow.Auction ? settings.Paths.AuctionPathName : settings.Paths.RevivePathName;
+                Require((await Load(entryPath)).MapId is > 0, "清包回程物品需要带地图和落点入口的路径。");
+                Require(GroceryReturnSequence.FindScroll(inventory, settings.Paths.BagCleanupReturnItemName) is not null,
+                    "背包没有配置的清包回程物品：" + settings.Paths.BagCleanupReturnItemName);
+            }
+            else Require(!string.IsNullOrWhiteSpace(settings.Paths.BagCleanupTownReturnKey) || !string.IsNullOrWhiteSpace(settings.Paths.TownReturnKey), "清包前需要配置清包回城物品或按键。");
             await Load(settings.Paths.RevivePathName);
         }
         context.Logger.Info("cleanup_workflow.start", new Dictionary<string, object?> { ["account"] = context.Config.AccountName, ["manual"] = request.Manual, ["stages"] = flow.Describe() });

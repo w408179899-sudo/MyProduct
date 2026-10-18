@@ -44,6 +44,10 @@ internal static partial class GroceryShopTests
         public readonly SuccessStore Success = new();
         public readonly CancellationTokenSource Stop = new(TimeSpan.FromSeconds(10));
         public readonly SharedPathDocument Route = new() { Name = "grocery", MapId = 2, Points = new() { new() { X = 1000 }, new() { X = 1020 } } };
+        public readonly SharedPathDocument NpcRoute = new() { Name = "cleanup", MapId = 2, CleanupNpcName = "merchant", Points = new() { new() { X = 1000 }, new() { X = 1010 } } };
+        public readonly List<int> NpcBatches = new();
+        public bool FailNpcSubmit;
+        private NpcTradeSnapshot npc = new(false, new Dictionary<string, GameUiPoint> { ["出售道具"] = new(169, 293) }, false, -1, 42, false, Array.Empty<NpcTradeItem>(), new(280, 400), false, new(160, 400));
         public readonly AccountConfig Config = new() { AccountName = "grocery", ScriptSettings = new() };
         public DateTimeOffset Now = At(12);
         public string Scenario = "success";
@@ -105,6 +109,7 @@ internal static partial class GroceryShopTests
                             if (Api.Channel.MapId != 2) Events.Add("land");
                             Api.Channel = Api.Channel with { MapId = 2 };
                             Api.Player = Api.Player with { Position = new(Scenario == "wrong_landing" ? 500 : 1000, 0, 0) };
+                            if (Scenario != "wrong_landing") castAt = null;
                             if (Scenario == "wrong_landing" && elapsed > TimeSpan.FromSeconds(25)) Stop.Cancel();
                         }
                     }
@@ -138,8 +143,13 @@ internal static partial class GroceryShopTests
                 }
                 return shop with { BagItems = Cells(), HoveredInstanceId = Cells().FirstOrDefault(i => i.Point == Api.InventoryUiCursor)?.InstanceId ?? 0 };
             };
+            Api.NpcTradeRead = () => npc with { InventoryOpen = shop.InventoryOpen };
+            Api.AuctionRead = () => new(npc.DialogOpen, null, false, 0, new Dictionary<string, GameUiPoint>(), "", "", Array.Empty<AuctionMarketRow>(), false, 0, null);
             Input.AfterPress = key =>
             {
+                if (key == "F8") { Api.TargetEntityId = 42; Api.TargetOwnServerObjectId = 42; Api.TargetName = "merchant"; }
+                if (key == "C") npc = npc with { DialogOpen = true };
+                if (key == "Space") npc = npc with { IsOpen = false, DialogOpen = false };
                 if (key == "Escape" && Scenario == "timeout_race") Scenario = "slow_loading";
                 if (key == "Escape") { pendingDiscard = 0; heldDiscard = 0; }
                 if (key == "I")
@@ -162,7 +172,8 @@ internal static partial class GroceryShopTests
             {
                 if (button == RoadhogMouseButton.Right)
                 {
-                    Check(CursorVisits.Skip(lastRightClickVisit).Contains(new(680, 468)), "every scroll or stall bag click first visits fixed point");
+                    if (!npc.IsSelling) Check(CursorVisits.Skip(lastRightClickVisit).Contains(new(680, 468)), "every scroll or stall bag click first visits fixed point");
+                    else Check(!CursorVisits.Skip(lastRightClickVisit).Contains(new(680, 468)), "NPC sale moves directly to each item");
                     lastRightClickVisit = CursorVisits.Count;
                 }
                 down = true;
@@ -178,7 +189,32 @@ internal static partial class GroceryShopTests
                     var item = Api.InventoryItems.Single(i => point == new GameUiPoint(400 + i.Slot * 20, 300));
                     if (item.Name == settings.Paths.GroceryReturnItemName)
                     { ScrollClicks++; castAt = Now; Events.Add("scroll"); AfterScrollClick?.Invoke(); }
+                    else if (npc.IsSelling)
+                    {
+                        Check(Events.Contains("npc_junk_empty_submit"), "bulk junk registration and sell precede manual bag registration");
+                        npc = npc with { Basket = npc.Basket.Append(new NpcTradeItem((uint)item.InstanceId, item.TemplateId, item.Count)).ToArray() };
+                    }
                     else shop = shop with { Editor = new((uint)item.InstanceId, true, 1, item.Count, item.Count, new(500, 100), new(600, 100)) { QuantityInput = new(550, 100) } };
+                }
+                else if (point == new GameUiPoint(169, 293)) npc = npc with { DialogOpen = false, IsOpen = true, Mode = 1 };
+                else if (point == new GameUiPoint(160, 400))
+                {
+                    Check(!Events.Contains("npc_junk_register") && npc.Basket.Count == 0, "bulk junk button is clicked once before manual sale");
+                    Events.Add("npc_junk_register");
+                }
+                else if (point == new GameUiPoint(280, 400))
+                {
+                    if (npc.Basket.Count == 0)
+                    {
+                        Check(Events.Contains("npc_junk_register"), "empty initial sale follows bulk junk button");
+                        Events.Add("npc_junk_empty_submit");
+                        return;
+                    }
+                    NpcBatches.Add(npc.Basket.Count); Events.Add("npc_submit");
+                    if (FailNpcSubmit) throw new InvalidOperationException("NPC submit failed");
+                    Api.InventoryItems = Api.InventoryItems.Where(i => npc.Basket.All(b => b.InstanceId != i.InstanceId)).ToArray();
+                    Api.InventoryMoney += 100;
+                    npc = npc with { Basket = Array.Empty<NpcTradeItem>() };
                 }
                 else if (heldDiscard != 0 && point == new GameUiPoint(500, 380))
                 {
@@ -220,9 +256,11 @@ internal static partial class GroceryShopTests
                 .Select(i => new InventoryItemSnapshot((uint)(100 + i), (uint)(100 + i), "junk" + i, 1, 2 + i, false))).ToArray();
         }
         public Task Delay(int ms, CancellationToken token) { BeforeDelay?.Invoke(ms); token.ThrowIfCancellationRequested(); Now = Now.AddMilliseconds(ms); return Task.CompletedTask; }
-        public CleanupWorkflowRunner Runner() => new(Input, new InMemorySharedPathStore(Route), (_, name, points) =>
+        public CleanupWorkflowRunner Runner() => new(Input, new InMemorySharedPathStore(Route, NpcRoute), (_, name, points) =>
         {
-            Check(Api.Channel.MapId == Route.MapId && !BagOpen && points.SequenceEqual(Route.Points.Select(p => p.ToVector3())), "confirm landing and close bag before full ordered route");
+            var route = name == NpcRoute.Name ? NpcRoute : Route;
+            Check(Api.Channel.MapId == route.MapId && !BagOpen && points.SequenceEqual(route.Points.Select(p => p.ToVector3())), "confirm landing and close bag before full ordered route");
+            Api.Player = Api.Player with { Position = points.Last() };
             Follows++; Events.Add("route"); return Task.FromResult(OperationResult.Ok());
         }, new UnusedJournal(), grocerySuccessStore: Success, groceryDelay: Delay, groceryClock: () => Now);
         public void Dispose() => Stop.Dispose();

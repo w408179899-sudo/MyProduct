@@ -216,7 +216,8 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                                 if (cleanup.RequestsRestart)
                                 {
                                     context.CleanupRequests.CompleteStandaloneShopForRestart(cleanup);
-                                    context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, "全部售罄，等待停止并重新启动脚本");
+                                    context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, cleanup.GroceryShop
+                                        ? "杂货清包处理完成，等待停止并重新启动脚本" : "全部售罄，等待停止并重新启动脚本");
                                     context.Logger.Info("standalone_shop.restart.requested", new Dictionary<string, object?>
                                         { ["account"] = context.Config.AccountName, ["requestId"] = cleanup.RequestId });
                                     continue;
@@ -230,7 +231,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                             }
                             else context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, "清包已排队，先处理当前战斗 / 复活");
                         }
-                        catch (Exception ex) when (!context.StopToken.IsCancellationRequested && cleanup.GroceryShop &&
+                        catch (Exception ex) when (!context.StopToken.IsCancellationRequested && cleanup.GroceryShop && !cleanup.GroceryNpcStageStarted &&
                             ex is GroceryTripInterruptedException or GroceryTripDepartureFailedException or CleanupCombatInterruptionException or CleanupDeathInterruptionException)
                         {
                             context.CleanupRequests.Complete();

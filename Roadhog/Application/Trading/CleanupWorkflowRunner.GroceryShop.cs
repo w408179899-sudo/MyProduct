@@ -54,55 +54,83 @@ public sealed partial class CleanupWorkflowRunner
         try
         {
             Require(grocerySuccessStore != null, "杂货摆摊成功记录存储未配置。");
+            var sellToNpc = settings.Maintenance.CleanupWorkflow.GroceryPostSaleAction == GroceryPostSaleAction.NpcSell;
+            var npcSale = new GroceryNpcSaleSequence(input, paths, executePath, groceryDelay, groceryClock);
+            settings.Paths.GroceryReturnItemName = settings.Paths.GroceryReturnItemName.Trim();
+            settings.Paths.BagCleanupReturnItemName = settings.Paths.BagCleanupReturnItemName.Trim();
+            bool IsReturnItem(InventoryItemSnapshot item) =>
+                string.Equals(item.Name, settings.Paths.GroceryReturnItemName, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(item.Name, settings.Paths.BagCleanupReturnItemName, StringComparison.OrdinalIgnoreCase);
+            // Protect both legs before local discard, stall planning, and NPC candidate selection.
+            foreach (var name in new[] { settings.Paths.GroceryReturnItemName, settings.Paths.BagCleanupReturnItemName })
+                if (!string.IsNullOrWhiteSpace(name) && !settings.Maintenance.BagCleanupExcludedItemNames.Contains(name, StringComparer.OrdinalIgnoreCase))
+                    settings.Maintenance.BagCleanupExcludedItemNames.Add(name);
             var bag = (await context.Snapshots.ReadInventoryAsync().WaitAsync(token)).Value;
-            if (string.IsNullOrWhiteSpace(settings.Paths.GroceryReturnItemName) ||
-                GroceryReturnSequence.FindScroll(bag, settings.Paths.GroceryReturnItemName) == null)
+            if (!sellToNpc && (string.IsNullOrWhiteSpace(settings.Paths.GroceryReturnItemName) ||
+                GroceryReturnSequence.FindScroll(bag, settings.Paths.GroceryReturnItemName) == null))
             {
                 LogSkip("没有配置的回程卷轴，跳过本次杂货摆摊：" + settings.Paths.GroceryReturnItemName);
                 return;
             }
-            settings.Paths.GroceryReturnItemName = settings.Paths.GroceryReturnItemName.Trim();
-            // Exclude the selected return scroll from this request's discard and stall plans.
-            if (!settings.Maintenance.BagCleanupExcludedItemNames.Contains(settings.Paths.GroceryReturnItemName, StringComparer.OrdinalIgnoreCase))
-                settings.Maintenance.BagCleanupExcludedItemNames.Add(settings.Paths.GroceryReturnItemName);
             if (request.GroceryTrigger == GroceryShopTrigger.Backpack)
             {
                 await actions.Reset();
                 var afterDiscard = await PrepareBackpackGroceryAsync(context, request, report);
                 if (afterDiscard == null) return;
                 bag = afterDiscard;
-                if (GroceryReturnSequence.FindScroll(bag, settings.Paths.GroceryReturnItemName) == null)
+                if (!sellToNpc && GroceryReturnSequence.FindScroll(bag, settings.Paths.GroceryReturnItemName) == null)
                 { LogSkip("丢弃后缺少所选回程卷轴，本次不出发"); return; }
             }
+            var plan = DiscountedPersonalShopWorkflow.Plan(bag.Where(i => !IsReturnItem(i)).ToArray(), settings.Maintenance, report);
+            if (plan.Count == 0)
+            {
+                if (!sellToNpc) { LogSkip("没有可按折扣摆摊的物品，本次不出发"); return; }
+                report("没有可摆摊物品，直接前往 NPC 出售原丢弃候选");
+                request.GroceryNpcStageStarted = true;
+                await npcSale.RunAsync(context, report);
+                request.GroceryProcessingCompleted = true;
+                return;
+            }
+            if (GroceryReturnSequence.FindScroll(bag, settings.Paths.GroceryReturnItemName) == null)
+            { LogSkip("没有配置的回程卷轴，跳过本次杂货摆摊：" + settings.Paths.GroceryReturnItemName); return; }
+            if (sellToNpc)
+                await npcSale.ValidateAsync(context, string.Equals(settings.Paths.GroceryReturnItemName,
+                    settings.Paths.BagCleanupReturnItemName, StringComparison.OrdinalIgnoreCase) ? 2 : 1);
             var loaded = await paths.LoadAsync(settings.Paths.GroceryStallPathName, token);
             Require(loaded.Success && loaded.Value is { MapId: > 0, PointCount: > 0 }, "请录制并选择带有地图的杂货摆摊路径。");
             var route = loaded.Value!.Clone();
-            var plan = DiscountedPersonalShopWorkflow.Plan(bag.Where(i =>
-                !string.Equals(i.Name, settings.Paths.GroceryReturnItemName, StringComparison.OrdinalIgnoreCase)).ToArray(),
-                settings.Maintenance, report);
-            if (plan.Count == 0) { LogSkip("没有可按折扣摆摊的物品，本次不出发"); return; }
             await new GroceryReturnSequence(input, groceryDelay, groceryClock).RunAsync(context, route, settings.Paths.GroceryReturnItemName, report);
             report("卷轴回程已确认，前往杂货摆摊终点");
             Check(await executePath(context, route.Name, route.Points.Select(p => p.ToVector3()).ToArray()));
             token.ThrowIfCancellationRequested();
             // Replan after travel; the used scroll and any changed inventory cannot enter the stall.
-            await DiscountedPersonalShopWorkflow.RunAsync(context.Snapshots, settings.Maintenance,
-                items =>
-                {
-                    var filtered = items.Where(p => !string.Equals(p.Item.Name, settings.Paths.GroceryReturnItemName, StringComparison.OrdinalIgnoreCase)).ToArray();
-                    Require(filtered.Length > 0, "到达后没有可摆摊物品，未确认售罄。");
-                    return new ConfiguredPersonalShopSequence(input, groceryDelay).RunAsync(context.Snapshots, filtered,
-                        report, token, settings.Maintenance.CleanupWorkflow.StandaloneShopDiscount);
-                },
-                () => Task.CompletedTask, report, token);
-            var soldOutAt = groceryClock?.Invoke() ?? DateTimeOffset.UtcNow;
-            await grocerySuccessStore!.RecordAsync(context.Config.InstanceId, soldOutAt, token);
-            report("杂货摆摊全部售罄，开始按配置丢弃剩余背包物品");
-            await RunPostSaleDiscardAsync(context, report);
+            bag = (await context.Snapshots.ReadInventoryAsync().WaitAsync(token)).Value;
+            plan = DiscountedPersonalShopWorkflow.Plan(bag.Where(i => !IsReturnItem(i)).ToArray(), settings.Maintenance, report);
+            DateTimeOffset? soldOutAt = null;
+            if (plan.Count > 0)
+            {
+                await new ConfiguredPersonalShopSequence(input, groceryDelay).RunAsync(context.Snapshots, plan,
+                    report, token, settings.Maintenance.CleanupWorkflow.StandaloneShopDiscount);
+                soldOutAt = groceryClock?.Invoke() ?? DateTimeOffset.UtcNow;
+                await grocerySuccessStore!.RecordAsync(context.Config.InstanceId, soldOutAt.Value, token);
+            }
+            else Require(sellToNpc, "到达后没有可摆摊物品，未确认售罄。");
+            if (sellToNpc)
+            {
+                request.GroceryNpcStageStarted = true;
+                report(soldOutAt.HasValue ? "杂货摆摊全部售罄，开始前往 NPC 出售原丢弃候选" : "到达后没有可摆摊物品，前往 NPC 出售原丢弃候选");
+                await npcSale.RunAsync(context, report);
+            }
+            else
+            {
+                report("杂货摆摊全部售罄，开始按配置丢弃剩余背包物品");
+                await RunPostSaleDiscardAsync(context, report);
+            }
             token.ThrowIfCancellationRequested();
-            request.SoldOutConfirmed = true;
-            report("杂货摆摊售罄时间已保存，丢弃完成，准备停止并重新启动脚本");
-            context.Logger.Info("grocery_shop.sold_out", new Dictionary<string, object?>
+            request.SoldOutConfirmed = soldOutAt.HasValue;
+            request.GroceryProcessingCompleted = true;
+            report("剩余物品处理完成，准备停止并重新启动脚本");
+            context.Logger.Info(soldOutAt.HasValue ? "grocery_shop.sold_out" : "grocery_shop.npc_only.complete", new Dictionary<string, object?>
                 { ["account"] = context.Config.AccountName, ["soldOutAt"] = soldOutAt });
         }
         finally { await actions.Reset(); }
