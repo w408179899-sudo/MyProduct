@@ -9,22 +9,33 @@ namespace Roadhog.Application.Trading;
 
 public sealed partial class CleanupWorkflowRunner
 {
-    private sealed class GroceryScheduleState { public DateTimeOffset? PendingDue; }
+    private sealed class GroceryScheduleState(DateTimeOffset startedAt)
+    {
+        public DateTimeOffset StartedAt { get; } = startedAt;
+        public DateTimeOffset? PendingDue;
+    }
     private readonly ConditionalWeakTable<AccountWorkerContext, GroceryScheduleState> groceryScheduleStates = new();
+
+    public void InitializeGrocerySchedule(AccountWorkerContext context, DateTimeOffset? startedAt = null) =>
+        groceryScheduleStates.GetValue(context, _ => new(startedAt ?? groceryClock?.Invoke() ?? DateTimeOffset.UtcNow));
+
+    public Task<bool> GroceryScheduleDueAsync(AccountWorkerContext context) =>
+        GroceryScheduleDueAsync(context, groceryClock?.Invoke() ?? DateTimeOffset.UtcNow);
 
     public async Task<bool> GroceryScheduleDueAsync(AccountWorkerContext context, DateTimeOffset now)
     {
         var settings = context.Config.ScriptSettings!.Maintenance.CleanupWorkflow;
         if (settings.Mode != CleanupMode.GroceryShop || !settings.GroceryScheduleEnabled)
         { groceryScheduleStates.Remove(context); return false; }
+        var state = groceryScheduleStates.GetValue(context, _ => new(now));
         Require(grocerySuccessStore != null, "杂货摆摊成功记录存储未配置。");
         var last = await grocerySuccessStore!.LoadAsync(context.Config.InstanceId, context.StopToken);
         context.StopToken.ThrowIfCancellationRequested();
-        var state = groceryScheduleStates.GetValue(context, _ => new());
-        var due = GroceryShopSchedule.LatestDue(settings, now, last, state.PendingDue);
+        var due = GroceryShopSchedule.LatestDue(settings, now, last, state.PendingDue, state.StartedAt);
         if (due.HasValue && due != state.PendingDue)
             context.Logger.Info("grocery_shop.schedule.due", new Dictionary<string, object?>
-                { ["account"] = context.Config.AccountName, ["dueAt"] = due.Value, ["now"] = now, ["lastSoldOut"] = last });
+                { ["account"] = context.Config.AccountName, ["dueAt"] = due.Value, ["now"] = now,
+                    ["lastSoldOut"] = last, ["sessionStartedAt"] = state.StartedAt });
         state.PendingDue = due;
         return due.HasValue;
     }

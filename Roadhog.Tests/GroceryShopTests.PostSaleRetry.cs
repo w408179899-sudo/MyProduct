@@ -35,7 +35,7 @@ internal static partial class GroceryShopTests
         var settings = trip.Config.ScriptSettings!;
         settings.MainMode = trip.Config.MainMode = AccountMainMode.SemiAuto;
         settings.Maintenance.CleanupWorkflow.GroceryScheduleEnabled = true;
-        settings.Maintenance.CleanupWorkflow.GroceryScheduleTimes = new() { "00:00" };
+        settings.Maintenance.CleanupWorkflow.GroceryScheduleTimes = new() { "12:00" };
         var paths = new InMemorySharedPathStore(trip.Route);
         var semi = new SemiAutoCombatController(trip.Input);
         var loop = new DefaultAccountWorkerLoop(trip.Input, semi, new StationaryCombatController(trip.Input, semi, paths), cleanupWorkflow: trip.Runner());

@@ -17,9 +17,11 @@ internal static partial class GroceryShopTests
     {
         public DateTimeOffset? Last;
         public int Saves;
+        public int Loads;
         public bool FailSave;
         public Action? OnSave;
-        public Task<DateTimeOffset?> LoadAsync(string id, CancellationToken token = default) => Task.FromResult(Last);
+        public Task<DateTimeOffset?> LoadAsync(string id, CancellationToken token = default)
+        { token.ThrowIfCancellationRequested(); Loads++; return Task.FromResult(Last); }
         public Task RecordAsync(string id, DateTimeOffset time, CancellationToken token = default)
         {
             token.ThrowIfCancellationRequested();
@@ -408,7 +410,7 @@ internal static partial class GroceryShopTests
             settings.Maintenance.BagCleanupEnabled = !scheduled;
             trip.Api.InventoryCapacity = scheduled ? 100 : 2;
             settings.Maintenance.CleanupWorkflow.GroceryScheduleEnabled = scheduled;
-            settings.Maintenance.CleanupWorkflow.GroceryScheduleTimes = new() { "00:00" };
+            settings.Maintenance.CleanupWorkflow.GroceryScheduleTimes = new() { "12:00" };
             var paths = new InMemorySharedPathStore(trip.Route);
             var semi = new SemiAutoCombatController(trip.Input);
             var loop = new DefaultAccountWorkerLoop(trip.Input, semi, new StationaryCombatController(trip.Input, semi, paths), cleanupWorkflow: trip.Runner());

@@ -48,6 +48,9 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
 
     public async Task RunAsync(AccountWorkerContext context)
     {
+        // Capture the session boundary before input setup or readiness waits can cross a due time.
+        // Recovery uses the same context, so it retains the original boundary and pending task.
+        _cleanupWorkflow?.InitializeGrocerySchedule(context);
         context.Logger.Info("worker.loop.enter", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
@@ -168,7 +171,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                         var maintenance = scriptSettings.Maintenance;
                         if (maintenance.CleanupWorkflow.Mode == CleanupMode.GroceryShop)
                         {
-                            var scheduled = await _cleanupWorkflow.GroceryScheduleDueAsync(context, now);
+                            var scheduled = await _cleanupWorkflow.GroceryScheduleDueAsync(context);
                             var bagFull = false;
                             if (!scheduled && maintenance.BagCleanupEnabled && maintenance.BagCleanupThreshold > 0)
                             {
