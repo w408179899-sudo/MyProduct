@@ -1,4 +1,5 @@
 using Roadhog.Application.Trading;
+using Roadhog.Core.Common;
 using Roadhog.Core.Diagnostics;
 using Roadhog.Core.Input;
 using Roadhog.Core.Model;
@@ -9,17 +10,19 @@ internal static class PersonalShopAdvertisementTests
 
     public static async Task FocusAndConfirmationAsync()
     {
-        foreach (var discount in Enumerable.Range(4, 6))
-        foreach (var scenario in new[] { "change", "same", "missing", "missing_blur", "unconfirmed", "cancel_digits", "clear_unconfirmed", "modal" })
+        foreach (var discount in Enumerable.Range(4, 6).Select(d => (int?)d).Append(null))
+        foreach (var scenario in discount.HasValue
+            ? new[] { "change", "same", "missing", "missing_blur", "unconfirmed", "cancel_digits", "cancel_percent", "cancel_shift", "percent_failure", "clear_unconfirmed", "modal" }
+            : new[] { "change", "same", "missing", "missing_blur", "unconfirmed", "clear_unconfirmed", "modal" })
         {
             using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(3));
             var input = new RecordingKeyboardInput();
             var api = new FakeGameApi();
             var point = new GameUiPoint(420, 220);
             var blur = new GameUiPoint(320, 140);
-            var expected = PersonalShopAdvertisement.Text(discount);
-            Check(expected.Length == 36 && expected.All(c => c.ToString() == discount.ToString()),
-                "advertisement is exactly 36 copies of the selected discount digit");
+            var expected = discount.HasValue ? PersonalShopAdvertisement.Text(discount.Value) : string.Empty;
+            var expectedFormats = new[] { "     40 %     ", "     50 %     ", "     60 %     ", "     70 %     ", "     80 %     ", "     90 %     " };
+            Check(expected == (discount.HasValue ? expectedFormats[discount.Value - 4] : string.Empty), "discounted advertisement preserves spaces; cleanup advertisement is empty");
             var state = new PersonalShopSnapshot(true, false, scenario == "change", Array.Empty<InventoryUiItem>(), 0,
                 Array.Empty<PersonalShopListing>(), null, null)
             {
@@ -28,7 +31,12 @@ internal static class PersonalShopAdvertisementTests
                 AdvertisementBlurPoint = scenario == "missing_blur" ? null : blur,
                 OtherModalOpen = scenario == "modal"
             };
-            var focused = scenario == "same"; var clicks = 0; var blurClicks = 0; var moved = false; var typedDigits = 0;
+            var focused = scenario == "same"; var clicks = 0; var blurClicks = 0; var moved = false; var typedCharacters = 0;
+            var releasedShifts = 0;
+            bool ShiftHeld() => input.KeyDowns.Count(k => k == "ShiftKey") > releasedShifts;
+            input.AfterKeyUp = key => { if (key == "ShiftKey") releasedShifts = input.KeyDowns.Count(k => k == "ShiftKey"); };
+            input.PressResult = key => scenario == "percent_failure" && key == "D5" && ShiftHeld()
+                ? OperationResult.Fail("percent input failed") : OperationResult.Ok();
             api.PersonalShopRead = () => state;
             input.AfterMove = (x, y) => { moved = true; api.InventoryUiCursor = new(api.InventoryUiCursor.X + x, api.InventoryUiCursor.Y + y); };
             input.AfterMouseDown = button =>
@@ -54,24 +62,36 @@ internal static class PersonalShopAdvertisementTests
                 if (key == "Back")
                 {
                     if (scenario == "clear_unconfirmed") { stop.Cancel(); return; }
-                    state = state with { AdvertisementText = state.AdvertisementText[..^1] }; return;
+                    state = state with { AdvertisementText = state.AdvertisementText[..^1] };
+                    if (!discount.HasValue && scenario == "unconfirmed" && state.AdvertisementText.Length == 0)
+                    { state = state with { AdvertisementText = "wrong text" }; stop.Cancel(); }
+                    return;
                 }
-                Check(key == "D" + discount, "type only the selected discount digit, without spaces or percent");
-                typedDigits++;
-                if (typedDigits == 18 && scenario == "cancel_digits") { stop.Cancel(); stop.Token.ThrowIfCancellationRequested(); }
-                state = state with { AdvertisementText = state.AdvertisementText + key[1..] };
-                if (typedDigits == 36 && scenario == "unconfirmed") { state = state with { AdvertisementText = "wrong text" }; stop.Cancel(); }
+                var character = key == "Space" ? ' ' : key == "D5" && ShiftHeld() ? '%' : key.Length == 2 && key[0] == 'D' ? key[1] : '\0';
+                Check(typedCharacters < expected.Length && character == expected[typedCharacters], "type spaces, discount percentage and percent in exact order");
+                if (character == '%') Check(ShiftHeld(), "percent requires Shift with D5");
+                else Check(!ShiftHeld(), "digits and spaces cannot inherit Shift");
+                typedCharacters++;
+                if (typedCharacters == 7 && scenario == "cancel_digits" || character == '%' && scenario == "cancel_percent")
+                { stop.Cancel(); stop.Token.ThrowIfCancellationRequested(); }
+                state = state with { AdvertisementText = state.AdvertisementText + character };
+                if (typedCharacters == expected.Length && scenario == "unconfirmed") { state = state with { AdvertisementText = "wrong text" }; stop.Cancel(); }
             };
             var snapshots = api.Create(new(), new InMemoryRoadhogLogger(), stop.Token);
             async Task<PersonalShopSnapshot> Read() => (await snapshots.ReadPersonalShopAsync()).Value;
-            var actions = new TradingActions(input, snapshots, stop.Token, (_, ct) => { ct.ThrowIfCancellationRequested(); return Task.CompletedTask; });
+            Task Delay(int _, CancellationToken ct)
+            {
+                if (scenario == "cancel_shift" && ShiftHeld()) stop.Cancel();
+                ct.ThrowIfCancellationRequested(); return Task.CompletedTask;
+            }
+            var actions = new TradingActions(input, snapshots, stop.Token, Delay);
             try
             {
-                if (scenario is "unconfirmed" or "missing" or "missing_blur" or "modal" or "cancel_digits" or "clear_unconfirmed")
+                if (scenario is "unconfirmed" or "missing" or "missing_blur" or "modal" or "cancel_digits" or "cancel_percent" or "cancel_shift" or "percent_failure" or "clear_unconfirmed")
                 {
                     var item = new InventoryItemSnapshot(1, 11, "item", 1, 0, false);
                     api.InventoryItems = new[] { item };
-                    await new ConfiguredPersonalShopSequence(input, (_, ct) => { ct.ThrowIfCancellationRequested(); return Task.CompletedTask; })
+                    await new ConfiguredPersonalShopSequence(input, Delay)
                         .RunAsync(snapshots, new[] { new PlannedShopItem(item, 100) }, _ => {}, stop.Token, discount);
                     throw new Exception("invalid or unconfirmed advertisement proceeded to registration");
                 }
@@ -81,15 +101,20 @@ internal static class PersonalShopAdvertisementTests
                     await actions.Key("I");
                     Check(state.InventoryOpen && !focused, "confirmed text and blurred focus allow opening bag");
                 }
-                Check(state.AdvertisementText == expected, "4 through 9 discount text matches exactly");
+                Check(state.AdvertisementText == expected, "discounted or cleanup text matches exactly");
             }
-            catch (InvalidOperationException) when (scenario is "missing" or "missing_blur" or "modal") { }
-            catch (OperationCanceledException) when (scenario is "unconfirmed" or "cancel_digits" or "clear_unconfirmed") { }
+            catch (InvalidOperationException) when (scenario is "missing" or "missing_blur" or "modal" or "percent_failure") { }
+            catch (OperationCanceledException) when (scenario is "unconfirmed" or "cancel_digits" or "cancel_percent" or "cancel_shift" or "clear_unconfirmed") { }
             Check(clicks == (scenario is "same" or "missing" or "modal" ? 0 : 1), "only one left click when a change is needed: " + scenario);
             Check(!input.MouseCommands.Contains("down:Right"), "failed or unconfirmed text cannot register an item");
             Check(blurClicks == (scenario is "change" or "same" ? 1 : 0), "matching text also releases existing edit focus");
-            Check(!input.KeyDowns.Contains("ShiftKey") && !input.Keys.Contains("Space"), "digit-only advertisement needs no Shift or Space");
-            if (scenario is "change" or "same") Check(typedDigits == (scenario == "same" ? 0 : 36), "type exactly 36 digits only when text changes");
+            Check(!ShiftHeld(), "Shift is released after success, failure or cancellation");
+            if (scenario is "change" or "same")
+            {
+                Check(typedCharacters == (scenario == "same" ? 0 : expected.Length), "type the exact percentage text only when changed");
+                Check(input.Keys.Count(k => k == "Space") == (scenario == "same" || !discount.HasValue ? 0 : 11) &&
+                    input.KeyDowns.Count(k => k == "ShiftKey") == (scenario == "same" || !discount.HasValue ? 0 : 1), "cleanup clears without typing; discounted stalls use Space and Shift");
+            }
             if (scenario is "change" or "unconfirmed" or "cancel_digits" or "missing_blur")
             {
                 Check(!input.KeyDowns.Contains("ControlKey") && !input.Keys.Contains("A") && input.Keys.Count(k => k == "Back") == "old stall text".Length,

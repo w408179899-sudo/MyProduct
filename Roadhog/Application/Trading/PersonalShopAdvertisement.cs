@@ -8,13 +8,13 @@ public static class PersonalShopAdvertisement
     public static string Text(int discount)
     {
         if (discount is < 4 or > 9) throw new ArgumentOutOfRangeException(nameof(discount));
-        return new string((char)('0' + discount), 36);
+        return "     " + (discount * 10).ToString(System.Globalization.CultureInfo.InvariantCulture) + " %     ";
     }
 
     public static async Task EnsureAsync(TradingActions actions, Func<Task<PersonalShopSnapshot>> read,
-        int discount, Action<string> report)
+        int? discount, Action<string> report)
     {
-        var expected = Text(discount);
+        var expected = discount.HasValue ? Text(discount.Value) : string.Empty;
         bool Idle(PersonalShopSnapshot s) => s.IsOpen && !s.IsSelling && s.Editor == null &&
             s.Listings.Count == 0 && !s.OtherModalOpen;
         var state = await read();
@@ -26,8 +26,8 @@ public static class PersonalShopAdvertisement
                 await actions.Key("I");
                 await actions.Wait(read, s => Idle(s) && !s.InventoryOpen);
             }
-            report("设置摊位文字：" + expected);
-            await actions.AdvertisementDigits(read, s => s.AdvertisementInput,
+            report(discount.HasValue ? "设置摊位文字：" + expected : "清包摆摊：清空摊位文字");
+            await actions.AdvertisementText(read, s => s.AdvertisementInput,
                 s => Idle(s) && !s.InventoryOpen, expected);
             state = await actions.Wait(read, s => Idle(s) && s.AdvertisementText == expected);
         }
@@ -40,6 +40,6 @@ public static class PersonalShopAdvertisement
             await actions.Pause(100);
             await actions.Wait(read, s => Idle(s) && s.AdvertisementText == expected);
         }
-        report("摊位文字已确认：" + expected);
+        report(discount.HasValue ? "摊位文字已确认：" + expected : "清包摆摊文字已清空");
     }
 }

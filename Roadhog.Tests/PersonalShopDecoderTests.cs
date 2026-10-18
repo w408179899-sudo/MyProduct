@@ -108,6 +108,8 @@ internal static partial class PersonalShopDecoderTests
         m.ShortAddress = null;
         m.AdText("");
         Require(m.Decoder().Read(Fixture.Game).AdvertisementText == "", "valid empty text is published");
+        m.AdText("     50 %     ");
+        Require(m.Decoder().Read(Fixture.Game).AdvertisementText == "     50 %     ", "advertisement feedback preserves all leading and trailing spaces");
         m.AdText("40%");
         Require(m.Decoder().Read(Fixture.Game).AdvertisementText == "40%", "changed text publishes immediately");
         m.U(Fixture.Ad + 0x28, 1);
@@ -166,8 +168,10 @@ internal static partial class PersonalShopDecoderTests
         internal InventoryInteractionDecoder Decoder() => new(Read);
         internal void AdText(string value)
         {
-            Put(Ad + 0x320, Encoding.Unicode.GetBytes(value));
-            U(Ad + 0x330, (ulong)value.Length); U(Ad + 0x338, 7);
+            Put(Ad + 0x320, new byte[32]);
+            if (value.Length < 8) Put(Ad + 0x320, Encoding.Unicode.GetBytes(value));
+            else { U(Ad + 0x320, Ad + 0xA00); Put(Ad + 0xA00, Encoding.Unicode.GetBytes(value)); }
+            U(Ad + 0x330, (ulong)value.Length); U(Ad + 0x338, (ulong)Math.Max(7, value.Length));
         }
         internal byte[] Read(ulong a, int n) => Enumerable.Range(0, a == ShortAddress ? n - 1 : n).Select(i => _memory.GetValueOrDefault(a + (ulong)i)).ToArray();
         internal void Put(ulong a, byte[] value) { for (var i = 0; i < value.Length; i++) _memory[a + (ulong)i] = value[i]; }

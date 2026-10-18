@@ -153,7 +153,9 @@ internal static partial class CleanupWorkflowTests
             var count = scenario == "batches" ? 12 : 1;
             var plan = Enumerable.Range(0,count).Select(i => new PlannedShopItem(new InventoryItemSnapshot((uint)(20+i),(ulong)(11+i),"item"+i,3,i,false, VendorSellUnitPrice: (ulong)(17+i)*40),(ulong)(17+i))).ToArray();
             api.InventoryItems = plan.Select(p => scenario == "purchased_merge" ? p.Item with { Count = 8 } : p.Item).ToArray();
-            var state = Shop() with { StartButton = new(700,100), StopButton = new(750,100), AdvertisementText = new string('5', 36), AdvertisementBlurPoint = new(650,200) };
+            var state = Shop() with { StartButton = new(700,100), StopButton = new(750,100), AdvertisementText = "     50 %     ",
+                AdvertisementInput = new(600,200), AdvertisementBlurPoint = new(650,200) };
+            var advertisementFocused = false;
             bool resumed=false;
             bool down=false; int starts=0, confirms=0, sellingReads=0, settlementReads=0; string typed="",field="";
             PersonalShopListing[]? pendingSale=null;
@@ -196,6 +198,8 @@ internal static partial class CleanupWorkflowTests
             input.AfterPress = key =>
             {
                 if (key == "F1" && worker) return;
+                if (key == "Back" && advertisementFocused) { state = state with { AdvertisementText = state.AdvertisementText[..^1] }; return; }
+                Require(!advertisementFocused, "advertisement focus must be released before bag or price keys");
                 if(key=="Y")state=state with{IsOpen=!state.IsOpen};
                 else if(key=="I")state=state with{InventoryOpen=!state.InventoryOpen};
                 else if(key=="A")typed="";
@@ -228,7 +232,8 @@ internal static partial class CleanupWorkflowTests
                 }
                 else if(p==new GameUiPoint(700,100)){Require(state.Listings.Count<=10,"shop capacity");starts++;sellingReads=0;state=state with{IsSelling=true};}
                 else if(p==new GameUiPoint(750,100))state=state with{IsSelling=false};
-                else if(p==new GameUiPoint(650,200)) { }
+                else if(p==new GameUiPoint(600,200)) advertisementFocused = true;
+                else if(p==new GameUiPoint(650,200)) advertisementFocused = false;
                 else throw new Exception("unexpected shop click "+p);
             };
             try
@@ -298,12 +303,14 @@ internal static partial class CleanupWorkflowTests
                             "old shop worker does not recall or run return-to-combat");
                     }
                     else await DiscountedPersonalShopWorkflow.RunAsync(reader, settings,
-                        p => new ConfiguredPersonalShopSequence(input,Fast).RunAsync(reader,p,_=>{},stop.Token),
+                        p => new ConfiguredPersonalShopSequence(input,Fast).RunAsync(reader,p,_=>{},stop.Token,5),
                         Resume, _=>{}, stop.Token);
                 }
                 else await new ConfiguredPersonalShopSequence(input,Fast).RunAsync(reader,plan,_=>{},stop.Token);
                 Require(scenario is "batches" or "purchased_merge" or "auto_stop_delayed","closed UI cannot prove sold out");
                 Require(confirms==count&&starts==(count+9)/10,"all matching entries sold over batches");
+                Require(state.AdvertisementText == (discounted ? "     50 %     " : string.Empty),
+                    "discounted stalls retain percentage text while cleanup stalls clear old advertisement");
                 if(scenario=="purchased_merge")Require(api.InventoryItems.Single().Count==5,"warehouse purchase excluded even when merged into same stack");
             }
             catch(InvalidOperationException)when(scenario=="closed_early"){}

@@ -94,9 +94,10 @@ public sealed class TradingActions(IKeyboardInput input, IRoadhogSnapshotReader 
         await Alive();
         await new FeedbackMouseMover(input, snapshots, delay).MoveAsync(point, token);
     }
-    public async Task AdvertisementDigits(Func<Task<PersonalShopSnapshot>> read, Func<PersonalShopSnapshot, GameUiPoint?> locate,
+    public async Task AdvertisementText(Func<Task<PersonalShopSnapshot>> read, Func<PersonalShopSnapshot, GameUiPoint?> locate,
         Func<PersonalShopSnapshot, bool> guard, string text)
     {
+        Require(text.All(c => char.IsAsciiDigit(c) || c is ' ' or '%'), "摊位文字包含不支持的字符。");
         await Click(read, locate, guard, RoadhogMouseButton.Left);
         await Pause(100);
         var state = await read();
@@ -110,10 +111,22 @@ public sealed class TradingActions(IKeyboardInput input, IRoadhogSnapshotReader 
             state = await Wait(read, s => guard(s) && s.AdvertisementText.Length < length);
             await Pause(60);
         }
-        foreach (var digit in text)
+        foreach (var character in text)
         {
             Require(guard(await read()), "输入摊位文字时界面改变。");
-            await Key("D" + digit);
+            if (character == '%')
+            {
+                try
+                {
+                    Check(await input.KeyDownAsync("ShiftKey", token));
+                    await Pause(100);
+                    Require(guard(await read()), "输入百分号时摊位界面改变。");
+                    await Key("D5");
+                    await Pause(100);
+                }
+                finally { await input.KeyUpAsync("ShiftKey", CancellationToken.None); }
+            }
+            else await Key(character == ' ' ? "Space" : "D" + character);
             await Pause(100);
         }
     }

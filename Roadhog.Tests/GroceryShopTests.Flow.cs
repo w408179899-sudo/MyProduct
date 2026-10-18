@@ -66,7 +66,7 @@ internal static partial class GroceryShopTests
         private string field = "", typed = "";
         private int sellingReads;
         private PersonalShopSnapshot shop = new(false, false, false, Array.Empty<InventoryUiItem>(), 0, Array.Empty<PersonalShopListing>(), null, new(700, 100))
-        { AdvertisementText = new string('5', 36), AdvertisementBlurPoint = new(650, 200), StopButton = new(750, 100) };
+        { AdvertisementText = "     50 %     ", AdvertisementBlurPoint = new(650, 200), StopButton = new(750, 100) };
         public bool BagOpen => shop.InventoryOpen;
         public AccountWorkerContext Context => new(Config, Api, Logger, new AccountRuntimeManager(Logger), new() { TickInterval = TimeSpan.FromMilliseconds(5) }, Stop.Token);
         public Trip()
