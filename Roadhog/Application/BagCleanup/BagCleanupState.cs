@@ -7,6 +7,7 @@ namespace Roadhog.Application.BagCleanup;
 public sealed class BagCleanupState
 {
     public BagCleanupStep Step { get; private set; } = BagCleanupStep.Inactive;
+    public bool ArrowRestockOnly { get; set; }
 
     public DateTimeOffset StartedAt { get; private set; } = DateTimeOffset.MinValue;
 
@@ -99,6 +100,7 @@ public sealed class BagCleanupState
 
     public void Start(int freeSlots, int threshold)
     {
+        ArrowRestockOnly = false;
         Step = BagCleanupStep.WaitSafeToReturn;
         StartedAt = DateTimeOffset.Now;
         StepStartedAt = StartedAt;
@@ -329,6 +331,7 @@ public sealed class BagCleanupState
 
     public void Reset()
     {
+        ArrowRestockOnly = false;
         Step = BagCleanupStep.Inactive;
         StartedAt = DateTimeOffset.MinValue;
         StepStartedAt = DateTimeOffset.MinValue;

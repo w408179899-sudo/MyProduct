@@ -147,7 +147,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                         context.RuntimeStates.MarkWarning(context.Config.AccountName, "共享配置刷新失败：" + ex.Message);
                     }
                 }
-                if (context.CleanupRequests.Current is { Failure: not null } failedShop && (failedShop.StandaloneShop || failedShop.GroceryShop))
+                if (context.CleanupRequests.Current is { Failure: not null } failedShop)
                 {
                     context.RuntimeStates.MarkWarning(context.Config.AccountName, failedShop.Failure);
                     await Task.Delay(context.Options.TickInterval, context.StopToken);
@@ -169,7 +169,12 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                     {
                         nextCleanupCheck = now.AddSeconds(2);
                         var maintenance = scriptSettings.Maintenance;
-                        if (maintenance.CleanupWorkflow.Mode == CleanupMode.GroceryShop)
+                        if (await NpcArrowPurchaseSequence.NeededAsync(context, duringCleanup: false))
+                        {
+                            context.CleanupRequests.Request(scriptSettings, manual: false, arrowRestock: true);
+                            context.Logger.Info("arrow_restock.requested", new Dictionary<string, object?> { ["account"] = context.Config.AccountName });
+                        }
+                        else if (maintenance.CleanupWorkflow.Mode == CleanupMode.GroceryShop)
                         {
                             var scheduled = await _cleanupWorkflow.GroceryScheduleDueAsync(context);
                             var bagFull = false;
@@ -210,8 +215,17 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                             {
                                 if ((cleanup.StandaloneShop || cleanup.GroceryShop) && jumpAssist is not null)
                                     await jumpAssist.StopAsync("standalone_shop").ConfigureAwait(false);
-                                await _cleanupWorkflow.RunAsync(context, cleanup, c => _stationaryCombat.ReturnAfterCleanupAsync(
-                                    c, semiAutoPlan, semiAutoState, stationaryCombatState));
+                                try
+                                {
+                                    await _cleanupWorkflow.RunAsync(context, cleanup, c => _stationaryCombat.ReturnAfterCleanupAsync(
+                                        c, semiAutoPlan, semiAutoState, stationaryCombatState));
+                                }
+                                catch (Exception ex) when (!context.StopToken.IsCancellationRequested && cleanup.GroceryShop &&
+                                    cleanup.Settings.Maintenance.CleanupWorkflow.GroceryPostSaleAction == GroceryPostSaleAction.NpcSell &&
+                                    (cleanup.SoldOutConfirmed || cleanup.GroceryNpcStageStarted))
+                                {
+                                    await _cleanupWorkflow.FinishGroceryAfterFailureAsync(context, cleanup, ex);
+                                }
                                 context.StopToken.ThrowIfCancellationRequested();
                                 if (cleanup.RequestsRestart)
                                 {
@@ -265,10 +279,10 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                         }
                         catch (Exception ex) when (!context.StopToken.IsCancellationRequested)
                         {
-                            if (cleanup.StandaloneShop || cleanup.GroceryShop)
+                            if (cleanup.StandaloneShop || cleanup.GroceryShop || cleanup.ArrowRestock || ex is ArrowPurchaseUnconfirmedException)
                             {
-                                cleanup.Failure = (cleanup.GroceryShop ? "杂货摆摊" : "自动摆摊") + "已暂停，未转入挂机；请停止账号后处理并重新启动：" + ex.Message;
-                                context.Logger.Error(cleanup.GroceryShop ? "grocery_shop.failed" : "standalone_shop.failed", ex, new Dictionary<string, object?> { ["account"] = context.Config.AccountName });
+                                cleanup.Failure = (cleanup.ArrowRestock || ex is ArrowPurchaseUnconfirmedException ? "补箭" : cleanup.GroceryShop ? "杂货摆摊" : "自动摆摊") + "已暂停，未转入挂机；请停止账号后处理并重新启动：" + ex.Message;
+                                context.Logger.Error(cleanup.ArrowRestock || ex is ArrowPurchaseUnconfirmedException ? "arrow_restock.failed" : cleanup.GroceryShop ? "grocery_shop.failed" : "standalone_shop.failed", ex, new Dictionary<string, object?> { ["account"] = context.Config.AccountName });
                                 context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, cleanup.Failure);
                                 continue;
                             }

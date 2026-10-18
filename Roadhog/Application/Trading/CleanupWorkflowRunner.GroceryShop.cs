@@ -1,7 +1,9 @@
 using Roadhog.Application.BagCleanup;
 using Roadhog.Application.Workers;
+using Roadhog.Application.Travel;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Model;
+using Roadhog.Core.Paths;
 using System.Runtime.CompilerServices;
 using static Roadhog.Application.Trading.TradingActions;
 
@@ -66,8 +68,13 @@ public sealed partial class CleanupWorkflowRunner
                 if (!string.IsNullOrWhiteSpace(name) && !settings.Maintenance.BagCleanupExcludedItemNames.Contains(name, StringComparer.OrdinalIgnoreCase))
                     settings.Maintenance.BagCleanupExcludedItemNames.Add(name);
             var bag = (await context.Snapshots.ReadInventoryAsync().WaitAsync(token)).Value;
-            if (!sellToNpc && (string.IsNullOrWhiteSpace(settings.Paths.GroceryReturnItemName) ||
-                GroceryReturnSequence.FindScroll(bag, settings.Paths.GroceryReturnItemName) == null))
+            async Task<bool> CanReachGroceryAsync()
+            {
+                if (GroceryReturnSequence.FindScroll(bag, settings.Paths.GroceryReturnItemName) != null) return true;
+                var path = await paths.LoadAsync(settings.Paths.GroceryStallPathName, token);
+                return path.Value is { MapId: > 0, PointCount: > 0 } && await CleanupPathTravel.NearbyIndexAsync(context, path.Value) >= 0;
+            }
+            if (!sellToNpc && !await CanReachGroceryAsync())
             {
                 LogSkip("没有配置的回程卷轴，跳过本次杂货摆摊：" + settings.Paths.GroceryReturnItemName);
                 return;
@@ -78,7 +85,7 @@ public sealed partial class CleanupWorkflowRunner
                 var afterDiscard = await PrepareBackpackGroceryAsync(context, request, report);
                 if (afterDiscard == null) return;
                 bag = afterDiscard;
-                if (!sellToNpc && GroceryReturnSequence.FindScroll(bag, settings.Paths.GroceryReturnItemName) == null)
+                if (!sellToNpc && !await CanReachGroceryAsync())
                 { LogSkip("丢弃后缺少所选回程卷轴，本次不出发"); return; }
             }
             var plan = DiscountedPersonalShopWorkflow.Plan(bag.Where(i => !IsReturnItem(i)).ToArray(), settings.Maintenance, report);
@@ -91,17 +98,16 @@ public sealed partial class CleanupWorkflowRunner
                 request.GroceryProcessingCompleted = true;
                 return;
             }
-            if (GroceryReturnSequence.FindScroll(bag, settings.Paths.GroceryReturnItemName) == null)
-            { LogSkip("没有配置的回程卷轴，跳过本次杂货摆摊：" + settings.Paths.GroceryReturnItemName); return; }
-            if (sellToNpc)
-                await npcSale.ValidateAsync(context, string.Equals(settings.Paths.GroceryReturnItemName,
-                    settings.Paths.BagCleanupReturnItemName, StringComparison.OrdinalIgnoreCase) ? 2 : 1);
             var loaded = await paths.LoadAsync(settings.Paths.GroceryStallPathName, token);
             Require(loaded.Success && loaded.Value is { MapId: > 0, PointCount: > 0 }, "请录制并选择带有地图的杂货摆摊路径。");
             var route = loaded.Value!.Clone();
+            var travelPlan = new ReturnItemPlan((await context.Snapshots.ReadChannelTransitionAsync().WaitAsync(token)).Value);
+            travelPlan.Add(route, settings.Paths.GroceryReturnItemName);
+            if (sellToNpc) travelPlan.Add(await npcSale.LoadRouteAsync(context), settings.Paths.BagCleanupReturnItemName);
+            CleanupPathTravel.RequireItems(travelPlan, bag);
             await new GroceryReturnSequence(input, groceryDelay, groceryClock).RunAsync(context, route, settings.Paths.GroceryReturnItemName, report);
             report("卷轴回程已确认，前往杂货摆摊终点");
-            Check(await executePath(context, route.Name, route.Points.Select(p => p.ToVector3()).ToArray()));
+            Check(await CleanupPathTravel.FollowAsync(context, route, executePath));
             token.ThrowIfCancellationRequested();
             // Replan after travel; the used scroll and any changed inventory cannot enter the stall.
             bag = (await context.Snapshots.ReadInventoryAsync().WaitAsync(token)).Value;
@@ -112,7 +118,13 @@ public sealed partial class CleanupWorkflowRunner
                 await new ConfiguredPersonalShopSequence(input, groceryDelay).RunAsync(context.Snapshots, plan,
                     report, token, settings.Maintenance.CleanupWorkflow.StandaloneShopDiscount);
                 soldOutAt = groceryClock?.Invoke() ?? DateTimeOffset.UtcNow;
-                await grocerySuccessStore!.RecordAsync(context.Config.InstanceId, soldOutAt.Value, token);
+                if (sellToNpc)
+                {
+                    request.SoldOutConfirmed = true;
+                    await new GroceryStageContinuation(context, input, groceryDelay).TryAsync("sold_out_record",
+                        () => grocerySuccessStore!.RecordAsync(context.Config.InstanceId, soldOutAt.Value, token));
+                }
+                else await grocerySuccessStore!.RecordAsync(context.Config.InstanceId, soldOutAt.Value, token);
             }
             else Require(sellToNpc, "到达后没有可摆摊物品，未确认售罄。");
             if (sellToNpc)
@@ -129,11 +141,21 @@ public sealed partial class CleanupWorkflowRunner
             token.ThrowIfCancellationRequested();
             request.SoldOutConfirmed = soldOutAt.HasValue;
             request.GroceryProcessingCompleted = true;
-            report("剩余物品处理完成，准备停止并重新启动脚本");
+            report("本次清包流程结束，准备停止并重新启动脚本");
             context.Logger.Info(soldOutAt.HasValue ? "grocery_shop.sold_out" : "grocery_shop.npc_only.complete", new Dictionary<string, object?>
                 { ["account"] = context.Config.AccountName, ["soldOutAt"] = soldOutAt });
         }
         finally { await actions.Reset(); }
+    }
+
+    internal async Task FinishGroceryAfterFailureAsync(AccountWorkerContext context, CleanupRequest request, Exception error)
+    {
+        var continuation = new GroceryStageContinuation(context, input, groceryDelay);
+        continuation.RecordFailure("post_sale_completion", error);
+        try { await continuation.CloseWindowsAsync(); }
+        finally { await continuation.ReleaseAsync(); }
+        context.StopToken.ThrowIfCancellationRequested();
+        request.GroceryProcessingCompleted = true;
     }
 
     private async Task RunPostSaleDiscardAsync(AccountWorkerContext context, Action<string> report)

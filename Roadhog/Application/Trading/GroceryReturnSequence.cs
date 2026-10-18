@@ -32,8 +32,6 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
         var departure = await Scene();
         Require(departure.IsReady && !departure.Player!.IsDead, tripName + "前角色尚未就绪。");
         Require(destination.MapId is > 0 && destination.PointCount > 0, tripName + "路径需要录制地图及入口坐标。");
-        var item = FindScroll((await context.Snapshots.ReadInventoryAsync().WaitAsync(token)).Value, itemName)
-            ?? throw new GroceryTripDepartureFailedException("背包没有配置的回程卷轴：" + itemName);
         var transition = new TownReturnTransition();
         transition.Start(departure, destination, Now());
         async Task<bool> BeforeClick()
@@ -74,23 +72,21 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
         try
         {
             await actions.Reset();
-            var entry = destination.Points[0];
             var start = departure.Player!.Position!.Value;
-            // A same-city recall at the entrance may have no loading frame or 5 m displacement.
-            // Use the confirmed current entrance instead of consuming scrolls without observable travel.
-            if (departure.Channel!.MapId == destination.MapId &&
-                Math.Pow(start.X - entry.X, 2) + Math.Pow(start.Y - entry.Y, 2) <= 25 &&
-                Math.Abs(start.Z - entry.Z) <= 2)
+            var nearbyIndex = NearbyPathEntry.Find(departure, destination);
+            if (nearbyIndex >= 0)
             {
                 var ui = await Bag();
                 Require(!ui.ShopIsOpen && !ui.IsSelling && ui.DiscardDialog == null && !ui.OtherModalOpen,
-                    "已在回程入口，但存在其他背包操作。");
+                    "已在路径附近，但存在其他背包操作。");
                 await CheckAttack(departure);
-                report("已在所选路线入口，无需使用回程卷轴");
-                context.Logger.Info("grocery_shop.return.already_at_entry", new Dictionary<string, object?>
-                    { ["account"] = context.Config.AccountName, ["path"] = destination.Name, ["position"] = start });
+                report($"已在所选路径第 {nearbyIndex + 1} 点附近，无需使用回程卷轴");
+                context.Logger.Info("grocery_shop.return.already_near_path", new Dictionary<string, object?>
+                    { ["account"] = context.Config.AccountName, ["path"] = destination.Name, ["position"] = start, ["pointNumber"] = nearbyIndex + 1 });
                 return;
             }
+            var item = FindScroll((await context.Snapshots.ReadInventoryAsync().WaitAsync(token)).Value, itemName)
+                ?? throw new GroceryTripDepartureFailedException("背包没有配置的回程卷轴：" + itemName);
             Require(await BeforeClick(), "使用卷轴前存在其他背包操作。");
             if (!(await Bag()).IsOpen)
             {

@@ -6,11 +6,13 @@ using Roadhog.Application.BagCleanup;
 using Roadhog.Application.SemiAuto;
 using Roadhog.Application.StationaryCombat;
 using Roadhog.Application.Trading;
+using Roadhog.Application.Travel;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Api;
 using Roadhog.Core.Common;
 using Roadhog.Core.Diagnostics;
+using Roadhog.Core.Paths;
 using Roadhog.Infrastructure.Config;
 using Roadhog.Infrastructure.Hardware;
 using Roadhog.Infrastructure.Input;
@@ -66,7 +68,8 @@ internal static class GroceryNpcLiveProbe
             foreach (var name in new[] { settings.Paths.BagCleanupReturnItemName, settings.Paths.GroceryReturnItemName })
                 if (!string.IsNullOrWhiteSpace(name)) settings.Maintenance.BagCleanupExcludedItemNames.Add(name);
             var paths = new JsonSharedPathStore(Path.Combine(root, "config/paths"));
-            var loaded = await paths.LoadAsync(settings.Paths.MaintenancePathName, stop.Token);
+            var travelOnly = Option("--travel-only=");
+            var loaded = await paths.LoadAsync(travelOnly ?? settings.Paths.MaintenancePathName, stop.Token);
             TradingActions.Require(loaded.Success && loaded.Value is { PointCount: > 0 }, "Cleanup route unavailable.");
             var route = loaded.Value!.Clone();
             if (Option("--map=") is { } map) route.MapId = uint.Parse(map);
@@ -74,6 +77,7 @@ internal static class GroceryNpcLiveProbe
             var context = new AccountWorkerContext(config, new RoadhogSnapshotReaderFactory(api), logger, new AccountRuntimeManager(logger), new(), stop.Token)
                 { WorkflowOwnsCleanup = true };
             var before = (await context.Snapshots.ReadInventoryAsync()).Value;
+            Print("arrows", before.Where(i => i.Name.Contains('箭')).Select(i => new { i.Name, i.TemplateId, i.InstanceId, i.Count, i.Slot, i.IsEquipped, i.ItemType }));
             var money = (await context.Snapshots.ReadInventoryMoneyAsync()).Value;
             var candidates = GroceryNpcSalePolicy.SelectCandidates(before, settings.Maintenance);
             Print("excluded_from_npc", BagCleanupItemMatcher.SelectDiscardItems(before, settings.Maintenance)
@@ -91,10 +95,79 @@ internal static class GroceryNpcLiveProbe
             try
             {
                 var movement = new StationaryCombatController(input, new SemiAutoCombatController(input), testPaths);
+                if (args.Contains("--cancel-arrow-basket"))
+                {
+                    var actions = new TradingActions(input, context.Snapshots, stop.Token);
+                    var ui = (await context.Snapshots.ReadNpcTradeAsync()).Value;
+                    TradingActions.Require(ui.IsBuying && !ui.OtherModalOpen && ui.Purchase is { QuantityDialog: null } purchase &&
+                        purchase.Basket.Count == 1 && purchase.Basket[0].TemplateId == ArrowRestockPolicy.ArrowTemplateId &&
+                        purchase.Basket[0].Quantity == 100, "Only the unsubmitted 100-arrow diagnostic basket may be cancelled.");
+                    await actions.Key("Space");
+                    await actions.Wait(async () => (await context.Snapshots.ReadNpcTradeAsync()).Value, s => !s.IsOpen && !s.DialogOpen);
+                    Print("arrow_basket_cancelled", new { money = (await context.Snapshots.ReadInventoryMoneyAsync()).Value,
+                        arrows = ArrowRestockPolicy.Count((await context.Snapshots.ReadInventoryAsync()).Value) });
+                    if (!args.Contains("--buy-arrows")) return 0;
+                }
+                if (args.Contains("--buy-arrows"))
+                {
+                    await new GroceryReturnSequence(input).RunAsync(context, route, settings.Paths.BagCleanupReturnItemName, s => Print("progress", s));
+                    TradingActions.Check(await CleanupPathTravel.FollowAsync(context, route, movement.ExecuteCleanupPathAsync));
+                    await new NpcArrowPurchaseSequence(input).RunAsync(context, route.CleanupNpcName, s => Print("progress", s));
+                    var afterArrows = (await context.Snapshots.ReadInventoryAsync()).Value;
+                    TradingActions.Require(before.Where(i => i.TemplateId != ArrowRestockPolicy.ArrowTemplateId && i.Name != settings.Paths.BagCleanupReturnItemName)
+                        .All(i => afterArrows.Any(a => a.InstanceId == i.InstanceId && a.TemplateId == i.TemplateId && a.Count == i.Count)), "Non-arrow inventory changed.");
+                    Print("arrow_verified", new { before = ArrowRestockPolicy.Count(before), after = ArrowRestockPolicy.Count(afterArrows),
+                        beforeMoney = money, afterMoney = (await context.Snapshots.ReadInventoryMoneyAsync()).Value,
+                        scrollCount = afterArrows.Where(i => i.Name == settings.Paths.BagCleanupReturnItemName).Sum(i => (long)i.Count) });
+                    return 0;
+                }
+                if (args.Contains("--arrow-ui"))
+                {
+                    var actions = new TradingActions(input, context.Snapshots, stop.Token);
+                    await new GroceryReturnSequence(input).RunAsync(context, route, settings.Paths.BagCleanupReturnItemName, s => Print("progress", s));
+                    TradingActions.Check(await CleanupPathTravel.FollowAsync(context, route, movement.ExecuteCleanupPathAsync));
+                    if ((await context.Snapshots.ReadInventoryInteractionAsync()).Value.IsOpen) await actions.Key("I");
+                    var npc = new BagCleanupNpcInteractor(input);
+                    TradingActions.Check(await npc.SelectConfiguredNpcAsync(context, route.CleanupNpcName));
+                    TradingActions.Check(await npc.OpenDialogAsync(context));
+                    async Task<Roadhog.Core.Model.NpcTradeSnapshot> Ui() => (await context.Snapshots.ReadNpcTradeAsync()).Value;
+                    Print("npc_dialog", await Ui());
+                    await actions.Click(Ui, s => s.BuyEntry, s => s.DialogOpen && !s.OtherModalOpen);
+                    var shop = await actions.Wait(Ui, s => s.IsBuying && s.Purchase != null);
+                    Print("npc_stock", shop);
+                    if (args.Contains("--quantity-ui"))
+                    {
+                        var arrow = shop.Purchase!.Items.Single(i => i.Name.Contains('箭'));
+                        await actions.Click(Ui, s => s.Purchase?.Items.SingleOrDefault(i => i.ItemId == arrow.ItemId)?.Point,
+                            s => s.IsBuying && !s.OtherModalOpen && s.Purchase!.QuantityDialog == null, Roadhog.Core.Input.RoadhogMouseButton.Right, shift: true);
+                        Print("quantity_ui", await actions.Wait(Ui, s => s.Purchase?.QuantityDialog != null));
+                        await actions.Key("Escape");
+                    }
+                    await actions.Key("Space");
+                    return 0;
+                }
+                if (travelOnly != null)
+                {
+                    var scene = (await context.Snapshots.ReadChannelTransitionAsync()).Value;
+                    var entry = NearbyPathEntry.Find(scene, route);
+                    TradingActions.Require(entry >= 0, "Nearby travel diagnostic requires a matching map and a path point within ten meters.");
+                    Print("nearby_entry", new { route.Name, route.MapId, pointNumber = entry + 1, route.PointCount, scene.Player!.Position });
+                    await new GroceryReturnSequence(input).RunAsync(context, route, settings.Paths.BagCleanupReturnItemName, s => Print("progress", s));
+                    TradingActions.Check(await CleanupPathTravel.FollowAsync(context, route, movement.ExecuteCleanupPathAsync));
+                    var inventoryAfter = (await context.Snapshots.ReadInventoryAsync()).Value;
+                    var moneyAfter = (await context.Snapshots.ReadInventoryMoneyAsync()).Value;
+                    TradingActions.Require(before.Count == inventoryAfter.Count && before.All(i => inventoryAfter.Any(a => a.InstanceId == i.InstanceId && a.Count == i.Count)) && money == moneyAfter,
+                        "Nearby travel changed inventory or money.");
+                    Print("nearby_verified", new { pointNumber = entry + 1, preservedEntries = before.Count, moneyAfter,
+                        scrollCount = inventoryAfter.Where(i => i.Name == settings.Paths.BagCleanupReturnItemName).Sum(i => (long)i.Count),
+                        position = (await context.Snapshots.ReadPlayerAsync()).Value.Position });
+                    return 0;
+                }
                 if (args.Contains("--close-empty-npc"))
                 {
                     var ui = (await context.Snapshots.ReadNpcTradeAsync()).Value;
-                    TradingActions.Require(!ui.OtherModalOpen && ui.Basket.Count == 0, "Only an empty NPC window may be closed for this diagnostic.");
+                    TradingActions.Require(!ui.OtherModalOpen && ui.Basket.Count == 0 && (ui.Purchase == null ||
+                        ui.Purchase.Basket.Count == 0 && ui.Purchase.QuantityDialog == null), "Only an empty NPC window may be closed for this diagnostic.");
                     if (ui.IsOpen || ui.DialogOpen)
                     {
                         var actions = new TradingActions(input, context.Snapshots, stop.Token);
@@ -121,7 +194,7 @@ internal static class GroceryNpcLiveProbe
                     await actions.Wait(async () => (await context.Snapshots.ReadNpcTradeAsync()).Value, s => !s.IsOpen && !s.DialogOpen);
                 }
                 var run = args.Contains("--npc-only") ? NpcOnly() :
-                    new GroceryNpcSaleSequence(input, testPaths, movement.ExecutePathOnceAsync).RunAsync(context, s => Print("progress", s));
+                    new GroceryNpcSaleSequence(input, testPaths, movement.ExecuteCleanupPathAsync).RunAsync(context, s => Print("progress", s));
                 try
                 {
                     while (!run.IsCompleted)
@@ -152,7 +225,7 @@ internal static class GroceryNpcLiveProbe
         catch (Exception ex) { Print("failed", ex.ToString()); return 1; }
         finally
         {
-            foreach (var entry in logger.Entries.Where(e => e.EventName.StartsWith("bag_cleanup") || e.EventName.StartsWith("grocery_shop") || e.EventName.StartsWith("snapshot.read"))) Print("log", entry);
+            foreach (var entry in logger.Entries.Where(e => e.EventName.StartsWith("bag_cleanup") || e.EventName.StartsWith("arrow_restock") || e.EventName.StartsWith("grocery_shop") || e.EventName.StartsWith("cleanup_path") || e.EventName.StartsWith("manual_path") || e.EventName.StartsWith("snapshot.read"))) Print("log", entry);
             try
             {
                 var connections = (System.Collections.IDictionary)typeof(AionVmmGameApi).GetField("_connections", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(api)!;

@@ -32,5 +32,6 @@ public enum BagCleanupStep
     Complete,
     Failed,
     Aborted,
-    WaitDiscardRetry
+    WaitDiscardRetry,
+    BuyArrows
 }

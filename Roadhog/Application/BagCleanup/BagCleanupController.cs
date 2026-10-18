@@ -104,6 +104,7 @@ public sealed partial class BagCleanupController
             BagCleanupStep.ClickSellButton => await TickClickSellButtonAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.VerifyInventory => await TickVerifyInventoryAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.PostCleanupJump => await TickPostCleanupJumpAsync(context, state).ConfigureAwait(false),
+            BagCleanupStep.BuyArrows => await TickBuyArrowsAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.PressReturnToRevive => await TickPressReturnToReviveAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.WaitReturnToReviveSettle => await TickWaitReturnToReviveSettleAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.ReturnByReversePath => await TickReturnByReversePathAsync(context, state).ConfigureAwait(false),
@@ -241,7 +242,7 @@ public sealed partial class BagCleanupController
             return BagCleanupTickResult.Running("discard_started");
         }
 
-        return TryBeginFullCleanup(
+        return await TryBeginFullCleanupAsync(
             context,
             state,
             freeSlots,
@@ -249,7 +250,7 @@ public sealed partial class BagCleanupController
             sellCandidates);
     }
 
-    private static BagCleanupTickResult TryBeginFullCleanup(
+    private async Task<BagCleanupTickResult> TryBeginFullCleanupAsync(
         AccountWorkerContext context,
         BagCleanupState state,
         int freeSlots,
@@ -263,7 +264,13 @@ public sealed partial class BagCleanupController
         }
 
         var paths = context.Config.ScriptSettings?.Paths ?? new PathScriptSettings();
+        var nearby = false;
         if (string.IsNullOrWhiteSpace(paths.BagCleanupReturnItemName) && string.IsNullOrWhiteSpace(ResolveBagCleanupTownReturnKey(paths)))
+        {
+            var destination = await _pathStore.LoadAsync(paths.MaintenancePathName, context.StopToken).ConfigureAwait(false);
+            nearby = destination.Value is { PointCount: > 0 } && await CleanupPathTravel.NearbyIndexAsync(context, destination.Value) >= 0;
+        }
+        if (!nearby && string.IsNullOrWhiteSpace(paths.BagCleanupReturnItemName) && string.IsNullOrWhiteSpace(ResolveBagCleanupTownReturnKey(paths)))
         {
             return RecoverableFailure(
                 context,
@@ -701,7 +708,7 @@ public sealed partial class BagCleanupController
 
         if (freeSlots < threshold)
         {
-            return TryBeginFullCleanup(context, state, freeSlots, threshold, sellCandidates);
+            return await TryBeginFullCleanupAsync(context, state, freeSlots, threshold, sellCandidates);
         }
 
         return BagCleanupTickResult.Skipped("discard_completed_capacity_recovered");
@@ -968,21 +975,22 @@ public sealed partial class BagCleanupController
             state.Advance(BagCleanupStep.LoadCleanupPath);
             return BagCleanupTickResult.Running("town_return_item_confirmed");
         }
-        var key = ResolveBagCleanupTownReturnKey(paths);
-        if (string.IsNullOrWhiteSpace(key))
-        {
-            return RecoverableFailure(
-                context,
-                state,
-                "bag_cleanup_town_return_key_missing",
-                "Bag cleanup town return key is not configured.");
-        }
-
         var departure = (await context.Snapshots.ReadChannelTransitionAsync().WaitAsync(context.StopToken).ConfigureAwait(false)).Value;
         if (!departure.IsReady) return BagCleanupTickResult.Running("waiting_for_return_scene");
         var destination = await _pathStore.LoadAsync(state.ReturnDestinationPathName ?? context.Config.ScriptSettings!.Paths.MaintenancePathName, context.StopToken).ConfigureAwait(false);
         if (destination.Value is not { Points.Count: > 0 })
             throw new InvalidOperationException("回城目标路线不可用：" + destination.Error);
+        var nearbyIndex = NearbyPathEntry.Find(departure, destination.Value);
+        if (nearbyIndex >= 0)
+        {
+            state.Advance(BagCleanupStep.LoadCleanupPath);
+            context.Logger.Info("bag_cleanup.return.already_near_path", new Dictionary<string, object?>
+                { ["account"] = context.Config.AccountName, ["path"] = destination.Value.Name, ["pointNumber"] = nearbyIndex + 1 });
+            return BagCleanupTickResult.Running("town_return_not_needed");
+        }
+        var key = ResolveBagCleanupTownReturnKey(paths);
+        if (string.IsNullOrWhiteSpace(key))
+            return RecoverableFailure(context, state, "bag_cleanup_town_return_key_missing", "Bag cleanup town return key is not configured.");
         var transition = new TownReturnTransition();
         transition.Start(departure, destination.Value, DateTimeOffset.UtcNow);
         foreach (var movementKey in new[] { "W", "A", "S", "D" })
@@ -1118,10 +1126,7 @@ public sealed partial class BagCleanupController
             ["pathName"] = state.PathName,
             ["pointCount"] = state.CleanupPath.PointCount
         });
-        var result = await _pathExecutor(
-                context,
-                state.PathName,
-                state.CleanupPath.Points.Select(point => point.ToVector3()).ToArray())
+        var result = await CleanupPathTravel.FollowAsync(context, state.CleanupPath, _pathExecutor)
             .ConfigureAwait(false);
         if (!result.Success)
         {
@@ -1132,7 +1137,7 @@ public sealed partial class BagCleanupController
                 result.Error ?? "Cleanup path follow failed.");
         }
 
-        state.Advance(BagCleanupStep.SelectCleanupNpc);
+        state.Advance(state.ArrowRestockOnly ? BagCleanupStep.BuyArrows : BagCleanupStep.SelectCleanupNpc);
         context.Logger.Info("bag_cleanup.path.follow.complete", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
@@ -1517,6 +1522,8 @@ public sealed partial class BagCleanupController
         state.Advance(returnByReversePath
             ? BagCleanupStep.ReturnByReversePath
             : BagCleanupStep.PressReturnToRevive);
+        if (!state.IsReturningAfterFailure && jump.Success && await NpcArrowPurchaseSequence.NeededAsync(context))
+            state.Advance(BagCleanupStep.BuyArrows);
         context.Logger.Info("bag_cleanup.completion_jump.complete", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
@@ -1527,25 +1534,37 @@ public sealed partial class BagCleanupController
         return BagCleanupTickResult.Running("completion_jump_finished");
     }
 
+    private async Task<BagCleanupTickResult> TickBuyArrowsAsync(AccountWorkerContext context, BagCleanupState state)
+    {
+        await new NpcArrowPurchaseSequence(_input).RunAsync(context, state.CleanupNpcName,
+            message => context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, message));
+        state.Advance(context.Config.ScriptSettings!.Paths.BagCleanupReturnByReversePath
+            ? BagCleanupStep.ReturnByReversePath : BagCleanupStep.PressReturnToRevive);
+        return BagCleanupTickResult.Running("arrow_restock_finished");
+    }
+
     private async Task<BagCleanupTickResult> TickPressReturnToReviveAsync(
         AccountWorkerContext context,
         BagCleanupState state)
     {
         var key = context.Config.ScriptSettings?.Paths?.TownReturnKey?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(key))
-        {
-            return FallbackToReversePathAfterTownReturnFailure(
-                context,
-                state,
-                "return_to_revive_key_missing",
-                "Town return key is not configured.");
-        }
-
         var departure = (await context.Snapshots.ReadChannelTransitionAsync().WaitAsync(context.StopToken).ConfigureAwait(false)).Value;
         if (!departure.IsReady) return BagCleanupTickResult.Running("waiting_for_return_scene");
         var destination = await _pathStore.LoadAsync(context.Config.ScriptSettings!.Paths.RevivePathName, context.StopToken).ConfigureAwait(false);
         if (destination.Value is not { Points.Count: > 0 })
+        {
+            if (string.IsNullOrWhiteSpace(key))
+                return FallbackToReversePathAfterTownReturnFailure(context, state, "return_to_revive_key_missing", "Town return key is not configured.");
             throw new InvalidOperationException("返回复活点的目标路线不可用：" + destination.Error);
+        }
+        if (NearbyPathEntry.Find(departure, destination.Value) >= 0)
+        {
+            context.Logger.Info("bag_cleanup.return_to_revive.already_near_path", new Dictionary<string, object?>
+                { ["account"] = context.Config.AccountName, ["path"] = destination.Value.Name });
+            return FinishCleanupAfterReturn(context, state, returnedByReversePath: false);
+        }
+        if (string.IsNullOrWhiteSpace(key))
+            return FallbackToReversePathAfterTownReturnFailure(context, state, "return_to_revive_key_missing", "Town return key is not configured.");
         var transition = new TownReturnTransition();
         transition.Start(departure, destination.Value, DateTimeOffset.UtcNow);
         foreach (var movementKey in new[] { "W", "A", "S", "D" })

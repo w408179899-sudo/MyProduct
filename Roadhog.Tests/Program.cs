@@ -1317,6 +1317,22 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("grocery shop NPC branch empty stall three item batches guards and local discard", GroceryShopTests.NpcPostSaleAsync)
     ,("grocery shop cleanup return item supersedes legacy keys with landing verification", GroceryShopTests.CleanupItemReturnAsync)
     ,("grocery shop return at same map entrance skips unobservable recall", GroceryShopTests.AlreadyAtReturnEntranceAsync)
+    ,("nearby cleanup shared policy strict distance height map and multileg inventory", GroceryShopTests.NearbyPathPolicyAsync)
+    ,("nearby cleanup ordinary auction warehouse grocery and NPC workflow entries", GroceryShopTests.NearbySharedWorkflowEntriesAsync)
+    ,("nearby cleanup legacy returns and formal executor preserve route suffix", GroceryShopTests.NearbyLegacyAndFormalExecutorAsync)
+    ,("nearby cleanup return execution distance height and cross map boundaries", GroceryShopTests.NearbyReturnExecutionBoundariesAsync)
+    ,("arrow restock NPC purchase decoder identity quantity ALL and read faults", PersonalShopDecoderTests.NpcPurchaseAsync)
+    ,("arrow restock combat cleanup thresholds equipped count and isolated request", ArrowRestockTests.ThresholdsAsync)
+    ,("arrow restock repeated ALL registration and one verified purchase", ArrowRestockTests.PurchaseAsync)
+    ,("arrow restock post-sale jump reopens merchant and preserves return", ArrowRestockTests.PostSaleJumpAsync)
+    ,("arrow restock standalone nearby workflow without sale discard or restart", ArrowRestockTests.SupplyWorkflowAsync)
+    ,("arrow restock worker combat boundary and ambiguous purchase hold", ArrowRestockTests.WorkerThresholdAndFailureAsync)
+    ,("arrow restock grocery junk sale jump and three stack purchase", ArrowRestockTests.GrocerySaleThenSupplyAsync)
+    ,("grocery continuation worker restarts after sale record and final cleanup failures", GroceryShopTests.NpcContinuationWorkerAsync)
+    ,("grocery continuation failed travel skips trade and user stop cancels restart", GroceryShopTests.NpcContinuationTravelAndStopAsync)
+    ,("grocery continuation sale limit UI failures and ambiguous purchase do not block later steps", ArrowRestockTests.GroceryFailureContinuationAsync)
+    ,("arrow restock invalid UI money changed NPC ambiguous result and cancellation", ArrowRestockTests.PurchaseGuardsAsync)
+    ,("nearby cleanup grocery multileg skips only required scrolls and finishes NPC sale", GroceryShopTests.NearbyMultiLegGroceryAsync)
     ,("grocery shop failed final discard retains sale time blocks restart and cancels retry", GroceryShopTests.PostSaleDiscardFailureAsync)
     ,("grocery shop final discard retries hover failures without repeating discarded items or sale", GroceryShopTests.PostSaleDiscardRetryAsync)
     ,("grocery shop worker retries final discard before publishing restart", GroceryShopTests.PostSaleDiscardWorkerRetryAsync)
@@ -34702,6 +34718,8 @@ sealed class RecordingKeyboardInput : IKeyboardInput
 
     public Action<string>? AfterPress { get; set; }
 
+    public Action<string>? AfterKeyDown { get; set; }
+
     public Action<string>? AfterKeyUp { get; set; }
 
     public Func<string, OperationResult>? PressResult { get; set; }
@@ -34734,6 +34752,7 @@ sealed class RecordingKeyboardInput : IKeyboardInput
         CancellationToken cancellationToken = default)
     {
         KeyDowns.Add(key);
+        AfterKeyDown?.Invoke(key);
         return Task.FromResult(OperationResult.Ok());
     }
 

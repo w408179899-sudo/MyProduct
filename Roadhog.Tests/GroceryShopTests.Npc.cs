@@ -84,16 +84,18 @@ internal static partial class GroceryShopTests
             try
             {
                 await trip.Runner().RunAsync(context, request);
-                Check(scenario is not ("missing_map" or "short_scroll" or "failed_submit"), "invalid NPC stage must fail: " + scenario);
+                Check(scenario is not ("missing_map" or "short_scroll"), "invalid departure must fail: " + scenario);
             }
-            catch (InvalidOperationException) when (scenario is "missing_map" or "short_scroll" or "failed_submit") { }
+            catch (InvalidOperationException) when (scenario is "missing_map" or "short_scroll") { }
             catch (Exception ex) { throw new Exception("NPC flow scenario " + scenario + ": " + ex, ex); }
             if (scenario is "missing_map" or "short_scroll")
                 Check(trip.ScrollClicks == 0 && trip.ShopStarts == 0 && trip.NpcBatches.Count == 0 && !request.RequestsRestart,
                     "validate the whole NPC trip before starting a stall or using its first scroll");
             else if (scenario == "failed_submit")
-                Check(trip.NpcBatches.SequenceEqual(new[] { 3 }) && trip.Discards == 0 && !request.RequestsRestart && trip.Success.Saves == 1,
-                    "ambiguous submit retains sale record and blocks restart, retry and discard fallback");
+                Check(trip.NpcBatches.SequenceEqual(new[] { 3 }) && trip.Discards == 0 && request.RequestsRestart && trip.Success.Saves == 1 &&
+                    trip.Input.Keys.Contains("Space") && !trip.BagOpen && request.Failure == null &&
+                    trip.Api.InventoryItems.Count(i => i.Name.StartsWith("junk")) == 4,
+                    "failed submit retains items, closes windows and permits restart without repeating sale or discarding");
             else if (scenario == "pre_discard")
                 Check(trip.Discards == 4 && trip.ScrollClicks == 0 && trip.NpcBatches.Count == 0 && !request.RequestsRestart,
                     "backpack local discard still recovers capacity before NPC mode departure");

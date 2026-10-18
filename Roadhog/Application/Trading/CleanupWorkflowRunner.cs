@@ -1,5 +1,6 @@
 using Roadhog.Application.BagCleanup;
 using Roadhog.Application.Workers;
+using Roadhog.Application.Travel;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Input;
 using Roadhog.Core.Model;
@@ -37,7 +38,8 @@ public sealed partial class CleanupWorkflowRunner(IKeyboardInput input, ISharedP
             var points = document.Points.Select(p => p.ToVector3()).ToArray();
             if (reverse) Array.Reverse(points);
             Report((reverse ? "原路返回：" : "前往：") + name);
-            Check(await executePath(context, name, points)); token.ThrowIfCancellationRequested();
+            Check(reverse ? await executePath(context, name, points) : await CleanupPathTravel.FollowAsync(context, document, executePath));
+            token.ThrowIfCancellationRequested();
         }
         void Report(string text)
         {
@@ -81,7 +83,7 @@ public sealed partial class CleanupWorkflowRunner(IKeyboardInput input, ISharedP
             if (!settings.Maintenance.BagCleanupExcludedItemNames.Contains(name, StringComparer.OrdinalIgnoreCase))
                 settings.Maintenance.BagCleanupExcludedItemNames.Add(name);
         }
-        if (!request.Manual && !request.TownReturnCompleted)
+        if (!request.Manual && !request.TownReturnCompleted && !request.ArrowRestock)
         {
             bool needsTown;
             try
@@ -102,47 +104,64 @@ public sealed partial class CleanupWorkflowRunner(IKeyboardInput input, ISharedP
         var inventory = (await context.Snapshots.ReadInventoryAsync().WaitAsync(token)).Value;
         var hasNpcSale = flow.NpcCleanup && request.AllowNpcSell &&
             BagCleanupItemMatcher.SelectSellRegistrationItems(inventory, settings.Maintenance).Count > 0;
+        var needsArrows = flow.NpcCleanup && await NpcArrowPurchaseSequence.NeededAsync(context);
+        if (request.ArrowRestock && !needsArrows)
+        {
+            Report("弓箭已充足，继续挂机");
+            return;
+        }
+        var hasNpcVisit = hasNpcSale || needsArrows;
         var hasWarehouseStage = flow.TransferGold || flow.PersonalShop;
         var needsInitialTownReturn = !request.TownReturnCompleted &&
-            (hasNpcSale || flow.Auction && !usesAuctionScroll || !hasWarehouseStage && !usesAuctionScroll);
-        if (hasNpcSale)
+            (hasNpcVisit || flow.Auction && !usesAuctionScroll || !hasWarehouseStage && !usesAuctionScroll);
+        var travelPlan = new ReturnItemPlan((await context.Snapshots.ReadChannelTransitionAsync().WaitAsync(token)).Value);
+        if (hasNpcVisit)
             Require(!string.IsNullOrWhiteSpace((await Load(settings.Paths.MaintenancePathName)).CleanupNpcName), "清包路径缺少 NPC 名字。");
+        if (needsInitialTownReturn)
+        {
+            var entryPath = await Load(hasNpcVisit ? settings.Paths.MaintenancePathName
+                : flow.Auction ? settings.Paths.AuctionPathName : settings.Paths.RevivePathName);
+            if (!string.IsNullOrWhiteSpace(settings.Paths.BagCleanupReturnItemName))
+            {
+                Require(entryPath.MapId is > 0, "清包回程物品需要带地图的路径。");
+                travelPlan.ReturnTo(entryPath, settings.Paths.BagCleanupReturnItemName);
+            }
+            else
+            {
+                Require(!travelPlan.NeedsReturn(entryPath) || !string.IsNullOrWhiteSpace(settings.Paths.BagCleanupTownReturnKey) ||
+                    !string.IsNullOrWhiteSpace(settings.Paths.TownReturnKey), "清包前需要配置清包回城物品或按键。");
+                travelPlan.ReturnTo(entryPath, null);
+            }
+            await Load(settings.Paths.RevivePathName);
+        }
+        if (hasNpcVisit)
+        {
+            var reverse = settings.Paths.BagCleanupReturnByReversePath || string.IsNullOrWhiteSpace(settings.Paths.TownReturnKey);
+            travelPlan.Add(await Load(settings.Paths.MaintenancePathName), null, finishAtStart: reverse);
+            if (!reverse) travelPlan.ReturnTo(await Load(settings.Paths.RevivePathName), null);
+        }
         if (flow.Auction)
         {
             var destination = await Load(settings.Paths.AuctionPathName);
             if (usesAuctionScroll)
             {
                 Require(destination.MapId is > 0, "拍卖行路径需要录制地图及卷轴落点入口。");
-                Require(GroceryReturnSequence.FindScroll(inventory, settings.Paths.AuctionReturnItemName) is not null,
-                    "背包没有配置的拍卖行回程卷轴：" + settings.Paths.AuctionReturnItemName);
-                await Load(settings.Paths.RevivePathName);
-                Require(!string.IsNullOrWhiteSpace(settings.Paths.TownReturnKey), "拍卖行卷轴回程结束后需要回城按键和复活路径。");
             }
+            travelPlan.Add(destination, usesAuctionScroll ? settings.Paths.AuctionReturnItemName : null, finishAtStart: true);
+            if (usesAuctionScroll && !hasWarehouseStage)
+                Require(!travelPlan.NeedsReturn(await Load(settings.Paths.RevivePathName)) || !string.IsNullOrWhiteSpace(settings.Paths.TownReturnKey),
+                    "拍卖行卷轴回程结束后需要回城按键和复活路径。");
         }
         if (flow.TransferGold || flow.PersonalShop)
         {
             var destination = await Load(settings.Paths.StallPathName);
             Require(destination.MapId is > 0, "转移到仓库号路径需要录制地图及卷轴落点入口。");
-            Require(!string.IsNullOrWhiteSpace(settings.Paths.StallReturnItemName), "请在转移到仓库号路径配置回程卷轴。");
-            Require(GroceryReturnSequence.FindScroll(inventory, settings.Paths.StallReturnItemName) is not null,
-                "背包没有配置的仓库回程卷轴：" + settings.Paths.StallReturnItemName);
-            await Load(settings.Paths.RevivePathName);
-            Require(!string.IsNullOrWhiteSpace(settings.Paths.TownReturnKey), "摆摊区域结束后需要回城按键和复活路径。");
+            travelPlan.Add(destination, settings.Paths.StallReturnItemName);
+            Require(!travelPlan.NeedsReturn(await Load(settings.Paths.RevivePathName)) || !string.IsNullOrWhiteSpace(settings.Paths.TownReturnKey),
+                "摆摊区域结束后需要回城按键和复活路径。");
         }
         if (flow.TransferGold) Require(!string.IsNullOrWhiteSpace(flow.WarehouseName) && !string.IsNullOrWhiteSpace(flow.WarehouseSelectionKey), "请填写仓库角色名和选仓库号按键。");
-        if (needsInitialTownReturn)
-        {
-            if (!string.IsNullOrWhiteSpace(settings.Paths.BagCleanupReturnItemName))
-            {
-                var entryPath = hasNpcSale ? settings.Paths.MaintenancePathName
-                    : flow.Auction ? settings.Paths.AuctionPathName : settings.Paths.RevivePathName;
-                Require((await Load(entryPath)).MapId is > 0, "清包回程物品需要带地图和落点入口的路径。");
-                Require(GroceryReturnSequence.FindScroll(inventory, settings.Paths.BagCleanupReturnItemName) is not null,
-                    "背包没有配置的清包回程物品：" + settings.Paths.BagCleanupReturnItemName);
-            }
-            else Require(!string.IsNullOrWhiteSpace(settings.Paths.BagCleanupTownReturnKey) || !string.IsNullOrWhiteSpace(settings.Paths.TownReturnKey), "清包前需要配置清包回城物品或按键。");
-            await Load(settings.Paths.RevivePathName);
-        }
+        CleanupPathTravel.RequireItems(travelPlan, inventory);
         context.Logger.Info("cleanup_workflow.start", new Dictionary<string, object?> { ["account"] = context.Config.AccountName, ["manual"] = request.Manual, ["stages"] = flow.Describe() });
         try
         {
@@ -152,20 +171,21 @@ public sealed partial class CleanupWorkflowRunner(IKeyboardInput input, ISharedP
             await actions.Reset();
             if (needsInitialTownReturn)
             {
-                var entryPath = hasNpcSale
+                var entryPath = hasNpcVisit
                     ? settings.Paths.MaintenancePathName : flow.Auction ? settings.Paths.AuctionPathName
                     : settings.Paths.RevivePathName;
                 await cleanup.ReturnToTownRequestedAsync(context, Report, entryPath);
                 request.TownReturnCompleted = true;
             }
             request.FullCleanupStarted = true;
-            if (request.Manual && flow.NpcCleanup)
+            if (request.Manual && flow.NpcCleanup && !request.ArrowRestock)
             {
                 request.PreparationStage = CleanupPreparationStage.Discarding;
                 await cleanup.RunDiscardRequestedAsync(context, Report);
             }
             request.PreparationStage = CleanupPreparationStage.None;
-            if (flow.NpcCleanup && request.AllowNpcSell) await cleanup.RunSellRequestedAsync(context, Report);
+            if (flow.NpcCleanup && (request.AllowNpcSell || needsArrows))
+                await cleanup.RunSellRequestedAsync(context, Report, allowSale: request.AllowNpcSell);
             if (flow.Auction)
             {
                 if (usesAuctionScroll)

@@ -11,6 +11,7 @@ public sealed record CleanupRequest(ScriptSettings Settings, bool Manual, bool R
     public Guid RequestId { get; } = Guid.NewGuid();
     // Execution progress belongs to this worker request, never to persisted settings.
     public bool StandaloneShop { get; init; }
+    public bool ArrowRestock { get; init; }
     public GroceryShopTrigger GroceryTrigger { get; init; }
     public bool GroceryShop => GroceryTrigger != GroceryShopTrigger.None;
     public bool SoldOutConfirmed { get; internal set; }
@@ -33,17 +34,23 @@ public sealed class CleanupRequestMailbox
     public CleanupRequest? Current { get { lock (sync) return request; } }
     public Guid? StandaloneShopRestartRequestId { get { lock (sync) return standaloneShopRestartRequestId; } }
     public OperationResult Request(ScriptSettings settings, bool manual, bool resetsCooldown = true, bool allowNpcSell = true, bool standaloneShop = false,
-        GroceryShopTrigger groceryTrigger = GroceryShopTrigger.None)
+        GroceryShopTrigger groceryTrigger = GroceryShopTrigger.None, bool arrowRestock = false)
     {
         lock (sync)
         {
             if (standaloneShopRestartRequestId.HasValue) return OperationResult.Fail("摆摊已售罄，正在等待脚本停止并重新启动。");
             if (request != null) return OperationResult.Fail("清包流程已在等待或执行，请勿重复启动。");
-            if (standaloneShop && groceryTrigger != GroceryShopTrigger.None)
+            if (standaloneShop && groceryTrigger != GroceryShopTrigger.None || arrowRestock && (standaloneShop || groceryTrigger != GroceryShopTrigger.None))
                 return OperationResult.Fail("不能同时提交两种摆摊任务。");
             var copy = settings.Clone();
             copy.Maintenance.CleanupWorkflow = copy.Maintenance.CleanupWorkflow.ForTrigger(manual);
-            if (!standaloneShop && groceryTrigger == GroceryShopTrigger.None && copy.Maintenance.CleanupWorkflow.Mode == CleanupMode.GroceryShop)
+            if (arrowRestock)
+            {
+                copy.Maintenance.CleanupWorkflow = new() { Mode = CleanupMode.Normal, NpcCleanup = true };
+                allowNpcSell = false;
+                resetsCooldown = false;
+            }
+            if (!arrowRestock && !standaloneShop && groceryTrigger == GroceryShopTrigger.None && copy.Maintenance.CleanupWorkflow.Mode == CleanupMode.GroceryShop)
                 groceryTrigger = manual ? GroceryShopTrigger.Manual : GroceryShopTrigger.Backpack;
             if (groceryTrigger != GroceryShopTrigger.None)
             {
@@ -63,7 +70,7 @@ public sealed class CleanupRequestMailbox
                 copy.Maintenance.CleanupWorkflow.PersonalShop = true;
             }
             if (copy.Maintenance.CleanupWorkflow.Describe().Length == 0) return OperationResult.Fail("请先在清包页选择执行项目。");
-            request = new(copy, manual, resetsCooldown, allowNpcSell) { StandaloneShop = standaloneShop, GroceryTrigger = groceryTrigger }; return OperationResult.Ok();
+            request = new(copy, manual, resetsCooldown, allowNpcSell) { StandaloneShop = standaloneShop, GroceryTrigger = groceryTrigger, ArrowRestock = arrowRestock }; return OperationResult.Ok();
         }
     }
     public void Complete() { lock (sync) request = null; }

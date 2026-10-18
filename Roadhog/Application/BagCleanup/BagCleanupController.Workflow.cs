@@ -101,18 +101,20 @@ public sealed partial class BagCleanupController
         }
     }
 
-    public async Task RunSellRequestedAsync(AccountWorkerContext context, Action<string> report)
+    public async Task RunSellRequestedAsync(AccountWorkerContext context, Action<string> report, bool allowSale = true)
     {
         var settings = context.Config.ScriptSettings!.Maintenance;
         var bag = (await context.Snapshots.ReadInventoryAsync().WaitAsync(context.StopToken)).Value;
-        if (BagCleanupItemMatcher.SelectSellRegistrationItems(bag, settings).Count == 0) return;
+        var hasSale = allowSale && BagCleanupItemMatcher.SelectSellRegistrationItems(bag, settings).Count > 0;
+        if (!hasSale && !await NpcArrowPurchaseSequence.NeededAsync(context)) return;
         var state = new BagCleanupState();
         state.Start(0, 0);
+        state.ArrowRestockOnly = !hasSale;
         state.Advance(BagCleanupStep.LoadCleanupPath);
         while (state.Active)
         {
             context.StopToken.ThrowIfCancellationRequested();
-            report(state.Step is BagCleanupStep.LoadCleanupPath or BagCleanupStep.FollowCleanupPath ? "沿清包路径前往商人" :
+            report(state.Step == BagCleanupStep.BuyArrows ? "正在向商人补充弓箭" : state.Step is BagCleanupStep.LoadCleanupPath or BagCleanupStep.FollowCleanupPath ? "沿清包路径前往商人" :
                 state.Step is BagCleanupStep.ReturnByReversePath or BagCleanupStep.PostCleanupJump ? "NPC 出售阶段结束，沿清包路径返回" : "正在向商人出售背包物品");
             var result = await TickWorkflowAsync(context, state);
             EnsureRunning(result);

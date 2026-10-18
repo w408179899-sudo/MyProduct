@@ -23,12 +23,18 @@ internal sealed partial class InventoryInteractionDecoder
                     entries.TryAdd(text, point);
         }
         int mode = -1; uint npc = 0;
+        NpcPurchaseSnapshot? purchase = null; ulong quantityWindow = 0;
         var basket = new List<NpcTradeItem>(); GameUiPoint? sell = null; GameUiPoint? registerJunk = null;
         if (open)
         {
             mode = BitConverter.ToInt32(Guard(window + 1252, 4));
             Require(mode is >= 0 and <= 6, "Invalid NPC trade mode.");
             npc = BitConverter.ToUInt32(Guard(window + 1240, 4));
+            if (mode == 0)
+            {
+                Require(npc != 0, "Missing NPC purchase identity.");
+                purchase = ReadNpcPurchase(gameBase, window, bagOpen, out quantityWindow);
+            }
             if (mode == 1)
             {
                 var nodes = Nodes(window);
@@ -61,9 +67,16 @@ internal sealed partial class InventoryInteractionDecoder
             }
         }
         var modalOpen = false;
-        for (int id = 336; id <= 365; id++) if (Open(Root(id))) modalOpen = true;
+        for (int id = 336; id <= 365; id++)
+        {
+            var modal = Root(id);
+            if (modal != quantityWindow && Open(modal)) modalOpen = true;
+        }
         if (modalOpen) { entries.Clear(); sell = null; registerJunk = null; }
+        if (modalOpen && purchase != null)
+            purchase = purchase with { BuyButton = null, QuantityDialog = null,
+                Items = purchase.Items.Select(i => i with { Point = null }).ToArray() };
         VerifyGuards();
-        return new(dialogOpen, entries, open, mode, npc, bagOpen, basket.AsReadOnly(), sell, modalOpen, registerJunk);
+        return new(dialogOpen, entries, open, mode, npc, bagOpen, basket.AsReadOnly(), sell, modalOpen, registerJunk) { Purchase = purchase };
     }
 }
