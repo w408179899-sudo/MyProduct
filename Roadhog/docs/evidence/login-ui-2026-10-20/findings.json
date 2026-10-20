@@ -1,0 +1,471 @@
+{
+  "schema_version": 1,
+  "recorded_on": "2026-10-20",
+  "purpose": "Durable handoff for Aion login UI and forced-relogin analysis.",
+  "validation": {
+    "kind": "static_json_and_selected_binary_instructions",
+    "live_popup_verified": false,
+    "live_login_verified": false,
+    "login_implementation_exists_from_this_analysis": false,
+    "current_runtime_layout_compatibility": "not_verified"
+  },
+  "sources": {
+    "json": {
+      "path": "C:\\Users\\GoldGiven\\Desktop\\aion\\aion202609091125.json",
+      "sha256": "51ad55b509a6edf7850b1bdfaa45d32381626c920e6f2cc96ffe5e056f583f43"
+    },
+    "binary": {
+      "path": "C:\\Users\\GoldGiven\\Desktop\\aion\\Game.dll",
+      "sha256": "834300c2a85b6427de2d4a4be2931ff2ea59fd70f48f31754f5c2181753bd786"
+    },
+    "static_imagebase": "0x180000000"
+  },
+  "addressing": {
+    "rva": "Relative to the runtime Game.dll module base.",
+    "sub_names": "Static addresses in the export; relocate before runtime use.",
+    "window_table_rva": "0xD63990",
+    "window_pointer_expression": "ptr64(GameBase + 0xD63990 + slot * 8)",
+    "game_object_rva": "0xD647C0",
+    "game_object_expression": "GameBase + 0xD647C0",
+    "game_object_is_embedded": true
+  },
+  "relogin": {
+    "analysis_date": "2026-10-20",
+    "source": "C:\\Users\\GoldGiven\\Desktop\\aion\\aion202609091125.json",
+    "scope": "Static JSON and repository analysis. No live memory capture, input, game exit, login, production change, build, or deployment.",
+    "runtime_target_popup_available": false,
+    "inactivity": {
+      "status": "Static input-timeout path identified; correspondence with the user's visible Chinese popup remains unverified live.",
+      "checker": "sub_18001AFD0",
+      "caller": "sub_180064770",
+      "input_timestamp_updater": "sub_180051700",
+      "diagnostic_function": "sub_18004D610",
+      "diagnostic_strings": [
+        "Input Kick : %.2f/%u",
+        "Shop Kick : %.2f/%u"
+      ],
+      "game_object_timeout_latch_offset": "0x66C4",
+      "game_object_last_input_timestamp_offset": "0x66DC",
+      "normal_threshold_rva": "0x9250F8",
+      "shop_threshold_rva": "0xD4AE2C",
+      "threshold_note": "Thresholds are configurable: sub_18033C990 replaces them when its corresponding arguments are nonzero. Do not hardcode an inactivity duration from these static observations.",
+      "message_text_id": 901652,
+      "dialog_builder": "sub_18030AED0",
+      "builder_arguments": {
+        "confirm_event": 2204,
+        "action": 1,
+        "style_input": 16,
+        "resulting_style": 24
+      },
+      "game_object_rva": "0xD647C0",
+      "game_object_address_semantics": "Embedded object: GameBase + 0xD647C0 is the object address itself. Do not dereference its first qword to obtain an object pointer."
+    },
+    "message_box": {
+      "window_table_rva": "0xD63990",
+      "window_slots_inclusive": [
+        336,
+        355
+      ],
+      "allocation_function": "sub_18030A400",
+      "resource": "v3_msgbox",
+      "constructor": "sub_1805F7480",
+      "dialog_size_bytes": 1456,
+      "global_disconnect_prompt_latch_rva": "0xD64680",
+      "fields": {
+        "style_offset": "0x4D8",
+        "confirm_event_offset": "0x4DC",
+        "cancel_event_offset": "0x4E0",
+        "action_offset": "0x4E4",
+        "body_control_pointer_offset": "0x560",
+        "confirm_control_pointer_offset": "0x578",
+        "cancel_control_pointer_offset": "0x580"
+      },
+      "button_event_handler": "sub_1805F9030",
+      "global_event_dispatcher": "sub_180616820",
+      "action_dispatch": {
+        "1": "quit_yes",
+        "2": "retry_login"
+      },
+      "command_handler": "sub_18004B8B0",
+      "text_table": {
+        "begin_pointer_rva": "0xDAC540",
+        "end_pointer_rva": "0xDAC548",
+        "entry_stride": 20,
+        "utf16_text_pointer_offset": 12,
+        "lookup_function": "sub_18054C8A0",
+        "confirm_label_text_id": 900376
+      },
+      "limitations": [
+        "Window slots are not message text IDs.",
+        "The global latch and action 1 are shared by multiple causes and cannot individually identify either requested popup.",
+        "Body text is assigned to a child control; the creation-time text ID is not established as a persistent field on UIMsgBox.",
+        "All RVAs are for this JSON export. Verify the current runtime module before using them.",
+        "Read current control geometry and convert using the existing input coordinate mapping; do not assume fixed desktop coordinates."
+      ]
+    },
+    "reuse": {
+      "dialog_pool_and_buttons": "Roadhog/Infrastructure/Vmm/InventoryInteractionDecoder.Discard.cs",
+      "widget_geometry": "Roadhog/Infrastructure/Vmm/InventoryInteractionDecoder.cs",
+      "body_text_reader": "Roadhog/Infrastructure/Vmm/InventoryInteractionDecoder.AuctionHouse.cs: AuctionText",
+      "bound_process_resolution": "Roadhog/Infrastructure/Vmm/AionVmmGameApi.cs: TryResolveProcess",
+      "published_snapshot_retry": "Roadhog/Infrastructure/Vmm/RoadhogSnapshotReader.cs: ReadUntilPublishedAsync"
+    },
+    "implementation_requirements": [
+      "An account-scoped process lifecycle monitor must distinguish confirmed process exit from DMA read failure.",
+      "Popup monitoring must remain able to run when player/entity reads cannot complete.",
+      "Register a typed stable popup/session channel behind the provider boundary.",
+      "Match an approved cause using text/state and the exit action before issuing a confirmation click.",
+      "After confirmed exit, retire the old session, launch/login through the chosen client workflow, bind the new process, validate character identity, and resume the account's intended workflow.",
+      "The launcher/login/server/character-selection workflow and configuration still need to be established.",
+      "A real popup capture is still needed to identify the long-online forced-relogin popup and verify current runtime compatibility."
+    ],
+    "long_online_forced_relogin": {
+      "status": "Unresolved exact popup text ID, reason code, and trigger threshold.",
+      "candidate_path": [
+        "S_KICK",
+        "sub_180436260",
+        "sub_18030ACE0 / sub_18030AA00",
+        "UIMsgBox"
+      ],
+      "server_packet": {
+        "reason_u16_offset": 0,
+        "account_reason_u8_offset": 2,
+        "message_id_u32_offset": 3
+      },
+      "reason_to_text_id": {
+        "100": 1300699,
+        "101": 1300700,
+        "102": 1310014,
+        "200": 1310015,
+        "201": 1310016,
+        "202": 1310017,
+        "203": 1310018,
+        "204": 901911,
+        "205": 901912,
+        "207": 901922,
+        "208": 901960,
+        "209": 901960,
+        "210": 901960,
+        "211": 1401584,
+        "default": 1300816
+      },
+      "limitations": [
+        "These IDs belong to a shared disconnect path; none has been identified as the long-online forced-relogin popup.",
+        "A nonzero message ID in the packet can select text directly.",
+        "The fatigue status dialog dlg_fatigue and fatigue-related protocol names do not prove a forced-exit popup.",
+        "The exact duration and popup identity have not been established."
+      ],
+      "user_requirement": "The user clarified that continuous online time is roughly one day, not necessarily 25 hours. Identify the actual forced-relogin popup; do not implement a fixed 25-hour logout timer."
+    }
+  },
+  "login": {
+    "date": "2026-10-20",
+    "scope": "Static analysis of the supplied JSON, selected Game.dll instructions, and existing adapter code. No live input, login, production code change, or deployment.",
+    "sources": {
+      "json": "C:\\Users\\GoldGiven\\Desktop\\aion\\aion202609091125.json",
+      "binary": "C:\\Users\\GoldGiven\\Desktop\\aion\\Game.dll",
+      "agreement_and_race_evidence": "#/agreement_details",
+      "checkbox_evidence": "#/character_entry_details"
+    },
+    "agreement": {
+      "dialog": "dlg_user_agreement",
+      "window_slot": 1,
+      "accept_control": "agreement_yes",
+      "reject_control": "agreement_no",
+      "body_control": "htmlview_agreement",
+      "initialize": "sub_1801DF1C0",
+      "handler": "sub_1801DF680",
+      "accept_effect": "sub_1800551C0: load UI_ServerSelect.xml and select-server state10, with conditional automatic server selection",
+      "scroll_gate": "The inspected initializer and acceptance handler do not establish a mandatory scroll-to-bottom gate. Runtime visible/enabled state must still be checked.",
+      "conditional_extra_popup": {
+        "purpose": "ReportClient64 preference",
+        "message_id": 901892,
+        "button_text_ids": [
+          901905,
+          901906
+        ],
+        "button_events": [
+          2105,
+          2106
+        ],
+        "note": "Region/configuration-dependent; current-client appearance and desired preference are not established."
+      }
+    },
+    "server_selection": {
+      "dialog": "dlg_select_server",
+      "window_slot": 3,
+      "constructor": "sub_18026CB70",
+      "initializer": "sub_18026CBE0",
+      "list_control": "server_list",
+      "list_control_pointer_offset": "0x4D8",
+      "handler": "sub_18026DAB0",
+      "start_control": "start_button",
+      "server_records_begin_rva": "0x951A28",
+      "server_records_end_rva": "0x951A30",
+      "request_command": "request_play",
+      "note": "Server name/list-row matching and current selection can be read. The user's desired launcher/server workflow remains pending."
+    },
+    "login_race_restriction_notice": {
+      "entry": "S_L2AUTH_LOGIN_CHECK(199) -> sub_180426F70 -> sub_18002B070(result0) -> sub_180350850",
+      "condition": "byte at RVA0x951A90 &0x0C",
+      "message_ids": [
+        901669,
+        901670
+      ],
+      "window_slots": [
+        336,
+        355
+      ],
+      "action_offset": "0x4E4",
+      "action": 24,
+      "confirm_event": 2204,
+      "confirm_effect": "sub_18003DF50 requests character_list",
+      "other_event": 2205,
+      "other_effect": "select_server",
+      "note": "This is the login-stage notice. Actual character-creation errors902159/902649 are a different branch."
+    },
+    "character_selection": {
+      "dialog": "dlg_select_char",
+      "window_slot": 4,
+      "constructor": "sub_18026DDA0",
+      "initializer": "sub_18026DFF0",
+      "renderer": "sub_18026F6E0",
+      "slots_in_export": 8,
+      "selection_controls": "char_sel_1 .. char_sel_8",
+      "selection_controls_pointer_array_offset": "0x540",
+      "name_controls": "char_desc_1 .. char_desc_8",
+      "name_controls_pointer_array_offset": "0x600",
+      "start_control": "start_button",
+      "start_control_pointer_offset": "0x4E0",
+      "record_pointer_vector_begin_rva": "0xD66408",
+      "record_pointer_vector_end_rva": "0xD66410",
+      "selected_zero_based_index_rva": "0xD66888",
+      "record_character_id_offset": 0,
+      "record_utf16_name_offset": 4,
+      "record_population": "S_CHARACTER_LIST(200) -> sub_180426F70 -> sub_1800384A0",
+      "record_order_note": "sub_1800384A0 inserts records by a field at offset264. Use the current vector order, not a remembered slot.",
+      "selection_commit": "sub_18026F020 -> sub_180270860 -> sub_1804F2350 writes the selected index",
+      "entry": "start_button and double-click event1905 both reach sub_180270A70",
+      "recommended_plan": "Match configured character name/ID to the current record and char_sel control; read its current geometry; select it and verify the selected index; then start entry."
+    },
+    "character_entry_checkbox": {
+      "creator": "sub_180270A70",
+      "condition": "region/configuration code5; the human-readable region name is not asserted",
+      "title": "AION",
+      "message_id": 902812,
+      "checkbox_text_id": 902813,
+      "window_slots": [
+        366,
+        370
+      ],
+      "style_at_creation": "0x1D",
+      "style_after_helper": "0x41D",
+      "owner_window_id_offset": "0x3C8",
+      "expected_owner_slot": 4,
+      "body_control_pointer_offset": "0x560",
+      "confirm_control_pointer_offset": "0x578",
+      "cancel_control_pointer_offset": "0x580",
+      "checkbox_control_pointer_offset": "0x5A0",
+      "checkbox_name": "checkbox",
+      "checked_expression": "int32[checkbox+0x30] / 4 > 0",
+      "confirm_enabled_mask": "uint64[confirm+0x28] &0x2",
+      "confirm_event": 2203,
+      "cancel_event": 2102,
+      "confirm_effect": "sub_18026EF40 -> sub_1802709A0 -> check_can_enter_world",
+      "note": "Confirmation is initially disabled and enabled by checkbox state. +0x590 is not this checkbox."
+    },
+    "additional_entry_check": {
+      "handler": "sub_18042C800",
+      "success": "Dispatch enter_world",
+      "conditional_popup": {
+        "message_id": 901472,
+        "action": 21,
+        "confirm_event": 2204,
+        "cancel_event": 2205
+      },
+      "note": "Separate from the checkbox popup; exact localized meaning and whether the user's account sees it remain unverified."
+    },
+    "integration_gap": [
+      "InventoryInteractionDecoder.ReadInventory currently scans slots10..365, deliberately excluding pre-world screens. It cannot alone observe these login screens or the checkbox pool366..370.",
+      "A login-specific read adapter and typed stable published snapshot can reuse widget geometry, visible/enabled flags, text decoding, and the input coordinate mapping.",
+      "Advance steps from observed UI/state transitions; do not implement the entire flow as an unconditional timed click sequence.",
+      "Actual localized texts, current module layout compatibility, and live click results remain unverified.",
+      "Launcher/account login details and retry policy will be supplied later by the user.",
+      "The long-online forced-relogin popup remains a separate unresolved identity; no fixed25-hour trigger is proposed."
+    ]
+  },
+  "agreement_details": {
+    "source": "C:\\Users\\GoldGiven\\Desktop\\aion\\aion202609091125.json",
+    "evidence_kind": "static_decompilation_only_no_runtime_clicks",
+    "agreement": {
+      "resource": "UI_UserAgreement.xml",
+      "dialog": "dlg_user_agreement",
+      "class": "DlgUserAgreement",
+      "window_table_rva": "0xD63990",
+      "window_slot": 1,
+      "object_size": 1248,
+      "factory": "sub_18062D4F0",
+      "constructor": "sub_1801DF150",
+      "initialize": "sub_1801DF1C0",
+      "click_handler": "sub_1801DF680",
+      "controls": {
+        "agreement_yes": "accept",
+        "agreement_no": "quit_auth",
+        "htmlview_agreement": {
+          "offset": 1240,
+          "type": 8210
+        }
+      },
+      "open": "sub_18005DF50 changes global UI state to8 and loads resource",
+      "accept": "sub_1800551C0 loads UI_ServerSelect.xml and changes UI state to10; can request_play automatically for eligible configured server",
+      "conditional_branch": "Region 0/5 and missing ReportClient64 setting can show another choice message 901892 with buttons901905/901906 and actions2105/2106, then both handled by sub_1801DF480 to continue server selection",
+      "runtime_unknowns": [
+        "current client object layout parity",
+        "actual localized labels",
+        "dynamic screen rectangle"
+      ]
+    },
+    "login_race_creation_restriction_notice": {
+      "confidence": "strong static call-chain and race restriction flag agreement; localized exact wording requires runtime resource",
+      "entry": "S_L2AUTH_LOGIN_CHECK opcode199 -> sub_180426F70 -> sub_18002B070 (result0) -> if byte_180951A90 &0xC -> sub_180350850",
+      "restriction_flags": {
+        "rva": "0x951A90",
+        "mask_0x04": "race0 creation restricted",
+        "mask_0x08": "race1 creation restricted"
+      },
+      "message_ids": {
+        "both_races": "901669 with servername",
+        "one_race": "901670 with servername and race label900240/900241"
+      },
+      "window_slots": "336..355",
+      "style": 9,
+      "purpose_tag_offset": "0x4E4",
+      "purpose_tag": 24,
+      "buttons": {
+        "confirm": {
+          "label_id": 900376,
+          "event": 2204,
+          "effect": "sub_180616820 case0x18 calls sub_18003DF50 to send character_list request"
+        },
+        "other": {
+          "label_id": 901771,
+          "event": 2205,
+          "effect": "sub_180616820 case0x18 dispatches select_server"
+        }
+      },
+      "continue_request": "sub_18003DF50 emits [game] send character_list and marks qword_180D6F100 low dword1",
+      "disambiguation": "Actual character creation blocking dialogs are different: sub_18014B660/sub_18014BDF0 messages902159 and902649 with close event2102; must not classify by generic msgbox alone"
+    },
+    "not_done": [
+      "No game input",
+      "No production source changes",
+      "No login implementation",
+      "No live confirmation of version-specific offsets or local text"
+    ]
+  },
+  "character_entry_details": {
+    "analysis_date": "2026-10-20",
+    "mode": "static_only_no_game_input",
+    "artifacts": {
+      "json": "C:\\Users\\GoldGiven\\Desktop\\aion\\aion202609091125.json",
+      "json_sha256": "51ad55b509a6edf7850b1bdfaa45d32381626c920e6f2cc96ffe5e056f583f43",
+      "binary": "C:\\Users\\GoldGiven\\Desktop\\aion\\Game.dll",
+      "binary_sha256": "834300c2a85b6427de2d4a4be2931ff2ea59fd70f48f31754f5c2181753bd786",
+      "imagebase": "0x180000000"
+    },
+    "target": {
+      "classification": "high_confidence_character_entry_checkbox_confirmation",
+      "trigger": [
+        "DlgSelectChar start_button -> sub_180270A70",
+        "DlgSelectChar double-click event 1905 on one of 8 character controls -> sub_180270A70"
+      ],
+      "condition": "HIDWORD(qword_1809519F8) == 5 || sub_18006E3A0() == 5; latter reads cached dword_180938018 then registry/cc.ini; exact code-5 locale meaning not asserted",
+      "body_message_id": 902812,
+      "checkbox_message_id": 902813,
+      "title": "AION",
+      "initial_style": "0x1D (29)",
+      "post_setup_style": "0x41D (0x1D | 0x400)",
+      "confirm_event": 2203,
+      "cancel_event": 2102,
+      "owner": "DlgSelectChar",
+      "dialog_table_rva": "0xD63990",
+      "slot_range": [
+        366,
+        370
+      ],
+      "button_offsets": {
+        "body": "0x560",
+        "confirm": "0x578",
+        "cancel": "0x580",
+        "checkbox": "0x5A0"
+      },
+      "checkbox": {
+        "control_name": "checkbox",
+        "texture": "v4_check",
+        "type_offset": "0x388 = 904",
+        "type": 1,
+        "state_formula": "int32[checkbox + 0x30] / 4 > 0",
+        "proof": "UIButton vtable 0x18084EC20+1504 -> 0x180597F80",
+        "reset": "vtable+32 -> sub_1805970B0 -> state 0"
+      },
+      "confirm": {
+        "control_name": "ok",
+        "flags_offset": "0x28",
+        "enabled_mask": 2,
+        "initial_enabled": false,
+        "condition": "sub_1805F9030 checks checkbox virtual+1504 > 0 and sets/clears confirm flags bit2"
+      },
+      "cancel": {
+        "control_name": "cancel"
+      },
+      "accepted_chain": [
+        "sub_1805F9030 dispatches confirm_event 2203 to owner",
+        "sub_18026EF40 event 2203 -> sub_1802709A0",
+        "sub_1802709A0 -> command check_can_enter_world",
+        "sub_18004B8B0 validates account conditions then sends check request",
+        "sub_18042C800 response v2 == 0 -> command enter_world",
+        "enter_world -> sub_180421F60 sends character-ID enter packet"
+      ],
+      "other_dialog": {
+        "handler": "sub_18042C800",
+        "condition": "v2 != 0",
+        "body_message_id": 901472,
+        "body_arguments": [
+          "v2",
+          "character name"
+        ],
+        "slots": [
+          336,
+          355
+        ],
+        "style": 9,
+        "confirm_event": 2204,
+        "cancel_event": 2205,
+        "action": 21,
+        "note": "Separate confirmation; do not merge with checkbox dialog; localized semantics not verified"
+      },
+      "owner_memory": {
+        "dialog_owner_id_offset": "0x3C8 (968), int32",
+        "resolve": "0 <= owner_id <= 413 -> window_table[owner_id]",
+        "proof": "UIMsgBox vtable 0x180859DC8+1400 -> sub_1805A09B0; +1392 setter sub_1805A08F0",
+        "owner_child_dialog_id_offset": "0x3CC (972) on owner"
+      }
+    },
+    "unknowns": [
+      "Chinese localized text values for messages 902812,902813,901472 are not included in this code JSON",
+      "Current client build matches these offsets only after runtime module fingerprint/version verification",
+      "Actual visible dialog and entry transition have not been observed this turn",
+      "Confirm accepted and enter packet sent do not prove player world loaded; parent investigation must use session/player-ready evidence"
+    ],
+    "evidence": {
+      "functions": "function-evidence.json",
+      "instructions": "instruction-evidence.json"
+    }
+  },
+  "evidence": {
+    "documentation": "../../LOGIN_UI_DATA.md",
+    "functions": "function-evidence.json",
+    "instructions": "instruction-evidence.json",
+    "temporary_files_required": false
+  }
+}
