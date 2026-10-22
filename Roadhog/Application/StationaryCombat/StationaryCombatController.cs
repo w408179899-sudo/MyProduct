@@ -302,6 +302,10 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             return noKillRecoveryDelay.Value;
         }
 
+        var postCombatReturnDelay = await TryTickPostCombatReturnAsync(context, plan, semiAutoState, state,
+            player, home, radius, playerDistanceFromHome, radarSettings).ConfigureAwait(false);
+        if (postCombatReturnDelay.HasValue) return postCombatReturnDelay.Value;
+
         var temporaryTargetSwitchGuard = !state.Fighting &&
                                          state.ShouldGuardTemporaryTargetSwitch(DateTimeOffset.Now);
         var stationaryGatherWorkAvailable = false;
@@ -970,6 +974,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state)
     {
+        state.ClearPostCombatReturn();
         if (await TryTickTownReturnAsync(context, plan, semiAutoState, state).ConfigureAwait(false) is { } returnDelay)
             return returnDelay;
 
@@ -3635,6 +3640,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         if (!target.IsMonsterAlive)
         {
             MarkStationaryKillIfNeeded(context, target, "locked_target_dead");
+            RequestPostCombatReturn(context, state, target);
             if (ShouldStartLootAfterKill(context, target))
             {
                 state.StartLootAfterKill(target, now);
@@ -5116,6 +5122,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 target.TargetServerObjectId,
                 target.IsTargetingLocalPlayer);
             MarkStationaryKillIfNeeded(context, killedSnapshot, "world_object_reacquire");
+            RequestPostCombatReturn(context, state, killedSnapshot);
             if (ShouldStartLootAfterKill(context, killedSnapshot))
             {
                 state.StartLootAfterKill(killedSnapshot, DateTimeOffset.Now);
@@ -5899,6 +5906,9 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         {
             return null;
         }
+
+        if (state.PostCombatReturningHome && !IsMaintenanceDefenseTarget(lockedWorldTarget, state))
+            return null;
 
         var protectedSideDelay = await TryAcceptSmartPreAimProtectedSideLockedTargetAsync(
                 context,
@@ -9744,7 +9754,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         Vector3Snapshot home,
         double radius)
     {
-        if (state.ChannelSwitchPending || !IsSmartPreAimEnabled(context) ||
+        if (state.ChannelSwitchPending || state.PostCombatReturningHome || !IsSmartPreAimEnabled(context) ||
             !state.Fighting ||
             !currentTarget.IsMonsterAlive)
         {

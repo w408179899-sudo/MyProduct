@@ -80,6 +80,10 @@ namespace Roadhog
         private RoundedCheckBox? smartPreAimUseFightTargetPositionCheckBox;
         private RoundedCheckBox? smartPreAimResponsiveSwitchingCheckBox;
         private RoundedCheckBox? returnHomeWhenNoTargetCheckBox;
+        private RoundedCheckBox? returnHomeAfterCombatCheckBox;
+        private RoundedTextBox? returnHomeAfterCombatDistanceTextBox;
+        private Label? returnHomeAfterCombatDistanceLabel;
+        private Label? returnHomeAfterCombatDistanceUnitLabel;
         private RoundedCheckBox? sitWhenNoTargetAtHomeCheckBox;
         private Button? radarEditorButton;
         private Label? radarStatusLabel;
@@ -495,6 +499,10 @@ namespace Roadhog
             SetChecked(smartPreAimResponsiveSwitchingCheckBox, settings.Combat.SmartPreAimResponsiveSwitching);
             RefreshCombatModeVisibility();
             SetChecked(returnHomeWhenNoTargetCheckBox, settings.Combat.ReturnHomeWhenNoTarget);
+            SetChecked(returnHomeAfterCombatCheckBox, settings.Combat.ReturnHomeAfterCombat);
+            if (returnHomeAfterCombatDistanceTextBox is not null)
+                returnHomeAfterCombatDistanceTextBox.Text = settings.Combat.ReturnHomeAfterCombatDistance.ToString(CultureInfo.InvariantCulture);
+            RefreshCombatModeVisibility();
             SetChecked(sitWhenNoTargetAtHomeCheckBox, settings.Combat.SitWhenNoTargetAtHome);
             PopulateActiveMonsterFilterList(settings.Combat.ActiveMonsterNameFilters);
             ApplyGatherSettings(settings.Gather ?? new GatherScriptSettings());
@@ -639,6 +647,13 @@ namespace Roadhog
             var account = LoadAccountConfigOrDefault();
             var previousSettings = BuildEffectiveScriptSettings(account);
             var capturedSettings = CaptureScriptSettings();
+            var returnDistance = ReadDouble(returnHomeAfterCombatDistanceTextBox, double.NaN,
+                double.NegativeInfinity, double.PositiveInfinity);
+            if (!double.IsFinite(returnDistance) || returnDistance < 0)
+            {
+                error = "战斗结束回原点的距离必须为大于或等于 0 的数字。";
+                return false;
+            }
             try { GroceryShopSchedule.Normalize(capturedSettings.Maintenance.CleanupWorkflow.GroceryScheduleTimes); }
             catch (FormatException) { error = "杂货摆摊定时时间必须为 HH:mm。"; return false; }
             capturedSettings.Maintenance.AutoEquip = previousSettings.Maintenance.AutoEquip;
@@ -699,6 +714,8 @@ namespace Roadhog
             UpdateCurrentProfileDisplay(profileName);
             _runtime.ApplyFileLoggingSettings(_account, capturedSettings.GenerateLogFiles);
             _runtime.ApplyRadarObstacleSettings(_account, capturedSettings.Combat.RadarObstacleAvoidance);
+            _runtime.ApplyPostCombatReturnSettings(_account, capturedSettings.Combat.ReturnHomeAfterCombat,
+                capturedSettings.Combat.ReturnHomeAfterCombatDistance);
             currentRadarSettings = capturedSettings.Combat.RadarObstacleAvoidance.Clone();
             RefreshRadarStatus();
             SetProfileStatus("已保存方案: " + profileName, false);
@@ -894,6 +911,9 @@ namespace Roadhog
                     SmartPreAimUseFightTargetPosition = smartPreAimUseFightTargetPositionCheckBox?.Checked ?? false,
                     SmartPreAimResponsiveSwitching = smartPreAimResponsiveSwitchingCheckBox?.Checked ?? false,
                     ReturnHomeWhenNoTarget = returnHomeWhenNoTargetCheckBox?.Checked ?? true,
+                    ReturnHomeAfterCombat = returnHomeAfterCombatCheckBox?.Checked ?? false,
+                    ReturnHomeAfterCombatDistance = ReadDouble(returnHomeAfterCombatDistanceTextBox,
+                        CombatScriptSettings.DefaultReturnHomeAfterCombatDistance, 0, double.MaxValue),
                     SitWhenNoTargetAtHome = sitWhenNoTargetAtHomeCheckBox?.Checked ?? false,
                     ActiveMonsterNameFilters = CaptureActiveMonsterFilterList(),
                     HasStationaryCombatPosition = false,
@@ -1369,9 +1389,9 @@ namespace Roadhog
             regionCombo.BringToFront();
             regionCombo.SelectedIndexChanged += (_, _) => ChangeRegion();
             AddLabel(modePanel, "保存后重启账号生效", 608, 2, 202, 24).BringToFront();
-            var behaviorPanel = AddSection("选怪与拾取", 240, 148);
-            var environmentPanel = AddSection("镜头与频道", 400, 126);
-            var loggingPanel = AddSection("日志", 538, 74);
+            var behaviorPanel = AddSection("选怪与拾取", 240, 184);
+            var environmentPanel = AddSection("镜头与频道", 436, 126);
+            var loggingPanel = AddSection("日志", 574, 74);
             generateLogFilesCheckBox = AddCheckBox(loggingPanel, "生成日志文件", 12, 32, 180, true);
             generateLogFilesCheckBox.Name = "generateLogFilesCheckBox";
 
@@ -1427,6 +1447,13 @@ namespace Roadhog
             sitWhenNoTargetAtHomeCheckBox = AddCheckBox(behaviorPanel, "\u6ca1\u602a\u5750\u5730\u677f", 184, 114, 140, false);
             jumpAssistEnabledCheckBox = AddCheckBox(behaviorPanel, "\u6253\u602a\u8df3\u8dc3", 380, 114, 120, false);
             jumpAssistEnabledCheckBox.Name = "jumpAssistEnabledCheckBox";
+            returnHomeAfterCombatCheckBox = AddCheckBox(behaviorPanel, "战斗结束回原点", 12, 150, 208, false);
+            returnHomeAfterCombatCheckBox.Name = "returnHomeAfterCombatCheckBox";
+            returnHomeAfterCombatCheckBox.Click += (_, _) => RefreshCombatModeVisibility();
+            returnHomeAfterCombatDistanceLabel = AddLabel(behaviorPanel, "距离超过", 232, 150, 76, 24);
+            returnHomeAfterCombatDistanceTextBox = AddTextBox(behaviorPanel, "5", 312, 148, 88, 28);
+            returnHomeAfterCombatDistanceTextBox.Name = "returnHomeAfterCombatDistanceTextBox";
+            returnHomeAfterCombatDistanceUnitLabel = AddLabel(behaviorPanel, "米", 408, 150, 28, 24);
             smartPreAimEnabledCheckBox = AddCheckBox(behaviorPanel, "\u667a\u80fd\u9009\u602a", 12, 78, 120, false);
             smartPreAimEnabledCheckBox.Name = "smartPreAimEnabledCheckBox";
             smartPreAimEnabledCheckBox.Click += (_, _) => RefreshCombatModeVisibility();
@@ -1563,6 +1590,16 @@ namespace Roadhog
             if (returnHomeWhenNoTargetCheckBox is not null)
             {
                 returnHomeWhenNoTargetCheckBox.Visible = stationaryVisible;
+            }
+
+            if (returnHomeAfterCombatCheckBox is not null)
+                returnHomeAfterCombatCheckBox.Visible = stationaryVisible;
+            foreach (var control in new Control?[] { returnHomeAfterCombatDistanceTextBox,
+                         returnHomeAfterCombatDistanceLabel, returnHomeAfterCombatDistanceUnitLabel })
+            {
+                if (control is null) continue;
+                control.Visible = stationaryVisible;
+                control.Enabled = returnHomeAfterCombatCheckBox?.Checked == true;
             }
 
             if (sitWhenNoTargetAtHomeCheckBox is not null)

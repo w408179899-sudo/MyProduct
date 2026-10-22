@@ -39,6 +39,7 @@ public sealed partial class StationaryCombatController
     private async Task PrepareForTownReturnAsync(AccountWorkerContext context, SemiAutoCombatState semiAutoState,
         StationaryCombatState state)
     {
+        state.ClearPostCombatReturn();
         semiAutoState.ResetAttackKeyPressThrottle();
         await StopSoloJumpAsync(state, "town_return").ConfigureAwait(false);
         StopNextTargetPreAim(context, state, "town_return", clearCandidate: true);

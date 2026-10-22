@@ -60,6 +60,9 @@ public sealed class RemoteRoadhogRuntime : IRoadhogRuntime
     public void ApplyRadarObstacleSettings(string accountName, RadarObstacleScriptSettings settings) =>
         Send(nameof(ApplyRadarObstacleSettings), new object?[] { Account(accountName), settings.Clone() });
 
+    public void ApplyPostCombatReturnSettings(string accountName, bool enabled, double distance) =>
+        Send(nameof(ApplyPostCombatReturnSettings), new object?[] { Account(accountName), enabled, distance });
+
     public void NotifyRadarMapSaved(uint mapId) => Send(nameof(NotifyRadarMapSaved), new object?[] { mapId });
 
     public Task<RadarLiveSnapshot> ReadRadarSnapshotAsync(string accountName, CancellationToken cancellationToken = default) =>

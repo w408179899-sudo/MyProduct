@@ -46,6 +46,8 @@
           "smartPreAimUseFightTargetPosition": false,
           "smartPreAimResponsiveSwitching": false,
           "returnHomeWhenNoTarget": true,
+          "returnHomeAfterCombat": false,
+          "returnHomeAfterCombatDistance": 5,
           "sitWhenNoTargetAtHome": false,
           "stationaryCombatRadius": 30,
           "stalledTargetExclusionSeconds": 60,

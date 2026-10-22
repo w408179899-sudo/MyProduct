@@ -251,6 +251,12 @@ public sealed class CombatScriptSettings
 
     public bool ReturnHomeWhenNoTarget { get; set; } = true;
 
+    public const double DefaultReturnHomeAfterCombatDistance = 5.0D;
+
+    public bool ReturnHomeAfterCombat { get; set; }
+
+    public double ReturnHomeAfterCombatDistance { get; set; } = DefaultReturnHomeAfterCombatDistance;
+
     public bool SitWhenNoTargetAtHome { get; set; }
 
     public List<string> ActiveMonsterNameFilters { get; set; } = new();
@@ -290,6 +296,8 @@ public sealed class CombatScriptSettings
             SmartPreAimUseFightTargetPosition = SmartPreAimUseFightTargetPosition,
             SmartPreAimResponsiveSwitching = SmartPreAimResponsiveSwitching,
             ReturnHomeWhenNoTarget = ReturnHomeWhenNoTarget,
+            ReturnHomeAfterCombat = ReturnHomeAfterCombat,
+            ReturnHomeAfterCombatDistance = ReturnHomeAfterCombatDistance,
             SitWhenNoTargetAtHome = SitWhenNoTargetAtHome,
             ActiveMonsterNameFilters = ActiveMonsterNameFilters?.ToList() ?? new List<string>(),
             HasStationaryCombatPosition = HasStationaryCombatPosition,

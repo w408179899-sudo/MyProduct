@@ -36,6 +36,17 @@ public sealed class StationaryCombatState
 
     public bool ReturningHome { get; set; }
 
+    // Separate from outside-radius return: this request survives defensive fights and loot.
+    public bool PostCombatReturnPending { get; set; }
+
+    public bool PostCombatReturningHome { get; set; }
+
+    public void ClearPostCombatReturn()
+    {
+        PostCombatReturnPending = false;
+        PostCombatReturningHome = false;
+    }
+
     public bool Fighting { get; set; }
 
     public bool IsMovingForward { get; set; }
@@ -261,6 +272,7 @@ public sealed class StationaryCombatState
 
     public void EnterDeathRecovery(DateTimeOffset now)
     {
+        ClearPostCombatReturn();
         ReturnNavigationBlocked = false;
         ReturnRouteRejoinAttempted = false;
         ObstacleNavigation.ClearRoute();
@@ -912,6 +924,7 @@ public sealed class StationaryCombatState
 
     public void StartCleanupReturnToCombat()
     {
+        ClearPostCombatReturn();
         CleanupReturnToCombatActive = true;
         StartupRecoveryChecked = false;
         StartupRecoveryActive = false;
@@ -963,6 +976,7 @@ public sealed class StationaryCombatState
         IReadOnlyList<Vector3Snapshot> points,
         int pointIndex)
     {
+        ClearPostCombatReturn();
         ClearNoTargetRest();
         ResetStartupTownReturn();
         StartupRecoveryChecked = true;
@@ -979,6 +993,7 @@ public sealed class StationaryCombatState
         Vector3Snapshot startPosition,
         DateTimeOffset now)
     {
+        ClearPostCombatReturn();
         ClearNoTargetRest();
         StartupRecoveryChecked = true;
         StartupRecoveryActive = false;

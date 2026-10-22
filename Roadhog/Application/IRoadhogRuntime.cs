@@ -24,6 +24,8 @@ public interface IRoadhogRuntime
 
     void ApplyRadarObstacleSettings(string accountName, RadarObstacleScriptSettings settings);
 
+    void ApplyPostCombatReturnSettings(string accountName, bool enabled, double distance);
+
     void NotifyRadarMapSaved(uint mapId);
 
     Task<RadarLiveSnapshot> ReadRadarSnapshotAsync(

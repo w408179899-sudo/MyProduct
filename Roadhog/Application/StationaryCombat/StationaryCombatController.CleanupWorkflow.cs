@@ -31,6 +31,7 @@ public sealed partial class StationaryCombatController
     public async Task<bool> PrepareCleanupTickAsync(AccountWorkerContext context, SemiAutoSkillPlan plan,
         SemiAutoCombatState semiAutoState, StationaryCombatState state)
     {
+        state.ClearPostCombatReturn();
         await SetChannelSwitchPendingAsync(context, state, true);
         if ((await TickPlayerLifeGuardAsync(context, plan, semiAutoState, state, followRevivePath: true)).HasValue) return false;
         var player = await ReadPlayerAsync(context);
@@ -67,6 +68,7 @@ public sealed partial class StationaryCombatController
         await StopMovementAsync(context, state, releaseRightMouse: true);
         StopPathFollowPoller(state);
         state.ClearTarget(); state.ClearLootAfterKill(); state.ClearStartupRecovery(); state.Gather.Reset();
+        state.ClearPostCombatReturn();
         semiAutoState.ResetAttackWeaveStates(); semiAutoState.ResetAttackKeyPressThrottle();
         return true;
     }

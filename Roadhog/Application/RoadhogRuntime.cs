@@ -100,6 +100,9 @@ public sealed partial class RoadhogRuntime : IRoadhogRuntime
         _stationaryObstacleNavigator?.NotifyMapSaved(mapId);
     }
 
+    public void ApplyPostCombatReturnSettings(string accountName, bool enabled, double distance) =>
+        _stationaryCombatController?.SetPostCombatReturnSettings(accountName, enabled, distance);
+
     public async Task<RadarLiveSnapshot> ReadRadarSnapshotAsync(
         string accountName,
         CancellationToken cancellationToken = default)
