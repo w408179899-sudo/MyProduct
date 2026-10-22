@@ -549,6 +549,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("food maintenance actual worker waits for combat to end", FoodMaintenanceTests.WorkerAsync),
     ("food maintenance selected quickbar priority guards and bag fallback", FoodMaintenanceTests.QuickbarAsync),
     ("equipment upgrade loops failures full sockets and level ten", EquipmentUpgradeTests.LoopsAsync),
+    ("equipment upgrade direct item movement skips fixed point and cancels", EquipmentUpgradeTests.DirectItemMovementAsync),
     ("equipment upgrade per-equipment material choices", EquipmentUpgradeTests.PerEquipmentMaterialsAsync),
     ("equipment upgrade batch plan and completion space loop", EquipmentUpgradeTests.BatchAsync),
     ("equipment upgrade batch RPC stop and real interval", EquipmentUpgradeTests.BatchRpcStopAsync),

@@ -88,6 +88,38 @@ internal static class EquipmentUpgradeTests
         Require(result.Success && result.Value!.Attempts == 1 && result.Value.Completed == 1, "material exhausted stops without using other types");
     }
 
+    public static async Task DirectItemMovementAsync()
+    {
+        foreach (var kind in Enum.GetValues<EquipmentUpgradeKind>())
+        {
+            foreach (var start in new[] { new GameUiPoint(0, 0), new GameUiPoint(200, 100) })
+            {
+                var game = new Simulation(kind);
+                game.Api.InventoryUiCursor = start;
+                var visits = new List<GameUiPoint>();
+                var move = game.Input.AfterMove;
+                game.Input.AfterMove = (x, y) => { move?.Invoke(x, y); visits.Add(game.Api.InventoryUiCursor); };
+                var result = await game.Run();
+                Require(result.Success && result.Value!.Attempts == 2 && result.Value.Completed == 2,
+                    kind + " completes both equipment items from cursor " + start + ": " + result.Error);
+                Require(!visits.Any(p => Math.Abs(p.X - 680) <= 1 && Math.Abs(p.Y - 468) <= 1),
+                    kind + " material and equipment clicks must not detour through the fixed point");
+                Require(game.Used.SequenceEqual(new[] { (11u, 13u), (12u, 13u) }) && game.Confirmed == 4,
+                    kind + " direct movement preserves material identity and both confirmation steps");
+            }
+
+            var cancelled = new Simulation(kind);
+            cancelled.Api.InventoryUiCursor = new(0, 0);
+            using var stop = new CancellationTokenSource();
+            var cancelledMove = cancelled.Input.AfterMove;
+            cancelled.Input.AfterMove = (x, y) => { cancelledMove?.Invoke(x, y); stop.Cancel(); };
+            Require(!(await cancelled.Run(stop.Token)).Success && cancelled.Confirmed == 0 &&
+                !cancelled.Input.MouseCommands.Any(command => command.StartsWith("down:")) &&
+                cancelled.Input.MouseCommands.TakeLast(2).SequenceEqual(new[] { "up:Left", "up:Right" }),
+                kind + " cancellation during movement prevents clicks and releases both buttons");
+        }
+    }
+
     public static async Task PerEquipmentMaterialsAsync()
     {
         foreach (var kind in Enum.GetValues<EquipmentUpgradeKind>())
