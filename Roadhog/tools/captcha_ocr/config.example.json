@@ -1,0 +1,6 @@
+{
+  "dll_path": "C:/path/to/lh.dll",
+  "host_path": "LhOcrHost.exe",
+  "threads": 2,
+  "timeout_seconds": 30
+}
