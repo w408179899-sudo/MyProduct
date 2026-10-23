@@ -1,0 +1,4 @@
+# Preserve the original bytes recorded in each evidence SHA256 manifest.
+# Historical whitespace is part of the evidence and must not be rewritten.
+captcha-ocr-2026-10-23/** -text -whitespace
+uu-acceleration-2026-10-23/** -text -whitespace

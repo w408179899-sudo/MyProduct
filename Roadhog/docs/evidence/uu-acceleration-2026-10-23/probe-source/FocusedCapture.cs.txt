@@ -1,0 +1,126 @@
+using System.Buffers.Binary;
+using System.Text;
+using System.Text.Json;
+using Vmmsharp;
+
+internal static class FocusedCapture
+{
+    private const uint NoCache=1;
+    public static object Run(VmmProcess process,string baselinePath,string? selection=null,string? selectedAddress=null)
+    {
+        using var baseline=JsonDocument.Parse(File.ReadAllText(baselinePath));
+        var oldProcess=baseline.RootElement.GetProperty("Processes").EnumerateArray().Single(x=>x.GetProperty("sName").GetString()=="uu.exe");
+        var info=process.GetInfo();
+        if(oldProcess.GetProperty("dwPID").GetUInt32()!=info.dwPID || Parse(oldProcess.GetProperty("Eprocess").GetString()!)!=info.vaEPROCESS)
+            throw new InvalidOperationException("Focused baseline is from a different UU process session.");
+        var oldManager=baseline.RootElement.GetProperty("Ui").GetProperty("Managers").EnumerateArray().Single(m=>m.GetProperty("Controls").GetArrayLength()>0);
+        ulong manager=Parse(oldManager.GetProperty("Address").GetString()!);
+        byte[] managerFields=Read(process,manager,0x31c);
+        uint hwnd=U32(managerFields,0xc),root=U32(managerFields,0x60),dpiPointer=U32(managerFields,0x318);
+        if(hwnd!=Parse(oldManager.GetProperty("Hwnd").GetString()!)||root!=Parse(oldManager.GetProperty("Root").GetString()!))throw new InvalidOperationException("UI manager identity changed.");
+        var dpiBytes=Read(process,dpiPointer,12);
+        int[] dpi=[I32(dpiBytes,0),I32(dpiBytes,4),I32(dpiBytes,8)];
+        if(dpi[0]!=100||dpi[1]!=100||dpi[2]!=2)throw new InvalidOperationException("DPI differs from validated layout.");
+        ulong shared=process.GetProcAddress("user32.dll","gSharedInfo");
+        if(shared==0)throw new InvalidOperationException("User32 shared info unavailable.");
+        var sharedBytes=Read(process,shared,24);
+        ulong handleArray=U64(sharedBytes,8);
+        uint entrySize=U32(sharedBytes,16);
+        if(entrySize!=32)throw new InvalidOperationException("Unexpected USER handle entry size.");
+        ulong entryAddress=handleArray+(hwnd&0xffff)*entrySize;
+        var entry=Read(process,entryAddress,32);
+        if(entry[0x18]!=1||(entry[0x19]&1)!=0||U16(entry,0x1a)!=(hwnd>>16))throw new InvalidOperationException("Window handle type/generation invalid.");
+        ulong owner=U64(entry,8);
+        var thread=process.MapThread().Single(t=>t.dwTID==owner);
+        var clientInfo=Read(process,thread.vaTeb+0x800,0x50);
+        ulong desktopInfo=U64(clientInfo,0x20),desktopBase=U64(clientInfo,0x28);
+        if(U64(Read(process,desktopInfo,8),0)!=U64(entry,0x10))throw new InvalidOperationException("USER desktop identity mismatch.");
+        ulong windowAddress=desktopBase+U64(entry,0);
+        var window=Read(process,windowAddress,0x130);
+        if(U64(window,0)!=hwnd)throw new InvalidOperationException("USER window header does not match manager HWND.");
+        if((U16(window,0x2a)&0x2fff)==0x29d||(window[0x1a]&0x40)!=0)throw new InvalidOperationException("Special or RTL window requires different coordinate conversion.");
+        int[] windowRect=Rect(window,0x58),clientRect=Rect(window,0x68);
+        var rootData=Read(process,root,0x370);
+        int[] rootRect=Rect(rootData,0x260);
+        if(U32(rootData,0x14c)!=manager||U32(rootData,0x150)!=0||rootRect[0]!=0||rootRect[1]!=0||clientRect[2]-clientRect[0]!=rootRect[2]||clientRect[3]-clientRect[1]!=rootRect[3])
+            throw new InvalidOperationException("Client geometry does not match UI root.");
+        var controls=new List<object>();
+        var captured=new List<(ulong Address,byte[] Data)>();
+        var oldNodes=oldManager.GetProperty("Controls").EnumerateArray().ToArray();
+        var byAddress=oldNodes.ToDictionary(n=>n.GetProperty("Address").GetString()!);
+        bool Under(JsonElement node,string ancestorName)
+        {
+            for(int depth=0;depth<40;depth++)
+            {
+                if(node.GetProperty("Name").GetString()==ancestorName)return true;
+                if(!byAddress.TryGetValue(node.GetProperty("Parent").GetString()!,out node))return false;
+            }
+            return false;
+        }
+        string[] names=selection=="pages" ? ["child_home_page","child_game","child_game_accing","child_game_acced"] : selection is null ? ["child_game_acced","game_name","launch_game","stop_acc","acced_time"] : [selection];
+        var selectedNodes=selection=="cycle"
+            ? oldNodes.Where(n=>new[]{"child_home_page","child_game","child_game_accing","child_game_acced"}.Contains(n.GetProperty("Name").GetString()) || Under(n,"game_card_0")&&new[]{"game_card_0","normal_shade","start_acc","game_name","accing_shade","acc_progress","acced_shade"}.Contains(n.GetProperty("Name").GetString()) || Under(n,"child_game_acced")&&new[]{"launch_game","stop_acc","acced_time"}.Contains(n.GetProperty("Name").GetString())).ToArray()
+            : names.Select(name=>oldNodes.Single(n=>n.GetProperty("Name").GetString()==name&&(selection=="pages" || selectedAddress is not null ? selection=="pages" || n.GetProperty("Address").GetString()==selectedAddress : n.GetProperty("Visible").GetBoolean()&&n.GetProperty("AncestorsVisible").GetBoolean()))).ToArray();
+        foreach(var previous in selectedNodes)
+        {
+            string name=previous.GetProperty("Name").GetString()!;
+            ulong address=Parse(previous.GetProperty("Address").GetString()!);
+            var data=Read(process,address,0x370);
+            if(U32(data,0x14c)!=manager||ReadString(process,U32(data,0x1d8))!=name)throw new InvalidOperationException("Control identity mismatch: "+name);
+            bool visible=data[0x2b0]==1&&data[0x2b1]==1, enabled=data[0x2b2]==1;
+            var ancestors=new List<string>();
+            ulong ancestor=U32(data,0x150);
+            bool reachesRoot=address==root;
+            for(int depth=0;ancestor!=0&&depth<40;depth++)
+            {
+                var ancestorData=Read(process,ancestor,0x2b4);
+                if(U32(ancestorData,0x14c)!=manager)throw new InvalidOperationException("Control ancestor manager mismatch.");
+                visible &= ancestorData[0x2b0]==1&&ancestorData[0x2b1]==1;
+                enabled &= ancestorData[0x2b2]==1;
+                ancestors.Add(Hex(ancestor));
+                if(ancestor==root){reachesRoot=true;break;}
+                ancestor=U32(ancestorData,0x150);
+            }
+            if(!reachesRoot)throw new InvalidOperationException("Control detached from current root.");
+            int[] rect=Rect(data,0x260);
+            if(visible&&(rect[0]<rootRect[0]||rect[1]<rootRect[1]||rect[2]>rootRect[2]||rect[3]>rootRect[3]||rect[2]<=rect[0]||rect[3]<=rect[1]))throw new InvalidOperationException("Control rectangle outside root.");
+            string? text=name.StartsWith("child_")||name.StartsWith("game_card")||name.EndsWith("_shade")||name is "acc_progress" or "start_acc"?null:ReadString(process,U32(data,0x2e4));
+            int centerX=(rect[0]+rect[2])/2,centerY=(rect[1]+rect[3])/2;
+            controls.Add(new{Name=name,Address=Hex(address),VisibleThroughRoot=visible,EnabledThroughRoot=enabled,Text=text,ClientRect=rect,ClientCenter=new[]{centerX,centerY},ScreenRect=new[]{rect[0]+clientRect[0],rect[1]+clientRect[1],rect[2]+clientRect[0],rect[3]+clientRect[1]},ScreenCenter=new[]{centerX+clientRect[0],centerY+clientRect[1]},AncestorChain=ancestors});
+            captured.Add((address,data));
+        }
+        foreach(var (address,data) in captured)
+        {
+            var again=Read(process,address,0x370);
+            foreach(var (offset,length) in new[]{(0x14c,8),(0x1d8,4),(0x260,16),(0x2b0,3)})
+                if(!again.AsSpan(offset,length).SequenceEqual(data.AsSpan(offset,length)))throw new InvalidOperationException("Control geometry/identity/flags changed while capturing.");
+        }
+        var windowAgain=Read(process,windowAddress,0x130);
+        if(!windowAgain.AsSpan(0x58,32).SequenceEqual(window.AsSpan(0x58,32))||U64(windowAgain,0)!=hwnd||!Read(process,entryAddress,32).AsSpan().SequenceEqual(entry))throw new InvalidOperationException("Window moved or handle changed while capturing.");
+        var managerAgain=Read(process,manager,0x64);
+        if(U32(managerAgain,0xc)!=hwnd||U32(managerAgain,0x60)!=root)throw new InvalidOperationException("Manager changed while capturing.");
+        return new{CapturedUtc=DateTimeOffset.UtcNow,Manager=Hex(manager),Root=Hex(root),Hwnd=Hex(hwnd),UiThreadId=owner,Teb=Hex(thread.vaTeb),HandleEntry=Hex(entryAddress),DesktopInfo=Hex(desktopInfo),DesktopMappingBase=Hex(desktopBase),WindowObject=Hex(windowAddress),WindowRect=windowRect,ClientScreenRect=clientRect,RootClientRect=rootRect,Dpi=dpi,Controls=controls,AllRequestedReadsComplete=true,GeometryAndIdentityRevalidated=true,InputSent=false,TargetWrites=false,BackendVpnStatusEnumDecoded=false};
+    }
+    private static byte[] Read(VmmProcess p,ulong address,int length)
+    {
+        if(address<0x10000||length<0||length>4096)throw new InvalidOperationException("Invalid focused read range.");
+        var data=p.MemRead(address,(uint)length,NoCache);
+        if(data is null||data.Length!=length)throw new InvalidOperationException($"Incomplete focused read at {Hex(address)}.");
+        return data;
+    }
+    private static string ReadString(VmmProcess p,uint pointer)
+    {
+        int length=Math.Min(256,4096-(int)(pointer%4096));
+        var data=Read(p,pointer,length);int end=0;
+        while(end+1<data.Length&&(data[end]!=0||data[end+1]!=0))end+=2;
+        if(end+1>=data.Length)throw new InvalidOperationException("UI text terminator unavailable.");
+        return Encoding.Unicode.GetString(data,0,end);
+    }
+    private static int[] Rect(byte[] b,int o)=>[I32(b,o),I32(b,o+4),I32(b,o+8),I32(b,o+12)];
+    private static ulong Parse(string s)=>Convert.ToUInt64(s[2..],16);
+    private static string Hex(ulong p)=>$"0x{p:X}";
+    private static ushort U16(byte[] b,int o)=>BinaryPrimitives.ReadUInt16LittleEndian(b.AsSpan(o,2));
+    private static uint U32(byte[] b,int o)=>BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(o,4));
+    private static int I32(byte[] b,int o)=>BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(o,4));
+    private static ulong U64(byte[] b,int o)=>BinaryPrimitives.ReadUInt64LittleEndian(b.AsSpan(o,8));
+}

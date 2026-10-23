@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <Container name="game_card" width="218" height="360" >
+    <VerticalLayout>
+      <Label name="game_pic" width="218" height="320" />
+      <Label name="game_name" padding="0,16,0,0" width="218" height="24" font="1" align="center" textcolor="#FFBCC0D4" endellipsis="true" />
+    </VerticalLayout>
+
+    <MPng name="card_shade" float="true" mouse="false" pos="0,0,218,320" elapse="20" allrepeat="false" autoplay="false"
+            mpng="file='v40/mpng/card_shade/card_shade_1.png' corner='7,0,7,320'"
+            mpng="file='v40/mpng/card_shade/card_shade_2.png' corner='7,0,7,320'"
+            mpng="file='v40/mpng/card_shade/card_shade_3.png' corner='7,0,7,320'"
+            mpng="file='v40/mpng/card_shade/card_shade_4.png' corner='7,0,7,320'"
+            mpng="file='v40/mpng/card_shade/card_shade_5.png' corner='7,0,7,320'"
+            mpng="file='v40/mpng/card_shade/card_shade_6.png' corner='7,0,7,320'"
+            mpng="file='v40/mpng/card_shade/card_shade_7.png' corner='7,0,7,320'"
+            mpng="file='v40/mpng/card_shade/card_shade_8.png' corner='7,0,7,320'"
+            mpng="file='v40/mpng/card_shade/card_shade_9.png' corner='7,0,7,320'"
+            mpng="file='v40/mpng/card_shade/card_shade_10.png' corner='7,0,7,320'"
+            mpng="file='v40/mpng/card_shade/card_shade_11.png' corner='7,0,7,320'"
+            mpng="file='v40/mpng/card_shade/card_shade_12.png' corner='7,0,7,320'" />
+
+    <Container name="normal_shade" visible="false" float="true" pos="0,0,218,320" >
+      <Button float="true" pos="128,12,146,30" name="show_node" normalimage="v40/button/card_node_normal.png" pushedimage="v40/button/card_node_pushed.png" />
+      <Button float="true" pos="158,12,176,30"  name="top" normalimage="v40/button/card_top_normal.png" pushedimage="v40/button/card_top_pushed.png" />
+      <Button float="true" pos="188,12,206,30" name="delete" normalimage="v40/button/card_delete_normal.png" pushedimage="v40/button/card_delete_pushed.png" />
+
+      <Button float="true" pos="53,275,165,299" name="start_acc" text="%{1300}" font="8" textcolor="#FF08ECE3" align="left" valign="vcenter" normalimage="file='v40/button/card_acc_normal.png' dest='92,3,112,23'" /> 
+    </Container>
+
+    <VerticalLayout name="acced_shade" visible="true" float="true" pos="0,0,218,320" bkimage="v40/label/card_shade_acced.png" >
+      <Label padding="75,56,0,0" width="68" height="18" text="%{1291}" font="15" align="center" valign="vcenter" textcolor="#FFD8D8D8" bkimage="v40/label/card_acced_tip.png"/>
+      <HorizontalLayout height="50" >
+        <Label name="card_acced_tip" padding="56,0,0,0" width="68" height="50" text="186" font="11" valign="bottom" textcolor="#FFFFFFFF" />
+        <Label name="card_acced_tip_desc" width="20" height="50" text="Ms" font="13" valign="bottom" textcolor="#FFFFFFFF" />
+      </HorizontalLayout>
+      <Button name="acc_detail" text="%{1301}" font="14" padding="40,74,0,0" width="138" height="32" textcolor="#FFFFFFFF" normalimage="file='v40/button/common_light_normal.png' corner='8,8,8,8'" hotimage="file='v40/button/common_light_hover.png' corner='8,8,8,8'" pushedimage="file='v40/button/common_light_pushed.png' corner='8,8,8,8'"/>
+      <Button name="stop_acc" text="%{1279}" font="14" padding="40,18,0,0" width="138" height="32" textcolor="#FFFFFFFF" normalimage="file='v40/button/common_dark_normal.png' corner='8,8,8,8'" hotimage="file='v40/button/common_dark_hover.png' corner='8,8,8,8'" pushedimage="file='v40/button/common_dark_pushed.png' corner='8,8,8,8'" />
+    </VerticalLayout>
+    <Progress visible="false" name="acc_progress" padding="0,20,0,0" width="230" height="4" value ="60" bkimage="v40/progress/progress_bk.png" foreimage="v40/progress/progress_fore.png" />
+
+  </Container>
+
+</root>

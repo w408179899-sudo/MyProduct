@@ -1,0 +1,2894 @@
+{
+  "artifact_sha256": "1939022846a612be7802794c0c6f5d5d2ee38146b4ec47d48cdcc9f16f9bb72c",
+  "observations": [
+    {
+      "export": "??_7CButtonUI@DuiLib@@6B@",
+      "vtable_rva": "0x1a0444",
+      "col_rva": "0x1b48d0",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCButtonUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCButtonUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCLabelUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CCheckBoxUI@DuiLib@@6B@",
+      "vtable_rva": "0x1a0740",
+      "col_rva": "0x1b472c",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCCheckBoxUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCCheckBoxUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCOptionUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCButtonUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCLabelUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CChildLayoutUI@DuiLib@@6BCControlUI@1@@",
+      "vtable_rva": "0x19e534",
+      "col_rva": "0x1b40b8",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCChildLayoutUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCChildLayoutUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CChildLayoutUI@DuiLib@@6BIContainerUI@1@@",
+      "vtable_rva": "0x19e72c",
+      "col_rva": "0x1b410c",
+      "col_signature": 0,
+      "col_subobject_offset": 1896,
+      "type": ".?AVCChildLayoutUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCChildLayoutUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CComboUI@DuiLib@@6B@",
+      "vtable_rva": "0x19f948",
+      "col_rva": "0x1b4658",
+      "col_signature": 0,
+      "col_subobject_offset": 1992,
+      "type": ".?AVCComboUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCComboUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListOwnerUI@DuiLib@@",
+          "mdisp": 1992,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CComboUI@DuiLib@@6BCControlUI@1@@",
+      "vtable_rva": "0x19f720",
+      "col_rva": "0x1b45d0",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCComboUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCComboUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListOwnerUI@DuiLib@@",
+          "mdisp": 1992,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CComboUI@DuiLib@@6BIContainerUI@1@@",
+      "vtable_rva": "0x19f918",
+      "col_rva": "0x1b4644",
+      "col_signature": 0,
+      "col_subobject_offset": 1896,
+      "type": ".?AVCComboUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCComboUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListOwnerUI@DuiLib@@",
+          "mdisp": 1992,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CContainerUI@DuiLib@@6BCControlUI@1@@",
+      "vtable_rva": "0x19d9b4",
+      "col_rva": "0x1b3dd4",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCContainerUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CContainerUI@DuiLib@@6BIContainerUI@1@@",
+      "vtable_rva": "0x19dbac",
+      "col_rva": "0x1b3de8",
+      "col_signature": 0,
+      "col_subobject_offset": 1896,
+      "type": ".?AVCContainerUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CControlUI@DuiLib@@6B@",
+      "vtable_rva": "0x19d808",
+      "col_rva": "0x1b3c74",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCControlUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CCurveUI@DuiLib@@6B@",
+      "vtable_rva": "0x198de4",
+      "col_rva": "0x1b31c0",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCCurveUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCCurveUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CDateTimeUI@DuiLib@@6B@",
+      "vtable_rva": "0x1a0df4",
+      "col_rva": "0x1b4a24",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCDateTimeUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCDateTimeUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCLabelUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CDelegateBase@DuiLib@@6B@",
+      "vtable_rva": "0x1a1490",
+      "col_rva": "0x1b4b90",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCDelegateBase@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCDelegateBase@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CEditExUI@DuiLib@@6B@",
+      "vtable_rva": "0x198fd0",
+      "col_rva": "0x1b3240",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCEditExUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCEditExUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCLabelUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CEditUI@DuiLib@@6B@",
+      "vtable_rva": "0x1a02c8",
+      "col_rva": "0x1b4880",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCEditUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCEditUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCLabelUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CGifAnimUI@DuiLib@@6B@",
+      "vtable_rva": "0x199450",
+      "col_rva": "0x1b3328",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCGifAnimUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCGifAnimUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CHorizontalLayoutUI@DuiLib@@6BCControlUI@1@@",
+      "vtable_rva": "0x19debc",
+      "col_rva": "0x1b3f80",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCHorizontalLayoutUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCHorizontalLayoutUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CHorizontalLayoutUI@DuiLib@@6BIContainerUI@1@@",
+      "vtable_rva": "0x19e0b4",
+      "col_rva": "0x1b3fd4",
+      "col_signature": 0,
+      "col_subobject_offset": 1896,
+      "type": ".?AVCHorizontalLayoutUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCHorizontalLayoutUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CLabelUI@DuiLib@@6B@",
+      "vtable_rva": "0x19ffd0",
+      "col_rva": "0x1b4784",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCLabelUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCLabelUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CLineChartUI@DuiLib@@6BCControlUI@1@@",
+      "vtable_rva": "0x199684",
+      "col_rva": "0x1b3400",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCLineChartUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCLineChartUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CLineChartUI@DuiLib@@6BIContainerUI@1@@",
+      "vtable_rva": "0x19987c",
+      "col_rva": "0x1b3454",
+      "col_signature": 0,
+      "col_subobject_offset": 1896,
+      "type": ".?AVCLineChartUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCLineChartUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CListBodyUI@DuiLib@@6BCControlUI@1@@",
+      "vtable_rva": "0x19ea18",
+      "col_rva": "0x1b4268",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCListBodyUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCListBodyUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCVerticalLayoutUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CListBodyUI@DuiLib@@6BIContainerUI@1@@",
+      "vtable_rva": "0x19ec10",
+      "col_rva": "0x1b42c0",
+      "col_signature": 0,
+      "col_subobject_offset": 1896,
+      "type": ".?AVCListBodyUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCListBodyUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCVerticalLayoutUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CListContainerElementUI@DuiLib@@6B@",
+      "vtable_rva": "0x19f6f8",
+      "col_rva": "0x1b45bc",
+      "col_signature": 0,
+      "col_subobject_offset": 1992,
+      "type": ".?AVCListContainerElementUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCListContainerElementUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListItemUI@DuiLib@@",
+          "mdisp": 1992,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CListContainerElementUI@DuiLib@@6BCControlUI@1@@",
+      "vtable_rva": "0x19f4d0",
+      "col_rva": "0x1b4534",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCListContainerElementUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCListContainerElementUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListItemUI@DuiLib@@",
+          "mdisp": 1992,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CListContainerElementUI@DuiLib@@6BIContainerUI@1@@",
+      "vtable_rva": "0x19f6c8",
+      "col_rva": "0x1b45a8",
+      "col_signature": 0,
+      "col_subobject_offset": 1896,
+      "type": ".?AVCListContainerElementUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCListContainerElementUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListItemUI@DuiLib@@",
+          "mdisp": 1992,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CListElementUI@DuiLib@@6BCControlUI@1@@",
+      "vtable_rva": "0x19efe4",
+      "col_rva": "0x1b43e0",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCListElementUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCListElementUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListItemUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CListElementUI@DuiLib@@6BIListItemUI@1@@",
+      "vtable_rva": "0x19f160",
+      "col_rva": "0x1b444c",
+      "col_signature": 0,
+      "col_subobject_offset": 1896,
+      "type": ".?AVCListElementUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCListElementUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListItemUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CListHeaderItemUI@DuiLib@@6B@",
+      "vtable_rva": "0x19ee68",
+      "col_rva": "0x1b4394",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCListHeaderItemUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCListHeaderItemUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CListHeaderUI@DuiLib@@6BCControlUI@1@@",
+      "vtable_rva": "0x19ec40",
+      "col_rva": "0x1b4120",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCListHeaderUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCListHeaderUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCHorizontalLayoutUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CListHeaderUI@DuiLib@@6BIContainerUI@1@@",
+      "vtable_rva": "0x19ee38",
+      "col_rva": "0x1b4178",
+      "col_signature": 0,
+      "col_subobject_offset": 1896,
+      "type": ".?AVCListHeaderUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCListHeaderUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCHorizontalLayoutUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CListLabelElementUI@DuiLib@@6BCControlUI@1@@",
+      "vtable_rva": "0x19f188",
+      "col_rva": "0x1b4460",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCListLabelElementUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCListLabelElementUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCListElementUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListItemUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CListLabelElementUI@DuiLib@@6BIListItemUI@1@@",
+      "vtable_rva": "0x19f304",
+      "col_rva": "0x1b44b4",
+      "col_signature": 0,
+      "col_subobject_offset": 1896,
+      "type": ".?AVCListLabelElementUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCListLabelElementUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCListElementUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListItemUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CListTextElementUI@DuiLib@@6BCControlUI@1@@",
+      "vtable_rva": "0x19f32c",
+      "col_rva": "0x1b44c8",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCListTextElementUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCListTextElementUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCListLabelElementUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCListElementUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListItemUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CListTextElementUI@DuiLib@@6BIListItemUI@1@@",
+      "vtable_rva": "0x19f4a8",
+      "col_rva": "0x1b4520",
+      "col_signature": 0,
+      "col_subobject_offset": 1896,
+      "type": ".?AVCListTextElementUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCListTextElementUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCListLabelElementUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCListElementUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListItemUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CListUI@DuiLib@@6B@",
+      "vtable_rva": "0x19e9ec",
+      "col_rva": "0x1b4380",
+      "col_signature": 0,
+      "col_subobject_offset": 2032,
+      "type": ".?AVCListUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCListUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCVerticalLayoutUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListUI@DuiLib@@",
+          "mdisp": 2032,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListOwnerUI@DuiLib@@",
+          "mdisp": 2032,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CListUI@DuiLib@@6BCControlUI@1@@",
+      "vtable_rva": "0x19e7c4",
+      "col_rva": "0x1b42d4",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCListUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCListUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCVerticalLayoutUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListUI@DuiLib@@",
+          "mdisp": 2032,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListOwnerUI@DuiLib@@",
+          "mdisp": 2032,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CListUI@DuiLib@@6BIContainerUI@1@@",
+      "vtable_rva": "0x19e9bc",
+      "col_rva": "0x1b436c",
+      "col_signature": 0,
+      "col_subobject_offset": 1896,
+      "type": ".?AVCListUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCListUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCVerticalLayoutUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListUI@DuiLib@@",
+          "mdisp": 2032,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListOwnerUI@DuiLib@@",
+          "mdisp": 2032,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CMpngAnimUI@DuiLib@@6B@",
+      "vtable_rva": "0x199f74",
+      "col_rva": "0x1b3530",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCMpngAnimUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCMpngAnimUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CNotifyPump@DuiLib@@6B@",
+      "vtable_rva": "0x19d7d8",
+      "col_rva": "0x1b3c88",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCNotifyPump@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCNotifyPump@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7COptionUI@DuiLib@@6B@",
+      "vtable_rva": "0x1a05c0",
+      "col_rva": "0x1b4798",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCOptionUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCOptionUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCButtonUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCLabelUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CPopUpWnd@DuiLib@@6BCWindowWnd@1@@",
+      "vtable_rva": "0x19a3d0",
+      "col_rva": "0x1b36dc",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCPopUpWnd@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCPopUpWnd@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCWindowWnd@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVINotifyUI@DuiLib@@",
+          "mdisp": 28,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CPopUpWnd@DuiLib@@6BINotifyUI@1@@",
+      "vtable_rva": "0x19a3f0",
+      "col_rva": "0x1b372c",
+      "col_signature": 0,
+      "col_subobject_offset": 28,
+      "type": ".?AVCPopUpWnd@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCPopUpWnd@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCWindowWnd@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVINotifyUI@DuiLib@@",
+          "mdisp": 28,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CProgressUI@DuiLib@@6B@",
+      "vtable_rva": "0x1a08c0",
+      "col_rva": "0x1b48e4",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCProgressUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCProgressUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCLabelUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CRichEditUI@DuiLib@@6B@",
+      "vtable_rva": "0x1a0dec",
+      "col_rva": "0x1b4a10",
+      "col_signature": 0,
+      "col_subobject_offset": 1992,
+      "type": ".?AVCRichEditUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCRichEditUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIMessageFilterUI@DuiLib@@",
+          "mdisp": 1992,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CRichEditUI@DuiLib@@6BCControlUI@1@@",
+      "vtable_rva": "0x1a0bb8",
+      "col_rva": "0x1b4988",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCRichEditUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCRichEditUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIMessageFilterUI@DuiLib@@",
+          "mdisp": 1992,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CRichEditUI@DuiLib@@6BIContainerUI@1@@",
+      "vtable_rva": "0x1a0dbc",
+      "col_rva": "0x1b49fc",
+      "col_signature": 0,
+      "col_subobject_offset": 1896,
+      "type": ".?AVCRichEditUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCRichEditUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIMessageFilterUI@DuiLib@@",
+          "mdisp": 1992,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CScrollBarUI@DuiLib@@6B@",
+      "vtable_rva": "0x19f95c",
+      "col_rva": "0x1b3d88",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCScrollBarUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCScrollBarUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CShadowUI@DuiLib@@6B@",
+      "vtable_rva": "0x19d7c8",
+      "col_rva": "0x1b3c2c",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCShadowUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCShadowUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CSliderUI@DuiLib@@6B@",
+      "vtable_rva": "0x1a0a3c",
+      "col_rva": "0x1b4934",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCSliderUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCSliderUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCProgressUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCLabelUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CTabLayoutUI@DuiLib@@6BCControlUI@1@@",
+      "vtable_rva": "0x19e30c",
+      "col_rva": "0x1b4050",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCTabLayoutUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCTabLayoutUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CTabLayoutUI@DuiLib@@6BIContainerUI@1@@",
+      "vtable_rva": "0x19e504",
+      "col_rva": "0x1b40a4",
+      "col_signature": 0,
+      "col_subobject_offset": 1896,
+      "type": ".?AVCTabLayoutUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCTabLayoutUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CTextUI@DuiLib@@6B@",
+      "vtable_rva": "0x1a014c",
+      "col_rva": "0x1b4830",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCTextUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCTextUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCLabelUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CTileLayoutUI@DuiLib@@6BCControlUI@1@@",
+      "vtable_rva": "0x19e0e4",
+      "col_rva": "0x1b3fe8",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCTileLayoutUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCTileLayoutUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CTileLayoutUI@DuiLib@@6BIContainerUI@1@@",
+      "vtable_rva": "0x19e2dc",
+      "col_rva": "0x1b403c",
+      "col_signature": 0,
+      "col_subobject_offset": 1896,
+      "type": ".?AVCTileLayoutUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCTileLayoutUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CTreeNodeUI@DuiLib@@6B@",
+      "vtable_rva": "0x19fd00",
+      "col_rva": "0x1b481c",
+      "col_signature": 0,
+      "col_subobject_offset": 1992,
+      "type": ".?AVCTreeNodeUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCTreeNodeUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCListContainerElementUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListItemUI@DuiLib@@",
+          "mdisp": 1992,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CTreeNodeUI@DuiLib@@6BCControlUI@1@@",
+      "vtable_rva": "0x19fad8",
+      "col_rva": "0x1b47ac",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCTreeNodeUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCTreeNodeUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCListContainerElementUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListItemUI@DuiLib@@",
+          "mdisp": 1992,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CTreeNodeUI@DuiLib@@6BIContainerUI@1@@",
+      "vtable_rva": "0x19fcd0",
+      "col_rva": "0x1b4808",
+      "col_signature": 0,
+      "col_subobject_offset": 1896,
+      "type": ".?AVCTreeNodeUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCTreeNodeUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCListContainerElementUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListItemUI@DuiLib@@",
+          "mdisp": 1992,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CTreeViewUI@DuiLib@@6BCControlUI@1@@",
+      "vtable_rva": "0x19fd28",
+      "col_rva": "0x1b466c",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCTreeViewUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCTreeViewUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCListUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCVerticalLayoutUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListUI@DuiLib@@",
+          "mdisp": 2032,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListOwnerUI@DuiLib@@",
+          "mdisp": 2032,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVINotifyUI@DuiLib@@",
+          "mdisp": 3976,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CTreeViewUI@DuiLib@@6BCListUI@1@@",
+      "vtable_rva": "0x19ff9c",
+      "col_rva": "0x1b4704",
+      "col_signature": 0,
+      "col_subobject_offset": 2032,
+      "type": ".?AVCTreeViewUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCTreeViewUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCListUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCVerticalLayoutUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListUI@DuiLib@@",
+          "mdisp": 2032,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListOwnerUI@DuiLib@@",
+          "mdisp": 2032,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVINotifyUI@DuiLib@@",
+          "mdisp": 3976,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CTreeViewUI@DuiLib@@6BIContainerUI@1@@",
+      "vtable_rva": "0x19ff6c",
+      "col_rva": "0x1b46f0",
+      "col_signature": 0,
+      "col_subobject_offset": 1896,
+      "type": ".?AVCTreeViewUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCTreeViewUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCListUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCVerticalLayoutUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListUI@DuiLib@@",
+          "mdisp": 2032,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListOwnerUI@DuiLib@@",
+          "mdisp": 2032,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVINotifyUI@DuiLib@@",
+          "mdisp": 3976,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CTreeViewUI@DuiLib@@6BINotifyUI@1@@",
+      "vtable_rva": "0x19ffc8",
+      "col_rva": "0x1b4718",
+      "col_signature": 0,
+      "col_subobject_offset": 3976,
+      "type": ".?AVCTreeViewUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCTreeViewUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCListUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCVerticalLayoutUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListUI@DuiLib@@",
+          "mdisp": 2032,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIListOwnerUI@DuiLib@@",
+          "mdisp": 2032,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVINotifyUI@DuiLib@@",
+          "mdisp": 3976,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CUIPopUp@DuiLib@@6BCControlUI@1@@",
+      "vtable_rva": "0x19a3f8",
+      "col_rva": "0x1b365c",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCUIPopUp@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCUIPopUp@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIMessageFilterUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CUIPopUp@DuiLib@@6BIMessageFilterUI@1@@",
+      "vtable_rva": "0x19a578",
+      "col_rva": "0x1b36c8",
+      "col_signature": 0,
+      "col_subobject_offset": 1896,
+      "type": ".?AVCUIPopUp@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCUIPopUp@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIMessageFilterUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CVerticalLayoutUI@DuiLib@@6BCControlUI@1@@",
+      "vtable_rva": "0x19dc94",
+      "col_rva": "0x1b3f18",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCVerticalLayoutUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCVerticalLayoutUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CVerticalLayoutUI@DuiLib@@6BIContainerUI@1@@",
+      "vtable_rva": "0x19de8c",
+      "col_rva": "0x1b3f6c",
+      "col_signature": 0,
+      "col_subobject_offset": 1896,
+      "type": ".?AVCVerticalLayoutUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCVerticalLayoutUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCContainerUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIContainerUI@DuiLib@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": true
+    },
+    {
+      "export": "??_7CWebBrowserEventHandler@DuiLib@@6B@",
+      "vtable_rva": "0x1a0f70",
+      "col_rva": "0x1b4a74",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCWebBrowserEventHandler@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCWebBrowserEventHandler@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AUIDispatch@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AUIUnknown@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CWebInterfaceUI@DuiLib@@6B@",
+      "vtable_rva": "0x19a5fc",
+      "col_rva": "0x1b3740",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCWebInterfaceUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCWebInterfaceUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CWebview2UI@DuiLib@@6BCWebInterfaceUI@1@@",
+      "vtable_rva": "0x19ab34",
+      "col_rva": "0x1b37d4",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCWebview2UI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCWebview2UI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCWebInterfaceUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVWebview2QueryInterface@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CWebview2UI@DuiLib@@6BWebview2QueryInterface@@@",
+      "vtable_rva": "0x19ad14",
+      "col_rva": "0x1b3844",
+      "col_signature": 0,
+      "col_subobject_offset": 1896,
+      "type": ".?AVCWebview2UI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCWebview2UI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCWebInterfaceUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVWebview2QueryInterface@@",
+          "mdisp": 1896,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7CWindowWnd@DuiLib@@6B@",
+      "vtable_rva": "0x19d7e0",
+      "col_rva": "0x1b3d60",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVCWindowWnd@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVCWindowWnd@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7IMessageFilterUI@DuiLib@@6B@",
+      "vtable_rva": "0x19a3c8",
+      "col_rva": "0x1b3614",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVIMessageFilterUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVIMessageFilterUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7INotifyUI@DuiLib@@6B@",
+      "vtable_rva": "0x199e94",
+      "col_rva": "0x1b3468",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVINotifyUI@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVINotifyUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7ITranslateAccelerator@DuiLib@@6B@",
+      "vtable_rva": "0x19d7d0",
+      "col_rva": "0x1b3cd0",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVITranslateAccelerator@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVITranslateAccelerator@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7UIButtonX@DuiLib@@6B@",
+      "vtable_rva": "0x1989c4",
+      "col_rva": "0x1b3080",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVUIButtonX@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVUIButtonX@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCButtonUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCLabelUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7UIOptionX@DuiLib@@6B@",
+      "vtable_rva": "0x19a168",
+      "col_rva": "0x1b35bc",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVUIOptionX@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVUIOptionX@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCOptionUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCButtonUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCLabelUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCControlUI@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7WindowImplBase@DuiLib@@6BCNotifyPump@1@@",
+      "vtable_rva": "0x19dc74",
+      "col_rva": "0x1b3ec8",
+      "col_signature": 0,
+      "col_subobject_offset": 28,
+      "type": ".?AVWindowImplBase@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVWindowImplBase@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCWindowWnd@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCNotifyPump@DuiLib@@",
+          "mdisp": 28,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVINotifyUI@DuiLib@@",
+          "mdisp": 44,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIMessageFilterUI@DuiLib@@",
+          "mdisp": 48,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIDialogBuilderCallback@DuiLib@@",
+          "mdisp": 52,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7WindowImplBase@DuiLib@@6BCWindowWnd@1@@",
+      "vtable_rva": "0x19dbe4",
+      "col_rva": "0x1b3dfc",
+      "col_signature": 0,
+      "col_subobject_offset": 0,
+      "type": ".?AVWindowImplBase@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVWindowImplBase@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCWindowWnd@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCNotifyPump@DuiLib@@",
+          "mdisp": 28,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVINotifyUI@DuiLib@@",
+          "mdisp": 44,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIMessageFilterUI@DuiLib@@",
+          "mdisp": 48,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIDialogBuilderCallback@DuiLib@@",
+          "mdisp": 52,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7WindowImplBase@DuiLib@@6BIDialogBuilderCallback@1@@",
+      "vtable_rva": "0x19dc8c",
+      "col_rva": "0x1b3f04",
+      "col_signature": 0,
+      "col_subobject_offset": 52,
+      "type": ".?AVWindowImplBase@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVWindowImplBase@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCWindowWnd@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCNotifyPump@DuiLib@@",
+          "mdisp": 28,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVINotifyUI@DuiLib@@",
+          "mdisp": 44,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIMessageFilterUI@DuiLib@@",
+          "mdisp": 48,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIDialogBuilderCallback@DuiLib@@",
+          "mdisp": 52,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7WindowImplBase@DuiLib@@6BIMessageFilterUI@1@@",
+      "vtable_rva": "0x19dc84",
+      "col_rva": "0x1b3ef0",
+      "col_signature": 0,
+      "col_subobject_offset": 48,
+      "type": ".?AVWindowImplBase@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVWindowImplBase@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCWindowWnd@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCNotifyPump@DuiLib@@",
+          "mdisp": 28,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVINotifyUI@DuiLib@@",
+          "mdisp": 44,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIMessageFilterUI@DuiLib@@",
+          "mdisp": 48,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIDialogBuilderCallback@DuiLib@@",
+          "mdisp": 52,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    },
+    {
+      "export": "??_7WindowImplBase@DuiLib@@6BINotifyUI@1@@",
+      "vtable_rva": "0x19dc7c",
+      "col_rva": "0x1b3edc",
+      "col_signature": 0,
+      "col_subobject_offset": 44,
+      "type": ".?AVWindowImplBase@DuiLib@@",
+      "bases": [
+        {
+          "name": ".?AVWindowImplBase@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCWindowWnd@DuiLib@@",
+          "mdisp": 0,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVCNotifyPump@DuiLib@@",
+          "mdisp": 28,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVINotifyUI@DuiLib@@",
+          "mdisp": 44,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIMessageFilterUI@DuiLib@@",
+          "mdisp": 48,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        },
+        {
+          "name": ".?AVIDialogBuilderCallback@DuiLib@@",
+          "mdisp": 52,
+          "pdisp": 4294967295,
+          "vdisp": 0
+        }
+      ],
+      "is_container": false
+    }
+  ]
+}

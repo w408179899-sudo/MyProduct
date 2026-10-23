@@ -1,0 +1,193 @@
+using System.Diagnostics;
+using System.Reflection;
+using System.Security.Cryptography;
+using System.Text.Json;
+using Roadhog.Infrastructure.Hardware;
+using Roadhog.Infrastructure.Vmm;
+using Vmmsharp;
+using Hardware.KmBox;
+
+internal static class Program
+{
+    private const uint NoCache = 1;
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, IncludeFields = true };
+    private static int Main(string[] args)
+    {
+        if (args.FirstOrDefault() == "api")
+        {
+            foreach (var t in new[] { typeof(Vmm), typeof(VmmProcess) })
+            {
+                foreach(var method in t.GetMethods().Where(m => new[]{"Vfs","MapThread","MapHandle","Pdb","GetProc","GetInfo","MapEAT"}.Any(x=>m.Name.Contains(x))))
+                    Console.WriteLine($"{t.Name}: {method}");
+            }
+            foreach(var t in typeof(VmmProcess).GetNestedTypes().Where(t=>t.Name.Contains("Thread")||t.Name.Contains("Handle")))
+                Console.WriteLine($"{t.Name}: "+string.Join(", ", t.GetFields().Select(f=>$"{f.FieldType.Name} {f.Name}")));
+            foreach(var method in typeof(VmmPdb).GetMethods(BindingFlags.Public|BindingFlags.Instance|BindingFlags.DeclaredOnly))Console.WriteLine($"Pdb: {method}");
+            return 0;
+        }
+        var output = Path.GetFullPath(args.Length>1 ? args[1] : "evidence");
+        Directory.CreateDirectory(output);
+        var report = new Dictionary<string,object?> { ["StartedUtc"]=DateTimeOffset.UtcNow, ["TargetWrites"]=false, ["InputSent"]=false, ["Acquisition"]="DMA memory only; no target helper, screenshots or UI interaction" };
+        using var self=Process.GetCurrentProcess();
+        var selfStarted=new DateTimeOffset(self.StartTime.ToUniversalTime());
+        var leases=new DeviceLeaseStore();
+        bool acquired=false;
+        try
+        {
+            using var config=JsonDocument.Parse(File.ReadAllText(@"C:\Users\GoldGiven\Desktop\script\多账号客户端\config\accounts.json"));
+            var account=config.RootElement.GetProperty("Accounts").EnumerateArray().Single(a=>a.GetProperty("AccountName").GetString()=="脚本1");
+            var device=account.GetProperty("VmmDeviceName").GetString()!;
+            var hardware=account.GetProperty("HardwareKey").GetString()!;
+            if(device!="fpga://devindex=5"||hardware!="port:Port_#0005.Hub_#0009")throw new InvalidOperationException("Saved script1 binding changed.");
+            report["Account"]=new{Account="脚本1",Device=device,HardwareKey=hardware};
+            var lease=leases.TryAcquire(self.Id,selfStarted,AppContext.BaseDirectory,hardware,device);
+            if(!lease.Success)throw new InvalidOperationException("Device lease unavailable: "+lease.Error);
+            acquired=true;
+            using var vmm=new SafeMemProcVmm(["-device",device,"-waitinitialize"]);
+            var candidates=vmm.Processes.Select(p=>(Process:p,Info:p.GetInfo())).Where(x=>x.Info.fValid && (x.Info.sName.StartsWith("uu",StringComparison.OrdinalIgnoreCase)||x.Info.sName.Equals("Aion.bin",StringComparison.OrdinalIgnoreCase))).ToArray();
+            var list=new List<object>();
+            report["Processes"]=list;
+            foreach(var (process,info) in candidates)
+            {
+                if(info.dwState!=0)continue;
+                var modules=process.MapModule(false);
+                var main=modules.FirstOrDefault(m=>m.sText.StartsWith(info.sName,StringComparison.OrdinalIgnoreCase));
+                var head=main.vaBase!=0 ? process.MemRead(main.vaBase,4096,NoCache) : null;
+                bool valid=head is {Length:4096} && head[0]=='M' && head[1]=='Z';
+                if(!valid)throw new InvalidOperationException("Main module read incomplete: "+info.sName);
+                list.Add(new { info.dwPID,info.dwPPID,info.sName,info.fWow64,Eprocess=Hex(info.vaEPROCESS),Peb=Hex(info.vaPEB),MainModuleBase=Hex(main.vaBase),main.cbImageSize,HeaderSha256=Convert.ToHexString(SHA256.HashData(head!)),Modules=modules.Select(m=>new{Name=m.sText,Base=Hex(m.vaBase),Size=m.cbImageSize}).ToArray() });
+                Console.WriteLine($"{info.sName} PID={info.dwPID}, WOW64={info.fWow64}, base={Hex(main.vaBase)}, size={main.cbImageSize}, modules={modules.Length}");
+                if(args[0]=="inventory" && info.sName.Equals("uu.exe",StringComparison.OrdinalIgnoreCase))
+                {
+                    var fields=process.MapVAD(true).Select(r=>new{Start=Hex(r.vaStart),End=Hex(r.vaEnd),r.cbSize,r.Protection,r.fPrivateMemory,r.fHeap,r.fImage,r.fFile,r.sText}).ToArray();
+                    Write(Path.Combine(output,$"regions-{info.dwPID}.json"),fields);
+                }
+                if(args[0]=="ui" && info.sName.Equals("uu.exe",StringComparison.OrdinalIgnoreCase))
+                    report["Ui"]=new UiProbe(process,args.Length>2?args[2]:null).Run();
+                if(args[0]=="focused" && info.sName.Equals("uu.exe",StringComparison.OrdinalIgnoreCase))
+                    report["FocusedUi"]=FocusedCapture.Run(process,args[2]);
+                if(args[0]=="control" && info.sName.Equals("uu.exe",StringComparison.OrdinalIgnoreCase))
+                    report["FocusedUi"]=FocusedCapture.Run(process,args[2],args[3],args.Length>4?args[4]:null);
+                if(args[0]=="windows" && info.sName.Equals("uu.exe",StringComparison.OrdinalIgnoreCase))
+                    report["WindowInventory"]=WindowInventory.Run(process);
+                if(args[0]=="click" && info.sName.Equals("uu.exe",StringComparison.OrdinalIgnoreCase))
+                {
+                    string controlName=args[3];
+                    if(!new[]{"stop_acc","game_card_0","start_acc","Ok"}.Contains(controlName))throw new InvalidOperationException("Control is outside authorized acceleration cycle.");
+                    string? controlAddress=args.Length>4?args[4]:null;
+                    report["Acquisition"]="DMA UI reads and explicitly authorized KMBox left click; no target memory writes";
+                    var km=account.GetProperty("KmBox");
+                    using var box=new KmBoxNetDevice(new KmBoxOptions{IpAddress=km.GetProperty("IpAddress").GetString()!,Port=km.GetProperty("Port").GetInt32(),Mac=km.GetProperty("Mac").GetString()!,DefaultClickHoldMs=80});
+                    if(!box.ConnectAsync().GetAwaiter().GetResult())throw new InvalidOperationException("KMBox connection failed.");
+                    try
+                    {
+                        var snapshot=FocusedCapture.Run(process,args[2],controlName,controlAddress);
+                        if(controlName=="Ok")
+                        {
+                            var prompt=FocusedCapture.Run(process,args[2],"tip_desc");
+                            report["ConfirmationPrompt"]=prompt;
+                            string content=JsonSerializer.SerializeToElement(prompt,JsonOptions).GetProperty("Controls").EnumerateArray().Single().GetProperty("Text").GetString()??"";
+                            if(!content.Contains("停止加速")&&!content.Contains("%{1547}"))throw new InvalidOperationException("Confirmation is not the authorized stop-acceleration prompt.");
+                        }
+                        report["BeforeClick"]=snapshot;
+                        var json=JsonSerializer.SerializeToElement(snapshot,JsonOptions);
+                        var selected=json.GetProperty("Controls").EnumerateArray().Single();
+                        if(!selected.GetProperty("VisibleThroughRoot").GetBoolean()||!selected.GetProperty("EnabledThroughRoot").GetBoolean())throw new InvalidOperationException("Selected control is not visible and enabled.");
+                        var center=selected.GetProperty("ScreenCenter");
+                        int x=center[0].GetInt32(),y=center[1].GetInt32();
+                        if(x<0||y<0||x>4096||y>2160)throw new InvalidOperationException("Selected point outside diagnostic input bounds.");
+                        report["InputSent"]=true;
+                        box.MoveMouseToAsync(x,y,new KmBoxAbsoluteMoveOptions{StepDelayMs=30,TargetMoveDurationMs=0}).GetAwaiter().GetResult();
+                        Thread.Sleep(200);
+                        var check=JsonSerializer.SerializeToElement(FocusedCapture.Run(process,args[2],controlName,controlAddress),JsonOptions).GetProperty("Controls").EnumerateArray().Single();
+                        if(!check.GetProperty("VisibleThroughRoot").GetBoolean()||!check.GetProperty("EnabledThroughRoot").GetBoolean()||check.GetProperty("ScreenCenter").GetRawText()!=center.GetRawText())throw new InvalidOperationException("Selected UI control changed before click.");
+                        ulong managerAddress=Convert.ToUInt64(json.GetProperty("Manager").GetString()![2..],16);
+                        var clientTarget=selected.GetProperty("ClientCenter");
+                        var pointerObservations=new List<object>();report["PointerObservations"]=pointerObservations;
+                        bool pointerConfirmed=false;
+                        for(int correction=0;correction<5;correction++)
+                        {
+                            var mouse=process.MemRead(managerAddress+0x80,8,NoCache);
+                            if(mouse is not{Length:8})throw new InvalidOperationException("UU mouse-position diagnostic incomplete; no click sent.");
+                            int mouseX=BitConverter.ToInt32(mouse,0),mouseY=BitConverter.ToInt32(mouse,4);
+                            int dx=clientTarget[0].GetInt32()-mouseX,dy=clientTarget[1].GetInt32()-mouseY;
+                            pointerObservations.Add(new{ClientX=mouseX,ClientY=mouseY,ErrorX=dx,ErrorY=dy});
+                            if(Math.Abs(dx)<=3&&Math.Abs(dy)<=3){pointerConfirmed=true;break;}
+                            if(Math.Abs(dx)>160||Math.Abs(dy)>160||correction==4)break;
+                            box.MoveMouseAsync(dx,dy).GetAwaiter().GetResult();
+                            Thread.Sleep(160);
+                        }
+                        if(!pointerConfirmed)throw new InvalidOperationException("UU observed pointer did not reach selected center; no click sent.");
+                        var hover=process.MemRead(managerAddress+0x68,4,NoCache);
+                        if(hover is not{Length:4})throw new InvalidOperationException("UU hover diagnostic incomplete; no click sent.");
+                        uint hoverAddress=BitConverter.ToUInt32(hover,0);
+                        report["ObservedHoverControl"]=Hex(hoverAddress);
+                        if(controlName is "stop_acc" or "start_acc" or "Ok" && hoverAddress!=Convert.ToUInt64(selected.GetProperty("Address").GetString()![2..],16))throw new InvalidOperationException("UU hover control differs from selected button; no click sent.");
+                        box.ClickAsync(MouseButton.Left).GetAwaiter().GetResult();
+                        report["Click"]=new{Control=controlName,X=x,Y=y,SentUtc=DateTimeOffset.UtcNow,CommandAcknowledged=true};
+                        Console.WriteLine($"Clicked {controlName} at ({x},{y})");
+                        var observations=new List<object>();report["PageObservations"]=observations;
+                        for(int sample=0;sample<30;sample++)
+                        {
+                            try{observations.Add(FocusedCapture.Run(process,args.Length>5?args[5]:args[2],"cycle"));}
+                            catch(Exception ex){observations.Add(new{CapturedUtc=DateTimeOffset.UtcNow,DiagnosticError=ex.Message});}
+                            Thread.Sleep(150);
+                        }
+                    }
+                    finally{box.DisconnectAsync().GetAwaiter().GetResult();report["KmBoxReleased"]=true;}
+                }
+                if(args[0]=="threads" && info.sName.Equals("uu.exe",StringComparison.OrdinalIgnoreCase))
+                {
+                    var threadRecords=new List<object>();
+                    foreach(var thread in process.MapThread())
+                    {
+                        byte[]? client=null;bool clientStable=false;
+                        if(thread.dwTID==2552)
+                        {
+                            client=process.MemRead(thread.vaTeb+0x800,256,NoCache);
+                            var again=process.MemRead(thread.vaTeb+0x800,256,NoCache);
+                            clientStable=client is{Length:256}&&again is{Length:256}&&client.AsSpan().SequenceEqual(again);
+                        }
+                        threadRecords.Add(new{thread.dwTID,Teb=Hex(thread.vaTeb),Start=Hex(thread.vaWin32StartAddress),ClientInfoAddress=Hex(thread.vaTeb+0x800),ClientInfoCompleteAndStable=clientStable,ClientInfo=clientStable?Convert.ToHexString(client!):null});
+                    }
+                    report["UiThreads"]=threadRecords;
+                }
+                if(args[0]=="read" && info.sName.Equals("uu.exe",StringComparison.OrdinalIgnoreCase))
+                {
+                    if(args.Length<3)throw new ArgumentException("Read requires bounded request manifest.");
+                    using var requests=JsonDocument.Parse(File.ReadAllText(args[2]));
+                    var root=requests.RootElement;
+                    if(root.GetProperty("Pid").GetUInt32()!=process.PID || Convert.ToUInt64(root.GetProperty("User32Base").GetString()![2..],16)!=process.GetModuleBase("user32.dll"))throw new InvalidOperationException("Window request process identity mismatch.");
+                    var results=new List<object>();int total=0;
+                    foreach(var request in root.GetProperty("Reads").EnumerateArray())
+                    {
+                        ulong address=Convert.ToUInt64(request.GetProperty("Address").GetString()![2..],16);
+                        uint length=request.GetProperty("Length").GetUInt32();
+                        total+=checked((int)length);
+                        if(length==0||length>16384||total>131072)throw new InvalidOperationException("Read manifest exceeds diagnostic bounds.");
+                        var bytes=process.MemRead(address,length,NoCache);
+                        var verify=process.MemRead(address,length,NoCache);
+                        bool readStable=bytes is not null&&bytes.Length==length&&verify is not null&&bytes.AsSpan().SequenceEqual(verify);
+                        results.Add(new{Name=request.GetProperty("Name").GetString(),Address=Hex(address),Length=length,CompleteAndStable=readStable,Bytes=readStable?Convert.ToHexString(bytes!):null});
+                    }
+                    report["WindowMetadataReads"]=results;
+                    Console.WriteLine($"Window/code diagnostic reads: {results.Count}, requestedBytes={total}");
+                }
+                var after=process.GetInfo();
+                if(!after.fValid||after.dwState!=0||after.vaEPROCESS!=info.vaEPROCESS||after.vaPEB!=info.vaPEB)throw new InvalidOperationException("Process identity changed.");
+            }
+            report["Processes"]=list;
+            report["Status"]="completed";
+            return 0;
+        }
+        catch(Exception ex){report["Status"]="failed";report["Error"]=ex.ToString();Console.WriteLine(ex.Message);return 1;}
+        finally
+        {
+            if(acquired)report["LeaseReleased"]=leases.Release(self.Id,selfStarted).Success;
+            report["CompletedUtc"]=DateTimeOffset.UtcNow;
+            Write(Path.Combine(output,"report.json"),report);
+        }
+    }
+    private static string Hex(ulong v)=>$"0x{v:X}";
+    private static void Write(string path,object data)=>File.WriteAllText(path,JsonSerializer.Serialize(data,JsonOptions));
+}

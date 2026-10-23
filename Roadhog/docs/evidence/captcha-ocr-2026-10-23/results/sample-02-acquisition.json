@@ -1,0 +1,60 @@
+{
+  "StartedUtc": "2026-10-23T02:48:56.3817104+00:00",
+  "CompletedUtc": "2026-10-23T02:49:00.2791811+00:00",
+  "Acquisition": "DMA process memory reads only; no target-side screenshot or helper",
+  "Account": {
+    "AccountName": "脚本1",
+    "Character": "HiApple",
+    "Device": "fpga://devindex=5",
+    "HardwareKey": "port:Port_#0005.Hub_#0009"
+  },
+  "TargetPid": 2292,
+  "TargetIdentity": {
+    "Eprocess": "0xFFFF9E02D19F2340",
+    "Peb": "0x3FF000",
+    "Peb32": "0x400000",
+    "MainModuleBase": "0x400000",
+    "cbImageSize": 2592768,
+    "HeaderSha256": "C4BFE3C9FA083643C55A84E22D1E46201FC3ABA7CF52CCFB25D517CF1B82DA05"
+  },
+  "Status": "completed",
+  "TargetWrites": false,
+  "InputSent": false,
+  "LeaseReleased": true,
+  "PageCounts": {
+    "PlannedPages": 3476,
+    "CompletePages": 3460,
+    "FailedPages": 16
+  },
+  "SelectedImageEvidence": {
+    "Kind": "encoded-image",
+    "Address": "0x6CC1EA8",
+    "Length": 3533,
+    "Format": "JPEG",
+    "Sha256": "8BAA297F85F6C261BAAE1FDF44B1C856782EFF7EE76F92B1CCBB5A682F91C126",
+    "File": "encoded-6CC1EA8.png",
+    "CurrentDialogConfirmed": false
+  },
+  "MatchingEncodedCopies": [
+    {
+      "Kind": "encoded-image",
+      "Address": "0x6CC1EA8",
+      "Length": 3533,
+      "Format": "JPEG",
+      "Sha256": "8BAA297F85F6C261BAAE1FDF44B1C856782EFF7EE76F92B1CCBB5A682F91C126",
+      "File": "encoded-6CC1EA8.png",
+      "CurrentDialogConfirmed": false
+    },
+    {
+      "Kind": "encoded-image",
+      "Address": "0x9EB012B",
+      "Length": 3533,
+      "Format": "JPEG",
+      "Sha256": "8BAA297F85F6C261BAAE1FDF44B1C856782EFF7EE76F92B1CCBB5A682F91C126",
+      "File": "encoded-9EB012B.png",
+      "CurrentDialogConfirmed": false
+    }
+  ],
+  "ImageAssociationBasis": "New complete image hash, two identical encoded copies, visually consistent with the user reference; active UI-control ownership not proven.",
+  "CurrentControlOwnershipProven": false
+}

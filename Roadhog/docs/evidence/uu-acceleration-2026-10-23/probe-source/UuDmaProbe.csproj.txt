@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="vmmsharp"><HintPath>../../Roadhog/Lib/vmmsharp.dll</HintPath></Reference>
+    <Reference Include="Hardware.KmBox"><HintPath>../../Hardware.KmBox/bin/Release/net8.0-windows/Hardware.KmBox.dll</HintPath></Reference>
+    <Compile Include="../../Roadhog/Infrastructure/Hardware/DeviceLeaseStore.cs" Link="DeviceLeaseStore.cs" />
+    <Compile Include="../../Roadhog/Infrastructure/Hardware/ProcessIdentityPresenceProbe.cs" Link="ProcessIdentityPresenceProbe.cs" />
+    <Compile Include="../../Roadhog/Core/Common/OperationResult.cs" Link="OperationResult.cs" />
+    <Compile Include="../../Roadhog/Infrastructure/Vmm/SafeMemProcVmm.cs" Link="SafeMemProcVmm.cs" />
+    <None Include="../../Roadhog/Native/MemProcFS/*.dll" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

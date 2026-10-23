@@ -1,0 +1,320 @@
+{
+  "path": "C:\\Program Files (x86)\\Netease\\UU\\5251\\ui.dll",
+  "sha256": "1939022846a612be7802794c0c6f5d5d2ee38146b4ec47d48cdcc9f16f9bb72c",
+  "imagebase": "0x11000000",
+  "exports": [
+    {
+      "name": "?GetAt@CStdPtrArray@DuiLib@@QBEPAXH@Z",
+      "rva": "0xd62b0",
+      "va": "0x110d62b0",
+      "disasm": [
+        "110d62b0: push ebp",
+        "110d62b1: mov ebp, esp",
+        "110d62b3: push ecx",
+        "110d62b4: mov dword ptr [ebp - 4], ecx",
+        "110d62b7: cmp dword ptr [ebp + 8], 0",
+        "110d62bb: jl 0x110d62c8",
+        "110d62bd: mov eax, dword ptr [ebp - 4]",
+        "110d62c0: mov ecx, dword ptr [ebp + 8]",
+        "110d62c3: cmp ecx, dword ptr [eax + 4]",
+        "110d62c6: jl 0x110d62cc",
+        "110d62c8: xor eax, eax",
+        "110d62ca: jmp 0x110d62d7",
+        "110d62cc: mov edx, dword ptr [ebp - 4]",
+        "110d62cf: mov eax, dword ptr [edx]",
+        "110d62d1: mov ecx, dword ptr [ebp + 8]",
+        "110d62d4: mov eax, dword ptr [eax + ecx*4]",
+        "110d62d7: mov esp, ebp",
+        "110d62d9: pop ebp",
+        "110d62da: ret 4"
+      ]
+    },
+    {
+      "name": "?GetCount@CContainerUI@DuiLib@@UBEHXZ",
+      "rva": "0xe2f90",
+      "va": "0x110e2f90",
+      "disasm": [
+        "110e2f90: push ebp",
+        "110e2f91: mov ebp, esp",
+        "110e2f93: push ecx",
+        "110e2f94: mov dword ptr [ebp - 4], ecx",
+        "110e2f97: mov ecx, dword ptr [ebp - 4]",
+        "110e2f9a: add ecx, 4",
+        "110e2f9d: call 0x110d6460",
+        "110e2fa2: mov esp, ebp",
+        "110e2fa4: pop ebp",
+        "110e2fa5: ret "
+      ]
+    },
+    {
+      "name": "?GetHWND@CWindowWnd@DuiLib@@QBEPAUHWND__@@XZ",
+      "rva": "0xe04d0",
+      "va": "0x110e04d0",
+      "disasm": [
+        "110e04d0: push ebp",
+        "110e04d1: mov ebp, esp",
+        "110e04d3: push ecx",
+        "110e04d4: mov dword ptr [ebp - 4], ecx",
+        "110e04d7: mov eax, dword ptr [ebp - 4]",
+        "110e04da: mov eax, dword ptr [eax + 4]",
+        "110e04dd: mov esp, ebp",
+        "110e04df: pop ebp",
+        "110e04e0: ret "
+      ]
+    },
+    {
+      "name": "?GetItemAt@CContainerUI@DuiLib@@UBEPAVCControlUI@2@H@Z",
+      "rva": "0xe30c0",
+      "va": "0x110e30c0",
+      "disasm": [
+        "110e30c0: push ebp",
+        "110e30c1: mov ebp, esp",
+        "110e30c3: push ecx",
+        "110e30c4: mov dword ptr [ebp - 4], ecx",
+        "110e30c7: cmp dword ptr [ebp + 8], 0",
+        "110e30cb: jl 0x110e30dd",
+        "110e30cd: mov ecx, dword ptr [ebp - 4]",
+        "110e30d0: add ecx, 4",
+        "110e30d3: call 0x110d6460",
+        "110e30d8: cmp dword ptr [ebp + 8], eax",
+        "110e30db: jl 0x110e30e1",
+        "110e30dd: xor eax, eax",
+        "110e30df: jmp 0x110e30f0",
+        "110e30e1: mov eax, dword ptr [ebp + 8]",
+        "110e30e4: push eax",
+        "110e30e5: mov ecx, dword ptr [ebp - 4]",
+        "110e30e8: add ecx, 4",
+        "110e30eb: call 0x110d5620",
+        "110e30f0: mov esp, ebp",
+        "110e30f2: pop ebp",
+        "110e30f3: ret 4"
+      ]
+    },
+    {
+      "name": "?GetManager@CControlUI@DuiLib@@UBEPAVCPaintManagerUI@2@XZ",
+      "rva": "0xe6ec0",
+      "va": "0x110e6ec0",
+      "disasm": [
+        "110e6ec0: push ebp",
+        "110e6ec1: mov ebp, esp",
+        "110e6ec3: push ecx",
+        "110e6ec4: mov dword ptr [ebp - 4], ecx",
+        "110e6ec7: mov eax, dword ptr [ebp - 4]",
+        "110e6eca: mov eax, dword ptr [eax + 0x14c]",
+        "110e6ed0: mov esp, ebp",
+        "110e6ed2: pop ebp",
+        "110e6ed3: ret "
+      ]
+    },
+    {
+      "name": "?GetName@CControlUI@DuiLib@@UBE?AVCDuiString@2@XZ",
+      "rva": "0xe7020",
+      "va": "0x110e7020",
+      "disasm": [
+        "110e7020: push ebp",
+        "110e7021: mov ebp, esp",
+        "110e7023: sub esp, 8",
+        "110e7026: mov dword ptr [ebp - 8], ecx",
+        "110e7029: mov dword ptr [ebp - 4], 0",
+        "110e7030: mov eax, dword ptr [ebp - 8]",
+        "110e7033: add eax, 0x1d8",
+        "110e7038: push eax",
+        "110e7039: mov ecx, dword ptr [ebp + 8]",
+        "110e703c: call 0x110d5010",
+        "110e7041: mov ecx, dword ptr [ebp - 4]",
+        "110e7044: or ecx, 1",
+        "110e7047: mov dword ptr [ebp - 4], ecx",
+        "110e704a: mov eax, dword ptr [ebp + 8]",
+        "110e704d: mov esp, ebp",
+        "110e704f: pop ebp",
+        "110e7050: ret 4"
+      ]
+    },
+    {
+      "name": "?GetPaintWindow@CPaintManagerUI@DuiLib@@QBEPAUHWND__@@XZ",
+      "rva": "0xf1a70",
+      "va": "0x110f1a70",
+      "disasm": [
+        "110f1a70: push ebp",
+        "110f1a71: mov ebp, esp",
+        "110f1a73: push ecx",
+        "110f1a74: mov dword ptr [ebp - 4], ecx",
+        "110f1a77: mov eax, dword ptr [ebp - 4]",
+        "110f1a7a: mov eax, dword ptr [eax + 0xc]",
+        "110f1a7d: mov esp, ebp",
+        "110f1a7f: pop ebp",
+        "110f1a80: ret "
+      ]
+    },
+    {
+      "name": "?GetParent@CControlUI@DuiLib@@UBEPAV12@XZ",
+      "rva": "0xe7220",
+      "va": "0x110e7220",
+      "disasm": [
+        "110e7220: push ebp",
+        "110e7221: mov ebp, esp",
+        "110e7223: push ecx",
+        "110e7224: mov dword ptr [ebp - 4], ecx",
+        "110e7227: mov eax, dword ptr [ebp - 4]",
+        "110e722a: mov eax, dword ptr [eax + 0x150]",
+        "110e7230: mov esp, ebp",
+        "110e7232: pop ebp",
+        "110e7233: ret "
+      ]
+    },
+    {
+      "name": "?GetPos@CControlUI@DuiLib@@UBEABUtagRECT@@XZ",
+      "rva": "0xe7240",
+      "va": "0x110e7240",
+      "disasm": [
+        "110e7240: push ebp",
+        "110e7241: mov ebp, esp",
+        "110e7243: push ecx",
+        "110e7244: mov dword ptr [ebp - 4], ecx",
+        "110e7247: mov eax, dword ptr [ebp - 4]",
+        "110e724a: add eax, 0x260",
+        "110e724f: mov esp, ebp",
+        "110e7251: pop ebp",
+        "110e7252: ret "
+      ]
+    },
+    {
+      "name": "?GetRoot@CPaintManagerUI@DuiLib@@QBEPAVCControlUI@2@XZ",
+      "rva": "0xf1b10",
+      "va": "0x110f1b10",
+      "disasm": [
+        "110f1b10: push ebp",
+        "110f1b11: mov ebp, esp",
+        "110f1b13: push ecx",
+        "110f1b14: mov dword ptr [ebp - 4], ecx",
+        "110f1b17: mov eax, dword ptr [ebp - 4]",
+        "110f1b1a: mov eax, dword ptr [eax + 0x60]",
+        "110f1b1d: mov esp, ebp",
+        "110f1b1f: pop ebp",
+        "110f1b20: ret "
+      ]
+    },
+    {
+      "name": "?GetSize@CStdPtrArray@DuiLib@@QBEHXZ",
+      "rva": "0xd6460",
+      "va": "0x110d6460",
+      "disasm": [
+        "110d6460: push ebp",
+        "110d6461: mov ebp, esp",
+        "110d6463: push ecx",
+        "110d6464: mov dword ptr [ebp - 4], ecx",
+        "110d6467: mov eax, dword ptr [ebp - 4]",
+        "110d646a: mov eax, dword ptr [eax + 4]",
+        "110d646d: mov esp, ebp",
+        "110d646f: pop ebp",
+        "110d6470: ret "
+      ]
+    },
+    {
+      "name": "?GetText@CControlUI@DuiLib@@UBE?AVCDuiString@2@XZ",
+      "rva": "0xe73e0",
+      "va": "0x110e73e0",
+      "disasm": [
+        "110e73e0: push ebp",
+        "110e73e1: mov ebp, esp",
+        "110e73e3: push -1",
+        "110e73e5: push 0x11191790",
+        "110e73ea: mov eax, dword ptr fs:[0]",
+        "110e73f0: push eax",
+        "110e73f1: sub esp, 0x90",
+        "110e73f7: mov eax, dword ptr [0x111ed380]",
+        "110e73fc: xor eax, ebp",
+        "110e73fe: mov dword ptr [ebp - 0x10], eax",
+        "110e7401: push eax",
+        "110e7402: lea eax, [ebp - 0xc]",
+        "110e7405: mov dword ptr fs:[0], eax",
+        "110e740b: mov dword ptr [ebp - 0x9c], ecx",
+        "110e7411: mov dword ptr [ebp - 0x98], 0",
+        "110e741b: mov eax, dword ptr [ebp - 0x9c]",
+        "110e7421: add eax, 0x2e4",
+        "110e7426: push eax",
+        "110e7427: lea ecx, [ebp - 0x94]",
+        "110e742d: call 0x110d5010",
+        "110e7432: mov dword ptr [ebp - 4], 0",
+        "110e7439: lea ecx, [ebp - 0x94]",
+        "110e743f: push ecx",
+        "110e7440: call 0x110f5c50",
+        "110e7445: add esp, 4",
+        "110e7448: lea edx, [ebp - 0x94]",
+        "110e744e: push edx",
+        "110e744f: mov ecx, dword ptr [ebp + 8]",
+        "110e7452: call 0x110d5010",
+        "110e7457: mov eax, dword ptr [ebp - 0x98]",
+        "110e745d: or eax, 1",
+        "110e7460: mov dword ptr [ebp - 0x98], eax",
+        "110e7466: mov dword ptr [ebp - 4], 0xffffffff",
+        "110e746d: lea ecx, [ebp - 0x94]",
+        "110e7473: call 0x110d52d0",
+        "110e7478: mov eax, dword ptr [ebp + 8]",
+        "110e747b: mov ecx, dword ptr [ebp - 0xc]",
+        "110e747e: mov dword ptr fs:[0], ecx",
+        "110e7485: pop ecx",
+        "110e7486: mov ecx, dword ptr [ebp - 0x10]",
+        "110e7489: xor ecx, ebp",
+        "110e748b: call 0x1118771d",
+        "110e7490: mov esp, ebp",
+        "110e7492: pop ebp",
+        "110e7493: ret 4"
+      ]
+    },
+    {
+      "name": "?IsEnabled@CControlUI@DuiLib@@UBE_NXZ",
+      "rva": "0xe7920",
+      "va": "0x110e7920",
+      "disasm": [
+        "110e7920: push ebp",
+        "110e7921: mov ebp, esp",
+        "110e7923: push ecx",
+        "110e7924: mov dword ptr [ebp - 4], ecx",
+        "110e7927: mov eax, dword ptr [ebp - 4]",
+        "110e792a: movzx eax, byte ptr [eax + 0x2b2]",
+        "110e7931: mov esp, ebp",
+        "110e7933: pop ebp",
+        "110e7934: ret "
+      ]
+    },
+    {
+      "name": "?IsVisible@CControlUI@DuiLib@@UBE_NXZ",
+      "rva": "0xe79e0",
+      "va": "0x110e79e0",
+      "disasm": [
+        "110e79e0: push ebp",
+        "110e79e1: mov ebp, esp",
+        "110e79e3: sub esp, 8",
+        "110e79e6: mov dword ptr [ebp - 4], ecx",
+        "110e79e9: mov eax, dword ptr [ebp - 4]",
+        "110e79ec: movzx ecx, byte ptr [eax + 0x2b0]",
+        "110e79f3: test ecx, ecx",
+        "110e79f5: je 0x110e7a0e",
+        "110e79f7: mov edx, dword ptr [ebp - 4]",
+        "110e79fa: movzx eax, byte ptr [edx + 0x2b1]",
+        "110e7a01: test eax, eax",
+        "110e7a03: je 0x110e7a0e",
+        "110e7a05: mov dword ptr [ebp - 8], 1",
+        "110e7a0c: jmp 0x110e7a15",
+        "110e7a0e: mov dword ptr [ebp - 8], 0",
+        "110e7a15: movzx eax, byte ptr [ebp - 8]",
+        "110e7a19: mov esp, ebp",
+        "110e7a1b: pop ebp",
+        "110e7a1c: ret "
+      ]
+    },
+    {
+      "name": "?s_all_managers_@CPaintManagerUI@DuiLib@@0VCStdPtrArray@2@A",
+      "rva": "0x1f2c84",
+      "va": "0x111f2c84",
+      "disasm": []
+    },
+    {
+      "name": "?s_ui_tree_registry_enabled_@CPaintManagerUI@DuiLib@@0_NA",
+      "rva": "0x1f2911",
+      "va": "0x111f2911",
+      "disasm": []
+    }
+  ]
+}

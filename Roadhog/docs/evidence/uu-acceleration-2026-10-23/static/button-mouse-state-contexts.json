@@ -1,0 +1,56 @@
+[
+  [
+    "1110b8b7: jne 0x1110b8d1",
+    "1110b8b9: mov ecx, dword ptr [ebp - 4]",
+    "1110b8bc: mov edx, dword ptr [ecx + 0x8ac]",
+    "1110b8c2: and edx, 0xffffff7f",
+    "1110b8c8: mov eax, dword ptr [ebp - 4]",
+    "1110b8cb: mov dword ptr [eax + 0x8ac], edx",
+    "1110b8d1: jmp 0x1110bb14"
+  ],
+  [
+    "1110b920: jmp 0x1110b937",
+    "1110b922: mov edx, dword ptr [ebp - 4]",
+    "1110b925: mov eax, dword ptr [edx + 0x8ac]",
+    "1110b92b: and eax, 0xffffffef",
+    "1110b92e: mov ecx, dword ptr [ebp - 4]",
+    "1110b931: mov dword ptr [ecx + 0x8ac], eax",
+    "1110b937: mov ecx, dword ptr [ebp - 4]"
+  ],
+  [
+    "1110b95d: je 0x1110b9ff",
+    "1110b963: mov edx, dword ptr [ebp - 4]",
+    "1110b966: mov eax, dword ptr [edx + 0x8ac]",
+    "1110b96c: and eax, 0xffffffaf",
+    "1110b96f: mov ecx, dword ptr [ebp - 4]",
+    "1110b972: mov dword ptr [ecx + 0x8ac], eax",
+    "1110b978: mov ecx, dword ptr [ebp - 4]"
+  ],
+  [
+    "1110b9bd: je 0x1110b9ff",
+    "1110b9bf: mov eax, dword ptr [ebp - 4]",
+    "1110b9c2: mov ecx, dword ptr [eax + 0x8ac]",
+    "1110b9c8: and ecx, 0xffffff7f",
+    "1110b9ce: mov edx, dword ptr [ebp - 4]",
+    "1110b9d1: mov dword ptr [edx + 0x8ac], ecx",
+    "1110b9d7: push 0"
+  ],
+  [
+    "1110bac8: je 0x1110bae8",
+    "1110baca: mov eax, dword ptr [ebp - 4]",
+    "1110bacd: mov ecx, dword ptr [eax + 0x8ac]",
+    "1110bad3: and ecx, 0xfffffff7",
+    "1110bad6: mov edx, dword ptr [ebp - 4]",
+    "1110bad9: mov dword ptr [edx + 0x8ac], ecx",
+    "1110badf: mov ecx, dword ptr [ebp - 4]"
+  ],
+  [
+    "1110be29: mov ecx, dword ptr [ebp + 8]",
+    "1110be2c: call 0x110d5010",
+    "1110be31: mov ecx, dword ptr [ebp - 4]",
+    "1110be34: or ecx, 1",
+    "1110be37: mov dword ptr [ebp - 4], ecx",
+    "1110be3a: mov eax, dword ptr [ebp + 8]",
+    "1110be3d: mov esp, ebp"
+  ]
+]

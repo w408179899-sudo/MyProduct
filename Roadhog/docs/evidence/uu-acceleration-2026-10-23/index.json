@@ -1,0 +1,320 @@
+{
+  "recorded_date": "2026-10-23",
+  "display_timezone": "Asia/Shanghai",
+  "archived_utc": "2026-10-23T03:54:40.130413+00:00",
+  "target": "script1 UU session PID 1572, captured on 2026-10-23; identifiers and coordinates are historical",
+  "result": "Stopped acceleration, accepted matching stop confirmation, clicked first Aion card, observed loading and restored details with advancing elapsed timer.",
+  "target_memory_writes": false,
+  "mouse_input_sent": true,
+  "launch_game_clicked": false,
+  "formal_auto_login_integration": false,
+  "limitations": [
+    "UI state observed; backend VPN numeric enum and network effectiveness not measured.",
+    "Some full-tree diagnostic reads failed; focused action and state snapshots were complete and revalidated.",
+    "Source snapshots retain original temporary paths and account binding guards; do not run without adapting and revalidating.",
+    "Original static notes retain historical unknowns; the main UU_ACCELERATOR_DATA.md reconciles them with later live results."
+  ],
+  "files": [
+    {
+      "path": "live/cycle-before.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\cycle-before\\report.json",
+      "kind": "historical DMA capture or authorized input report",
+      "bytes": 48220,
+      "sha256": "6160ac72cc050ce8aaae4752d738542409e25615277fadbbdfdb9ed0f293f4b4"
+    },
+    {
+      "path": "live/cycle-stop.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\cycle-stop\\report.json",
+      "kind": "historical DMA capture or authorized input report",
+      "bytes": 152605,
+      "sha256": "5c3f20e6c34670a7c0ab14faeb7110b0e162bc11e48656ba8551d30db66f328f"
+    },
+    {
+      "path": "live/cycle-stop-direct.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\cycle-stop-direct\\report.json",
+      "kind": "historical DMA capture or authorized input report",
+      "bytes": 19372,
+      "sha256": "56dbb2bb2850de63e97384e59b36d50323a330c598bdc6170adc5c4c4b9056bb"
+    },
+    {
+      "path": "live/cycle-stop-confirmed.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\cycle-stop-confirmed\\report.json",
+      "kind": "historical DMA capture or authorized input report",
+      "bytes": 153081,
+      "sha256": "ef0dbddd72cedb36423b21242789616a2f66c2b57e07870085c721b8552a2761"
+    },
+    {
+      "path": "live/cycle-modal-windows.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\cycle-modal-windows\\report.json",
+      "kind": "historical DMA capture or authorized input report",
+      "bytes": 61431,
+      "sha256": "fa693c4c989f383e82f23641d330e6423c0575e8bc2d3d4ebe583b257e0af2c0"
+    },
+    {
+      "path": "live/cycle-modal-ui.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\cycle-modal-ui\\report.json",
+      "kind": "historical DMA capture or authorized input report",
+      "bytes": 490291,
+      "sha256": "b89f8c77e7b9df89116d2add723ae51cfb5a081ec425eb887649265ecce9cb7b"
+    },
+    {
+      "path": "live/cycle-modal-text.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\cycle-modal-text\\report.json",
+      "kind": "historical DMA capture or authorized input report",
+      "bytes": 45233,
+      "sha256": "f04b99a80576444680207e9d2a4bdaf3aef0a6742a04a06982ea4405064b6ecc"
+    },
+    {
+      "path": "live/cycle-stop-ok.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\cycle-stop-ok\\report.json",
+      "kind": "historical DMA capture or authorized input report",
+      "bytes": 140858,
+      "sha256": "7981b58d9d8740379b71f3020d7975771c6c019ce78f9d36989f2a8d7a9624dc"
+    },
+    {
+      "path": "live/cycle-home-ui.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\cycle-home-ui\\report.json",
+      "kind": "historical DMA capture or authorized input report",
+      "bytes": 490090,
+      "sha256": "0aa85a6a9e204a14a5a5c2b76b6a0bf4992fc2a99881ce564776ad3269c2ca3c"
+    },
+    {
+      "path": "live/cycle-start-first-card.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\cycle-start-first-card\\report.json",
+      "kind": "historical DMA capture or authorized input report",
+      "bytes": 398274,
+      "sha256": "47c6e6fe33dc7972d85fb4927768739e0e4eefd8ad7706dfbacb809a246d24ac"
+    },
+    {
+      "path": "live/cycle-final.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\cycle-final\\report.json",
+      "kind": "historical DMA capture or authorized input report",
+      "bytes": 47937,
+      "sha256": "a49b9c8faf867fd9d878c1537f3a3317a557245b4aae8ba4fc42e16db08ce1d7"
+    },
+    {
+      "path": "live/cycle-final-verify.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\cycle-final-verify\\report.json",
+      "kind": "historical DMA capture or authorized input report",
+      "bytes": 47937,
+      "sha256": "c88804df214e51278a266cbdfd009c24241ade11bbaf7d37c1d53f37f6714d9c"
+    },
+    {
+      "path": "live/cycle-tree-before.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\cycle-tree-before\\report.json",
+      "kind": "historical DMA capture or authorized input report",
+      "bytes": 17965,
+      "sha256": "ce42f5a121eb4de9f58c4af348cba8f1b11d420475b05d8117bd3e43ddd3242e"
+    },
+    {
+      "path": "live/input-after-stop-02.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\input-after-stop-02\\report.json",
+      "kind": "historical DMA capture or authorized input report",
+      "bytes": 44235,
+      "sha256": "30039a93bbe2568096cbd7edd84ddd11bb7d9efee9e5c93591182f6d3250cad2"
+    },
+    {
+      "path": "live/input-after-click-02.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\input-after-click-02\\report.json",
+      "kind": "historical DMA capture or authorized input report",
+      "bytes": 45184,
+      "sha256": "b9c2bbd09c420b1dc89aeed1881a43f3efda7c5560781a49904b85fc15841274"
+    },
+    {
+      "path": "live/ui-03.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\ui-03\\report.json",
+      "kind": "historical DMA capture or authorized input report",
+      "bytes": 465401,
+      "sha256": "466f28ea65247ef6a44dae213f5199c7d99665df5042ede42c2de4c8c3454b92"
+    },
+    {
+      "path": "live/window-01b.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\window-01b\\report.json",
+      "kind": "historical DMA capture or authorized input report",
+      "bytes": 47421,
+      "sha256": "f90af8514c3eaf68cf6bef5a6ee38377afc066305c5c847d65981f1fa588c104"
+    },
+    {
+      "path": "live/window-02.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\window-02\\report.json",
+      "kind": "historical DMA capture or authorized input report",
+      "bytes": 46306,
+      "sha256": "e44e79a92472f50c858c68bd41a4a0c9bc7eef9ae4a3ef661c792bcce6527ecd"
+    },
+    {
+      "path": "static/STATIC_FINDINGS.md",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-analysis-20261023\\static\\STATIC_FINDINGS.md",
+      "kind": "static or saved-target-code evidence; original annotations retained",
+      "bytes": 4478,
+      "sha256": "f70840d12e82ab768dd7a6286104cbcb7cb485839235eee8e4833e3e00a6def0"
+    },
+    {
+      "path": "static/UI_INTERACTION_FINDINGS.md",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-analysis-20261023\\static\\UI_INTERACTION_FINDINGS.md",
+      "kind": "static or saved-target-code evidence; original annotations retained",
+      "bytes": 7386,
+      "sha256": "7e72a02e01165e45a3a6e696ced05e4f488b76fa5065e21b997ad189cae46ece"
+    },
+    {
+      "path": "static/ui-accessors.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-analysis-20261023\\static\\ui-accessors.json",
+      "kind": "static or saved-target-code evidence; original annotations retained",
+      "bytes": 10785,
+      "sha256": "e0e0fecffa86ed3158797fc36b862f3c41e48385fc24eaac17e0b73a9450fc4c"
+    },
+    {
+      "path": "static/ui-accessors-extra.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-analysis-20261023\\static\\ui-accessors-extra.json",
+      "kind": "static or saved-target-code evidence; original annotations retained",
+      "bytes": 19555,
+      "sha256": "3e351bd020bb4b126e138b109ebd70e85c6d3138a851f9dd858e2ad67f004b5c"
+    },
+    {
+      "path": "static/ui-rtti-vtables.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-analysis-20261023\\static\\ui-rtti-vtables.json",
+      "kind": "static or saved-target-code evidence; original annotations retained",
+      "bytes": 73711,
+      "sha256": "dabbdd38b5bf74f3f802cf489a1397126dceee5b1e92163d5dd427d2188e1b43"
+    },
+    {
+      "path": "static/ui-mouse-accessors.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-analysis-20261023\\static\\ui-mouse-accessors.json",
+      "kind": "static or saved-target-code evidence; original annotations retained",
+      "bytes": 3216,
+      "sha256": "f93d712241d302eb2313b2b2fa5fa6dbe3b54d6c6b314adf79bc00f03af907e4"
+    },
+    {
+      "path": "static/manager-mouse-contexts.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-analysis-20261023\\static\\manager-mouse-contexts.json",
+      "kind": "static or saved-target-code evidence; original annotations retained",
+      "bytes": 33722,
+      "sha256": "7f9fe17510395c1fc411e5fbf3b51dceaca690b0980ad1fc9cb74c706759526b"
+    },
+    {
+      "path": "static/button-mouse-state-contexts.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-analysis-20261023\\static\\button-mouse-state-contexts.json",
+      "kind": "static or saved-target-code evidence; original annotations retained",
+      "bytes": 1875,
+      "sha256": "b8b58a862d35436c34ac8ddb99f7db02b71ca5d33e4c3c0ee90353353e07d6b8"
+    },
+    {
+      "path": "static/stop-confirm-evidence.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-analysis-20261023\\static\\stop-confirm-evidence.json",
+      "kind": "static or saved-target-code evidence; original annotations retained",
+      "bytes": 15049,
+      "sha256": "3bd99d541fb018cd7af31d63f213502e9ae289a61128be7b634b1b8fd2cd7f6c"
+    },
+    {
+      "path": "static/remote-window-mapping.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-analysis-20261023\\static\\remote-window-mapping.json",
+      "kind": "static or saved-target-code evidence; original annotations retained",
+      "bytes": 1940,
+      "sha256": "c4a53a7e8d147b4f6159f4a9b252f9c51625c762259969c0264211a4457e361a"
+    },
+    {
+      "path": "static/remote-user32-disassembly.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-analysis-20261023\\static\\remote-user32-disassembly.json",
+      "kind": "static or saved-target-code evidence; original annotations retained",
+      "bytes": 42768,
+      "sha256": "91168e2f5819ce09b178024dbcb1bea66183bdad12ce94b1c1612afdf868c55a"
+    },
+    {
+      "path": "static/remote-user32-window-01b-disassembly.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-analysis-20261023\\static\\remote-user32-window-01b-disassembly.json",
+      "kind": "static or saved-target-code evidence; original annotations retained",
+      "bytes": 53220,
+      "sha256": "686833e828034ae0d773eb4b37b67af9f9116275faf61d58262214a88ed673f7"
+    },
+    {
+      "path": "static/remote-user32-window-02-disassembly.json",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-analysis-20261023\\static\\remote-user32-window-02-disassembly.json",
+      "kind": "static or saved-target-code evidence; original annotations retained",
+      "bytes": 8536,
+      "sha256": "72847ca6ec2a89eb87818b73be9c96f4731bdfb891c330dbe2eff72f5e17ae17"
+    },
+    {
+      "path": "resources/v40/uu.xml",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-analysis-20261023\\static\\skin\\v40\\uu.xml",
+      "kind": "extracted local UU skin resource",
+      "bytes": 3409,
+      "sha256": "32b5786587566f143c91d2f5046bf90b3f31349f73f4f15ef818dd78616e4344"
+    },
+    {
+      "path": "resources/v40/home_page.xml",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-analysis-20261023\\static\\skin\\v40\\home_page.xml",
+      "kind": "extracted local UU skin resource",
+      "bytes": 8269,
+      "sha256": "e0154a264d05f08739f230694d40d6d74b0f533cf565b334acc08a710a3a6b8e"
+    },
+    {
+      "path": "resources/v40/game_card.xml",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-analysis-20261023\\static\\skin\\v40\\game_card.xml",
+      "kind": "extracted local UU skin resource",
+      "bytes": 3835,
+      "sha256": "bac2d6639ee1e617487127d10d75e9183d0794f0590e3a77aa5df888f13a439a"
+    },
+    {
+      "path": "resources/v40/game_acced.xml",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-analysis-20261023\\static\\skin\\v40\\game_acced.xml",
+      "kind": "extracted local UU skin resource",
+      "bytes": 53943,
+      "sha256": "eb049bab1e93bd87fedd5208430cee3f485a6fd0cac368a617ef5e503019321f"
+    },
+    {
+      "path": "resources/v40/popupxml/common_alert_with_option.xml",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-analysis-20261023\\static\\skin\\v40\\popupxml\\common_alert_with_option.xml",
+      "kind": "extracted local UU skin resource",
+      "bytes": 2239,
+      "sha256": "869aadba1619e6ab3a33e69b8468b1e7fb553e61c8b03a347914b5f1947480d0"
+    },
+    {
+      "path": "resources/v40/lang/chs.xml",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-analysis-20261023\\static\\skin\\v40\\lang\\chs.xml",
+      "kind": "extracted local UU skin resource",
+      "bytes": 96144,
+      "sha256": "2ea84f9c5553b26c6ed864388513bd600e4e99ae4fcc00141836c103c0a7483b"
+    },
+    {
+      "path": "probe-source/Program.cs.txt",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\Program.cs",
+      "kind": "diagnostic source snapshot; not a production implementation",
+      "bytes": 15641,
+      "sha256": "adb77c77e78d60b2c22ebf7a4ce5f4781b1807dc025799685020c90d215502d1"
+    },
+    {
+      "path": "probe-source/UiProbe.cs.txt",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\UiProbe.cs",
+      "kind": "diagnostic source snapshot; not a production implementation",
+      "bytes": 16615,
+      "sha256": "a74cb68287641ed06792b6c7d336ad7ec83c3b539dbfe752e0cfce9c0a665883"
+    },
+    {
+      "path": "probe-source/FocusedCapture.cs.txt",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\FocusedCapture.cs",
+      "kind": "diagnostic source snapshot; not a production implementation",
+      "bytes": 10313,
+      "sha256": "eb921251071736351fbd44915fcd5a46c68f5a1f8f30f3425da13aefb6785af3"
+    },
+    {
+      "path": "probe-source/WindowInventory.cs.txt",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\WindowInventory.cs",
+      "kind": "diagnostic source snapshot; not a production implementation",
+      "bytes": 3441,
+      "sha256": "eee4aba744ca3943d9e0653e3868ff82a3b7500f6631a4e21d42af8e9ee2f4a1"
+    },
+    {
+      "path": "probe-source/UuDmaProbe.csproj.txt",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\UuDmaProbe.csproj",
+      "kind": "diagnostic source snapshot; not a production implementation",
+      "bytes": 1172,
+      "sha256": "9bf6350c69573097bbf3b609fcf57a12b842b20e6d63906e070067ada8be597f"
+    },
+    {
+      "path": "probe-source/verify_remote_window_mapping.py.txt",
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-analysis-20261023\\static\\verify_remote_window_mapping.py",
+      "kind": "historical offline derivation script",
+      "bytes": 2777,
+      "sha256": "453a7c4b8715adc732b239b6ff9cd5a313a0e103b7921d9846a6ab5427f7e6e5"
+    }
+  ]
+}

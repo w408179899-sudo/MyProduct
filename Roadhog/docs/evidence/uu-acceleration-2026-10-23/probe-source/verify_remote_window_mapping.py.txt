@@ -1,0 +1,45 @@
+import pathlib,json,struct,hashlib
+root=pathlib.Path(__file__).parent
+workspace=root.parents[2]
+ui_path=workspace/'.tmp/uu-dma-20261023/ui-03/report.json'
+wnd_path=workspace/'.tmp/uu-dma-20261023/window-02/report.json'
+ui=json.loads(ui_path.read_text(encoding='utf-8-sig'))
+wnd=json.loads(wnd_path.read_text(encoding='utf-8-sig'))
+reads={x['Name']:x for x in wnd['WindowMetadataReads']}
+def raw(name):
+ r=reads[name]
+ assert r['CompleteAndStable']
+ return bytes.fromhex(r['Bytes'])
+entry=raw('MainWindowHandleEntry');ci=raw('UiThreadClientInfo');di=raw('DesktopIdentity');obj=raw('MainWindowObject')
+q=lambda b,o:struct.unpack_from('<Q',b,o)[0]
+i=lambda b,o:struct.unpack_from('<I',b,o)[0]
+h=lambda b,o:struct.unpack_from('<H',b,o)[0]
+rect=lambda b,o:list(struct.unpack_from('<4i',b,o))
+handle=q(obj,0)
+assert entry[0x18]==1 and entry[0x19]&1==0 and h(entry,0x1a)==handle>>16
+assert q(entry,0x10)==q(di,0)
+assert q(ci,0x28)+q(entry,0)==int(reads['MainWindowObject']['Address'],16)
+assert h(obj,0x2a)&0x2fff !=0x29d
+assert obj[0x1a]&0x40 ==0
+origin=rect(obj,0x68)[:2]
+buttons=[]
+def walk(v):
+ if isinstance(v,dict):
+  if v.get('Name') in ['launch_game','stop_acc'] and v.get('Visible') and v.get('AncestorsVisible') and v.get('Enabled'):
+   r=v['Rect'];client=[r[k] for k in ['Left','Top','Right','Bottom']]
+   screen=[client[0]+origin[0],client[1]+origin[1],client[2]+origin[0],client[3]+origin[1]]
+   buttons.append(dict(name=v['Name'],control_address=v['Address'],client_rect=client,screen_rect=screen,screen_center=[(screen[0]+screen[2])//2,(screen[1]+screen[3])//2]))
+  for vv in v.values():walk(vv)
+ elif isinstance(v,list):
+  for vv in v:walk(vv)
+walk(ui['Ui']['Managers'])
+result=dict(evidence_kind='derived-from-target-read-only-DMA-snapshots',input_sent=False,target_functions_called=False,
+ sources=[dict(path=str(p),sha256=hashlib.sha256(p.read_bytes()).hexdigest()) for p in [ui_path,wnd_path]],
+ hwnd=hex(handle),thread_owner_id=q(entry,8),handle_entry=reads['MainWindowHandleEntry']['Address'],
+ desktop_identity=hex(q(di,0)),desktop_base=hex(q(ci,0x28)),window_object_offset=hex(q(entry,0)),window_object=reads['MainWindowObject']['Address'],
+ raw_window_rect=rect(obj,0x58),raw_client_screen_rect=rect(obj,0x68),client_origin=origin,
+ special_type_mask=h(obj,0x2a)&0x2fff,rtl_flag_set=bool(obj[0x1a]&0x40),window_dpi_context=hex(i(obj,0x120)),
+ buttons=buttons,
+ limitation='Coordinates apply to the captured window geometry and 100 percent UI scale; re-read live geometry before future input. No button was clicked. High-level user32 DPI slow-path branch was not invoked or fully reproduced.')
+(root/'remote-window-mapping.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
+print(json.dumps(result,ensure_ascii=False,indent=2))

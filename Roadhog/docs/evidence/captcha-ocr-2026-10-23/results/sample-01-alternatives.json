@@ -1,0 +1,378 @@
+{
+  "input_path": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\captcha-dma-20261023\\ocr-pages-103613\\encoded-6CA6AA0.png",
+  "input_sha256": "8293e07fd90f0dc571438449e680348feb2b4091f61d7ce4ea7c8872f4c697dd",
+  "ground_truth_from_user": "WLP63M",
+  "ground_truth_used_for_inference": false,
+  "local_ocr_only": true,
+  "remote_memory_read_this_comparison": false,
+  "remote_memory_written": false,
+  "captcha_refreshed": false,
+  "input_or_verification_submitted": false,
+  "attempt_count": 21,
+  "exact_matches": 0,
+  "case_insensitive_matches": 0,
+  "six_character_outputs": 0,
+  "run_files": [
+    "result-paddle-103613.json",
+    "result-paddle-server-103613.json",
+    "result-paddle-crop-103613.json",
+    "result-tesseract-103613.json"
+  ],
+  "runs": [
+    {
+      "input_path": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\captcha-dma-20261023\\ocr-pages-103613\\encoded-6CA6AA0.png",
+      "input_sha256": "8293e07fd90f0dc571438449e680348feb2b4091f61d7ce4ea7c8872f4c697dd",
+      "ground_truth_from_user": "WLP63M",
+      "ground_truth_used_for_inference": false,
+      "input_or_verification_submitted": false,
+      "engine": "paddle",
+      "versions": {
+        "paddleocr": "3.7.0",
+        "paddlepaddle": "3.3.1",
+        "paddlex": "3.7.2"
+      },
+      "results": [
+        {
+          "model": "en_PP-OCRv5_mobile_rec",
+          "variant": "original",
+          "raw_text": "WP6M",
+          "trimmed_text": "WP6M",
+          "length": 4,
+          "six_characters": false,
+          "exact_match": false,
+          "case_insensitive_match": false,
+          "model_score": 0.6988376379013062,
+          "initialization_s": 4.399,
+          "inference_ms": 96.351
+        },
+        {
+          "model": "en_PP-OCRv5_mobile_rec",
+          "variant": "enlarged_4x_border",
+          "raw_text": "Wp",
+          "trimmed_text": "Wp",
+          "length": 2,
+          "six_characters": false,
+          "exact_match": false,
+          "case_insensitive_match": false,
+          "model_score": 0.56705641746521,
+          "initialization_s": 4.399,
+          "inference_ms": 80.17
+        },
+        {
+          "model": "en_PP-OCRv5_mobile_rec",
+          "variant": "otsu_4x_border",
+          "raw_text": "WAM",
+          "trimmed_text": "WAM",
+          "length": 3,
+          "six_characters": false,
+          "exact_match": false,
+          "case_insensitive_match": false,
+          "model_score": 0.5460538864135742,
+          "initialization_s": 4.399,
+          "inference_ms": 80.429
+        },
+        {
+          "model": "PP-OCRv6_medium_rec",
+          "variant": "original",
+          "raw_text": "WLP6M",
+          "trimmed_text": "WLP6M",
+          "length": 5,
+          "six_characters": false,
+          "exact_match": false,
+          "case_insensitive_match": false,
+          "model_score": 0.9246339797973633,
+          "initialization_s": 9.718,
+          "inference_ms": 153.859
+        },
+        {
+          "model": "PP-OCRv6_medium_rec",
+          "variant": "enlarged_4x_border",
+          "raw_text": "W6M",
+          "trimmed_text": "W6M",
+          "length": 3,
+          "six_characters": false,
+          "exact_match": false,
+          "case_insensitive_match": false,
+          "model_score": 0.8939394950866699,
+          "initialization_s": 9.718,
+          "inference_ms": 144.117
+        },
+        {
+          "model": "PP-OCRv6_medium_rec",
+          "variant": "otsu_4x_border",
+          "raw_text": "地",
+          "trimmed_text": "地",
+          "length": 1,
+          "six_characters": false,
+          "exact_match": false,
+          "case_insensitive_match": false,
+          "model_score": 0.47075313329696655,
+          "initialization_s": 9.718,
+          "inference_ms": 142.839
+        }
+      ],
+      "errors": []
+    },
+    {
+      "input_path": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\captcha-dma-20261023\\ocr-pages-103613\\encoded-6CA6AA0.png",
+      "input_sha256": "8293e07fd90f0dc571438449e680348feb2b4091f61d7ce4ea7c8872f4c697dd",
+      "ground_truth_from_user": "WLP63M",
+      "ground_truth_used_for_inference": false,
+      "input_or_verification_submitted": false,
+      "engine": "paddle",
+      "versions": {
+        "paddleocr": "3.7.0",
+        "paddlepaddle": "3.3.1",
+        "paddlex": "3.7.2"
+      },
+      "results": [
+        {
+          "model": "PP-OCRv5_server_rec",
+          "variant": "original",
+          "raw_text": "サが业",
+          "trimmed_text": "サが业",
+          "length": 3,
+          "six_characters": false,
+          "exact_match": false,
+          "case_insensitive_match": false,
+          "model_score": 0.16730321943759918,
+          "initialization_s": 9.835,
+          "inference_ms": 255.083
+        },
+        {
+          "model": "PP-OCRv5_server_rec",
+          "variant": "enlarged_4x_border",
+          "raw_text": "p",
+          "trimmed_text": "p",
+          "length": 1,
+          "six_characters": false,
+          "exact_match": false,
+          "case_insensitive_match": false,
+          "model_score": 0.3055956959724426,
+          "initialization_s": 9.835,
+          "inference_ms": 195.008
+        },
+        {
+          "model": "PP-OCRv5_server_rec",
+          "variant": "otsu_4x_border",
+          "raw_text": "",
+          "trimmed_text": "",
+          "length": 0,
+          "six_characters": false,
+          "exact_match": false,
+          "case_insensitive_match": false,
+          "model_score": 0.0,
+          "initialization_s": 9.835,
+          "inference_ms": 205.289
+        },
+        {
+          "model": "PP-OCRv5_server_rec",
+          "variant": "foreground_crop",
+          "raw_text": "HM",
+          "trimmed_text": "HM",
+          "length": 2,
+          "six_characters": false,
+          "exact_match": false,
+          "case_insensitive_match": false,
+          "model_score": 0.25369182229042053,
+          "initialization_s": 9.835,
+          "inference_ms": 207.015
+        }
+      ],
+      "errors": []
+    },
+    {
+      "input_path": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\captcha-dma-20261023\\ocr-pages-103613\\encoded-6CA6AA0.png",
+      "input_sha256": "8293e07fd90f0dc571438449e680348feb2b4091f61d7ce4ea7c8872f4c697dd",
+      "ground_truth_from_user": "WLP63M",
+      "ground_truth_used_for_inference": false,
+      "input_or_verification_submitted": false,
+      "engine": "paddle",
+      "versions": {
+        "paddleocr": "3.7.0",
+        "paddlepaddle": "3.3.1",
+        "paddlex": "3.7.2"
+      },
+      "results": [
+        {
+          "model": "en_PP-OCRv5_mobile_rec",
+          "variant": "foreground_crop",
+          "raw_text": "WEPOM",
+          "trimmed_text": "WEPOM",
+          "length": 5,
+          "six_characters": false,
+          "exact_match": false,
+          "case_insensitive_match": false,
+          "model_score": 0.5519501566886902,
+          "initialization_s": 1.113,
+          "inference_ms": 111.127
+        },
+        {
+          "model": "PP-OCRv6_medium_rec",
+          "variant": "foreground_crop",
+          "raw_text": "W6M",
+          "trimmed_text": "W6M",
+          "length": 3,
+          "six_characters": false,
+          "exact_match": false,
+          "case_insensitive_match": false,
+          "model_score": 0.9837152361869812,
+          "initialization_s": 0.496,
+          "inference_ms": 159.484
+        }
+      ],
+      "errors": []
+    },
+    {
+      "input_path": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\captcha-dma-20261023\\ocr-pages-103613\\encoded-6CA6AA0.png",
+      "input_sha256": "8293e07fd90f0dc571438449e680348feb2b4091f61d7ce4ea7c8872f4c697dd",
+      "ground_truth_from_user": "WLP63M",
+      "ground_truth_used_for_inference": false,
+      "input_or_verification_submitted": false,
+      "engine": "tesseract",
+      "versions": {
+        "tesserocr": "2.12.0",
+        "tesseract": "tesseract 5.5.3\n leptonica-1.87.0 (Apr  6 2026, 06:47:44) [MSC v.1944 LIB Release x64]\n  libgif 5.2.2 : libjpeg 8d (libjpeg-turbo 3.1.2) : libpng 1.6.59 : libtiff 4.7.2 : zlib 1.3.2 : libwebp 1.6.0 : libopenjp2 2.5.4"
+      },
+      "results": [
+        {
+          "model": "tessdata_best/eng",
+          "variant": "original",
+          "segmentation": "single_line",
+          "raw_text": "50\n",
+          "trimmed_text": "50",
+          "length": 2,
+          "six_characters": false,
+          "exact_match": false,
+          "case_insensitive_match": false,
+          "word_confidences": [
+            30
+          ],
+          "inference_ms": 20.374
+        },
+        {
+          "model": "tessdata_best/eng",
+          "variant": "original",
+          "segmentation": "single_word",
+          "raw_text": "Trp\n",
+          "trimmed_text": "Trp",
+          "length": 3,
+          "six_characters": false,
+          "exact_match": false,
+          "case_insensitive_match": false,
+          "word_confidences": [
+            22
+          ],
+          "inference_ms": 13.651
+        },
+        {
+          "model": "tessdata_best/eng",
+          "variant": "original",
+          "segmentation": "raw_line",
+          "raw_text": "Trp\n",
+          "trimmed_text": "Trp",
+          "length": 3,
+          "six_characters": false,
+          "exact_match": false,
+          "case_insensitive_match": false,
+          "word_confidences": [
+            22
+          ],
+          "inference_ms": 6.677
+        },
+        {
+          "model": "tessdata_best/eng",
+          "variant": "enlarged_4x_border",
+          "segmentation": "single_line",
+          "raw_text": "Wy\n",
+          "trimmed_text": "Wy",
+          "length": 2,
+          "six_characters": false,
+          "exact_match": false,
+          "case_insensitive_match": false,
+          "word_confidences": [
+            30
+          ],
+          "inference_ms": 49.418
+        },
+        {
+          "model": "tessdata_best/eng",
+          "variant": "enlarged_4x_border",
+          "segmentation": "single_word",
+          "raw_text": "kody\n",
+          "trimmed_text": "kody",
+          "length": 4,
+          "six_characters": false,
+          "exact_match": false,
+          "case_insensitive_match": false,
+          "word_confidences": [
+            28
+          ],
+          "inference_ms": 52.454
+        },
+        {
+          "model": "tessdata_best/eng",
+          "variant": "enlarged_4x_border",
+          "segmentation": "raw_line",
+          "raw_text": "kody\n",
+          "trimmed_text": "kody",
+          "length": 4,
+          "six_characters": false,
+          "exact_match": false,
+          "case_insensitive_match": false,
+          "word_confidences": [
+            28
+          ],
+          "inference_ms": 27.371
+        },
+        {
+          "model": "tessdata_best/eng",
+          "variant": "otsu_4x_border",
+          "segmentation": "single_line",
+          "raw_text": "WE\n",
+          "trimmed_text": "WE",
+          "length": 2,
+          "six_characters": false,
+          "exact_match": false,
+          "case_insensitive_match": false,
+          "word_confidences": [
+            38
+          ],
+          "inference_ms": 23.017
+        },
+        {
+          "model": "tessdata_best/eng",
+          "variant": "otsu_4x_border",
+          "segmentation": "single_word",
+          "raw_text": "Brody\n",
+          "trimmed_text": "Brody",
+          "length": 5,
+          "six_characters": false,
+          "exact_match": false,
+          "case_insensitive_match": false,
+          "word_confidences": [
+            19
+          ],
+          "inference_ms": 16.058
+        },
+        {
+          "model": "tessdata_best/eng",
+          "variant": "otsu_4x_border",
+          "segmentation": "raw_line",
+          "raw_text": "Brody\n",
+          "trimmed_text": "Brody",
+          "length": 5,
+          "six_characters": false,
+          "exact_match": false,
+          "case_insensitive_match": false,
+          "word_confidences": [
+            19
+          ],
+          "inference_ms": 8.969
+        }
+      ],
+      "errors": [],
+      "traineddata_sha256": "8280aed0782fe27257a68ea10fe7ef324ca0f8d85bd2fd145d1c2b560bcb66ba"
+    }
+  ]
+}

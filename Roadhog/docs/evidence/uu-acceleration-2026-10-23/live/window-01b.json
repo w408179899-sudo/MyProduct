@@ -1,0 +1,1907 @@
+{
+  "StartedUtc": "2026-10-23T03:22:25.2480709+00:00",
+  "TargetWrites": false,
+  "InputSent": false,
+  "Acquisition": "DMA memory only; no target helper, screenshots or UI interaction",
+  "Account": {
+    "Account": "\u811A\u672C1",
+    "Device": "fpga://devindex=5",
+    "HardwareKey": "port:Port_#0005.Hub_#0009"
+  },
+  "Processes": [
+    {
+      "dwPID": 1572,
+      "dwPPID": 7108,
+      "sName": "uu.exe",
+      "fWow64": true,
+      "Eprocess": "0xFFFF9E02D2705080",
+      "Peb": "0x150A000",
+      "MainModuleBase": "0x410000",
+      "cbImageSize": 15994880,
+      "HeaderSha256": "D31794F2D66C1AA9BE86287F57BD7947801D94333158974BDF64C6CCA8F7852B",
+      "Modules": [
+        {
+          "Name": "NetSetupApi.dll",
+          "Base": "0x72120000",
+          "Size": 110592
+        },
+        {
+          "Name": "uu.exe",
+          "Base": "0x410000",
+          "Size": 15994880
+        },
+        {
+          "Name": "sfc.dll",
+          "Base": "0x1740000",
+          "Size": 12288
+        },
+        {
+          "Name": "drvstore.dll",
+          "Base": "0x6D6D0000",
+          "Size": 1048576
+        },
+        {
+          "Name": "wetype_tip_core.dll",
+          "Base": "0x6D890000",
+          "Size": 4624384
+        },
+        {
+          "Name": "wintun.dll",
+          "Base": "0x6DD40000",
+          "Size": 552960
+        },
+        {
+          "Name": "OLEACC.dll",
+          "Base": "0x6DE80000",
+          "Size": 339968
+        },
+        {
+          "Name": "input.dll",
+          "Base": "0x6DEE0000",
+          "Size": 323584
+        },
+        {
+          "Name": "CrashRpt1500.dll",
+          "Base": "0x6DF30000",
+          "Size": 536576
+        },
+        {
+          "Name": "wetype_tip.dll",
+          "Base": "0x6DFC0000",
+          "Size": 2093056
+        },
+        {
+          "Name": "sxs.dll",
+          "Base": "0x6E5D0000",
+          "Size": 552960
+        },
+        {
+          "Name": "MpOav.dll",
+          "Base": "0x6EF30000",
+          "Size": 577536
+        },
+        {
+          "Name": "fastprox.dll",
+          "Base": "0x6EFC0000",
+          "Size": 835584
+        },
+        {
+          "Name": "lanplay_tun.dll",
+          "Base": "0x6F090000",
+          "Size": 4734976
+        },
+        {
+          "Name": "tcp_proxy.dll",
+          "Base": "0x6F520000",
+          "Size": 2428928
+        },
+        {
+          "Name": "local_proxy.dll",
+          "Base": "0x6F780000",
+          "Size": 4231168
+        },
+        {
+          "Name": "tun2proxy.dll",
+          "Base": "0x6FB90000",
+          "Size": 4771840
+        },
+        {
+          "Name": "openvpn.dll",
+          "Base": "0x70020000",
+          "Size": 1331200
+        },
+        {
+          "Name": "EmbeddedBrowserWebView.dll",
+          "Base": "0x70170000",
+          "Size": 5947392
+        },
+        {
+          "Name": "WindowsCodecs.dll",
+          "Base": "0x70720000",
+          "Size": 1515520
+        },
+        {
+          "Name": "MSVCR100.dll",
+          "Base": "0x708C0000",
+          "Size": 782336
+        },
+        {
+          "Name": "MSVCP100.dll",
+          "Base": "0x70980000",
+          "Size": 430080
+        },
+        {
+          "Name": "RASAPI32.dll",
+          "Base": "0x709F0000",
+          "Size": 925696
+        },
+        {
+          "Name": "ping.dll",
+          "Base": "0x70AE0000",
+          "Size": 1372160
+        },
+        {
+          "Name": "skin.dll",
+          "Base": "0x70C30000",
+          "Size": 17350656
+        },
+        {
+          "Name": "COMCTL32.dll",
+          "Base": "0x71CC0000",
+          "Size": 2166784
+        },
+        {
+          "Name": "DPAPI.DLL",
+          "Base": "0x71EE0000",
+          "Size": 32768
+        },
+        {
+          "Name": "MSASN1.dll",
+          "Base": "0x71EF0000",
+          "Size": 57344
+        },
+        {
+          "Name": "ncryptsslp.dll",
+          "Base": "0x71F00000",
+          "Size": 126976
+        },
+        {
+          "Name": "ncrypt.dll",
+          "Base": "0x71F20000",
+          "Size": 139264
+        },
+        {
+          "Name": "NTASN1.dll",
+          "Base": "0x71F50000",
+          "Size": 163840
+        },
+        {
+          "Name": "mskeyprotect.dll",
+          "Base": "0x71F80000",
+          "Size": 65536
+        },
+        {
+          "Name": "schannel.dll",
+          "Base": "0x71F90000",
+          "Size": 520192
+        },
+        {
+          "Name": "fwpuclnt.dll",
+          "Base": "0x72010000",
+          "Size": 360448
+        },
+        {
+          "Name": "rasadhlp.dll",
+          "Base": "0x72070000",
+          "Size": 32768
+        },
+        {
+          "Name": "DNSAPI.dll",
+          "Base": "0x72080000",
+          "Size": 598016
+        },
+        {
+          "Name": "SPINF.dll",
+          "Base": "0x72140000",
+          "Size": 94208
+        },
+        {
+          "Name": "wbemcomn.dll",
+          "Base": "0x72180000",
+          "Size": 466944
+        },
+        {
+          "Name": "ntmarta.dll",
+          "Base": "0x72200000",
+          "Size": 167936
+        },
+        {
+          "Name": "dhcpcsvc.DLL",
+          "Base": "0x72230000",
+          "Size": 90112
+        },
+        {
+          "Name": "WINNSI.DLL",
+          "Base": "0x72270000",
+          "Size": 32768
+        },
+        {
+          "Name": "mswsock.dll",
+          "Base": "0x72280000",
+          "Size": 335872
+        },
+        {
+          "Name": "uu_fp.dll",
+          "Base": "0x722E0000",
+          "Size": 294912
+        },
+        {
+          "Name": "MSIMG32.dll",
+          "Base": "0x72330000",
+          "Size": 24576
+        },
+        {
+          "Name": "d2d1.dll",
+          "Base": "0x72340000",
+          "Size": 5332992
+        },
+        {
+          "Name": "nci.dll",
+          "Base": "0x72860000",
+          "Size": 53248
+        },
+        {
+          "Name": "ui.dll",
+          "Base": "0x728A0000",
+          "Size": 2117632
+        },
+        {
+          "Name": "DEVOBJ.dll",
+          "Base": "0x72AB0000",
+          "Size": 167936
+        },
+        {
+          "Name": "CRYPTBASE.DLL",
+          "Base": "0x72AE0000",
+          "Size": 40960
+        },
+        {
+          "Name": "WINHTTP.dll",
+          "Base": "0x72AF0000",
+          "Size": 831488
+        },
+        {
+          "Name": "dbghelp.dll",
+          "Base": "0x72BE0000",
+          "Size": 1777664
+        },
+        {
+          "Name": "DWrite.dll",
+          "Base": "0x72DA0000",
+          "Size": 2162688
+        },
+        {
+          "Name": "WINMM.dll",
+          "Base": "0x72FB0000",
+          "Size": 163840
+        },
+        {
+          "Name": "gdiplus.dll",
+          "Base": "0x72FE0000",
+          "Size": 1482752
+        },
+        {
+          "Name": "amsi.dll",
+          "Base": "0x73160000",
+          "Size": 98304
+        },
+        {
+          "Name": "webio.dll",
+          "Base": "0x73180000",
+          "Size": 475136
+        },
+        {
+          "Name": "libcurl.dll",
+          "Base": "0x73200000",
+          "Size": 5763072
+        },
+        {
+          "Name": "WININET.dll",
+          "Base": "0x73780000",
+          "Size": 4550656
+        },
+        {
+          "Name": "IPHLPAPI.DLL",
+          "Base": "0x73BE0000",
+          "Size": 204800
+        },
+        {
+          "Name": "VERSION.dll",
+          "Base": "0x73C20000",
+          "Size": 32768
+        },
+        {
+          "Name": "rasman.dll",
+          "Base": "0x73C30000",
+          "Size": 180224
+        },
+        {
+          "Name": "WINSPOOL.DRV",
+          "Base": "0x73CB0000",
+          "Size": 512000
+        },
+        {
+          "Name": "AcLayers.DLL",
+          "Base": "0x73D30000",
+          "Size": 2641920
+        },
+        {
+          "Name": "apphelp.dll",
+          "Base": "0x73FC0000",
+          "Size": 671744
+        },
+        {
+          "Name": "sfc_os.DLL",
+          "Base": "0x74070000",
+          "Size": 61440
+        },
+        {
+          "Name": "wbemsvc.dll",
+          "Base": "0x74090000",
+          "Size": 65536
+        },
+        {
+          "Name": "MPR.dll",
+          "Base": "0x740A0000",
+          "Size": 102400
+        },
+        {
+          "Name": "ktmw32.dll",
+          "Base": "0x740C0000",
+          "Size": 36864
+        },
+        {
+          "Name": "uu_dp.dll",
+          "Base": "0x740D0000",
+          "Size": 86016
+        },
+        {
+          "Name": "uu_vpn.dll",
+          "Base": "0x740F0000",
+          "Size": 40960
+        },
+        {
+          "Name": "TextShaping.dll",
+          "Base": "0x74100000",
+          "Size": 622592
+        },
+        {
+          "Name": "USERENV.dll",
+          "Base": "0x741A0000",
+          "Size": 151552
+        },
+        {
+          "Name": "edputil.dll",
+          "Base": "0x741D0000",
+          "Size": 110592
+        },
+        {
+          "Name": "winrnr.dll",
+          "Base": "0x741F0000",
+          "Size": 57344
+        },
+        {
+          "Name": "wintypes.dll",
+          "Base": "0x74200000",
+          "Size": 905216
+        },
+        {
+          "Name": "CoreUIComponents.dll",
+          "Base": "0x742E0000",
+          "Size": 2617344
+        },
+        {
+          "Name": "iertutil.dll",
+          "Base": "0x74560000",
+          "Size": 2326528
+        },
+        {
+          "Name": "profapi.dll",
+          "Base": "0x747A0000",
+          "Size": 114688
+        },
+        {
+          "Name": "wbemprox.dll",
+          "Base": "0x747C0000",
+          "Size": 53248
+        },
+        {
+          "Name": "dhcpcsvc6.DLL",
+          "Base": "0x747E0000",
+          "Size": 81920
+        },
+        {
+          "Name": "dbgcore.DLL",
+          "Base": "0x74800000",
+          "Size": 180224
+        },
+        {
+          "Name": "DEVRTL.dll",
+          "Base": "0x74830000",
+          "Size": 73728
+        },
+        {
+          "Name": "WebView2Loader.dll",
+          "Base": "0x74850000",
+          "Size": 126976
+        },
+        {
+          "Name": "newdev.dll",
+          "Base": "0x74870000",
+          "Size": 258048
+        },
+        {
+          "Name": "SspiCli.dll",
+          "Base": "0x748B0000",
+          "Size": 159744
+        },
+        {
+          "Name": "NLAapi.dll",
+          "Base": "0x748E0000",
+          "Size": 90112
+        },
+        {
+          "Name": "wshbth.dll",
+          "Base": "0x74900000",
+          "Size": 90112
+        },
+        {
+          "Name": "pnrpnsp.dll",
+          "Base": "0x74920000",
+          "Size": 90112
+        },
+        {
+          "Name": "napinsp.dll",
+          "Base": "0x74940000",
+          "Size": 69632
+        },
+        {
+          "Name": "CoreMessaging.dll",
+          "Base": "0x74960000",
+          "Size": 634880
+        },
+        {
+          "Name": "textinputframework.dll",
+          "Base": "0x74A00000",
+          "Size": 757760
+        },
+        {
+          "Name": "netutils.dll",
+          "Base": "0x74AC0000",
+          "Size": 45056
+        },
+        {
+          "Name": "srvcli.dll",
+          "Base": "0x74AD0000",
+          "Size": 118784
+        },
+        {
+          "Name": "urlmon.dll",
+          "Base": "0x74AF0000",
+          "Size": 1761280
+        },
+        {
+          "Name": "rsaenh.dll",
+          "Base": "0x74CA0000",
+          "Size": 200704
+        },
+        {
+          "Name": "CRYPTSP.dll",
+          "Base": "0x74CE0000",
+          "Size": 77824
+        },
+        {
+          "Name": "uxtheme.dll",
+          "Base": "0x74D00000",
+          "Size": 475136
+        },
+        {
+          "Name": "kernel.appcore.dll",
+          "Base": "0x74D80000",
+          "Size": 61440
+        },
+        {
+          "Name": "Wldp.dll",
+          "Base": "0x74D90000",
+          "Size": 151552
+        },
+        {
+          "Name": "windows.storage.dll",
+          "Base": "0x74DC0000",
+          "Size": 6426624
+        },
+        {
+          "Name": "cloudsyn.dll",
+          "Base": "0x753F0000",
+          "Size": 102400
+        },
+        {
+          "Name": "MSVCP140.dll",
+          "Base": "0x75410000",
+          "Size": 446464
+        },
+        {
+          "Name": "VCRUNTIME140.dll",
+          "Base": "0x75480000",
+          "Size": 86016
+        },
+        {
+          "Name": "sentry.dll",
+          "Base": "0x754A0000",
+          "Size": 462848
+        },
+        {
+          "Name": "FLTLIB.DLL",
+          "Base": "0x75520000",
+          "Size": 32768
+        },
+        {
+          "Name": "virtdisk.dll",
+          "Base": "0x75530000",
+          "Size": 61440
+        },
+        {
+          "Name": "PROPSYS.dll",
+          "Base": "0x75540000",
+          "Size": 811008
+        },
+        {
+          "Name": "shcore.dll",
+          "Base": "0x75610000",
+          "Size": 552960
+        },
+        {
+          "Name": "MSCTF.dll",
+          "Base": "0x756A0000",
+          "Size": 868352
+        },
+        {
+          "Name": "cfgmgr32.dll",
+          "Base": "0x75780000",
+          "Size": 241664
+        },
+        {
+          "Name": "WLDAP32.dll",
+          "Base": "0x757C0000",
+          "Size": 385024
+        },
+        {
+          "Name": "ADVAPI32.dll",
+          "Base": "0x75820000",
+          "Size": 516096
+        },
+        {
+          "Name": "IMM32.DLL",
+          "Base": "0x758A0000",
+          "Size": 151552
+        },
+        {
+          "Name": "msvcrt.dll",
+          "Base": "0x758D0000",
+          "Size": 782336
+        },
+        {
+          "Name": "GDI32.dll",
+          "Base": "0x75990000",
+          "Size": 143360
+        },
+        {
+          "Name": "bcrypt.dll",
+          "Base": "0x759C0000",
+          "Size": 102400
+        },
+        {
+          "Name": "KERNELBASE.dll",
+          "Base": "0x75A00000",
+          "Size": 2334720
+        },
+        {
+          "Name": "win32u.dll",
+          "Base": "0x75C40000",
+          "Size": 98304
+        },
+        {
+          "Name": "WINTRUST.dll",
+          "Base": "0x75C60000",
+          "Size": 364544
+        },
+        {
+          "Name": "ole32.dll",
+          "Base": "0x75CD0000",
+          "Size": 929792
+        },
+        {
+          "Name": "gdi32full.dll",
+          "Base": "0x75F30000",
+          "Size": 954368
+        },
+        {
+          "Name": "KERNEL32.DLL",
+          "Base": "0x76020000",
+          "Size": 983040
+        },
+        {
+          "Name": "NSI.dll",
+          "Base": "0x76110000",
+          "Size": 28672
+        },
+        {
+          "Name": "OLEAUT32.dll",
+          "Base": "0x76180000",
+          "Size": 643072
+        },
+        {
+          "Name": "bcryptPrimitives.dll",
+          "Base": "0x76220000",
+          "Size": 389120
+        },
+        {
+          "Name": "sechost.dll",
+          "Base": "0x76280000",
+          "Size": 503808
+        },
+        {
+          "Name": "clbcatq.dll",
+          "Base": "0x76300000",
+          "Size": 544768
+        },
+        {
+          "Name": "ucrtbase.dll",
+          "Base": "0x76390000",
+          "Size": 1179648
+        },
+        {
+          "Name": "USER32.dll",
+          "Base": "0x764B0000",
+          "Size": 1835008
+        },
+        {
+          "Name": "msvcp_win.dll",
+          "Base": "0x76680000",
+          "Size": 503808
+        },
+        {
+          "Name": "SHELL32.dll",
+          "Base": "0x76700000",
+          "Size": 6144000
+        },
+        {
+          "Name": "combase.dll",
+          "Base": "0x76D70000",
+          "Size": 2621440
+        },
+        {
+          "Name": "COMDLG32.dll",
+          "Base": "0x76FF0000",
+          "Size": 716800
+        },
+        {
+          "Name": "SHLWAPI.dll",
+          "Base": "0x770A0000",
+          "Size": 299008
+        },
+        {
+          "Name": "RPCRT4.dll",
+          "Base": "0x770F0000",
+          "Size": 782336
+        },
+        {
+          "Name": "SETUPAPI.dll",
+          "Base": "0x771B0000",
+          "Size": 4435968
+        },
+        {
+          "Name": "WS2_32.dll",
+          "Base": "0x775F0000",
+          "Size": 434176
+        },
+        {
+          "Name": "CRYPT32.dll",
+          "Base": "0x776C0000",
+          "Size": 1044480
+        },
+        {
+          "Name": "wow64cpu.dll",
+          "Base": "0x777C0000",
+          "Size": 40960
+        },
+        {
+          "Name": "ntdll.dll",
+          "Base": "0x777D0000",
+          "Size": 1724416
+        },
+        {
+          "Name": "wow64.dll",
+          "Base": "0x7FFBE3140000",
+          "Size": 364544
+        },
+        {
+          "Name": "wow64win.dll",
+          "Base": "0x7FFBE4340000",
+          "Size": 536576
+        },
+        {
+          "Name": "_64-ntdll.dll",
+          "Base": "0x7FFBE4E70000",
+          "Size": 2068480
+        }
+      ]
+    },
+    {
+      "dwPID": 4296,
+      "dwPPID": 1572,
+      "sName": "uu_ball.exe",
+      "fWow64": true,
+      "Eprocess": "0xFFFF9E02D308B300",
+      "Peb": "0x8FC000",
+      "MainModuleBase": "0x260000",
+      "cbImageSize": 1961984,
+      "HeaderSha256": "697BE62923E2439A991B2EE375DA6BC623E1AD56872468E27218B0FC277D6E58",
+      "Modules": [
+        {
+          "Name": "ping.dll",
+          "Base": "0x70AE0000",
+          "Size": 1372160
+        },
+        {
+          "Name": "uu_ball.exe",
+          "Base": "0x260000",
+          "Size": 1961984
+        },
+        {
+          "Name": "sfc.dll",
+          "Base": "0xC20000",
+          "Size": 12288
+        },
+        {
+          "Name": "wetype_tip_core.dll",
+          "Base": "0x6D890000",
+          "Size": 4624384
+        },
+        {
+          "Name": "OLEACC.dll",
+          "Base": "0x6DE80000",
+          "Size": 339968
+        },
+        {
+          "Name": "input.dll",
+          "Base": "0x6DEE0000",
+          "Size": 323584
+        },
+        {
+          "Name": "CrashRpt1500.dll",
+          "Base": "0x6DF30000",
+          "Size": 536576
+        },
+        {
+          "Name": "wetype_tip.dll",
+          "Base": "0x6DFC0000",
+          "Size": 2093056
+        },
+        {
+          "Name": "NGPush.dll",
+          "Base": "0x6E660000",
+          "Size": 9236480
+        },
+        {
+          "Name": "skin.dll",
+          "Base": "0x70C30000",
+          "Size": 17350656
+        },
+        {
+          "Name": "COMCTL32.dll",
+          "Base": "0x71CC0000",
+          "Size": 2166784
+        },
+        {
+          "Name": "MSASN1.dll",
+          "Base": "0x71EF0000",
+          "Size": 57344
+        },
+        {
+          "Name": "fwpuclnt.dll",
+          "Base": "0x72010000",
+          "Size": 360448
+        },
+        {
+          "Name": "rasadhlp.dll",
+          "Base": "0x72070000",
+          "Size": 32768
+        },
+        {
+          "Name": "DNSAPI.dll",
+          "Base": "0x72080000",
+          "Size": 598016
+        },
+        {
+          "Name": "ntmarta.dll",
+          "Base": "0x72200000",
+          "Size": 167936
+        },
+        {
+          "Name": "dhcpcsvc.DLL",
+          "Base": "0x72230000",
+          "Size": 90112
+        },
+        {
+          "Name": "mswsock.dll",
+          "Base": "0x72280000",
+          "Size": 335872
+        },
+        {
+          "Name": "MSIMG32.dll",
+          "Base": "0x72330000",
+          "Size": 24576
+        },
+        {
+          "Name": "d2d1.dll",
+          "Base": "0x72340000",
+          "Size": 5332992
+        },
+        {
+          "Name": "dwmapi.dll",
+          "Base": "0x72870000",
+          "Size": 151552
+        },
+        {
+          "Name": "ui.dll",
+          "Base": "0x728A0000",
+          "Size": 2117632
+        },
+        {
+          "Name": "CRYPTBASE.dll",
+          "Base": "0x72AE0000",
+          "Size": 40960
+        },
+        {
+          "Name": "dbghelp.dll",
+          "Base": "0x72BE0000",
+          "Size": 1777664
+        },
+        {
+          "Name": "DWrite.dll",
+          "Base": "0x72DA0000",
+          "Size": 2162688
+        },
+        {
+          "Name": "WINMM.dll",
+          "Base": "0x72FB0000",
+          "Size": 163840
+        },
+        {
+          "Name": "gdiplus.dll",
+          "Base": "0x72FE0000",
+          "Size": 1482752
+        },
+        {
+          "Name": "libcurl.dll",
+          "Base": "0x73200000",
+          "Size": 5763072
+        },
+        {
+          "Name": "IPHLPAPI.DLL",
+          "Base": "0x73BE0000",
+          "Size": 204800
+        },
+        {
+          "Name": "VERSION.dll",
+          "Base": "0x73C20000",
+          "Size": 32768
+        },
+        {
+          "Name": "WINSPOOL.DRV",
+          "Base": "0x73CB0000",
+          "Size": 512000
+        },
+        {
+          "Name": "AcLayers.DLL",
+          "Base": "0x73D30000",
+          "Size": 2641920
+        },
+        {
+          "Name": "apphelp.dll",
+          "Base": "0x73FC0000",
+          "Size": 671744
+        },
+        {
+          "Name": "sfc_os.DLL",
+          "Base": "0x74070000",
+          "Size": 61440
+        },
+        {
+          "Name": "MPR.dll",
+          "Base": "0x740A0000",
+          "Size": 102400
+        },
+        {
+          "Name": "ktmw32.dll",
+          "Base": "0x740C0000",
+          "Size": 36864
+        },
+        {
+          "Name": "USERENV.dll",
+          "Base": "0x741A0000",
+          "Size": 151552
+        },
+        {
+          "Name": "wintypes.dll",
+          "Base": "0x74200000",
+          "Size": 905216
+        },
+        {
+          "Name": "CoreUIComponents.dll",
+          "Base": "0x742E0000",
+          "Size": 2617344
+        },
+        {
+          "Name": "profapi.dll",
+          "Base": "0x747A0000",
+          "Size": 114688
+        },
+        {
+          "Name": "WebView2Loader.dll",
+          "Base": "0x74850000",
+          "Size": 126976
+        },
+        {
+          "Name": "CoreMessaging.dll",
+          "Base": "0x74960000",
+          "Size": 634880
+        },
+        {
+          "Name": "textinputframework.dll",
+          "Base": "0x74A00000",
+          "Size": 757760
+        },
+        {
+          "Name": "rsaenh.dll",
+          "Base": "0x74CA0000",
+          "Size": 200704
+        },
+        {
+          "Name": "CRYPTSP.dll",
+          "Base": "0x74CE0000",
+          "Size": 77824
+        },
+        {
+          "Name": "uxtheme.dll",
+          "Base": "0x74D00000",
+          "Size": 475136
+        },
+        {
+          "Name": "kernel.appcore.dll",
+          "Base": "0x74D80000",
+          "Size": 61440
+        },
+        {
+          "Name": "Wldp.dll",
+          "Base": "0x74D90000",
+          "Size": 151552
+        },
+        {
+          "Name": "windows.storage.dll",
+          "Base": "0x74DC0000",
+          "Size": 6426624
+        },
+        {
+          "Name": "MSVCP140.dll",
+          "Base": "0x75410000",
+          "Size": 446464
+        },
+        {
+          "Name": "VCRUNTIME140.dll",
+          "Base": "0x75480000",
+          "Size": 86016
+        },
+        {
+          "Name": "shcore.dll",
+          "Base": "0x75610000",
+          "Size": 552960
+        },
+        {
+          "Name": "MSCTF.dll",
+          "Base": "0x756A0000",
+          "Size": 868352
+        },
+        {
+          "Name": "cfgmgr32.dll",
+          "Base": "0x75780000",
+          "Size": 241664
+        },
+        {
+          "Name": "WLDAP32.dll",
+          "Base": "0x757C0000",
+          "Size": 385024
+        },
+        {
+          "Name": "ADVAPI32.dll",
+          "Base": "0x75820000",
+          "Size": 516096
+        },
+        {
+          "Name": "IMM32.DLL",
+          "Base": "0x758A0000",
+          "Size": 151552
+        },
+        {
+          "Name": "msvcrt.dll",
+          "Base": "0x758D0000",
+          "Size": 782336
+        },
+        {
+          "Name": "GDI32.dll",
+          "Base": "0x75990000",
+          "Size": 143360
+        },
+        {
+          "Name": "bcrypt.dll",
+          "Base": "0x759C0000",
+          "Size": 102400
+        },
+        {
+          "Name": "KERNELBASE.dll",
+          "Base": "0x75A00000",
+          "Size": 2334720
+        },
+        {
+          "Name": "win32u.dll",
+          "Base": "0x75C40000",
+          "Size": 98304
+        },
+        {
+          "Name": "ole32.dll",
+          "Base": "0x75CD0000",
+          "Size": 929792
+        },
+        {
+          "Name": "gdi32full.dll",
+          "Base": "0x75F30000",
+          "Size": 954368
+        },
+        {
+          "Name": "KERNEL32.DLL",
+          "Base": "0x76020000",
+          "Size": 983040
+        },
+        {
+          "Name": "NSI.dll",
+          "Base": "0x76110000",
+          "Size": 28672
+        },
+        {
+          "Name": "OLEAUT32.dll",
+          "Base": "0x76180000",
+          "Size": 643072
+        },
+        {
+          "Name": "bcryptPrimitives.dll",
+          "Base": "0x76220000",
+          "Size": 389120
+        },
+        {
+          "Name": "sechost.dll",
+          "Base": "0x76280000",
+          "Size": 503808
+        },
+        {
+          "Name": "clbcatq.dll",
+          "Base": "0x76300000",
+          "Size": 544768
+        },
+        {
+          "Name": "ucrtbase.dll",
+          "Base": "0x76390000",
+          "Size": 1179648
+        },
+        {
+          "Name": "USER32.dll",
+          "Base": "0x764B0000",
+          "Size": 1835008
+        },
+        {
+          "Name": "msvcp_win.dll",
+          "Base": "0x76680000",
+          "Size": 503808
+        },
+        {
+          "Name": "SHELL32.dll",
+          "Base": "0x76700000",
+          "Size": 6144000
+        },
+        {
+          "Name": "combase.dll",
+          "Base": "0x76D70000",
+          "Size": 2621440
+        },
+        {
+          "Name": "SHLWAPI.dll",
+          "Base": "0x770A0000",
+          "Size": 299008
+        },
+        {
+          "Name": "RPCRT4.dll",
+          "Base": "0x770F0000",
+          "Size": 782336
+        },
+        {
+          "Name": "SETUPAPI.dll",
+          "Base": "0x771B0000",
+          "Size": 4435968
+        },
+        {
+          "Name": "WS2_32.dll",
+          "Base": "0x775F0000",
+          "Size": 434176
+        },
+        {
+          "Name": "CRYPT32.dll",
+          "Base": "0x776C0000",
+          "Size": 1044480
+        },
+        {
+          "Name": "wow64cpu.dll",
+          "Base": "0x777C0000",
+          "Size": 40960
+        },
+        {
+          "Name": "ntdll.dll",
+          "Base": "0x777D0000",
+          "Size": 1724416
+        },
+        {
+          "Name": "wow64.dll",
+          "Base": "0x7FFBE3140000",
+          "Size": 364544
+        },
+        {
+          "Name": "wow64win.dll",
+          "Base": "0x7FFBE4340000",
+          "Size": 536576
+        },
+        {
+          "Name": "_64-ntdll.dll",
+          "Base": "0x7FFBE4E70000",
+          "Size": 2068480
+        }
+      ]
+    },
+    {
+      "dwPID": 5748,
+      "dwPPID": 1572,
+      "sName": "uu_cloudsyn.ex",
+      "fWow64": true,
+      "Eprocess": "0xFFFF9E02CF81D300",
+      "Peb": "0x85C000",
+      "MainModuleBase": "0x370000",
+      "cbImageSize": 3117056,
+      "HeaderSha256": "F73018164E8BA05EDECECADCB6DBA967B0AA87E2FA67557DEFA5DA54E8D59A26",
+      "Modules": [
+        {
+          "Name": "netutils.dll",
+          "Base": "0x74AC0000",
+          "Size": 45056
+        },
+        {
+          "Name": "uu_cloudsyn.exe",
+          "Base": "0x370000",
+          "Size": 3117056
+        },
+        {
+          "Name": "sfc.dll",
+          "Base": "0xB20000",
+          "Size": 12288
+        },
+        {
+          "Name": "secur32.dll",
+          "Base": "0x6D7D0000",
+          "Size": 40960
+        },
+        {
+          "Name": "MSVCR100.dll",
+          "Base": "0x708C0000",
+          "Size": 782336
+        },
+        {
+          "Name": "MSVCP100.dll",
+          "Base": "0x70980000",
+          "Size": 430080
+        },
+        {
+          "Name": "DPAPI.DLL",
+          "Base": "0x71EE0000",
+          "Size": 32768
+        },
+        {
+          "Name": "MSASN1.dll",
+          "Base": "0x71EF0000",
+          "Size": 57344
+        },
+        {
+          "Name": "ncryptsslp.dll",
+          "Base": "0x71F00000",
+          "Size": 126976
+        },
+        {
+          "Name": "ncrypt.dll",
+          "Base": "0x71F20000",
+          "Size": 139264
+        },
+        {
+          "Name": "NTASN1.dll",
+          "Base": "0x71F50000",
+          "Size": 163840
+        },
+        {
+          "Name": "mskeyprotect.dll",
+          "Base": "0x71F80000",
+          "Size": 65536
+        },
+        {
+          "Name": "schannel.dll",
+          "Base": "0x71F90000",
+          "Size": 520192
+        },
+        {
+          "Name": "fwpuclnt.dll",
+          "Base": "0x72010000",
+          "Size": 360448
+        },
+        {
+          "Name": "rasadhlp.dll",
+          "Base": "0x72070000",
+          "Size": 32768
+        },
+        {
+          "Name": "DNSAPI.dll",
+          "Base": "0x72080000",
+          "Size": 598016
+        },
+        {
+          "Name": "ntmarta.dll",
+          "Base": "0x72200000",
+          "Size": 167936
+        },
+        {
+          "Name": "dhcpcsvc.DLL",
+          "Base": "0x72230000",
+          "Size": 90112
+        },
+        {
+          "Name": "WINNSI.DLL",
+          "Base": "0x72270000",
+          "Size": 32768
+        },
+        {
+          "Name": "mswsock.dll",
+          "Base": "0x72280000",
+          "Size": 335872
+        },
+        {
+          "Name": "CRYPTBASE.DLL",
+          "Base": "0x72AE0000",
+          "Size": 40960
+        },
+        {
+          "Name": "WINHTTP.dll",
+          "Base": "0x72AF0000",
+          "Size": 831488
+        },
+        {
+          "Name": "dbghelp.dll",
+          "Base": "0x72BE0000",
+          "Size": 1777664
+        },
+        {
+          "Name": "WINMM.dll",
+          "Base": "0x72FB0000",
+          "Size": 163840
+        },
+        {
+          "Name": "gdiplus.dll",
+          "Base": "0x72FE0000",
+          "Size": 1482752
+        },
+        {
+          "Name": "webio.dll",
+          "Base": "0x73180000",
+          "Size": 475136
+        },
+        {
+          "Name": "IPHLPAPI.DLL",
+          "Base": "0x73BE0000",
+          "Size": 204800
+        },
+        {
+          "Name": "VERSION.dll",
+          "Base": "0x73C20000",
+          "Size": 32768
+        },
+        {
+          "Name": "WINSPOOL.DRV",
+          "Base": "0x73CB0000",
+          "Size": 512000
+        },
+        {
+          "Name": "AcLayers.DLL",
+          "Base": "0x73D30000",
+          "Size": 2641920
+        },
+        {
+          "Name": "apphelp.dll",
+          "Base": "0x73FC0000",
+          "Size": 671744
+        },
+        {
+          "Name": "sfc_os.DLL",
+          "Base": "0x74070000",
+          "Size": 61440
+        },
+        {
+          "Name": "MPR.dll",
+          "Base": "0x740A0000",
+          "Size": 102400
+        },
+        {
+          "Name": "ktmw32.dll",
+          "Base": "0x740C0000",
+          "Size": 36864
+        },
+        {
+          "Name": "iertutil.dll",
+          "Base": "0x74560000",
+          "Size": 2326528
+        },
+        {
+          "Name": "profapi.dll",
+          "Base": "0x747A0000",
+          "Size": 114688
+        },
+        {
+          "Name": "dhcpcsvc6.DLL",
+          "Base": "0x747E0000",
+          "Size": 81920
+        },
+        {
+          "Name": "SspiCli.dll",
+          "Base": "0x748B0000",
+          "Size": 159744
+        },
+        {
+          "Name": "srvcli.dll",
+          "Base": "0x74AD0000",
+          "Size": 118784
+        },
+        {
+          "Name": "urlmon.dll",
+          "Base": "0x74AF0000",
+          "Size": 1761280
+        },
+        {
+          "Name": "uxtheme.dll",
+          "Base": "0x74D00000",
+          "Size": 475136
+        },
+        {
+          "Name": "kernel.appcore.dll",
+          "Base": "0x74D80000",
+          "Size": 61440
+        },
+        {
+          "Name": "Wldp.dll",
+          "Base": "0x74D90000",
+          "Size": 151552
+        },
+        {
+          "Name": "windows.storage.dll",
+          "Base": "0x74DC0000",
+          "Size": 6426624
+        },
+        {
+          "Name": "MSVCP140.dll",
+          "Base": "0x75410000",
+          "Size": 446464
+        },
+        {
+          "Name": "VCRUNTIME140.dll",
+          "Base": "0x75480000",
+          "Size": 86016
+        },
+        {
+          "Name": "sentry.dll",
+          "Base": "0x754A0000",
+          "Size": 462848
+        },
+        {
+          "Name": "FLTLIB.DLL",
+          "Base": "0x75520000",
+          "Size": 32768
+        },
+        {
+          "Name": "virtdisk.dll",
+          "Base": "0x75530000",
+          "Size": 61440
+        },
+        {
+          "Name": "PROPSYS.dll",
+          "Base": "0x75540000",
+          "Size": 811008
+        },
+        {
+          "Name": "shcore.dll",
+          "Base": "0x75610000",
+          "Size": 552960
+        },
+        {
+          "Name": "cfgmgr32.dll",
+          "Base": "0x75780000",
+          "Size": 241664
+        },
+        {
+          "Name": "WLDAP32.dll",
+          "Base": "0x757C0000",
+          "Size": 385024
+        },
+        {
+          "Name": "ADVAPI32.dll",
+          "Base": "0x75820000",
+          "Size": 516096
+        },
+        {
+          "Name": "IMM32.DLL",
+          "Base": "0x758A0000",
+          "Size": 151552
+        },
+        {
+          "Name": "msvcrt.dll",
+          "Base": "0x758D0000",
+          "Size": 782336
+        },
+        {
+          "Name": "GDI32.dll",
+          "Base": "0x75990000",
+          "Size": 143360
+        },
+        {
+          "Name": "bcrypt.dll",
+          "Base": "0x759C0000",
+          "Size": 102400
+        },
+        {
+          "Name": "KERNELBASE.dll",
+          "Base": "0x75A00000",
+          "Size": 2334720
+        },
+        {
+          "Name": "win32u.dll",
+          "Base": "0x75C40000",
+          "Size": 98304
+        },
+        {
+          "Name": "ole32.dll",
+          "Base": "0x75CD0000",
+          "Size": 929792
+        },
+        {
+          "Name": "gdi32full.dll",
+          "Base": "0x75F30000",
+          "Size": 954368
+        },
+        {
+          "Name": "KERNEL32.DLL",
+          "Base": "0x76020000",
+          "Size": 983040
+        },
+        {
+          "Name": "NSI.dll",
+          "Base": "0x76110000",
+          "Size": 28672
+        },
+        {
+          "Name": "OLEAUT32.dll",
+          "Base": "0x76180000",
+          "Size": 643072
+        },
+        {
+          "Name": "bcryptPrimitives.dll",
+          "Base": "0x76220000",
+          "Size": 389120
+        },
+        {
+          "Name": "sechost.dll",
+          "Base": "0x76280000",
+          "Size": 503808
+        },
+        {
+          "Name": "clbcatq.dll",
+          "Base": "0x76300000",
+          "Size": 544768
+        },
+        {
+          "Name": "ucrtbase.dll",
+          "Base": "0x76390000",
+          "Size": 1179648
+        },
+        {
+          "Name": "USER32.dll",
+          "Base": "0x764B0000",
+          "Size": 1835008
+        },
+        {
+          "Name": "PSAPI.DLL",
+          "Base": "0x76670000",
+          "Size": 24576
+        },
+        {
+          "Name": "msvcp_win.dll",
+          "Base": "0x76680000",
+          "Size": 503808
+        },
+        {
+          "Name": "SHELL32.dll",
+          "Base": "0x76700000",
+          "Size": 6144000
+        },
+        {
+          "Name": "combase.dll",
+          "Base": "0x76D70000",
+          "Size": 2621440
+        },
+        {
+          "Name": "SHLWAPI.dll",
+          "Base": "0x770A0000",
+          "Size": 299008
+        },
+        {
+          "Name": "RPCRT4.dll",
+          "Base": "0x770F0000",
+          "Size": 782336
+        },
+        {
+          "Name": "SETUPAPI.dll",
+          "Base": "0x771B0000",
+          "Size": 4435968
+        },
+        {
+          "Name": "WS2_32.dll",
+          "Base": "0x775F0000",
+          "Size": 434176
+        },
+        {
+          "Name": "CRYPT32.dll",
+          "Base": "0x776C0000",
+          "Size": 1044480
+        },
+        {
+          "Name": "wow64cpu.dll",
+          "Base": "0x777C0000",
+          "Size": 40960
+        },
+        {
+          "Name": "ntdll.dll",
+          "Base": "0x777D0000",
+          "Size": 1724416
+        },
+        {
+          "Name": "wow64.dll",
+          "Base": "0x7FFBE3140000",
+          "Size": 364544
+        },
+        {
+          "Name": "wow64win.dll",
+          "Base": "0x7FFBE4340000",
+          "Size": 536576
+        },
+        {
+          "Name": "_64-ntdll.dll",
+          "Base": "0x7FFBE4E70000",
+          "Size": 2068480
+        }
+      ]
+    },
+    {
+      "dwPID": 7108,
+      "dwPPID": 3848,
+      "sName": "uu_launcher.ex",
+      "fWow64": true,
+      "Eprocess": "0xFFFF9E02D273A080",
+      "Peb": "0x10E8000",
+      "MainModuleBase": "0x770000",
+      "cbImageSize": 1888256,
+      "HeaderSha256": "91277412B0C36178986DE0CFA092F32E0E144941755BA7DCAA51490D6E0E5EE6",
+      "Modules": [
+        {
+          "Name": "profapi.dll",
+          "Base": "0x747A0000",
+          "Size": 114688
+        },
+        {
+          "Name": "uu_launcher.exe",
+          "Base": "0x770000",
+          "Size": 1888256
+        },
+        {
+          "Name": "sfc.dll",
+          "Base": "0x1400000",
+          "Size": 12288
+        },
+        {
+          "Name": "WINSPOOL.DRV",
+          "Base": "0x73CB0000",
+          "Size": 512000
+        },
+        {
+          "Name": "AcLayers.DLL",
+          "Base": "0x73D30000",
+          "Size": 2641920
+        },
+        {
+          "Name": "apphelp.dll",
+          "Base": "0x73FC0000",
+          "Size": 671744
+        },
+        {
+          "Name": "sfc_os.DLL",
+          "Base": "0x74070000",
+          "Size": 61440
+        },
+        {
+          "Name": "MPR.dll",
+          "Base": "0x740A0000",
+          "Size": 102400
+        },
+        {
+          "Name": "SspiCli.dll",
+          "Base": "0x748B0000",
+          "Size": 159744
+        },
+        {
+          "Name": "uxtheme.dll",
+          "Base": "0x74D00000",
+          "Size": 475136
+        },
+        {
+          "Name": "kernel.appcore.dll",
+          "Base": "0x74D80000",
+          "Size": 61440
+        },
+        {
+          "Name": "Wldp.dll",
+          "Base": "0x74D90000",
+          "Size": 151552
+        },
+        {
+          "Name": "windows.storage.dll",
+          "Base": "0x74DC0000",
+          "Size": 6426624
+        },
+        {
+          "Name": "FLTLIB.DLL",
+          "Base": "0x75520000",
+          "Size": 32768
+        },
+        {
+          "Name": "virtdisk.dll",
+          "Base": "0x75530000",
+          "Size": 61440
+        },
+        {
+          "Name": "PROPSYS.dll",
+          "Base": "0x75540000",
+          "Size": 811008
+        },
+        {
+          "Name": "shcore.dll",
+          "Base": "0x75610000",
+          "Size": 552960
+        },
+        {
+          "Name": "cfgmgr32.dll",
+          "Base": "0x75780000",
+          "Size": 241664
+        },
+        {
+          "Name": "ADVAPI32.dll",
+          "Base": "0x75820000",
+          "Size": 516096
+        },
+        {
+          "Name": "IMM32.DLL",
+          "Base": "0x758A0000",
+          "Size": 151552
+        },
+        {
+          "Name": "msvcrt.dll",
+          "Base": "0x758D0000",
+          "Size": 782336
+        },
+        {
+          "Name": "GDI32.dll",
+          "Base": "0x75990000",
+          "Size": 143360
+        },
+        {
+          "Name": "bcrypt.dll",
+          "Base": "0x759C0000",
+          "Size": 102400
+        },
+        {
+          "Name": "KERNELBASE.dll",
+          "Base": "0x75A00000",
+          "Size": 2334720
+        },
+        {
+          "Name": "win32u.dll",
+          "Base": "0x75C40000",
+          "Size": 98304
+        },
+        {
+          "Name": "ole32.dll",
+          "Base": "0x75CD0000",
+          "Size": 929792
+        },
+        {
+          "Name": "gdi32full.dll",
+          "Base": "0x75F30000",
+          "Size": 954368
+        },
+        {
+          "Name": "KERNEL32.DLL",
+          "Base": "0x76020000",
+          "Size": 983040
+        },
+        {
+          "Name": "OLEAUT32.dll",
+          "Base": "0x76180000",
+          "Size": 643072
+        },
+        {
+          "Name": "bcryptPrimitives.dll",
+          "Base": "0x76220000",
+          "Size": 389120
+        },
+        {
+          "Name": "sechost.dll",
+          "Base": "0x76280000",
+          "Size": 503808
+        },
+        {
+          "Name": "clbcatq.dll",
+          "Base": "0x76300000",
+          "Size": 544768
+        },
+        {
+          "Name": "ucrtbase.dll",
+          "Base": "0x76390000",
+          "Size": 1179648
+        },
+        {
+          "Name": "USER32.dll",
+          "Base": "0x764B0000",
+          "Size": 1835008
+        },
+        {
+          "Name": "msvcp_win.dll",
+          "Base": "0x76680000",
+          "Size": 503808
+        },
+        {
+          "Name": "SHELL32.dll",
+          "Base": "0x76700000",
+          "Size": 6144000
+        },
+        {
+          "Name": "combase.dll",
+          "Base": "0x76D70000",
+          "Size": 2621440
+        },
+        {
+          "Name": "SHLWAPI.dll",
+          "Base": "0x770A0000",
+          "Size": 299008
+        },
+        {
+          "Name": "RPCRT4.dll",
+          "Base": "0x770F0000",
+          "Size": 782336
+        },
+        {
+          "Name": "SETUPAPI.dll",
+          "Base": "0x771B0000",
+          "Size": 4435968
+        },
+        {
+          "Name": "WS2_32.dll",
+          "Base": "0x775F0000",
+          "Size": 434176
+        },
+        {
+          "Name": "CRYPT32.dll",
+          "Base": "0x776C0000",
+          "Size": 1044480
+        },
+        {
+          "Name": "wow64cpu.dll",
+          "Base": "0x777C0000",
+          "Size": 40960
+        },
+        {
+          "Name": "ntdll.dll",
+          "Base": "0x777D0000",
+          "Size": 1724416
+        },
+        {
+          "Name": "wow64.dll",
+          "Base": "0x7FFBE3140000",
+          "Size": 364544
+        },
+        {
+          "Name": "wow64win.dll",
+          "Base": "0x7FFBE4340000",
+          "Size": 536576
+        },
+        {
+          "Name": "_64-ntdll.dll",
+          "Base": "0x7FFBE4E70000",
+          "Size": 2068480
+        }
+      ]
+    }
+  ],
+  "WindowMetadataReads": [
+    {
+      "Name": "ValidateHwnd",
+      "Address": "0x764F4640",
+      "Length": 384,
+      "CompleteAndStable": true,
+      "Bytes": "648B15180000008B82DC0F000085C0790203D085C974153B8A40080000750D8B82480800008B924C080000C3B201E96DFCFFFFCCCCCCCCCCCCCCCCCCCCCCCCCC8BFF558BEC83E4F883EC34538B5D08568B7510578BF9895424148B0B894C2418C644241200C64424110081FFE0030000721081FFE803000077088B5D14E91B0900008B4378648B0D18000000894424348B437C894424308B81DC0F000085C0790203C88B41780B417C75166A0EFF15C4AA577685C0750A8944241C89442420EB2064A1180000008B88DC0F000085C9790203C18B48788B407C894C241C894424200FB70B0FAF0D28EA5676A120EA56768B440108993944241C0F8597080000395424200F858D0800008A4B12F6C1040F8581080000648B1D180000008B83DC0F000085C0790203D88B83000800008944243C2500000040894424388B83200800008B40100B8338080000A9202000000F8541080000833D9CE55676057534884C2413B904000000E80859020084C0741E8B83E4080000818BE008000000010000"
+    },
+    {
+      "Name": "ValidateHwndAlternate",
+      "Address": "0x764F42E0",
+      "Length": 576,
+      "CompleteAndStable": true,
+      "Bytes": "8BFF558BEC83E4F883EC1453648B1D18000000565733F6885424138B83DC0F000033FF894C241485C0790203D8A150EC567681C3000800000FB7D133C93B480C8B4C2414777D72053B50087376A128EA56760FAFC2030520EA5676998BC88B442414C1E810663B411A740F6685C0740ABAFFFF0000663BC27545F6411901753F8A44241338411875368B53208BC20B4324741C8B41103B0275158B41143B4204750D8B732803318B7B2C137904EB106A38FF742418FF1554AA57768BF033FF8B4C241485DB741AF7431C0000002074118BC60BC7741C51FF1504B0577685C074118BC60BC7740B8BC68BD75F5E5B8BE55DC30FB64424134883F8070F8791000000FF24858C444F76B87805000050FF15ACA5577633C033D25F5E5B8BE55DC3B87905000050FF15ACA5577633C033D25F5E5B8BE55DC3B87A05000050FF15ACA5577633C033D25F5E5B8BE55DC3B87B05000050FF15ACA5577633C033D25F5E5B8BE55DC3B87C05000050FF15ACA5577633C033D25F5E5B8BE55DC3B87D05000050FF15ACA5577633C033D25F5E5B8BE55DC3B80600000050FF15ACA557765F5E33C033D25B8BE55DC38D4900E8434F76FF434F7616444F765B444F7644444F7672444F7672444F762D444F76CCCCCCCC8BFF558BEC518B4D0C53568B7508578B3D50EC56768D87880100008BD08945FC8D9F4802000033C03BD3731D8D6424003B3275053B4A04746483C20883D00085C072ED77043BD372E78BD381C70803000033C03BD773193B3275053B4A04741D83C20883D00085C072ED77043BD772E7"
+    },
+    {
+      "Name": "WindowRectCopy",
+      "Address": "0x764F14A4",
+      "Length": 76,
+      "CompleteAndStable": true,
+      "Bytes": "8BFF558BEC83EC2453568B75088BD9570FB7462A25FF2FFFFF3D9D020000741083C6588BFBA5A5A5A55F5E5BC9C208008D45E050E88BC2FFFF8BF08D7DF0A5A5A5A58D75F0EBDCCCCCCCCCCC"
+    },
+    {
+      "Name": "ClientRectCopy",
+      "Address": "0x764F5239",
+      "Length": 119,
+      "CompleteAndStable": true,
+      "Bytes": "8BFF558BEC83EC24538BD98B4D085657F6411F2075320FB7412A25FF2FFFFF3D9D020000742D8D41688BFB8BF0A5A5A5A58B496C8B002903294308294B0C294B045F5E5BC9C20800F641150275C8E90CCC01008D45E050E8D384FFFF8BF08D7DF0A5A5A5A58BFB8D75F0A5A5A5A5EBD1CCCCCCCCCCCCCC"
+    },
+    {
+      "Name": "ClientToScreenTail",
+      "Address": "0x764E0BD0",
+      "Length": 144,
+      "CompleteAndStable": true,
+      "Bytes": "C2240F3C027508F7C200000020756333C98BC3240F3C027508F7C300000020755533C03BC80F85C59302008365E400FF75DC578D4DD0E83F000000837DE4000F85079402008B45D08B4D0C89018B45D4894104C745FCFEFFFFFF8BC68B4DF064890D00000000595F5E5BC9C2080033C0EBEA8BCEEB9B8BC6EBA98BFF558BEC8B55080FB7422A25FF2FFFFF3D9D020000"
+    },
+    {
+      "Name": "MainWindowHandleEntry",
+      "Address": "0x1B06500",
+      "Length": 32,
+      "CompleteAndStable": true,
+      "Bytes": "A09C020000000000F8090000000000000400000070FD50D10100030000000000"
+    }
+  ],
+  "Status": "completed",
+  "LeaseReleased": true,
+  "CompletedUtc": "2026-10-23T03:22:27.0644423+00:00"
+}

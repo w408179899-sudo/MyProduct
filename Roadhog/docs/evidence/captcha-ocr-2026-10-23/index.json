@@ -1,0 +1,143 @@
+{
+  "date": "2026-10-23",
+  "timezone": "Asia/Shanghai",
+  "user_decision": "Use ddddocr default model (beta=False) for future captcha OCR integration.",
+  "ddddocr_version": "1.6.1",
+  "onnxruntime_version": "1.23.2",
+  "python_version_tested": "3.10.5",
+  "initialization": "ddddocr.DdddOcr(beta=False, use_gpu=False, show_ad=False)",
+  "expected_character_count_from_user": 6,
+  "comparison_rule": "Preserve raw output; compare ignoring case for this login dialog. Do not pad, guess, or treat length alone as correctness.",
+  "samples": [
+    {
+      "id": 1,
+      "image": "samples/sample-01.png",
+      "reference_from_user": "WLP63M",
+      "reference_used_for_inference": false,
+      "image_association": "User confirmed the displayed recovered image was current.",
+      "acquisition": "results/sample-01-acquisition.json"
+    },
+    {
+      "id": 2,
+      "image": "samples/sample-02.png",
+      "reference_from_user": "P3TMSK",
+      "reference_used_for_inference": false,
+      "image_association": "New complete image hash, two identical encoded copies, visually consistent with the user reference; active UI-control ownership not proven.",
+      "acquisition": "results/sample-02-acquisition.json"
+    }
+  ],
+  "copied_files": [
+    {
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\captcha-dma-20261023\\ocr-pages-103613\\encoded-6CA6AA0.png",
+      "archived": "samples/sample-01.png",
+      "bytes": 11191,
+      "sha256": "8293e07fd90f0dc571438449e680348feb2b4091f61d7ce4ea7c8872f4c697dd"
+    },
+    {
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\captcha-dma-20261023\\ocr-pages-retest-024856\\encoded-6CC1EA8.png",
+      "archived": "samples/sample-02.png",
+      "bytes": 12165,
+      "sha256": "0be8dc7c0337bebff399c5a6a74322dbd47b9cc2f11a5754d69fb54af531139a"
+    },
+    {
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\captcha-ocr-20261023\\result-103613.json",
+      "archived": "results/sample-01-ddddocr.json",
+      "bytes": 971,
+      "sha256": "8ab57f4d811e8655b720fdd52272fc1128b77521612c6faf0227b486dc7ab613"
+    },
+    {
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\captcha-ocr-20261023\\comparison-103613.json",
+      "archived": "results/sample-01-alternatives.json",
+      "bytes": 12444,
+      "sha256": "c071c761a46f49462cd261901ec554dd9caeba04c35aea42119b50c216a0fe3c"
+    },
+    {
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\captcha-ocr-20261023\\comparison-024856.json",
+      "archived": "results/sample-02-comparison.json",
+      "bytes": 11200,
+      "sha256": "c7a79cb29c9b8ca8836d00227d2522c7ed882d896e1d018c3b9d85fcc90a14a1"
+    },
+    {
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\captcha-ocr-20261023\\result-ddddocr-024856.json",
+      "archived": "results/sample-02-ddddocr.json",
+      "bytes": 1107,
+      "sha256": "adf78e90eed4d7535843a321d7b5aee7469d85dbd4b8d2cc754e9af02ab08078"
+    },
+    {
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\captcha-ocr-20261023\\result-paddle-024856.json",
+      "archived": "results/sample-02-paddle.json",
+      "bytes": 4982,
+      "sha256": "85b91787cf204257a49f98c7c9dc027bbdbac84601ce117c8e9607dc724a06d7"
+    },
+    {
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\captcha-ocr-20261023\\result-tesseract-024856.json",
+      "archived": "results/sample-02-tesseract.json",
+      "bytes": 5330,
+      "sha256": "ec99070ce639e72c1a099e8be65bbb4fded5e40972bd5959beb6b4691204fb2f"
+    },
+    {
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\captcha-ocr-20261023\\requirements-lock.txt",
+      "archived": "replay/requirements-ddddocr.txt",
+      "bytes": 245,
+      "sha256": "02707413725921f24aa46b0b420d4b7c464addd12f9d1b2a8a054a80c9fe782e"
+    },
+    {
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\captcha-ocr-20261023\\requirements-alternatives-lock.txt",
+      "archived": "replay/requirements-alternatives.txt",
+      "bytes": 1405,
+      "sha256": "a1383b2c0b07ae70586b1a41bd15727a0473115d736953abf28bd7bacaecb539"
+    },
+    {
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\captcha-ocr-20261023\\test_ddddocr.py",
+      "archived": "replay/test_ddddocr.py",
+      "bytes": 2193,
+      "sha256": "eee98fe98f70d3de0b5330b03495e82d853a43ae7a46c66a2e6e8c036472c85d"
+    },
+    {
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\captcha-ocr-20261023\\test_alternatives.py",
+      "archived": "replay/test_alternatives.py",
+      "bytes": 7091,
+      "sha256": "7c97b213b900520b9a03af1fa2475422c9868bc91368f070f1787bcdb9e069a1"
+    },
+    {
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\captcha-dma-20261023\\Program.cs",
+      "archived": "probe-source/Program.cs.txt",
+      "bytes": 9947,
+      "sha256": "cb4a34eb4f3a122e952800013db92c0e4d0890f0676b993f742ff6754bf1bb33"
+    },
+    {
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\captcha-dma-20261023\\ImageMemoryScan.cs",
+      "archived": "probe-source/ImageMemoryScan.cs.txt",
+      "bytes": 11800,
+      "sha256": "83fb28797f76bbe51bc69e835b979dfcb3bd91efe7da3c4665e0f6675fa95845"
+    },
+    {
+      "source": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\captcha-dma-20261023\\CaptchaDmaProbe.csproj",
+      "archived": "probe-source/CaptchaDmaProbe.csproj.txt",
+      "bytes": 1032,
+      "sha256": "eef930220b2262fadf504ea1d25b64ca12f46f70f16a676e39fbad0f2ffb8d2b"
+    }
+  ],
+  "status": {
+    "dma_encoded_image_reconstruction_demonstrated": true,
+    "stable_current_ui_image_binding_complete": false,
+    "automatic_login_integrated": false,
+    "input_or_verification_submitted": false,
+    "target_memory_written": false,
+    "captcha_refreshed_by_assistant": false
+  },
+  "derived_files": [
+    {
+      "archived": "results/sample-01-acquisition.json",
+      "bytes": 1901,
+      "sha256": "a67f123f30a9bd62aa0162a55a04ae6d6e315cf2c3bd544e9d4c94b2b4d0f522",
+      "source_note": "Acquisition summary derived from the historical DMA capture; not a full raw report."
+    },
+    {
+      "archived": "results/sample-02-acquisition.json",
+      "bytes": 1983,
+      "sha256": "ce5dc56d44f7938dd870bbff88802ec5763a12ac603b56c0ecf5f66467e71961",
+      "source_note": "Acquisition summary derived from the historical DMA capture; not a full raw report."
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window size="1000,688" mininfo="1000,688" maxinfo ="1000,688" caption="0,0,0,94" roundcorner="16,16" >
+  <Font name="微软雅黑" size="18" id="1" default="true"/>
+  <Font name="微软雅黑" size="18" bold="true" id="2"/>
+  <Font name="微软雅黑" size="16" id="3"/>
+  <Font name="微软雅黑" size="16" bold="true" id="4"/>
+  <Font name="微软雅黑" size="20" id="5" />
+  <Font name="微软雅黑" size="20" bold="true" id="6" />
+  <Font name="微软雅黑" size="22" id="7" />
+  <Font name="微软雅黑" size="22" bold="true" id="8" />
+  <Font name="微软雅黑" size="24" id="9" />
+  <Font name="微软雅黑" size="24" bold="true" id="10" />
+  <Font name="微软雅黑" size="44" id="11" />
+  <Font name="微软雅黑" size="44" bold="true" id="12" />
+  <Font name="微软雅黑" size="14" id="13"/>
+  <Font name="微软雅黑" size="14" bold="true" id="14"/>
+  <Font name="微软雅黑" size="12" id="15"/>
+  <Font name="微软雅黑" size="12" bold="true" id="16"/>
+  <Font name="微软雅黑" size="26" bold="true" id="17"/>
+  <Font name="微软雅黑" size="48" id="18"/>
+  <Font name="微软雅黑" size="40" id="19"/>
+  <Font name="微软雅黑" size="14" id="20" underline="true"/>
+  <Font name="微软雅黑" size="11" id="21" />
+  <Default name="VScrollBar"  value="showbutton1=&quot;false&quot; showbutton2=&quot;false&quot; thumbnormalimage=&quot;file='v40\scrollbar\scorll-bar-normal.png' corner='2,2,2,2'&quot; thumbhotimage=&quot;file='v40\scrollbar\scorll-bar-normal.png' corner='2,2,2,2'&quot; thumbpushedimage=&quot;file='v40\scrollbar\scorll-bar-pushed.png' corner='2,2,2,2'&quot;" />
+  <Container name="main_form" bkimage="file='v40/common/form_bg.png' corner='20,20,20,20'" height="688" bkcolor="#FF181D42">
+    <VerticalLayout height="688">
+      <ChildLayout name="child_title" height="94" xmlfile="v40/title.xml" />
+      <ChildLayout name="child_home_page" height="594" xmlfile="v40/home_page.xml" mullang="1"/>
+      <ChildLayout name="child_game" height="594" xmlfile="v40/game.xml" />
+      <ChildLayout name="child_cloud_saves" height="582" xmlfile="v40/cloud_saves.xml" />
+      <!-- <ChildLayout name="child_remote" height="594" xmlfile="v40/remote.xml" /> -->
+      <ChildLayout name="child_webtab" height="594" xmlfile="v40/webtab.xml" />
+      <ChildLayout name="child_lanplay" height="594" xmlfile="v40/lanplay.xml" />
+      <ChildLayout name="child_wallpaper" height="594" xmlfile="v40/wallpaper.xml" />
+      <ChildLayout name="child_search_game" height="594" xmlfile="v40/search_game.xml" />
+      <ChildLayout name="child_game_accing" height="582" xmlfile="v40/game_accing.xml" />
+      <ChildLayout name="child_game_acced" visible="false" float="true" pos="1000,94,2000,676" xmlfile="v40/game_acced.xml" mullang="1"/>
+    </VerticalLayout>
+    <ChildLayout  name="child_first_launch" visible="false" float="true" pos="0,27,1000,668" xmlfile="v40/first_launch.xml" />
+    <ChildLayout  name="child_search_menu" visible="false" float="true" pos="648,66,952,454" xmlfile="v40/search_menu.xml" />
+	  <ChildLayout  name="child_teenage_lock" visible="false" float="true" pos="0,0,1000,782" xmlfile="v40/teenage_lock.xml" />
+    <ChildLayout  name="child_login_conflict" visible="false" float="true" pos="0,0,1000,782" xmlfile="v40/login_conflict.xml" />
+  </Container>  
+</Window>

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window size="400,270" mininfo="400,270" maxinfo="400,270" caption="15,0,15,30" layerd="true">
+  <Font name="微软雅黑" size="16" id="1" default="true"/>
+  <Font name="微软雅黑" size="14" id="2"/>
+  <Font name="微软雅黑" size="14" bold="true" id="3"/>
+  <Container bkimage="file='v40/common/form_bg_shadow.png' corner='30,12,30,48'" inset="20,2,20,38">
+    <VerticalLayout>
+      <HorizontalLayout height="30">
+        <HorizontalLayout />
+        <Button name="close" padding="0,8,8,0" width="14" height="14" normalimage="v40/button/close_normal.png" hotimage="v40/button/close_hover.png" pushedimage="v40/button/close_pushed.png" />
+      </HorizontalLayout>
+      
+      <Label name="tip_title" padding="32,10,0,0" width="296" height="24" align="center" font="1" textcolor="#FFFFFFFF"/>
+
+      <text name="tip_desc" padding="28,8,0,0" width="304" height="50" align="center" valign="vcenter" multiline="true" font="2" textcolor="#FF9699B3" />
+      
+			<HorizontalLayout padding="32,16,32,0" width="296" height="36">
+				<Button name="Ok" padding="20,0,0,0" width="120" height="36" text="%{1012}" font="3" textcolor="#FFFFFFFF" align="center" normalimage="file='v40/button/common_light_normal.png' corner='8,8,8,8'" hotimage="file='v40/button/common_light_hover.png' corner='8,8,8,8'" pushedimage="file='v40/button/common_light_pushed.png' corner='8,8,8,8'"/>
+				<Button name="Cancel" padding="16,0,0,0" width="120" height="36" text="%{1453}" font="3" textcolor="#FFFFFFFF" align="center" normalimage="file='v40/button/common_dark_normal.png' corner='8,8,8,8'" hotimage="file='v40/button/common_dark_hover.png' corner='8,8,8,8'" pushedimage="file='v40/button/common_dark_pushed.png' corner='8,8,8,8'"/>
+			</HorizontalLayout>
+
+      <HorizontalLayout padding="32,16,32,0" width="296" height="36">
+        <Option name="option_value" text="%{1042}" align="left" padding="102,0,0,0" font="2" textcolor="#FFADB0D0" textpadding="20,0" width="92" normalimage="file='v40/button/ckeckbox_uncheck.png' dest='0,3,16,19'" selectedimage="file='v40/button/checkbox_checked.png' dest='0,3,16,19'" />
+      </HorizontalLayout>
+		</VerticalLayout>
+	</Container>
+</Window>
+

@@ -1,0 +1,207 @@
+using System.Buffers.Binary;
+using System.Diagnostics;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text.Json;
+using Vmmsharp;
+
+internal static class ImageMemoryScan
+{
+    private const uint NoCache = 1;
+    public static object CaptureKnown(VmmProcess process,VmmProcess.ProcessInfo identity,string baselineDirectory,string output)
+    {
+        using var baseline=JsonDocument.Parse(File.ReadAllText(Path.Combine(baselineDirectory,"report.json")));
+        var prior=baseline.RootElement;
+        if(prior.GetProperty("TargetPid").GetUInt32()!=process.PID ||
+           prior.GetProperty("TargetIdentity").GetProperty("Eprocess").GetString()!=Hex(identity.vaEPROCESS))
+            throw new InvalidOperationException("Baseline belongs to a different process session.");
+        var captures=new List<object>();
+        foreach(var item in prior.GetProperty("PageScan").GetProperty("Matches").EnumerateArray())
+        {
+            if(item.GetProperty("Kind").GetString()!="encoded-image")continue;
+            ulong address=Convert.ToUInt64(item.GetProperty("Address").GetString()![2..],16);
+            int length=item.GetProperty("Length").GetInt32();
+            if(length<16||length>65536)throw new InvalidOperationException("Invalid baseline length.");
+            var first=process.MemRead(address,(uint)length,NoCache);
+            var second=process.MemRead(address,(uint)length,NoCache);
+            if(first is null||first.Length!=length||second is null||!first.AsSpan().SequenceEqual(second))
+                throw new InvalidOperationException("Candidate changed or read incomplete; rediscovery required.");
+            string sha=Convert.ToHexString(SHA256.HashData(first));
+            if(sha!=item.GetProperty("Sha256").GetString())throw new InvalidOperationException("Image contents changed since scan; rediscovery required.");
+            using var stream=new MemoryStream(first,false);
+            using var image=Image.FromStream(stream,false,true);
+            if(image.Width!=120||image.Height!=60)throw new InvalidOperationException("Unexpected image dimensions.");
+            string stem=$"dma-{address:X}";
+            using var copy=new Bitmap(image);
+            copy.Save(Path.Combine(output,stem+".png"),ImageFormat.Png);
+            File.WriteAllBytes(Path.Combine(output,stem+".jpg"),first);
+            captures.Add(new{Address=Hex(address),Length=length,Width=image.Width,Height=image.Height,Sha256=sha,Jpeg=stem+".jpg",Png=stem+".png",MatchesPriorCapture=true});
+        }
+        return new{CapturedUtc=DateTimeOffset.UtcNow,Captures=captures};
+    }
+    public static object Run(VmmProcess process, VmmProcess.VadEntry[] regions, string output)
+    {
+        var timer = Stopwatch.StartNew();
+        var ptes = process.MapPTE(false);
+        var pages = new SortedSet<ulong>();
+        foreach (var pte in ptes)
+        {
+            if (!pte.fR || pte.vaBase >= 0x80000000UL) continue;
+            for(ulong address=pte.vaBase;address<=pte.vaEnd && address<0x80000000UL;address+=4096)
+            {
+                if (pages.Count >= 131072) break;
+                var region = regions.FirstOrDefault(r=> address>=r.vaStart && address<=r.vaEnd);
+                if (region.cbSize>0 && !region.fImage && !region.fStack && !region.fTeb && !region.fFile) pages.Add(address);
+            }
+        }
+        Console.WriteLine($"Mapped non-image candidate pages: {pages.Count} ({pages.Count*4096L/1048576} MiB)");
+        var matches = new List<object>();
+        var dimensionSites = new List<object>();
+        var anchorSites = new List<object>();
+        var seenEncoded = new HashSet<ulong>();
+        var seenDimensions = new HashSet<ulong>();
+        var savedPixels = new HashSet<string>();
+        int valid=0,failed=0;
+        var allPages = pages.ToArray();
+        byte[] previous=[];
+        ulong previousEnd=0;
+        foreach(var batch in allPages.Chunk(256))
+        {
+            if(timer.Elapsed>TimeSpan.FromMinutes(3))break;
+            var reads = process.MemReadScatter(NoCache,batch);
+            foreach(var read in reads.OrderBy(r=>r.qwA))
+            {
+                if(!read.f || read.pb is not { Length:4096 }) { failed++; previous=[];previousEnd=0;continue; }
+                valid++;
+                byte[] data;
+                ulong start;
+                if(previousEnd==read.qwA)
+                {
+                    data=new byte[previous.Length+4096];previous.CopyTo(data,0);read.pb.CopyTo(data,previous.Length);start=read.qwA-(ulong)previous.Length;
+                }
+                else {data=read.pb;start=read.qwA;}
+                Inspect(data,start);
+                previous=data[^Math.Min(256,data.Length)..];previousEnd=read.qwA+4096;
+            }
+            if(valid%2048<256)Console.WriteLine($"Read {valid} complete pages; failed={failed}; image candidates={matches.Count}; dimension sites={dimensionSites.Count}");
+        }
+        var result=new { PlannedPages=pages.Count, CompletePages=valid, FailedPages=failed, EncodedSignatures=seenEncoded.Count, DimensionSites=dimensionSites, Anchors=anchorSites, Matches=matches, ElapsedSeconds=timer.Elapsed.TotalSeconds };
+        File.WriteAllText(Path.Combine(output,"image-candidates.json"),JsonSerializer.Serialize(result,new JsonSerializerOptions{WriteIndented=true}));
+        return result;
+
+        void Inspect(byte[] data,ulong start)
+        {
+            foreach(var needle in new[]{"IdentifyingCodeImg", "IdentifyingCodeLabel", "CProtectCodeDlg"})
+            {
+                foreach(var encoding in new[]{System.Text.Encoding.ASCII,System.Text.Encoding.Unicode})
+                {
+                    var pattern=encoding.GetBytes(needle);
+                    int pos=data.AsSpan().IndexOf(pattern);
+                    if(pos>=0)anchorSites.Add(new{Address=Hex(start+(ulong)pos),Label=needle,Encoding=encoding.WebName});
+                }
+            }
+            for(int i=0;i<data.Length-8;i++)
+            {
+                bool jpg=data[i]==255&&data[i+1]==216&&data[i+2]==255;
+                bool png=data[i]==137&&data[i+1]==80&&data[i+2]==78&&data[i+3]==71&&data[i+4]==13&&data[i+5]==10;
+                if((jpg||png)&&seenEncoded.Add(start+(ulong)i))TryEncoded(start+(ulong)i,jpg);
+                if((start+(ulong)i)%4==0 && BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(i,4))==120 && BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(i+4,4))==60 && seenDimensions.Add(start+(ulong)i))
+                    TryPixels(start+(ulong)i);
+            }
+        }
+        void TryEncoded(ulong address,bool jpeg)
+        {
+            var data=ReadUntilGap(process,address,65536);
+            int length=EncodedLength(data,jpeg);
+            if(length<=0)return;
+            try
+            {
+                using var stream=new MemoryStream(data,0,length,false);
+                using var image=Image.FromStream(stream,false,true);
+                if(image.Width!=120||image.Height!=60)return;
+                var verified=process.MemRead(address,(uint)length,NoCache);
+                if(verified is null||!data.AsSpan(0,length).SequenceEqual(verified))return;
+                var name=$"encoded-{address:X}.png";
+                using var clean=new Bitmap(image);
+                clean.Save(Path.Combine(output,name),ImageFormat.Png);
+                matches.Add(new{Kind="encoded-image",Address=Hex(address),Length=length,Format=jpeg?"JPEG":"PNG",Sha256=Convert.ToHexString(SHA256.HashData(verified)),File=name,CurrentDialogConfirmed=false});
+                Console.WriteLine("Recovered encoded candidate: "+name);
+            }
+            catch(ArgumentException){}catch(ExternalException){}catch(OutOfMemoryException){}
+        }
+        void TryPixels(ulong dimensions)
+        {
+            var descriptor=process.MemRead(dimensions-24,64,NoCache);
+            if(descriptor is not {Length:64})return;
+            var plausible=new List<object>();
+            foreach(int relative in new[]{-16,-12,-8,-4,8,12,16,20,24,28})
+            {
+                uint pointer=BinaryPrimitives.ReadUInt32LittleEndian(descriptor.AsSpan(24+relative,4));
+                if(pointer<0x10000||pointer>0x7FFF0000 || pointer%4!=0)continue;
+                var pixels=process.MemRead(pointer,120*60*4,NoCache);
+                if(pixels is not {Length:120*60*4})continue;
+                int pale=0,dark=0,opaque=0;var colors=new HashSet<int>();
+                for(int j=0;j<pixels.Length;j+=4)
+                {
+                    int b=pixels[j],g=pixels[j+1],r=pixels[j+2];
+                    if(b>150&&g>150&&r>150)pale++;
+                    if(b<120&&g<120&&r<120)dark++;
+                    if(pixels[j+3]==255||pixels[j+3]==0)opaque++;
+                    colors.Add(b|(g<<8)|(r<<16));
+                }
+                plausible.Add(new{RelativeToDimensions=relative,Pointer=Hex(pointer),PalePixels=pale,DarkPixels=dark,Colors=colors.Count,AlphaZeroOr255=opaque});
+                if(pale<2500||dark<100||dark>4000||colors.Count<8||opaque<6500)continue;
+                var verify=process.MemRead(pointer,(uint)pixels.Length,NoCache);
+                var descriptorAfter=process.MemRead(dimensions-24,64,NoCache);
+                if(verify is null||!pixels.AsSpan().SequenceEqual(verify)||descriptorAfter is null||!descriptor.AsSpan().SequenceEqual(descriptorAfter))continue;
+                string sha=Convert.ToHexString(SHA256.HashData(pixels));
+                if(!savedPixels.Add(sha))continue;
+                var filename=$"pixels-{pointer:X}.png";
+                using var bitmap=new Bitmap(120,60,PixelFormat.Format32bppArgb);
+                var bmpData=bitmap.LockBits(new Rectangle(0,0,120,60),ImageLockMode.WriteOnly,PixelFormat.Format32bppArgb);
+                try
+                {
+                    var rgb=(byte[])pixels.Clone();
+                    for(int j=3;j<rgb.Length;j+=4)rgb[j]=255;
+                    for(int y=0;y<60;y++)Marshal.Copy(rgb,y*480,bmpData.Scan0+y*bmpData.Stride,480);
+                }finally{bitmap.UnlockBits(bmpData);}
+                bitmap.Save(Path.Combine(output,filename),ImageFormat.Png);
+                matches.Add(new{Kind="pixel-buffer-candidate",DimensionsAddress=Hex(dimensions),PointerFieldRelative=relative,PixelAddress=Hex(pointer),Width=120,Height=60,Stride=480,Format="BGRX32 candidate; alpha ignored in preview",PixelSha256=sha,File=filename,CurrentDialogConfirmed=false});
+                Console.WriteLine("Recovered pixel candidate: "+filename);
+            }
+            dimensionSites.Add(new{Address=Hex(dimensions),PointerCandidates=plausible});
+        }
+    }
+    private static byte[] ReadUntilGap(VmmProcess process,ulong address,int cap)
+    {
+        using var data=new MemoryStream();
+        while(data.Length<cap)
+        {
+            uint size=(uint)Math.Min(cap-data.Length,4096-(long)(address%4096));
+            var part=process.MemRead(address,size,NoCache);
+            if(part is null||part.Length!=size)break;
+            data.Write(part);address+=size;
+        }
+        return data.ToArray();
+    }
+    private static int EncodedLength(byte[] bytes,bool jpeg)
+    {
+        if(jpeg)
+        {
+            for(int i=2;i<bytes.Length-1;i++)if(bytes[i]==255&&bytes[i+1]==217)return i+2;
+            return 0;
+        }
+        int pos=8;
+        while(pos+12<=bytes.Length)
+        {
+            uint n=BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(pos,4));
+            if(n>65536 || pos+12L+n>bytes.Length)return 0;
+            bool end=bytes[pos+4]==73&&bytes[pos+5]==69&&bytes[pos+6]==78&&bytes[pos+7]==68;
+            pos+=12+(int)n;
+            if(end)return pos;
+        }
+        return 0;
+    }
+    private static string Hex(ulong value)=>$"0x{value:X}";
+}

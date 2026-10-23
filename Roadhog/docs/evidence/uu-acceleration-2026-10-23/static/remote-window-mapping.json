@@ -1,0 +1,84 @@
+{
+  "evidence_kind": "derived-from-target-read-only-DMA-snapshots",
+  "input_sent": false,
+  "target_functions_called": false,
+  "sources": [
+    {
+      "path": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\ui-03\\report.json",
+      "sha256": "466f28ea65247ef6a44dae213f5199c7d99665df5042ede42c2de4c8c3454b92"
+    },
+    {
+      "path": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\uu-dma-20261023\\window-02\\report.json",
+      "sha256": "e44e79a92472f50c858c68bd41a4a0c9bc7eef9ae4a3ef661c792bcce6527ecd"
+    }
+  ],
+  "hwnd": "0x30328",
+  "thread_owner_id": 2552,
+  "handle_entry": "0x1B06500",
+  "desktop_identity": "0xd150fd7000000004",
+  "desktop_base": "0x1d00000",
+  "window_object_offset": "0x29ca0",
+  "window_object": "0x1D29CA0",
+  "raw_window_rect": [
+    12,
+    20,
+    1012,
+    708
+  ],
+  "raw_client_screen_rect": [
+    12,
+    20,
+    1012,
+    708
+  ],
+  "client_origin": [
+    12,
+    20
+  ],
+  "special_type_mask": 0,
+  "rtl_flag_set": false,
+  "window_dpi_context": "0x12",
+  "buttons": [
+    {
+      "name": "launch_game",
+      "control_address": "0x9604170",
+      "client_rect": [
+        40,
+        328,
+        150,
+        364
+      ],
+      "screen_rect": [
+        52,
+        348,
+        162,
+        384
+      ],
+      "screen_center": [
+        107,
+        366
+      ]
+    },
+    {
+      "name": "stop_acc",
+      "control_address": "0x9605478",
+      "client_rect": [
+        166,
+        328,
+        276,
+        364
+      ],
+      "screen_rect": [
+        178,
+        348,
+        288,
+        384
+      ],
+      "screen_center": [
+        233,
+        366
+      ]
+    }
+  ],
+  "limitation": "Coordinates apply to the captured window geometry and 100 percent UI scale; re-read live geometry before future input. No button was clicked. High-level user32 DPI slow-path branch was not invoked or fully reproduced."
+}

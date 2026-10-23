@@ -1,0 +1,578 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <HorizontalLayout name="layout_game_acced" >
+    <VerticalLayout name="" width="248" padding="40,16,0,0" >
+	  <Label name="game_logo_pic" width="236" height="156" />
+      <Text visible="true" name="game_name" width="236" height="46" font="6" padding="0,16,0,0" textcolor="#FFFFFFFF" align="center" />
+      <HorizontalLayout width="236" height="36">
+        <Button name="launch_game" text="%{1277}" font="14" padding="0,0,0,0" width="110" height="36" textcolor="#FFFFFFFF" normalimage="file='v40/button/common_light_normal.png' corner='8,8,8,8'" hotimage="file='v40/button/common_light_hover.png' corner='8,8,8,8'" pushedimage="file='v40/button/common_light_pushed.png' corner='8,8,8,8'" />
+        <Button name="set_console_net" text="%{1278}" font="14" padding="0,0,0,0" width="110" height="36" textcolor="#FFFFFFFF" normalimage="file='v40/button/common_light_normal.png' corner='8,8,8,8'" hotimage="file='v40/button/common_light_hover.png' corner='8,8,8,8'" pushedimage="file='v40/button/common_light_pushed.png' corner='8,8,8,8'" />
+        <Button name="stop_acc" text="%{1279}" font="14" padding="16,0,0,0" width="110" height="36" textcolor="#FFFFFFFF" normalimage="file='v40/button/common_dark_normal.png' corner='8,8,8,8'" hotimage="file='v40/button/common_dark_hover.png' corner='8,8,8,8'" pushedimage="file='v40/button/common_dark_pushed.png' corner='8,8,8,8'" />
+      </HorizontalLayout>
+	  
+	  <VerticalLayout padding="0,16,0,0" width="236" height="28">
+	    <HorizontalLayout name="platform_logo" width="236" height="28" bkimage="file='v40/label/platform_logo_layout_bk.svg'">
+			<Label name="platform_logo_area" float="true" pos="0,4,20,24"/>
+	    </HorizontalLayout>
+	  </VerticalLayout>
+	  
+      <VerticalLayout name="layout_community" width="248" padding="0,12,0,0" height="100">
+        <Label text="%{1805}" width="248" height="20" font="3" textcolor="#FFBCC0D4" valign="vcenter" />
+        <VerticalLayout name="tile_community" padding="0,12,0,0" width="248" height="60" vscrollbar="true">
+            </VerticalLayout>
+      </VerticalLayout>
+
+      <VerticalLayout name="layout_information" width="248" padding="0,16,0,0" height="136">
+        <Label text="%{1806}" width="248" height="20" font="3" textcolor="#FFBCC0D4" valign="vcenter" />
+        <VerticalLayout name="tile_information" padding="0,12,0,0" width="248" height="96" vscrollbar="true">
+        </VerticalLayout>
+      </VerticalLayout>
+      
+    </VerticalLayout>
+
+    <VerticalLayout name="console_game_setting" width="644" padding="28,16,0,0" >
+
+      <VerticalLayout width="644" height="366" bkimage="file='v40/common/acc_detail_ele_bg.svg' corner='8,8,8,8'">
+        <Label name="set_tip_title" padding="0,32,0,0" width="644" height="24" text="%{1030}" font="2" textcolor="#FFFFFFFF" align="center"/>
+        
+        <Label name="set_tip_device" padding="56,32,0,0" width="532" height="24" text="%{1031}" font="13" textcolor="#FF9291B3"/>
+        <Label name="set_tip_net" padding="56,0,0,0" width="532" height="24" text="%{1032}" font="13" textcolor="#FF9291B3"/>
+        <Label name="set_tip_net_type" padding="56,0,0,0" width="532" height="24" text="%{1033}" font="13" textcolor="#FF9291B3"/>
+        <Label name="set_tip_ip_type" padding="56,0,0,0" width="532" height="24" text="%{1033}" font="13" textcolor="#FF9291B3"/>
+        <VerticalLayout name="layout_console_set" padding="56,24,0,0" width="532" height="94" bkimage="file='v40/label/console_set_info_bg.png' corner='2,2,2,2'">
+          <HorizontalLayout padding="68,24,0,0" height="18">
+            <label name="console_ip_des" height="18" width="80" font="13" textcolor="#FF9291B3" text="%{1034}" valign="vcenter" />
+            <label name="console_ip" height="18" width="150" font="13" textcolor="#FFFFFFFF" text="10.250.170.182" align="left" valign="vcenter" />
+            <label name="console_gateway_des" height="18" width="100" font="13" textcolor="#FF9291B3" text="%{1035}" valign="vcenter" />
+            <label name="console_gateway" height="18" width="130" font="13" textcolor="#FFFFFFFF" text="10.250.170.181" align="left" valign="vcenter" />
+          </HorizontalLayout>
+          <HorizontalLayout padding="68,8,0,0" height="18">
+            <label name="console_netmask_des" height="18" width="80" font="13" textcolor="#FF9291B3" text="%{1036}" valign="vcenter" />
+            <label name="console_netmask" height="18" width="150" font="13" textcolor="#FFE1E0E5" text="255.255.254.0" align="left" valign="vcenter" />
+            <label name="console_dns_des" height="18" width="100" font="13" textcolor="#FF9291B3" text="%{1037}" valign="vcenter" />
+            <label name="console_dns" height="18" width="130" font="13" textcolor="#FFE1E0E5" text="114.114.114.114" align="left" valign="vcenter" />
+          </HorizontalLayout>
+          <HorizontalLayout name="bak_dns_set" padding="68,8,0,0" height="18">
+            <label name="console_bak_dns_des" height="18" width="80" font="13" textcolor="#FF9291B3" text="%{2694}" text_desc="备选dns：" valign="vcenter" />
+            <label name="console_bak_dns" height="18" width="150" font="13" textcolor="#FFE1E0E5" text="8.8.8.8" align="left" valign="vcenter" />
+          </HorizontalLayout>
+        </VerticalLayout>
+        <HorizontalLayout padding="56,24,0,0" width="532" height="18">
+          <Label name="set_tip_finshed" width="405" height="18" text="%{1038}" font="13" valign="vcenter" textcolor="#FF9291B3"/>
+          <Button name="console_set_html" width="120" height="18" text="%{1039}" font="13" align="left" valign="vcenter" textcolor="#FF00D2C4"/>
+        </HorizontalLayout>
+      </VerticalLayout>
+      <HorizontalLayout name="console_set_check_tip" padding="192,48,0,0" width="644" height="24">
+        <MPng width="20" height="20" padding="0,2,0,0" elapse="50" autoplay="true"
+            mpng="v40/mpng/loading/loading_1.png"
+            mpng="v40/mpng/loading/loading_2.png"
+            mpng="v40/mpng/loading/loading_3.png"
+            mpng="v40/mpng/loading/loading_4.png"
+            mpng="v40/mpng/loading/loading_5.png"
+            mpng="v40/mpng/loading/loading_6.png"
+            mpng="v40/mpng/loading/loading_7.png"
+            mpng="v40/mpng/loading/loading_8.png"
+            mpng="v40/mpng/loading/loading_9.png"
+            mpng="v40/mpng/loading/loading_10.png"
+            mpng="v40/mpng/loading/loading_11.png"
+            mpng="v40/mpng/loading/loading_12.png"
+            mpng="v40/mpng/loading/loading_13.png"
+            mpng="v40/mpng/loading/loading_14.png"
+            mpng="v40/mpng/loading/loading_15.png"
+            mpng="v40/mpng/loading/loading_16.png"
+            mpng="v40/mpng/loading/loading_17.png"
+            mpng="v40/mpng/loading/loading_18.png"
+            mpng="v40/mpng/loading/loading_19.png"
+            mpng="v40/mpng/loading/loading_20.png"
+            mpng="v40/mpng/loading/loading_21.png"
+            mpng="v40/mpng/loading/loading_22.png"
+            mpng="v40/mpng/loading/loading_23.png"
+            mpng="v40/mpng/loading/loading_24.png"
+            mpng="v40/mpng/loading/loading_25.png" />
+        <Label name="check_tip_desc" padding="10,0,0,0" width="288" height="24" text="%{1283}" font="1" textcolor="#FF27E5D8" />
+      </HorizontalLayout>
+
+      <Label name="console_set_success_tip" visible="false" padding="0,48,0,0" textpadding="30,0,0,0" width="644" height="24" text="%{1284}" font="1" align="center" textcolor="#FF27E5D8" />
+    
+    </VerticalLayout>
+
+    <VerticalLayout name="detail_info" width="676" padding="28,16,0,0" childpadding="12" vscrollbar="true">
+
+      <HorizontalLayout visible="false" name="notice_tip" width="644" height="42" bkimage="file='v40/common/acc_detail_ele_bg.svg' corner='8,8,8,8'" >
+        <Label padding="24,13,16,0" visible="false" width="16" height="16" bkimage="file='v40/label/notice_tip.png'"/>
+        <Gif name="notice_tip_bell" padding="18,7,2,0" width="28" height="28" bkimage="v40/gif/notice_tip_bell.gif" autoplay="false" mouse="false" />
+        <HorizontalLayout name="notice_tip_context_hor" height="42">
+          <Label name="notice_tip_context" font="13" width="496" height="42" valign="vcenter" textcolor="#FF45BCFF" />
+        </HorizontalLayout>
+        <Button name="notice_pre_online" padding="8,9,0,0" width="72" height="24" font="16" text="%{2555}" text_desc="预约详情" textcolor="#FFFFFFFF" normalimage="file='v40/button/common_light_normal.png' corner='8,8,8,8'" hotimage="file='v40/button/common_light_hover.png' corner='8,8,8,8'" pushedimage="file='v40/button/common_light_pushed.png' corner='8,8,8,8'"/>
+        <Button name="notice_tip_link" padding="8,11,0,0" width="36" height="20" font="13" text="%{1285}" textcolor="#FF00D2C4" hottextcolor="#FF57E4D1" pushedtextcolor="#FF15B1AC"/>
+        <Button name="notice_tip_hide" padding="8,14,16,0" width="14" height="14" normalimage="v40/button/close_normal.png" hotimage="v40/button/close_hover.png" pushedimage="v40/button/close_pushed.png"/>
+      </HorizontalLayout>
+      
+      <HorizontalLayout visible="false" name="platform_tip" width="644" height="42" bkimage="file='v40/common/acc_detail_ele_bg.svg' corner='8,8,8,8'" >
+        <Label padding="24,13,8,0" width="16" height="16" bkimage="file='v40/label/notice_done.png'"/>
+        <Label name="platform_tip_context" font="13" width="514" height="42" valign="vcenter" textcolor="#FFBCC0D4" endellipsis="true" />
+        <HorizontalLayout />
+        <Button name="platform_detail" visible="false" text="%{1285}" align="center" valign="vcenter" width="40" font="13" textcolor="#FF00D2C4" hottextcolor="#FF57E4D1" pushedtextcolor="#FF15B1AC"/>
+        <Button name="platform_tip_hide" padding="4,14,16,0" width="14" height="14" normalimage="v40/button/close_normal.png" hotimage="v40/button/close_hover.png" pushedimage="v40/button/close_pushed.png"/>
+      </HorizontalLayout>
+
+      <HorizontalLayout width="644" height="42" inset="24,12,16,12" bkimage="file='v40/common/acc_detail_ele_bg.svg' corner='8,8,8,8'">
+        <Label name="local_net_ico" padding="0,2,0,0" width ="20" height="16" bkimage="file='v40/label/wired.png' dest='0,0,16,16'" />
+        <Label name="local_net" visible="false" text="%{1286}" font="13" padding="4,0,0,0" width ="60" textcolor="#FFFFFFFF" />
+        <Label name="acced_time" text="00:00:00" font="13" align="center" width ="60" padding="8,0,0,0" textcolor="#FFFFFFFF" />
+        <Button name="zone_serser" text="%{1287}" tooltip="%{1712}" font="13" padding="8,0,0,0" width ="124" textcolor="#FFFFFFFF" hottextcolor="#FF00D2C4" />
+        <Label padding="4,0,4,0" text="-" font="13" width="8" height="20" textcolor="#FFFFFFFF"/>
+        <Button name="node" text="%{1288}" tooltip="%{1711}" font="13" width ="60" textcolor="#FFFFFFFF" hottextcolor="#FF00D2C4" />
+        <Button name="zone_node_change" tooltip="%{1710}" font="13" padding="8,0,0,0" width ="20" textcolor="#FF00D2C4" normalimage="file='v40/button/node_change_normal.png' dest='0,2,16,18'"/>
+        <HorizontalLayout />
+        <Button name="detail_setting" tooltip="%{1290}" align="right" valign="vcenter" width="20" normalimage="file='v40/button/detail_setting_normal.svg' dest='0,0,20,20'" hotimage="file='v40/button/detail_setting_hover.svg' dest='0,0,20,20'" pushedimage="file='v40/button/detail_setting_pushed.svg' dest='0,0,20,20'"/>
+      </HorizontalLayout>
+
+      <HorizontalLayout name="ping" width="644" height="128" bkimage="file='v40/common/acc_detail_ele_bg.svg' corner='8,8,8,8'">
+        <Gif name="trial_frame" visible="false" width="192" height="84" float="true" pos="452,0,644,84" align="center" mouse="false" bkimage="v40/gif/trial_frame.gif"/>
+        <VerticalLayout name="ping_sub" float="true" pos="0,0,322,256">
+          <Label name="ping_name" font="13" height="22" padding="48,24,0,0" text="%{1887}" textpadding="22,0,0,0" valign="vcenter" textcolor="#FFB7BBD9" bkimage="file='v40/label/acc_detail_ping_title.svg' dest='0,3,16,19'"/>
+          <HorizontalLayout width="322" height="82" padding="0,0,0,0">
+            <VerticalLayout name="ping_data" height="80" width="88" padding="48,0,0,0">
+              <HorizontalLayout name="ping_value" width="88" height="40" padding="0,12,0,0">
+                <Label name="hundred" width="22" height="40"/>
+                <Label name="ten" width="22" height="40"/>
+                <Label name="unit" width="22" height="40"/>
+                <Label width="24" height="38" text="ms" font="13" align="center" valign="bottom" textcolor="#FFFFFFFF" />
+              </HorizontalLayout>
+            </VerticalLayout>
+            <HorizontalLayout name="ping_exhibit" width="104" height="24" padding="2,24,0,0" bkimage="file='v40/label/acc_detail_exhibit_bg.svg' corner='2,2,2,2'">
+              <Gif name="ping_exhibit_gif" width="16" height="16" padding="8,4,0,0" align="center" mouse="false" bkimage="v40/gif/paying_ping_exhibit_gif.gif"/>
+              <Label name="ping_diff" height="24" width="72" padding="8,0,0,0" textcolor="#FF33FFE4" font="3" align="center" valign="vcenter"/>
+            </HorizontalLayout>
+          </HorizontalLayout>
+          <HorizontalLayout width="322" height="128" padding="0,0,0,0">
+            <HorizontalLayout width="155" height="128" padding="0,0,0,0">
+              <Label float="true" pos="0,10,128,118" width="128" height="108" bkimage="file='v40/label/acc_detail_exhibit_hover_bg.png'"/>
+              <Label name="ping_hover_title" float="true" pos="70,44,142,64" width="72" height="20" text="%{1835}" font="3" align="right" textcolor="#FFFFFFFF"/>
+              <Label name="ping_hover_text" float="true" pos="70,68,142,84" width="72" height="16" text="%{1931}" font="15" align="right" textcolor="#FFFFFFFF"/>
+            </HorizontalLayout>
+            <Label padding="0,47,0,47" width="1" height="33" bkimage="file='v40/label/detail_split_line.png' enabledpi='false'"/>
+            <HorizontalLayout height="36" width="80" padding="10,44,0,0">
+              <HorizontalLayout name="hover_ping_data_num" height="36" padding="0,0,0,0">
+                <Label name="hundred" width="20" height="36"/>
+                <Label name="ten" width="20" height="36"/>
+                <Label name="unit" width="20" height="36"/>
+                <Label width="20" height="36" text="ms" font="13" align="left" valign="bottom" textcolor="#FFFFFFFF" />
+              </HorizontalLayout>
+            </HorizontalLayout>
+            <Gif name="hover_ping_data_pic" float="true" pos="252,16,284,48" width="32" height="32" align="center" mouse="false" bkimage="v40/gif/hover_ping_data_gif.gif"/>
+          </HorizontalLayout>
+          <Label name="hover_ping_btn_text" float="true" pos="46,220,276,248" width="230" hight="28" bkimage="file='v40/label/hover_btn_keep_on.svg'"/>
+        </VerticalLayout>
+        <VerticalLayout name="loss_sub" float="true" pos="322,0,644,256">
+          <VerticalLayout width="322" height="128" padding="0,0,0,0" >
+            <Label font="13" name="loss_name" height="22" padding="48,24,0,0" text="%{1292}" textpadding="22,0,0,0" valign="vcenter" textcolor="#FFB7BBD9" bkimage="file='v40/label/acc_detail_loss_title.svg' dest='0,3,16,19'" mouse="false"/>
+            <HorizontalLayout width="322" height="82" padding="0,0,0,0" >
+              <VerticalLayout name="loss_data" width="88" height="80" padding="36,0,0,0" mouse="false" >
+                <HorizontalLayout name="loss_value" width="88" height="40" padding="0,12,0,0" mouse="false" >
+                  <Label name="hundred" width="22" height="40"/>
+                  <Label name="ten" width="22" height="40" />
+                  <Label name="unit" width="22" height="40"/>
+                  <Label width="22" height="38" text="%" font="13" align="center" valign="bottom" textcolor="#FFFFFFFF"/>
+                </HorizontalLayout>
+              </VerticalLayout>
+              <HorizontalLayout name="loss_exhibit" width="104" height="24" padding="2,24,0,0" bkimage="file='v40/label/acc_detail_exhibit_bg.svg' corner='2,2,2,2'" >
+                <Gif name="loss_exhibit_gif" width="16" height="16" padding="8,4,0,0" align="center" mouse="false" bkimage="v40/gif/paying_loss_exhibit_gif.gif"/>
+                <Label name="loss_diff" height="24" width="72" padding="8,0,0,0" textcolor="#FF33FFE4" font="3" align="center" valign="vcenter"/>
+              </HorizontalLayout>
+            </HorizontalLayout>
+          </VerticalLayout>
+          <HorizontalLayout name="loss_hover1"  width="322" height="128" padding="0,0,0,0" mouse="false">
+            <HorizontalLayout width="155" height="128" padding="0,0,0,0">
+              <Label float="true" pos="0,10,128,118" width="128" height="108" bkimage="file='v40/label/acc_detail_exhibit_hover_bg.png'"/>
+            </HorizontalLayout>
+            <Label name="loss_hover_split_line" padding="0,47,0,47" width="1" height="33" bkimage="file='v40/label/detail_split_line.png' enabledpi='false'" visible="false"/>
+            <HorizontalLayout height="36" width="80" padding="2,44,0,0">
+              <HorizontalLayout name="hover_loss_data_num" height="36" padding="0,0,0,0" mouse="false" visible="false">
+                <Label name="hundred" width="20" height="36"/>
+                <Label name="ten" width="20" height="36" />
+                <Label name="unit" width="20" height="36"/>
+                <Label width="20" height="36" text="%" font="13" align="left" valign="bottom" textcolor="#FFFFFFFF" />
+              </HorizontalLayout>
+            </HorizontalLayout>
+            <Label name="loss_hover_title1" visible="false" float="true" pos="70,44,228,64" width="156" height="20" text="%{1938}" font="3" align="left" textcolor="#FFFFFFFF"/>
+            <Label name="loss_hover_text1" visible="false" float="true" pos="70,68,228,84" width="156" height="16" text="%{1895}" font="15" align="left" textcolor="#FFFFFFFF"/>
+            <Label name="loss_hover_title2" float="true" pos="70,44,142,64" width="72" height="20" text="%{1937}" font="3" align="right" textcolor="#FFFFFFFF"/>
+            <Label name="loss_hover_text2" float="true" pos="70,68,142,84" width="72" height="16" text="%{1939}" font="15" align="right" textcolor="#FFFFFFFF"/>
+            <Gif name="hover_loss_data_pic" float="true" pos="252,16,284,48" width="32" height="32" align="center" mouse="false" bkimage="v40/gif/hover_loss_data_gif.gif"/> 
+          </HorizontalLayout>
+          <Label name="hover_loss_btn_text" float="true" pos="46,220,276,248" width="230" hight="28" bkimage="file='v40/label/hover_btn_keep_on.svg'"/>
+        </VerticalLayout>
+        <VerticalLayout name="layout_nettype" float="true" pos="488,0,644,128">
+          <Label font="13" width="80" height="22" padding="24,24,0,0" text="%{1294}" textpadding="22,0,0,0" valign="vcenter" textcolor="#FFB7BBD9" bkimage="file='v40/label/acc_detail_nettype_title.svg' dest='0,3,16,19'"/>
+          <Label name="nettype_value" width="156" height="40" padding="0,12,0,0"/>
+        </VerticalLayout>
+        <VerticalLayout name="ping_hover" float="true" pos="0,0,322,128">
+          <Button name="hover_ping_btn" visible="false" float="true" pos="36,88,286,128" width="250" hight="40" normalimage="v40/button/hover_ping_btn_light_default.png" hotimage="v40/button/hover_ping_btn_light_hover.png" pushedimage="v40/button/hover_ping_btn_light_default.png"/>	
+        </VerticalLayout>
+        <VerticalLayout name="loss_hover" float="true" pos="322,0,644,128">
+          <Button name="hover_loss_btn" visible="false" float="true" pos="36,88,286,128" width="250" hight="40" normalimage="v40/button/hover_ping_btn_light_default.png" hotimage="v40/button/hover_ping_btn_light_hover.png" pushedimage="v40/button/hover_ping_btn_light_default.png"/>	
+        </VerticalLayout>
+      </HorizontalLayout>
+
+      <VerticalLayout name="device_exhibit" width="644" height="148" bkimage="file='v40/common/acc_detail_ele_bg.svg' corner='8,8,8,8'" >
+        <HorizontalLayout padding="240,16,0,0" width="161" height="28">
+          <Option group="detail_info_select" name="device_ping_data" text="%{1295}" valign="top" textpadding="0,0,0,0" selected="true" font="13" padding="0,0,0,0" width="80" height="28" textcolor="#FF8B92BA" hottextcolor="#FFFFFFFF" pushedtextcolor="#FFFFFFFF" selectedtextcolor="#FFFFFFFF" selectedimage="file='v40/common/horizontal_anim_line.png' corner='3,0,3,0' dest='34,24,46,27'"/>
+          <Label padding="0,5,0,0" width="1" height="13" bkimage="file='v40/label/detail_split_line.png' enabledpi='false'"/>
+          <Option group="detail_info_select" name="history_ping_data" text="%{1296}" valign="top" font="13" padding="0,0,0,0" width="80" height="28" textcolor="#FF8B92BA" hottextcolor="#FFFFFFFF" pushedtextcolor="#FFFFFFFF" selectedtextcolor="#FFFFFFFF" selectedimage="file='v40/common/horizontal_anim_line.png' corner='3,0,3,0' dest='34,24 ,46,27'"/>
+        </HorizontalLayout>
+        <HorizontalLayout name="device_data" width="644" height="86" padding="0,0,0,0">
+          <HorizontalLayout name="console" visible="false" padding="0,12,0,0" mouse="false">
+            <label name="console_device" text="Switch" textpadding="0,54,0,0" width="68" height="74" align="center" textcolor="#FFEBEDFF" bkimage="file='v40/label/switch.png' dest='0,0,68,54'" mouse="false"/>
+            <label padding="0,21,0,0" width="80" height="2" align="center" textcolor="#FFEBEDFF" bkimage="file='v40/label/switch.png'" mouse="false"/>
+          </HorizontalLayout>
+          <VerticalLayout name="computer" padding="72,12,0,0" width="68" height="74" mouse="false">
+            <Gif width="68" height="54" align="center" mouse="false" textcolor="#FFEBEDFF" bkimage="v40/gif/computer.gif"/>
+            <label text="%{1297}" width="68" height="20" font="15" align="center" textcolor="#FF9291B3" mouse="false"/>
+          </VerticalLayout>
+          <VerticalLayout padding="32,12,32,0" width="88" height="54" mouse="false">
+            <label name="client_router_ping" font="15" width="88" height="20" align="center" textcolor="#FF00D2C4" mouse="false"/>
+            <label name="client_router_line" padding="0,4,0,0" width="88" height="2" align="center" textcolor="#FFEBEDFF" bkimage="file='v40/label/detail_line_green.png'" mouse="false"/>
+            <label name="client_router_lose" font="15" padding="0,4,0,0" width="88" height="20" align="center" textcolor="#FF00D2C4" mouse="false" visible="false"/>
+          </VerticalLayout>
+          <VerticalLayout name="router" padding="0,12,0,0" width="68" height="74" mouse="false">
+            <Gif width="68" height="54" align="center" mouse="false" textcolor="#FFEBEDFF" bkimage="v40/gif/router.gif"/>
+            <label text="%{1298}" width="68" height="20" font="15" align="center" textcolor="#FF9291B3" mouse="false"/>
+          </VerticalLayout>
+          <HorizontalLayout name ="normal_server_info" width="232" height="74" padding="0,12,0,0" >
+            <VerticalLayout padding="32,0,32,0" width="88" height="54" mouse="false">
+              <label name="router_server_ping" font="15" width="88" height="20" align="center" textcolor="#FF00D2C4" mouse="false"/>
+              <label name="router_server_line" padding="0,4,0,0" width="88" height="2" align="center" textcolor="#FFEBEDFF" bkimage="file='v40/label/detail_line_green.png'" mouse="false"/>
+              <label name="router_server_lose" font="15" padding="0,4,0,0" width="88" height="20" align="center" textcolor="#FF00D2C4" mouse="false" visible="false"/>
+            </VerticalLayout>
+            <VerticalLayout name="server" padding="0,0,0,0" width="80" height="74" mouse="false">
+              <Gif width="68" height="54" padding="4,0,0,0" align="center" mouse="false" textcolor="#FFEBEDFF" bkimage="v40/gif/server.gif"/>
+              <label text="%{1299}" width="80" height="20" font="15" align="center" textcolor="#FF9291B3" mouse="false"/>
+            </VerticalLayout>
+          </HorizontalLayout>
+          <HorizontalLayout visible="true" name ="dmn_server_info" width="260" height="86" >
+            <VerticalLayout name="hsn_server_desc" padding="22,12,22,0" width="108" height="54">
+              <label name="hsn_router_server_ping" font="15" width="108" height="20" align="center" textcolor="#FF00D2C4" mouse="false"/>
+              <MPng name="hsn_router_server_line" width="106" height="10" elapse="50" autoplay="true" mouse="false"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_00.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_01.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_02.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_03.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_04.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_05.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_06.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_07.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_08.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_09.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_10.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_11.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_12.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_13.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_14.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_15.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_16.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_17.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_18.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_19.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_20.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_21.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_22.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_23.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_24.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_25.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_26.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_27.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_28.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_29.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_30.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_31.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_32.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_33.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_34.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_35.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_36.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_37.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_38.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_39.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_40.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_41.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_42.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_43.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_44.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_45.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_46.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_47.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_48.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_49.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_50.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_51.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_52.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_53.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_54.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_55.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_56.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_57.png" 
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_58.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_59.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_60.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_61.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_62.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_63.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_64.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_65.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_66.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_67.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_68.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_69.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_70.png"
+                mpng="v40/mpng/dynamic_multi_network/dynamic_multi_network_71.png" />
+              <label name="hsn_opt_tip" text="%{1835}" font="15" width="108" height="20" align="center" textcolor="#FF00D2C4" mouse="false"/>
+            </VerticalLayout>
+            <VerticalLayout name="dmn_server" padding="0,0,0,0" width="108" height="74" >
+              <label name="dmn_server_3" visible="true" width="20" height="20" float="true" pos="48,16,68,36" bkimage="" foreimage="file='v40/label/dmn_server3_mask.png'" mouse="false"/>
+              <label name="dmn_server_2" visible="true" width="32" height="32" float="true" pos="28,16,60,48" bkimage="" foreimage="file='v40/label/dmn_server2_mask.png'" mouse="false"/>
+              <label name="dmn_server_1" width="44" height="44" float="true" pos="4,16,48,60" bkimage="file='v40/label/dmn_earth.png'" mouse="false"/>
+              <MPng name="dmn_radar" float="true" pos="4,16,48,60" elapse="50" autoplay="true" mouse="false" 
+                mpng="v40/mpng/radar/radar_00.png"
+                mpng="v40/mpng/radar/radar_01.png"
+                mpng="v40/mpng/radar/radar_02.png"
+                mpng="v40/mpng/radar/radar_03.png"
+                mpng="v40/mpng/radar/radar_04.png"
+                mpng="v40/mpng/radar/radar_05.png"
+                mpng="v40/mpng/radar/radar_06.png"
+                mpng="v40/mpng/radar/radar_07.png"
+                mpng="v40/mpng/radar/radar_08.png"
+                mpng="v40/mpng/radar/radar_09.png"
+                mpng="v40/mpng/radar/radar_10.png"
+                mpng="v40/mpng/radar/radar_11.png"
+                mpng="v40/mpng/radar/radar_12.png"
+                mpng="v40/mpng/radar/radar_13.png"
+                mpng="v40/mpng/radar/radar_14.png"
+                mpng="v40/mpng/radar/radar_15.png"
+                mpng="v40/mpng/radar/radar_16.png"
+                mpng="v40/mpng/radar/radar_17.png"
+                mpng="v40/mpng/radar/radar_18.png"
+                mpng="v40/mpng/radar/radar_19.png"
+                mpng="v40/mpng/radar/radar_20.png"
+                mpng="v40/mpng/radar/radar_21.png"
+                mpng="v40/mpng/radar/radar_22.png"
+                mpng="v40/mpng/radar/radar_23.png"
+                mpng="v40/mpng/radar/radar_24.png"
+                mpng="v40/mpng/radar/radar_25.png"
+                mpng="v40/mpng/radar/radar_26.png"
+                mpng="v40/mpng/radar/radar_27.png"
+                mpng="v40/mpng/radar/radar_28.png"
+                mpng="v40/mpng/radar/radar_29.png"
+                mpng="v40/mpng/radar/radar_30.png"
+                mpng="v40/mpng/radar/radar_31.png"
+                mpng="v40/mpng/radar/radar_32.png"
+                mpng="v40/mpng/radar/radar_33.png"
+                mpng="v40/mpng/radar/radar_34.png"
+                mpng="v40/mpng/radar/radar_35.png"
+                mpng="v40/mpng/radar/radar_36.png"
+                mpng="v40/mpng/radar/radar_37.png"
+                mpng="v40/mpng/radar/radar_38.png"
+                mpng="v40/mpng/radar/radar_39.png"
+                mpng="v40/mpng/radar/radar_40.png"
+                mpng="v40/mpng/radar/radar_41.png"
+                mpng="v40/mpng/radar/radar_42.png"
+                mpng="v40/mpng/radar/radar_43.png"
+                mpng="v40/mpng/radar/radar_44.png"
+                mpng="v40/mpng/radar/radar_45.png"
+                mpng="v40/mpng/radar/radar_46.png"
+                mpng="v40/mpng/radar/radar_47.png"/>
+
+              <Gif name ="cn_game_dmn_server_default" width="68" height="54" float="true" pos="0,10,68,64" mouse="false" textcolor="#FFEBEDFF" bkimage="v40/gif/city.gif"/>
+              <label name="cn_game_dmn_server" visible="true" width="72" height="64" float="true" pos="0,0,72,64" bkimage="" mouse="false"/>
+              <!--<MPng name="cn_game_dmn_bright_dot" float="true" pos="36,24,52,40" elapse="50" autoplay="true" mouse="false"
+                mpng="v40/mpng/dmn_bright_dot/point_00.png"
+                mpng="v40/mpng/dmn_bright_dot/point_01.png"
+                mpng="v40/mpng/dmn_bright_dot/point_02.png"
+                mpng="v40/mpng/dmn_bright_dot/point_03.png"
+                mpng="v40/mpng/dmn_bright_dot/point_04.png"
+                mpng="v40/mpng/dmn_bright_dot/point_05.png"
+                mpng="v40/mpng/dmn_bright_dot/point_06.png"
+                mpng="v40/mpng/dmn_bright_dot/point_07.png"
+                mpng="v40/mpng/dmn_bright_dot/point_08.png"
+                mpng="v40/mpng/dmn_bright_dot/point_09.png"
+                mpng="v40/mpng/dmn_bright_dot/point_10.png"
+                mpng="v40/mpng/dmn_bright_dot/point_11.png"
+                mpng="v40/mpng/dmn_bright_dot/point_12.png"
+                mpng="v40/mpng/dmn_bright_dot/point_13.png"
+                mpng="v40/mpng/dmn_bright_dot/point_14.png"
+                mpng="v40/mpng/dmn_bright_dot/point_15.png"
+                mpng="v40/mpng/dmn_bright_dot/point_16.png"
+                mpng="v40/mpng/dmn_bright_dot/point_17.png"
+                mpng="v40/mpng/dmn_bright_dot/point_18.png"
+                mpng="v40/mpng/dmn_bright_dot/point_19.png"
+                mpng="v40/mpng/dmn_bright_dot/point_20.png"
+                mpng="v40/mpng/dmn_bright_dot/point_21.png"
+                mpng="v40/mpng/dmn_bright_dot/point_22.png"
+                mpng="v40/mpng/dmn_bright_dot/point_23.png"
+                mpng="v40/mpng/dmn_bright_dot/point_24.png"
+                mpng="v40/mpng/dmn_bright_dot/point_25.png"
+                mpng="v40/mpng/dmn_bright_dot/point_26.png"
+                mpng="v40/mpng/dmn_bright_dot/point_27.png"
+                mpng="v40/mpng/dmn_bright_dot/point_28.png"
+                mpng="v40/mpng/dmn_bright_dot/point_29.png"
+                mpng="v40/mpng/dmn_bright_dot/point_30.png"
+                mpng="v40/mpng/dmn_bright_dot/point_31.png"/>-->
+            </VerticalLayout>
+            <label name="dmn_server_desc" text="%{1299}" float="true" pos="124,66,232,86" font="15" align="center" textcolor="#FF9291B3" mouse="false" endellipsis="true"/>
+          </HorizontalLayout>
+        </HorizontalLayout>
+        
+        <HorizontalLayout name="history_data" visible="false" float="true" pos="0,0,644,148" mouse="false" >
+          <VerticalLayout float="true" pos="0,50,62,140">
+            <label name="ping_line_max" width="62" height="12" font="15" align="right" text="60ms" textcolor="#FF8B92BA" />
+            <label name="ping_line_middle" padding="0,22,0,0" width="62" height="12" align="right" font="15" text="30ms" textcolor="#FF8B92BA" />
+            <label name="ping_line_zero" padding="0,22,0,0" width="62" height="12" align="right" font="15" text="0ms" textcolor="#FF8B92BA" />
+          </VerticalLayout>
+          <VerticalLayout float="true" pos="80,55,620,125" >
+            <label width="540" height="2" bkimage="file='v40/label/history_dtat_dot_line.png' xtiled='true'"/>
+            <label padding="0,32,0,0" width="540" height="2" bkimage="file='v40/label/history_dtat_dot_line.png' xtiled='true'" />
+            <label padding="0,32,0,0" width="540" height="2" bkimage="file='v40/label/history_dtat_dot_line.png' xtiled='true'" />
+          </VerticalLayout>
+          <HorizontalLayout name="history_data_opt" float="true" pos="552,16,620,40">
+            <Option name="one_minite" group="history_data_time" selected="true" width="20" height="18" font="13" align="center" valign="top" text="1%{1713}" textcolor="#FF8B92BA" hottextcolor="#FFFFFFFF" pushedtextcolor="#FFFFFFFF" selectedtextcolor="#FF00D2C4"/>
+            <Label padding="12,2,12,3" width="1" height="13" bkimage="file='v40/label/detail_split_line.png' enabledpi='false'"/>
+            <Option name="three_minite" group="history_data_time" padding="0,0,0,0" width="23" height="18" align="center" valign="top" font="13" text="3%{1713}"  textcolor="#FF8B92BA" hottextcolor="#FFFFFFFF" pushedtextcolor="#FFFFFFFF" selectedtextcolor="#FF00D2C4" />
+          </HorizontalLayout>
+          <HorizontalLayout name="history_data_list" float="true" pos="80,55,620,125" width="540" height="70" >
+          </HorizontalLayout>
+        </HorizontalLayout>
+      </VerticalLayout>
+	  
+      <VerticalLayout name="curve_exhibit" width="644" height="164 " bkimage="file='v40/common/acc_detail_ele_bg.svg' corner='8,8,8,8'" visible="false">
+        <HorizontalLayout name="no_game_server" padding="24,16,0,0" width="272" height="20">
+          <Gif name="game_server_position" padding="0,0,0,0" width="20" height="20" bkimage="v40/gif/game_server_position.gif" mouse="false" />
+          <label padding="4,1,0,0" width="248" height="18" font="13" align="left" textpadding="0,0" textcolor="#FFB7BBD9" text="%{1919}" mouse="false"/>
+        </HorizontalLayout>
+        <HorizontalLayout name="show_game_server" padding="24,16,0,0" width="100" height="20" visible="false">
+          <label padding="0,1,0,0" width="76" height="18" bkimage="file='v40/label/game_server_pos.svg' dest='0,1,16,17'" font="13" valign="vcenter" align="left" textpadding="20,0" textcolor="#FF7077AD" text="%{1920}" mouse="false"/>
+          <label name="game_region" padding="4,1,0,0" height="18" font="13" valign="vcenter" align="left" textpadding="0,0" textcolor="#FFB7BBD9" mouse="false"/>
+          <label name="acc_path_icon" padding="4,2,0,0" width="16" height="16" bkimage="file='v40/label/acc_path_more.svg' dest='0,0,16,16'" mouse="false"/>
+        </HorizontalLayout>
+        <HorizontalLayout name="disabel_dmn_ui" padding="24,16,0,0" width="80" height="20" visible="false">
+          <label padding="0,1,0,0" width="76" height="18" bkimage="file='v40/label/game_server_pos.svg' dest='0,1,16,17'" font="13" valign="vcenter" align="left" textpadding="20,0" textcolor="#FF7077AD" text="%{1920}" mouse="false"/>
+          <label name="zone_server_pos" padding="4,1,0,0" height="18" font="13" valign="vcenter" align="left" textpadding="0,0" textcolor="#FFB7BBD9" mouse="false"/>
+        </HorizontalLayout>
+        <label float="true" pos="552,20,620,36" width="68" height="16" bkimage="file='v40/label/acc_path_monitor.svg' dest='0,0,16,16'" font="15" align="left" textpadding="20,0" textcolor="#FF777DC7" text="%{1921}" tooltip="%{1925}" />
+        <HorizontalLayout padding="24,12,0,0" width="596" height="96">
+          <VerticalLayout float="true" padding="0,0,40,96" width="40" height="96">
+            <label name="curve_line_max" padding="0,6,0,0" width="40" height="12" align="right" font="15" text="60ms" textcolor="#FF393F74" />
+            <label name="curve_line_middle" padding="0,26,0,0" width="40" height="12" align="right" font="15" text="30ms" textcolor="#FF393F74" />
+            <label name="curve_line_zero" padding="0,26,0,0" width="40" height="12" align="right" font="15" text="0ms" textcolor="#FF393F74" />
+          </VerticalLayout>
+          <VerticalLayout float="true" pos="56,13,596,90" >
+            <label width="540" height="1" bkimage="file='v40/label/history_dtat_dot_line.png' xtiled='true'"/>
+            <label padding="0,36,0,0" width="540" height="1" bkimage="file='v40/label/history_dtat_dot_line.png' xtiled='true'" />
+            <label padding="0,36,0,0" width="540" height="1" bkimage="file='v40/label/history_dtat_solid_line.svg' xtiled='true'" />
+          </VerticalLayout>
+          <VerticalLayout float="true" pos="56,13,596,96" width="540" height="83">
+            <LineChart name="acc_data_line_chart" padding="0,0" minvalue="0" float="true" width="540" height="81" linewidth="2.0" linecolor="#FF57E4D1"/>
+          </VerticalLayout>
+        </HorizontalLayout>
+        <HorizontalLayout name="trial_info" float="true" pos="24,156,620,178" width="596" height="22" bkimage="file='v40/common/trial_info_bg.svg' dest='0,0,252,22'">
+          <label name="trial_tips1" padding="28,0,0,0" width="0" height="22" align="left" font="13" textcolor="#FF00E0FF" />
+          <label name="trial_tips2" padding="2,0,0,0" width="0" height="22" align="left" font="13" textcolor="#FFFFFFFF" />
+          <label name="trial_tips3" padding="2,0,0,0" width="0" height="22" align="left" font="13" textcolor="#FF00E0FF" />
+          <label name="trial_tips4" padding="2,0,0,0" width="0" height="22" align="left" font="13" textcolor="#FFFFFFFF" />
+          <label name="trial_tips5" padding="2,0,0,0" width="0" height="22" align="left" font="13" textcolor="#FF00E0FF" />
+          <Button name="trial_btn" float="true" pos="516,0,596,22" font="13" width ="80" height="22" text="%{1928}" textcolor="#FFFFFFFF" normalimage="file='v40/button/trial_btn1_default.svg'" hotimage="file='v40/button/trial_btn1_hover.svg'" pushedimage="file='v40/button/trial_btn1_pressed.svg'"/>
+        </HorizontalLayout>
+        <HorizontalLayout name="net_tips" float="true" pos="24,156,620,178" width="596" height="22" bkcolor="#FF0C1022" visible="false">
+          <label name="net_tips_bg" float="true" pos="0,0,596,22"/>
+          <label name="net_tips_text" width="438" height="22" align="left" font="13"/>
+          <HorizontalLayout />
+          <Button name="net_tips_btn1" padding="0,0,0,0" font="13" width ="80" height="22" align="center" textcolor="#FFFFFFFF" normalimage="file='v40/button/common_dark_normal.png' corner='3,3,3,3'" hotimage="file='v40/button/common_dark_hover.png' corner='3,3,3,3'" pushedimage="file='v40/button/common_dark_pushed.png' corner='3,3,3,3'" disabledimage="file='v40/button/common_dark_disabled.png' corner='3,3,3,3'"/>
+          <Button name="net_tips_btn2" visible="false" padding="0,0,0,0" font="13" height="22" align="center" textcolor="#FF00D2C4" pushedtextcolor="#FF046A6E" hottextcolor="#FF57E4D1"/>
+          <Button name="net_tips_close" padding="8,3,0,0" width ="16" height="16" bkimage="file='v40/button/event_close.svg' dest='0,0,16,16'" hotimage="file='v40/button/event_close_hover.svg' dest='0,0,16,16'" pushedimage="file='v40/button/event_close_pressed.svg' dest='0,0,16,16'"/>
+        </HorizontalLayout>
+        <HorizontalLayout name="event_info" float="true" pos="24,156,620,178" width="596" height="22" bkcolor="#FF0C1022">
+          <label float="true" pos="0,0,247,22" bkimage="file='v40/common/event_info_bg.svg' dest='0,0,247,22'"/>
+          <label name="event_tips" padding="24,0,0,0" width="472" height="22" align="left" font="13" textcolor="#FF9095BB" />
+          <HorizontalLayout />
+          <Button name="event_btn" padding="0,0,0,0" font="13" width ="70" height="22" textcolor="#FF00D2C4" pushedtextcolor="#FF046A6E" hottextcolor="#FF57E4D1" align="center"/>
+          <Button name="event_close" padding="8,3,0,0" width ="16" height="16" bkimage="file='v40/button/event_close.svg' dest='0,0,16,16'" hotimage="file='v40/button/event_close_hover.svg' dest='0,0,16,16'" pushedimage="file='v40/button/event_close_pressed.svg' dest='0,0,16,16'"/>
+        </HorizontalLayout>
+        <VerticalLayout name="line_chart_mouse_tips" float="true" pos="1000,0,1146,95" wigth="146" hight="95" bkimage="file='v40/common/mouse_tips_bg.svg' corner='8,8,8,8'" mouse="false" >
+          <label float="true" pos="16,12,32,30" width="16" height="18" bkimage="file='v40/label/ping_mouse_location.svg' dest='0,1,16,17'"/>
+          <label name="mouse_tips_location" pos="32,12,130,30" float="true" width="98" hight="18" font="15" align="right" textcolor="#FFFFFFFF"/>
+          <label float="true" pos="16,36,130,37" width="114" height="1" bkcolor="#FF303134"/>
+          <label float="true" pos="16,43,52,61" width="36" height="18" font="15" textcolor="#FFB7BBD9" text="%{1922}" align="left"/>
+          <label name="mouse_tips_delay" float="true" pos="52,43,130,61" width="78" hight="18" font="15" align="right"/>
+          <label float="true" pos="16,65,52,83" width="36" height="18" font="15" textcolor="#FFB7BBD9" text="%{1923}" align="left"/>
+          <label name="mouse_tips_loss" float="true" pos="52,65,130,83" width="78" hight="18" font="15" align="right"/>
+        </VerticalLayout>
+      </VerticalLayout>
+      
+      <HorizontalLayout name="game_environment" width="644" height="64" visible="false" bkimage="file='v40/common/env_result_bk.svg' corner='8,8,8,8'">
+        <Label name="env_icon" padding="24,17" width="26" height="30" bkimage="file='v40/label/env_result_icon_error.svg'"/>
+        <VerticalLayout padding="8,10" width="418" height="44">
+          <Label width="418" height="22" text="%{3011}" font="13" textcolor="#FFFFFFFF" align="left"/>
+          <Label width="418" height="22" name="env_error_info" font="13" textcolor="#FF9095BB" align="left" endellipsis="true"/>
+        </VerticalLayout>
+        <Button name="env_repair" padding="8,20,0,0" font="13" width ="116" height="24" textcolor="#FFFFA400" align="center" textpadding="0,0,10,0" normalimage="file='v40/button/game_env_error_btn_normal.svg'" hotimage="file='v40/button/game_env_error_btn_horver.svg'" pushedimage="file='v40/button/game_env_error_btn_pressed.svg'"/>
+        <Button name="env_close" padding="8,22,0,0" width ="20" height="20" normalimage="file='v40/button/close_normal.png' dest='3,3,17,17'" hotimage="file='v40/button/close_hover.png' dest='3,3,17,17'" pushedimage="file='v40/button/close_pushed.png' dest='3,3,17,17'"/>
+      </HorizontalLayout>
+      
+	  <VerticalLayout name="game_toolbox" width="644" height="148" bkimage="file='v40/common/acc_detail_ele_bg.svg' corner='8,8,8,8'">
+        <TileLayout name="toolbox" padding="60,28,40,0" width="564" height="200" columns="3" childpadding="24" vscrollbar="false" hscrollbar="false">
+          <Button name="btn_battlenet_select" text="%{1281}" tooltip="%{1281}" font="13" width ="148" height="40" textcolor="#FFBCC0D4" align="left" valign="vcenter" textpadding="48,0,0,1" endellipsis="true" bkimage="file='v40/button/battlenet.png' dest='0,0,40,40'" pushedtextcolor="#FF9095BB" hottextcolor="#FFFFFFFF" hotimage="file='v40/common/toolbox_btn_hover.svg' dest='0,0,40,40'" pushedimage="file='v40/common/toolbox_btn_pressed.svg' dest='0,0,40,40'"/>
+          <HorizontalLayout name="layout_uu_translate" width="150" height="40">
+            <Label width="40" height="40" float="true" mouse="false" bkimage="file='v40/button/translate.png' dest='0,0,40,40'"/>
+            <Button name="btn_translate" text="%{2696}" text_desc="同步翻译" pos="0,0" float="true" width="150" height="40" font="13" textcolor="#FFBCC0D4" align="left" valign="vcenter" textpadding="48,0,0,20" endellipsis="true" pushedtextcolor="#FF9095BB" hottextcolor="#FFFFFFFF" hotimage="file='v40/common/toolbox_btn_hover.svg' dest='0,0,40,40'" pushedimage="file='v40/common/toolbox_btn_pressed.svg' dest='0,0,40,40'" />
+            <Label name="lb_enable_translate" width="148" height="20" float="true" pos="48,20,148,40" mouse="false" bkimage="file='v40/button/toolbox_turnoff.png' dest='0,7,22,19'"/>
+            <Button name="btn_translate_setting" pos="76,25" float="true" width="14" height="14" bkimage="file='v40/button/toolbox_setting_btn.svg'" visible="false"/>
+            <MPng name="translate_shade" float="true" pos="0,0,40,40" elapse="62" autoplay="false" allrepeat="false" mouse="false" 
+                mpng="v40/mpng/toolbox_btn_shade/toolbox_btn_shade_00.png"
+                mpng="v40/mpng/toolbox_btn_shade/toolbox_btn_shade_01.png"
+                mpng="v40/mpng/toolbox_btn_shade/toolbox_btn_shade_02.png"
+                mpng="v40/mpng/toolbox_btn_shade/toolbox_btn_shade_03.png"
+                mpng="v40/mpng/toolbox_btn_shade/toolbox_btn_shade_04.png"
+                mpng="v40/mpng/toolbox_btn_shade/toolbox_btn_shade_05.png"
+                mpng="v40/mpng/toolbox_btn_shade/toolbox_btn_shade_06.png"
+                mpng="v40/mpng/toolbox_btn_shade/toolbox_btn_shade_07.png"
+                mpng="v40/mpng/toolbox_btn_shade/toolbox_btn_shade_08.png"
+                mpng="v40/mpng/toolbox_btn_shade/toolbox_btn_shade_09.png"
+                mpng="v40/mpng/toolbox_btn_shade/toolbox_btn_shade_10.png"
+                mpng="v40/mpng/toolbox_btn_shade/toolbox_btn_shade_11.png"
+                mpng="v40/mpng/toolbox_btn_shade/toolbox_btn_shade_12.png"/>
+          </HorizontalLayout>
+          <Button name="btn_multi_game_acc" text="%{2606}" font="13" width ="148" height="40" textcolor="#FFBCC0D4" align="left" valign="vcenter" textpadding="48,0,0,1" endellipsis="true" bkimage="file='v40/button/multi_acc.png' dest='0,0,40,40'" pushedtextcolor="#FF9095BB" hottextcolor="#FFFFFFFF" hotimage="file='v40/common/toolbox_btn_hover.svg' dest='0,0,40,40'" pushedimage="file='v40/common/toolbox_btn_pressed.svg' dest='0,0,40,40'"/>
+          <Button name="btn_stay_tuned" text="%{1814}" font="13" width ="148" height="40" textcolor="#FF474B5F" align="left" valign="vcenter" textpadding="48,0,0,1" endellipsis="true" bkimage="file='v40/button/stay_tuned.png' dest='0,0,40,40'" />
+        </TileLayout>
+      </VerticalLayout>
+      
+      <Button name="acced_ad_banner" width="644" height="120"/>
+
+      <Label name="game_setting_tip" float ="true" pos="0,0,220,88" visible="false" font="13" text="%{2526}" align="center" valign="top" textpadding="0,28,0,0" textcolor="#FFFFFFFF" bkimage="file='v40/label/game_setting_tip.svg'" />
+    </VerticalLayout>
+    
+    <VerticalLayout name="bubble_tips_layout" width="240" height="110" bkimage="file='v40/label/popover_highlight_3.svg' dest='0,0,240,110'" mouse="false" float="true" pos="0,0,0,0" visible="false">
+	
+      <HorizontalLayout width="208" height="22" padding="16,12">
+        <Label name="bubble_tips_title" width="180" height="22" font="14" textcolor="#FFFFFFFF" align="left" mouse="false" />
+        <Button name="bubble_tips_close_btn" width="20" height="20" padding="8,0,0,2" bkimage="v40/button/toolbox_tips_close.png" />
+      </HorizontalLayout>
+      <Text name="bubble_tips_info" width="208" height="58" padding="16,4" textcolor="#FFFFFFFF" font="15" align="left" multiline="true"/>
+    </VerticalLayout>
+
+    <VerticalLayout name="toolbox_tips_layout" width="272" height="200" bkimage="file='v40/label/tooltask_tip_popover_bk.svg'" mouse="false" float="true" pos="0,0,306,232" visible="false">
+      <Label name="toolbox_tips_pic" width="264" height="148" padding="4,4,0,0" mouse="false" />
+      <Label name="toolbox_tips_desc" width="264" height="22" padding="4,8" textcolor="#FFFFFFFF" font="13" align="center" />
+    </VerticalLayout>
+
+    <VerticalLayout name="toolbox_maintenance_tips_layout" width="306" height="118" bkimage="file='v40/label/toolbox_maintenance_popover_bk.svg'" mouse="false" float="true" pos="0,0,306,118" visible="false">
+      <Label name="toolbox_maintenance_tips_title" float="true" pos="24,16,282,38" height="22" textcolor="#FFFFFFFF" font="13" align="center" mouse="false" />
+      <Text name="toolbox_maintenance_tips_desc" float="true" pos="24,42,282,84" height="42" textcolor="#FFB7BBD9" font="15" align="center" valign="top" multiline="true" endellipsis="true" mouse="false" />
+    </VerticalLayout>
+	
+	  <Label name="platform_tooltip" visible="false" font="15" textcolor="#FFCBCBCB" align="center" float="true" pos ="0,322,80,352" text_desc="Steam平台" bkimage="file ='v40/label/platform_tooltip.svg' corner='16,8,16,8'"/>
+	
+  </HorizontalLayout>
+
+</root>

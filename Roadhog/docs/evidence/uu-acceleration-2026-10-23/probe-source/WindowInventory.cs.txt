@@ -1,0 +1,48 @@
+using System.Text;
+using Vmmsharp;
+
+internal static class WindowInventory
+{
+    public static object Run(VmmProcess p)
+    {
+        byte[] Read(ulong a,int n){var b=p.MemRead(a,(uint)n,1);return b is not null&&b.Length==n?b:throw new InvalidOperationException($"Incomplete window inventory read {a:X}");}
+        var shared=Read(p.GetProcAddress("user32.dll","gSharedInfo"),24);
+        ulong server=BitConverter.ToUInt64(shared,0), table=BitConverter.ToUInt64(shared,8);
+        int stride=BitConverter.ToInt32(shared,16),count=BitConverter.ToInt32(Read(server,16),8);
+        if(stride!=32||count<=0||count>65536)throw new InvalidOperationException($"Invalid handle table geometry {stride}/{count}");
+        var threads=p.MapThread().ToDictionary(t=>(ulong)t.dwTID);
+        var windows=new List<object>();
+        for(int first=0;first<count;first+=128)
+        {
+            int entries=Math.Min(128,count-first);var page=Read(table+(ulong)(first*stride),entries*stride);
+            for(int index=0;index<entries;index++)
+            {
+                var e=page.AsSpan(index*stride,stride);ulong owner=BitConverter.ToUInt64(e[8..]);
+                if(e[24]!=1||(e[25]&1)!=0||!threads.TryGetValue(owner,out var thread))continue;
+                uint hwnd=(uint)(first+index)|((uint)BitConverter.ToUInt16(e[26..])<<16);
+                var ci=Read(thread.vaTeb+0x800,0x50);ulong desktop=BitConverter.ToUInt64(ci,0x20),mapping=BitConverter.ToUInt64(ci,0x28);
+                if(BitConverter.ToUInt64(Read(desktop,8))!=BitConverter.ToUInt64(e[16..]))continue;
+                ulong address=mapping+BitConverter.ToUInt64(e);
+                var w=Read(address,0x130);if(BitConverter.ToUInt64(w)!=hwnd)continue;
+                uint style=BitConverter.ToUInt32(w,0x1c);ulong user=BitConverter.ToUInt64(w,0xd8);
+                ulong manager=0,root=0;
+                if(user>=0x10000&&user<0x80000000)
+                {
+                    var obj=p.MemRead(user,0x240,1);
+                    if(obj is{Length:0x240})for(int offset=0;offset<0x180;offset+=4)
+                    {
+                        if(BitConverter.ToUInt32(obj,offset+0xc)!=hwnd)continue;
+                        uint candidateRoot=BitConverter.ToUInt32(obj,offset+0x60);
+                        if(candidateRoot<0x10000||candidateRoot>=0x80000000)continue;
+                        var rootFields=p.MemRead(candidateRoot+0x14c,8,1);
+                        if(rootFields is{Length:8}&&BitConverter.ToUInt32(rootFields)==user+(ulong)offset&&BitConverter.ToUInt32(rootFields,4)==0){manager=user+(ulong)offset;root=candidateRoot;break;}
+                    }
+                }
+                string? title=null;int titleLength=BitConverter.ToUInt16(w,0xb8);ulong titlePtr=BitConverter.ToUInt64(w,0xc0);
+                if(titleLength>0&&titleLength<=240&&titlePtr>=0x10000){var t=p.MemRead(mapping+titlePtr,(uint)titleLength,1);if(t?.Length==titleLength)title=Encoding.Unicode.GetString(t);}
+                windows.Add(new{Hwnd=$"0x{hwnd:X}",OwnerThread=owner,Address=$"0x{address:X}",Style=$"0x{style:X}",Visible=(style&0x10000000)!=0,Disabled=(style&0x08000000)!=0,Rect=new[]{BitConverter.ToInt32(w,0x58),BitConverter.ToInt32(w,0x5c),BitConverter.ToInt32(w,0x60),BitConverter.ToInt32(w,0x64)},UserData=$"0x{user:X}",Manager=$"0x{manager:X}",Root=$"0x{root:X}",TitleCandidate=title});
+            }
+        }
+        return new{Count=count,Windows=windows};
+    }
+}

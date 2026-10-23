@@ -1,0 +1,145 @@
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text.Json;
+using Roadhog.Infrastructure.Hardware;
+using Roadhog.Infrastructure.Vmm;
+using Vmmsharp;
+
+internal static class Program
+{
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, IncludeFields = true };
+    private const string ClientRoot = @"C:\Users\GoldGiven\Desktop\script\多账号客户端";
+    private const uint NoCache = 1;
+
+    private static int Main(string[] args)
+    {
+        var output = Path.GetFullPath(args.Length > 1 ? args[1] : "evidence");
+        Directory.CreateDirectory(output);
+        var mode = args.FirstOrDefault() ?? "inventory";
+        var started = DateTimeOffset.UtcNow;
+        var report = new Dictionary<string, object?> { ["StartedUtc"] = started, ["Mode"] = mode,
+            ["Acquisition"] = "DMA process memory reads only; no target-side screenshot or helper",
+            ["TargetWrites"] = false, ["InputSent"] = false };
+        using var self = Process.GetCurrentProcess();
+        var selfStarted = new DateTimeOffset(self.StartTime.ToUniversalTime());
+        var leases = new DeviceLeaseStore();
+        var acquired = false;
+        try
+        {
+            using var config = JsonDocument.Parse(File.ReadAllText(Path.Combine(ClientRoot, "config", "accounts.json")));
+            var account = config.RootElement.GetProperty("Accounts").EnumerateArray().Single(a => a.GetProperty("AccountName").GetString() == "脚本1");
+            var device = account.GetProperty("VmmDeviceName").GetString()!;
+            var hardware = account.GetProperty("HardwareKey").GetString()!;
+            if (device != "fpga://devindex=5" || hardware != "port:Port_#0005.Hub_#0009")
+                throw new InvalidOperationException("Account hardware binding changed since preflight.");
+            report["Account"] = new { AccountName = account.GetProperty("AccountName").GetString(), Character = account.GetProperty("CharacterName").GetString(), Device = device, HardwareKey = hardware };
+            var lease = leases.TryAcquire(self.Id, selfStarted, AppContext.BaseDirectory, hardware, device);
+            if (!lease.Success) throw new InvalidOperationException("DMA device lease unavailable: " + (lease.Error ?? JsonSerializer.Serialize(lease.Conflict)));
+            acquired = true;
+            Console.WriteLine("Lease acquired; opening saved account-1 DMA device.");
+            using var vmm = new SafeMemProcVmm(["-device", device, "-waitinitialize"]);
+            Console.WriteLine("DMA initialization succeeded.");
+            var all = vmm.Processes;
+            var candidates = all.Select(p => (Process:p, Info:p.GetInfo())).Where(x => x.Info.fValid &&
+                (x.Info.sName.Contains("sdologin", StringComparison.OrdinalIgnoreCase) ||
+                 x.Info.sName.Contains("SdoAuth", StringComparison.OrdinalIgnoreCase) ||
+                 x.Info.sName.Equals("Aion.bin", StringComparison.OrdinalIgnoreCase))).ToArray();
+            report["ProcessCount"] = all.Length;
+            report["RelevantProcesses"] = candidates.Select(x => new { x.Info.dwPID, x.Info.dwPPID, x.Info.sName, x.Info.dwState, x.Info.fWow64, Peb = Hex(x.Info.vaPEB), Peb32 = Hex(x.Info.vaPEB32) }).ToArray();
+            Console.WriteLine(JsonSerializer.Serialize(report["RelevantProcesses"]));
+            var logins = candidates.Where(x => x.Info.sName.Equals("sdologin.exe", StringComparison.OrdinalIgnoreCase) && x.Info.dwState == 0).ToArray();
+            if (logins.Length != 1) throw new InvalidOperationException($"Expected one active sdologin.exe, found {logins.Length}.");
+            var process = logins[0].Process;
+            var identity = logins[0].Info;
+            var modules = process.MapModule(false);
+            var executable = modules.Single(m => m.sText.Equals("sdologin.exe", StringComparison.OrdinalIgnoreCase));
+            var header = process.MemRead(executable.vaBase, 64, NoCache);
+            if (header is not { Length:64 } || header[0] != 'M' || header[1] != 'Z') throw new InvalidOperationException("Executable header read incomplete or invalid.");
+            report["TargetPid"] = process.PID;
+            report["TargetIdentity"] = new { Eprocess = Hex(identity.vaEPROCESS), Peb = Hex(identity.vaPEB), Peb32 = Hex(identity.vaPEB32), MainModuleBase = Hex(executable.vaBase), executable.cbImageSize, HeaderSha256 = Convert.ToHexString(SHA256.HashData(header)) };
+            report["Modules"] = modules.Select(m => new { Name=m.sText, Base=Hex(m.vaBase), Size=m.cbImageSize }).ToArray();
+            var regions = process.MapVAD(true);
+            report["RegionCount"] = regions.Length;
+            WriteJson(Path.Combine(output,"regions.json"), regions.Select(r => new { Start=Hex(r.vaStart), End=Hex(r.vaEnd), r.cbSize, r.Protection, r.fPrivateMemory, r.fHeap, r.fImage, r.fFile, r.MemCommit, r.CommitCharge, r.sText }).ToArray());
+            if (mode == "images") ScanImages(process, regions, output, report);
+            if (mode == "pages") report["PageScan"] = ImageMemoryScan.Run(process, regions, output);
+            if (mode == "capture")
+            {
+                if(args.Length<3)throw new ArgumentException("Capture requires a prior scan directory.");
+                report["VerifiedCapture"] = ImageMemoryScan.CaptureKnown(process, identity, args[2], output);
+            }
+            var after = process.GetInfo();
+            if (!after.fValid || after.vaEPROCESS != identity.vaEPROCESS || after.vaPEB != identity.vaPEB || after.dwState != 0)
+                throw new InvalidOperationException("Target process identity changed during probe.");
+            report["Status"] = "completed";
+            return 0;
+        }
+        catch(Exception ex)
+        {
+            report["Status"] = "failed";
+            report["Error"] = ex.Message;
+            Console.WriteLine("Probe failed: " + ex.Message);
+            return 1;
+        }
+        finally
+        {
+            if(acquired) report["LeaseReleased"] = leases.Release(self.Id, selfStarted).Success;
+            report["CompletedUtc"] = DateTimeOffset.UtcNow;
+            WriteJson(Path.Combine(output,"report.json"),report);
+            Console.WriteLine("Report: " + Path.Combine(output,"report.json"));
+        }
+    }
+
+    private static void ScanImages(VmmProcess process, VmmProcess.VadEntry[] regions, string output, Dictionary<string,object?> report)
+    {
+        ulong readBytes=0, failures=0;
+        var scan = Stopwatch.StartNew();
+        var matches = new List<object>();
+        var seen = new HashSet<ulong>();
+        var regionsToScan = regions.Where(r=> !r.fImage && !r.fStack && !r.fTeb && r.cbSize>0 && r.cbSize<=128UL*1024*1024 && (r.fPrivateMemory || r.fHeap)).ToArray();
+        foreach(var region in regionsToScan)
+        {
+            if(scan.Elapsed > TimeSpan.FromMinutes(3) || readBytes > 512UL*1024*1024) break;
+            for(ulong address=region.vaStart; address<=region.vaEnd;)
+            {
+                uint length=(uint)Math.Min(1024UL*1024,region.vaEnd-address+1);
+                var bytes=process.MemRead(address,length,NoCache);
+                if(bytes is null || bytes.Length != length) { failures++; address += length; continue; }
+                readBytes+=length;
+                for(int i=0;i<bytes.Length-8;i++)
+                {
+                    bool jpeg=bytes[i]==0xff && bytes[i+1]==0xd8 && bytes[i+2]==0xff;
+                    bool png=bytes[i]==0x89 && bytes[i+1]==0x50 && bytes[i+2]==0x4e && bytes[i+3]==0x47 && bytes[i+4]==13 && bytes[i+5]==10;
+                    bool gif=bytes[i]==0x47 && bytes[i+1]==0x49 && bytes[i+2]==0x46 && bytes[i+3]==0x38;
+                    if(!jpeg&&!png&&!gif)continue;
+                    ulong candidate=address+(ulong)i;
+                    if(!seen.Add(candidate))continue;
+                    uint available=(uint)Math.Min(128UL*1024,region.vaEnd-candidate+1);
+                    var encoded=process.MemRead(candidate,available,NoCache);
+                    if(encoded is null || encoded.Length!=available)continue;
+                    try
+                    {
+                        using var stream=new MemoryStream(encoded,false);
+                        using var image=System.Drawing.Image.FromStream(stream,false,true);
+                        if(image.Width!=120 || image.Height!=60)continue;
+                        // Confirm two whole, identical source buffers before retaining any candidate.
+                        var verify=process.MemRead(candidate,available,NoCache);
+                        if(verify is null || !encoded.AsSpan().SequenceEqual(verify))continue;
+                        string name=$"candidate-{candidate:X}.png";
+                        image.Save(Path.Combine(output,name),System.Drawing.Imaging.ImageFormat.Png);
+                        matches.Add(new { Address=Hex(candidate), ImageWidth=image.Width, ImageHeight=image.Height, Encoding=jpeg?"jpeg":png?"png":"gif", SourceBytesValidated=available, Output=name, VerifiedCurrentDialog=false });
+                        Console.WriteLine("Image candidate: "+name);
+                    }
+                    catch(ArgumentException){} catch(ExternalException){} catch(OutOfMemoryException){}
+                }
+                address+=length>16?length-16:length;
+                if(region.vaEnd-address+1<=16)break;
+            }
+            Console.WriteLine($"Scan: {readBytes/(1024*1024)} MiB; incomplete blocks={failures}; candidates={matches.Count}");
+        }
+        report["ImageScan"] = new { ReadBytes=readBytes, IncompleteBlocks=failures, SignatureCandidates=seen.Count, ElapsedSeconds=scan.Elapsed.TotalSeconds, Matches=matches };
+    }
+    private static string Hex(ulong value)=>$"0x{value:X}";
+    private static void WriteJson(string path,object data)=>File.WriteAllText(path,JsonSerializer.Serialize(data,JsonOptions));
+}

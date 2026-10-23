@@ -1,0 +1,287 @@
+using System.Buffers.Binary;
+using System.Diagnostics;
+using System.Reflection.PortableExecutable;
+using System.Text;
+using System.Text.Json;
+using Vmmsharp;
+
+internal sealed class UiProbe(VmmProcess process, string? baseline)
+{
+    private const uint NoCache=1;
+    private readonly Dictionary<uint, string> typeCache=new();
+    private readonly Dictionary<uint, bool> containerCache=new();
+    private int incompleteReads;
+    private readonly List<object> unmatchedStaticTypes=new();
+    private static readonly string[] SeedNames=["launch_game","stop_acc","child_game_acced","acced_time"];
+    private sealed record UiRect(int Left,int Top,int Right,int Bottom);
+    private sealed record Node(string Address,string Parent,string Manager,string Class,string Name,UiRect Rect,bool Visible,bool AncestorsVisible,bool Enabled,string? Text,int Depth);
+    private sealed record ManagerData(string Address,string Hwnd,string Root,int[]? Dpi,List<Node> Controls,int FailedReads);
+    public object Run()
+    {
+        var report=new Dictionary<string,object?>();
+        var ui=process.MapModule(false).Single(m=>m.sText.Equals("ui.dll",StringComparison.OrdinalIgnoreCase));
+        ValidateLibrary(ui.vaBase);
+        LoadStaticTypes(ui.vaBase);
+        report["UnmatchedStaticTypes"]=unmatchedStaticTypes;
+        uint registry=GetGlobal(ui.vaBase,"?s_all_managers_@CPaintManagerUI@DuiLib@@0VCStdPtrArray@2@A");
+        uint registryEnabled=GetGlobal(ui.vaBase,"?s_ui_tree_registry_enabled_@CPaintManagerUI@DuiLib@@0_NA");
+        var enabled=Read(registryEnabled,1);
+        report["RegistryEnabled"]=enabled is null ? null : enabled[0];
+        var list=Read(registry,12);
+        var managers=new HashSet<uint>();
+        if(list is not null)
+        {
+            uint array=U32(list,0);int count=I32(list,4), capacity=I32(list,8);
+            report["RegistryCount"]=count;
+            if(count>=0&&count<=64&&capacity>=count&&capacity<=65536)
+            {
+                var entries=Read(array,count*4);
+                if(entries is not null)for(int i=0;i<count;i++)if(Plausible(U32(entries,i*4)))managers.Add(U32(entries,i*4));
+            }
+        }
+        if(managers.Count==0)report["Discovery"]=baseline is null ? DiscoverManagers(managers) : DiscoverFromBaseline(managers,baseline);
+        report["ManagerAddresses"]=managers.Select(Hex).ToArray();
+        var snapshots=new List<ManagerData>();
+        foreach(uint manager in managers)
+        {
+            var fields=Read(manager,0x31c);
+            if(fields is null)continue;
+            uint hwnd=U32(fields,0xc), root=U32(fields,0x60), dpi=U32(fields,0x318);
+            if(!Plausible(root)||hwnd==0)continue;
+            var dpiBytes=Read(dpi,12);
+            var nodes=new List<Node>();var visited=new HashSet<uint>();
+            int before=incompleteReads;
+            Visit(root,manager,true,0,visited,nodes);
+            var after=Read(manager,0x64);
+            if(after is null||U32(after,0xc)!=hwnd||U32(after,0x60)!=root)throw new InvalidOperationException("UI manager changed during traversal.");
+            snapshots.Add(new(Hex(manager),Hex(hwnd),Hex(root),dpiBytes is null ? null : new[]{I32(dpiBytes,0),I32(dpiBytes,4),I32(dpiBytes,8)},nodes,incompleteReads-before));
+            Console.WriteLine($"Manager {Hex(manager)} HWND={Hex(hwnd)} controls={nodes.Count}, failedReads={incompleteReads-before}");
+            foreach(var node in nodes.Where(n=>n.AncestorsVisible && n.Visible && (SeedNames.Contains(n.Name)||n.Name=="game_name")))
+                Console.WriteLine(JsonSerializer.Serialize(node));
+        }
+        report["Managers"]=snapshots;
+        report["WindowProbe"]=CaptureWindowProbe();
+        report["IncompleteReads"]=incompleteReads;
+        report["ScreenOriginConfirmed"]=false;
+        return report;
+    }
+    private void LoadStaticTypes(ulong uiBase)
+    {
+        using var types=JsonDocument.Parse(File.ReadAllText(@"C:\D\Develop\MyCode\Tool\.tmp\uu-analysis-20261023\static\ui-rtti-vtables.json"));
+        foreach(var item in types.RootElement.GetProperty("observations").EnumerateArray())
+        {
+            uint rva=Convert.ToUInt32(item.GetProperty("vtable_rva").GetString()![2..],16);
+            uint address=checked((uint)uiBase+rva);
+            string export=item.GetProperty("export").GetString()!;
+            ulong actual=process.GetProcAddress("ui.dll",export);
+            if(actual!=address){unmatchedStaticTypes.Add(new{Export=export,Actual=Hex((uint)actual),Expected=Hex(address)});continue;}
+            typeCache[address]=item.GetProperty("type").GetString()!;
+            containerCache[address]=item.GetProperty("is_container").GetBoolean()&&item.GetProperty("col_subobject_offset").GetInt32()==0;
+        }
+    }
+    private object CaptureWindowProbe()
+    {
+        var exports=new List<object>();
+        foreach(var name in new[]{"gSharedInfo","GetWindowRect","GetClientRect","ClientToScreen","GetWindowLongW","GetWindowThreadProcessId"})
+        {
+            ulong address=process.GetProcAddress("user32.dll",name);
+            var data=address==0?null:Read(address,name=="gSharedInfo"?64:256);
+            exports.Add(new{Name=name,Address=$"0x{address:X}",Bytes=data is null?null:Convert.ToHexString(data)});
+        }
+        var threads=process.MapThread().Select(t=>new{t.dwTID,Teb=$"0x{t.vaTeb:X}",Start=$"0x{t.vaWin32StartAddress:X}"}).ToArray();
+        return new{Exports=exports,Threads=threads};
+    }
+    private object DiscoverFromBaseline(HashSet<uint> managers,string source)
+    {
+        using var prior=JsonDocument.Parse(File.ReadAllText(source));
+        var diagnostics=new List<object>();
+        if(prior.RootElement.TryGetProperty("WindowInventory",out var inventory))
+        {
+            foreach(var window in inventory.GetProperty("Windows").EnumerateArray())
+                if(window.GetProperty("Visible").GetBoolean()&&window.GetProperty("Manager").GetString()!="0x0")managers.Add(Convert.ToUInt32(window.GetProperty("Manager").GetString()![2..],16));
+            return new{Source="Verified target USER window managers",Count=managers.Count};
+        }
+        foreach(var entry in prior.RootElement.GetProperty("Ui").GetProperty("Discovery").GetProperty("NameAddresses").EnumerateArray())
+        {
+            uint nameAddress=Convert.ToUInt32(entry.GetProperty("Address").GetString()![2..],16);
+            uint candidate=nameAddress-0x1dc;
+            var header=Read(candidate,0x370);
+            if(header is null)continue;
+            uint manager=U32(header,0x14c),namePointer=U32(header,0x1d8);
+            string? name=ReadString(namePointer,128);
+            var fields=Read(manager,0x64);
+            bool accepted=GetTypeName(U32(header,0)).Contains("DuiLib")&&namePointer==nameAddress&&name==entry.GetProperty("Name").GetString()&&fields is not null&&Plausible(U32(fields,0x60))&&U32(fields,0xc)!=0;
+            diagnostics.Add(new{Address=Hex(candidate),ExpectedName=entry.GetProperty("Name").GetString(),Name=name,NamePointer=Hex(namePointer),Vtable=Hex(U32(header,0)),Class=GetTypeName(U32(header,0)),Manager=Hex(manager),Parent=Hex(U32(header,0x150)),Root=fields is null?null:Hex(U32(fields,0x60)),Hwnd=fields is null?null:Hex(U32(fields,0xc)),Accepted=accepted});
+            if(accepted)managers.Add(manager);
+        }
+        return diagnostics;
+    }
+    private void ValidateLibrary(ulong baseAddress)
+    {
+        const string local=@"C:\Program Files (x86)\Netease\UU\5251\ui.dll";
+        using var stream=File.OpenRead(local);
+        using var pe=new PEReader(stream);
+        using var manifest=JsonDocument.Parse(File.ReadAllText(@"C:\D\Develop\MyCode\Tool\.tmp\uu-analysis-20261023\static\ui-accessors.json"));
+        foreach(var entry in manifest.RootElement.GetProperty("exports").EnumerateArray().Where(x=>new[]{"?GetPaintWindow@","?GetRoot@","?GetManager@","?GetPos@","?GetName@","?IsVisible@"}.Any(p=>x.GetProperty("name").GetString()!.StartsWith(p))))
+        {
+            string name=entry.GetProperty("name").GetString()!;
+            uint rva=Convert.ToUInt32(entry.GetProperty("rva").GetString()![2..],16);
+            var actual=process.GetProcAddress("ui.dll",name);
+            if(actual!=baseAddress+rva)throw new InvalidOperationException("UI library exports differ: "+name);
+            var expected=pe.GetSectionData((int)rva).GetContent(0,16).ToArray();
+            var bytes=Read(actual,16);
+            if(bytes is null||!bytes.AsSpan().SequenceEqual(expected))throw new InvalidOperationException("UI accessor bytes differ: "+name);
+        }
+    }
+    private uint GetGlobal(ulong baseAddress,string name)
+    {
+        var address=process.GetProcAddress("ui.dll",name);
+        if(address<baseAddress||address>baseAddress+0x300000)throw new InvalidOperationException("UI export missing.");
+        return checked((uint)address);
+    }
+    private object DiscoverManagers(HashSet<uint> managers)
+    {
+        var watch=Stopwatch.StartNew();
+        var regions=process.MapVAD(true);
+        var pages=new List<ulong>();
+        foreach(var r in regions.Where(r=>!r.fImage&&!r.fFile&&!r.fStack&&!r.fTeb && r.cbSize>0 && r.vaEnd<0x80000000))
+            for(ulong a=r.vaStart;a<=r.vaEnd;a+=4096) { if(pages.Count>=98304)break;pages.Add(a); }
+        var addressNames=new Dictionary<uint,string>();
+        var patterns=SeedNames.Select(n=>(Name:n,Pattern:Encoding.Unicode.GetBytes(n+"\0"))).ToArray();
+        int good=0, failed=0;
+        foreach(var batch in pages.Chunk(256))
+        {
+            if(watch.Elapsed>TimeSpan.FromSeconds(70))break;
+            foreach(var item in process.MemReadScatter(NoCache,batch))
+            {
+                if(!item.f||item.pb is not{Length:4096}){failed++;continue;}
+                good++;
+                foreach(var (name,pattern) in patterns)
+                {
+                    int position=0;
+                    while(position<=4096-pattern.Length)
+                    {
+                        int relative=item.pb.AsSpan(position).IndexOf(pattern);
+                        if(relative<0)break;
+                        position+=relative;
+                        if(position%2==0)addressNames[(uint)item.qwA+(uint)position]=name;
+                        position+=2;
+                    }
+                }
+            }
+        }
+        Console.WriteLine($"UI name scan: pages={good}, failed={failed}, names={addressNames.Count}");
+        var seeds=new List<object>();
+        foreach(var batch in pages.Chunk(256))
+        {
+            if(watch.Elapsed>TimeSpan.FromSeconds(140))break;
+            foreach(var item in process.MemReadScatter(NoCache,batch))
+            {
+                if(!item.f||item.pb is not{Length:4096})continue;
+                for(int offset=0;offset<=4092;offset+=4)
+                {
+                    uint pointer=U32(item.pb,offset);
+                    if(!addressNames.TryGetValue(pointer,out string? name))continue;
+                    uint candidate=checked((uint)item.qwA+(uint)offset-0x1d8);
+                    var header=Read(candidate,0x370);
+                    if(header is null||!GetTypeName(U32(header,0)).Contains("DuiLib"))continue;
+                    uint manager=U32(header,0x14c), parent=U32(header,0x150);
+                    if(!Plausible(manager)||!Plausible(parent))continue;
+                    var managerData=Read(manager,0x64);
+                    if(managerData is null||!Plausible(U32(managerData,0x60))||U32(managerData,0xc)==0)continue;
+                    if(ReadString(U32(header,0x1d8),96)!=name)continue;
+                    managers.Add(manager);
+                    seeds.Add(new{Name=name,Control=Hex(candidate),Manager=Hex(manager)});
+                }
+            }
+        }
+        return new{PlannedPages=pages.Count,CompletePages=good,FailedPages=failed,NameAddresses=addressNames.Select(x=>new{Address=Hex(x.Key),Name=x.Value}).ToArray(),Seeds=seeds,ElapsedSeconds=watch.Elapsed.TotalSeconds};
+    }
+    private void Visit(uint address,uint manager,bool ancestorsVisible,int depth,HashSet<uint> visited,List<Node> nodes)
+    {
+        if(depth>40||visited.Count>=20000||!Plausible(address)||!visited.Add(address))return;
+        var data=Read(address,0x370);
+        if(data is null||U32(data,0x14c)!=manager)return;
+        uint vtable=U32(data,0),parent=U32(data,0x150);
+        string type=GetTypeName(vtable);
+        string name=ReadString(U32(data,0x1d8),128)??"";
+        var rect=new UiRect(I32(data,0x260),I32(data,0x264),I32(data,0x268),I32(data,0x26c));
+        bool visible=data[0x2b0]!=0&&data[0x2b1]!=0, enabled=data[0x2b2]!=0;
+        string? text=null;
+        if(new[]{"launch_game","stop_acc","start_acc","game_name","acced_time","acced_game_name","acc_status","acc_state","acc_tip","net_delay","accing_text","accing_tips","accing_progress","acc_progress"}.Contains(name))text=ReadString(U32(data,0x2e4),128);
+        nodes.Add(new(Hex(address),Hex(parent),Hex(manager),type,name,rect,visible,ancestorsVisible,enabled,text,depth));
+        if(containerCache.TryGetValue(vtable,out bool knownContainer)&&!knownContainer)return;
+        var array=Read(address+0x76c,12);
+        if(array is null)return;
+        uint children=U32(array,0);int count=I32(array,4),capacity=I32(array,8);
+        if(count<0||count>10000||capacity<count||capacity>20000)return;
+        if(count==0)return;
+        var childData=Read(children,count*4);
+        if(childData is null)return;
+        for(int i=0;i<count;i++)
+        {
+            uint child=U32(childData,i*4);
+            var relationship=Read(child+0x14c,8);
+            if(relationship is null||U32(relationship,0)!=manager||U32(relationship,4)!=address)continue;
+            Visit(child,manager,ancestorsVisible&&visible,depth+1,visited,nodes);
+        }
+        var after=Read(address+0x76c,12);
+        if(after is null||!after.AsSpan().SequenceEqual(array))throw new InvalidOperationException("UI children changed during traversal.");
+    }
+    private string GetTypeName(uint vtable)
+    {
+        if(typeCache.TryGetValue(vtable,out var name))return name;
+        var slot=Read(vtable-4,4);
+        var locator=slot is null?null:Read(U32(slot,0),20);
+        var descriptor=locator is null?null:Read(U32(locator,12)+8,160);
+        name=descriptor is null?"":Encoding.ASCII.GetString(descriptor).Split('\0')[0];
+        if(!name.StartsWith(".?AV")&&!name.StartsWith(".?AU"))name="";
+        typeCache[vtable]=name;
+        return name;
+    }
+    private bool IsContainer(uint vtable)
+    {
+        if(containerCache.TryGetValue(vtable,out bool known))return known;
+        bool found=false;
+        var slot=Read(vtable-4,4);
+        var locator=slot is null?null:Read(U32(slot,0),20);
+        var hierarchy=locator is null?null:Read(U32(locator,16),16);
+        if(hierarchy is not null)
+        {
+            int count=I32(hierarchy,8);
+            if(count>0&&count<=128)
+            {
+                var bases=Read(U32(hierarchy,12),count*4);
+                if(bases is not null)for(int i=0;i<count;i++)
+                {
+                    var b=Read(U32(bases,i*4),4);
+                    var name=b is null?null:Read(U32(b,0)+8,100);
+                    if(name is not null&&Encoding.ASCII.GetString(name).Split('\0')[0]==".?AVCContainerUI@DuiLib@@")found=true;
+                }
+            }
+        }
+        containerCache[vtable]=found;return found;
+    }
+    private string? ReadString(uint pointer,int maxChars)
+    {
+        if(!Plausible(pointer))return null;
+        int length=Math.Min(maxChars*2,4096-(int)(pointer%4096));
+        var bytes=Read(pointer,length);
+        if(bytes is null)return null;
+        int end=0;while(end+1<bytes.Length && (bytes[end]!=0||bytes[end+1]!=0))end+=2;
+        if(end>=bytes.Length-1)return null;
+        return Encoding.Unicode.GetString(bytes,0,end);
+    }
+    private byte[]? Read(ulong address,int length)
+    {
+        if(length==0)return [];
+        if(address<0x10000||address+((ulong)length)>0x80000000||length<0||length>128000){incompleteReads++;return null;}
+        var data=process.MemRead(address,(uint)length,NoCache);
+        if(data is null||data.Length!=length){incompleteReads++;return null;}
+        return data;
+    }
+    private static bool Plausible(uint p)=>p>=0x10000&&p<0x80000000&&p%4==0;
+    private static uint U32(byte[] bytes,int offset)=>BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(offset,4));
+    private static int I32(byte[] bytes,int offset)=>BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(offset,4));
+    private static string Hex(uint value)=>$"0x{value:X}";
+}

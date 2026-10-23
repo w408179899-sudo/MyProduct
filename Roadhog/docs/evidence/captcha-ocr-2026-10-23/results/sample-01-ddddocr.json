@@ -1,0 +1,30 @@
+{
+  "captured_test_utc": "2026-10-23T02:38:02.070625+00:00",
+  "ddddocr_version": "1.6.1",
+  "onnxruntime_version": "1.23.2",
+  "image_path": "C:\\D\\Develop\\MyCode\\Tool\\.tmp\\captcha-dma-20261023\\ocr-pages-103613\\encoded-6CA6AA0.png",
+  "image_sha256": "8293e07fd90f0dc571438449e680348feb2b4091f61d7ce4ea7c8872f4c697dd",
+  "image_dimensions": [
+    120,
+    60
+  ],
+  "image_source": "Fresh DMA memory scan of account 1; current image confirmed by user",
+  "preprocessing": "Original recovered PNG; no additional image preprocessing or character-range restriction",
+  "input_submitted": false,
+  "models": [
+    {
+      "model": "default",
+      "beta": false,
+      "raw_result": "wLpm",
+      "initialization_seconds": 0.041,
+      "inference_milliseconds": 19.5
+    },
+    {
+      "model": "beta",
+      "beta": true,
+      "raw_result": "wL6M",
+      "initialization_seconds": 0.056,
+      "inference_milliseconds": 3.79
+    }
+  ]
+}

@@ -1,0 +1,6930 @@
+{
+  "StartedUtc": "2026-10-23T03:36:35.9999167+00:00",
+  "TargetWrites": false,
+  "InputSent": true,
+  "Acquisition": "DMA UI reads and explicitly authorized KMBox left click; no target memory writes",
+  "Account": {
+    "Account": "\u811A\u672C1",
+    "Device": "fpga://devindex=5",
+    "HardwareKey": "port:Port_#0005.Hub_#0009"
+  },
+  "Processes": [
+    {
+      "dwPID": 1572,
+      "dwPPID": 7108,
+      "sName": "uu.exe",
+      "fWow64": true,
+      "Eprocess": "0xFFFF9E02D2705080",
+      "Peb": "0x150A000",
+      "MainModuleBase": "0x410000",
+      "cbImageSize": 15994880,
+      "HeaderSha256": "D31794F2D66C1AA9BE86287F57BD7947801D94333158974BDF64C6CCA8F7852B",
+      "Modules": [
+        {
+          "Name": "NetSetupApi.dll",
+          "Base": "0x72120000",
+          "Size": 110592
+        },
+        {
+          "Name": "uu.exe",
+          "Base": "0x410000",
+          "Size": 15994880
+        },
+        {
+          "Name": "sfc.dll",
+          "Base": "0x1740000",
+          "Size": 12288
+        },
+        {
+          "Name": "drvstore.dll",
+          "Base": "0x6D6D0000",
+          "Size": 1048576
+        },
+        {
+          "Name": "wetype_tip_core.dll",
+          "Base": "0x6D890000",
+          "Size": 4624384
+        },
+        {
+          "Name": "wintun.dll",
+          "Base": "0x6DD40000",
+          "Size": 552960
+        },
+        {
+          "Name": "OLEACC.dll",
+          "Base": "0x6DE80000",
+          "Size": 339968
+        },
+        {
+          "Name": "input.dll",
+          "Base": "0x6DEE0000",
+          "Size": 323584
+        },
+        {
+          "Name": "CrashRpt1500.dll",
+          "Base": "0x6DF30000",
+          "Size": 536576
+        },
+        {
+          "Name": "wetype_tip.dll",
+          "Base": "0x6DFC0000",
+          "Size": 2093056
+        },
+        {
+          "Name": "sxs.dll",
+          "Base": "0x6E5D0000",
+          "Size": 552960
+        },
+        {
+          "Name": "MpOav.dll",
+          "Base": "0x6EF30000",
+          "Size": 577536
+        },
+        {
+          "Name": "fastprox.dll",
+          "Base": "0x6EFC0000",
+          "Size": 835584
+        },
+        {
+          "Name": "lanplay_tun.dll",
+          "Base": "0x6F090000",
+          "Size": 4734976
+        },
+        {
+          "Name": "tcp_proxy.dll",
+          "Base": "0x6F520000",
+          "Size": 2428928
+        },
+        {
+          "Name": "local_proxy.dll",
+          "Base": "0x6F780000",
+          "Size": 4231168
+        },
+        {
+          "Name": "tun2proxy.dll",
+          "Base": "0x6FB90000",
+          "Size": 4771840
+        },
+        {
+          "Name": "openvpn.dll",
+          "Base": "0x70020000",
+          "Size": 1331200
+        },
+        {
+          "Name": "EmbeddedBrowserWebView.dll",
+          "Base": "0x70170000",
+          "Size": 5947392
+        },
+        {
+          "Name": "WindowsCodecs.dll",
+          "Base": "0x70720000",
+          "Size": 1515520
+        },
+        {
+          "Name": "MSVCR100.dll",
+          "Base": "0x708C0000",
+          "Size": 782336
+        },
+        {
+          "Name": "MSVCP100.dll",
+          "Base": "0x70980000",
+          "Size": 430080
+        },
+        {
+          "Name": "RASAPI32.dll",
+          "Base": "0x709F0000",
+          "Size": 925696
+        },
+        {
+          "Name": "ping.dll",
+          "Base": "0x70AE0000",
+          "Size": 1372160
+        },
+        {
+          "Name": "skin.dll",
+          "Base": "0x70C30000",
+          "Size": 17350656
+        },
+        {
+          "Name": "COMCTL32.dll",
+          "Base": "0x71CC0000",
+          "Size": 2166784
+        },
+        {
+          "Name": "DPAPI.DLL",
+          "Base": "0x71EE0000",
+          "Size": 32768
+        },
+        {
+          "Name": "MSASN1.dll",
+          "Base": "0x71EF0000",
+          "Size": 57344
+        },
+        {
+          "Name": "ncryptsslp.dll",
+          "Base": "0x71F00000",
+          "Size": 126976
+        },
+        {
+          "Name": "ncrypt.dll",
+          "Base": "0x71F20000",
+          "Size": 139264
+        },
+        {
+          "Name": "NTASN1.dll",
+          "Base": "0x71F50000",
+          "Size": 163840
+        },
+        {
+          "Name": "mskeyprotect.dll",
+          "Base": "0x71F80000",
+          "Size": 65536
+        },
+        {
+          "Name": "schannel.dll",
+          "Base": "0x71F90000",
+          "Size": 520192
+        },
+        {
+          "Name": "fwpuclnt.dll",
+          "Base": "0x72010000",
+          "Size": 360448
+        },
+        {
+          "Name": "rasadhlp.dll",
+          "Base": "0x72070000",
+          "Size": 32768
+        },
+        {
+          "Name": "DNSAPI.dll",
+          "Base": "0x72080000",
+          "Size": 598016
+        },
+        {
+          "Name": "SPINF.dll",
+          "Base": "0x72140000",
+          "Size": 94208
+        },
+        {
+          "Name": "wbemcomn.dll",
+          "Base": "0x72180000",
+          "Size": 466944
+        },
+        {
+          "Name": "ntmarta.dll",
+          "Base": "0x72200000",
+          "Size": 167936
+        },
+        {
+          "Name": "dhcpcsvc.DLL",
+          "Base": "0x72230000",
+          "Size": 90112
+        },
+        {
+          "Name": "WINNSI.DLL",
+          "Base": "0x72270000",
+          "Size": 32768
+        },
+        {
+          "Name": "mswsock.dll",
+          "Base": "0x72280000",
+          "Size": 335872
+        },
+        {
+          "Name": "uu_fp.dll",
+          "Base": "0x722E0000",
+          "Size": 294912
+        },
+        {
+          "Name": "MSIMG32.dll",
+          "Base": "0x72330000",
+          "Size": 24576
+        },
+        {
+          "Name": "d2d1.dll",
+          "Base": "0x72340000",
+          "Size": 5332992
+        },
+        {
+          "Name": "nci.dll",
+          "Base": "0x72860000",
+          "Size": 53248
+        },
+        {
+          "Name": "ui.dll",
+          "Base": "0x728A0000",
+          "Size": 2117632
+        },
+        {
+          "Name": "DEVOBJ.dll",
+          "Base": "0x72AB0000",
+          "Size": 167936
+        },
+        {
+          "Name": "CRYPTBASE.DLL",
+          "Base": "0x72AE0000",
+          "Size": 40960
+        },
+        {
+          "Name": "WINHTTP.dll",
+          "Base": "0x72AF0000",
+          "Size": 831488
+        },
+        {
+          "Name": "dbghelp.dll",
+          "Base": "0x72BE0000",
+          "Size": 1777664
+        },
+        {
+          "Name": "DWrite.dll",
+          "Base": "0x72DA0000",
+          "Size": 2162688
+        },
+        {
+          "Name": "WINMM.dll",
+          "Base": "0x72FB0000",
+          "Size": 163840
+        },
+        {
+          "Name": "gdiplus.dll",
+          "Base": "0x72FE0000",
+          "Size": 1482752
+        },
+        {
+          "Name": "amsi.dll",
+          "Base": "0x73160000",
+          "Size": 98304
+        },
+        {
+          "Name": "webio.dll",
+          "Base": "0x73180000",
+          "Size": 475136
+        },
+        {
+          "Name": "libcurl.dll",
+          "Base": "0x73200000",
+          "Size": 5763072
+        },
+        {
+          "Name": "WININET.dll",
+          "Base": "0x73780000",
+          "Size": 4550656
+        },
+        {
+          "Name": "IPHLPAPI.DLL",
+          "Base": "0x73BE0000",
+          "Size": 204800
+        },
+        {
+          "Name": "VERSION.dll",
+          "Base": "0x73C20000",
+          "Size": 32768
+        },
+        {
+          "Name": "rasman.dll",
+          "Base": "0x73C30000",
+          "Size": 180224
+        },
+        {
+          "Name": "WINSPOOL.DRV",
+          "Base": "0x73CB0000",
+          "Size": 512000
+        },
+        {
+          "Name": "AcLayers.DLL",
+          "Base": "0x73D30000",
+          "Size": 2641920
+        },
+        {
+          "Name": "apphelp.dll",
+          "Base": "0x73FC0000",
+          "Size": 671744
+        },
+        {
+          "Name": "sfc_os.DLL",
+          "Base": "0x74070000",
+          "Size": 61440
+        },
+        {
+          "Name": "wbemsvc.dll",
+          "Base": "0x74090000",
+          "Size": 65536
+        },
+        {
+          "Name": "MPR.dll",
+          "Base": "0x740A0000",
+          "Size": 102400
+        },
+        {
+          "Name": "ktmw32.dll",
+          "Base": "0x740C0000",
+          "Size": 36864
+        },
+        {
+          "Name": "uu_dp.dll",
+          "Base": "0x740D0000",
+          "Size": 86016
+        },
+        {
+          "Name": "uu_vpn.dll",
+          "Base": "0x740F0000",
+          "Size": 40960
+        },
+        {
+          "Name": "TextShaping.dll",
+          "Base": "0x74100000",
+          "Size": 622592
+        },
+        {
+          "Name": "USERENV.dll",
+          "Base": "0x741A0000",
+          "Size": 151552
+        },
+        {
+          "Name": "edputil.dll",
+          "Base": "0x741D0000",
+          "Size": 110592
+        },
+        {
+          "Name": "winrnr.dll",
+          "Base": "0x741F0000",
+          "Size": 57344
+        },
+        {
+          "Name": "wintypes.dll",
+          "Base": "0x74200000",
+          "Size": 905216
+        },
+        {
+          "Name": "CoreUIComponents.dll",
+          "Base": "0x742E0000",
+          "Size": 2617344
+        },
+        {
+          "Name": "iertutil.dll",
+          "Base": "0x74560000",
+          "Size": 2326528
+        },
+        {
+          "Name": "profapi.dll",
+          "Base": "0x747A0000",
+          "Size": 114688
+        },
+        {
+          "Name": "wbemprox.dll",
+          "Base": "0x747C0000",
+          "Size": 53248
+        },
+        {
+          "Name": "dhcpcsvc6.DLL",
+          "Base": "0x747E0000",
+          "Size": 81920
+        },
+        {
+          "Name": "dbgcore.DLL",
+          "Base": "0x74800000",
+          "Size": 180224
+        },
+        {
+          "Name": "DEVRTL.dll",
+          "Base": "0x74830000",
+          "Size": 73728
+        },
+        {
+          "Name": "WebView2Loader.dll",
+          "Base": "0x74850000",
+          "Size": 126976
+        },
+        {
+          "Name": "newdev.dll",
+          "Base": "0x74870000",
+          "Size": 258048
+        },
+        {
+          "Name": "SspiCli.dll",
+          "Base": "0x748B0000",
+          "Size": 159744
+        },
+        {
+          "Name": "NLAapi.dll",
+          "Base": "0x748E0000",
+          "Size": 90112
+        },
+        {
+          "Name": "wshbth.dll",
+          "Base": "0x74900000",
+          "Size": 90112
+        },
+        {
+          "Name": "pnrpnsp.dll",
+          "Base": "0x74920000",
+          "Size": 90112
+        },
+        {
+          "Name": "napinsp.dll",
+          "Base": "0x74940000",
+          "Size": 69632
+        },
+        {
+          "Name": "CoreMessaging.dll",
+          "Base": "0x74960000",
+          "Size": 634880
+        },
+        {
+          "Name": "textinputframework.dll",
+          "Base": "0x74A00000",
+          "Size": 757760
+        },
+        {
+          "Name": "netutils.dll",
+          "Base": "0x74AC0000",
+          "Size": 45056
+        },
+        {
+          "Name": "srvcli.dll",
+          "Base": "0x74AD0000",
+          "Size": 118784
+        },
+        {
+          "Name": "urlmon.dll",
+          "Base": "0x74AF0000",
+          "Size": 1761280
+        },
+        {
+          "Name": "rsaenh.dll",
+          "Base": "0x74CA0000",
+          "Size": 200704
+        },
+        {
+          "Name": "CRYPTSP.dll",
+          "Base": "0x74CE0000",
+          "Size": 77824
+        },
+        {
+          "Name": "uxtheme.dll",
+          "Base": "0x74D00000",
+          "Size": 475136
+        },
+        {
+          "Name": "kernel.appcore.dll",
+          "Base": "0x74D80000",
+          "Size": 61440
+        },
+        {
+          "Name": "Wldp.dll",
+          "Base": "0x74D90000",
+          "Size": 151552
+        },
+        {
+          "Name": "windows.storage.dll",
+          "Base": "0x74DC0000",
+          "Size": 6426624
+        },
+        {
+          "Name": "cloudsyn.dll",
+          "Base": "0x753F0000",
+          "Size": 102400
+        },
+        {
+          "Name": "MSVCP140.dll",
+          "Base": "0x75410000",
+          "Size": 446464
+        },
+        {
+          "Name": "VCRUNTIME140.dll",
+          "Base": "0x75480000",
+          "Size": 86016
+        },
+        {
+          "Name": "sentry.dll",
+          "Base": "0x754A0000",
+          "Size": 462848
+        },
+        {
+          "Name": "FLTLIB.DLL",
+          "Base": "0x75520000",
+          "Size": 32768
+        },
+        {
+          "Name": "virtdisk.dll",
+          "Base": "0x75530000",
+          "Size": 61440
+        },
+        {
+          "Name": "PROPSYS.dll",
+          "Base": "0x75540000",
+          "Size": 811008
+        },
+        {
+          "Name": "shcore.dll",
+          "Base": "0x75610000",
+          "Size": 552960
+        },
+        {
+          "Name": "MSCTF.dll",
+          "Base": "0x756A0000",
+          "Size": 868352
+        },
+        {
+          "Name": "cfgmgr32.dll",
+          "Base": "0x75780000",
+          "Size": 241664
+        },
+        {
+          "Name": "WLDAP32.dll",
+          "Base": "0x757C0000",
+          "Size": 385024
+        },
+        {
+          "Name": "ADVAPI32.dll",
+          "Base": "0x75820000",
+          "Size": 516096
+        },
+        {
+          "Name": "IMM32.DLL",
+          "Base": "0x758A0000",
+          "Size": 151552
+        },
+        {
+          "Name": "msvcrt.dll",
+          "Base": "0x758D0000",
+          "Size": 782336
+        },
+        {
+          "Name": "GDI32.dll",
+          "Base": "0x75990000",
+          "Size": 143360
+        },
+        {
+          "Name": "bcrypt.dll",
+          "Base": "0x759C0000",
+          "Size": 102400
+        },
+        {
+          "Name": "KERNELBASE.dll",
+          "Base": "0x75A00000",
+          "Size": 2334720
+        },
+        {
+          "Name": "win32u.dll",
+          "Base": "0x75C40000",
+          "Size": 98304
+        },
+        {
+          "Name": "WINTRUST.dll",
+          "Base": "0x75C60000",
+          "Size": 364544
+        },
+        {
+          "Name": "ole32.dll",
+          "Base": "0x75CD0000",
+          "Size": 929792
+        },
+        {
+          "Name": "gdi32full.dll",
+          "Base": "0x75F30000",
+          "Size": 954368
+        },
+        {
+          "Name": "KERNEL32.DLL",
+          "Base": "0x76020000",
+          "Size": 983040
+        },
+        {
+          "Name": "NSI.dll",
+          "Base": "0x76110000",
+          "Size": 28672
+        },
+        {
+          "Name": "OLEAUT32.dll",
+          "Base": "0x76180000",
+          "Size": 643072
+        },
+        {
+          "Name": "bcryptPrimitives.dll",
+          "Base": "0x76220000",
+          "Size": 389120
+        },
+        {
+          "Name": "sechost.dll",
+          "Base": "0x76280000",
+          "Size": 503808
+        },
+        {
+          "Name": "clbcatq.dll",
+          "Base": "0x76300000",
+          "Size": 544768
+        },
+        {
+          "Name": "ucrtbase.dll",
+          "Base": "0x76390000",
+          "Size": 1179648
+        },
+        {
+          "Name": "USER32.dll",
+          "Base": "0x764B0000",
+          "Size": 1835008
+        },
+        {
+          "Name": "msvcp_win.dll",
+          "Base": "0x76680000",
+          "Size": 503808
+        },
+        {
+          "Name": "SHELL32.dll",
+          "Base": "0x76700000",
+          "Size": 6144000
+        },
+        {
+          "Name": "combase.dll",
+          "Base": "0x76D70000",
+          "Size": 2621440
+        },
+        {
+          "Name": "COMDLG32.dll",
+          "Base": "0x76FF0000",
+          "Size": 716800
+        },
+        {
+          "Name": "SHLWAPI.dll",
+          "Base": "0x770A0000",
+          "Size": 299008
+        },
+        {
+          "Name": "RPCRT4.dll",
+          "Base": "0x770F0000",
+          "Size": 782336
+        },
+        {
+          "Name": "SETUPAPI.dll",
+          "Base": "0x771B0000",
+          "Size": 4435968
+        },
+        {
+          "Name": "WS2_32.dll",
+          "Base": "0x775F0000",
+          "Size": 434176
+        },
+        {
+          "Name": "CRYPT32.dll",
+          "Base": "0x776C0000",
+          "Size": 1044480
+        },
+        {
+          "Name": "wow64cpu.dll",
+          "Base": "0x777C0000",
+          "Size": 40960
+        },
+        {
+          "Name": "ntdll.dll",
+          "Base": "0x777D0000",
+          "Size": 1724416
+        },
+        {
+          "Name": "wow64.dll",
+          "Base": "0x7FFBE3140000",
+          "Size": 364544
+        },
+        {
+          "Name": "wow64win.dll",
+          "Base": "0x7FFBE4340000",
+          "Size": 536576
+        },
+        {
+          "Name": "_64-ntdll.dll",
+          "Base": "0x7FFBE4E70000",
+          "Size": 2068480
+        }
+      ]
+    },
+    {
+      "dwPID": 4296,
+      "dwPPID": 1572,
+      "sName": "uu_ball.exe",
+      "fWow64": true,
+      "Eprocess": "0xFFFF9E02D308B300",
+      "Peb": "0x8FC000",
+      "MainModuleBase": "0x260000",
+      "cbImageSize": 1961984,
+      "HeaderSha256": "697BE62923E2439A991B2EE375DA6BC623E1AD56872468E27218B0FC277D6E58",
+      "Modules": [
+        {
+          "Name": "ping.dll",
+          "Base": "0x70AE0000",
+          "Size": 1372160
+        },
+        {
+          "Name": "uu_ball.exe",
+          "Base": "0x260000",
+          "Size": 1961984
+        },
+        {
+          "Name": "sfc.dll",
+          "Base": "0xC20000",
+          "Size": 12288
+        },
+        {
+          "Name": "wetype_tip_core.dll",
+          "Base": "0x6D890000",
+          "Size": 4624384
+        },
+        {
+          "Name": "OLEACC.dll",
+          "Base": "0x6DE80000",
+          "Size": 339968
+        },
+        {
+          "Name": "input.dll",
+          "Base": "0x6DEE0000",
+          "Size": 323584
+        },
+        {
+          "Name": "CrashRpt1500.dll",
+          "Base": "0x6DF30000",
+          "Size": 536576
+        },
+        {
+          "Name": "wetype_tip.dll",
+          "Base": "0x6DFC0000",
+          "Size": 2093056
+        },
+        {
+          "Name": "NGPush.dll",
+          "Base": "0x6E660000",
+          "Size": 9236480
+        },
+        {
+          "Name": "skin.dll",
+          "Base": "0x70C30000",
+          "Size": 17350656
+        },
+        {
+          "Name": "COMCTL32.dll",
+          "Base": "0x71CC0000",
+          "Size": 2166784
+        },
+        {
+          "Name": "MSASN1.dll",
+          "Base": "0x71EF0000",
+          "Size": 57344
+        },
+        {
+          "Name": "fwpuclnt.dll",
+          "Base": "0x72010000",
+          "Size": 360448
+        },
+        {
+          "Name": "rasadhlp.dll",
+          "Base": "0x72070000",
+          "Size": 32768
+        },
+        {
+          "Name": "DNSAPI.dll",
+          "Base": "0x72080000",
+          "Size": 598016
+        },
+        {
+          "Name": "ntmarta.dll",
+          "Base": "0x72200000",
+          "Size": 167936
+        },
+        {
+          "Name": "dhcpcsvc.DLL",
+          "Base": "0x72230000",
+          "Size": 90112
+        },
+        {
+          "Name": "mswsock.dll",
+          "Base": "0x72280000",
+          "Size": 335872
+        },
+        {
+          "Name": "MSIMG32.dll",
+          "Base": "0x72330000",
+          "Size": 24576
+        },
+        {
+          "Name": "d2d1.dll",
+          "Base": "0x72340000",
+          "Size": 5332992
+        },
+        {
+          "Name": "dwmapi.dll",
+          "Base": "0x72870000",
+          "Size": 151552
+        },
+        {
+          "Name": "ui.dll",
+          "Base": "0x728A0000",
+          "Size": 2117632
+        },
+        {
+          "Name": "CRYPTBASE.dll",
+          "Base": "0x72AE0000",
+          "Size": 40960
+        },
+        {
+          "Name": "dbghelp.dll",
+          "Base": "0x72BE0000",
+          "Size": 1777664
+        },
+        {
+          "Name": "DWrite.dll",
+          "Base": "0x72DA0000",
+          "Size": 2162688
+        },
+        {
+          "Name": "WINMM.dll",
+          "Base": "0x72FB0000",
+          "Size": 163840
+        },
+        {
+          "Name": "gdiplus.dll",
+          "Base": "0x72FE0000",
+          "Size": 1482752
+        },
+        {
+          "Name": "libcurl.dll",
+          "Base": "0x73200000",
+          "Size": 5763072
+        },
+        {
+          "Name": "IPHLPAPI.DLL",
+          "Base": "0x73BE0000",
+          "Size": 204800
+        },
+        {
+          "Name": "VERSION.dll",
+          "Base": "0x73C20000",
+          "Size": 32768
+        },
+        {
+          "Name": "WINSPOOL.DRV",
+          "Base": "0x73CB0000",
+          "Size": 512000
+        },
+        {
+          "Name": "AcLayers.DLL",
+          "Base": "0x73D30000",
+          "Size": 2641920
+        },
+        {
+          "Name": "apphelp.dll",
+          "Base": "0x73FC0000",
+          "Size": 671744
+        },
+        {
+          "Name": "sfc_os.DLL",
+          "Base": "0x74070000",
+          "Size": 61440
+        },
+        {
+          "Name": "MPR.dll",
+          "Base": "0x740A0000",
+          "Size": 102400
+        },
+        {
+          "Name": "ktmw32.dll",
+          "Base": "0x740C0000",
+          "Size": 36864
+        },
+        {
+          "Name": "USERENV.dll",
+          "Base": "0x741A0000",
+          "Size": 151552
+        },
+        {
+          "Name": "wintypes.dll",
+          "Base": "0x74200000",
+          "Size": 905216
+        },
+        {
+          "Name": "CoreUIComponents.dll",
+          "Base": "0x742E0000",
+          "Size": 2617344
+        },
+        {
+          "Name": "profapi.dll",
+          "Base": "0x747A0000",
+          "Size": 114688
+        },
+        {
+          "Name": "WebView2Loader.dll",
+          "Base": "0x74850000",
+          "Size": 126976
+        },
+        {
+          "Name": "CoreMessaging.dll",
+          "Base": "0x74960000",
+          "Size": 634880
+        },
+        {
+          "Name": "textinputframework.dll",
+          "Base": "0x74A00000",
+          "Size": 757760
+        },
+        {
+          "Name": "rsaenh.dll",
+          "Base": "0x74CA0000",
+          "Size": 200704
+        },
+        {
+          "Name": "CRYPTSP.dll",
+          "Base": "0x74CE0000",
+          "Size": 77824
+        },
+        {
+          "Name": "uxtheme.dll",
+          "Base": "0x74D00000",
+          "Size": 475136
+        },
+        {
+          "Name": "kernel.appcore.dll",
+          "Base": "0x74D80000",
+          "Size": 61440
+        },
+        {
+          "Name": "Wldp.dll",
+          "Base": "0x74D90000",
+          "Size": 151552
+        },
+        {
+          "Name": "windows.storage.dll",
+          "Base": "0x74DC0000",
+          "Size": 6426624
+        },
+        {
+          "Name": "MSVCP140.dll",
+          "Base": "0x75410000",
+          "Size": 446464
+        },
+        {
+          "Name": "VCRUNTIME140.dll",
+          "Base": "0x75480000",
+          "Size": 86016
+        },
+        {
+          "Name": "shcore.dll",
+          "Base": "0x75610000",
+          "Size": 552960
+        },
+        {
+          "Name": "MSCTF.dll",
+          "Base": "0x756A0000",
+          "Size": 868352
+        },
+        {
+          "Name": "cfgmgr32.dll",
+          "Base": "0x75780000",
+          "Size": 241664
+        },
+        {
+          "Name": "WLDAP32.dll",
+          "Base": "0x757C0000",
+          "Size": 385024
+        },
+        {
+          "Name": "ADVAPI32.dll",
+          "Base": "0x75820000",
+          "Size": 516096
+        },
+        {
+          "Name": "IMM32.DLL",
+          "Base": "0x758A0000",
+          "Size": 151552
+        },
+        {
+          "Name": "msvcrt.dll",
+          "Base": "0x758D0000",
+          "Size": 782336
+        },
+        {
+          "Name": "GDI32.dll",
+          "Base": "0x75990000",
+          "Size": 143360
+        },
+        {
+          "Name": "bcrypt.dll",
+          "Base": "0x759C0000",
+          "Size": 102400
+        },
+        {
+          "Name": "KERNELBASE.dll",
+          "Base": "0x75A00000",
+          "Size": 2334720
+        },
+        {
+          "Name": "win32u.dll",
+          "Base": "0x75C40000",
+          "Size": 98304
+        },
+        {
+          "Name": "ole32.dll",
+          "Base": "0x75CD0000",
+          "Size": 929792
+        },
+        {
+          "Name": "gdi32full.dll",
+          "Base": "0x75F30000",
+          "Size": 954368
+        },
+        {
+          "Name": "KERNEL32.DLL",
+          "Base": "0x76020000",
+          "Size": 983040
+        },
+        {
+          "Name": "NSI.dll",
+          "Base": "0x76110000",
+          "Size": 28672
+        },
+        {
+          "Name": "OLEAUT32.dll",
+          "Base": "0x76180000",
+          "Size": 643072
+        },
+        {
+          "Name": "bcryptPrimitives.dll",
+          "Base": "0x76220000",
+          "Size": 389120
+        },
+        {
+          "Name": "sechost.dll",
+          "Base": "0x76280000",
+          "Size": 503808
+        },
+        {
+          "Name": "clbcatq.dll",
+          "Base": "0x76300000",
+          "Size": 544768
+        },
+        {
+          "Name": "ucrtbase.dll",
+          "Base": "0x76390000",
+          "Size": 1179648
+        },
+        {
+          "Name": "USER32.dll",
+          "Base": "0x764B0000",
+          "Size": 1835008
+        },
+        {
+          "Name": "msvcp_win.dll",
+          "Base": "0x76680000",
+          "Size": 503808
+        },
+        {
+          "Name": "SHELL32.dll",
+          "Base": "0x76700000",
+          "Size": 6144000
+        },
+        {
+          "Name": "combase.dll",
+          "Base": "0x76D70000",
+          "Size": 2621440
+        },
+        {
+          "Name": "SHLWAPI.dll",
+          "Base": "0x770A0000",
+          "Size": 299008
+        },
+        {
+          "Name": "RPCRT4.dll",
+          "Base": "0x770F0000",
+          "Size": 782336
+        },
+        {
+          "Name": "SETUPAPI.dll",
+          "Base": "0x771B0000",
+          "Size": 4435968
+        },
+        {
+          "Name": "WS2_32.dll",
+          "Base": "0x775F0000",
+          "Size": 434176
+        },
+        {
+          "Name": "CRYPT32.dll",
+          "Base": "0x776C0000",
+          "Size": 1044480
+        },
+        {
+          "Name": "wow64cpu.dll",
+          "Base": "0x777C0000",
+          "Size": 40960
+        },
+        {
+          "Name": "ntdll.dll",
+          "Base": "0x777D0000",
+          "Size": 1724416
+        },
+        {
+          "Name": "wow64.dll",
+          "Base": "0x7FFBE3140000",
+          "Size": 364544
+        },
+        {
+          "Name": "wow64win.dll",
+          "Base": "0x7FFBE4340000",
+          "Size": 536576
+        },
+        {
+          "Name": "_64-ntdll.dll",
+          "Base": "0x7FFBE4E70000",
+          "Size": 2068480
+        }
+      ]
+    },
+    {
+      "dwPID": 5748,
+      "dwPPID": 1572,
+      "sName": "uu_cloudsyn.ex",
+      "fWow64": true,
+      "Eprocess": "0xFFFF9E02CF81D300",
+      "Peb": "0x85C000",
+      "MainModuleBase": "0x370000",
+      "cbImageSize": 3117056,
+      "HeaderSha256": "F73018164E8BA05EDECECADCB6DBA967B0AA87E2FA67557DEFA5DA54E8D59A26",
+      "Modules": [
+        {
+          "Name": "netutils.dll",
+          "Base": "0x74AC0000",
+          "Size": 45056
+        },
+        {
+          "Name": "uu_cloudsyn.exe",
+          "Base": "0x370000",
+          "Size": 3117056
+        },
+        {
+          "Name": "sfc.dll",
+          "Base": "0xB20000",
+          "Size": 12288
+        },
+        {
+          "Name": "secur32.dll",
+          "Base": "0x6D7D0000",
+          "Size": 40960
+        },
+        {
+          "Name": "MSVCR100.dll",
+          "Base": "0x708C0000",
+          "Size": 782336
+        },
+        {
+          "Name": "MSVCP100.dll",
+          "Base": "0x70980000",
+          "Size": 430080
+        },
+        {
+          "Name": "DPAPI.DLL",
+          "Base": "0x71EE0000",
+          "Size": 32768
+        },
+        {
+          "Name": "MSASN1.dll",
+          "Base": "0x71EF0000",
+          "Size": 57344
+        },
+        {
+          "Name": "ncryptsslp.dll",
+          "Base": "0x71F00000",
+          "Size": 126976
+        },
+        {
+          "Name": "ncrypt.dll",
+          "Base": "0x71F20000",
+          "Size": 139264
+        },
+        {
+          "Name": "NTASN1.dll",
+          "Base": "0x71F50000",
+          "Size": 163840
+        },
+        {
+          "Name": "mskeyprotect.dll",
+          "Base": "0x71F80000",
+          "Size": 65536
+        },
+        {
+          "Name": "schannel.dll",
+          "Base": "0x71F90000",
+          "Size": 520192
+        },
+        {
+          "Name": "fwpuclnt.dll",
+          "Base": "0x72010000",
+          "Size": 360448
+        },
+        {
+          "Name": "rasadhlp.dll",
+          "Base": "0x72070000",
+          "Size": 32768
+        },
+        {
+          "Name": "DNSAPI.dll",
+          "Base": "0x72080000",
+          "Size": 598016
+        },
+        {
+          "Name": "ntmarta.dll",
+          "Base": "0x72200000",
+          "Size": 167936
+        },
+        {
+          "Name": "dhcpcsvc.DLL",
+          "Base": "0x72230000",
+          "Size": 90112
+        },
+        {
+          "Name": "WINNSI.DLL",
+          "Base": "0x72270000",
+          "Size": 32768
+        },
+        {
+          "Name": "mswsock.dll",
+          "Base": "0x72280000",
+          "Size": 335872
+        },
+        {
+          "Name": "CRYPTBASE.DLL",
+          "Base": "0x72AE0000",
+          "Size": 40960
+        },
+        {
+          "Name": "WINHTTP.dll",
+          "Base": "0x72AF0000",
+          "Size": 831488
+        },
+        {
+          "Name": "dbghelp.dll",
+          "Base": "0x72BE0000",
+          "Size": 1777664
+        },
+        {
+          "Name": "WINMM.dll",
+          "Base": "0x72FB0000",
+          "Size": 163840
+        },
+        {
+          "Name": "gdiplus.dll",
+          "Base": "0x72FE0000",
+          "Size": 1482752
+        },
+        {
+          "Name": "webio.dll",
+          "Base": "0x73180000",
+          "Size": 475136
+        },
+        {
+          "Name": "IPHLPAPI.DLL",
+          "Base": "0x73BE0000",
+          "Size": 204800
+        },
+        {
+          "Name": "VERSION.dll",
+          "Base": "0x73C20000",
+          "Size": 32768
+        },
+        {
+          "Name": "WINSPOOL.DRV",
+          "Base": "0x73CB0000",
+          "Size": 512000
+        },
+        {
+          "Name": "AcLayers.DLL",
+          "Base": "0x73D30000",
+          "Size": 2641920
+        },
+        {
+          "Name": "apphelp.dll",
+          "Base": "0x73FC0000",
+          "Size": 671744
+        },
+        {
+          "Name": "sfc_os.DLL",
+          "Base": "0x74070000",
+          "Size": 61440
+        },
+        {
+          "Name": "MPR.dll",
+          "Base": "0x740A0000",
+          "Size": 102400
+        },
+        {
+          "Name": "ktmw32.dll",
+          "Base": "0x740C0000",
+          "Size": 36864
+        },
+        {
+          "Name": "iertutil.dll",
+          "Base": "0x74560000",
+          "Size": 2326528
+        },
+        {
+          "Name": "profapi.dll",
+          "Base": "0x747A0000",
+          "Size": 114688
+        },
+        {
+          "Name": "dhcpcsvc6.DLL",
+          "Base": "0x747E0000",
+          "Size": 81920
+        },
+        {
+          "Name": "SspiCli.dll",
+          "Base": "0x748B0000",
+          "Size": 159744
+        },
+        {
+          "Name": "srvcli.dll",
+          "Base": "0x74AD0000",
+          "Size": 118784
+        },
+        {
+          "Name": "urlmon.dll",
+          "Base": "0x74AF0000",
+          "Size": 1761280
+        },
+        {
+          "Name": "uxtheme.dll",
+          "Base": "0x74D00000",
+          "Size": 475136
+        },
+        {
+          "Name": "kernel.appcore.dll",
+          "Base": "0x74D80000",
+          "Size": 61440
+        },
+        {
+          "Name": "Wldp.dll",
+          "Base": "0x74D90000",
+          "Size": 151552
+        },
+        {
+          "Name": "windows.storage.dll",
+          "Base": "0x74DC0000",
+          "Size": 6426624
+        },
+        {
+          "Name": "MSVCP140.dll",
+          "Base": "0x75410000",
+          "Size": 446464
+        },
+        {
+          "Name": "VCRUNTIME140.dll",
+          "Base": "0x75480000",
+          "Size": 86016
+        },
+        {
+          "Name": "sentry.dll",
+          "Base": "0x754A0000",
+          "Size": 462848
+        },
+        {
+          "Name": "FLTLIB.DLL",
+          "Base": "0x75520000",
+          "Size": 32768
+        },
+        {
+          "Name": "virtdisk.dll",
+          "Base": "0x75530000",
+          "Size": 61440
+        },
+        {
+          "Name": "PROPSYS.dll",
+          "Base": "0x75540000",
+          "Size": 811008
+        },
+        {
+          "Name": "shcore.dll",
+          "Base": "0x75610000",
+          "Size": 552960
+        },
+        {
+          "Name": "cfgmgr32.dll",
+          "Base": "0x75780000",
+          "Size": 241664
+        },
+        {
+          "Name": "WLDAP32.dll",
+          "Base": "0x757C0000",
+          "Size": 385024
+        },
+        {
+          "Name": "ADVAPI32.dll",
+          "Base": "0x75820000",
+          "Size": 516096
+        },
+        {
+          "Name": "IMM32.DLL",
+          "Base": "0x758A0000",
+          "Size": 151552
+        },
+        {
+          "Name": "msvcrt.dll",
+          "Base": "0x758D0000",
+          "Size": 782336
+        },
+        {
+          "Name": "GDI32.dll",
+          "Base": "0x75990000",
+          "Size": 143360
+        },
+        {
+          "Name": "bcrypt.dll",
+          "Base": "0x759C0000",
+          "Size": 102400
+        },
+        {
+          "Name": "KERNELBASE.dll",
+          "Base": "0x75A00000",
+          "Size": 2334720
+        },
+        {
+          "Name": "win32u.dll",
+          "Base": "0x75C40000",
+          "Size": 98304
+        },
+        {
+          "Name": "ole32.dll",
+          "Base": "0x75CD0000",
+          "Size": 929792
+        },
+        {
+          "Name": "gdi32full.dll",
+          "Base": "0x75F30000",
+          "Size": 954368
+        },
+        {
+          "Name": "KERNEL32.DLL",
+          "Base": "0x76020000",
+          "Size": 983040
+        },
+        {
+          "Name": "NSI.dll",
+          "Base": "0x76110000",
+          "Size": 28672
+        },
+        {
+          "Name": "OLEAUT32.dll",
+          "Base": "0x76180000",
+          "Size": 643072
+        },
+        {
+          "Name": "bcryptPrimitives.dll",
+          "Base": "0x76220000",
+          "Size": 389120
+        },
+        {
+          "Name": "sechost.dll",
+          "Base": "0x76280000",
+          "Size": 503808
+        },
+        {
+          "Name": "clbcatq.dll",
+          "Base": "0x76300000",
+          "Size": 544768
+        },
+        {
+          "Name": "ucrtbase.dll",
+          "Base": "0x76390000",
+          "Size": 1179648
+        },
+        {
+          "Name": "USER32.dll",
+          "Base": "0x764B0000",
+          "Size": 1835008
+        },
+        {
+          "Name": "PSAPI.DLL",
+          "Base": "0x76670000",
+          "Size": 24576
+        },
+        {
+          "Name": "msvcp_win.dll",
+          "Base": "0x76680000",
+          "Size": 503808
+        },
+        {
+          "Name": "SHELL32.dll",
+          "Base": "0x76700000",
+          "Size": 6144000
+        },
+        {
+          "Name": "combase.dll",
+          "Base": "0x76D70000",
+          "Size": 2621440
+        },
+        {
+          "Name": "SHLWAPI.dll",
+          "Base": "0x770A0000",
+          "Size": 299008
+        },
+        {
+          "Name": "RPCRT4.dll",
+          "Base": "0x770F0000",
+          "Size": 782336
+        },
+        {
+          "Name": "SETUPAPI.dll",
+          "Base": "0x771B0000",
+          "Size": 4435968
+        },
+        {
+          "Name": "WS2_32.dll",
+          "Base": "0x775F0000",
+          "Size": 434176
+        },
+        {
+          "Name": "CRYPT32.dll",
+          "Base": "0x776C0000",
+          "Size": 1044480
+        },
+        {
+          "Name": "wow64cpu.dll",
+          "Base": "0x777C0000",
+          "Size": 40960
+        },
+        {
+          "Name": "ntdll.dll",
+          "Base": "0x777D0000",
+          "Size": 1724416
+        },
+        {
+          "Name": "wow64.dll",
+          "Base": "0x7FFBE3140000",
+          "Size": 364544
+        },
+        {
+          "Name": "wow64win.dll",
+          "Base": "0x7FFBE4340000",
+          "Size": 536576
+        },
+        {
+          "Name": "_64-ntdll.dll",
+          "Base": "0x7FFBE4E70000",
+          "Size": 2068480
+        }
+      ]
+    },
+    {
+      "dwPID": 7108,
+      "dwPPID": 3848,
+      "sName": "uu_launcher.ex",
+      "fWow64": true,
+      "Eprocess": "0xFFFF9E02D273A080",
+      "Peb": "0x10E8000",
+      "MainModuleBase": "0x770000",
+      "cbImageSize": 1888256,
+      "HeaderSha256": "91277412B0C36178986DE0CFA092F32E0E144941755BA7DCAA51490D6E0E5EE6",
+      "Modules": [
+        {
+          "Name": "profapi.dll",
+          "Base": "0x747A0000",
+          "Size": 114688
+        },
+        {
+          "Name": "uu_launcher.exe",
+          "Base": "0x770000",
+          "Size": 1888256
+        },
+        {
+          "Name": "sfc.dll",
+          "Base": "0x1400000",
+          "Size": 12288
+        },
+        {
+          "Name": "WINSPOOL.DRV",
+          "Base": "0x73CB0000",
+          "Size": 512000
+        },
+        {
+          "Name": "AcLayers.DLL",
+          "Base": "0x73D30000",
+          "Size": 2641920
+        },
+        {
+          "Name": "apphelp.dll",
+          "Base": "0x73FC0000",
+          "Size": 671744
+        },
+        {
+          "Name": "sfc_os.DLL",
+          "Base": "0x74070000",
+          "Size": 61440
+        },
+        {
+          "Name": "MPR.dll",
+          "Base": "0x740A0000",
+          "Size": 102400
+        },
+        {
+          "Name": "SspiCli.dll",
+          "Base": "0x748B0000",
+          "Size": 159744
+        },
+        {
+          "Name": "uxtheme.dll",
+          "Base": "0x74D00000",
+          "Size": 475136
+        },
+        {
+          "Name": "kernel.appcore.dll",
+          "Base": "0x74D80000",
+          "Size": 61440
+        },
+        {
+          "Name": "Wldp.dll",
+          "Base": "0x74D90000",
+          "Size": 151552
+        },
+        {
+          "Name": "windows.storage.dll",
+          "Base": "0x74DC0000",
+          "Size": 6426624
+        },
+        {
+          "Name": "FLTLIB.DLL",
+          "Base": "0x75520000",
+          "Size": 32768
+        },
+        {
+          "Name": "virtdisk.dll",
+          "Base": "0x75530000",
+          "Size": 61440
+        },
+        {
+          "Name": "PROPSYS.dll",
+          "Base": "0x75540000",
+          "Size": 811008
+        },
+        {
+          "Name": "shcore.dll",
+          "Base": "0x75610000",
+          "Size": 552960
+        },
+        {
+          "Name": "cfgmgr32.dll",
+          "Base": "0x75780000",
+          "Size": 241664
+        },
+        {
+          "Name": "ADVAPI32.dll",
+          "Base": "0x75820000",
+          "Size": 516096
+        },
+        {
+          "Name": "IMM32.DLL",
+          "Base": "0x758A0000",
+          "Size": 151552
+        },
+        {
+          "Name": "msvcrt.dll",
+          "Base": "0x758D0000",
+          "Size": 782336
+        },
+        {
+          "Name": "GDI32.dll",
+          "Base": "0x75990000",
+          "Size": 143360
+        },
+        {
+          "Name": "bcrypt.dll",
+          "Base": "0x759C0000",
+          "Size": 102400
+        },
+        {
+          "Name": "KERNELBASE.dll",
+          "Base": "0x75A00000",
+          "Size": 2334720
+        },
+        {
+          "Name": "win32u.dll",
+          "Base": "0x75C40000",
+          "Size": 98304
+        },
+        {
+          "Name": "ole32.dll",
+          "Base": "0x75CD0000",
+          "Size": 929792
+        },
+        {
+          "Name": "gdi32full.dll",
+          "Base": "0x75F30000",
+          "Size": 954368
+        },
+        {
+          "Name": "KERNEL32.DLL",
+          "Base": "0x76020000",
+          "Size": 983040
+        },
+        {
+          "Name": "OLEAUT32.dll",
+          "Base": "0x76180000",
+          "Size": 643072
+        },
+        {
+          "Name": "bcryptPrimitives.dll",
+          "Base": "0x76220000",
+          "Size": 389120
+        },
+        {
+          "Name": "sechost.dll",
+          "Base": "0x76280000",
+          "Size": 503808
+        },
+        {
+          "Name": "clbcatq.dll",
+          "Base": "0x76300000",
+          "Size": 544768
+        },
+        {
+          "Name": "ucrtbase.dll",
+          "Base": "0x76390000",
+          "Size": 1179648
+        },
+        {
+          "Name": "USER32.dll",
+          "Base": "0x764B0000",
+          "Size": 1835008
+        },
+        {
+          "Name": "msvcp_win.dll",
+          "Base": "0x76680000",
+          "Size": 503808
+        },
+        {
+          "Name": "SHELL32.dll",
+          "Base": "0x76700000",
+          "Size": 6144000
+        },
+        {
+          "Name": "combase.dll",
+          "Base": "0x76D70000",
+          "Size": 2621440
+        },
+        {
+          "Name": "SHLWAPI.dll",
+          "Base": "0x770A0000",
+          "Size": 299008
+        },
+        {
+          "Name": "RPCRT4.dll",
+          "Base": "0x770F0000",
+          "Size": 782336
+        },
+        {
+          "Name": "SETUPAPI.dll",
+          "Base": "0x771B0000",
+          "Size": 4435968
+        },
+        {
+          "Name": "WS2_32.dll",
+          "Base": "0x775F0000",
+          "Size": 434176
+        },
+        {
+          "Name": "CRYPT32.dll",
+          "Base": "0x776C0000",
+          "Size": 1044480
+        },
+        {
+          "Name": "wow64cpu.dll",
+          "Base": "0x777C0000",
+          "Size": 40960
+        },
+        {
+          "Name": "ntdll.dll",
+          "Base": "0x777D0000",
+          "Size": 1724416
+        },
+        {
+          "Name": "wow64.dll",
+          "Base": "0x7FFBE3140000",
+          "Size": 364544
+        },
+        {
+          "Name": "wow64win.dll",
+          "Base": "0x7FFBE4340000",
+          "Size": 536576
+        },
+        {
+          "Name": "_64-ntdll.dll",
+          "Base": "0x7FFBE4E70000",
+          "Size": 2068480
+        }
+      ]
+    }
+  ],
+  "BeforeClick": {
+    "CapturedUtc": "2026-10-23T03:36:37.8392952+00:00",
+    "Manager": "0x5FFAF34",
+    "Root": "0x5E9F0D0",
+    "Hwnd": "0x30328",
+    "UiThreadId": 2552,
+    "Teb": "0x150C000",
+    "HandleEntry": "0x1B06500",
+    "DesktopInfo": "0x1D01040",
+    "DesktopMappingBase": "0x1D00000",
+    "WindowObject": "0x1D29CA0",
+    "WindowRect": [
+      12,
+      20,
+      1012,
+      708
+    ],
+    "ClientScreenRect": [
+      12,
+      20,
+      1012,
+      708
+    ],
+    "RootClientRect": [
+      0,
+      0,
+      1000,
+      688
+    ],
+    "Dpi": [
+      100,
+      100,
+      2
+    ],
+    "Controls": [
+      {
+        "Name": "stop_acc",
+        "Address": "0x9605478",
+        "VisibleThroughRoot": true,
+        "EnabledThroughRoot": true,
+        "Text": "%{1279}",
+        "ClientRect": [
+          166,
+          328,
+          276,
+          364
+        ],
+        "ClientCenter": [
+          221,
+          346
+        ],
+        "ScreenRect": [
+          178,
+          348,
+          288,
+          384
+        ],
+        "ScreenCenter": [
+          233,
+          366
+        ],
+        "AncestorChain": [
+          "0xBF68CE8",
+          "0xBF60C68",
+          "0xBF684E0",
+          "0x607CEA8",
+          "0x5FD4228",
+          "0x5E9F0D0"
+        ]
+      }
+    ],
+    "AllRequestedReadsComplete": true,
+    "GeometryAndIdentityRevalidated": true,
+    "InputSent": false,
+    "TargetWrites": false,
+    "BackendVpnStatusEnumDecoded": false
+  },
+  "Click": {
+    "Control": "stop_acc",
+    "X": 233,
+    "Y": 366,
+    "SentUtc": "2026-10-23T03:36:38.4559043+00:00",
+    "CommandAcknowledged": true
+  },
+  "PageObservations": [
+    {
+      "CapturedUtc": "2026-10-23T03:36:38.4701616+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:38.6452425+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:38.8180015+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:38.9934928+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:39.1687289+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:39.3454867+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:39.519604+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:39.6965938+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:39.8726281+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:40.0476111+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:40.2206887+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:40.3951017+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:40.5694576+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:40.7471555+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:40.9158874+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:41.0894591+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:41.2631988+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:41.4392393+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:41.6157383+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:41.7891109+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:41.963385+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:42.138486+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:42.3139872+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:42.4901351+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:42.6659834+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:42.842998+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:43.0173603+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:43.1939927+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:43.3709357+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    },
+    {
+      "CapturedUtc": "2026-10-23T03:36:43.5443642+00:00",
+      "Manager": "0x5FFAF34",
+      "Root": "0x5E9F0D0",
+      "Hwnd": "0x30328",
+      "UiThreadId": 2552,
+      "Teb": "0x150C000",
+      "HandleEntry": "0x1B06500",
+      "DesktopInfo": "0x1D01040",
+      "DesktopMappingBase": "0x1D00000",
+      "WindowObject": "0x1D29CA0",
+      "WindowRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "ClientScreenRect": [
+        12,
+        20,
+        1012,
+        708
+      ],
+      "RootClientRect": [
+        0,
+        0,
+        1000,
+        688
+      ],
+      "Dpi": [
+        100,
+        100,
+        2
+      ],
+      "Controls": [
+        {
+          "Name": "child_home_page",
+          "Address": "0xBFDED28",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            688
+          ],
+          "ClientCenter": [
+            500,
+            391
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            708
+          ],
+          "ScreenCenter": [
+            512,
+            411
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game",
+          "Address": "0x5F572B8",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_accing",
+          "Address": "0x5D9FF00",
+          "VisibleThroughRoot": false,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "ClientCenter": [
+            0,
+            0
+          ],
+          "ScreenRect": [
+            12,
+            20,
+            12,
+            20
+          ],
+          "ScreenCenter": [
+            12,
+            20
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        },
+        {
+          "Name": "child_game_acced",
+          "Address": "0x607CEA8",
+          "VisibleThroughRoot": true,
+          "EnabledThroughRoot": true,
+          "Text": null,
+          "ClientRect": [
+            0,
+            94,
+            1000,
+            676
+          ],
+          "ClientCenter": [
+            500,
+            385
+          ],
+          "ScreenRect": [
+            12,
+            114,
+            1012,
+            696
+          ],
+          "ScreenCenter": [
+            512,
+            405
+          ],
+          "AncestorChain": [
+            "0x5FD4228",
+            "0x5E9F0D0"
+          ]
+        }
+      ],
+      "AllRequestedReadsComplete": true,
+      "GeometryAndIdentityRevalidated": true,
+      "InputSent": false,
+      "TargetWrites": false,
+      "BackendVpnStatusEnumDecoded": false
+    }
+  ],
+  "KmBoxReleased": true,
+  "Status": "completed",
+  "LeaseReleased": true,
+  "CompletedUtc": "2026-10-23T03:36:43.9102342+00:00"
+}

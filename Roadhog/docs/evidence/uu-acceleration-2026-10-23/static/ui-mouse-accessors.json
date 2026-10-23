@@ -1,0 +1,97 @@
+{
+  "path": "C:\\Program Files (x86)\\Netease\\UU\\5251\\ui.dll",
+  "sha256": "1939022846a612be7802794c0c6f5d5d2ee38146b4ec47d48cdcc9f16f9bb72c",
+  "imagebase": "0x11000000",
+  "exports": [
+    {
+      "name": "?GetFocus@CPaintManagerUI@DuiLib@@QBEPAVCControlUI@2@XZ",
+      "rva": "0xf0bd0",
+      "va": "0x110f0bd0",
+      "disasm": [
+        "110f0bd0: push ebp",
+        "110f0bd1: mov ebp, esp",
+        "110f0bd3: push ecx",
+        "110f0bd4: mov dword ptr [ebp - 4], ecx",
+        "110f0bd7: mov eax, dword ptr [ebp - 4]",
+        "110f0bda: mov eax, dword ptr [eax + 0x64]",
+        "110f0bdd: mov esp, ebp",
+        "110f0bdf: pop ebp",
+        "110f0be0: ret "
+      ]
+    },
+    {
+      "name": "?GetMousePos@CPaintManagerUI@DuiLib@@QBE?AUtagPOINT@@XZ",
+      "rva": "0xf1850",
+      "va": "0x110f1850",
+      "disasm": [
+        "110f1850: push ebp",
+        "110f1851: mov ebp, esp",
+        "110f1853: push ecx",
+        "110f1854: mov dword ptr [ebp - 4], ecx",
+        "110f1857: mov eax, dword ptr [ebp - 4]",
+        "110f185a: mov ecx, dword ptr [eax + 0x80]",
+        "110f1860: mov edx, dword ptr [eax + 0x84]",
+        "110f1866: mov eax, dword ptr [ebp + 8]",
+        "110f1869: mov dword ptr [eax], ecx",
+        "110f186b: mov dword ptr [eax + 4], edx",
+        "110f186e: mov eax, dword ptr [ebp + 8]",
+        "110f1871: mov esp, ebp",
+        "110f1873: pop ebp",
+        "110f1874: ret 4"
+      ]
+    },
+    {
+      "name": "?IsCaptured@CPaintManagerUI@DuiLib@@QAE_NXZ",
+      "rva": "0xf1ed0",
+      "va": "0x110f1ed0",
+      "disasm": [
+        "110f1ed0: push ebp",
+        "110f1ed1: mov ebp, esp",
+        "110f1ed3: push ecx",
+        "110f1ed4: mov dword ptr [ebp - 4], ecx",
+        "110f1ed7: mov eax, dword ptr [ebp - 4]",
+        "110f1eda: movzx eax, byte ptr [eax + 0xd1]",
+        "110f1ee1: mov esp, ebp",
+        "110f1ee3: pop ebp",
+        "110f1ee4: ret "
+      ]
+    },
+    {
+      "name": "?ReleaseCapture@CPaintManagerUI@DuiLib@@QAEXXZ",
+      "rva": "0xf6280",
+      "va": "0x110f6280",
+      "disasm": [
+        "110f6280: push ebp",
+        "110f6281: mov ebp, esp",
+        "110f6283: push ecx",
+        "110f6284: mov dword ptr [ebp - 4], ecx",
+        "110f6287: call dword ptr [0x11198534]",
+        "110f628d: mov eax, dword ptr [ebp - 4]",
+        "110f6290: mov byte ptr [eax + 0xd1], 0",
+        "110f6297: mov esp, ebp",
+        "110f6299: pop ebp",
+        "110f629a: ret "
+      ]
+    },
+    {
+      "name": "?SetCapture@CPaintManagerUI@DuiLib@@QAEXXZ",
+      "rva": "0xf7f00",
+      "va": "0x110f7f00",
+      "disasm": [
+        "110f7f00: push ebp",
+        "110f7f01: mov ebp, esp",
+        "110f7f03: push ecx",
+        "110f7f04: mov dword ptr [ebp - 4], ecx",
+        "110f7f07: mov eax, dword ptr [ebp - 4]",
+        "110f7f0a: mov ecx, dword ptr [eax + 0xc]",
+        "110f7f0d: push ecx",
+        "110f7f0e: call dword ptr [0x11198538]",
+        "110f7f14: mov edx, dword ptr [ebp - 4]",
+        "110f7f17: mov byte ptr [edx + 0xd1], 1",
+        "110f7f1e: mov esp, ebp",
+        "110f7f20: pop ebp",
+        "110f7f21: ret "
+      ]
+    }
+  ]
+}
