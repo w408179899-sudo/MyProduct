@@ -1995,6 +1995,19 @@ public sealed partial class SemiAutoCombatController
             return true;
         }
 
+        var player = await ReadPlayerAsync(context).ConfigureAwait(false);
+        if (!await EnsureStandingBeforeMaintenanceKeyAsync(
+                    context,
+                    state,
+                    settings,
+                    player,
+                    "summon_pet",
+                    keys.First(key => !string.IsNullOrWhiteSpace(key)))
+                .ConfigureAwait(false))
+        {
+            return true;
+        }
+
         state.MarkSpiritmasterSummonAttempted(now);
         if (!string.IsNullOrWhiteSpace(keys[0]) && !await PressSpiritmasterRawKeyAsync(context, settings, keys[0], "summon_speed").ConfigureAwait(false))
         {
