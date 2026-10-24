@@ -677,7 +677,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("dma business reader accepts stable world publication", TestDmaBusinessReaderAcceptsStableWorldPublicationAsync),
     ("dma business reader retries cold start below boundary", TestDmaBusinessReaderRetriesColdStartBelowBoundaryAsync),
     ("dma world snapshot updates good fields and holds failed fields", TestDmaWorldSnapshotMergesFieldFailuresAsync),
-    ("dma world dead self target publishes on cold start without weakening live threat protection", TestDmaWorldDeadSelfTargetColdStartAsync),
+    ("dma world self targets publish without blocking cold start and read failures still hold", TestDmaWorldDeadSelfTargetColdStartAsync),
     ("dma world partial snapshot is published and failed read holds it", TestDmaWorldPartialSnapshotIsPublishedAndFailedReadHoldsItAsync),
     ("world tree stable trees and bounded reads", WorldObjectTreeCaptureTests.StableTreesAndReadBudgetAsync),
     ("world tree invalid structure", WorldObjectTreeCaptureTests.InvalidStructureAsync),
@@ -34123,11 +34123,6 @@ static async Task TestDmaBusinessReaderRetriesColdStartBelowBoundaryAsync()
 static Task TestDmaWorldDeadSelfTargetColdStartAsync()
 {
     const uint id = 2235040718;
-    AssertFalse(AionVmmGameApi.IsSuspiciousWorldSelfTarget(id, id, 0, 13315, true), "confirmed corpse self target must be valid");
-    AssertFalse(!AionVmmGameApi.IsSuspiciousWorldSelfTarget(id, id, 1, 13315, true), "living self target remains suspicious");
-    AssertFalse(!AionVmmGameApi.IsSuspiciousWorldSelfTarget(id, id, 0, 13315, false), "unread hp must not imply death");
-    AssertFalse(!AionVmmGameApi.IsSuspiciousWorldSelfTarget(id, id, 0, 0, true), "unknown health must not imply death");
-
     var api = new AionVmmGameApi(new AionVmmGameApiOptions(), NoOpRoadhogLogger.Instance);
     var context = CreateDmaSnapshotContext();
     var now = DateTimeOffset.Now;
@@ -34138,17 +34133,17 @@ static Task TestDmaWorldDeadSelfTargetColdStartAsync()
     var completeFields = new WorldObjectFieldValidity(true, true, true, true, true, true);
     WorldObjectReadResult Capture(WorldObjectSnapshot target, bool hpAvailable = true)
     {
-        var reliable = !AionVmmGameApi.IsSuspiciousWorldSelfTarget(
-            target.ServerObjectId, target.TargetServerObjectId, target.CurrentHp, target.MaxHp, hpAvailable);
         return new(WorldObjectReadCompleteness.Complete,
-            new[] { new WorldObjectObservation(target, new(hpAvailable, true, reliable, reliable, true, true)),
+            new[] { new WorldObjectObservation(target, new(hpAvailable, true, true, true, true, true)),
                     new WorldObjectObservation(attacker, completeFields) },
                     CreateDmaWorldReadDiagnostics(now, verified: true, nodeCount: 2, emittedCount: 2));
     }
     AssertFalse(api.StabilizeWorldObjectRead(context, Capture(corpse, false), now).Success,
         "cold start must not fabricate a corpse from missing health");
-    AssertFalse(api.StabilizeWorldObjectRead(context, Capture(corpse with { CurrentHp = 1 }), now).Success,
-        "cold start must still hold suspicious living self targets");
+    var live = api.StabilizeWorldObjectRead(context, Capture(corpse with { CurrentHp = 1 }), now);
+    AssertFalse(!live.Success, "living self target must allow cold start immediately");
+    AssertEqual(id, live.Value!.Single(o => o.ServerObjectId == id).TargetServerObjectId,
+        "self target must be preserved as read, not cleared or omitted");
     var published = api.StabilizeWorldObjectRead(context, Capture(corpse), now);
     AssertFalse(!published.Success, "dead self target must allow the first official world snapshot");
     AssertEqual(2, published.Value!.Count, "corpse and live attacker must both remain in the publication");
@@ -34160,8 +34155,21 @@ static Task TestDmaWorldDeadSelfTargetColdStartAsync()
     api.StabilizeWorldObjectRead(context, Capture(liveBefore), now);
     var held = api.StabilizeWorldObjectRead(context, Capture(liveBefore with { TargetServerObjectId = id, IsTargetingLocalPlayer = false }), now);
     var heldTarget = held.Value!.Single(o => o.ServerObjectId == id);
-    AssertEqual(7000u, heldTarget.TargetServerObjectId, "living self reference must hold last good target");
-    AssertFalse(!heldTarget.IsTargetingLocalPlayer, "living self reference must not clear incoming attack");
+    AssertEqual(id, heldTarget.TargetServerObjectId, "valid self target must update the previous target immediately");
+    AssertFalse(heldTarget.IsTargetingLocalPlayer, "self selection is not targeting the local player");
+    AssertFalse(!held.Value!.Single(o => o.ServerObjectId == 1234).IsTargetingLocalPlayer,
+        "other attackers must remain visible");
+    var failedTargetRead = new WorldObjectReadResult(WorldObjectReadCompleteness.Complete,
+        new[] { new WorldObjectObservation(liveBefore with { TargetServerObjectId = 0 },
+                    new(true, true, false, false, true, true)),
+                new WorldObjectObservation(attacker, completeFields) },
+        CreateDmaWorldReadDiagnostics(now, verified: true, nodeCount: 2, emittedCount: 2));
+    var retained = api.StabilizeWorldObjectRead(context, failedTargetRead, now);
+    AssertEqual(id, retained.Value!.Single(o => o.ServerObjectId == id).TargetServerObjectId,
+        "actual target read failure must retain the last official value");
+    var coldApi = new AionVmmGameApi(new AionVmmGameApiOptions(), NoOpRoadhogLogger.Instance);
+    AssertFalse(coldApi.StabilizeWorldObjectRead(context, failedTargetRead, now).Success,
+        "cold target read failure must not fabricate an official snapshot");
     return Task.CompletedTask;
 }
 

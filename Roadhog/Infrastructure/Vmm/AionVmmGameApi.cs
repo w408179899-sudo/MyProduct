@@ -8156,19 +8156,9 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
             SetFirstWorldObjectReadIssue(ref firstIssue, "world_target_server_object_id_read_failed");
         }
 
-        var suspiciousSelfTarget = IsSuspiciousWorldSelfTarget(
-            serverObjectId, actor.TargetServerObjectId, actor.CurrentHp, actor.MaxHp,
-            actor.CurrentHpAvailable && actor.MaxHpAvailable);
-        var targetServerObjectIdReliable = actor.TargetServerObjectIdAvailable && !suspiciousSelfTarget;
-        if (actor.TargetServerObjectIdAvailable && suspiciousSelfTarget)
-        {
-            // A monster briefly reading itself as its target was observed in
-            // the same incident where a locked read later showed the pet as the
-            // target. Preserve the raw value for diagnostics, but never use it
-            // as affirmative evidence that a local-side threat disappeared.
-            counters.TargetFieldReadFailures++;
-            SetFirstWorldObjectReadIssue(ref firstIssue, "world_target_self_reference");
-        }
+        // A successfully read self target is valid game state. Do not stall the
+        // entire world snapshot merely because an object targets itself.
+        var targetServerObjectIdReliable = actor.TargetServerObjectIdAvailable;
 
         if (!actor.CurrentHpAvailable || !actor.MaxHpAvailable)
         {
@@ -8228,15 +8218,6 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                 actor.LootableRawAvailable,
                 actor.InteractionStateAvailable));
         return true;
-    }
-
-    internal static bool IsSuspiciousWorldSelfTarget(
-        uint serverObjectId, uint targetServerObjectId, uint currentHp, uint maxHp, bool healthAvailable)
-    {
-        // Live account 4: a dead stoneback turtle retained its own ID as target (HP 0/13315).
-        // Death must be positively established; an unread/default zero must not release a live threat.
-        var confirmedDead = healthAvailable && currentHp == 0 && maxHp > 0;
-        return targetServerObjectId != 0 && targetServerObjectId == serverObjectId && !confirmedDead;
     }
 
     private static WorldEntityLookupStatus FindWorldEntityById(
