@@ -34,6 +34,7 @@ internal sealed class AutoLoginOptions
     public TimeSpan Timeout { get; init; } = TimeSpan.FromMinutes(10);
     public TimeSpan TransitionTimeout { get; init; } = TimeSpan.FromSeconds(100);
     public TimeSpan PollInterval { get; init; } = TimeSpan.FromMilliseconds(800);
+    public TimeSpan ActionRetryInterval { get; init; } = TimeSpan.FromSeconds(3);
 }
 
 internal sealed class AutoLoginRunner(AutoLoginOptions? options = null)
@@ -51,6 +52,9 @@ internal sealed class AutoLoginRunner(AutoLoginOptions? options = null)
         var gameActions = new HashSet<string>(StringComparer.Ordinal);
         string? enteringWorldSession = null;
         bool authenticationSubmitted = false;
+        bool gameLaunchRequested = false;
+        LoginStage? lastStage = null;
+        var actionStarted = System.Diagnostics.Stopwatch.StartNew();
         var transitionStarted = System.Diagnostics.Stopwatch.StartNew();
         try
         {
@@ -58,10 +62,23 @@ internal sealed class AutoLoginRunner(AutoLoginOptions? options = null)
             {
                 deadline.Token.ThrowIfCancellationRequested();
                 var snapshot = await session.ReadAsync(deadline.Token).ConfigureAwait(false);
-                if (snapshot.Description != lastDescription)
+                // UU normally minimizes before the launcher process exists. Once launch input
+                // is sent, process/foreground changes must not send this attempt back to UU.
+                bool waitingForGameWindow = gameLaunchRequested && (snapshot.Stage is
+                    LoginStage.Desktop or LoginStage.AcceleratorHome or LoginStage.Accelerating or LoginStage.AcceleratorReady);
+                // A confirmed page transition is progress even when that page has no button yet.
+                if (!waitingForGameWindow && lastStage != snapshot.Stage)
                 {
-                    lastDescription = snapshot.Description;
-                    progress?.Report(snapshot.Description);
+                    lastStage = snapshot.Stage;
+                    transitionStarted.Restart();
+                }
+                var description = waitingForGameWindow
+                    ? "已点击启动游戏，等待启动器或游戏窗口出现…"
+                    : snapshot.Description;
+                if (description != lastDescription)
+                {
+                    lastDescription = description;
+                    progress?.Report(description);
                 }
                 if (snapshot.Stage == LoginStage.InWorld)
                 {
@@ -75,8 +92,15 @@ internal sealed class AutoLoginRunner(AutoLoginOptions? options = null)
                         return OperationResult<int>.Fail(snapshot.Description);
                     var identity = snapshot.Session + ":" + snapshot.ActionIdentity;
                     bool gameAction = snapshot.Stage is LoginStage.Agreement or LoginStage.ServerSelection or LoginStage.CharacterSelection or LoginStage.EntryAgreement;
-                    if (snapshot.Action != LoginAction.None && identity != lastDispatched
-                        && (!gameAction || !gameActions.Contains(identity)) && snapshot.Session != enteringWorldSession
+                    // Only retry controls whose current state proves the operation is still
+                    // needed. Starting clients, submitting login and entering a server/world
+                    // wait for their outcomes instead of receiving duplicate input.
+                    bool retryControl = snapshot.Action is LoginAction.OpenAccelerator or LoginAction.SelectPasswordTab
+                        or LoginAction.AcceptLoginProtocol or LoginAction.DismissCaptchaError or LoginAction.AcceptAgreement
+                        or LoginAction.SelectCharacter or LoginAction.AcceptEntryAgreement;
+                    bool retryDue = retryControl && actionStarted.Elapsed >= _options.ActionRetryInterval;
+                    if (!waitingForGameWindow && snapshot.Action != LoginAction.None && (identity != lastDispatched || retryDue)
+                        && (!gameAction || !gameActions.Contains(identity) || retryDue) && snapshot.Session != enteringWorldSession
                         && !(authenticationSubmitted && snapshot.Stage is LoginStage.Launcher or LoginStage.AcceleratorReady))
                     {
                         if (await session.ExecuteAsync(snapshot, snapshot.Action, deadline.Token).ConfigureAwait(false))
@@ -84,12 +108,14 @@ internal sealed class AutoLoginRunner(AutoLoginOptions? options = null)
                             if (gameAction) gameActions.Add(identity);
                             if (snapshot.Action == LoginAction.ConfirmEntryAgreement) enteringWorldSession = snapshot.Session;
                             if (snapshot.Action is LoginAction.SubmitCredentials or LoginAction.SolveCaptcha) authenticationSubmitted = true;
+                            if (snapshot.Action == LoginAction.LaunchGame) gameLaunchRequested = true;
                             lastDispatched = identity;
+                            actionStarted.Restart();
                             transitionStarted.Restart();
                         }
                     }
-                    else if (transitionStarted.Elapsed >= _options.TransitionTimeout)
-                        return OperationResult<int>.Fail("登录步骤等待超时：" + snapshot.Description + "。可再次点击登录接续。");
+                    if (transitionStarted.Elapsed >= _options.TransitionTimeout)
+                        return OperationResult<int>.Fail("登录步骤等待超时：" + description + "。可再次点击登录接续。");
                 }
                 await Task.Delay(_options.PollInterval, deadline.Token).ConfigureAwait(false);
             }

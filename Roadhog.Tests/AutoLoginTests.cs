@@ -29,12 +29,91 @@ internal static class AutoLoginTests
         public List<LoginAction> Actions {get;}=[];
         public int Released;
         public Func<CancellationToken,Task>? OnAction;
+        public Action<LoginSnapshot>? OnRead;
+        public Func<LoginAction,bool>? AcceptAction;
         private int _index;
-        public Task<LoginSnapshot> ReadAsync(CancellationToken token){token.ThrowIfCancellationRequested();return Task.FromResult(snapshots[Math.Min(_index++,snapshots.Length-1)]);}
-        public async Task<bool> ExecuteAsync(LoginSnapshot snapshot,LoginAction action,CancellationToken token){Actions.Add(action);if(OnAction is not null)await OnAction(token);return true;}
+        public Task<LoginSnapshot> ReadAsync(CancellationToken token){token.ThrowIfCancellationRequested();var snapshot=snapshots[Math.Min(_index++,snapshots.Length-1)];OnRead?.Invoke(snapshot);return Task.FromResult(snapshot);}
+        public async Task<bool> ExecuteAsync(LoginSnapshot snapshot,LoginAction action,CancellationToken token){Actions.Add(action);if(OnAction is not null)await OnAction(token);return AcceptAction?.Invoke(action)??true;}
         public Task ReleaseInputAsync(){Released++;return Task.CompletedTask;}
         public ValueTask DisposeAsync()=>ValueTask.CompletedTask;
     }
+    private sealed class Messages : IProgress<string>
+    {
+        public List<string> Values { get; } = [];
+        public void Report(string value) => Values.Add(value);
+    }
+
+    public static async Task LaunchWaitsForNextWindowAsync()
+    {
+        var messages = new Messages();
+        await using var session = new Session(
+            State(LoginStage.Desktop, LoginAction.OpenAccelerator, "initial-desktop"),
+            State(LoginStage.AcceleratorReady, LoginAction.LaunchGame),
+            State(LoginStage.Desktop, LoginAction.OpenAccelerator, "uu-minimized"),
+            State(LoginStage.Desktop, LoginAction.OpenAccelerator, "foreground-changed", "changed"),
+            State(LoginStage.AcceleratorReady, LoginAction.LaunchGame, "uu-restored", "changed"),
+            State(LoginStage.AcceleratorHome, LoginAction.Accelerate, session: "changed"),
+            State(LoginStage.Accelerating, session: "changed"),
+            State(LoginStage.Loading, session: "launcher-created"),
+            State(LoginStage.Launcher, LoginAction.StartLauncher, session: "launcher-created"),
+            State(LoginStage.Desktop, LoginAction.OpenAccelerator, "launcher-to-passport-gap", "changed-again"),
+            State(LoginStage.PasswordLogin, LoginAction.SubmitCredentials, session: "passport-created"),
+            World());
+        var options = new AutoLoginOptions { PollInterval = Fast.PollInterval, TransitionTimeout = TimeSpan.FromSeconds(1), Timeout = Fast.Timeout };
+        var result = await new AutoLoginRunner(options).RunAsync(session, "HiApple", messages, CancellationToken.None);
+        Require(result.Success, "launcher and login resume after UU minimizes and process identities change");
+        Require(session.Actions.SequenceEqual(new[] { LoginAction.OpenAccelerator, LoginAction.LaunchGame, LoginAction.StartLauncher, LoginAction.SubmitCredentials }),
+            "after launch do not reopen UU, accelerate again or click launch twice");
+        Require(messages.Values.Any(value => value.Contains("等待启动器或游戏窗口", StringComparison.Ordinal)), "show launch wait progress");
+        Require(messages.Values.Count(value => value == LoginStage.Desktop.ToString()) == 1, "desktop fallback after launch must not advertise reopening UU");
+        Require(session.Released == 1, "completion releases input");
+    }
+
+    public static async Task LaunchWaitTimeoutAndNewAttemptAsync()
+    {
+        var runner = new AutoLoginRunner(Fast);
+        await using (var session = new Session(State(LoginStage.AcceleratorReady, LoginAction.LaunchGame),
+            State(LoginStage.Desktop, LoginAction.OpenAccelerator, "uu-minimized")))
+        {
+            var result = await runner.RunAsync(session, "HiApple", null, CancellationToken.None);
+            Require(!result.Success && result.Error!.Contains("等待超时", StringComparison.Ordinal)
+                && result.Error.Contains("等待启动器或游戏窗口", StringComparison.Ordinal), "missing launcher ends with the bounded launch-wait timeout");
+            Require(session.Actions.SequenceEqual(new[] { LoginAction.LaunchGame }), "timeout sends no extra UU input");
+            Require(session.Released == 1, "timeout releases input");
+        }
+        await using var retry = new Session(State(LoginStage.Desktop, LoginAction.OpenAccelerator),
+            State(LoginStage.AcceleratorReady, LoginAction.LaunchGame), State(LoginStage.Launcher, LoginAction.StartLauncher), World());
+        Require((await runner.RunAsync(retry, "HiApple", null, CancellationToken.None)).Success, "a user-requested new attempt can launch again");
+        Require(retry.Actions.SequenceEqual(new[] { LoginAction.OpenAccelerator, LoginAction.LaunchGame, LoginAction.StartLauncher }), "launch wait is local to one attempt");
+    }
+
+    public static async Task LaunchWaitCancellationAsync()
+    {
+        using var cancellation = new CancellationTokenSource();
+        await using var session = new Session(State(LoginStage.AcceleratorReady, LoginAction.LaunchGame),
+            State(LoginStage.Desktop, LoginAction.OpenAccelerator, "uu-minimized"))
+        { OnRead = snapshot => { if (snapshot.Stage == LoginStage.Desktop) cancellation.Cancel(); } };
+        bool canceled = false;
+        try { await new AutoLoginRunner(Fast).RunAsync(session, "HiApple", null, cancellation.Token); }
+        catch (OperationCanceledException) { canceled = true; }
+        Require(canceled, "stop cancels the launch wait");
+        Require(session.Actions.SequenceEqual(new[] { LoginAction.LaunchGame }) && session.Released == 1,
+            "stop during minimized UU wait sends no further input and releases held input");
+    }
+
+    public static async Task UnsentLaunchDoesNotStartWaitAsync()
+    {
+        int launches = 0;
+        await using var session = new Session(State(LoginStage.AcceleratorReady, LoginAction.LaunchGame),
+            State(LoginStage.Desktop, LoginAction.OpenAccelerator, "page-changed-before-click"),
+            State(LoginStage.AcceleratorReady, LoginAction.LaunchGame), State(LoginStage.Launcher, LoginAction.StartLauncher), World())
+        { AcceptAction = action => action != LoginAction.LaunchGame || ++launches > 1 };
+        Require((await new AutoLoginRunner(Fast).RunAsync(session, "HiApple", null, CancellationToken.None)).Success,
+            "an invalidated unsent launch can resume normally");
+        Require(session.Actions.SequenceEqual(new[] { LoginAction.LaunchGame, LoginAction.OpenAccelerator, LoginAction.LaunchGame, LoginAction.StartLauncher }),
+            "only a successfully dispatched launch suppresses subsequent UU actions");
+    }
+
     public static async Task FullAndResumeAsync()
     {
         var sequence=new[]{State(LoginStage.Desktop,LoginAction.OpenAccelerator),State(LoginStage.AcceleratorHome,LoginAction.Accelerate),

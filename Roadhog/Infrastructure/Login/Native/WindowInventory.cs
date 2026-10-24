@@ -57,23 +57,27 @@ internal static class WindowInventory
                     throw new InvalidOperationException($"No unique verified desktop mapping for window {hwnd:X}.");
                 ulong mapping=mappings.Single();
                 ulong address=mapping+BitConverter.ToUInt64(e);
-                var w=Read(address,0x130);if(BitConverter.ToUInt64(w)!=hwnd)continue;
+                var w=Read(address,0x130);if(BitConverter.ToUInt64(w)!=hwnd)
+                    throw new InvalidOperationException("Window identity changed during enumeration.");
                 uint style=BitConverter.ToUInt32(w,0x1c);ulong user=BitConverter.ToUInt64(w,0xd8);
                 ulong manager=0,root=0;
                 if(inspectDuiManager&&user>=0x10000&&user<0x80000000)
                 {
                     var obj=read(user,0x240);
+                    bool mainWindow=(style&0x50000000)==0x10000000&&BitConverter.ToInt32(w,0x70)-BitConverter.ToInt32(w,0x68)>=800;
+                    if(mainWindow&&obj is not{Length:0x240})throw new InvalidOperationException("UU main window manager is incomplete.");
                     if(obj is{Length:0x240})for(int offset=0;offset<0x180;offset+=4)
                     {
                         if(BitConverter.ToUInt32(obj,offset+0xc)!=hwnd)continue;
                         uint candidateRoot=BitConverter.ToUInt32(obj,offset+0x60);
                         if(candidateRoot<0x10000||candidateRoot>=0x80000000)continue;
                         var rootFields=read(candidateRoot+0x14c,8);
+                        if(mainWindow&&rootFields is not{Length:8})throw new InvalidOperationException("UU main window root is incomplete.");
                         if(rootFields is{Length:8}&&BitConverter.ToUInt32(rootFields)==user+(ulong)offset&&BitConverter.ToUInt32(rootFields,4)==0){manager=user+(ulong)offset;root=candidateRoot;break;}
                     }
                 }
                 string? title=null;int titleLength=BitConverter.ToUInt16(w,0xb8);ulong titlePtr=BitConverter.ToUInt64(w,0xc0);
-                if((style&0x40000000)==0&&titleLength>0&&titleLength<=240&&titlePtr>=0x10000){var t=read(mapping+titlePtr,titleLength);if(t?.Length==titleLength)title=Encoding.Unicode.GetString(t);}
+                if((style&0x40000000)==0&&titleLength>0&&titleLength<=240&&titlePtr>=0x10000)title=Encoding.Unicode.GetString(Read(mapping+titlePtr,titleLength));
                 windows.Add(new{Hwnd=$"0x{hwnd:X}",OwnerThread=owner,Address=$"0x{address:X}",Style=$"0x{style:X}",Visible=(style&0x10000000)!=0,Disabled=(style&0x08000000)!=0,Rect=new[]{BitConverter.ToInt32(w,0x58),BitConverter.ToInt32(w,0x5c),BitConverter.ToInt32(w,0x60),BitConverter.ToInt32(w,0x64)},ClientRect=new[]{BitConverter.ToInt32(w,0x68),BitConverter.ToInt32(w,0x6c),BitConverter.ToInt32(w,0x70),BitConverter.ToInt32(w,0x74)},UserData=$"0x{user:X}",Manager=$"0x{manager:X}",Root=$"0x{root:X}",TitleCandidate=title});
             }
         }

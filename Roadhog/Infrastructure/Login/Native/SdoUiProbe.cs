@@ -83,24 +83,13 @@ internal static class SdoUiProbe
                         }
                     }
                     controls.Add(record);
-                    // Validate all children/backlinks before interpreting an optional container array.
-                    var children=new List<uint>();
-                    try
-                    {
-                        uint data=U32(address+0x760),count=U32(address+0x764),capacity=U32(address+0x768);
-                        if(count>0&&count<=128&&capacity>=count&&capacity<=512&&Ptr(data))
-                        {
-                            var bytes=Read(data,checked((int)count*4));
-                            for(int i=0;i<count;i++)
-                            {
-                                uint child=BitConverter.ToUInt32(bytes,i*4);
-                                if(!Ptr(child)||U32(child+0x40)!=manager||U32(child+0x44)!=address){children.Clear();break;}
-                                children.Add(child);
-                            }
-                        }
-                    }
-                    catch(InvalidOperationException){children.Clear();}
+                    bool container=depth==0||cls.Contains("LayoutUI@",StringComparison.Ordinal)
+                        ||cls is ".?AVCContainerUI@DuiLib@@" or ".?AVCListUI@DuiLib@@"
+                            or ".?AVCListBodyUI@DuiLib@@" or ".?AVCListHeaderUI@DuiLib@@";
+                    var children=LoginUiChildren.Read((at,length)=>p.MemRead(at,(uint)length,1),address,manager,0x760,0x40,container,128);
                     foreach(uint child in children)Visit(child,address,parentVisible&&visible,parentEnabled&&enabled,depth+1);
+                    if(!LoginUiChildren.Read((at,length)=>p.MemRead(at,(uint)length,1),address,manager,0x760,0x40,container,128).SequenceEqual(children))
+                        throw new InvalidOperationException("Passport UI children changed during traversal.");
                 }
                 Visit(root,0,true,true,0);managers.Add(new{Manager=$"0x{manager:X}",Root=$"0x{root:X}",Controls=controls});
             }

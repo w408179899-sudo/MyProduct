@@ -91,7 +91,7 @@ internal static class LoginNativeReader
             var windows = Windows(process).Where(w => Text(w, "TitleCandidate") == "永恒之塔").ToArray();
             if (windows.Length == 0) return State(LoginStage.Loading, "等待游戏启动器页面…");
             var window = windows.Single(); var bounds = Client(window);
-            if (bounds.Size != new Size(1280, 730)) return State(LoginStage.Blocked, "游戏启动器窗口尺寸与记录不符，请检查页面。");
+            if (bounds.Size != new Size(1280, 730)) return State(LoginStage.Loading, "等待游戏启动器窗口恢复到可操作尺寸…");
             return Target(LoginStage.Launcher, LoginAction.StartLauncher, "点击开始游戏", session, process.PID, sessionPid,
                 window, new(bounds.Left + 980, bounds.Top + 625), "launcher-start");
         }
@@ -161,6 +161,8 @@ internal static class LoginNativeReader
         LoginObservation Click(JsonElement w, JsonElement node, LoginStage stage, LoginAction action, string description)
         {
             if (!Flag(node,"Enabled")) throw new InvalidOperationException("Game login control is disabled.");
+            if(node.GetProperty("W").GetDouble()<=0||node.GetProperty("H").GetDouble()<=0)
+                throw new InvalidOperationException("Game login control geometry is not ready.");
             var bounds = Client(window);
             var point = new Point(bounds.Left + (int)(node.GetProperty("X").GetDouble() + node.GetProperty("W").GetDouble()/2),
                 bounds.Top + (int)(node.GetProperty("Y").GetDouble() + node.GetProperty("H").GetDouble()/2));
@@ -185,6 +187,7 @@ internal static class LoginNativeReader
             }
             if (confirm == 2204 && message.GetProperty("Tag").GetInt32() == 24 && Text(message,"Body").Contains("限制创建",StringComparison.Ordinal))
                 return Click(w,Node(w,"ok"),LoginStage.Agreement,LoginAction.AcceptAgreement,"确认种族创建限制提示");
+            if(string.IsNullOrWhiteSpace(Text(message,"Body")))return Wait("等待游戏提示内容…");
             return Block("登录遇到未处理的游戏提示：" + Text(message,"Body"));
         }
         // Earlier root visibility bits persist. Later pages and modal identities take precedence.
@@ -203,7 +206,9 @@ internal static class LoginNativeReader
         {
             var servers = ui.GetProperty("Servers").EnumerateArray().ToArray();
             if (servers.Length == 0) return Wait("等待服务器列表…");
-            if (servers.Length != 1 || !Flag(servers[0],"Online") || ui.GetProperty("SelectedServerIndex").GetInt32() != 0)
+            if (servers.Length == 1 && !Flag(servers[0],"Online")) return Wait("等待服务器上线…");
+            if (servers.Length == 1 && ui.GetProperty("SelectedServerIndex").GetInt32() < 0) return Wait("等待默认服务器选中…");
+            if (servers.Length != 1 || ui.GetProperty("SelectedServerIndex").GetInt32() != 0)
                 return Block("无法唯一确认服务器，请先在游戏中选择要登录的服务器。");
             return Click(serverWindow[0],Node(serverWindow[0],"start_button"),LoginStage.ServerSelection,LoginAction.SelectServer,"进入服务器");
         }
@@ -225,12 +230,15 @@ internal static class LoginNativeReader
         {
             var c = C(name); if (!Flag(c,"EnabledThroughRoot")) throw new InvalidOperationException("Passport control is disabled.");
             var r = c.GetProperty("Rect"); var b = Client(window);
+            if(r[2].GetInt32()<=r[0].GetInt32()||r[3].GetInt32()<=r[1].GetInt32())
+                throw new InvalidOperationException("Passport control geometry is not ready.");
             return Target(stage,action,description,session,pid,sessionPid,window,
                 new(b.Left+(r[0].GetInt32()+r[2].GetInt32())/2,b.Top+(r[1].GetInt32()+r[3].GetInt32())/2),action+":"+Text(c,"Address"),ui);
         }
         if (Has("HintText"))
         {
             string message = Text(C("HintText"),"Text");
+            if(string.IsNullOrWhiteSpace(message))throw new InvalidOperationException("Passport message text is not ready.");
             if (message.Contains("验证码错误",StringComparison.Ordinal)) return Click("OkBtn",LoginStage.CaptchaError,LoginAction.DismissCaptchaError,"验证码未通过，重新识别");
             var stage = message.Contains("帐号或者密码不正确",StringComparison.Ordinal) || message.Contains("账号或者密码不正确",StringComparison.Ordinal)
                 ? LoginStage.CredentialsRejected : LoginStage.Blocked;
@@ -251,6 +259,8 @@ internal static class LoginNativeReader
         LoginObservation Click(JsonElement c, LoginStage stage, LoginAction action, string description)
         {
             var r = c.GetProperty("Rect"); var b = Client(window);
+            if(r.GetProperty("Right").GetInt32()<=r.GetProperty("Left").GetInt32()||r.GetProperty("Bottom").GetInt32()<=r.GetProperty("Top").GetInt32())
+                throw new InvalidOperationException("UU control geometry is not ready.");
             return Target(stage,action,description,session,pid,sessionPid,window,
                 new(b.Left+(r.GetProperty("Left").GetInt32()+r.GetProperty("Right").GetInt32())/2,
                     b.Top+(r.GetProperty("Top").GetInt32()+r.GetProperty("Bottom").GetInt32())/2),action+":"+Text(c,"Address"),ui);
@@ -276,6 +286,6 @@ internal static class LoginNativeReader
             if (controls.Any(c => Descendant(c) && Text(c,"Text") == "永恒之塔"))
                 return Click(card[0],LoginStage.AcceleratorHome,LoginAction.Accelerate,"开启永恒之塔加速");
         }
-        return new(new(session,LoginStage.Blocked,LoginAction.None,"uu-unrecognized","UU 当前页面不是已记录的永恒之塔页面，请检查加速器。"),pid,sessionPid,Text(window,"Hwnd"),Point.Empty,Client(window),ui);
+        return new(new(session,LoginStage.Loading,LoginAction.None,"uu-loading","等待 UU 显示永恒之塔页面…"),pid,sessionPid,Text(window,"Hwnd"),Point.Empty,Client(window),ui);
     }
 }

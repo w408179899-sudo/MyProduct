@@ -50,6 +50,10 @@ internal static class LoginWindowInventoryTests
         Reject(()=>memory.Capture(),"Mappings cannot be borrowed from another desktop identity.");
         memory=new Memory();memory.Data.Remove(0x402000);
         Reject(()=>memory.Capture(),"Unreadable window fields cannot be silently skipped.");
+        memory=new Memory();U64(memory.Data[0x402000],0,0x99999);
+        Reject(()=>memory.Capture(),"A replaced window cannot be silently removed from the scene.");
+        memory=new Memory();U64(memory.Data[0x401000],0xd8,0x500000);
+        Reject(()=>WindowInventory.Capture(memory.Read,0x100000,memory.Threads,true),"A missing visible UU manager must not be published as a minimized window.");
         return Task.CompletedTask;
     }
     internal static Task ColdThreadsAndAmbiguityAsync()

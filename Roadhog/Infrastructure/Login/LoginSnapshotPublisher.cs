@@ -16,7 +16,8 @@ internal sealed class LoginSnapshotPublisher(GameApiReadContext context, IRoadho
     private string? _lastFailure;
     private DateTimeOffset _nextFailureLog;
 
-    internal LoginObservation? Capture(Func<Action<string>,LoginObservation> capture) =>
+    internal LoginObservation? Capture(Func<Action<string>,LoginObservation> capture,
+        Action<LoginObservation>? bindInputTarget = null) =>
         _coordinator.Execute(context.AccountName,AionVmmSnapshotChannels.Login,()=>
         {
             try
@@ -30,9 +31,12 @@ internal sealed class LoginSnapshotPublisher(GameApiReadContext context, IRoadho
                 if(_session is null)throw new InvalidOperationException("Login source must establish its lifecycle before capture.");
                 _store.Resolve(_session,AionVmmSnapshotChannels.Login,context,OperationResult<LoginObservation>.Ok(value),DateTimeOffset.UtcNow);
                 _lastFailure=null;
+                // Only the completed capture may bind a physical input target. Returning
+                // the official held scene below must never authorize clicking old geometry.
+                bindInputTarget?.Invoke(value);
                 return value;
             }
-            catch(Exception exception) when(exception is InvalidOperationException or IOException or ArgumentException or Vmmsharp.VmmException)
+            catch(Exception exception) when(LoginReadErrors.IsRetryable(exception))
             {
                 // VmmPdb throws VmmException while its asynchronous symbol initialization is pending.
                 // Keep it below the provider boundary, just like partial/failed native reads.
