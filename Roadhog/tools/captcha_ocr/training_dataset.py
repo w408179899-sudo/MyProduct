@@ -10,6 +10,21 @@ import re
 from PIL import Image
 
 
+def validate_label_provenance(rows: list[dict], provenance: dict) -> None:
+    evidence = {}
+    for item in provenance['rows']:
+        name = item['filename']
+        if name in evidence:
+            raise ValueError(f'Duplicate label provenance: {name}')
+        evidence[name] = item
+    for row in rows:
+        if row['role'] != 'train':
+            continue
+        item = evidence.get(row['filename'])
+        if not item or item['sha256'] != row['sha256'] or item['label'].upper() != row['label']:
+            raise ValueError(f'Missing or mismatched label provenance: {row["filename"]}')
+
+
 def inspect_folder(folder: Path) -> list[dict]:
     rows = []
     hashes = {}

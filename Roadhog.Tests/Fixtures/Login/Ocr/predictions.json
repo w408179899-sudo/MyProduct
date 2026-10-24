@@ -1,0 +1,702 @@
+[
+  {
+    "file": "001.png",
+    "pytorch": "WKFVAA",
+    "onnx": "WKFVAA",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "002.png",
+    "pytorch": "4AWKW5",
+    "onnx": "4AWKW5",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "003.png",
+    "pytorch": "5TP8XM",
+    "onnx": "5TP8XM",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "004.png",
+    "pytorch": "N5VWNQ",
+    "onnx": "N5VWNQ",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "005.png",
+    "pytorch": "7KWS2K",
+    "onnx": "7KWS2K",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "006.png",
+    "pytorch": "2336RA",
+    "onnx": "2336RA",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "007.png",
+    "pytorch": "LWMABQ",
+    "onnx": "LWMABQ",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "008.png",
+    "pytorch": "853W37",
+    "onnx": "853W37",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "009.png",
+    "pytorch": "PTMKSP",
+    "onnx": "PTMKSP",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "010.png",
+    "pytorch": "8NTBFA",
+    "onnx": "8NTBFA",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "011.png",
+    "pytorch": "KWSB8Y",
+    "onnx": "KWSB8Y",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "012.png",
+    "pytorch": "KEX2HA",
+    "onnx": "KEX2HA",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "013.png",
+    "pytorch": "WT5A7H",
+    "onnx": "WT5A7H",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "014.png",
+    "pytorch": "ABQTHK",
+    "onnx": "ABQTHK",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "015.png",
+    "pytorch": "EKSNAA",
+    "onnx": "EKSNAA",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "016.png",
+    "pytorch": "3BA3XH",
+    "onnx": "3BA3XH",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "017.png",
+    "pytorch": "45YNTS",
+    "onnx": "45YNTS",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "018.png",
+    "pytorch": "7PKAMA",
+    "onnx": "7PKAMA",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "019.png",
+    "pytorch": "BPWAPW",
+    "onnx": "BPWAPW",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "020.png",
+    "pytorch": "E3PE4R",
+    "onnx": "E3PE4R",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "021.png",
+    "pytorch": "KMPHVR",
+    "onnx": "KMPHVR",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "022.png",
+    "pytorch": "XMBSRW",
+    "onnx": "XMBSRW",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "023.png",
+    "pytorch": "6XA3VH",
+    "onnx": "6XA3VH",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "024.png",
+    "pytorch": "WKTWPR",
+    "onnx": "WKTWPR",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "025.png",
+    "pytorch": "87KW4B",
+    "onnx": "87KW4B",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "026.png",
+    "pytorch": "MM6FMA",
+    "onnx": "MM6FMA",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "027.png",
+    "pytorch": "ALKB8K",
+    "onnx": "ALKB8K",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "028.png",
+    "pytorch": "2BETKT",
+    "onnx": "2BETKT",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "029.png",
+    "pytorch": "SENLRK",
+    "onnx": "SENLRK",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "030.png",
+    "pytorch": "KEAAWH",
+    "onnx": "KEAAWH",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "031.png",
+    "pytorch": "NQTLH7",
+    "onnx": "NQTLH7",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "032.png",
+    "pytorch": "PKK3EQ",
+    "onnx": "PKK3EQ",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "033.png",
+    "pytorch": "KKMXT5",
+    "onnx": "KKMXT5",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "034.png",
+    "pytorch": "P583MB",
+    "onnx": "P583MB",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "035.png",
+    "pytorch": "44TXVM",
+    "onnx": "44TXVM",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "036.png",
+    "pytorch": "8FFN83",
+    "onnx": "8FFN83",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "037.png",
+    "pytorch": "34KPB8",
+    "onnx": "34KPB8",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "038.png",
+    "pytorch": "XMV3NS",
+    "onnx": "XMV3NS",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "039.png",
+    "pytorch": "LAMXM7",
+    "onnx": "LAMXM7",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "040.png",
+    "pytorch": "2753FN",
+    "onnx": "2753FN",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "041.png",
+    "pytorch": "MTXSMF",
+    "onnx": "MTXSMF",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "042.png",
+    "pytorch": "NFMRE4",
+    "onnx": "NFMRE4",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "043.png",
+    "pytorch": "65BKKN",
+    "onnx": "65BKKN",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "044.png",
+    "pytorch": "VXHRKE",
+    "onnx": "VXHRKE",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "045.png",
+    "pytorch": "NP44MM",
+    "onnx": "NP44MM",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "046.png",
+    "pytorch": "EML8ST",
+    "onnx": "EML8ST",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "047.png",
+    "pytorch": "A3TAPB",
+    "onnx": "A3TAPB",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "048.png",
+    "pytorch": "7YATRA",
+    "onnx": "7YATRA",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "049.png",
+    "pytorch": "PHEW6W",
+    "onnx": "PHEW6W",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "050.png",
+    "pytorch": "LF6NSH",
+    "onnx": "LF6NSH",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "051.png",
+    "pytorch": "WRPSN8",
+    "onnx": "WRPSN8",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "052.png",
+    "pytorch": "7BWW77",
+    "onnx": "7BWW77",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "053.png",
+    "pytorch": "STA7SM",
+    "onnx": "STA7SM",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "054.png",
+    "pytorch": "BEK7MN",
+    "onnx": "BEK7MN",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "055.png",
+    "pytorch": "A6EKKY",
+    "onnx": "A6EKKY",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "056.png",
+    "pytorch": "YKMX3M",
+    "onnx": "YKMX3M",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "057.png",
+    "pytorch": "ESTT36",
+    "onnx": "ESTT36",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "058.png",
+    "pytorch": "SLVQNM",
+    "onnx": "SLVQNM",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "059.png",
+    "pytorch": "6N7WVW",
+    "onnx": "6N7WVW",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "060.png",
+    "pytorch": "WP74YK",
+    "onnx": "WP74YK",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "061.png",
+    "pytorch": "5HELEK",
+    "onnx": "5HELEK",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "062.png",
+    "pytorch": "QTAP5W",
+    "onnx": "QTAP5W",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "063.png",
+    "pytorch": "8LRQKQ",
+    "onnx": "8LRQKQ",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "064.png",
+    "pytorch": "3PARHM",
+    "onnx": "3PARHM",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "065.png",
+    "pytorch": "XHPR2B",
+    "onnx": "XHPR2B",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "066.png",
+    "pytorch": "V57PS3",
+    "onnx": "V57PS3",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "067.png",
+    "pytorch": "S446WT",
+    "onnx": "S446WT",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "068.png",
+    "pytorch": "MASXNS",
+    "onnx": "MASXNS",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "069.png",
+    "pytorch": "W353FM",
+    "onnx": "W353FM",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "070.png",
+    "pytorch": "YAWQMK",
+    "onnx": "YAWQMK",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "071.png",
+    "pytorch": "TXP7PP",
+    "onnx": "TXP7PP",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "072.png",
+    "pytorch": "PVPYPP",
+    "onnx": "PVPYPP",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "073.png",
+    "pytorch": "YF88WK",
+    "onnx": "YF88WK",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "074.png",
+    "pytorch": "MB3AR6",
+    "onnx": "MB3AR6",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "075.png",
+    "pytorch": "NTMWQP",
+    "onnx": "NTMWQP",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "076.png",
+    "pytorch": "M5YM2P",
+    "onnx": "M5YM2P",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "077.png",
+    "pytorch": "WEAV4E",
+    "onnx": "WEAV4E",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "078.png",
+    "pytorch": "S6S4KY",
+    "onnx": "S6S4KY",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "079.png",
+    "pytorch": "2WBA5L",
+    "onnx": "2WBA5L",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "080.png",
+    "pytorch": "MVWV65",
+    "onnx": "MVWV65",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "081.png",
+    "pytorch": "NL6NKX",
+    "onnx": "NL6NKX",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "082.png",
+    "pytorch": "HHP8KV",
+    "onnx": "HHP8KV",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "083.png",
+    "pytorch": "NWHARL",
+    "onnx": "NWHARL",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "084.png",
+    "pytorch": "PSVKXW",
+    "onnx": "PSVKXW",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "085.png",
+    "pytorch": "5WYNLH",
+    "onnx": "5WYNLH",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "086.png",
+    "pytorch": "5KS6YR",
+    "onnx": "5KS6YR",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "087.png",
+    "pytorch": "86QEPT",
+    "onnx": "86QEPT",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "088.png",
+    "pytorch": "TH38QH",
+    "onnx": "TH38QH",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "089.png",
+    "pytorch": "2P3QML",
+    "onnx": "2P3QML",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "090.png",
+    "pytorch": "BRVRNK",
+    "onnx": "BRVRNK",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "091.png",
+    "pytorch": "FR8AWX",
+    "onnx": "FR8AWX",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "092.png",
+    "pytorch": "66HAAW",
+    "onnx": "66HAAW",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "093.png",
+    "pytorch": "H4M3WW",
+    "onnx": "H4M3WW",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "094.png",
+    "pytorch": "STXTNR",
+    "onnx": "STXTNR",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "095.png",
+    "pytorch": "KXFHNW",
+    "onnx": "KXFHNW",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "096.png",
+    "pytorch": "4KLASK",
+    "onnx": "4KLASK",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "097.png",
+    "pytorch": "256R7X",
+    "onnx": "256R7X",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "098.png",
+    "pytorch": "KMKMBF",
+    "onnx": "KMKMBF",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "099.png",
+    "pytorch": "M5A777",
+    "onnx": "M5A777",
+    "eos": true,
+    "equal": true
+  },
+  {
+    "file": "100.png",
+    "pytorch": "ES4SSL",
+    "onnx": "ES4SSL",
+    "eos": true,
+    "equal": true
+  }
+]

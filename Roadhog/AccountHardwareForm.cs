@@ -23,6 +23,8 @@ public sealed class AccountHardwareForm : Form
     private HardwareSelectionAvailability? _currentAvailability;
     private IReadOnlyList<HardwareDeviceFeature> _allDevices;
     private readonly TextBox _name = new();
+    private readonly TextBox _loginAccount = new() { Name = "GameLoginAccount" };
+    private readonly TextBox _loginPassword = new() { Name = "GameLoginPassword", UseSystemPasswordChar = true };
     private readonly ComboBox _device = new();
     private readonly ComboBox _vmm = new() { DropDownStyle = ComboBoxStyle.DropDown };
     private readonly Label _binding = new() { Dock = DockStyle.Fill };
@@ -32,7 +34,7 @@ public sealed class AccountHardwareForm : Form
     private readonly CheckBox _recover = new() { Text = "异常退出后自动恢复此账号", AutoSize = true };
     private readonly CheckBox _confirm = new() { Text = "确认上方角色和设备属于此账号", AutoSize = true };
     private readonly Label _result = new() { AutoSize = false, Dock = DockStyle.Fill };
-    private readonly Button _save = new() { Text = "保存硬件配置", AutoSize = true };
+    private readonly Button _save = new() { Text = "保存配置", AutoSize = true };
     private CancellationTokenSource? _operation;
     private HardwareVerification? _verification;
     private string? _verifiedFingerprint;
@@ -53,9 +55,9 @@ public sealed class AccountHardwareForm : Form
         _availability = availability; _allDevices = devices;
         _currentAvailability = availability?.Invoke();
         Text = config.AccountName + " · 设备与角色"; Font = new Font("Microsoft YaHei UI", 9F);
-        Size = new Size(720, 620); MinimumSize = Size; MaximumSize = Size;
+        Size = new Size(720, 696); MinimumSize = Size; MaximumSize = Size;
         StartPosition = FormStartPosition.CenterParent; MinimizeBox = false; MaximizeBox = false;
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), ColumnCount = 2, RowCount = 11 };
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), ColumnCount = 2, RowCount = 13 };
         root.ColumnStyles.Add(new(SizeType.Absolute, 100)); root.ColumnStyles.Add(new(SizeType.Percent, 100));
         Controls.Add(root);
         void Field(string label, Control input, int row)
@@ -71,7 +73,12 @@ public sealed class AccountHardwareForm : Form
         refreshButton.Click += (_, _) => RefreshDevices();
         Field("账号备注", _name, 0); Field("DMA设备", deviceRow, 1); Field("读取编号", _vmm, 2);
         Field("KMBox IP", _ip, 3); Field("KMBox端口", _port, 4); Field("KMBox MAC", _mac, 5);
+        Field("游戏账号", _loginAccount, 6); Field("游戏密码", _loginPassword, 7);
         _name.Text = config.AccountName;
+        _loginAccount.Text = config.GameLoginAccount;
+        string? passwordError = null;
+        try { _loginPassword.Text = Infrastructure.Login.LoginPasswordProtector.Unprotect(config.ProtectedGameLoginPassword); }
+        catch (InvalidOperationException exception) { passwordError = exception.Message; }
         _device.DropDownStyle = ComboBoxStyle.DropDownList;
         foreach (var device in devices.Where(d => _currentAvailability?.DeviceBusy(d) != true))
             _device.Items.Add(new Choice(device, _currentAvailability?.DeviceOwners(device) ?? ""));
@@ -81,7 +88,7 @@ public sealed class AccountHardwareForm : Form
         PopulateVmmChoices(devices);
         _ip.Text = config.KmBox?.IpAddress ?? ""; _port.Value = Math.Clamp(config.KmBox?.Port ?? 1000, 1, 65535); _mac.Text = config.KmBox?.Mac ?? "";
         _recover.Checked = config.AutoRecover;
-        root.RowStyles.Add(new(SizeType.Absolute, 30)); root.Controls.Add(_recover, 1, 6);
+        root.RowStyles.Add(new(SizeType.Absolute, 30)); root.Controls.Add(_recover, 1, 8);
         var actions = new FlowLayoutPanel { Dock = DockStyle.Fill };
         var verifyButton = new Button { Text = "测试读取角色 / 检查设备", AutoSize = true };
         var authorizeButton = new Button { Text = "账号授权", AutoSize = true, Enabled = authorize is not null };
@@ -97,15 +104,16 @@ public sealed class AccountHardwareForm : Form
                 if (!IsDisposed && !Disposing) { UpdateSave(); if (_closeAfterCancel) Close(); }
             }
         };
-        actions.Controls.AddRange([verifyButton, authorizeButton]); root.RowStyles.Add(new(SizeType.Absolute, 38)); root.Controls.Add(actions, 1, 7);
+        actions.Controls.AddRange([verifyButton, authorizeButton]); root.RowStyles.Add(new(SizeType.Absolute, 38)); root.Controls.Add(actions, 1, 9);
         _result.Text = !Infrastructure.Hardware.HardwareVerificationSession.IsCurrent(config)
             ? "本次开机需要重新验证。上方可编辑 DMA、读取编号和 KMBox；测试读取角色，核对后勾选确认并保存硬件配置。"
             : "已保存角色：" + config.CharacterName + "。可重新测试读取角色；修改设备后需要重新验证。";
-        root.RowStyles.Add(new(SizeType.Absolute, 60)); root.Controls.Add(_result, 0, 8); root.SetColumnSpan(_result, 2);
+        if (passwordError is not null) _result.Text = passwordError;
+        root.RowStyles.Add(new(SizeType.Absolute, 60)); root.Controls.Add(_result, 0, 10); root.SetColumnSpan(_result, 2);
         var footer = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight };
         _confirm.Enabled = false; _save.Click += (_, _) => Save();
-        footer.Controls.AddRange([_confirm, _save]); root.RowStyles.Add(new(SizeType.Absolute, 45)); root.Controls.Add(footer, 0, 9); root.SetColumnSpan(footer, 2);
-        root.RowStyles.Add(new(SizeType.Percent, 100)); root.Controls.Add(_binding, 0, 10); root.SetColumnSpan(_binding, 2);
+        footer.Controls.AddRange([_confirm, _save]); root.RowStyles.Add(new(SizeType.Absolute, 45)); root.Controls.Add(footer, 0, 11); root.SetColumnSpan(footer, 2);
+        root.RowStyles.Add(new(SizeType.Percent, 100)); root.Controls.Add(_binding, 0, 12); root.SetColumnSpan(_binding, 2);
         foreach (var field in new Control[] { _name, _vmm, _ip, _mac }) field.TextChanged += (_, _) => InvalidateVerification();
         _port.ValueChanged += (_, _) => InvalidateVerification();
         _device.SelectedIndexChanged += (_, _) => { if (_device.SelectedItem is Choice choice) SelectVmm(ExplicitVmm(choice.Device.VmmDeviceName)); InvalidateVerification(); ShowBinding(); };
@@ -182,6 +190,8 @@ public sealed class AccountHardwareForm : Form
     private AccountConfig ReadDraft(bool requireDevice = true)
     {
         var config = _original.Clone(); config.AccountName = _name.Text.Trim(); config.AutoRecover = _recover.Checked;
+        config.GameLoginAccount = _loginAccount.Text.Trim();
+        config.ProtectedGameLoginPassword = Infrastructure.Login.LoginPasswordProtector.Protect(_loginPassword.Text);
         if (string.IsNullOrWhiteSpace(config.AccountName)) throw new InvalidOperationException("请输入账号备注。");
         if (_device.SelectedItem is Choice choice)
         {

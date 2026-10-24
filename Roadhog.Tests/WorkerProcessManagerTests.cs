@@ -728,6 +728,7 @@ internal static partial class WorkerProcessManagerTests
         private int _starts;
         private volatile bool _running;
         private volatile bool _initialized;
+        private volatile bool _loggedIn;
         private Guid? _shopRestartRequestId;
         private readonly object _shopSync = new();
 
@@ -749,7 +750,7 @@ internal static partial class WorkerProcessManagerTests
             lock (_shopSync) return new()
             {
                 Authorized = scenario != "unauthorized", AuthorizationError = scenario == "unauthorized" ? "mock authorization denied" : null,
-                IsRunning = _running, Snapshot = _states.Snapshot().SingleOrDefault(), StandaloneShopRestartRequestId = _shopRestartRequestId
+                IsRunning = _running, LoginCompleted = _loggedIn, Snapshot = _states.Snapshot().SingleOrDefault(), StandaloneShopRestartRequestId = _shopRestartRequestId
             };
         }
 
@@ -757,6 +758,16 @@ internal static partial class WorkerProcessManagerTests
         {
             await File.WriteAllTextAsync(Path.Combine(spec.Paths.LogDirectory, "standalone-shop.json"), JsonSerializer.Serialize(account), cancellationToken);
             return await StartAsync(account, true, cancellationToken);
+        }
+
+        public async Task<OperationResult> LoginAsync(AccountConfig account, IProgress<string> progress, CancellationToken token)
+        {
+            await File.WriteAllTextAsync(Path.Combine(spec.Paths.LogDirectory,"login-entered"),account.InstanceId,token);
+            progress.Report("模拟登录中");
+            if(scenario=="slow-login")await Task.Delay(TimeSpan.FromSeconds(30),token);
+            if(scenario=="reject-login")return OperationResult.Fail("mock credentials rejected");
+            _loggedIn=true;
+            return OperationResult.Ok();
         }
 
         public async Task<OperationResult> StartAsync(AccountConfig account, bool cleanupFirst, CancellationToken cancellationToken)

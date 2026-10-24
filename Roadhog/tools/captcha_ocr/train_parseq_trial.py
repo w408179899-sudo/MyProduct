@@ -14,7 +14,7 @@ import subprocess
 import sys
 import time
 
-from training_dataset import freeze_dataset
+from training_dataset import freeze_dataset, validate_label_provenance
 
 
 def write_json(path, data):
@@ -59,6 +59,10 @@ def main():
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--parseq-repo', type=Path, required=True)
+    parser.add_argument('--init-checkpoint', type=Path,
+                        help='Continue finetuning from existing weights, with a fresh optimizer.')
+    parser.add_argument('--label-provenance', type=Path,
+                        help='Per-image annotation evidence for a mixed-origin training dataset.')
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--batch-size', type=int, default=16)
     parser.add_argument('--learning-rate', type=float, default=1e-4)
@@ -71,6 +75,14 @@ def main():
     output.mkdir(parents=True, exist_ok=False)
     started = time.monotonic()
     rows = freeze_dataset(args.source, output)
+    provenance = None
+    if args.label_provenance:
+        provenance = json.loads(args.label_provenance.read_text(encoding='utf-8'))
+        validate_label_provenance(rows, provenance)
+        write_json(output / 'label-provenance.json', provenance)
+        manifest = json.loads((output / 'dataset_manifest.json').read_text(encoding='utf-8'))
+        manifest['labels_from'] = 'mixed annotations; see label-provenance.json'
+        write_json(output / 'dataset_manifest.json', manifest)
     train_rows = [row for row in rows if row['role'] == 'train']
     query_rows = [row for row in rows if row['role'] == 'query']
     excluded = [row for row in rows if row['role'] == 'excluded']
@@ -94,7 +106,13 @@ def main():
     cached_weights = Path(torch.hub.get_dir()) / 'checkpoints' / 'parseq_tiny-e7a21b54.pt'
     if cached_weights.exists() and not hashlib.sha256(cached_weights.read_bytes()).hexdigest().startswith('e7a21b54'):
         raise RuntimeError('Pretrained checkpoint hash does not match the upstream release.')
-    model = create_model('parseq-tiny', pretrained=True)
+    initial_checkpoint_sha256 = None
+    if args.init_checkpoint:
+        from strhub.models.parseq.system import PARSeq
+        initial_checkpoint_sha256 = hashlib.sha256(args.init_checkpoint.read_bytes()).hexdigest()
+        model = PARSeq.load_from_checkpoint(str(args.init_checkpoint), map_location='cpu').float()
+    else:
+        model = create_model('parseq-tiny', pretrained=True)
     model.rng = np.random.default_rng(args.seed)
     model.batch_size = args.batch_size
     # The official optimizer scales LR by batch_size/256. Preserve its implementation.
@@ -151,7 +169,12 @@ def main():
         return result
 
     commit = subprocess.check_output(['git', '-C', str(args.parseq_repo), 'rev-parse', 'HEAD'], text=True).strip()
-    summary = dict(model='PARSeq-Tiny', pretrained=True, source_repository='https://github.com/baudm/parseq',
+    summary = dict(model='PARSeq-Tiny', pretrained=not bool(args.init_checkpoint),
+                   initialization='existing checkpoint weights; fresh optimizer' if args.init_checkpoint else 'upstream pretrained',
+                   initial_checkpoint=str(args.init_checkpoint.resolve()) if args.init_checkpoint else None,
+                   initial_checkpoint_sha256=initial_checkpoint_sha256,
+                   label_provenance_available=provenance is not None,
+                   source_repository='https://github.com/baudm/parseq',
                    upstream_commit=commit, training_images=len(train_rows), query_images=len(query_rows),
                    excluded=[row['filename'] for row in excluded], epochs=args.epochs,
                    seed=args.seed, batch_size=args.batch_size, effective_peak_lr=args.learning_rate,

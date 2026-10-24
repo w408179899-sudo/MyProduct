@@ -6,7 +6,7 @@ import unittest
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from training_dataset import freeze_dataset, inspect_folder
+from training_dataset import freeze_dataset, inspect_folder, validate_label_provenance
 
 
 class DatasetIsolationTests(unittest.TestCase):
@@ -46,6 +46,19 @@ class DatasetIsolationTests(unittest.TestCase):
             (source / 'ABC123.png').rename(source / 'XYZ789.png')
             self.assertTrue((result / 'dataset' / 'ABC123.png').exists())
             self.assertIn('ABC123', (result / 'dataset_manifest.json').read_text(encoding='utf-8'))
+
+    def test_provenance_requires_same_image_and_label(self):
+        rows = [dict(filename='ABC123.png', role='train', sha256='image-a', label='ABC123')]
+        good = dict(filename='ABC123.png', sha256='image-a', label='abc123')
+        validate_label_provenance(rows, dict(rows=[good]))
+        for items in [[], [dict(good, sha256='image-b')], [dict(good, label='XYZ789')], [good, good]]:
+            with self.assertRaises(ValueError):
+                validate_label_provenance(rows, dict(rows=items))
+
+    def test_query_does_not_acquire_label_from_provenance(self):
+        rows = [dict(filename='000001.png', role='query', sha256='image-a', label=None)]
+        validate_label_provenance(rows, dict(rows=[dict(filename='000001.png', sha256='image-a', label='ABC123')]))
+        self.assertIsNone(rows[0]['label'])
 
 
 if __name__ == '__main__':

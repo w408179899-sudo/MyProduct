@@ -11,6 +11,33 @@ using System.Windows.Forms;
 
 internal static class MultiAccountUiTests
 {
+    public static Task LoginSelectionAndCredentialFieldsAsync() => Sta(() =>
+    {
+        using var test=new UiEnvironment();var accounts=new[]{test.Account(1),test.Account(2)};
+        test.Initialize(accounts);using var form=test.Console(accounts);
+        var grid=Field<DataGridView>(form,"_grid");
+        Pump((Task)Invoke(form,"LoginSelectedAsync")!);
+        Require(test.Workspace.Processes.Snapshot().All(v=>v.WorkerProcessId is null),"highlight alone does not login");
+        grid.Rows[1].Cells[0].Value=true;
+        Pump((Task)Invoke(form,"LoginSelectedAsync")!);
+        Require(test.View(accounts[0]).WorkerProcessId is null&&test.View(accounts[1]).State=="logged_in","login follows checked row only");
+        Require(!test.View(accounts[1]).DesiredRunning,"UI login does not start bot");
+        var account=accounts[0];account.HardwareDeviceInstanceId="mock-device-instance";
+        using var editor=new AccountHardwareForm(account,[Device(account)],(_,_)=>throw new InvalidOperationException("credential edits must not verify hardware"));
+        Field<TextBox>(editor,"_loginAccount").Text="test-account";
+        Field<TextBox>(editor,"_loginPassword").Text="Test-password42!";
+        Require(Field<TextBox>(editor,"_loginPassword").UseSystemPasswordChar,"password is masked");
+        Invoke(editor,"Save");
+        Require(editor.Config.GameLoginAccount=="test-account"&&editor.Config.HardwareVerificationSessionId==account.HardwareVerificationSessionId,"credentials save without invalidating hardware");
+        Require(Roadhog.Infrastructure.Login.LoginPasswordProtector.Unprotect(editor.Config.ProtectedGameLoginPassword)=="Test-password42!","password encrypted on save");
+        var previewDirectory=Path.Combine(RepositoryRoot(),".tmp","auto-login-preview");Directory.CreateDirectory(previewDirectory);
+        using var preview=new AccountHardwareForm(editor.Config,[Device(account)],(_,_)=>throw new InvalidOperationException());
+        ShowHidden(preview);preview.PerformLayout();
+        using var bitmap=new System.Drawing.Bitmap(preview.Width,preview.Height);
+        preview.DrawToBitmap(bitmap,new System.Drawing.Rectangle(System.Drawing.Point.Empty,preview.Size));
+        bitmap.Save(Path.Combine(previewDirectory,"credentials.png"));
+    });
+
     public static Task DeleteSelectedAccountsAsync() => Sta(() =>
     {
         using var test = new UiEnvironment();

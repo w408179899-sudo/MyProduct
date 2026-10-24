@@ -66,6 +66,7 @@ public sealed class MultiAccountForm : Form
         tools.Controls.Add(Button("停止所选", () => BatchAsync(false)));
         tools.Controls.Add(Button("删除所选", () => RunConfigurationActionAsync(() => DeleteSelectedAsync())));
         tools.Controls.Add(Button("退出程序", () => ExitAsync(), exitAction: true));
+        tools.Controls.Add(Button("登录所选", LoginSelectedAsync));
         root.Controls.Add(tools, 0, 0);
         var filters = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false };
         _filter.DropDownStyle = ComboBoxStyle.DropDownList; _filter.Size = new Size(110, 28);
@@ -311,7 +312,7 @@ public sealed class MultiAccountForm : Form
         : string.IsNullOrWhiteSpace(view.Config.VmmDeviceName) || view.Config.KmBox is null ? "待配置"
         : !Infrastructure.Hardware.HardwareVerificationSession.IsCurrent(view.Config) ? "待验证" : view.State switch
     {
-        "starting" => "启动中", "stopping" => "停止中", "recovering" => "恢复中", "failed" => "需处理",
+        "logging_in" => "登录中", "logged_in" => "已登录 · 待启动", "starting" => "启动中", "stopping" => "停止中", "recovering" => "恢复中", "failed" => "需处理",
         "idle" => "已停止 · 设置连接中", "running" => view.Worker?.Snapshot?.CleanupProgress is { Length: > 0 } progress
             ? progress.StartsWith("等待仓库号", StringComparison.Ordinal) ? "等仓库" : progress.StartsWith("等待摆摊售罄", StringComparison.Ordinal) ? "摆摊中" : "清包中"
             : "运行中", _ => "已停止"
@@ -373,8 +374,23 @@ public sealed class MultiAccountForm : Form
         Check(await _workspace.Processes.StartAsync(id, cleanup, _operations.Token));
     }
     private static void Check(Core.Common.OperationResult result) { if (!result.Success) throw new InvalidOperationException(result.Error); }
+    private async Task LoginSelectedAsync()
+    {
+        _grid.EndEdit();
+        var ids = _grid.Rows.Cast<DataGridViewRow>().Where(row => row.Cells[0].Value is true).Select(row => (string)row.Tag!).ToArray();
+        if (ids.Length == 0) { Report("请先勾选账号。"); return; }
+        var errors = await Task.WhenAll(ids.Select(async id =>
+        {
+            try { Check(await _workspace.Processes.LoginAsync(id, _operations.Token)); return null; }
+            catch (Exception exception) { return _accounts.Single(a => a.InstanceId == id).AccountName + "：" + exception.Message; }
+        }));
+        Report(errors.Any(error => error is not null) ? string.Join("；", errors.Where(error => error is not null)) : "所选账号已进入游戏；点击启动开始挂机。");
+        RefreshRows();
+    }
+
     private async Task BatchAsync(bool start)
     {
+        _grid.EndEdit();
         var ids = _grid.Rows.Cast<DataGridViewRow>().Where(r => r.Cells[0].Value is true).Select(r => (string)r.Tag!).ToArray();
         if (ids.Length == 0) { Report("请先勾选账号。"); return; }
         var errors = await Task.WhenAll(ids.Select(async id =>

@@ -13,6 +13,10 @@ public interface IWorkerProcessBackend : IAsyncDisposable
     Task InitializeAsync(CancellationToken cancellationToken);
     WorkerStatus GetStatus();
     Task<OperationResult> StartAsync(AccountConfig account, bool cleanupFirst, CancellationToken cancellationToken);
+    Task<OperationResult> LoginAsync(AccountConfig account, IProgress<string> progress, CancellationToken cancellationToken) =>
+        Task.FromResult(OperationResult.Fail("账号后台尚未支持自动登录，请更新程序。"));
+    Task<OperationResult> StartWithProgressAsync(AccountConfig account, bool cleanupFirst, IProgress<string> progress, CancellationToken token) =>
+        StartAsync(account, cleanupFirst, token);
     Task<OperationResult> StartStandaloneShopAsync(AccountConfig account, CancellationToken cancellationToken) =>
         Task.FromResult(OperationResult.Fail("账号后台不支持独立摆摊，请更新程序。"));
     Task<OperationResult> StopAsync(CancellationToken cancellationToken);
@@ -47,6 +51,11 @@ internal sealed class RoadhogWorkerProcessBackend : IWorkerProcessBackend
     private readonly System.Collections.Concurrent.ConcurrentDictionary<uint, byte> _knownMaps = new();
     private readonly object _stopSync = new();
     private Task<IReadOnlyDictionary<string, OperationResult>>? _pendingStop;
+    private bool _loginCompleted;
+    private sealed class LoginProgress(Action<string> report) : IProgress<string>
+    {
+        public void Report(string value) => report(value);
+    }
     public RoadhogWorkerProcessBackend(WorkerLaunchSpec spec)
     {
         _spec = spec;
@@ -119,6 +128,7 @@ internal sealed class RoadhogWorkerProcessBackend : IWorkerProcessBackend
             Authorized = license.IsAuthorized,
             AuthorizationError = license.ErrorCode ?? (license.IsAuthorized ? null : license.Kind.ToString()),
             IsRunning = state?.Status is "starting" or "running" or "stopping",
+            LoginCompleted = _loginCompleted,
             StandaloneShopRestartRequestId = _services.AccountOrchestrator.GetStandaloneShopRestartRequestId(_spec.Account.AccountName),
             Snapshot = state
         };
@@ -127,10 +137,43 @@ internal sealed class RoadhogWorkerProcessBackend : IWorkerProcessBackend
     public Task<OperationResult> StartAsync(AccountConfig account, bool cleanupFirst, CancellationToken cancellationToken) =>
         StartBusinessAsync(account, cleanupFirst, false, cancellationToken);
 
+    public Task<OperationResult> StartWithProgressAsync(AccountConfig account, bool cleanupFirst, IProgress<string> progress, CancellationToken token) =>
+        StartBusinessAsync(account, cleanupFirst, false, token, progress);
+
+    public async Task<OperationResult> LoginAsync(AccountConfig account, IProgress<string> progress, CancellationToken token)
+    {
+        if (GetStatus().IsRunning) return OperationResult.Ok();
+        var binding = ValidatePhysicalBinding();
+        if (!binding.Success) return binding;
+        return await EnsureLoginAsync(account, progress, token).ConfigureAwait(false);
+    }
+
+    private async Task<OperationResult> EnsureLoginAsync(AccountConfig account, IProgress<string>? progress, CancellationToken token)
+    {
+        if (_services.LoginGameApi is null || _services.KeyboardInput is not KmBoxNetKeyboardInput input)
+            return OperationResult.Fail("当前后台未配置真实登录适配器。");
+        _loginCompleted = false;
+        await using var session = new Roadhog.Infrastructure.Login.VmmAutoLoginSession(_services.LoginGameApi, input, account, _services.Logger);
+        var updates = new LoginProgress(message =>
+        {
+            progress?.Report(message);
+            _services.Logger.Info("account.login.progress", new Dictionary<string, object?> { ["account"] = account.AccountName, ["stage"] = message });
+        });
+        updates.Report("正在检查目标电脑的游戏与登录状态…");
+        var result = await new Roadhog.Application.Login.AutoLoginRunner().RunAsync(session, account.CharacterName, updates, token).ConfigureAwait(false);
+        if (!result.Success) return OperationResult.Fail(result.Error ?? "登录未完成。");
+        token.ThrowIfCancellationRequested();
+        account.ProcessId = result.Value;
+        account.TargetProcessName = "Aion.bin";
+        if (_services.AccountConfigStore is WorkerAccountConfigStore store) store.Update(account);
+        _loginCompleted = true;
+        return OperationResult.Ok();
+    }
+
     public Task<OperationResult> StartStandaloneShopAsync(AccountConfig account, CancellationToken cancellationToken) =>
         StartBusinessAsync(account, true, true, cancellationToken);
 
-    private async Task<OperationResult> StartBusinessAsync(AccountConfig account, bool cleanupFirst, bool standaloneShop, CancellationToken cancellationToken)
+    private async Task<OperationResult> StartBusinessAsync(AccountConfig account, bool cleanupFirst, bool standaloneShop, CancellationToken cancellationToken, IProgress<string>? progress = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         _services.Runtime.ApplyFileLoggingSettings(account.AccountName, account.ScriptSettings?.GenerateLogFiles ?? true);
@@ -147,12 +190,16 @@ internal sealed class RoadhogWorkerProcessBackend : IWorkerProcessBackend
             : _services.AccountOrchestrator.Start(account);
         // Cleanup on an already running worker keeps its existing verified session.
         if (GetStatus().IsRunning) return StartBusiness();
+        var login = await EnsureLoginAsync(account, progress, cancellationToken).ConfigureAwait(false);
+        if (!login.Success) return login;
         return await AccountIdentityStartGuard.RunAsync(_spec.Account,
-            token => _services.Runtime.ReadPlayerAsync(_spec.Account.AccountName, token), StartBusiness, cancellationToken).ConfigureAwait(false);
+            async token => (await new Roadhog.Infrastructure.Vmm.RoadhogSnapshotReader(account, _services.LoginGameApi!, _services.Logger, token)
+                .ReadPlayerAsync().ConfigureAwait(false)).Value, StartBusiness, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<OperationResult> StopAsync(CancellationToken cancellationToken)
     {
+        _loginCompleted = false;
         var results = await BeginStop().ConfigureAwait(false);
         var release = await ReleaseInputAsync(cancellationToken).ConfigureAwait(false);
         return results.Values.FirstOrDefault(result => !result.Success) ?? release;

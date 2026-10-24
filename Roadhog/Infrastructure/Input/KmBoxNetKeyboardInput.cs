@@ -19,6 +19,12 @@ public sealed class KmBoxNetKeyboardInput : IKeyboardInput, IInputStateReset, ID
         _device = new KmBoxNetDevice(_options.ToKmBoxOptions());
     }
 
+    internal Task<OperationResult> TypeLoginTextAsync(string text, CancellationToken token) =>
+        ExecuteAsync(device => device.TypeTextAsync(text, token), "登录文本输入失败。", token);
+
+    internal Task<OperationResult> LoginHotkeyAsync(Keys[] keys, CancellationToken token) =>
+        ExecuteAsync(device => device.HotkeyAsync(keys, 80, token), "登录组合键输入失败。", token);
+
     public async Task<OperationResult> PressKeyAsync(
         string key,
         TimeSpan holdDuration,

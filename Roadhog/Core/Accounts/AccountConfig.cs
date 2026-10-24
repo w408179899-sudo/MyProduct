@@ -21,6 +21,11 @@ public sealed class AccountConfig
 
     public string CharacterName { get; set; } = string.Empty;
 
+    public string GameLoginAccount { get; set; } = string.Empty;
+
+    // DPAPI CurrentUser ciphertext. Never serialize the clear-text password.
+    public string ProtectedGameLoginPassword { get; set; } = string.Empty;
+
     public string HardwareVerificationSessionId { get; set; } = string.Empty;
 
     public int ProcessId { get; set; }
@@ -91,6 +96,8 @@ public sealed class AccountConfig
             OwnerLicenseGrantPath = OwnerLicenseGrantPath,
             AccountName = AccountName,
             CharacterName = CharacterName,
+            GameLoginAccount = GameLoginAccount,
+            ProtectedGameLoginPassword = ProtectedGameLoginPassword,
             HardwareVerificationSessionId = HardwareVerificationSessionId,
             ProcessId = ProcessId,
             TargetProcessName = TargetProcessName,

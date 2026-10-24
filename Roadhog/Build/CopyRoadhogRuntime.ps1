@@ -10,8 +10,11 @@
 
 $ErrorActionPreference = "Stop"
 
-$runtimeFiles = @("Roadhog.exe", "Roadhog.dll")
-$runtimeAssets = @("Source\gather_src.xml")
+$runtimeFiles = @("Roadhog.exe", "Roadhog.dll", "Roadhog.deps.json", "Roadhog.runtimeconfig.json",
+    "Microsoft.ML.OnnxRuntime.dll", "onnxruntime.dll", "onnxruntime_providers_shared.dll")
+$loginAssets = @("Source\Login\captcha.onnx", "Source\Login\captcha.json", "Source\Login\PARSeq-LICENSE.txt",
+    "Source\Login\ONNX-Runtime-LICENSE.txt", "Source\Login\ONNX-Runtime-ThirdPartyNotices.txt")
+$runtimeAssets = @("Source\gather_src.xml") + $loginAssets
 
 function Test-FileInUse {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -57,7 +60,7 @@ $sourceFiles = foreach ($relativePath in ($runtimeFiles + $runtimeAssets)) {
 
 foreach ($destinationName in $DestinationNames) {
     $destinationDirectory = Join-Path -Path $DestinationRoot -ChildPath $destinationName
-    $filesToCopy = if ($destinationName -eq '多账号客户端') { @($sourceFiles | Where-Object { $_.RelativePath -in $runtimeFiles }) } else { $sourceFiles }
+    $filesToCopy = if ($destinationName -eq '多账号客户端') { @($sourceFiles | Where-Object { $_.RelativePath -in $runtimeFiles -or $_.RelativePath -in $loginAssets }) } else { $sourceFiles }
 
     try {
         if (-not (Test-Path -LiteralPath $destinationDirectory)) {

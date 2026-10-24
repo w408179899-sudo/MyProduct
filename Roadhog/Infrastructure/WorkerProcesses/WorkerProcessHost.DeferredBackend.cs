@@ -32,6 +32,12 @@ internal sealed class DeferredWorkerProcessBackend(WorkerLaunchSpec spec, Func<W
     public Task<OperationResult> StartAsync(AccountConfig account, bool cleanupFirst, CancellationToken cancellationToken) =>
         Ready?.StartAsync(account, cleanupFirst, cancellationToken) ?? Task.FromResult(OperationResult.Fail("账号后台尚未完成初始化。"));
 
+    public Task<OperationResult> LoginAsync(AccountConfig account, IProgress<string> progress, CancellationToken token) =>
+        Ready?.LoginAsync(account, progress, token) ?? Task.FromResult(OperationResult.Fail("账号后台尚未完成初始化。"));
+
+    public Task<OperationResult> StartWithProgressAsync(AccountConfig account, bool cleanupFirst, IProgress<string> progress, CancellationToken token) =>
+        Ready?.StartWithProgressAsync(account, cleanupFirst, progress, token) ?? Task.FromResult(OperationResult.Fail("账号后台尚未完成初始化。"));
+
     public Task<OperationResult> StartStandaloneShopAsync(AccountConfig account, CancellationToken cancellationToken) =>
         Ready?.StartStandaloneShopAsync(account, cancellationToken) ?? Task.FromResult(OperationResult.Fail("账号后台尚未完成初始化。"));
 

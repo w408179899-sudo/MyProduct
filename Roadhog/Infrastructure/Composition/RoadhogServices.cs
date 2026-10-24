@@ -118,6 +118,8 @@ public sealed class RoadhogServices : IDisposable
 
     public KmBoxNetDeviceConfig KmBoxNetConfig { get; }
 
+    internal AionVmmGameApi? LoginGameApi { get; private init; }
+
     public static RoadhogServices Create(RoadhogServiceOptions? options = null)
     {
         options ??= new RoadhogServiceOptions();
@@ -275,7 +277,7 @@ public sealed class RoadhogServices : IDisposable
             options.KmBoxNetInput.DeviceText(),
             options.KmBoxNetConfigPath,
             options.PathLibraryDirectory,
-            effectiveKmBoxConfig);
+            effectiveKmBoxConfig) { LoginGameApi = gameApi as AionVmmGameApi };
     }
 
     public static LicenseCoordinator CreateLicenseCoordinator(RoadhogServiceOptions options, IRoadhogLogger? logger = null)

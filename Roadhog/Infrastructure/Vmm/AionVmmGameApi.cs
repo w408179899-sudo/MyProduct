@@ -3828,7 +3828,17 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
             memProcFsHome = @"C:\MemProcFS";
         }
 
-        if (!string.IsNullOrWhiteSpace(memProcFsHome))
+        var nativeSource = string.IsNullOrWhiteSpace(memProcFsHome) ? AppContext.BaseDirectory : memProcFsHome;
+        if (MemProcFsNativeRuntime.NeedsAsciiPath(Path.GetFullPath(nativeSource)) ||
+            MemProcFsNativeRuntime.NeedsAsciiPath(AppContext.BaseDirectory))
+        {
+            var nativePath = MemProcFsNativeRuntime.Load(nativeSource);
+            _logger.Info("vmm.native.loaded", new Dictionary<string, object?>
+            {
+                ["source"] = nativeSource, ["path"] = nativePath, ["reason"] = "unicode_symbol_path"
+            });
+        }
+        else if (!string.IsNullOrWhiteSpace(memProcFsHome))
         {
             MemProcVmm.LoadNativeLibrary(memProcFsHome);
             _logger.Info("vmm.native.loaded", new Dictionary<string, object?> { ["path"] = memProcFsHome });

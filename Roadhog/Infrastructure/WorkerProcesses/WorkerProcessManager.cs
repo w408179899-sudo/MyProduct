@@ -19,6 +19,7 @@ public sealed record WorkerProcessLaunchOptions
     public string ExecutablePath { get; init; } = Path.ChangeExtension(typeof(WorkerProcessManager).Assembly.Location, ".exe");
     public IReadOnlyList<string> PrefixArguments { get; init; } = Array.Empty<string>();
     public TimeSpan StartupTimeout { get; init; } = TimeSpan.FromSeconds(35);
+    public TimeSpan LoginTimeout { get; init; } = TimeSpan.FromMinutes(11);
     public TimeSpan StopTimeout { get; init; } = TimeSpan.FromSeconds(12);
     public TimeSpan PollInterval { get; init; } = TimeSpan.FromSeconds(1);
     public TimeSpan RecoveryDelay { get; init; } = TimeSpan.FromSeconds(3);
@@ -46,6 +47,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
         public int PollFailures;
         public DateTimeOffset? RunningSince;
         public bool StartingRequest;
+        public bool LoginOnly;
         public Task<OperationResult>? StopTask;
         public Task? PollTask;
         public readonly List<CancellationTokenSource> RetiredOperations = new();
@@ -258,9 +260,12 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
         ScriptSettings? standaloneShopSettings = null, ScriptSettings? groceryShopSettings = null) =>
         StartAccountAsync(instanceId, cleanup, cancellationToken, standaloneShopSettings, groceryShopSettings: groceryShopSettings);
 
+    public Task<OperationResult> LoginAsync(string instanceId, CancellationToken cancellationToken = default) =>
+        StartAccountAsync(instanceId, false, cancellationToken, null, loginOnly: true);
+
     private async Task<OperationResult> StartAccountAsync(string instanceId, bool cleanup, CancellationToken cancellationToken,
         ScriptSettings? standaloneShopSettings, long? expectedStopGeneration = null, CancellationTokenSource? expectedOperation = null,
-        ScriptSettings? groceryShopSettings = null)
+        ScriptSettings? groceryShopSettings = null, bool loginOnly = false)
     {
         if (Volatile.Read(ref _shuttingDown) != 0 || Volatile.Read(ref _disposed) != 0) return OperationResult.Fail("主界面正在退出，不能启动账号。");
         standaloneShopSettings = standaloneShopSettings?.Clone();
@@ -304,6 +309,8 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 // A monitor that already owns Gate can still be finishing an old
                 // generation while this request has reserved Start. Its display
                 // state is not the admission reservation.
+                if (entry.Desired && entry.StartingRequest && entry.LoginOnly != loginOnly)
+                    return OperationResult.Fail("账号正在执行登录或启动，请等待完成后再切换操作。");
                 if (entry.Desired && (entry.StartingRequest || entry.State == "starting"))
                     return standaloneShopSettings != null || groceryShopSettings != null ? OperationResult.Fail("账号正在启动，请稍后再提交摆摊任务。") : OperationResult.Ok();
                 if (entry.Desired && Alive(entry) && entry.Status?.IsRunning == true && !cleanup) return OperationResult.Ok();
@@ -325,7 +332,8 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                     entry.Operation = new();
                     operation = entry.Operation;
                     entry.StartingRequest = true;
-                    entry.State = "starting";
+                    entry.LoginOnly = loginOnly;
+                    entry.State = loginOnly ? "logging_in" : "starting";
                     entry.Error = null;
                 }
             }
@@ -355,7 +363,8 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
             try
             {
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(linked.Token);
-                deadline.CancelAfter(_launch.StartupTimeout + _launch.StopTimeout + TimeSpan.FromSeconds(5));
+                deadline.CancelAfter(_launch.StartupTimeout + _launch.StopTimeout + TimeSpan.FromSeconds(5)
+                    + (entry.LoginOnly || !string.IsNullOrWhiteSpace(entry.Config.GameLoginAccount) ? _launch.LoginTimeout : TimeSpan.Zero));
                 var result = await StartCoreAsync(entry, cleanup, deadline.Token, standaloneShopSettings, groceryShopSettings).ConfigureAwait(false);
                 startedSuccessfully = result.Success;
                 return result;
@@ -385,6 +394,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 if (ReferenceEquals(entry.Operation, operation))
                 {
                     entry.StartingRequest = false;
+                    if (entry.LoginOnly) { entry.Desired = false; saveStoppedIntent = true; }
                     if (expectedStopGeneration.HasValue && !startedSuccessfully && entry.Desired)
                     { entry.Desired = false; operation.Cancel(); saveStoppedIntent = true; }
                 }
@@ -402,7 +412,8 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         // Discovery and OS-level lease checks have their own bounded cost. The child itself still
         // gets only StartupTimeout in WaitForReadyAsync; allow cleanup checks before that budget.
-        deadline.CancelAfter(_launch.StartupTimeout + _launch.StopTimeout + TimeSpan.FromSeconds(5));
+        deadline.CancelAfter(_launch.StartupTimeout + _launch.StopTimeout + TimeSpan.FromSeconds(5)
+                    + (entry.LoginOnly || !string.IsNullOrWhiteSpace(entry.Config.GameLoginAccount) ? _launch.LoginTimeout : TimeSpan.Zero));
         cancellationToken = deadline.Token;
         if (!entry.Desired) return OperationResult.Fail("账号已停止。");
         // Recovery may have acquired the gate while a manual start persisted its intent.
@@ -415,7 +426,8 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 : new Roadhog.Infrastructure.Config.JsonBagCleanupNameListStore(paths.BagCleanupNameListPath, logger: _logger), _logger,
             path => new Roadhog.Infrastructure.Config.JsonBagCleanupNameListStore(
                 AccountResourcePath.Resolve(path, paths.BagCleanupNameListPath, _paths.AccountConfigPath), logger: _logger));
-        var built = await builder.BuildAsync(entry.Config, cancellationToken).ConfigureAwait(false);
+        var built = entry.LoginOnly ? OperationResult<AccountConfig>.Ok(entry.Config.Clone())
+            : await builder.BuildAsync(entry.Config, cancellationToken).ConfigureAwait(false);
         if (!built.Success || built.Value is null)
         {
             Fail(entry, built.Error ?? "无法生成账号运行配置。");
@@ -447,8 +459,16 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
         {
             if (standaloneShopSettings != null) built.Value.ScriptSettings = standaloneShopSettings.Clone();
             if (groceryShopSettings != null) built.Value.ScriptSettings = groceryShopSettings.Clone();
-            var result = await client.CallAsync<OperationResult>(standaloneShopSettings != null ? WorkerCommands.StandaloneShop : cleanup ? WorkerCommands.Cleanup : WorkerCommands.Start,
-                [built.Value], cancellationToken).ConfigureAwait(false);
+            var result = await client.CallAsync<OperationResult>(entry.LoginOnly ? WorkerCommands.Login : standaloneShopSettings != null ? WorkerCommands.StandaloneShop : cleanup ? WorkerCommands.Cleanup : WorkerCommands.Start,
+                [built.Value], cancellationToken, new Progress<string>(message =>
+                {
+                    lock (entry.Sync)
+                    {
+                        if (cancellationToken.IsCancellationRequested || !entry.StartingRequest) return;
+                        entry.State = "logging_in";
+                        entry.Error = message;
+                    }
+                })).ConfigureAwait(false);
             if (!result.Success)
             {
                 // An explicit rejection before any business started needs a user correction.
@@ -465,7 +485,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 return OperationResult.Fail(error);
             }
             var status = await client.CallAsync<WorkerStatus>(WorkerCommands.Status, [], cancellationToken).ConfigureAwait(false);
-            lock (entry.Sync) { entry.Status = status; entry.State = status.IsRunning ? "running" : "starting"; entry.Error = null; entry.RunningSince ??= DateTimeOffset.UtcNow; }
+            lock (entry.Sync) { entry.Status = status; entry.State = status.IsRunning ? "running" : entry.LoginOnly ? "logged_in" : "starting"; entry.Error = null; entry.RunningSince ??= DateTimeOffset.UtcNow; }
             return result;
         }
         catch
@@ -672,7 +692,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 }
             }
             var status = await WaitForReadyAsync(entry, cancellationToken).ConfigureAwait(false);
-            lock (entry.Sync) { entry.Status = status; if (!entry.Desired) entry.State = "idle"; }
+            lock (entry.Sync) { entry.Status = status; if (!entry.Desired) entry.State = entry.Status?.LoginCompleted == true ? "logged_in" : "idle"; }
             ClearPending(entry.Config.InstanceId, spec.Token);
             _logger.Info("account_process.started", new Dictionary<string, object?> { ["account"] = entry.Config.AccountName, ["pid"] = entry.Process!.Id });
             return Client(entry);
@@ -876,7 +896,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                             entry.RunningSince ??= DateTimeOffset.UtcNow;
                             if (DateTimeOffset.UtcNow - entry.RunningSince >= TimeSpan.FromMinutes(1)) entry.Failures = 0;
                         }
-                        else if (!entry.Desired) entry.State = "idle";
+                        else if (!entry.Desired) entry.State = entry.Status?.LoginCompleted == true ? "logged_in" : "idle";
                         else if (!status.Authorized) { entry.State = "failed"; entry.Error = status.AuthorizationError ?? "需要授权"; }
                     }
                     if (status.StandaloneShopRestartRequestId is { } requestId && requestId != Guid.Empty && status.IsRunning && status.Authorized)
@@ -1109,7 +1129,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
         await _intentGate.WaitAsync(deadline.Token).ConfigureAwait(false);
         try
         {
-            var writing = WriteJsonAsync(Path.Combine(_root, "run-intent.json"), Entries().Where(e => e.Desired).Select(e => e.Config.InstanceId).ToArray(), deadline.Token);
+            var writing = WriteJsonAsync(Path.Combine(_root, "run-intent.json"), Entries().Where(e => e.Desired && !e.LoginOnly).Select(e => e.Config.InstanceId).ToArray(), deadline.Token);
             _ = writing.ContinueWith(failed => _ = failed.Exception, CancellationToken.None,
                 TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
             await writing.WaitAsync(deadline.Token).ConfigureAwait(false);

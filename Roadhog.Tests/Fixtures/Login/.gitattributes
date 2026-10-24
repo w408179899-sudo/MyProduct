@@ -1,0 +1,2 @@
+Ocr/*.png -text -whitespace
+Ocr/*.f32 -text -whitespace
