@@ -293,6 +293,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("skill audit elemental all ranks confirm pet HP and local hold", SpiritmasterElementalRankTests.EveryOfficialRankConfirmsPetHpAndKeepsLocalHoldAsync),
     ("skill audit elemental all ranks final player HP and death guard", SpiritmasterElementalRankTests.EveryOfficialRankRechecksPlayerHpAfterPetReadAsync),
     ("skill audit elemental unknown identity cannot inherit special behavior", SpiritmasterElementalRankTests.UnknownIdentityDoesNotBecomeElementalByNameAsync),
+    ("skill audit availability two second wait yields and resumes", QuickbarSkillFinalGuardTests.AvailabilityWaitYieldsAndResumesAsync),
+    ("skill audit availability wait preserves explicit stop", QuickbarSkillFinalGuardTests.AvailabilityWaitPreservesStopAsync),
     ("skill audit final child read stops target changes", QuickbarSkillFinalGuardTests.PostGuardChildReadStopsTargetChangeAsync),
     ("skill audit final child read stops death", QuickbarSkillFinalGuardTests.PostGuardChildReadStopsDeathAsync),
     ("skill audit final child read yields maintenance", QuickbarSkillFinalGuardTests.PostGuardChildReadYieldsToMaintenanceAsync),

@@ -9,6 +9,47 @@ internal static class QuickbarSkillFinalGuardTests
 {
     private static readonly DateTimeOffset Start = DateTimeOffset.Parse("2026-10-05T10:00:00+08:00");
 
+    public static async Task AvailabilityWaitYieldsAndResumesAsync()
+    {
+        foreach (var blockedRead in new[] { 1, 2, 3 })
+        {
+            var f = new Fixture();
+            f.Reader.BlockAt = blockedRead;
+            var started = System.Diagnostics.Stopwatch.StartNew();
+            await f.Tick().WaitAsync(TimeSpan.FromSeconds(8));
+            Check(started.Elapsed >= TimeSpan.FromSeconds(1.8) && started.Elapsed < TimeSpan.FromSeconds(7),
+                "availability wait expires after two seconds");
+            Check(f.State.YieldToWorker && !f.State.TickInFlight && f.Reader.ActiveReads == 0 &&
+                f.Reader.CancelledReads == 1 && f.Keyboard.Keys.Count == 0,
+                "initial/final guards cancel and drain the read, yield to life guard, and send no input");
+            f.Reader.BlockAt = 0;
+            f.Reader.Value = f.Reader.Value with { CombatState = Guard(hp: 0) };
+            await f.Tick();
+            Check(f.State.YieldToWorker && f.Keyboard.Keys.Count == 0,
+                "official death after timeout keeps combat stopped");
+            f.Reader.Value = Bar(true);
+            f.Reader.OnRead = null;
+            await f.Tick();
+            Check(f.Keyboard.Keys.Count == 1 && !f.State.TickInFlight,
+                "valid alive data resumes normal skill execution after timeout/death");
+        }
+    }
+
+    public static async Task AvailabilityWaitPreservesStopAsync()
+    {
+        var f = new Fixture();
+        f.Reader.BlockAt = 1;
+        using var stop = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+        try
+        {
+            await f.Tick(token: stop.Token);
+            throw new Exception("worker stop must propagate");
+        }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
+        Check(f.Reader.ActiveReads == 0 && f.Reader.CancelledReads == 1 && !f.State.TickInFlight &&
+            f.Keyboard.Keys.Count == 0, "explicit stop drains the reader and still propagates cancellation");
+    }
+
     public static async Task PostGuardChildReadStopsTargetChangeAsync()
     {
         foreach (var sameEntity in new[] { false, true })
@@ -172,8 +213,8 @@ internal static class QuickbarSkillFinalGuardTests
             controller = new(Keyboard, clock);
         }
 
-        public Task<TimeSpan> Tick(bool petGuard = false) => controller.TickAsync(Plan, State, Target(), Reader,
-            ReadSkills, new() { KeyHoldMs = 25 },
+        public Task<TimeSpan> Tick(bool petGuard = false, CancellationToken token = default) => controller.TickAsync(Plan, State, Target(), Reader,
+            ReadSkills, new() { KeyHoldMs = 25 }, cancellationToken: token,
             readTargetBeforePress: () => { TargetReadCount++; return Task.FromResult(CurrentTarget); },
             cooldownReadiness: _ => SemiAutoSkillCooldownReadiness.Ready,
             allowCombatSnapshot: _ => !MaintenanceDue,
@@ -206,13 +247,21 @@ internal static class QuickbarSkillFinalGuardTests
         public SkillAvailabilitySnapshot Value = Bar(true);
         public int ReadCount;
         public Action<int>? OnRead;
-        public Task<PublishedGameSnapshot<SkillAvailabilitySnapshot>> ReadSkillAvailabilityAsync(
+        public int BlockAt, ActiveReads, CancelledReads;
+        public async Task<PublishedGameSnapshot<SkillAvailabilitySnapshot>> ReadSkillAvailabilityAsync(
             long afterVersion = 0, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             ReadCount++;
+            if (ReadCount == BlockAt)
+            {
+                ActiveReads++;
+                try { await Task.Delay(Timeout.Infinite, cancellationToken); }
+                catch (OperationCanceledException) { CancelledReads++; throw; }
+                finally { ActiveReads--; }
+            }
             OnRead?.Invoke(ReadCount);
-            return Task.FromResult(new PublishedGameSnapshot<SkillAvailabilitySnapshot>(ReadCount, Value));
+            return new PublishedGameSnapshot<SkillAvailabilitySnapshot>(ReadCount, Value);
         }
     }
 

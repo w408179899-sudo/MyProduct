@@ -79,6 +79,7 @@ public sealed partial class QuickbarSkillCombatController
         state.TickInFlight = true;
         state.YieldToWorker = false;
         state.SupportsCombatState = false;
+        availabilityReader = new BoundedAvailabilityReader(availabilityReader);
         try
         {
             if (!settings.AttackWeaveEnabled) state.AttackWeave.Reset();
@@ -528,6 +529,13 @@ public sealed partial class QuickbarSkillCombatController
                 }
                 return RemainingDelay();
             }
+            return RemainingDelay();
+        }
+        catch (AvailabilityWaitExpiredException)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            state.YieldToWorker = true;
+            logger?.Info("quickbar_skill.availability.wait_expired");
             return RemainingDelay();
         }
         catch (OperationCanceledException)
