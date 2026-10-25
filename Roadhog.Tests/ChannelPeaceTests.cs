@@ -10,6 +10,27 @@ using Roadhog.Core.Model;
 
 internal static class ChannelPeaceTests
 {
+    public static async Task ReadBudgetPreservesSubmittedTransitionAsync()
+    {
+        foreach (var died in new[] { false, true })
+        {
+            var h = new Harness();
+            var controller = new FixedChannelController(h.Executor, h.Clock);
+            h.Channel.ObserveLocation(3, 100, 1);
+            h.Channel.StartAttempt(h.Clock.GetUtcNow());
+            h.Api.TransitionRead = () => new(false, null, null, DateTimeOffset.UtcNow);
+            var waiting = await controller.TickAsync(h.Context, h.Settings, h.Channel, h.Combat, () => Task.CompletedTask);
+            Require(waiting.HasValue && h.Channel.AwaitingConfirmation && h.Executor.Requests.Count == 0,
+                "a submitted transition retains its hold after a read yield and never resubmits while loading");
+            h.Api.Channel = new ChannelSnapshot(died ? 0 : 2, 3, 100, DateTimeOffset.Now);
+            if (died) h.Api.Player = h.Api.Player with { CurrentHp = 0 };
+            h.Api.TransitionRead = () => new(true, h.Api.Player, h.Api.Channel, DateTimeOffset.UtcNow);
+            var resumed = await controller.TickAsync(h.Context, h.Settings, h.Channel, h.Combat, () => Task.CompletedTask);
+            Require(resumed == null && !h.Channel.AwaitingConfirmation && h.Executor.Requests.Count == 0 &&
+                (died || h.Channel.Completed), "world-ready death yields to revival; arrival completes without a duplicate click");
+        }
+    }
+
     public static async Task SelectedTargetIsNotCombatAsync()
     {
         var h = new Harness();

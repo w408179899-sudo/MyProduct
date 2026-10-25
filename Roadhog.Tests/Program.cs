@@ -293,6 +293,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("skill audit elemental all ranks confirm pet HP and local hold", SpiritmasterElementalRankTests.EveryOfficialRankConfirmsPetHpAndKeepsLocalHoldAsync),
     ("skill audit elemental all ranks final player HP and death guard", SpiritmasterElementalRankTests.EveryOfficialRankRechecksPlayerHpAfterPetReadAsync),
     ("skill audit elemental unknown identity cannot inherit special behavior", SpiritmasterElementalRankTests.UnknownIdentityDoesNotBecomeElementalByNameAsync),
+    ("worker read budget submitted channel transition keeps loading hold", ChannelPeaceTests.ReadBudgetPreservesSubmittedTransitionAsync),
     ("worker read budget independent opening entry", WorkerReadBudgetTests.OpeningEntryUsesBudgetAsync),
     ("worker read budget interrupted cleanup pauses without replay", CleanupWorkflowTests.WorkerReadBudgetDoesNotReplayCleanupAsync),
     ("worker read budget provider channels and recovery", WorkerReadBudgetTests.ProviderBudgetAndRecoveryAsync),

@@ -24,6 +24,17 @@ public sealed class FixedChannelController(IFixedChannelSwitchExecutor switchExe
         }
         if (target != state.TargetChannelNumber) state.Reset();
         if (state.Completed) return null;
+        if (state.AwaitingConfirmation)
+        {
+            // A scheduling yield may interrupt observation after the move was submitted.
+            // Keep the loading hold and observe the result before permitting work/retry.
+            var scene = (await context.Snapshots.ReadChannelTransitionAsync().ConfigureAwait(false)).Value;
+            if (!scene.IsReady) return TimeSpan.FromMilliseconds(200);
+            state.AwaitingConfirmation = false;
+            state.NextChannelReadAt = DateTimeOffset.MinValue;
+            state.NextLocationReadAt = DateTimeOffset.MinValue;
+            if (scene.Player!.IsDead) return null;
+        }
         var now = _clock.GetUtcNow();
         if (ChannelSwitchSafety.IsWorkingOnCombat(combatState)) state.BreakPeace();
         if (now < state.NextChannelReadAt) return null;
