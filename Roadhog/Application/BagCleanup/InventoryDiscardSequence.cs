@@ -83,6 +83,7 @@ public sealed class InventoryDiscardSequence(IKeyboardInput input, IRoadhogLogge
             return OperationResult<InventoryDiscardTestResult>.Ok(new(discarded, candidates.Count - discarded));
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+        catch (SnapshotReadBudgetExceededException) { throw; }
         catch (Exception ex)
         {
             logger.Warn("inventory_discard.failed", new Dictionary<string, object?>
@@ -119,6 +120,7 @@ public sealed class InventoryDiscardSequence(IKeyboardInput input, IRoadhogLogge
                     await Pause(100, deadline.Token);
                 }
             }
+            catch (SnapshotReadBudgetExceededException) { throw; }
             catch (OperationCanceledException) when (!token.IsCancellationRequested)
             { throw new TimeoutException("游戏未确认操作，已停止，不重复点击。"); }
         }

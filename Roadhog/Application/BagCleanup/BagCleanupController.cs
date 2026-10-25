@@ -62,6 +62,7 @@ public sealed partial class BagCleanupController
         {
             return await TickAfterLootCoreAsync(context, state).ConfigureAwait(false);
         }
+        catch (SnapshotReadBudgetExceededException) { throw; }
         catch (Exception ex) when (!context.StopToken.IsCancellationRequested &&
             !context.WorkflowOwnsCleanup && state.DiscardActive)
         {
@@ -900,6 +901,7 @@ public sealed partial class BagCleanupController
             cancel = await _discarder.CancelPendingDiscardAsync(context).ConfigureAwait(false);
             close = await _discarder.CloseInventoryWindowIfOpenAsync(context).ConfigureAwait(false);
         }
+        catch (SnapshotReadBudgetExceededException) { throw; }
         catch (Exception ex) when (keepPending && !context.StopToken.IsCancellationRequested)
         {
             // Retain ownership even if releasing/cancelling the failed action also fails.
@@ -1207,6 +1209,7 @@ public sealed partial class BagCleanupController
                 state.PrepareReturnAfterSuccess();
                 return BagCleanupTickResult.Running(outcome == NpcSaleOutcome.NoSale ? "npc_sale_no_sale" : "npc_sale_verified");
             }
+            catch (SnapshotReadBudgetExceededException) { throw; }
             catch (Exception ex) when (!context.StopToken.IsCancellationRequested && ex is not OperationCanceledException)
             {
                 return ReturnByReversePathAfterFailure(context, state, "npc_sale_unconfirmed", ex.Message);

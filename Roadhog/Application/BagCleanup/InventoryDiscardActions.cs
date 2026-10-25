@@ -72,6 +72,7 @@ public sealed class InventoryDiscardActions(IKeyboardInput input, IRoadhogSnapsh
                 await Pause(100, deadline.Token);
             }
         }
+        catch (SnapshotReadBudgetExceededException) { throw; }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         { throw new TimeoutException("确认框未响应，停止操作，不重复点击。"); }
         return dialog;
@@ -103,6 +104,7 @@ public sealed class InventoryDiscardActions(IKeyboardInput input, IRoadhogSnapsh
                 await Pause(100, deadline.Token);
             }
         }
+        catch (SnapshotReadBudgetExceededException) { throw; }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         { throw new TimeoutException("等待丢弃确认框就绪超时，未点击确认。"); }
     }

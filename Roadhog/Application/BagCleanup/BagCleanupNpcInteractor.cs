@@ -1,3 +1,4 @@
+using Roadhog.Core.Api;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Common;
 using Roadhog.Core.Input;
@@ -98,6 +99,7 @@ public sealed class BagCleanupNpcInteractor
                     await Task.Delay(100, deadline.Token);
                 }
             }
+            catch (SnapshotReadBudgetExceededException) { throw; }
             catch (OperationCanceledException) when (!context.StopToken.IsCancellationRequested)
             { return OperationResult.Fail("未确认 NPC 对话窗口出现。"); }
         }

@@ -1,3 +1,4 @@
+using Roadhog.Core.Api;
 using Roadhog.Application.BagCleanup;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Input;
@@ -22,6 +23,7 @@ internal sealed class GroceryStageContinuation(AccountWorkerContext context, IKe
     {
         context.StopToken.ThrowIfCancellationRequested();
         try { await action(); context.StopToken.ThrowIfCancellationRequested(); return true; }
+        catch (SnapshotReadBudgetExceededException) { throw; }
         catch (Exception ex) when (!context.StopToken.IsCancellationRequested)
         { RecordFailure(stage, ex); return false; }
     }

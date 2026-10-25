@@ -547,6 +547,7 @@ public sealed class CombatJumpAssistSession : IAsyncDisposable
         SemaphoreSlim wakeSignal,
         CancellationTokenSource cancellation)
     {
+        using var backgroundReads = Roadhog.Core.Api.SnapshotReadBudget.Enter(Timeout.InfiniteTimeSpan);
         var token = cancellation.Token;
         var nextJumpAt = mode == JumpAssistMode.TeamGroup
             ? DateTimeOffset.Now + _jumpInterval

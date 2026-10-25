@@ -1,3 +1,4 @@
+using Roadhog.Core.Api;
 using Roadhog.Application.JumpAssist;
 using Roadhog.Application.Channels;
 using Roadhog.Application.SemiAuto;
@@ -93,6 +94,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         var nextSharedRefresh = DateTimeOffset.MinValue;
         var sharedConfiguration = _sharedConfigurationFactory?.Invoke(context.Config);
         var lastCleanup = DateTimeOffset.MinValue;
+        var checkLifeAfterYield = false;
         CombatJumpAssistSession? jumpAssist = null;
         if (scriptSettings.Combat.JumpAssistEnabled)
         {
@@ -120,245 +122,336 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         {
             while (!context.StopToken.IsCancellationRequested)
             {
-                context.RuntimeStates.MarkHeartbeat(context.Config.AccountName);
-                var foodCombatActive = FoodMaintenanceController.HasWork(stationaryCombatState);
-                if (scriptSettings.MainMode == AccountMainMode.SemiAuto &&
-                    (scriptSettings.Maintenance.AutoDrinkEnabled || scriptSettings.Maintenance.AutoFoodEnabled))
-                    foodCombatActive |= (await context.Snapshots.ReadLockedTargetAsync().ConfigureAwait(false)).Value.IsMonsterAlive;
-                foodMaintenance.ObserveCombat(scriptSettings.Maintenance, foodCombatActive);
-                if (context.CleanupRequests.StandaloneShopRestartRequestId.HasValue)
+                using var readBudget = SnapshotReadBudget.Enter(TimeSpan.FromSeconds(2));
+                try
                 {
-                    // The manager owns Stop/Start. Keep the completed worker idle until cancellation.
-                    await Task.Delay(context.Options.TickInterval, context.StopToken).ConfigureAwait(false);
-                    continue;
-                }
-                if (sharedConfiguration is not null && DateTimeOffset.UtcNow >= nextSharedRefresh)
-                {
-                    nextSharedRefresh = DateTimeOffset.UtcNow.AddSeconds(2);
-                    try
+                    context.RuntimeStates.MarkHeartbeat(context.Config.AccountName);
+                    if (context.CleanupRequests.Current is { Failure: not null } failedShop)
                     {
-                        await SharedConfigurationRefresh.RefreshAsync(sharedConfiguration, scriptSettings,
-                            includeCleanup: context.CleanupRequests.Current is null, context.StopToken).ConfigureAwait(false);
+                        var recoveryDelay = await _stationaryCombat.TickPlayerLifeGuardAsync(
+                            context, semiAutoPlan, semiAutoState, stationaryCombatState,
+                            followRevivePath: false, reviveOnly: true).ConfigureAwait(false);
+                        context.RuntimeStates.MarkWarning(context.Config.AccountName, failedShop.Failure);
+                        await Task.Delay(recoveryDelay ?? context.Options.TickInterval, context.StopToken);
+                        continue;
                     }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    if (checkLifeAfterYield)
                     {
-                        context.Logger.Warn("shared_configuration.refresh_failed", new Dictionary<string, object?>
-                            { ["account"] = context.Config.AccountName, ["error"] = ex.Message });
-                        context.RuntimeStates.MarkWarning(context.Config.AccountName, "共享配置刷新失败：" + ex.Message);
-                    }
-                }
-                if (context.CleanupRequests.Current is { Failure: not null } failedShop)
-                {
-                    context.RuntimeStates.MarkWarning(context.Config.AccountName, failedShop.Failure);
-                    await Task.Delay(context.Options.TickInterval, context.StopToken);
-                    continue;
-                }
-                if (await _stationaryCombat.TryTickTownReturnAsync(
-                        context, semiAutoPlan, semiAutoState, stationaryCombatState).ConfigureAwait(false) is { } townReturnDelay)
-                {
-                    await Task.Delay(townReturnDelay, context.StopToken).ConfigureAwait(false);
-                    continue;
-                }
-
-                if (_cleanupWorkflow != null && !fixedChannelState.AwaitingConfirmation)
-                {
-                    var now = DateTimeOffset.UtcNow;
-                    if (context.CleanupRequests.Current == null && now >= nextCleanupCheck &&
-                        !stationaryCombatState.Fighting && !stationaryCombatState.LootAfterKill.Active &&
-                        stationaryCombatState.TopLevelState == StationaryCombatTopLevelState.Normal)
-                    {
-                        nextCleanupCheck = now.AddSeconds(2);
-                        var maintenance = scriptSettings.Maintenance;
-                        if (await NpcArrowPurchaseSequence.NeededAsync(context, duringCleanup: false))
+                        var recoveryDelay = await _stationaryCombat.TickPlayerLifeGuardAsync(
+                            context, semiAutoPlan, semiAutoState, stationaryCombatState,
+                            scriptSettings.MainMode == AccountMainMode.CustomCombat).ConfigureAwait(false);
+                        if (recoveryDelay.HasValue)
                         {
-                            context.CleanupRequests.Request(scriptSettings, manual: false, arrowRestock: true);
-                            context.Logger.Info("arrow_restock.requested", new Dictionary<string, object?> { ["account"] = context.Config.AccountName });
+                            await Task.Delay(recoveryDelay.Value, context.StopToken);
+                            continue;
                         }
-                        else if (maintenance.CleanupWorkflow.Mode == CleanupMode.GroceryShop)
+                        checkLifeAfterYield = false;
+                    }
+
+                    var foodCombatActive = FoodMaintenanceController.HasWork(stationaryCombatState);
+                    if (scriptSettings.MainMode == AccountMainMode.SemiAuto &&
+                        (scriptSettings.Maintenance.AutoDrinkEnabled || scriptSettings.Maintenance.AutoFoodEnabled))
+                        foodCombatActive |= (await context.Snapshots.ReadLockedTargetAsync().ConfigureAwait(false)).Value.IsMonsterAlive;
+                    foodMaintenance.ObserveCombat(scriptSettings.Maintenance, foodCombatActive);
+                    if (context.CleanupRequests.StandaloneShopRestartRequestId.HasValue)
+                    {
+                        // The manager owns Stop/Start. Keep the completed worker idle until cancellation.
+                        await Task.Delay(context.Options.TickInterval, context.StopToken).ConfigureAwait(false);
+                        continue;
+                    }
+                    if (sharedConfiguration is not null && DateTimeOffset.UtcNow >= nextSharedRefresh)
+                    {
+                        nextSharedRefresh = DateTimeOffset.UtcNow.AddSeconds(2);
+                        try
                         {
-                            var scheduled = await _cleanupWorkflow.GroceryScheduleDueAsync(context);
-                            var bagFull = false;
-                            if (!scheduled && maintenance.BagCleanupEnabled && maintenance.BagCleanupThreshold > 0)
+                            await SharedConfigurationRefresh.RefreshAsync(sharedConfiguration, scriptSettings,
+                                includeCleanup: context.CleanupRequests.Current is null, context.StopToken).ConfigureAwait(false);
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            context.Logger.Warn("shared_configuration.refresh_failed", new Dictionary<string, object?>
+                                { ["account"] = context.Config.AccountName, ["error"] = ex.Message });
+                            context.RuntimeStates.MarkWarning(context.Config.AccountName, "共享配置刷新失败：" + ex.Message);
+                        }
+                    }
+                    if (await _stationaryCombat.TryTickTownReturnAsync(
+                            context, semiAutoPlan, semiAutoState, stationaryCombatState).ConfigureAwait(false) is { } townReturnDelay)
+                    {
+                        await Task.Delay(townReturnDelay, context.StopToken).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    if (_cleanupWorkflow != null && !fixedChannelState.AwaitingConfirmation)
+                    {
+                        var now = DateTimeOffset.UtcNow;
+                        if (context.CleanupRequests.Current == null && now >= nextCleanupCheck &&
+                            !stationaryCombatState.Fighting && !stationaryCombatState.LootAfterKill.Active &&
+                            stationaryCombatState.TopLevelState == StationaryCombatTopLevelState.Normal)
+                        {
+                            nextCleanupCheck = now.AddSeconds(2);
+                            var maintenance = scriptSettings.Maintenance;
+                            if (await NpcArrowPurchaseSequence.NeededAsync(context, duringCleanup: false))
+                            {
+                                context.CleanupRequests.Request(scriptSettings, manual: false, arrowRestock: true);
+                                context.Logger.Info("arrow_restock.requested", new Dictionary<string, object?> { ["account"] = context.Config.AccountName });
+                            }
+                            else if (maintenance.CleanupWorkflow.Mode == CleanupMode.GroceryShop)
+                            {
+                                var scheduled = await _cleanupWorkflow.GroceryScheduleDueAsync(context);
+                                var bagFull = false;
+                                if (!scheduled && maintenance.BagCleanupEnabled && maintenance.BagCleanupThreshold > 0)
+                                {
+                                    var bag = (await context.Snapshots.ReadInventoryAsync()).Value;
+                                    var capacity = (await context.Snapshots.ReadInventoryCapacityAsync()).Value;
+                                    bagFull = BagCleanupController.CountFreeSlots(bag, capacity) < maintenance.BagCleanupThreshold;
+                                }
+                                if (scheduled || bagFull)
+                                    context.CleanupRequests.Request(scriptSettings, manual: false, resetsCooldown: false, allowNpcSell: false,
+                                        groceryTrigger: scheduled ? GroceryShopTrigger.Scheduled : GroceryShopTrigger.Backpack);
+                            }
+                            else if (maintenance.BagCleanupEnabled && maintenance.BagCleanupThreshold > 0 && maintenance.CleanupWorkflow.NpcCleanup)
                             {
                                 var bag = (await context.Snapshots.ReadInventoryAsync()).Value;
                                 var capacity = (await context.Snapshots.ReadInventoryCapacityAsync()).Value;
-                                bagFull = BagCleanupController.CountFreeSlots(bag, capacity) < maintenance.BagCleanupThreshold;
-                            }
-                            if (scheduled || bagFull)
-                                context.CleanupRequests.Request(scriptSettings, manual: false, resetsCooldown: false, allowNpcSell: false,
-                                    groceryTrigger: scheduled ? GroceryShopTrigger.Scheduled : GroceryShopTrigger.Backpack);
-                        }
-                        else if (maintenance.BagCleanupEnabled && maintenance.BagCleanupThreshold > 0 && maintenance.CleanupWorkflow.NpcCleanup)
-                        {
-                            var bag = (await context.Snapshots.ReadInventoryAsync()).Value;
-                            var capacity = (await context.Snapshots.ReadInventoryCapacityAsync()).Value;
-                            if (BagCleanupController.CountFreeSlots(bag, capacity) < maintenance.BagCleanupThreshold)
-                            {
-                                var automatic = scriptSettings.Clone();
-                                var fullCleanupAllowed = now - lastCleanup >= BagCleanupController.FullCleanupCooldown;
-                                if (!fullCleanupAllowed)
+                                if (BagCleanupController.CountFreeSlots(bag, capacity) < maintenance.BagCleanupThreshold)
                                 {
-                                    // Existing discard rules remain eligible during the full-cleanup cooldown.
-                                    if (!automatic.Maintenance.CleanupWorkflow.NpcCleanup || BagCleanupItemMatcher.SelectDiscardItems(bag, automatic.Maintenance).Count == 0)
-                                        automatic.Maintenance.CleanupWorkflow.NpcCleanup = false;
+                                    var automatic = scriptSettings.Clone();
+                                    var fullCleanupAllowed = now - lastCleanup >= BagCleanupController.FullCleanupCooldown;
+                                    if (!fullCleanupAllowed)
+                                    {
+                                        // Existing discard rules remain eligible during the full-cleanup cooldown.
+                                        if (!automatic.Maintenance.CleanupWorkflow.NpcCleanup || BagCleanupItemMatcher.SelectDiscardItems(bag, automatic.Maintenance).Count == 0)
+                                            automatic.Maintenance.CleanupWorkflow.NpcCleanup = false;
+                                    }
+                                    if (automatic.Maintenance.CleanupWorkflow.NpcCleanup)
+                                        context.CleanupRequests.Request(automatic, manual: false, resetsCooldown: fullCleanupAllowed, allowNpcSell: fullCleanupAllowed);
                                 }
-                                if (automatic.Maintenance.CleanupWorkflow.NpcCleanup)
-                                    context.CleanupRequests.Request(automatic, manual: false, resetsCooldown: fullCleanupAllowed, allowNpcSell: fullCleanupAllowed);
                             }
                         }
-                    }
-                    if (context.CleanupRequests.Current is { } cleanup)
-                    {
-                        try
+                        if (context.CleanupRequests.Current is { } cleanup)
                         {
-                            if (await _stationaryCombat.PrepareCleanupTickAsync(context, semiAutoPlan, semiAutoState, stationaryCombatState))
+                            try
                             {
-                                if ((cleanup.StandaloneShop || cleanup.GroceryShop) && jumpAssist is not null)
-                                    await jumpAssist.StopAsync("standalone_shop").ConfigureAwait(false);
-                                try
+                                if (await _stationaryCombat.PrepareCleanupTickAsync(context, semiAutoPlan, semiAutoState, stationaryCombatState))
                                 {
-                                    await _cleanupWorkflow.RunAsync(context, cleanup, c => _stationaryCombat.ReturnAfterCleanupAsync(
-                                        c, semiAutoPlan, semiAutoState, stationaryCombatState));
+                                    if ((cleanup.StandaloneShop || cleanup.GroceryShop) && jumpAssist is not null)
+                                        await jumpAssist.StopAsync("standalone_shop").ConfigureAwait(false);
+                                    try
+                                    {
+                                        await _cleanupWorkflow.RunAsync(context, cleanup, c => _stationaryCombat.ReturnAfterCleanupAsync(
+                                            c, semiAutoPlan, semiAutoState, stationaryCombatState));
+                                    }
+                                    catch (SnapshotReadBudgetExceededException) { throw; }
+                                    catch (Exception ex) when (!context.StopToken.IsCancellationRequested && cleanup.GroceryShop &&
+                                        cleanup.Settings.Maintenance.CleanupWorkflow.GroceryPostSaleAction == GroceryPostSaleAction.NpcSell &&
+                                        (cleanup.SoldOutConfirmed || cleanup.GroceryNpcStageStarted))
+                                    {
+                                        await _cleanupWorkflow.FinishGroceryAfterFailureAsync(context, cleanup, ex);
+                                    }
+                                    context.StopToken.ThrowIfCancellationRequested();
+                                    if (cleanup.RequestsRestart)
+                                    {
+                                        context.CleanupRequests.CompleteStandaloneShopForRestart(cleanup);
+                                        context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, cleanup.GroceryShop
+                                            ? "杂货清包处理完成，等待停止并重新启动脚本" : "全部售罄，等待停止并重新启动脚本");
+                                        context.Logger.Info("standalone_shop.restart.requested", new Dictionary<string, object?>
+                                            { ["account"] = context.Config.AccountName, ["requestId"] = cleanup.RequestId });
+                                        continue;
+                                    }
+                                    context.CleanupRequests.Complete();
+                                    if (cleanup.GroceryShop) nextCleanupCheck = DateTimeOffset.UtcNow.AddSeconds(30);
+                                    context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, string.Empty);
+                                    if (cleanup.ResetsCooldown && cleanup.FullCleanupStarted) lastCleanup = DateTimeOffset.UtcNow;
+                                    stationaryCombatState.PathCombat.Reset();
+                                    await _stationaryCombat.SetChannelSwitchPendingAsync(context, stationaryCombatState, false);
                                 }
-                                catch (Exception ex) when (!context.StopToken.IsCancellationRequested && cleanup.GroceryShop &&
-                                    cleanup.Settings.Maintenance.CleanupWorkflow.GroceryPostSaleAction == GroceryPostSaleAction.NpcSell &&
-                                    (cleanup.SoldOutConfirmed || cleanup.GroceryNpcStageStarted))
+                                else context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, "清包已排队，先处理当前战斗 / 复活");
+                            }
+                            catch (SnapshotReadBudgetExceededException) { throw; }
+                            catch (Exception ex) when (!context.StopToken.IsCancellationRequested && cleanup.GroceryShop && !cleanup.GroceryNpcStageStarted &&
+                                ex is GroceryTripInterruptedException or GroceryTripDepartureFailedException or CleanupCombatInterruptionException or CleanupDeathInterruptionException)
+                            {
+                                context.CleanupRequests.Complete();
+                                context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, string.Empty);
+                                context.RuntimeStates.MarkWarning(context.Config.AccountName, ex.Message);
+                                nextCleanupCheck = DateTimeOffset.UtcNow.AddSeconds(2);
+                                stationaryCombatState.PathCombat.Reset();
+                                await _stationaryCombat.SetChannelSwitchPendingAsync(context, stationaryCombatState, false);
+                                context.Logger.Info("grocery_shop.attempt_ended", new Dictionary<string, object?>
+                                    { ["account"] = context.Config.AccountName, ["reason"] = ex.Message });
+                            }
+                            catch (Exception ex) when (!context.StopToken.IsCancellationRequested &&
+                                !cleanup.StandaloneShop && !cleanup.GroceryShop && (ex is CleanupCombatInterruptionException or CleanupDeathInterruptionException))
+                            {
+                                if (ex is CleanupDeathInterruptionException) cleanup.TownReturnCompleted = false;
+                                context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, ex.Message);
+                            }
+                            catch (Exception ex) when (!context.StopToken.IsCancellationRequested && !cleanup.StandaloneShop &&
+                                cleanup.PreparationStage != CleanupPreparationStage.None &&
+                                (!cleanup.GroceryShop || cleanup.GroceryTrigger == GroceryShopTrigger.Backpack && cleanup.PreparationStage == CleanupPreparationStage.Discarding))
+                            {
+                                // Keep the same request and town-return progress. Re-read remaining items on retry;
+                                // never replay completed trades or treat an unfinished discard as a successful cleanup.
+                                var stage = cleanup.PreparationStage == CleanupPreparationStage.ReturningToTown ? "回城" : "丢弃";
+                                context.Logger.Warn("cleanup_workflow.preparation_pending", new Dictionary<string, object?>
                                 {
-                                    await _cleanupWorkflow.FinishGroceryAfterFailureAsync(context, cleanup, ex);
-                                }
-                                context.StopToken.ThrowIfCancellationRequested();
-                                if (cleanup.RequestsRestart)
+                                    ["account"] = context.Config.AccountName, ["stage"] = stage, ["error"] = ex.Message
+                                });
+                                context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, stage + "未完成，等待重试：" + ex.Message);
+                                await Task.Delay(2000, context.StopToken);
+                            }
+                            catch (Exception ex) when (!context.StopToken.IsCancellationRequested)
+                            {
+                                if (cleanup.StandaloneShop || cleanup.GroceryShop || cleanup.ArrowRestock || ex is ArrowPurchaseUnconfirmedException)
                                 {
-                                    context.CleanupRequests.CompleteStandaloneShopForRestart(cleanup);
-                                    context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, cleanup.GroceryShop
-                                        ? "杂货清包处理完成，等待停止并重新启动脚本" : "全部售罄，等待停止并重新启动脚本");
-                                    context.Logger.Info("standalone_shop.restart.requested", new Dictionary<string, object?>
-                                        { ["account"] = context.Config.AccountName, ["requestId"] = cleanup.RequestId });
+                                    cleanup.Failure = (cleanup.ArrowRestock || ex is ArrowPurchaseUnconfirmedException ? "补箭" : cleanup.GroceryShop ? "杂货摆摊" : "自动摆摊") + "已暂停，未转入挂机；请停止账号后处理并重新启动：" + ex.Message;
+                                    context.Logger.Error(cleanup.ArrowRestock || ex is ArrowPurchaseUnconfirmedException ? "arrow_restock.failed" : cleanup.GroceryShop ? "grocery_shop.failed" : "standalone_shop.failed", ex, new Dictionary<string, object?> { ["account"] = context.Config.AccountName });
+                                    context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, cleanup.Failure);
                                     continue;
                                 }
+                                // Drop this execution, not the worker. Never immediately replay uncertain trade actions.
                                 context.CleanupRequests.Complete();
-                                if (cleanup.GroceryShop) nextCleanupCheck = DateTimeOffset.UtcNow.AddSeconds(30);
+                                nextCleanupCheck = DateTimeOffset.UtcNow.AddSeconds(30);
+                                lastCleanup = DateTimeOffset.UtcNow;
+                                context.Logger.Error("cleanup_workflow.failed_continuing", ex, new Dictionary<string, object?>
+                                {
+                                    ["account"] = context.Config.AccountName, ["automaticRetryAfterMs"] = 30000
+                                });
+                                context.RuntimeStates.MarkWarning(context.Config.AccountName, "本次清包失败，继续挂机：" + ex.Message);
                                 context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, string.Empty);
-                                if (cleanup.ResetsCooldown && cleanup.FullCleanupStarted) lastCleanup = DateTimeOffset.UtcNow;
                                 stationaryCombatState.PathCombat.Reset();
                                 await _stationaryCombat.SetChannelSwitchPendingAsync(context, stationaryCombatState, false);
                             }
-                            else context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, "清包已排队，先处理当前战斗 / 复活");
+                            await Task.Delay(context.Options.TickInterval, context.StopToken);
+                            continue;
                         }
-                        catch (Exception ex) when (!context.StopToken.IsCancellationRequested && cleanup.GroceryShop && !cleanup.GroceryNpcStageStarted &&
-                            ex is GroceryTripInterruptedException or GroceryTripDepartureFailedException or CleanupCombatInterruptionException or CleanupDeathInterruptionException)
-                        {
-                            context.CleanupRequests.Complete();
-                            context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, string.Empty);
-                            context.RuntimeStates.MarkWarning(context.Config.AccountName, ex.Message);
-                            nextCleanupCheck = DateTimeOffset.UtcNow.AddSeconds(2);
-                            stationaryCombatState.PathCombat.Reset();
-                            await _stationaryCombat.SetChannelSwitchPendingAsync(context, stationaryCombatState, false);
-                            context.Logger.Info("grocery_shop.attempt_ended", new Dictionary<string, object?>
-                                { ["account"] = context.Config.AccountName, ["reason"] = ex.Message });
-                        }
-                        catch (Exception ex) when (!context.StopToken.IsCancellationRequested &&
-                            !cleanup.StandaloneShop && !cleanup.GroceryShop && (ex is CleanupCombatInterruptionException or CleanupDeathInterruptionException))
-                        {
-                            if (ex is CleanupDeathInterruptionException) cleanup.TownReturnCompleted = false;
-                            context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, ex.Message);
-                        }
-                        catch (Exception ex) when (!context.StopToken.IsCancellationRequested && !cleanup.StandaloneShop &&
-                            cleanup.PreparationStage != CleanupPreparationStage.None &&
-                            (!cleanup.GroceryShop || cleanup.GroceryTrigger == GroceryShopTrigger.Backpack && cleanup.PreparationStage == CleanupPreparationStage.Discarding))
-                        {
-                            // Keep the same request and town-return progress. Re-read remaining items on retry;
-                            // never replay completed trades or treat an unfinished discard as a successful cleanup.
-                            var stage = cleanup.PreparationStage == CleanupPreparationStage.ReturningToTown ? "回城" : "丢弃";
-                            context.Logger.Warn("cleanup_workflow.preparation_pending", new Dictionary<string, object?>
-                            {
-                                ["account"] = context.Config.AccountName, ["stage"] = stage, ["error"] = ex.Message
-                            });
-                            context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, stage + "未完成，等待重试：" + ex.Message);
-                            await Task.Delay(2000, context.StopToken);
-                        }
-                        catch (Exception ex) when (!context.StopToken.IsCancellationRequested)
-                        {
-                            if (cleanup.StandaloneShop || cleanup.GroceryShop || cleanup.ArrowRestock || ex is ArrowPurchaseUnconfirmedException)
-                            {
-                                cleanup.Failure = (cleanup.ArrowRestock || ex is ArrowPurchaseUnconfirmedException ? "补箭" : cleanup.GroceryShop ? "杂货摆摊" : "自动摆摊") + "已暂停，未转入挂机；请停止账号后处理并重新启动：" + ex.Message;
-                                context.Logger.Error(cleanup.ArrowRestock || ex is ArrowPurchaseUnconfirmedException ? "arrow_restock.failed" : cleanup.GroceryShop ? "grocery_shop.failed" : "standalone_shop.failed", ex, new Dictionary<string, object?> { ["account"] = context.Config.AccountName });
-                                context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, cleanup.Failure);
-                                continue;
-                            }
-                            // Drop this execution, not the worker. Never immediately replay uncertain trade actions.
-                            context.CleanupRequests.Complete();
-                            nextCleanupCheck = DateTimeOffset.UtcNow.AddSeconds(30);
-                            lastCleanup = DateTimeOffset.UtcNow;
-                            context.Logger.Error("cleanup_workflow.failed_continuing", ex, new Dictionary<string, object?>
-                            {
-                                ["account"] = context.Config.AccountName, ["automaticRetryAfterMs"] = 30000
-                            });
-                            context.RuntimeStates.MarkWarning(context.Config.AccountName, "本次清包失败，继续挂机：" + ex.Message);
-                            context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, string.Empty);
-                            stationaryCombatState.PathCombat.Reset();
-                            await _stationaryCombat.SetChannelSwitchPendingAsync(context, stationaryCombatState, false);
-                        }
-                        await Task.Delay(context.Options.TickInterval, context.StopToken);
-                        continue;
                     }
-                }
 
-                var delay = context.Options.TickInterval;
-                var mainMode = scriptSettings.MainMode;
-                var combatMode = scriptSettings.CombatMode;
-                var isStationaryCombat =
-                    mainMode == AccountMainMode.CustomCombat &&
-                    combatMode == AccountCombatMode.Stationary;
-                var isPathCombat =
-                    mainMode == AccountMainMode.CustomCombat &&
-                    combatMode == AccountCombatMode.Path;
-                var followRevivePath = isStationaryCombat || isPathCombat;
-                var fixedChannelDelay = _fixedChannel is null
-                    ? null
-                    : await _fixedChannel
-                        .TickAsync(
-                            context,
-                            scriptSettings,
-                            fixedChannelState,
-                            stationaryCombatState,
-                            () => _stationaryCombat.PrepareForChannelSwitchAttemptAsync(
+                    var delay = context.Options.TickInterval;
+                    var mainMode = scriptSettings.MainMode;
+                    var combatMode = scriptSettings.CombatMode;
+                    var isStationaryCombat =
+                        mainMode == AccountMainMode.CustomCombat &&
+                        combatMode == AccountCombatMode.Stationary;
+                    var isPathCombat =
+                        mainMode == AccountMainMode.CustomCombat &&
+                        combatMode == AccountCombatMode.Path;
+                    var followRevivePath = isStationaryCombat || isPathCombat;
+                    var fixedChannelDelay = _fixedChannel is null
+                        ? null
+                        : await _fixedChannel
+                            .TickAsync(
                                 context,
-                                semiAutoState,
-                                stationaryCombatState))
-                        .ConfigureAwait(false);
-                await _stationaryCombat.SetChannelSwitchPendingAsync(
-                    context, stationaryCombatState, fixedChannelState.WaitingForPeace).ConfigureAwait(false);
-                if (fixedChannelDelay.HasValue)
-                {
-                    if (jumpAssist is not null)
-                    {
-                        await jumpAssist.StopAsync("fixed_channel_correction").ConfigureAwait(false);
-                    }
-
-                    delay = fixedChannelDelay.Value;
-                }
-                else
-                {
-                    var lifeGuardDelay = await _stationaryCombat
-                        .TickPlayerLifeGuardAsync(
-                        context,
-                        semiAutoPlan,
-                        semiAutoState,
-                        stationaryCombatState,
-                        followRevivePath)
-                        .ConfigureAwait(false);
-                    if (lifeGuardDelay.HasValue)
+                                scriptSettings,
+                                fixedChannelState,
+                                stationaryCombatState,
+                                () => _stationaryCombat.PrepareForChannelSwitchAttemptAsync(
+                                    context,
+                                    semiAutoState,
+                                    stationaryCombatState))
+                            .ConfigureAwait(false);
+                    await _stationaryCombat.SetChannelSwitchPendingAsync(
+                        context, stationaryCombatState, fixedChannelState.WaitingForPeace).ConfigureAwait(false);
+                    if (fixedChannelDelay.HasValue)
                     {
                         if (jumpAssist is not null)
                         {
-                            await jumpAssist.StopAsync("player_life_guard").ConfigureAwait(false);
+                            await jumpAssist.StopAsync("fixed_channel_correction").ConfigureAwait(false);
                         }
 
-                        delay = lifeGuardDelay.Value;
-                        if (stationaryCombatState.DeathRecovery.RevivePathLeaderSiphonActive)
+                        delay = fixedChannelDelay.Value;
+                    }
+                    else
+                    {
+                        var lifeGuardDelay = await _stationaryCombat
+                            .TickPlayerLifeGuardAsync(
+                            context,
+                            semiAutoPlan,
+                            semiAutoState,
+                            stationaryCombatState,
+                            followRevivePath)
+                            .ConfigureAwait(false);
+                        if (lifeGuardDelay.HasValue)
                         {
-                            var normalWorkBlocked = true;
+                            if (jumpAssist is not null)
+                            {
+                                await jumpAssist.StopAsync("player_life_guard").ConfigureAwait(false);
+                            }
+
+                            delay = lifeGuardDelay.Value;
+                            if (stationaryCombatState.DeathRecovery.RevivePathLeaderSiphonActive)
+                            {
+                                var normalWorkBlocked = true;
+                                var teamResult = await TryTickTeamControllersAsync(
+                                    context,
+                                    scriptSettings,
+                                    teamSupportState,
+                                    teamOutputState,
+                                    stationaryCombatState,
+                                    semiAutoState)
+                                    .ConfigureAwait(false);
+                                if (teamResult.HasValue)
+                                {
+                                    delay = teamResult.Value.Delay;
+                                    normalWorkBlocked = teamResult.Value.ShouldSkipNormalWork;
+                                }
+                                else if (stationaryCombatState.LootAfterKill.Active)
+                                {
+                                    normalWorkBlocked = false;
+                                }
+
+                                if (!normalWorkBlocked &&
+                                    await _semiAuto
+                                        .EnsureSpiritmasterPetAsync(
+                                        context,
+                                        semiAutoPlan,
+                                        semiAutoState,
+                                        beforeSummonKeyPress: () => ReleaseActiveInputAsync(context, stationaryCombatState))
+                                        .ConfigureAwait(false))
+                                {
+                                    delay = context.Options.TickInterval;
+                                }
+                                else if (!normalWorkBlocked)
+                                {
+                                    delay = await TickNormalWorkAsync(
+                                        context,
+                                        semiAutoPlan,
+                                        semiAutoState,
+                                        stationaryCombatState,
+                                        mainMode,
+                                        isStationaryCombat,
+                                        isPathCombat)
+                                        .ConfigureAwait(false);
+                                }
+                            }
+                        }
+                        else if (await _stationaryCombat.TryTickChannelSwitchWaitAsync(
+                                     context, semiAutoPlan, semiAutoState, stationaryCombatState).ConfigureAwait(false) is { } channelWaitDelay)
+                        {
+                            if (jumpAssist is not null && !stationaryCombatState.Fighting)
+                                await jumpAssist.StopAsync("fixed_channel_wait").ConfigureAwait(false);
+                            delay = channelWaitDelay;
+                        }
+                        else if (await foodMaintenance.TickAsync(context, stationaryCombatState,
+                            () => _stationaryCombat.PrepareForChannelSwitchAttemptAsync(context, semiAutoState, stationaryCombatState, "food_maintenance"),
+                            () => foodCombatActive || context.CleanupRequests.Current != null || fixedChannelState.WaitingForPeace ||
+                                  fixedChannelState.AwaitingConfirmation).ConfigureAwait(false))
+                        {
+                            delay = context.Options.TickInterval;
+                        }
+                        else if (await _semiAuto
+                                     .EnsureSpiritmasterPetAsync(
+                                     context,
+                                     semiAutoPlan,
+                                     semiAutoState,
+                                     beforeSummonKeyPress: () => ReleaseActiveInputAsync(context, stationaryCombatState))
+                                     .ConfigureAwait(false))
+                        {
+                            delay = context.Options.TickInterval;
+                        }
+                        else
+                        {
+                            var normalWorkBlocked = false;
                             var teamResult = await TryTickTeamControllersAsync(
                                 context,
                                 scriptSettings,
@@ -372,23 +465,8 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                                 delay = teamResult.Value.Delay;
                                 normalWorkBlocked = teamResult.Value.ShouldSkipNormalWork;
                             }
-                            else if (stationaryCombatState.LootAfterKill.Active)
-                            {
-                                normalWorkBlocked = false;
-                            }
 
-                            if (!normalWorkBlocked &&
-                                await _semiAuto
-                                    .EnsureSpiritmasterPetAsync(
-                                    context,
-                                    semiAutoPlan,
-                                    semiAutoState,
-                                    beforeSummonKeyPress: () => ReleaseActiveInputAsync(context, stationaryCombatState))
-                                    .ConfigureAwait(false))
-                            {
-                                delay = context.Options.TickInterval;
-                            }
-                            else if (!normalWorkBlocked)
+                            if (!normalWorkBlocked)
                             {
                                 delay = await TickNormalWorkAsync(
                                     context,
@@ -402,63 +480,20 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                             }
                         }
                     }
-                    else if (await _stationaryCombat.TryTickChannelSwitchWaitAsync(
-                                 context, semiAutoPlan, semiAutoState, stationaryCombatState).ConfigureAwait(false) is { } channelWaitDelay)
-                    {
-                        if (jumpAssist is not null && !stationaryCombatState.Fighting)
-                            await jumpAssist.StopAsync("fixed_channel_wait").ConfigureAwait(false);
-                        delay = channelWaitDelay;
-                    }
-                    else if (await foodMaintenance.TickAsync(context, stationaryCombatState,
-                        () => _stationaryCombat.PrepareForChannelSwitchAttemptAsync(context, semiAutoState, stationaryCombatState, "food_maintenance"),
-                        () => foodCombatActive || context.CleanupRequests.Current != null || fixedChannelState.WaitingForPeace ||
-                              fixedChannelState.AwaitingConfirmation).ConfigureAwait(false))
-                    {
-                        delay = context.Options.TickInterval;
-                    }
-                    else if (await _semiAuto
-                                 .EnsureSpiritmasterPetAsync(
-                                 context,
-                                 semiAutoPlan,
-                                 semiAutoState,
-                                 beforeSummonKeyPress: () => ReleaseActiveInputAsync(context, stationaryCombatState))
-                                 .ConfigureAwait(false))
-                    {
-                        delay = context.Options.TickInterval;
-                    }
-                    else
-                    {
-                        var normalWorkBlocked = false;
-                        var teamResult = await TryTickTeamControllersAsync(
-                            context,
-                            scriptSettings,
-                            teamSupportState,
-                            teamOutputState,
-                            stationaryCombatState,
-                            semiAutoState)
-                            .ConfigureAwait(false);
-                        if (teamResult.HasValue)
-                        {
-                            delay = teamResult.Value.Delay;
-                            normalWorkBlocked = teamResult.Value.ShouldSkipNormalWork;
-                        }
 
-                        if (!normalWorkBlocked)
-                        {
-                            delay = await TickNormalWorkAsync(
-                                context,
-                                semiAutoPlan,
-                                semiAutoState,
-                                stationaryCombatState,
-                                mainMode,
-                                isStationaryCombat,
-                                isPathCombat)
-                                .ConfigureAwait(false);
-                        }
-                    }
+                    await Task.Delay(delay, context.StopToken).ConfigureAwait(false);
                 }
-
-                await Task.Delay(delay, context.StopToken).ConfigureAwait(false);
+                catch (SnapshotReadBudgetExceededException) when (!context.StopToken.IsCancellationRequested)
+                {
+                    checkLifeAfterYield = true;
+                    // A transaction may already have been submitted: never replay the workflow.
+                    if (context.CleanupRequests.Current is { } interrupted)
+                        interrupted.Failure ??= "当前清包操作等待超时，已暂停；请检查操作结果后重新启动。";
+                    await ReleaseActiveInputAsync(context, stationaryCombatState).ConfigureAwait(false);
+                    context.Logger.Info("worker.read_budget.yield", new Dictionary<string, object?>
+                        { ["account"] = context.Config.AccountName, ["waitMs"] = 2000 });
+                    await Task.Delay(context.Options.TickInterval, context.StopToken).ConfigureAwait(false);
+                }
             }
         }
         finally

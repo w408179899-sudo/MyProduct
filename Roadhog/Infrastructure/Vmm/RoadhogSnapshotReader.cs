@@ -50,7 +50,7 @@ internal sealed partial class RoadhogSnapshotReader : IRoadhogSnapshotReader
 
     public Task<PublishedGameSnapshot<QuickbarSnapshot>> ReadQuickbarAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync("quickbar",
-            () => _gameApi is IQuickbarGameApi api ? api.ReadQuickbarAsync(_readContext, _stopToken)
+            stop => _gameApi is IQuickbarGameApi api ? api.ReadQuickbarAsync(_readContext, stop)
                 : Missing<QuickbarSnapshot>("Quickbar channel is unavailable."), afterVersion);
 
     private async Task<PublishedGameSnapshot<PlayerSnapshot>> ReadPlayerAsync(
@@ -59,9 +59,9 @@ internal sealed partial class RoadhogSnapshotReader : IRoadhogSnapshotReader
     {
         var published = await ReadUntilPublishedAsync(
             "player",
-            () => _gameApi is IRoadhogScopedGameApi scoped
-                ? scoped.ReadPlayerAsync(readContext, _stopToken)
-                : _gameApi.ReadPlayerAsync(_stopToken),
+            stop => _gameApi is IRoadhogScopedGameApi scoped
+                ? scoped.ReadPlayerAsync(readContext, stop)
+                : _gameApi.ReadPlayerAsync(stop),
             afterVersion,
             static player => player.Position is not null,
             "Player position is unavailable.").ConfigureAwait(false);
@@ -73,17 +73,17 @@ internal sealed partial class RoadhogSnapshotReader : IRoadhogSnapshotReader
     public Task<PublishedGameSnapshot<PlayerAbnormalStatusSnapshot>> ReadPlayerAbnormalStatusesAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync(
             "player_abnormal_statuses",
-            () => _gameApi is IRoadhogScopedGameApi scoped
-                ? scoped.ReadPlayerAbnormalStatusesAsync(_readContext, _stopToken)
-                : _gameApi.ReadPlayerAbnormalStatusesAsync(_stopToken),
+            stop => _gameApi is IRoadhogScopedGameApi scoped
+                ? scoped.ReadPlayerAbnormalStatusesAsync(_readContext, stop)
+                : _gameApi.ReadPlayerAbnormalStatusesAsync(stop),
             afterVersion);
 
     public Task<PublishedGameSnapshot<SummonedPetSnapshot>> ReadSummonedPetAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync(
             "summoned_pet",
-            () => _gameApi is IRoadhogScopedGameApi scoped
-                ? scoped.ReadSummonedPetAsync(_readContext, _stopToken)
-                : _gameApi.ReadSummonedPetAsync(_stopToken),
+            stop => _gameApi is IRoadhogScopedGameApi scoped
+                ? scoped.ReadSummonedPetAsync(_readContext, stop)
+                : _gameApi.ReadSummonedPetAsync(stop),
             afterVersion,
             static pet => !pet.IsSummoned || pet.HasReliableHealth,
             "Summoned-pet snapshot is incomplete.");
@@ -96,9 +96,9 @@ internal sealed partial class RoadhogSnapshotReader : IRoadhogSnapshotReader
         long afterVersion) =>
         ReadUntilPublishedAsync(
             "summoned_pet_roster",
-            () => _gameApi is IRoadhogScopedGameApi scoped
-                ? scoped.ReadSummonedPetRosterAsync(readContext, _stopToken)
-                : _gameApi.ReadSummonedPetRosterAsync(_stopToken),
+            stop => _gameApi is IRoadhogScopedGameApi scoped
+                ? scoped.ReadSummonedPetRosterAsync(readContext, stop)
+                : _gameApi.ReadSummonedPetRosterAsync(stop),
             afterVersion,
             static roster =>
                 HasPublishablePetHealth(roster.LocalPlayerPet.Pet) &&
@@ -111,10 +111,10 @@ internal sealed partial class RoadhogSnapshotReader : IRoadhogSnapshotReader
     public Task<PublishedGameSnapshot<PartySnapshot>> ReadPartyAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync(
             "party",
-            () => _gameApi is IRoadhogScopedPartyGameApi scoped
-                ? scoped.ReadPartyAsync(_readContext, _stopToken)
+            stop => _gameApi is IRoadhogScopedPartyGameApi scoped
+                ? scoped.ReadPartyAsync(_readContext, stop)
                 : _gameApi is IRoadhogPartyGameApi api
-                    ? api.ReadPartyAsync(_stopToken)
+                    ? api.ReadPartyAsync(stop)
                     : Missing<PartySnapshot>("Party snapshot channel is unavailable."),
             afterVersion);
 
@@ -126,10 +126,10 @@ internal sealed partial class RoadhogSnapshotReader : IRoadhogSnapshotReader
         long afterVersion) =>
         ReadUntilPublishedAsync(
             "tactics_signs",
-            () => _gameApi is IRoadhogScopedTacticsSignGameApi scoped
-                ? scoped.ReadTacticsSignsAsync(readContext, _stopToken)
+            stop => _gameApi is IRoadhogScopedTacticsSignGameApi scoped
+                ? scoped.ReadTacticsSignsAsync(readContext, stop)
                 : _gameApi is IRoadhogTacticsSignGameApi api
-                    ? api.ReadTacticsSignsAsync(_stopToken)
+                    ? api.ReadTacticsSignsAsync(stop)
                     : Missing<TacticsSignSnapshot>("Tactics-sign snapshot channel is unavailable."),
             afterVersion);
 
@@ -139,56 +139,56 @@ internal sealed partial class RoadhogSnapshotReader : IRoadhogSnapshotReader
     public Task<PublishedGameSnapshot<ChannelSwitchUiSnapshot>> ReadChannelSwitchUiAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync(
             "channel_switch_ui",
-            () => _gameApi is IChannelSwitchUiGameApi api
-                ? api.ReadChannelSwitchUiAsync(_readContext, _stopToken)
+            stop => _gameApi is IChannelSwitchUiGameApi api
+                ? api.ReadChannelSwitchUiAsync(_readContext, stop)
                 : Missing<ChannelSwitchUiSnapshot>("Channel UI snapshot channel is unavailable."),
             afterVersion);
 
     public Task<PublishedGameSnapshot<PersonalShopSnapshot>> ReadPersonalShopAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync("personal_shop",
-            () => _gameApi is IInventoryInteractionGameApi api ? api.ReadPersonalShopAsync(_readContext, _stopToken)
+            stop => _gameApi is IInventoryInteractionGameApi api ? api.ReadPersonalShopAsync(_readContext, stop)
                 : Missing<PersonalShopSnapshot>("Personal shop channel is unavailable."), afterVersion);
 
     public Task<PublishedGameSnapshot<EquipmentUpgradeInventory>> ReadEquipmentUpgradeInventoryAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync("equipment_upgrade_inventory",
-            () => _gameApi is IEquipmentUpgradeGameApi api ? api.ReadEquipmentUpgradeInventoryAsync(_readContext, _stopToken)
+            stop => _gameApi is IEquipmentUpgradeGameApi api ? api.ReadEquipmentUpgradeInventoryAsync(_readContext, stop)
                 : Missing<EquipmentUpgradeInventory>("Equipment channel is unavailable."), afterVersion);
 
     public Task<PublishedGameSnapshot<EquipmentUpgradeUi>> ReadEquipmentUpgradeUiAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync("equipment_upgrade_ui",
-            () => _gameApi is IEquipmentUpgradeGameApi api ? api.ReadEquipmentUpgradeUiAsync(_readContext, _stopToken)
+            stop => _gameApi is IEquipmentUpgradeGameApi api ? api.ReadEquipmentUpgradeUiAsync(_readContext, stop)
                 : Missing<EquipmentUpgradeUi>("Equipment UI channel is unavailable."), afterVersion);
 
     public Task<PublishedGameSnapshot<AuctionHouseSnapshot>> ReadAuctionHouseAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync("auction_house",
-            () => _gameApi is IAuctionHouseGameApi api ? api.ReadAuctionHouseAsync(_readContext, _stopToken)
+            stop => _gameApi is IAuctionHouseGameApi api ? api.ReadAuctionHouseAsync(_readContext, stop)
                 : Missing<AuctionHouseSnapshot>("Auction house channel is unavailable."), afterVersion);
 
     public Task<PublishedGameSnapshot<NpcTradeSnapshot>> ReadNpcTradeAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync("npc_trade",
-            () => _gameApi is INpcTradeGameApi api ? api.ReadNpcTradeAsync(_readContext, _stopToken)
+            stop => _gameApi is INpcTradeGameApi api ? api.ReadNpcTradeAsync(_readContext, stop)
                 : Missing<NpcTradeSnapshot>("NPC trade channel is unavailable."), afterVersion);
 
     public Task<PublishedGameSnapshot<InventoryInteractionSnapshot>> ReadInventoryInteractionAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync("inventory_interaction",
-            () => _gameApi is IInventoryInteractionGameApi api ? api.ReadInventoryInteractionAsync(_readContext, _stopToken)
+            stop => _gameApi is IInventoryInteractionGameApi api ? api.ReadInventoryInteractionAsync(_readContext, stop)
                 : Missing<InventoryInteractionSnapshot>("Inventory interaction channel is unavailable."), afterVersion);
 
     public Task<PublishedGameSnapshot<GameUiCursorSnapshot>> ReadUiCursorAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync("ui_cursor",
-            () => _gameApi is IInventoryInteractionGameApi api ? api.ReadUiCursorAsync(_readContext, _stopToken)
+            stop => _gameApi is IInventoryInteractionGameApi api ? api.ReadUiCursorAsync(_readContext, stop)
                 : Missing<GameUiCursorSnapshot>("Personal shop cursor channel is unavailable."), afterVersion);
 
     public Task<PublishedGameSnapshot<ReviveUiSnapshot>> ReadReviveUiAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync("revive_ui",
-            () => _gameApi is IReviveUiGameApi api ? api.ReadReviveUiAsync(_readContext, _stopToken)
+            stop => _gameApi is IReviveUiGameApi api ? api.ReadReviveUiAsync(_readContext, stop)
                 : Missing<ReviveUiSnapshot>("Revive UI channel is unavailable."), afterVersion);
 
     public Task<PublishedGameSnapshot<ChannelTransitionSnapshot>> ReadChannelTransitionAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync(
             "channel_transition",
-            () => _gameApi is IChannelTransitionGameApi api
-                ? api.ReadChannelTransitionAsync(_readContext, _stopToken)
+            stop => _gameApi is IChannelTransitionGameApi api
+                ? api.ReadChannelTransitionAsync(_readContext, stop)
                 : Missing<ChannelTransitionSnapshot>("Channel transition snapshot channel is unavailable."),
             afterVersion);
 
@@ -197,10 +197,10 @@ internal sealed partial class RoadhogSnapshotReader : IRoadhogSnapshotReader
         long afterVersion) =>
         ReadUntilPublishedAsync(
             "channel",
-            () => _gameApi is IRoadhogScopedChannelGameApi scoped
-                ? scoped.ReadChannelAsync(readContext, _stopToken)
+            stop => _gameApi is IRoadhogScopedChannelGameApi scoped
+                ? scoped.ReadChannelAsync(readContext, stop)
                 : _gameApi is IRoadhogChannelGameApi api
-                    ? api.ReadChannelAsync(_stopToken)
+                    ? api.ReadChannelAsync(stop)
                     : Missing<ChannelSnapshot>("Channel snapshot channel is unavailable."),
             afterVersion,
             static channel => channel.IsValid,
@@ -214,17 +214,17 @@ internal sealed partial class RoadhogSnapshotReader : IRoadhogSnapshotReader
         long afterVersion) =>
         ReadUntilPublishedAsync(
             "locked_target",
-            () => _gameApi is IRoadhogScopedGameApi scoped
-                ? scoped.ReadLockedTargetAsync(readContext, _stopToken)
-                : _gameApi.ReadLockedTargetAsync(_stopToken),
+            stop => _gameApi is IRoadhogScopedGameApi scoped
+                ? scoped.ReadLockedTargetAsync(readContext, stop)
+                : _gameApi.ReadLockedTargetAsync(stop),
             afterVersion);
 
     public Task<PublishedGameSnapshot<LockedTargetAbnormalStatusSnapshot>> ReadLockedTargetAbnormalStatusesAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync(
             "locked_target_abnormal_statuses",
-            () => _gameApi is IRoadhogScopedGameApi scoped
-                ? scoped.ReadLockedTargetAbnormalStatusesAsync(_readContext, _stopToken)
-                : _gameApi.ReadLockedTargetAbnormalStatusesAsync(_stopToken),
+            stop => _gameApi is IRoadhogScopedGameApi scoped
+                ? scoped.ReadLockedTargetAbnormalStatusesAsync(_readContext, stop)
+                : _gameApi.ReadLockedTargetAbnormalStatusesAsync(stop),
             afterVersion);
 
     public Task<PublishedGameSnapshot<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(
@@ -236,35 +236,35 @@ internal sealed partial class RoadhogSnapshotReader : IRoadhogSnapshotReader
             : "all";
         return ReadUntilPublishedAsync(
             "skills:" + partition,
-            () => _gameApi is IRoadhogScopedGameApi scoped
+            stop => _gameApi is IRoadhogScopedGameApi scoped
                 ? skillIds is { Count: > 0 }
-                    ? scoped.ReadSkillsAsync(_readContext, skillIds, _stopToken)
-                    : scoped.ReadSkillsAsync(_readContext, _stopToken)
-                : _gameApi.ReadSkillsAsync(_stopToken),
+                    ? scoped.ReadSkillsAsync(_readContext, skillIds, stop)
+                    : scoped.ReadSkillsAsync(_readContext, stop)
+                : _gameApi.ReadSkillsAsync(stop),
             afterVersion);
     }
 
     public Task<PublishedGameSnapshot<IReadOnlyList<InventoryItemSnapshot>>> ReadInventoryAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync(
             "inventory",
-            () => _gameApi is IRoadhogScopedGameApi scoped
-                ? scoped.ReadInventoryAsync(_readContext, _stopToken)
-                : _gameApi.ReadInventoryAsync(_stopToken),
+            stop => _gameApi is IRoadhogScopedGameApi scoped
+                ? scoped.ReadInventoryAsync(_readContext, stop)
+                : _gameApi.ReadInventoryAsync(stop),
             afterVersion);
 
     public Task<PublishedGameSnapshot<ulong>> ReadInventoryMoneyAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync(
             "inventory_money",
-            () => _gameApi is IInventoryMoneyGameApi api
-                ? api.ReadInventoryMoneyAsync(_readContext, _stopToken)
+            stop => _gameApi is IInventoryMoneyGameApi api
+                ? api.ReadInventoryMoneyAsync(_readContext, stop)
                 : Missing<ulong>("Inventory-money snapshot channel is unavailable."),
             afterVersion);
 
     public Task<PublishedGameSnapshot<int>> ReadInventoryCapacityAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync(
             "inventory_capacity",
-            () => _gameApi is IInventoryCapacityGameApi api
-                ? api.ReadInventoryCapacityAsync(_readContext, _stopToken)
+            stop => _gameApi is IInventoryCapacityGameApi api
+                ? api.ReadInventoryCapacityAsync(_readContext, stop)
                 : Missing<int>("Inventory-capacity snapshot channel is unavailable."),
             afterVersion,
             static capacity => capacity > 0,
@@ -273,17 +273,17 @@ internal sealed partial class RoadhogSnapshotReader : IRoadhogSnapshotReader
     public Task<PublishedGameSnapshot<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync(
             "world_objects",
-            () => _gameApi is IRoadhogScopedGameApi scoped
-                ? scoped.ReadWorldObjectsAsync(_readContext, _stopToken)
-                : _gameApi.ReadWorldObjectsAsync(_stopToken),
+            stop => _gameApi is IRoadhogScopedGameApi scoped
+                ? scoped.ReadWorldObjectsAsync(_readContext, stop)
+                : _gameApi.ReadWorldObjectsAsync(stop),
             afterVersion);
 
     public Task<PublishedGameSnapshot<GatherSnapshot>> ReadGatherSnapshotAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync(
             "gather",
-            () => _gameApi is IRoadhogScopedGameApi scoped
-                ? scoped.ReadGatherSnapshotAsync(_readContext, _stopToken)
-                : _gameApi.ReadGatherSnapshotAsync(_stopToken),
+            stop => _gameApi is IRoadhogScopedGameApi scoped
+                ? scoped.ReadGatherSnapshotAsync(_readContext, stop)
+                : _gameApi.ReadGatherSnapshotAsync(stop),
             afterVersion,
             static gather =>
                 gather.MonsterDataAvailable &&
@@ -294,9 +294,9 @@ internal sealed partial class RoadhogSnapshotReader : IRoadhogSnapshotReader
     public Task<PublishedGameSnapshot<IReadOnlyList<LootCorpseSnapshot>>> ReadLootCorpsesAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync(
             "loot_corpses",
-            () => _gameApi is IRoadhogScopedGameApi scoped
-                ? scoped.ReadLootCorpsesAsync(_readContext, _stopToken)
-                : _gameApi.ReadLootCorpsesAsync(_stopToken),
+            stop => _gameApi is IRoadhogScopedGameApi scoped
+                ? scoped.ReadLootCorpsesAsync(_readContext, stop)
+                : _gameApi.ReadLootCorpsesAsync(stop),
             afterVersion);
 
     public Task<PublishedGameSnapshot<InventoryWindowSnapshot>> ReadInventoryWindowAsync(
@@ -304,62 +304,72 @@ internal sealed partial class RoadhogSnapshotReader : IRoadhogSnapshotReader
         long afterVersion = 0) =>
         ReadUntilPublishedAsync(
             "inventory_window:" + rectSource,
-            () => _gameApi is IInventoryWindowGameApi api
-                ? api.ReadInventoryWindowAsync(_readContext, rectSource, _stopToken)
+            stop => _gameApi is IInventoryWindowGameApi api
+                ? api.ReadInventoryWindowAsync(_readContext, rectSource, stop)
                 : Missing<InventoryWindowSnapshot>("Inventory-window snapshot channel is unavailable."),
             afterVersion);
 
     public Task<PublishedGameSnapshot<InventoryDiscardConfirmSnapshot>> ReadInventoryDiscardConfirmAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync(
             "inventory_discard_confirm",
-            () => _gameApi is IInventoryDiscardConfirmGameApi api
-                ? api.ReadInventoryDiscardConfirmAsync(_readContext, _stopToken)
+            stop => _gameApi is IInventoryDiscardConfirmGameApi api
+                ? api.ReadInventoryDiscardConfirmAsync(_readContext, stop)
                 : Missing<InventoryDiscardConfirmSnapshot>("Inventory-discard-confirm snapshot channel is unavailable."),
             afterVersion);
 
     private async Task<PublishedGameSnapshot<T>> ReadUntilPublishedAsync<T>(
         string channel,
-        Func<Task<OperationResult<T>>> read,
+        Func<CancellationToken, Task<OperationResult<T>>> read,
         long afterVersion,
         Func<T, bool>? validate = null,
         string? validationError = null)
     {
-        while (true)
+        using var budget = SnapshotReadBudget.CreateCancellation(_stopToken);
+        var stop = budget.Token;
+        try
         {
-            _stopToken.ThrowIfCancellationRequested();
-            OperationResult<T> observed;
-            try
+            while (true)
             {
-                observed = await read().ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (_stopToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                LogReadFault(channel, ex.Message);
-                await Task.Delay(RetryDelay, _stopToken).ConfigureAwait(false);
-                continue;
-            }
-
-            if (observed.Success && observed.Value is { } value && (validate is null || validate(value)))
-            {
-                var version = AdvanceVersion(channel);
-
-                if (version > afterVersion)
+                stop.ThrowIfCancellationRequested();
+                OperationResult<T> observed;
+                try
                 {
-                    return new PublishedGameSnapshot<T>(version, value);
+                    observed = await read(stop).ConfigureAwait(false);
                 }
-            }
-            else
-            {
-                LogReadFault(
-                    channel,
-                    observed.Success ? validationError ?? "Snapshot validation failed." : observed.Error);
-            }
+                catch (OperationCanceledException) when (stop.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    LogReadFault(channel, ex.Message);
+                    await Task.Delay(RetryDelay, stop).ConfigureAwait(false);
+                    continue;
+                }
 
-            await Task.Delay(RetryDelay, _stopToken).ConfigureAwait(false);
+                stop.ThrowIfCancellationRequested();
+                if (observed.Success && observed.Value is { } value && (validate is null || validate(value)))
+                {
+                    var version = AdvanceVersion(channel);
+
+                    if (version > afterVersion)
+                    {
+                        return new PublishedGameSnapshot<T>(version, value);
+                    }
+                }
+                else
+                {
+                    LogReadFault(
+                        channel,
+                        observed.Success ? validationError ?? "Snapshot validation failed." : observed.Error);
+                }
+
+                await Task.Delay(RetryDelay, stop).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (budget.IsCancellationRequested && !_stopToken.IsCancellationRequested)
+        {
+            throw new SnapshotReadBudgetExceededException();
         }
     }
 

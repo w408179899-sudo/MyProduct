@@ -1220,6 +1220,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             });
             return OperationResult.Ok();
         }
+        catch (SnapshotReadBudgetExceededException) { throw; }
         catch (OperationCanceledException)
         {
             return OperationResult.Fail("Path execution was canceled.");
@@ -1239,9 +1240,16 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         SemiAutoSkillPlan plan,
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state,
-        bool followRevivePath)
+        bool followRevivePath,
+        bool reviveOnly = false)
     {
         var player = await ReadPlayerAsync(context).ConfigureAwait(false);
+        if (reviveOnly && player.IsAlive)
+        {
+            if (state.TopLevelState == StationaryCombatTopLevelState.DeathRecovery)
+                state.ExitDeathRecovery();
+            return null;
+        }
         context.RuntimeStates.ClearWarning(context.Config.AccountName);
         if (player.IsDead)
         {
@@ -2270,6 +2278,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 });
         }
         catch (OperationCanceledException) when (context.StopToken.IsCancellationRequested) { throw; }
+        catch (SnapshotReadBudgetExceededException) { throw; }
         catch (Exception ex)
         {
             context.Logger.Warn(retry ? "stationary_combat.death_recovery.revive_retry_click_failed" : "stationary_combat.death_recovery.revive_click_failed",
@@ -9895,6 +9904,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         long sessionId,
         CancellationTokenSource linkedCancellation)
     {
+        // Background scanners do not own the foreground worker scheduling slice.
+        using var backgroundReads = SnapshotReadBudget.Enter(Timeout.InfiniteTimeSpan);
         var token = linkedCancellation.Token;
         var scanInterval = TimeSpan.FromMilliseconds(ReadSmartPreAimWorldScanMs());
         var adjustInterval = TimeSpan.FromMilliseconds(ReadSmartPreAimAdjustMs());
@@ -12307,6 +12318,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
     private async Task PathFollowPollLoopAsync(AccountWorkerContext context, PathFollowPollState poller)
     {
+        using var backgroundReads = SnapshotReadBudget.Enter(Timeout.InfiniteTimeSpan);
         var interval = TimeSpan.FromMilliseconds(ReadPathFollowTickMs());
         while (!poller.Cancellation.IsCancellationRequested)
         {

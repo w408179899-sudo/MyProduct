@@ -38,6 +38,7 @@ public sealed class TradingActions(IKeyboardInput input, IRoadhogSnapshotReader 
                 await Pause(100, deadline.Token);
             }
         }
+        catch (SnapshotReadBudgetExceededException) { throw; }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         { throw new ConfirmationTimeoutException(); }
     }

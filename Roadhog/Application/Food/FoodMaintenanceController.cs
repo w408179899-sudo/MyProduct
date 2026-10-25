@@ -1,4 +1,5 @@
-﻿using Roadhog.Application.Channels;
+using Roadhog.Core.Api;
+using Roadhog.Application.Channels;
 using Roadhog.Application.StationaryCombat;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
@@ -94,6 +95,7 @@ public sealed class FoodMaintenanceController(IKeyboardInput input,
                     });
                 }
                 catch (OperationCanceledException) when (context.StopToken.IsCancellationRequested) { throw; }
+                catch (SnapshotReadBudgetExceededException) { throw; }
                 catch (Exception ex)
                 {
                     retryPending = true;
@@ -108,6 +110,7 @@ public sealed class FoodMaintenanceController(IKeyboardInput input,
             Pending = retryPending;
         }
         catch (OperationCanceledException) when (context.StopToken.IsCancellationRequested) { throw; }
+        catch (SnapshotReadBudgetExceededException) { throw; }
         catch (Exception ex)
         {
             nextAttempt = clock.GetUtcNow().AddSeconds(30);

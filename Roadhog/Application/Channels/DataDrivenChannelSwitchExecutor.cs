@@ -27,6 +27,7 @@ public sealed class DataDrivenChannelSwitchExecutor(
                 snapshots, request.AccountName, request.TargetChannelNumber, timeout.Token,
                 request.CanUseMouseAsync, () => timeout.CancelAfter(Timeout.InfiniteTimeSpan)).ConfigureAwait(false);
         }
+        catch (SnapshotReadBudgetExceededException) { throw; }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             return OperationResult.Fail("频道切换执行超时，本次已停止；请查看日志中的中断步骤和游戏提示。");
@@ -94,6 +95,7 @@ internal sealed class ChannelSwitchSequence(IKeyboardInput input, IRoadhogLogger
             return await (transitionWaiter ?? new ChannelTransitionWaiter(logger))
                 .WaitAsync(snapshots, account, target, mapId, token, Guard).ConfigureAwait(false);
         }
+        catch (SnapshotReadBudgetExceededException) { throw; }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         {
             return Failed("未确认成功，请查看游戏提示（可能仍在冷却中）。本次不会重复提交移动。");
@@ -165,6 +167,7 @@ internal sealed class ChannelSwitchSequence(IKeyboardInput input, IRoadhogLogger
                 {
                     LogRetry(attempt, "submenu_lost");
                 }
+                catch (SnapshotReadBudgetExceededException) { throw; }
                 catch (OperationCanceledException) when (!token.IsCancellationRequested && attempt < 3)
                 {
                     LogRetry(attempt, "hover_timeout");

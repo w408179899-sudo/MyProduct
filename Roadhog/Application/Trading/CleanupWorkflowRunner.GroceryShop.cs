@@ -1,3 +1,4 @@
+using Roadhog.Core.Api;
 using Roadhog.Application.BagCleanup;
 using Roadhog.Application.Workers;
 using Roadhog.Application.Travel;
@@ -172,6 +173,7 @@ public sealed partial class CleanupWorkflowRunner
                 await cleanup.RunDiscardRequestedAsync(context, report);
                 return;
             }
+            catch (SnapshotReadBudgetExceededException) { throw; }
             catch (Exception ex) when (!token.IsCancellationRequested &&
                 ex is not (OperationCanceledException or CleanupCombatInterruptionException or CleanupDeathInterruptionException))
             {

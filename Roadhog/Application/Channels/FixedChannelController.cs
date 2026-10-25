@@ -1,3 +1,4 @@
+using Roadhog.Core.Api;
 using Roadhog.Application.StationaryCombat;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
@@ -85,6 +86,7 @@ public sealed class FixedChannelController(IFixedChannelSwitchExecutor switchExe
             }, context.StopToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (context.StopToken.IsCancellationRequested) { throw; }
+        catch (SnapshotReadBudgetExceededException) { throw; }
         catch (Exception ex) { result = OperationResult.Fail(ex.Message); }
         if (result.Success) state.Complete();
         else state.AwaitingConfirmation = false;

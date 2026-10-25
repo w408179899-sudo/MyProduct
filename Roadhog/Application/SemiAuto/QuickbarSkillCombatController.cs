@@ -531,7 +531,7 @@ public sealed partial class QuickbarSkillCombatController
             }
             return RemainingDelay();
         }
-        catch (AvailabilityWaitExpiredException)
+        catch (Exception ex) when (ex is AvailabilityWaitExpiredException or SnapshotReadBudgetExceededException)
         {
             cancellationToken.ThrowIfCancellationRequested();
             state.YieldToWorker = true;
