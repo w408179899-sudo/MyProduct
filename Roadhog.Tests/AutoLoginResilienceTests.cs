@@ -15,7 +15,7 @@ internal static class AutoLoginResilienceTests
     { bool rejected=false;try{action();}catch(InvalidOperationException){rejected=true;}Require(rejected,message); }
     private static LoginSnapshot Scene(LoginStage stage,LoginAction action=LoginAction.None,string key="")=>
         new("session",stage,action,key.Length==0?stage+":"+action:key,stage.ToString(),stage==LoginStage.InWorld?"HiApple":"",stage==LoginStage.InWorld?123:0);
-    private static readonly AutoLoginOptions Fast=new(){PollInterval=TimeSpan.FromMilliseconds(1),TransitionTimeout=TimeSpan.FromMilliseconds(100),Timeout=TimeSpan.FromSeconds(3)};
+    private static readonly AutoLoginOptions Fast=new(){PollInterval=TimeSpan.FromMilliseconds(1),TransitionTimeout=TimeSpan.FromMilliseconds(100),Timeout=TimeSpan.FromSeconds(3),LauncherReadyDelay=TimeSpan.Zero};
     private sealed class Session(Func<LoginSnapshot> read,Func<LoginSnapshot,CancellationToken,Task<bool>> execute):IAutoLoginSession
     {
         internal int Releases;

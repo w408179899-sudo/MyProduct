@@ -35,11 +35,13 @@ internal sealed class AutoLoginOptions
     public TimeSpan TransitionTimeout { get; init; } = TimeSpan.FromSeconds(100);
     public TimeSpan PollInterval { get; init; } = TimeSpan.FromMilliseconds(800);
     public TimeSpan ActionRetryInterval { get; init; } = TimeSpan.FromSeconds(3);
+    public TimeSpan LauncherReadyDelay { get; init; } = TimeSpan.FromSeconds(20);
 }
 
-internal sealed class AutoLoginRunner(AutoLoginOptions? options = null)
+internal sealed class AutoLoginRunner(AutoLoginOptions? options = null, TimeProvider? timeProvider = null)
 {
     private readonly AutoLoginOptions _options = options ?? new();
+    private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
 
     public async Task<OperationResult<int>> RunAsync(IAutoLoginSession session, string expectedCharacter,
         IProgress<string>? progress, CancellationToken cancellationToken)
@@ -53,6 +55,7 @@ internal sealed class AutoLoginRunner(AutoLoginOptions? options = null)
         string? enteringWorldSession = null;
         bool authenticationSubmitted = false;
         bool gameLaunchRequested = false;
+        long? gameLaunchTimestamp = null;
         bool reconnectRequested = false;
         bool waitingForGameExit = false;
         LoginStage? lastStage = null;
@@ -81,6 +84,7 @@ internal sealed class AutoLoginRunner(AutoLoginOptions? options = null)
                     progress?.Report("游戏进程已退出，接续自动登录");
                     lastDescription = null;
                     gameLaunchRequested = authenticationSubmitted = reconnectRequested = false;
+                    gameLaunchTimestamp = null;
                     enteringWorldSession = lastDispatched = null;
                     gameActions.Clear();
                     lastStage = null;
@@ -92,6 +96,7 @@ internal sealed class AutoLoginRunner(AutoLoginOptions? options = null)
                     or LoginStage.Accelerating or LoginStage.AcceleratorReady)
                 {
                     gameLaunchRequested = authenticationSubmitted = false;
+                    gameLaunchTimestamp = null;
                     enteringWorldSession = null;
                     gameActions.Clear();
                     reconnectRequested = false;
@@ -100,6 +105,12 @@ internal sealed class AutoLoginRunner(AutoLoginOptions? options = null)
                 // is sent, process/foreground changes must not send this attempt back to UU.
                 bool waitingForGameWindow = gameLaunchRequested && (snapshot.Stage is
                     LoginStage.Desktop or LoginStage.AcceleratorHome or LoginStage.Accelerating or LoginStage.AcceleratorReady);
+                // The launcher's window can appear before its Start button is usable.
+                // Count from accepted UU launch input, across process/page changes, while
+                // continuing to poll so cancellation, reconnect and exit prompts still work.
+                bool waitingForLauncherReady = snapshot.Action == LoginAction.StartLauncher
+                    && gameLaunchTimestamp is long launchedAt
+                    && _time.GetElapsedTime(launchedAt) < _options.LauncherReadyDelay;
                 // A confirmed page transition is progress even when that page has no button yet.
                 if (!waitingForGameWindow && lastStage != snapshot.Stage)
                 {
@@ -108,7 +119,9 @@ internal sealed class AutoLoginRunner(AutoLoginOptions? options = null)
                 }
                 var description = waitingForGameWindow
                     ? "已点击启动游戏，等待启动器或游戏窗口出现…"
-                    : snapshot.Description;
+                    : waitingForLauncherReady
+                        ? $"已点击启动游戏，等待启动器加载满 {_options.LauncherReadyDelay.TotalSeconds:0} 秒后再点击开始游戏…"
+                        : snapshot.Description;
                 if (description != lastDescription)
                 {
                     lastDescription = description;
@@ -133,7 +146,7 @@ internal sealed class AutoLoginRunner(AutoLoginOptions? options = null)
                         or LoginAction.AcceptLoginProtocol or LoginAction.DismissCaptchaError or LoginAction.AcceptAgreement
                         or LoginAction.SelectCharacter or LoginAction.AcceptEntryAgreement or LoginAction.Reaccelerate;
                     bool retryDue = retryControl && actionStarted.Elapsed >= _options.ActionRetryInterval;
-                    if (!waitingForGameWindow && snapshot.Action != LoginAction.None && (identity != lastDispatched || retryDue)
+                    if (!waitingForGameWindow && !waitingForLauncherReady && snapshot.Action != LoginAction.None && (identity != lastDispatched || retryDue)
                         && (!gameAction || !gameActions.Contains(identity) || retryDue)
                         && (snapshot.Action is LoginAction.Reaccelerate or LoginAction.ConfirmGameExit || snapshot.Session != enteringWorldSession)
                         && !(authenticationSubmitted && snapshot.Stage is LoginStage.Launcher or LoginStage.AcceleratorReady))
@@ -143,7 +156,11 @@ internal sealed class AutoLoginRunner(AutoLoginOptions? options = null)
                             if (gameAction) gameActions.Add(identity);
                             if (snapshot.Action == LoginAction.ConfirmEntryAgreement) enteringWorldSession = snapshot.Session;
                             if (snapshot.Action is LoginAction.SubmitCredentials or LoginAction.SolveCaptcha) authenticationSubmitted = true;
-                            if (snapshot.Action == LoginAction.LaunchGame) gameLaunchRequested = true;
+                            if (snapshot.Action == LoginAction.LaunchGame)
+                            {
+                                gameLaunchRequested = true;
+                                gameLaunchTimestamp = _time.GetTimestamp();
+                            }
                             if (snapshot.Action == LoginAction.Reaccelerate) reconnectRequested = true;
                             if (snapshot.Action == LoginAction.ConfirmGameExit) waitingForGameExit = true;
                             lastDispatched = identity;

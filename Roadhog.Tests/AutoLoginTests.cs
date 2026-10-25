@@ -8,7 +8,7 @@ using Roadhog.Infrastructure.Vmm;
 
 internal static class AutoLoginTests
 {
-    private static readonly AutoLoginOptions Fast = new() { PollInterval=TimeSpan.FromMilliseconds(1),TransitionTimeout=TimeSpan.FromMilliseconds(80),Timeout=TimeSpan.FromSeconds(3) };
+    private static readonly AutoLoginOptions Fast = new() { PollInterval=TimeSpan.FromMilliseconds(1),TransitionTimeout=TimeSpan.FromMilliseconds(80),Timeout=TimeSpan.FromSeconds(3),LauncherReadyDelay=TimeSpan.Zero };
     private static LoginSnapshot State(LoginStage stage,LoginAction action=LoginAction.None,string key="",string session="one",string character="")=>
         new(session,stage,action,key.Length==0?stage.ToString():key,stage.ToString(),character,stage==LoginStage.InWorld?123:0);
     private static LoginSnapshot World(string name="HiApple")=>State(LoginStage.InWorld,character:name);
@@ -111,7 +111,7 @@ internal static class AutoLoginTests
             State(LoginStage.Desktop, LoginAction.OpenAccelerator, "launcher-to-passport-gap", "changed-again"),
             State(LoginStage.PasswordLogin, LoginAction.SubmitCredentials, session: "passport-created"),
             World());
-        var options = new AutoLoginOptions { PollInterval = Fast.PollInterval, TransitionTimeout = TimeSpan.FromSeconds(1), Timeout = Fast.Timeout };
+        var options = new AutoLoginOptions { PollInterval = Fast.PollInterval, TransitionTimeout = TimeSpan.FromSeconds(1), Timeout = Fast.Timeout, LauncherReadyDelay = TimeSpan.Zero };
         var result = await new AutoLoginRunner(options).RunAsync(session, "HiApple", messages, CancellationToken.None);
         Require(result.Success, "launcher and login resume after UU minimizes and process identities change");
         Require(session.Actions.SequenceEqual(new[] { LoginAction.OpenAccelerator, LoginAction.LaunchGame, LoginAction.StartLauncher, LoginAction.SubmitCredentials }),
