@@ -1,0 +1,13 @@
+{
+  "FocusedTests": 58,
+  "BuildWarnings": 0,
+  "BuildErrors": 0,
+  "FullSuiteRun": false,
+  "TargetMemoryWritten": false,
+  "CredentialsSubmittedInLiveValidation": false,
+  "Script5FinalStage": "PasswordLogin",
+  "Script3ForegroundBefore": 8800,
+  "Script3ForegroundAfter": 7200,
+  "RuntimeDeployed": false,
+  "DllSha256": "3FB106CFF3B9205316DC689D2B08A8641C0C054E37086E40C491C23077EA9437"
+}

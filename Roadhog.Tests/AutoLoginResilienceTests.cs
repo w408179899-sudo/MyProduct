@@ -79,9 +79,10 @@ internal static class AutoLoginResilienceTests
         Require(awaiting&&calls==1&&releases==1,"A final launch/login/entry press waits for its outcome after successful release.");
         foreach(var pair in new[]{(LoginStage.AcceleratorReady,LoginAction.LaunchGame),(LoginStage.Launcher,LoginAction.StartLauncher),
             (LoginStage.PasswordLogin,LoginAction.SubmitCredentials),(LoginStage.ServerSelection,LoginAction.SelectServer),
-            (LoginStage.CharacterSelection,LoginAction.EnterCharacter),(LoginStage.EntryAgreement,LoginAction.ConfirmEntryAgreement)})
+            (LoginStage.CharacterSelection,LoginAction.EnterCharacter),(LoginStage.EntryAgreement,LoginAction.ConfirmEntryAgreement),
+            (LoginStage.Disconnected,LoginAction.ConfirmGameExit)})
         {
-            int clicks=0;await using var session=new Session(()=>Scene(pair.Item1,pair.Item2),(_,_)=>{clicks++;return Task.FromResult(true);});
+            int clicks=0;await using var session=new Session(()=>Scene(pair.Item1,pair.Item2) with {GameProcessCount=pair.Item2==LoginAction.ConfirmGameExit?1:0},(_,_)=>{clicks++;return Task.FromResult(true);});
             var options=new AutoLoginOptions{PollInterval=TimeSpan.FromMilliseconds(1),ActionRetryInterval=TimeSpan.FromMilliseconds(5),TransitionTimeout=TimeSpan.FromMilliseconds(100),Timeout=TimeSpan.FromSeconds(3)};
             Require(!(await new AutoLoginRunner(options).RunAsync(session,"HiApple",null,CancellationToken.None)).Success&&clicks==1,"No duplicate final input while waiting: "+pair.Item2);
         }
@@ -172,6 +173,7 @@ internal static class AutoLoginResilienceTests
         internal ulong? FailedAddress;
         internal uint Root;
         internal void DisableRoot()=>_pages[Root][0x2b2]=0;
+        internal void HideRoot()=>_pages[Root][0x2b0]=0;
         internal UuMemory(string fixture)
         {
             var json=JsonDocument.Parse(File.ReadAllText(Path.Combine(AutoLoginTests.Fixtures,fixture+".json"))).RootElement;
@@ -224,7 +226,34 @@ internal static class AutoLoginResilienceTests
             Reject(()=>memory.Capture(),"Incomplete traversal cannot publish a partial ready/loading scene.");
             memory.FailedAddress=null;Require(memory.Capture().Snapshot.Action==sample.Item2,"Native traversal resumes after a missing page recovers.");
             memory.DisableRoot();Require(memory.Capture().Snapshot.Action==LoginAction.None,"A disabled parent disables all child targets.");
+            memory.HideRoot();memory.FailedAddress=memory.Root+0xc00;
+            Require(memory.Capture().Snapshot.Action==LoginAction.None,"A completely read hidden ancestor excludes its dormant child subtree from the actionable scene.");
         }
+        return Task.CompletedTask;
+    }
+
+    internal static Task HiddenControlNonresidentPayloadAsync()
+    {
+        var memory=new UuMemory("11-uu-ui-after-acc");
+        memory.FailedAddress=memory.Root;
+        Reject(()=>memory.Capture(),"A visible control still requires its complete payload.");
+        memory.HideRoot();
+        Require(memory.Capture().Snapshot.Action==LoginAction.None,
+            "Confirmed hidden controls do not require their nonresident payload pages.");
+        foreach(uint offset in new uint[]{0x14c,0x2b0})
+        {
+            memory.FailedAddress=memory.Root+offset;
+            Reject(()=>memory.Capture(),"Missing identity or visibility cannot become a hidden control.");
+        }
+        memory=new UuMemory("11-uu-ui-after-acc");
+        byte[]? Changed(ulong at,int length)
+        {
+            var bytes=memory.Read(at,length);
+            if(at==memory.Root&&bytes is{Length:>0x2b0})bytes[0x2b0]=0;
+            return bytes;
+        }
+        Reject(()=>new UuUiReader(Changed).Run(memory.Window),
+            "A control changing visibility between metadata and payload cannot publish a mixed target.");
         return Task.CompletedTask;
     }
 

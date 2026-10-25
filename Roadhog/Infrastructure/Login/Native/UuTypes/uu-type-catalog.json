@@ -1,0 +1,200 @@
+{
+  "schemaVersion": 1,
+  "moduleName": "uu.exe",
+  "sha256": "967c86c19ccbb05a151e522288389e0f842c21c52a94924ca495d846ea3e76fb",
+  "machine": 332,
+  "timeDateStamp": 1792141564,
+  "sizeOfImage": 15994880,
+  "optionalHeaderMagic": 267,
+  "preferredImageBase": 4194304,
+  "types": [
+    {
+      "vtableRva": 13082884,
+      "className": "CHorizontalLayoutUI",
+      "decoratedName": ".?AVCHorizontalLayoutUI@DuiLib@@",
+      "isContainer": true,
+      "colRva": 13163736,
+      "first8FunctionRvas": [
+        2413552,
+        8610054,
+        8610060,
+        8610030,
+        8610066,
+        8610072,
+        8610078,
+        8610084
+      ]
+    },
+    {
+      "vtableRva": 13083388,
+      "className": "CLabelUI",
+      "decoratedName": ".?AVCLabelUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 13163716,
+      "first8FunctionRvas": [
+        2401520,
+        8610054,
+        8610060,
+        8610030,
+        8610066,
+        8610786,
+        8610792,
+        8610798
+      ]
+    },
+    {
+      "vtableRva": 13084016,
+      "className": "CButtonUI",
+      "decoratedName": ".?AVCButtonUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 13164148,
+      "first8FunctionRvas": [
+        2432560,
+        8610054,
+        8610060,
+        8610030,
+        8610066,
+        8611014,
+        8611020,
+        8611026
+      ]
+    },
+    {
+      "vtableRva": 13084396,
+      "className": "CProgressUI",
+      "decoratedName": ".?AVCProgressUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 13164128,
+      "first8FunctionRvas": [
+        2432496,
+        8610054,
+        8610060,
+        8610030,
+        8610066,
+        8611092,
+        8611098,
+        8610798
+      ]
+    },
+    {
+      "vtableRva": 13084776,
+      "className": "CVerticalLayoutUI",
+      "decoratedName": ".?AVCVerticalLayoutUI@DuiLib@@",
+      "isContainer": true,
+      "colRva": 13164188,
+      "first8FunctionRvas": [
+        2432432,
+        8610054,
+        8610060,
+        8610030,
+        8610066,
+        8610918,
+        8610924,
+        8610930
+      ]
+    },
+    {
+      "vtableRva": 13085280,
+      "className": "CListContainerElementUI",
+      "decoratedName": ".?AVCListContainerElementUI@DuiLib@@",
+      "isContainer": true,
+      "colRva": 13164168,
+      "first8FunctionRvas": [
+        2432368,
+        8610054,
+        8610060,
+        8610030,
+        8610066,
+        8610954,
+        8610960,
+        8610966
+      ]
+    },
+    {
+      "vtableRva": 13086080,
+      "className": "CMpngAnimUI",
+      "decoratedName": ".?AVCMpngAnimUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 13164776,
+      "first8FunctionRvas": [
+        2479312,
+        8610054,
+        8610060,
+        8610030,
+        8610066,
+        8611146,
+        8611152,
+        8610798
+      ]
+    },
+    {
+      "vtableRva": 13093812,
+      "className": "CEditUI",
+      "decoratedName": ".?AVCEditUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 13168776,
+      "first8FunctionRvas": [
+        2619184,
+        8610054,
+        8610060,
+        8610030,
+        8610066,
+        8611242,
+        8611248,
+        8611254
+      ]
+    },
+    {
+      "vtableRva": 13094192,
+      "className": "CTextUI",
+      "decoratedName": ".?AVCTextUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 13168796,
+      "first8FunctionRvas": [
+        2619120,
+        8610054,
+        8610060,
+        8610030,
+        8610066,
+        8611206,
+        8611212,
+        8611218
+      ]
+    },
+    {
+      "vtableRva": 13094888,
+      "className": "COptionUI",
+      "decoratedName": ".?AVCOptionUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 13169892,
+      "first8FunctionRvas": [
+        2645872,
+        8610054,
+        8610060,
+        8610030,
+        8610066,
+        8611320,
+        8611326,
+        8611026
+      ]
+    },
+    {
+      "vtableRva": 13097056,
+      "className": "CContainerUI",
+      "decoratedName": ".?AVCContainerUI@DuiLib@@",
+      "isContainer": true,
+      "colRva": 13173148,
+      "first8FunctionRvas": [
+        2933008,
+        8610054,
+        8610060,
+        8610030,
+        8610066,
+        8611392,
+        8611398,
+        8610798
+      ]
+    }
+  ],
+  "excludedPrimaryControls": []
+}

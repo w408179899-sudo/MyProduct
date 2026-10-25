@@ -8,10 +8,18 @@ namespace Roadhog.Infrastructure.Login.Native;
 
 internal static class SessionInputProbe
 {
+    // VMM caches the session process module map on first use. Initializing it through
+    // a user-only view can hide win32kbase from later foreground reads. Shared USER
+    // tables and foreground symbols must consistently use the kernel-inclusive view.
+    internal static Vmmsharp.VmmProcess SessionProcess(Vmmsharp.Vmm vmm,uint sessionPid) =>
+        vmm.GetProcessByPID(sessionPid|0x80000000);
+
     public static JsonElement Foreground(Vmmsharp.Vmm vmm,uint sessionPid)
     {
-        var kernel=vmm.GetProcessByPID(sessionPid|0x80000000);
+        var kernel=SessionProcess(vmm,sessionPid);
         var module=kernel.MapModuleFromName("win32kbase.sys");
+        if(module.vaBase==0||module.cbImageSize==0)
+            throw new InvalidOperationException("Foreground session module is not initialized.");
         var pdb=kernel.Pdb(module.vaBase);
         if(!pdb.SymbolAddress("gptiForeground",out ulong symbol)||symbol<module.vaBase||symbol>=module.vaBase+module.cbImageSize)throw new InvalidOperationException("Foreground session symbol unavailable.");
         ulong ReadPointer(ulong address)

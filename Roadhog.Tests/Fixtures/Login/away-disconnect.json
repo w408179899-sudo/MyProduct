@@ -1,0 +1,761 @@
+{
+  "CapturedUtc": "2026-10-25T09:23:05.7165303+00:00",
+  "InputSent": false,
+  "TargetMemoryWritten": false,
+  "Account": "\u811A\u672C2",
+  "Ui": {
+    "CapturedUtc": "2026-10-25T09:22:51.6075936\u002B00:00",
+    "Pid": 7504,
+    "Eprocess": "0xFFFF8C0B48F46300",
+    "GameBase": "0x4CF50000",
+    "cbImageSize": 21090304,
+    "Viewport": [
+      1024,
+      768
+    ],
+    "Windows": [
+      {
+        "Slot": 1,
+        "Address": "0x3ABE4600",
+        "Name": "user_agreement_dialog",
+        "Message": null,
+        "Nodes": [
+          {
+            "Address": "0x3ABE4600",
+            "Name": "user_agreement_dialog",
+            "X": 0,
+            "Y": 0,
+            "W": 1024,
+            "H": 768,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x3AEE9300",
+            "Name": "",
+            "X": 233.60000000000002,
+            "Y": 154.4,
+            "W": 556.8000000000001,
+            "H": 420.8,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x3AEE7E00",
+            "Name": "",
+            "X": 233.60000000000002,
+            "Y": 161.60000000000002,
+            "W": 556.8000000000001,
+            "H": 17.6,
+            "Enabled": true,
+            "Text": "\u7528\u6237\u534F\u8BAE",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x3BF15400",
+            "Name": "htmlview_agreement",
+            "X": 240,
+            "Y": 186.4,
+            "W": 542.4,
+            "H": 376,
+            "Enabled": true,
+            "Text": null,
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x3ABE5500",
+            "Name": "",
+            "X": 780.4,
+            "Y": 186.4,
+            "W": 12,
+            "H": 376,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x3BCE7800",
+            "Name": "minus",
+            "X": 780.4,
+            "Y": 187.20000000000002,
+            "W": 12,
+            "H": 12.8,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x3BCE7400",
+            "Name": "plus",
+            "X": 780.4,
+            "Y": 548.8,
+            "W": 12,
+            "H": 12.8,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x3BCE6400",
+            "Name": "agreement_yes",
+            "X": 428,
+            "Y": 720,
+            "W": 80,
+            "H": 20,
+            "Enabled": true,
+            "Text": "\u540C\u610F",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x3BCE5000",
+            "Name": "agreement_no",
+            "X": 516,
+            "Y": 720,
+            "W": 80,
+            "H": 20,
+            "Enabled": true,
+            "Text": "\u4E0D\u540C\u610F",
+            "TextDiagnostic": null
+          }
+        ]
+      },
+      {
+        "Slot": 3,
+        "Address": "0x3ABE3C00",
+        "Name": "server_select_dialog",
+        "Message": null,
+        "Nodes": [
+          {
+            "Address": "0x3ABE3C00",
+            "Name": "server_select_dialog",
+            "X": 0,
+            "Y": 0,
+            "W": 1024,
+            "H": 768,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x3AEE8F80",
+            "Name": "",
+            "X": 0,
+            "Y": 12,
+            "W": 1024,
+            "H": 19.200000000000003,
+            "Enabled": true,
+            "Text": "\u9009\u62E9\u670D\u52A1\u5668",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x3AEEAB80",
+            "Name": "",
+            "X": 337.6,
+            "Y": 128.8,
+            "W": 348.8,
+            "H": 420.8,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x3ABE1900",
+            "Name": "server_list",
+            "X": 344,
+            "Y": 138.4,
+            "W": 320,
+            "H": 404.8,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x3ABE0F00",
+            "Name": "",
+            "X": 666.4000000000001,
+            "Y": 159.20000000000002,
+            "W": 13.600000000000001,
+            "H": 383.20000000000005,
+            "Enabled": false,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39AAF400",
+            "Name": "minus",
+            "X": 667.2,
+            "Y": 160.00000000000003,
+            "W": 12,
+            "H": 12.8,
+            "Enabled": false,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39AAF000",
+            "Name": "plus",
+            "X": 667.2,
+            "Y": 528.8000000000001,
+            "W": 12,
+            "H": 12.8,
+            "Enabled": false,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39AAC400",
+            "Name": "start_button",
+            "X": 428,
+            "Y": 720,
+            "W": 80,
+            "H": 20,
+            "Enabled": true,
+            "Text": "\u9009\u62E9\u670D\u52A1\u5668",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39AAB000",
+            "Name": "quit_button",
+            "X": 516,
+            "Y": 720,
+            "W": 80,
+            "H": 20,
+            "Enabled": true,
+            "Text": "\u7ED3\u675F\u6E38\u620F",
+            "TextDiagnostic": null
+          }
+        ]
+      },
+      {
+        "Slot": 4,
+        "Address": "0x39AC0000",
+        "Name": "select_char_dialog",
+        "Message": null,
+        "Nodes": [
+          {
+            "Address": "0x39AC0000",
+            "Name": "select_char_dialog",
+            "X": 0,
+            "Y": 0,
+            "W": 1024,
+            "H": 768,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x3AEE1880",
+            "Name": "",
+            "X": 0,
+            "Y": 12,
+            "W": 1024,
+            "H": 19.200000000000003,
+            "Enabled": true,
+            "Text": "\u9009\u62E9\u89D2\u8272",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39B1D400",
+            "Name": "char_sel_1",
+            "X": 5.6000000000000005,
+            "Y": 608.8000000000001,
+            "W": 122.4,
+            "H": 64,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39B1A400",
+            "Name": "char_sel_2",
+            "X": 132.8,
+            "Y": 608.8000000000001,
+            "W": 122.4,
+            "H": 64,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39B1A000",
+            "Name": "char_sel_3",
+            "X": 260,
+            "Y": 608.8000000000001,
+            "W": 122.4,
+            "H": 64,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39B19C00",
+            "Name": "char_sel_4",
+            "X": 387.20000000000005,
+            "Y": 608.8000000000001,
+            "W": 122.4,
+            "H": 64,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39B19800",
+            "Name": "char_sel_5",
+            "X": 514.4,
+            "Y": 608.8000000000001,
+            "W": 122.4,
+            "H": 64,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39B19400",
+            "Name": "char_sel_6",
+            "X": 641.6,
+            "Y": 608.8000000000001,
+            "W": 122.4,
+            "H": 64,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39B19000",
+            "Name": "char_sel_7",
+            "X": 768.8000000000001,
+            "Y": 608.8000000000001,
+            "W": 122.4,
+            "H": 64,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39B18C00",
+            "Name": "char_sel_8",
+            "X": 896,
+            "Y": 608.8000000000001,
+            "W": 122.4,
+            "H": 64,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x3AEE1500",
+            "Name": "char_stat_1",
+            "X": 5.6000000000000005,
+            "Y": 618.4000000000001,
+            "W": 122.4,
+            "H": 19.200000000000003,
+            "Enabled": true,
+            "Text": "\u7B49\u7EA7 1  \u6CD5\u5E08",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x3AEE1180",
+            "Name": "char_stat_2",
+            "X": 132.8,
+            "Y": 618.4000000000001,
+            "W": 122.4,
+            "H": 19.200000000000003,
+            "Enabled": true,
+            "Text": "\u7B49\u7EA7 50  \u7CBE\u7075\u661F",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x3AEE0E00",
+            "Name": "char_stat_3",
+            "X": 260,
+            "Y": 618.4000000000001,
+            "W": 122.4,
+            "H": 19.200000000000003,
+            "Enabled": true,
+            "Text": "\u7B49\u7EA7 46  \u6CBB\u6108\u661F",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x3AEE0A80",
+            "Name": "char_stat_4",
+            "X": 387.20000000000005,
+            "Y": 618.4000000000001,
+            "W": 122.4,
+            "H": 19.200000000000003,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x3AEE0700",
+            "Name": "char_stat_5",
+            "X": 514.4,
+            "Y": 618.4000000000001,
+            "W": 122.4,
+            "H": 19.200000000000003,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x3AEE0380",
+            "Name": "char_stat_6",
+            "X": 641.6,
+            "Y": 618.4000000000001,
+            "W": 122.4,
+            "H": 19.200000000000003,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x3AEE0000",
+            "Name": "char_stat_7",
+            "X": 768.8000000000001,
+            "Y": 618.4000000000001,
+            "W": 122.4,
+            "H": 19.200000000000003,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x3DA86580",
+            "Name": "char_stat_8",
+            "X": 896,
+            "Y": 618.4000000000001,
+            "W": 122.4,
+            "H": 19.200000000000003,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x3DA86C80",
+            "Name": "char_desc_1",
+            "X": 5.6000000000000005,
+            "Y": 651.2,
+            "W": 122.4,
+            "H": 36,
+            "Enabled": true,
+            "Text": "FDEM",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x3DA87E00",
+            "Name": "char_desc_2",
+            "X": 132.8,
+            "Y": 651.2,
+            "W": 122.4,
+            "H": 36,
+            "Enabled": true,
+            "Text": "Tone",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39BBFB80",
+            "Name": "char_desc_3",
+            "X": 260,
+            "Y": 651.2,
+            "W": 122.4,
+            "H": 36,
+            "Enabled": true,
+            "Text": "Jone",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39BBF800",
+            "Name": "char_desc_4",
+            "X": 387.20000000000005,
+            "Y": 651.2,
+            "W": 122.4,
+            "H": 36,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39BBF480",
+            "Name": "char_desc_5",
+            "X": 514.4,
+            "Y": 651.2,
+            "W": 122.4,
+            "H": 36,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39BBF100",
+            "Name": "char_desc_6",
+            "X": 641.6,
+            "Y": 651.2,
+            "W": 122.4,
+            "H": 36,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39BBED80",
+            "Name": "char_desc_7",
+            "X": 768.8000000000001,
+            "Y": 651.2,
+            "W": 122.4,
+            "H": 36,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39BBEA00",
+            "Name": "char_desc_8",
+            "X": 896,
+            "Y": 651.2,
+            "W": 122.4,
+            "H": 36,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39B14800",
+            "Name": "start_button",
+            "X": 340,
+            "Y": 720,
+            "W": 80,
+            "H": 20,
+            "Enabled": true,
+            "Text": "\u5F00\u59CB",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39B13400",
+            "Name": "select_new",
+            "X": 428,
+            "Y": 720,
+            "W": 80,
+            "H": 20,
+            "Enabled": true,
+            "Text": "\u521B\u5EFA",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39B12000",
+            "Name": "select_delete",
+            "X": 516,
+            "Y": 720,
+            "W": 80,
+            "H": 20,
+            "Enabled": true,
+            "Text": "\u5220\u9664",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39B0F800",
+            "Name": "quit_button",
+            "X": 604,
+            "Y": 720,
+            "W": 80,
+            "H": 20,
+            "Enabled": true,
+            "Text": "\u7ED3\u675F\u6E38\u620F",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39B0E400",
+            "Name": "select_server",
+            "X": 172,
+            "Y": 720,
+            "W": 80,
+            "H": 20,
+            "Enabled": true,
+            "Text": "\u9009\u62E9\u670D\u52A1\u5668",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39B0BC00",
+            "Name": "lobby_credit",
+            "X": 860,
+            "Y": 720,
+            "W": 80,
+            "H": 20,
+            "Enabled": true,
+            "Text": "\u5236\u4F5C\u4EBA",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39B0A800",
+            "Name": "mail_notice_1",
+            "X": 5.6000000000000005,
+            "Y": 592,
+            "W": 28,
+            "H": 28.8,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39B0A400",
+            "Name": "mail_notice_2",
+            "X": 132.8,
+            "Y": 592,
+            "W": 28,
+            "H": 28.8,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39B0A000",
+            "Name": "mail_notice_3",
+            "X": 260,
+            "Y": 592,
+            "W": 28,
+            "H": 28.8,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x39B08400",
+            "Name": "auction_notice_2",
+            "X": 161.60000000000002,
+            "Y": 590.4,
+            "W": 28,
+            "H": 28.8,
+            "Enabled": true,
+            "Text": "",
+            "TextDiagnostic": null
+          }
+        ]
+      },
+      {
+        "Slot": 337,
+        "Address": "0x33468A00",
+        "Name": "",
+        "Message": {
+          "Owner": -1,
+          "Style": 24,
+          "ConfirmEvent": 2204,
+          "CancelEvent": 2102,
+          "Tag": 1,
+          "Body": "\u7531\u4E8E\u60A8\u4E00\u76F4\u5904\u4E8E\u79BB\u5F00\u72B6\u6001\uFF0C\u4E3A\u4E86\u5B89\u5168\uFF0C\u8FDE\u63A5\u5DF2\u4E2D\u65AD\u3002",
+          "Ok": "0x364F8400",
+          "Cancel": "0x364F6C00",
+          "Checkbox": "0x0",
+          "Checked": false
+        },
+        "Nodes": [
+          {
+            "Address": "0x33468A00",
+            "Name": "",
+            "X": 357.2,
+            "Y": 335.4,
+            "W": 309.6,
+            "H": 97.20000000000002,
+            "Enabled": true,
+            "Text": null,
+            "TextDiagnostic": "Unsupported text getter."
+          },
+          {
+            "Address": "0x3B5D2200",
+            "Name": "",
+            "X": 366,
+            "Y": 361.79999999999995,
+            "W": 292,
+            "H": 30.8,
+            "Enabled": true,
+            "Text": "\u7531\u4E8E\u60A8\u4E00\u76F4\u5904\u4E8E\u79BB\u5F00\u72B6\u6001\uFF0C\u4E3A\u4E86\u5B89\u5168\uFF0C\u8FDE\u63A5\u5DF2\u4E2D\u65AD\u3002",
+            "TextDiagnostic": null
+          },
+          {
+            "Address": "0x364F8400",
+            "Name": "ok",
+            "X": 599.6,
+            "Y": 406.19999999999993,
+            "W": 60.800000000000004,
+            "H": 20.8,
+            "Enabled": true,
+            "Text": "\u786E\u8BA4",
+            "TextDiagnostic": null
+          }
+        ]
+      }
+    ],
+    "Servers": [
+      {
+        "Index": 0,
+        "Address": "0x3AD99080",
+        "Id": 51,
+        "PlayId": 51,
+        "Name": "",
+        "DisplayName": "\u4E9A\u7279\u96F7\u4E9A",
+        "Online": true,
+        "CharacterCount": 3
+      }
+    ],
+    "SelectedServerIndex": -1,
+    "PreviousServerId": -1,
+    "Characters": [
+      {
+        "Index": 0,
+        "Address": "0x3AA46E00",
+        "Id": 1711633348,
+        "Name": "FDEM"
+      },
+      {
+        "Index": 1,
+        "Address": "0x3AA47300",
+        "Id": 1711627251,
+        "Name": "Tone"
+      },
+      {
+        "Index": 2,
+        "Address": "0x3AA47800",
+        "Id": 1711614976,
+        "Name": "Jone"
+      }
+    ],
+    "SelectedIndex": 1,
+    "GameState": 15,
+    "MapId": 220050000,
+    "LocalEntityId": 65535,
+    "CriticalFieldsRevalidated": true
+  },
+  "Window": {
+    "Hwnd": "0x1D045A",
+    "OwnerThread": 5632,
+    "Address": "0xD33E40",
+    "Style": "0x94080000",
+    "Visible": true,
+    "Disabled": false,
+    "Rect": [
+      0,
+      0,
+      1024,
+      768
+    ],
+    "ClientRect": [
+      0,
+      0,
+      1024,
+      768
+    ],
+    "UserData": "0x0",
+    "Manager": "0x0",
+    "Root": "0x0",
+    "TitleCandidate": "\u6C38\u6052\u4E4B\u5854(64\u4F4D)"
+  },
+  "Scene": {
+    "Session": "diagnostic",
+    "Stage": "Blocked",
+    "Action": "None",
+    "ActionIdentity": "blocked",
+    "Description": "\u767B\u5F55\u9047\u5230\u672A\u5904\u7406\u7684\u6E38\u620F\u63D0\u793A\uFF1A\u7531\u4E8E\u60A8\u4E00\u76F4\u5904\u4E8E\u79BB\u5F00\u72B6\u6001\uFF0C\u4E3A\u4E86\u5B89\u5168\uFF0C\u8FDE\u63A5\u5DF2\u4E2D\u65AD\u3002",
+    "CharacterName": "",
+    "GameProcessId": 0
+  }
+}

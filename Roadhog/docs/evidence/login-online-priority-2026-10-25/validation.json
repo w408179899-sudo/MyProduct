@@ -1,0 +1,22 @@
+{
+    "TestFilter":  "auto-login",
+    "Passed":  45,
+    "Failed":  0,
+    "FullSuiteRun":  false,
+    "BuildWarnings":  0,
+    "BuildErrors":  0,
+    "DllSha256":  "5162BE2F34C45D977DE6DC9286DEAF184440D4993B8AABE06DE0E336338047C5",
+    "RuntimeReplaced":  false,
+    "InputSent":  false,
+    "LiveScene":  "InWorld",
+    "Character":  "初次见面",
+    "GamePid":  588,
+    "UU":  {
+               "dwPID":  3700,
+               "HelperAddress":  "0x0",
+               "Exports":  {
+                               "Error":  "Missing 7647EC40/40"
+                           }
+           },
+    "Pending":  "When UU interaction is required and its export data remains unreadable, the provider still retries; this patch does not fabricate the missing address."
+}

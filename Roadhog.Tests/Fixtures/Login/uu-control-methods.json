@@ -1,0 +1,319 @@
+﻿[
+    {
+        "Vtable":  "0x72D4D9B4",
+        "GetClass":  "0x72C92F80",
+        "GetClassCode":  "558BEC51894DFCB8D437D5728BE55DC3558BEC51894DFC8B4DFC83C104E8BE34",
+        "ClassName":  "ContainerUI",
+        "GetInterface":  "0x72C93050",
+        "GetInterfaceCode":  "558BEC83EC08894DFC68EC37D5728B450850FF158487D47283C40885C07522837DFC00740E8B4DFC81C168070000894DF8EB07C745F8000000008B45F8EB29EB1B680438D5728B550852FF158487D47283C40885C075058B45FCEB0C8B4508508B4DFCE8883D00008BE55DC20400CCCC558BEC51894DFC837D08007C108B4DFC83C104E88833FFFF3945087C0433C0EB0F8B4508508B4DFC83C104E83025FFFF8BE55DC20400CCCCCCCCCCCCCCCCCCCC558BEC83EC08894DF8C745FC00000000",
+        "Evidence":  [
+                         {
+                             "Kind":  "literal",
+                             "Offset":  10,
+                             "Value":  "IContainer"
+                         },
+                         {
+                             "Kind":  "literal",
+                             "Offset":  66,
+                             "Value":  "Container"
+                         },
+                         {
+                             "Kind":  "parent",
+                             "Address":  "0x72C96E40",
+                             "Code":  "558BEC51894DFC680C39D5728B450850FF158487D47283C40885C075058B45FCEB0233C08BE55DC20400CCCCCCCCCCCC558BEC51894DFC8B45FC83B84C0100000074218B4DFC8B9150070000528B45FC8B884C010000E8C59A00008BC8E8CE2BFDFFEB098B4DFC8B81500700008B"
+                         },
+                         {
+                             "Kind":  "compare",
+                             "Pointer":  "0x7589E560",
+                             "Code":  "8BFF558BEC568B750C578B7D080FB70E0FB7172BD175198BC12BFE6685C0741083C6020FB70E0FB714378BC12BD174EB8BC2C1EA1FF7D8C1E81F5F2BC25E5DC3",
+                             "Exports":  [
+                                             {
+                                                 "Name":  "wcscmp",
+                                                 "Address":  "0x7589E7F0",
+                                                 "Code":  "8BFF558BEC837D08005357743F8B4D0833FF8D5102668B0183C102663BC775F52BCAD1F98D59018D041B50E81019FEFF8BF85985FF7415FF75085357E8EFFEFF"
+                                             },
+                                             {
+                                                 "Name":  "_wcsicmp",
+                                                 "Address":  "0x7589E8D0",
+                                                 "Code":  "8BFF558BEC833D201C9675007529837D08007517E84721FEFFC70016000000E8ECE70400B8FFFFFF7F5DC3837D0C0074E35DE948FFFFFF6A00FF750CFF7508E8"
+                                             },
+                                             {
+                                                 "Name":  "_wcsicmp_l",
+                                                 "Address":  "0x7589E920",
+                                                 "Code":  "8BFF558BEC83EC10568B750885F6751AE8FB20FEFFC70016000000E8A0E70400B8FFFFFF7FE98B000000578B7D0C85FF7517E8D920FEFFC70016000000E87EE7"
+                                             },
+                                             {
+                                                 "Name":  "wcsncmp",
+                                                 "Address":  "0x7589EE90",
+                                                 "Code":  "8BFF558BEC8B451085C075025DC38B4D0C8B55085683E80174150FB7326685F6740D663B31750883C20283C102EBE60FB7020FB7092BC15E5DC3CCCCCCCCCCCC"
+                                             },
+                                             {
+                                                 "Name":  "_wcsnicmp",
+                                                 "Address":  "0x75943D30",
+                                                 "Code":  ""
+                                             }
+                                         ]
+                         }
+                     ]
+    },
+    {
+        "Vtable":  "0x72D4DC94",
+        "GetClass":  "0x72CBA740",
+        "GetClassCode":  "558BEC51894DFCB87849D5728BE55DC3558BEC51894DFC8B45FC8B108B4DFC8B",
+        "ClassName":  "VerticalLayoutUI",
+        "GetInterface":  "0x72CBA790",
+        "GetInterfaceCode":  "558BEC51894DFC683441D5728B450850FF158487D47283C40885C075058B45FCEB0C8B4D08518B4DFCE89288FDFF8BE55DC20400CCCCCCCCCCCCCCCCCCCCCCCC558BEC51894DFC8B45FC8B80C80700008BE55DC3CCCCCCCCCCCCCCCCCCCCCCCC558BEC83EC58A180D3D97233C58945FC894DB88B45B88B88CC07000083E1400F843C0100000FB6550C85D20F84300100008B45B883B8C8070000000F8C900000008B4DB88B55B88B81E40700002B82C80700008B4DB83B81DC0700007E178B55",
+        "Evidence":  [
+                         {
+                             "Kind":  "literal",
+                             "Offset":  8,
+                             "Value":  "VerticalLayout"
+                         },
+                         {
+                             "Kind":  "parent",
+                             "Address":  "0x72C93050",
+                             "Code":  "558BEC83EC08894DFC68EC37D5728B450850FF158487D47283C40885C07522837DFC00740E8B4DFC81C168070000894DF8EB07C745F8000000008B45F8EB29EB1B680438D5728B550852FF158487D47283C40885C075058B45FCEB0C8B4508508B4DFCE8883D00008BE55DC20400"
+                         },
+                         {
+                             "Kind":  "compare",
+                             "Pointer":  "0x7589E560",
+                             "Code":  "8BFF558BEC568B750C578B7D080FB70E0FB7172BD175198BC12BFE6685C0741083C6020FB70E0FB714378BC12BD174EB8BC2C1EA1FF7D8C1E81F5F2BC25E5DC3",
+                             "Exports":  [
+                                             {
+                                                 "Name":  "wcscmp",
+                                                 "Address":  "0x7589E7F0",
+                                                 "Code":  "8BFF558BEC837D08005357743F8B4D0833FF8D5102668B0183C102663BC775F52BCAD1F98D59018D041B50E81019FEFF8BF85985FF7415FF75085357E8EFFEFF"
+                                             },
+                                             {
+                                                 "Name":  "_wcsicmp",
+                                                 "Address":  "0x7589E8D0",
+                                                 "Code":  "8BFF558BEC833D201C9675007529837D08007517E84721FEFFC70016000000E8ECE70400B8FFFFFF7F5DC3837D0C0074E35DE948FFFFFF6A00FF750CFF7508E8"
+                                             },
+                                             {
+                                                 "Name":  "_wcsicmp_l",
+                                                 "Address":  "0x7589E920",
+                                                 "Code":  "8BFF558BEC83EC10568B750885F6751AE8FB20FEFFC70016000000E8A0E70400B8FFFFFF7FE98B000000578B7D0C85FF7517E8D920FEFFC70016000000E87EE7"
+                                             },
+                                             {
+                                                 "Name":  "wcsncmp",
+                                                 "Address":  "0x7589EE90",
+                                                 "Code":  "8BFF558BEC8B451085C075025DC38B4D0C8B55085683E80174150FB7326685F6740D663B31750883C20283C102EBE60FB7020FB7092BC15E5DC3CCCCCCCCCCCC"
+                                             },
+                                             {
+                                                 "Name":  "_wcsnicmp",
+                                                 "Address":  "0x75943D30",
+                                                 "Code":  ""
+                                             }
+                                         ]
+                         }
+                     ]
+    },
+    {
+        "Vtable":  "0x72D4DEBC",
+        "GetClass":  "0x72CB7EF0",
+        "GetClassCode":  "558BEC51894DFCB89048D5728BE55DC3558BEC51894DFC8B45FC8B108B4DFC8B",
+        "ClassName":  "HorizontalLayoutUI",
+        "GetInterface":  "0x72CB7F40",
+        "GetInterfaceCode":  "558BEC51894DFC689441D5728B450850FF158487D47283C40885C075058B45FCEB0C8B4D08518B4DFCE8E2B0FDFF8BE55DC20400CCCCCCCCCCCCCCCCCCCCCCCC558BEC51894DFC8B45FC8B80C80700008BE55DC3CCCCCCCCCCCCCCCCCCCCCCCC558BEC83EC48A180D3D97233C58945FC894DB88B45B88B88CC07000083E1400F84D30000000FB6550C85D20F84C70000008B45B883B8C8070000007C5C8B4DB88B91E4070000528B45B88B88E0070000518B55B88B82DC070000508B4DB88B55",
+        "Evidence":  [
+                         {
+                             "Kind":  "literal",
+                             "Offset":  8,
+                             "Value":  "HorizontalLayout"
+                         },
+                         {
+                             "Kind":  "parent",
+                             "Address":  "0x72C93050",
+                             "Code":  "558BEC83EC08894DFC68EC37D5728B450850FF158487D47283C40885C07522837DFC00740E8B4DFC81C168070000894DF8EB07C745F8000000008B45F8EB29EB1B680438D5728B550852FF158487D47283C40885C075058B45FCEB0C8B4508508B4DFCE8883D00008BE55DC20400"
+                         },
+                         {
+                             "Kind":  "compare",
+                             "Pointer":  "0x7589E560",
+                             "Code":  "8BFF558BEC568B750C578B7D080FB70E0FB7172BD175198BC12BFE6685C0741083C6020FB70E0FB714378BC12BD174EB8BC2C1EA1FF7D8C1E81F5F2BC25E5DC3",
+                             "Exports":  [
+                                             {
+                                                 "Name":  "wcscmp",
+                                                 "Address":  "0x7589E7F0",
+                                                 "Code":  "8BFF558BEC837D08005357743F8B4D0833FF8D5102668B0183C102663BC775F52BCAD1F98D59018D041B50E81019FEFF8BF85985FF7415FF75085357E8EFFEFF"
+                                             },
+                                             {
+                                                 "Name":  "_wcsicmp",
+                                                 "Address":  "0x7589E8D0",
+                                                 "Code":  "8BFF558BEC833D201C9675007529837D08007517E84721FEFFC70016000000E8ECE70400B8FFFFFF7F5DC3837D0C0074E35DE948FFFFFF6A00FF750CFF7508E8"
+                                             },
+                                             {
+                                                 "Name":  "_wcsicmp_l",
+                                                 "Address":  "0x7589E920",
+                                                 "Code":  "8BFF558BEC83EC10568B750885F6751AE8FB20FEFFC70016000000E8A0E70400B8FFFFFF7FE98B000000578B7D0C85FF7517E8D920FEFFC70016000000E87EE7"
+                                             },
+                                             {
+                                                 "Name":  "wcsncmp",
+                                                 "Address":  "0x7589EE90",
+                                                 "Code":  "8BFF558BEC8B451085C075025DC38B4D0C8B55085683E80174150FB7326685F6740D663B31750883C20283C102EBE60FB7020FB7092BC15E5DC3CCCCCCCCCCCC"
+                                             },
+                                             {
+                                                 "Name":  "_wcsnicmp",
+                                                 "Address":  "0x75943D30",
+                                                 "Code":  ""
+                                             }
+                                         ]
+                         }
+                     ]
+    },
+    {
+        "Vtable":  "0x72D50444",
+        "GetClass":  "0x72CBBC10",
+        "GetClassCode":  "558BEC51894DFCB8209FD4728BE55DC3558BEC83EC0C894DFC8B45FC8B108B4D",
+        "ClassName":  "ButtonUI",
+        "GetInterface":  "0x72CBBDD0",
+        "GetInterfaceCode":  "558BEC51894DFC68F03FD5728B450850FF158487D47283C40885C075058B45FCEB0C8B4D08518B4DFCE8128C00008BE55DC20400CCCCCCCCCCCCCCCCCCCCCCCC558BEC83EC08894DF8C745FC000000008B45F805D4110000508B4D08E8DF91FCFF8B4DFC83C901894DFC8B45088BE55DC20400CCCCCCCCCCCCCCCCCCCCCCCCCC558BEC51894DFC8B4DFC81C1C0080000E81B98FCFF8BE55DC3CCCCCCCCCCCCCC558BEC51894DFC8B45FC8B805C1200008BE55DC3CCCCCCCCCCCCCCCCCCCCCCCC",
+        "Evidence":  [
+                         {
+                             "Kind":  "literal",
+                             "Offset":  8,
+                             "Value":  "Button"
+                         },
+                         {
+                             "Kind":  "parent",
+                             "Address":  "0x72CC4A10",
+                             "Code":  "558BEC51894DFC68E43FD5728B450850FF158487D47283C40885C075058B45FCEB0C8B4D08518B4DFCE80224FDFF8BE55DC20400CCCCCCCCCCCCCCCCCCCCCCCC558BEC6AFF68202FD47264A100000000505183EC08535657A180D3D97233C5508D45F464A3000000008965F0894D"
+                         },
+                         {
+                             "Kind":  "compare",
+                             "Pointer":  "0x7589E560",
+                             "Code":  "8BFF558BEC568B750C578B7D080FB70E0FB7172BD175198BC12BFE6685C0741083C6020FB70E0FB714378BC12BD174EB8BC2C1EA1FF7D8C1E81F5F2BC25E5DC3",
+                             "Exports":  [
+                                             {
+                                                 "Name":  "wcscmp",
+                                                 "Address":  "0x7589E7F0",
+                                                 "Code":  "8BFF558BEC837D08005357743F8B4D0833FF8D5102668B0183C102663BC775F52BCAD1F98D59018D041B50E81019FEFF8BF85985FF7415FF75085357E8EFFEFF"
+                                             },
+                                             {
+                                                 "Name":  "_wcsicmp",
+                                                 "Address":  "0x7589E8D0",
+                                                 "Code":  "8BFF558BEC833D201C9675007529837D08007517E84721FEFFC70016000000E8ECE70400B8FFFFFF7F5DC3837D0C0074E35DE948FFFFFF6A00FF750CFF7508E8"
+                                             },
+                                             {
+                                                 "Name":  "_wcsicmp_l",
+                                                 "Address":  "0x7589E920",
+                                                 "Code":  "8BFF558BEC83EC10568B750885F6751AE8FB20FEFFC70016000000E8A0E70400B8FFFFFF7FE98B000000578B7D0C85FF7517E8D920FEFFC70016000000E87EE7"
+                                             },
+                                             {
+                                                 "Name":  "wcsncmp",
+                                                 "Address":  "0x7589EE90",
+                                                 "Code":  "8BFF558BEC8B451085C075025DC38B4D0C8B55085683E80174150FB7326685F6740D663B31750883C20283C102EBE60FB7020FB7092BC15E5DC3CCCCCCCCCCCC"
+                                             },
+                                             {
+                                                 "Name":  "_wcsnicmp",
+                                                 "Address":  "0x75943D30",
+                                                 "Code":  ""
+                                             }
+                                         ]
+                         }
+                     ]
+    },
+    {
+        "Vtable":  "0x72D4FFD0",
+        "GetClass":  "0x72CC4640",
+        "GetClassCode":  "558BEC51894DFCB80C44D5728BE55DC3558BEC51894DFCE8A4CDFDFF85C07416",
+        "ClassName":  "LabelUI",
+        "GetInterface":  "0x72CC4A10",
+        "GetInterfaceCode":  "558BEC51894DFC68E43FD5728B450850FF158487D47283C40885C075058B45FCEB0C8B4D08518B4DFCE80224FDFF8BE55DC20400CCCCCCCCCCCCCCCCCCCCCCCC558BEC6AFF68202FD47264A100000000505183EC08535657A180D3D97233C5508D45F464A3000000008965F0894DECC745FC000000008B45EC05D40700008B4D088B1089118B50048951048B50088951088B400C89410C8B4508EB2CC745E82452D572688841D7728D4DE851E89451070090B8D14ACC72C3C745FCFFFFFFFFEB",
+        "Evidence":  [
+                         {
+                             "Kind":  "literal",
+                             "Offset":  8,
+                             "Value":  "Label"
+                         },
+                         {
+                             "Kind":  "parent",
+                             "Address":  "0x72C96E40",
+                             "Code":  "558BEC51894DFC680C39D5728B450850FF158487D47283C40885C075058B45FCEB0233C08BE55DC20400CCCCCCCCCCCC558BEC51894DFC8B45FC83B84C0100000074218B4DFC8B9150070000528B45FC8B884C010000E8C59A00008BC8E8CE2BFDFFEB098B4DFC8B81500700008B"
+                         },
+                         {
+                             "Kind":  "compare",
+                             "Pointer":  "0x7589E560",
+                             "Code":  "8BFF558BEC568B750C578B7D080FB70E0FB7172BD175198BC12BFE6685C0741083C6020FB70E0FB714378BC12BD174EB8BC2C1EA1FF7D8C1E81F5F2BC25E5DC3",
+                             "Exports":  [
+                                             {
+                                                 "Name":  "wcscmp",
+                                                 "Address":  "0x7589E7F0",
+                                                 "Code":  "8BFF558BEC837D08005357743F8B4D0833FF8D5102668B0183C102663BC775F52BCAD1F98D59018D041B50E81019FEFF8BF85985FF7415FF75085357E8EFFEFF"
+                                             },
+                                             {
+                                                 "Name":  "_wcsicmp",
+                                                 "Address":  "0x7589E8D0",
+                                                 "Code":  "8BFF558BEC833D201C9675007529837D08007517E84721FEFFC70016000000E8ECE70400B8FFFFFF7F5DC3837D0C0074E35DE948FFFFFF6A00FF750CFF7508E8"
+                                             },
+                                             {
+                                                 "Name":  "_wcsicmp_l",
+                                                 "Address":  "0x7589E920",
+                                                 "Code":  "8BFF558BEC83EC10568B750885F6751AE8FB20FEFFC70016000000E8A0E70400B8FFFFFF7FE98B000000578B7D0C85FF7517E8D920FEFFC70016000000E87EE7"
+                                             },
+                                             {
+                                                 "Name":  "wcsncmp",
+                                                 "Address":  "0x7589EE90",
+                                                 "Code":  "8BFF558BEC8B451085C075025DC38B4D0C8B55085683E80174150FB7326685F6740D663B31750883C20283C102EBE60FB7020FB7092BC15E5DC3CCCCCCCCCCCC"
+                                             },
+                                             {
+                                                 "Name":  "_wcsnicmp",
+                                                 "Address":  "0x75943D30",
+                                                 "Code":  ""
+                                             }
+                                         ]
+                         }
+                     ]
+    },
+    {
+        "Vtable":  "0x72D5014C",
+        "GetClass":  "0x72CDD120",
+        "GetClassCode":  "558BEC51894DFCB8489FD4728BE55DC3558BEC51894DFC8B45FC8B108B4DFC8B",
+        "ClassName":  "TextUI",
+        "GetInterface":  "0x72CDD170",
+        "GetInterfaceCode":  "558BEC51894DFC68CC3FD5728B450850FF158487D47283C40885C075058B45FCEB0C8B4D08518B4DFCE87278FEFF8BE55DC20400CCCCCCCCCCCCCCCCCCCCCCCC558BEC51894DFC837D08007C218B45FC8B4D083B88A80800007D13695508840000008B45FC8D84102C090000EB0233C08BE55DC20400CCCCCCCCCCCCCCCCCCCC558BEC51894DFC8B4DFC81C1E4020000E89B95FAFF0FB6C085C0740233C08BE55DC20400CCCCCCCCCCCCCCCCCCCCCCCC558BEC83EC34A180D3D97233C58945FC",
+        "Evidence":  [
+                         {
+                             "Kind":  "literal",
+                             "Offset":  8,
+                             "Value":  "Text"
+                         },
+                         {
+                             "Kind":  "parent",
+                             "Address":  "0x72CC4A10",
+                             "Code":  "558BEC51894DFC68E43FD5728B450850FF158487D47283C40885C075058B45FCEB0C8B4D08518B4DFCE80224FDFF8BE55DC20400CCCCCCCCCCCCCCCCCCCCCCCC558BEC6AFF68202FD47264A100000000505183EC08535657A180D3D97233C5508D45F464A3000000008965F0894D"
+                         },
+                         {
+                             "Kind":  "compare",
+                             "Pointer":  "0x7589E560",
+                             "Code":  "8BFF558BEC568B750C578B7D080FB70E0FB7172BD175198BC12BFE6685C0741083C6020FB70E0FB714378BC12BD174EB8BC2C1EA1FF7D8C1E81F5F2BC25E5DC3",
+                             "Exports":  [
+                                             {
+                                                 "Name":  "wcscmp",
+                                                 "Address":  "0x7589E7F0",
+                                                 "Code":  "8BFF558BEC837D08005357743F8B4D0833FF8D5102668B0183C102663BC775F52BCAD1F98D59018D041B50E81019FEFF8BF85985FF7415FF75085357E8EFFEFF"
+                                             },
+                                             {
+                                                 "Name":  "_wcsicmp",
+                                                 "Address":  "0x7589E8D0",
+                                                 "Code":  "8BFF558BEC833D201C9675007529837D08007517E84721FEFFC70016000000E8ECE70400B8FFFFFF7F5DC3837D0C0074E35DE948FFFFFF6A00FF750CFF7508E8"
+                                             },
+                                             {
+                                                 "Name":  "_wcsicmp_l",
+                                                 "Address":  "0x7589E920",
+                                                 "Code":  "8BFF558BEC83EC10568B750885F6751AE8FB20FEFFC70016000000E8A0E70400B8FFFFFF7FE98B000000578B7D0C85FF7517E8D920FEFFC70016000000E87EE7"
+                                             },
+                                             {
+                                                 "Name":  "wcsncmp",
+                                                 "Address":  "0x7589EE90",
+                                                 "Code":  "8BFF558BEC8B451085C075025DC38B4D0C8B55085683E80174150FB7326685F6740D663B31750883C20283C102EBE60FB7020FB7092BC15E5DC3CCCCCCCCCCCC"
+                                             },
+                                             {
+                                                 "Name":  "_wcsnicmp",
+                                                 "Address":  "0x75943D30",
+                                                 "Code":  ""
+                                             }
+                                         ]
+                         }
+                     ]
+    }
+]

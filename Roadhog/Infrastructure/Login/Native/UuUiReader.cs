@@ -3,9 +3,10 @@ using System.Text;
 using System.Text.Json;
 using Vmmsharp;
 namespace Roadhog.Infrastructure.Login.Native;
-internal sealed class UuUiReader(Func<ulong,int,byte[]?> readMemory)
+internal sealed class UuUiReader(Func<ulong,int,byte[]?> readMemory, UuControlTypes? verifiedTypes=null, UuMethodTypes? methodTypes=null)
 {
-    internal UuUiReader(VmmProcess process):this((address,length)=>process.MemRead(address,(uint)length,1)) { }
+    internal UuUiReader(VmmProcess process):this((address,length)=>process.MemRead(address,(uint)length,1),UuControlTypes.For(process),
+        UuMethodTypes.For(process)) { }
     private readonly Dictionary<uint,string> typeCache=new();
     private readonly Dictionary<uint,bool> containerCache=new();
     private sealed record UiRect(int Left,int Top,int Right,int Bottom);
@@ -24,15 +25,24 @@ internal sealed class UuUiReader(Func<ulong,int,byte[]?> readMemory)
     {
         if(depth>40||visited.Count>=20000||!Plausible(address)||!visited.Add(address))
             throw new InvalidOperationException("UU traversal is incomplete or cyclic.");
+        // An inactive control's later pages can be nonresident. Read its identity and
+        // visibility independently before requiring the payload of an actionable node.
+        var owner=Read(address+0x14c,8);
+        var state=Read(address+0x2b0,3);
+        if(owner is null||state is null||U32(owner,0)!=manager)throw new InvalidOperationException("UU control manager changed.");
+        bool visible=state[0]!=0&&state[1]!=0, enabled=state[2]!=0&&ancestorsEnabled;
+        // Visibility is an independently complete fact. A hidden subtree cannot contain
+        // actionable controls, and its dormant/paged-out children are not scene inputs.
+        if(!visible||!ancestorsVisible)return;
         var data=Read(address,0x370);
-        if(data is null||U32(data,0x14c)!=manager)throw new InvalidOperationException("UU control manager changed.");
+        if(data is null||!data.AsSpan(0x14c,8).SequenceEqual(owner)||!data.AsSpan(0x2b0,3).SequenceEqual(state))
+            throw new InvalidOperationException("UU control identity or visibility changed during capture.");
         uint vtable=U32(data,0),parent=U32(data,0x150);
         string type=GetTypeName(vtable);
         string name=ReadString(U32(data,0x1d8),128)??"";
         var rect=new UiRect(I32(data,0x260),I32(data,0x264),I32(data,0x268),I32(data,0x26c));
-        bool visible=data[0x2b0]!=0&&data[0x2b1]!=0, enabled=data[0x2b2]!=0&&ancestorsEnabled;
         string? text=null;
-        if(new[]{"launch_game","stop_acc","start_acc","game_name","acced_time","acced_game_name","acc_status","acc_state","acc_tip","net_delay","accing_text","accing_tips","accing_progress","acc_progress"}.Contains(name))text=ReadString(U32(data,0x2e4),128);
+        if(new[]{"launch_game","stop_acc","start_acc","game_name","acced_time","acced_game_name","acc_status","acc_state","acc_tip","net_delay","accing_text","accing_tips","accing_progress","acc_progress","Ok","Cancel","error_code_desc","error_code_desc2","error_code"}.Contains(name))text=ReadString(U32(data,0x2e4),512);
         nodes.Add(new(Hex(address),Hex(parent),Hex(manager),type,name,rect,visible,ancestorsVisible,enabled,text,depth));
         if(type.Length>0&&!IsContainer(vtable))return;
         var children=LoginUiChildren.Read(readMemory,address,manager,0x76c,0x14c,depth==0||type.Length>0,10000);
@@ -44,6 +54,16 @@ internal sealed class UuUiReader(Func<ulong,int,byte[]?> readMemory)
     private string GetTypeName(uint vtable)
     {
         if(typeCache.TryGetValue(vtable,out var name))return name;
+        if(verifiedTypes is not null&&verifiedTypes.TryGet(vtable,out var known))
+        {
+            containerCache[vtable]=known.IsContainer;
+            return typeCache[vtable]=known.DecoratedName;
+        }
+        if(methodTypes is not null&&methodTypes.TryGet(vtable,out var className,out bool container))
+        {
+            containerCache[vtable]=container;
+            return typeCache[vtable]=className;
+        }
         var slot=Read(vtable-4,4);
         var locator=slot is null?null:Read(U32(slot,0),20);
         var descriptor=locator is null?null:Read(U32(locator,12)+8,160);

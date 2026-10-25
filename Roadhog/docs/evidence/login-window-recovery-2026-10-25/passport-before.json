@@ -1,0 +1,94 @@
+{
+  "CapturedUtc": "2026-10-25T11:09:50.5952265+00:00",
+  "Account": "脚本3",
+  "Character": "KiraHa",
+  "Device": "fpga://devindex=4",
+  "InputSent": false,
+  "TargetMemoryWritten": false,
+  "Foreground": {
+    "Pid": 8800,
+    "Name": "uu.exe",
+    "Tid": 8804,
+    "Eprocess": "0xFFFF9E0613A60080",
+    "Ethread": "0xFFFF9E060FA090C0",
+    "Win32Thread": "0xFFFF845D42EAD010"
+  },
+  "Processes": [
+    {
+      "Pid": 7200,
+      "Name": "sdologin.exe",
+      "Windows": {
+        "Count": 1152,
+        "Windows": [
+          {
+            "Hwnd": "0x303F6",
+            "OwnerThread": 7132,
+            "Address": "0xDE0B60",
+            "Style": "0x16C20000",
+            "Visible": true,
+            "Disabled": false,
+            "Rect": [
+              294,
+              231,
+              730,
+              538
+            ],
+            "ClientRect": [
+              294,
+              231,
+              730,
+              538
+            ],
+            "UserData": "0x29AA4B8",
+            "Manager": "0x0",
+            "Root": "0x0",
+            "TitleCandidate": "盛趣游戏通行证"
+          }
+        ]
+      }
+    },
+    {
+      "Pid": 8800,
+      "Name": "uu.exe",
+      "Windows": {
+        "Count": 1152,
+        "Windows": [
+          {
+            "Hwnd": "0x202AE",
+            "OwnerThread": 8804,
+            "Address": "0x213A710",
+            "Style": "0x360F0000",
+            "Visible": true,
+            "Disabled": false,
+            "Rect": [
+              -32000,
+              -32000,
+              -31840,
+              -31972
+            ],
+            "ClientRect": [
+              -32000,
+              -32000,
+              -31840,
+              -31972
+            ],
+            "UserData": "0x5FA5D30",
+            "Manager": "0x5FA5D7C",
+            "Root": "0x9C65768",
+            "TitleCandidate": "UU加速器"
+          }
+        ]
+      }
+    }
+  ],
+  "Scene": {
+    "Session": "d2711cbe-f9c4-4e30-ad9d-fdd53bd99c8e:fpga://devindex=4:52203868:888:FFFF9E060FF9E2C0:824ABE9000:False:winlogon.exe:0:0;7200:FFFF9E06083CC080:340000:True:sdologin.exe:10000000:1581056;8800:FFFF9E0613A60080:1650000:True:uu.exe:73750000:2117632",
+    "Stage": "PasswordLogin",
+    "Action": "SubmitCredentials",
+    "ActionIdentity": "SubmitCredentials:0x5353258:0x303F6:{X=523,Y=436}",
+    "Description": "输入账号密码并登录",
+    "CharacterName": "",
+    "GameProcessId": 0,
+    "GameProcessCount": 0
+  }
+}

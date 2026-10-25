@@ -43,6 +43,58 @@ internal static class AutoLoginTests
         public void Report(string value) => Values.Add(value);
     }
 
+    internal static async Task DisconnectWaitsForExitAndRestartsAsync()
+    {
+        var popup=State(LoginStage.Disconnected,LoginAction.ConfirmGameExit) with {GameProcessCount=1,GameProcessId=123};
+        var messages=new Messages();
+        await using var session=new Session(
+            State(LoginStage.AcceleratorReady,LoginAction.LaunchGame),
+            State(LoginStage.PasswordLogin,LoginAction.SubmitCredentials),
+            State(LoginStage.EntryAgreement,LoginAction.ConfirmEntryAgreement) with {GameProcessCount=1},
+            popup,
+            World() with {GameProcessCount=1}, // World fields can persist after disconnect.
+            popup with {ActionIdentity="popup-moved"},
+            State(LoginStage.AcceleratorReconnect,LoginAction.Reaccelerate) with {GameProcessCount=1},
+            State(LoginStage.Desktop,LoginAction.OpenAccelerator,session:"exited"),
+            State(LoginStage.AcceleratorReady,LoginAction.LaunchGame,session:"exited"),
+            State(LoginStage.PasswordLogin,LoginAction.SubmitCredentials,session:"new-login"),
+            World() with {Session="new-game",GameProcessCount=1,GameProcessId=456});
+        var result=await new AutoLoginRunner(Fast).RunAsync(session,"HiApple",messages,CancellationToken.None);
+        Require(result.Success&&result.Value==456,"Only the new game process may complete relogin after disconnect confirmation.");
+        Require(session.Actions.SequenceEqual(new[]{LoginAction.LaunchGame,LoginAction.SubmitCredentials,LoginAction.ConfirmEntryAgreement,
+            LoginAction.ConfirmGameExit,LoginAction.OpenAccelerator,LoginAction.LaunchGame,LoginAction.SubmitCredentials}),
+            "Confirm exit bypasses entry guards, waits without repeated clicks, and resets the previous login only after process absence.");
+        Require(messages.Values.Any(s=>s.Contains("等待游戏进程退出"))&&session.Released==1,"Exit waiting is visible and releases input on completion.");
+    }
+
+    internal static async Task DisconnectWaitTimeoutAndCancellationAsync()
+    {
+        var popup=State(LoginStage.Disconnected,LoginAction.ConfirmGameExit) with {GameProcessCount=1,GameProcessId=123};
+        var options=new AutoLoginOptions{PollInterval=Fast.PollInterval,ActionRetryInterval=TimeSpan.Zero,TransitionTimeout=TimeSpan.FromMilliseconds(30),Timeout=Fast.Timeout};
+        await using(var session=new Session(popup,World() with {GameProcessCount=1}))
+        {
+            var result=await new AutoLoginRunner(options).RunAsync(session,"HiApple",null,CancellationToken.None);
+            Require(!result.Success&&result.Error!.Contains("等待游戏进程退出"),"A process still alive cannot complete login from residual world data.");
+            Require(session.Actions.SequenceEqual(new[]{LoginAction.ConfirmGameExit})&&session.Released==1,"No repeated confirmation or new login while exit is pending.");
+        }
+        using var cancel=new CancellationTokenSource();int reads=0;
+        await using var pending=new Session(popup){OnRead=_=>{if(++reads==3)cancel.Cancel();}};
+        bool canceled=false;
+        var cancelOptions=new AutoLoginOptions{PollInterval=Fast.PollInterval,TransitionTimeout=TimeSpan.FromSeconds(1),Timeout=Fast.Timeout};
+        try{await new AutoLoginRunner(cancelOptions).RunAsync(pending,"HiApple",null,cancel.Token);}catch(OperationCanceledException){canceled=true;}
+        Require(canceled&&pending.Actions.SequenceEqual(new[]{LoginAction.ConfirmGameExit})&&pending.Released==1,"Stopping cancels process-exit wait and releases input.");
+    }
+
+    internal static async Task UnsentDisconnectConfirmationRetriesAsync()
+    {
+        var popup=State(LoginStage.Disconnected,LoginAction.ConfirmGameExit) with {GameProcessCount=1};int attempts=0;
+        await using var session=new Session(popup,popup,State(LoginStage.Desktop),World() with{GameProcessCount=1})
+        {AcceptAction=_=>++attempts>=2};
+        Require((await new AutoLoginRunner(Fast).RunAsync(session,"HiApple",null,CancellationToken.None)).Success,
+            "A rejected input attempt must retry against the current popup instead of entering exit wait.");
+        Require(attempts==2&&session.Released==1,"Exactly one accepted confirmation precedes relogin.");
+    }
+
     public static async Task LaunchWaitsForNextWindowAsync()
     {
         var messages = new Messages();
@@ -130,6 +182,60 @@ internal static class AutoLoginTests
             Require(result.Success&&result.Value==123,"resume reaches configured character at stage "+start);
             Require(session.Released==1,"input released after completion");
             Require(session.Actions.Count==sequence[start..].Count(s=>s.Action!=LoginAction.None),"only remaining actions dispatched");
+        }
+    }
+
+    public static async Task UuReconnectResumesAsync()
+    {
+        foreach(bool submitted in new[]{false,true})
+        {
+            var steps=new List<LoginSnapshot>{State(LoginStage.AcceleratorReady,LoginAction.LaunchGame)};
+            if(submitted)steps.Add(State(LoginStage.PasswordLogin,LoginAction.SubmitCredentials));
+            steps.AddRange([
+                State(LoginStage.Desktop,LoginAction.OpenAccelerator,"minimized"),
+                State(LoginStage.AcceleratorReconnect,LoginAction.Reaccelerate,"error-40002"),
+                State(LoginStage.AcceleratorReconnect,LoginAction.Reaccelerate,"error-40002"),
+                State(LoginStage.Accelerating),State(LoginStage.AcceleratorReady,LoginAction.LaunchGame),
+                State(LoginStage.Desktop,LoginAction.OpenAccelerator,"minimized-again"),
+                State(LoginStage.Launcher,LoginAction.StartLauncher),World()]);
+            await using var session=new Session(steps.ToArray());
+            Require((await new AutoLoginRunner(Fast).RunAsync(session,"HiApple",null,CancellationToken.None)).Success,"Reconnect resumes login after interrupted launch/authentication.");
+            Require(session.Actions.Count(a=>a==LoginAction.LaunchGame)==2&&session.Actions.Count(a=>a==LoginAction.Reaccelerate)==1
+                &&session.Actions.All(a=>a!=LoginAction.OpenAccelerator)&&session.Actions.Last()==LoginAction.StartLauncher,
+                "The popup bypasses minimized launch wait; UU restores itself; confirmed absence permits a new launch.");
+        }
+        await using var existing=new Session(State(LoginStage.PasswordLogin,LoginAction.SubmitCredentials),
+            State(LoginStage.AcceleratorReconnect,LoginAction.Reaccelerate),State(LoginStage.Launcher,LoginAction.StartLauncher),World());
+        Require((await new AutoLoginRunner(Fast).RunAsync(existing,"HiApple",null,CancellationToken.None)).Success
+            &&existing.Actions.SequenceEqual(new[]{LoginAction.SubmitCredentials,LoginAction.Reaccelerate}),
+            "Reconnect alone must not resubmit an existing launcher after authentication.");
+        var confirm=State(LoginStage.EntryAgreement,LoginAction.ConfirmEntryAgreement);
+        await using var entering=new Session(confirm,State(LoginStage.AcceleratorReconnect,LoginAction.Reaccelerate),confirm,
+            State(LoginStage.AcceleratorHome,LoginAction.Accelerate),State(LoginStage.AcceleratorReady,LoginAction.LaunchGame),
+            State(LoginStage.CharacterSelection,LoginAction.EnterCharacter),confirm,World());
+        Require((await new AutoLoginRunner(Fast).RunAsync(entering,"HiApple",null,CancellationToken.None)).Success
+            &&entering.Actions.Count(a=>a==LoginAction.ConfirmEntryAgreement)==2
+            &&entering.Actions.Count(a=>a==LoginAction.Reaccelerate)==1,"Popup can interrupt entry; only confirmed client absence resets entry guards.");
+    }
+
+    public static async Task UuReconnectInputAndStopAsync()
+    {
+        await using(var rejected=new Session(State(LoginStage.AcceleratorReady,LoginAction.LaunchGame),
+            State(LoginStage.AcceleratorReconnect,LoginAction.Reaccelerate),State(LoginStage.AcceleratorReady,LoginAction.LaunchGame),World())
+            {AcceptAction=action=>action!=LoginAction.Reaccelerate})
+        {
+            Require((await new AutoLoginRunner(Fast).RunAsync(rejected,"HiApple",null,CancellationToken.None)).Success
+                &&rejected.Actions.Count(a=>a==LoginAction.LaunchGame)==1,"A rejected/unsent reconnect cannot clear launch guards.");
+        }
+        int clicks=0;
+        await using(var retry=new Session(State(LoginStage.AcceleratorReconnect,LoginAction.Reaccelerate)))
+        {
+            var options=new AutoLoginOptions{PollInterval=Fast.PollInterval,ActionRetryInterval=TimeSpan.FromMilliseconds(5),TransitionTimeout=Fast.TransitionTimeout,Timeout=Fast.Timeout};
+            using var cancel=new CancellationTokenSource();
+            retry.OnAction=_=>{if(++clicks==2)cancel.Cancel();return Task.CompletedTask;};
+            try{await new AutoLoginRunner(options).RunAsync(retry,"HiApple",null,cancel.Token);throw new InvalidOperationException("Stop was ignored.");}
+            catch(OperationCanceledException){}
+            Require(clicks==2&&retry.Released==1,"A still-verified popup can retry; stop releases input and ends the reconnect loop.");
         }
     }
     public static async Task AlreadyOnlineAndMismatchAsync()

@@ -1,0 +1,470 @@
+{
+  "CapturedUtc": "2026-10-25T11:09:37.2869162+00:00",
+  "Account": "脚本5",
+  "Character": "ALAKA",
+  "Device": "fpga://devindex=0",
+  "InputSent": false,
+  "TargetMemoryWritten": false,
+  "Foreground": {
+    "Pid": 8920,
+    "Name": "Launcher.dat",
+    "Tid": 1188,
+    "Eprocess": "0xFFFFB90E61A79300",
+    "Ethread": "0xFFFFB90E61C2B080",
+    "Win32Thread": "0xFFFFFA5046FE6010"
+  },
+  "Processes": [
+    {
+      "Pid": 8920,
+      "Name": "Launcher.dat",
+      "Windows": {
+        "Count": 1408,
+        "Windows": [
+          {
+            "Hwnd": "0x20001E",
+            "OwnerThread": 8496,
+            "Address": "0x17B7400",
+            "Style": "0x8C000000",
+            "Visible": false,
+            "Disabled": true,
+            "Rect": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "ClientRect": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "UserData": "0x0",
+            "Manager": "0x0",
+            "Root": "0x0",
+            "TitleCandidate": "OLEChannelWnd"
+          },
+          {
+            "Hwnd": "0x3000C4",
+            "OwnerThread": 1188,
+            "Address": "0x1774710",
+            "Style": "0x94000000",
+            "Visible": true,
+            "Disabled": false,
+            "Rect": [
+              0,
+              0,
+              1280,
+              730
+            ],
+            "ClientRect": [
+              0,
+              0,
+              1280,
+              730
+            ],
+            "UserData": "0x0",
+            "Manager": "0x0",
+            "Root": "0x0",
+            "TitleCandidate": null
+          },
+          {
+            "Hwnd": "0x3700C6",
+            "OwnerThread": 1188,
+            "Address": "0x179B3B0",
+            "Style": "0x56010000",
+            "Visible": true,
+            "Disabled": false,
+            "Rect": [
+              0,
+              0,
+              1280,
+              730
+            ],
+            "ClientRect": [
+              0,
+              0,
+              1280,
+              730
+            ],
+            "UserData": "0x0",
+            "Manager": "0x0",
+            "Root": "0x0",
+            "TitleCandidate": null
+          },
+          {
+            "Hwnd": "0x110136",
+            "OwnerThread": 1188,
+            "Address": "0x17B72B0",
+            "Style": "0x56000000",
+            "Visible": true,
+            "Disabled": false,
+            "Rect": [
+              0,
+              0,
+              1280,
+              730
+            ],
+            "ClientRect": [
+              0,
+              0,
+              1280,
+              730
+            ],
+            "UserData": "0x4E28000",
+            "Manager": "0x0",
+            "Root": "0x0",
+            "TitleCandidate": null
+          },
+          {
+            "Hwnd": "0x1B021A",
+            "OwnerThread": 1188,
+            "Address": "0x179DF60",
+            "Style": "0x940A004C",
+            "Visible": true,
+            "Disabled": false,
+            "Rect": [
+              0,
+              0,
+              1280,
+              730
+            ],
+            "ClientRect": [
+              0,
+              0,
+              1280,
+              730
+            ],
+            "UserData": "0x0",
+            "Manager": "0x0",
+            "Root": "0x0",
+            "TitleCandidate": null
+          },
+          {
+            "Hwnd": "0x3502D2",
+            "OwnerThread": 1188,
+            "Address": "0x17BC960",
+            "Style": "0x8C000000",
+            "Visible": false,
+            "Disabled": true,
+            "Rect": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "ClientRect": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "UserData": "0x0",
+            "Manager": "0x0",
+            "Root": "0x0",
+            "TitleCandidate": "CicMarshalWnd"
+          },
+          {
+            "Hwnd": "0xB041A",
+            "OwnerThread": 1188,
+            "Address": "0x17B6240",
+            "Style": "0x56010000",
+            "Visible": true,
+            "Disabled": false,
+            "Rect": [
+              0,
+              0,
+              1280,
+              730
+            ],
+            "ClientRect": [
+              0,
+              0,
+              1280,
+              730
+            ],
+            "UserData": "0x0",
+            "Manager": "0x0",
+            "Root": "0x0",
+            "TitleCandidate": null
+          },
+          {
+            "Hwnd": "0x23042C",
+            "OwnerThread": 2256,
+            "Address": "0x177D810",
+            "Style": "0x8C000000",
+            "Visible": false,
+            "Disabled": true,
+            "Rect": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "ClientRect": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "UserData": "0x0",
+            "Manager": "0x0",
+            "Root": "0x0",
+            "TitleCandidate": null
+          },
+          {
+            "Hwnd": "0x2C0444",
+            "OwnerThread": 3912,
+            "Address": "0x17B9430",
+            "Style": "0x84000000",
+            "Visible": false,
+            "Disabled": false,
+            "Rect": [
+              0,
+              0,
+              1,
+              1
+            ],
+            "ClientRect": [
+              0,
+              0,
+              1,
+              1
+            ],
+            "UserData": "0x0",
+            "Manager": "0x0",
+            "Root": "0x0",
+            "TitleCandidate": "GDI+ Window (Launcher.dat)"
+          },
+          {
+            "Hwnd": "0x220450",
+            "OwnerThread": 1188,
+            "Address": "0x17770B0",
+            "Style": "0x8C000000",
+            "Visible": false,
+            "Disabled": true,
+            "Rect": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "ClientRect": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "UserData": "0x0",
+            "Manager": "0x0",
+            "Root": "0x0",
+            "TitleCandidate": "Default IME"
+          },
+          {
+            "Hwnd": "0xD0464",
+            "OwnerThread": 1188,
+            "Address": "0x17B7550",
+            "Style": "0x4C00000",
+            "Visible": false,
+            "Disabled": false,
+            "Rect": [
+              0,
+              0,
+              136,
+              39
+            ],
+            "ClientRect": [
+              8,
+              31,
+              128,
+              31
+            ],
+            "UserData": "0x0",
+            "Manager": "0x0",
+            "Root": "0x0",
+            "TitleCandidate": null
+          },
+          {
+            "Hwnd": "0x18048A",
+            "OwnerThread": 2232,
+            "Address": "0x177D680",
+            "Style": "0x8C000000",
+            "Visible": false,
+            "Disabled": true,
+            "Rect": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "ClientRect": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "UserData": "0x0",
+            "Manager": "0x0",
+            "Root": "0x0",
+            "TitleCandidate": "OLEChannelWnd"
+          },
+          {
+            "Hwnd": "0x2C0498",
+            "OwnerThread": 1188,
+            "Address": "0x1774C90",
+            "Style": "0x4C00000",
+            "Visible": false,
+            "Disabled": false,
+            "Rect": [
+              0,
+              0,
+              136,
+              39
+            ],
+            "ClientRect": [
+              8,
+              31,
+              128,
+              31
+            ],
+            "UserData": "0x0",
+            "Manager": "0x0",
+            "Root": "0x0",
+            "TitleCandidate": null
+          },
+          {
+            "Hwnd": "0x16049E",
+            "OwnerThread": 1188,
+            "Address": "0x179B650",
+            "Style": "0x94000000",
+            "Visible": true,
+            "Disabled": false,
+            "Rect": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "ClientRect": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "UserData": "0x0",
+            "Manager": "0x0",
+            "Root": "0x0",
+            "TitleCandidate": null
+          },
+          {
+            "Hwnd": "0xD04A6",
+            "OwnerThread": 3188,
+            "Address": "0x177D530",
+            "Style": "0x4C00000",
+            "Visible": false,
+            "Disabled": false,
+            "Rect": [
+              0,
+              0,
+              136,
+              39
+            ],
+            "ClientRect": [
+              8,
+              31,
+              128,
+              31
+            ],
+            "UserData": "0x0",
+            "Manager": "0x0",
+            "Root": "0x0",
+            "TitleCandidate": "MCI command handling window"
+          },
+          {
+            "Hwnd": "0xE04C2",
+            "OwnerThread": 1188,
+            "Address": "0x1774DE0",
+            "Style": "0x8C000000",
+            "Visible": false,
+            "Disabled": true,
+            "Rect": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "ClientRect": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "UserData": "0x0",
+            "Manager": "0x0",
+            "Root": "0x0",
+            "TitleCandidate": null
+          },
+          {
+            "Hwnd": "0x1304D2",
+            "OwnerThread": 3912,
+            "Address": "0x17C0950",
+            "Style": "0x8C000000",
+            "Visible": false,
+            "Disabled": true,
+            "Rect": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "ClientRect": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "UserData": "0x0",
+            "Manager": "0x0",
+            "Root": "0x0",
+            "TitleCandidate": "Default IME"
+          },
+          {
+            "Hwnd": "0x100516",
+            "OwnerThread": 1188,
+            "Address": "0x17B53F0",
+            "Style": "0x8C000000",
+            "Visible": false,
+            "Disabled": true,
+            "Rect": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "ClientRect": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "UserData": "0x0",
+            "Manager": "0x0",
+            "Root": "0x0",
+            "TitleCandidate": "OleMainThreadWndName"
+          }
+        ]
+      },
+      "Ui": null
+    }
+  ],
+  "Scene": {
+    "Session": "c1a50923-1135-4236-8ee9-2bfebbb8fb3d:fpga://devindex=0:339559:900:FFFFB90E5CA532C0:E7AB539000:False:winlogon.exe:0:0;8920:FFFFB90E61A79300:F36000:True:Launcher.dat:0:0;9820:FFFFB90E61381300:48C000:True:uu.exe:73330000:2117632",
+    "Stage": "Loading",
+    "Action": "None",
+    "ActionIdentity": "Loading",
+    "Description": "等待游戏启动器页面…",
+    "CharacterName": "",
+    "GameProcessId": 0,
+    "GameProcessCount": 0
+  }
+}

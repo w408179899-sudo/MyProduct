@@ -1,0 +1,264 @@
+﻿{
+    "Window":  {
+                   "Hwnd":  "0x1D02F6",
+                   "OwnerThread":  5352,
+                   "Address":  "0x23A8700",
+                   "Style":  "0x160F0000",
+                   "Visible":  true,
+                   "Disabled":  false,
+                   "Rect":  [
+                                332,
+                                156,
+                                692,
+                                572
+                            ],
+                   "ClientRect":  [
+                                      332,
+                                      156,
+                                      692,
+                                      572
+                                  ],
+                   "UserData":  "0x1B3D6A0",
+                   "Manager":  "0x1B3D6D0",
+                   "Root":  "0x7185DB8",
+                   "TitleCandidate":  null
+               },
+    "Ui":  {
+               "Controls":  [
+                                {
+                                    "Address":  "0x7185DB8",
+                                    "Parent":  "0x0",
+                                    "Manager":  "0x1B3D6D0",
+                                    "Class":  "ContainerUI",
+                                    "Name":  "",
+                                    "Rect":  {
+                                                 "Left":  0,
+                                                 "Top":  0,
+                                                 "Right":  360,
+                                                 "Bottom":  416
+                                             },
+                                    "Visible":  true,
+                                    "AncestorsVisible":  true,
+                                    "Enabled":  true,
+                                    "Text":  null,
+                                    "Depth":  0
+                                },
+                                {
+                                    "Address":  "0x71895F0",
+                                    "Parent":  "0x7185DB8",
+                                    "Manager":  "0x1B3D6D0",
+                                    "Class":  "VerticalLayoutUI",
+                                    "Name":  "",
+                                    "Rect":  {
+                                                 "Left":  20,
+                                                 "Top":  2,
+                                                 "Right":  340,
+                                                 "Bottom":  378
+                                             },
+                                    "Visible":  true,
+                                    "AncestorsVisible":  true,
+                                    "Enabled":  true,
+                                    "Text":  null,
+                                    "Depth":  1
+                                },
+                                {
+                                    "Address":  "0x718AE08",
+                                    "Parent":  "0x71895F0",
+                                    "Manager":  "0x1B3D6D0",
+                                    "Class":  "HorizontalLayoutUI",
+                                    "Name":  "",
+                                    "Rect":  {
+                                                 "Left":  20,
+                                                 "Top":  2,
+                                                 "Right":  340,
+                                                 "Bottom":  32
+                                             },
+                                    "Visible":  true,
+                                    "AncestorsVisible":  true,
+                                    "Enabled":  true,
+                                    "Text":  null,
+                                    "Depth":  2
+                                },
+                                {
+                                    "Address":  "0x7189DF8",
+                                    "Parent":  "0x718AE08",
+                                    "Manager":  "0x1B3D6D0",
+                                    "Class":  "HorizontalLayoutUI",
+                                    "Name":  "",
+                                    "Rect":  {
+                                                 "Left":  20,
+                                                 "Top":  2,
+                                                 "Right":  318,
+                                                 "Bottom":  32
+                                             },
+                                    "Visible":  true,
+                                    "AncestorsVisible":  true,
+                                    "Enabled":  true,
+                                    "Text":  null,
+                                    "Depth":  3
+                                },
+                                {
+                                    "Address":  "0xA113040",
+                                    "Parent":  "0x718AE08",
+                                    "Manager":  "0x1B3D6D0",
+                                    "Class":  "ButtonUI",
+                                    "Name":  "close",
+                                    "Rect":  {
+                                                 "Left":  318,
+                                                 "Top":  10,
+                                                 "Right":  332,
+                                                 "Bottom":  24
+                                             },
+                                    "Visible":  true,
+                                    "AncestorsVisible":  true,
+                                    "Enabled":  true,
+                                    "Text":  null,
+                                    "Depth":  3
+                                },
+                                {
+                                    "Address":  "0x7248A58",
+                                    "Parent":  "0x71895F0",
+                                    "Manager":  "0x1B3D6D0",
+                                    "Class":  "LabelUI",
+                                    "Name":  "tip_pic",
+                                    "Rect":  {
+                                                 "Left":  139,
+                                                 "Top":  77,
+                                                 "Right":  221,
+                                                 "Bottom":  159
+                                             },
+                                    "Visible":  true,
+                                    "AncestorsVisible":  true,
+                                    "Enabled":  true,
+                                    "Text":  null,
+                                    "Depth":  2
+                                },
+                                {
+                                    "Address":  "0x68240F0",
+                                    "Parent":  "0x71895F0",
+                                    "Manager":  "0x1B3D6D0",
+                                    "Class":  "TextUI",
+                                    "Name":  "error_code_desc",
+                                    "Rect":  {
+                                                 "Left":  52,
+                                                 "Top":  183,
+                                                 "Right":  308,
+                                                 "Bottom":  207
+                                             },
+                                    "Visible":  true,
+                                    "AncestorsVisible":  true,
+                                    "Enabled":  true,
+                                    "Text":  "加速断开，发现 40002 错误",
+                                    "Depth":  2
+                                },
+                                {
+                                    "Address":  "0x718BE18",
+                                    "Parent":  "0x71895F0",
+                                    "Manager":  "0x1B3D6D0",
+                                    "Class":  "HorizontalLayoutUI",
+                                    "Name":  "",
+                                    "Rect":  {
+                                                 "Left":  122,
+                                                 "Top":  215,
+                                                 "Right":  340,
+                                                 "Bottom":  235
+                                             },
+                                    "Visible":  true,
+                                    "AncestorsVisible":  true,
+                                    "Enabled":  true,
+                                    "Text":  null,
+                                    "Depth":  2
+                                },
+                                {
+                                    "Address":  "0x72508C8",
+                                    "Parent":  "0x718BE18",
+                                    "Manager":  "0x1B3D6D0",
+                                    "Class":  "LabelUI",
+                                    "Name":  "",
+                                    "Rect":  {
+                                                 "Left":  122,
+                                                 "Top":  215,
+                                                 "Right":  152,
+                                                 "Bottom":  235
+                                             },
+                                    "Visible":  true,
+                                    "AncestorsVisible":  true,
+                                    "Enabled":  true,
+                                    "Text":  null,
+                                    "Depth":  3
+                                },
+                                {
+                                    "Address":  "0xA11C880",
+                                    "Parent":  "0x718BE18",
+                                    "Manager":  "0x1B3D6D0",
+                                    "Class":  "ButtonUI",
+                                    "Name":  "error_code",
+                                    "Rect":  {
+                                                 "Left":  152,
+                                                 "Top":  215,
+                                                 "Right":  248,
+                                                 "Bottom":  235
+                                             },
+                                    "Visible":  true,
+                                    "AncestorsVisible":  true,
+                                    "Enabled":  true,
+                                    "Text":  "%{1450}",
+                                    "Depth":  3
+                                },
+                                {
+                                    "Address":  "0x718CE28",
+                                    "Parent":  "0x71895F0",
+                                    "Manager":  "0x1B3D6D0",
+                                    "Class":  "HorizontalLayoutUI",
+                                    "Name":  "",
+                                    "Rect":  {
+                                                 "Left":  52,
+                                                 "Top":  275,
+                                                 "Right":  308,
+                                                 "Bottom":  311
+                                             },
+                                    "Visible":  true,
+                                    "AncestorsVisible":  true,
+                                    "Enabled":  true,
+                                    "Text":  null,
+                                    "Depth":  2
+                                },
+                                {
+                                    "Address":  "0xA114348",
+                                    "Parent":  "0x718CE28",
+                                    "Manager":  "0x1B3D6D0",
+                                    "Class":  "ButtonUI",
+                                    "Name":  "Ok",
+                                    "Rect":  {
+                                                 "Left":  52,
+                                                 "Top":  275,
+                                                 "Right":  172,
+                                                 "Bottom":  311
+                                             },
+                                    "Visible":  true,
+                                    "AncestorsVisible":  true,
+                                    "Enabled":  true,
+                                    "Text":  "%{1451}",
+                                    "Depth":  3
+                                },
+                                {
+                                    "Address":  "0xA11DB88",
+                                    "Parent":  "0x718CE28",
+                                    "Manager":  "0x1B3D6D0",
+                                    "Class":  "ButtonUI",
+                                    "Name":  "Cancel",
+                                    "Rect":  {
+                                                 "Left":  188,
+                                                 "Top":  275,
+                                                 "Right":  308,
+                                                 "Bottom":  311
+                                             },
+                                    "Visible":  true,
+                                    "AncestorsVisible":  true,
+                                    "Enabled":  true,
+                                    "Text":  "%{1452}",
+                                    "Depth":  3
+                                }
+                            ]
+           }
+}

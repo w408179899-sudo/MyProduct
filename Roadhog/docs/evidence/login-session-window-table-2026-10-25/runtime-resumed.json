@@ -1,0 +1,64 @@
+[
+    {
+        "Timestamp":  "2026-10-25T06:46:11.3746719+08:00",
+        "Level":  "info",
+        "EventName":  "account.login.progress",
+        "Fields":  {
+                       "account":  "脚本4",
+                       "stage":  "正在检查目标电脑的游戏与登录状态…"
+                   },
+        "Error":  null
+    },
+    {
+        "Timestamp":  "2026-10-25T06:46:13.1578194+08:00",
+        "Level":  "info",
+        "EventName":  "account.login.progress",
+        "Fields":  {
+                       "account":  "脚本4",
+                       "stage":  "角色已进入游戏：初次见面"
+                   },
+        "Error":  null
+    },
+    {
+        "Timestamp":  "2026-10-25T06:46:13.2177384+08:00",
+        "Level":  "info",
+        "EventName":  "account.running",
+        "Fields":  {
+                       "account":  "脚本4",
+                       "threadId":  17
+                   },
+        "Error":  null
+    },
+    {
+        "Timestamp":  "2026-10-25T06:46:13.2382815+08:00",
+        "Level":  "info",
+        "EventName":  "worker.loop.enter",
+        "Fields":  {
+                       "account":  "脚本4",
+                       "mode":  "CustomCombat",
+                       "hardwareKey":  "port:Port_#0004.Hub_#0005",
+                       "vmmDevice":  "fpga://devindex=3"
+                   },
+        "Error":  null
+    },
+    {
+        "Timestamp":  "2026-10-25T06:46:13.2989678+08:00",
+        "Level":  "info",
+        "EventName":  "worker.startup.f1",
+        "Fields":  {
+                       "account":  "脚本4",
+                       "key":  "F1"
+                   },
+        "Error":  null
+    },
+    {
+        "Timestamp":  "2026-10-25T06:46:14.2990833+08:00",
+        "Level":  "info",
+        "EventName":  "worker.startup.key_up",
+        "Fields":  {
+                       "account":  "脚本4",
+                       "key":  "W"
+                   },
+        "Error":  null
+    }
+]

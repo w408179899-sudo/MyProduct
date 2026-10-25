@@ -1,0 +1,21 @@
+{
+  "InputSent": false,
+  "Modes": [
+    {
+      "Pid": 2147484548,
+      "Base": "0xFFFFFE0B65800000",
+      "cbImageSize": 2973696,
+      "Name": "win32kbase.sys",
+      "Symbol": "0xFFFFFE0B65A53BE0",
+      "Error": null
+    },
+    {
+      "Pid": 900,
+      "Base": "0x0",
+      "cbImageSize": 0,
+      "Name": null,
+      "Symbol": "0x0",
+      "Error": "Failed to load PDB for module"
+    }
+  ]
+}

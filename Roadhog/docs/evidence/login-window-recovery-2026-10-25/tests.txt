@@ -1,0 +1,59 @@
+PASS auto-login full sequence and resume at every stage
+PASS auto-login live untitled launcher identity and translated coordinates
+PASS auto-login untitled launcher layout and ambiguity guards
+PASS auto-login focus restores minimized predecessor and cycles windows
+PASS auto-login focus bounded failure cancellation and target lifecycle
+PASS auto-login launch waits across minimized UU and process transitions
+PASS auto-login launch wait timeout and fresh attempt
+PASS auto-login launch wait cancellation releases input
+PASS auto-login launch rejected before input does not start waiting
+PASS auto-login UU reconnect resumes interrupted launch authentication and entry
+PASS auto-login UU reconnect rejected input retry and cancellation
+PASS auto-login UU archived disconnect popup and unrelated modal guards
+PASS auto-login UU reconnect popup precedes minimized disabled main window
+PASS auto-login UU verified control types with nonresident RTTI
+PASS auto-login UU old-build live method replay and partial faults
+PASS auto-login CRT comparison exports use actual ordinal mapping
+PASS auto-login UU manager rejects false roots and incomplete small popups
+PASS auto-login already online and wrong character
+PASS auto-login online startup skips unreadable UU and window tables
+PASS auto-login away popup archived identity and dynamic coordinates
+PASS auto-login away popup button guards and process inventory facts
+PASS auto-login disconnect waits for exit before starting a new login
+PASS auto-login disconnect wait timeout and stop cancellation
+PASS auto-login rejected disconnect confirmation retries current popup
+PASS auto-login exit popup and reconnect retain priority outside world
+PASS auto-login incomplete world cannot fabricate online state
+PASS auto-login unresolved window export never dereferences zero
+PASS auto-login session USER table keeps source and target memory isolated
+PASS auto-login session USER table rejects foreign or invalid owners
+PASS auto-login session USER table rejects partial reads mutations and high count bits
+PASS auto-login stale pages and captcha retry
+PASS auto-login cancellation and transition timeout
+PASS auto-login archived game pages and character selection
+PASS auto-login archived UU and password pages
+PASS auto-login trusted publication faults and lifecycle
+PASS auto-login recovery at every input stage
+PASS auto-login input release failure and cancellation
+PASS auto-login final press waits without duplicate launch login or entry
+PASS auto-login held snapshots cannot bind physical input
+PASS auto-login target changes abandon old input
+PASS auto-login rejected actions obey step timeout
+PASS auto-login lost control clicks resume
+PASS auto-login DuiLib child array fault injection
+PASS auto-login raw UU tree replay and partial recovery
+PASS auto-login hidden UU payload nonresident and visibility guards
+PASS auto-login transitional pages wait and resume
+PASS auto-login native Unicode path and concurrent workers
+PASS auto-login native cache repair and version isolation
+PASS auto-login native missing symbol dependency
+PASS auto-login windows share validated desktop mapping across unreadable TEBs
+PASS auto-login windows reject missing foreign and incomplete mappings
+PASS auto-login windows reject cold threads and ambiguous desktop mappings
+PASS auto-login protected credentials and image binding
+PASS auto-login model and Pillow parity on 100 images
+PASS auto-login IPC login only and sibling isolation
+PASS auto-login IPC duplicate and stop cancellation
+PASS auto-login IPC rejection stops recovery
+PASS auto-login UI checked selection and encrypted password
+All Roadhog tests passed.

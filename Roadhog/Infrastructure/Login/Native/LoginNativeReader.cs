@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Roadhog.Application.Login;
 using Roadhog.Core.Accounts;
+using Roadhog.Core.Model;
 using Roadhog.Infrastructure.Vmm;
 using Vmmsharp;
 
@@ -50,67 +51,142 @@ internal static class LoginNativeReader
     {
         var processes = Inventory(vmm);
         var sessionPid = processes.Single(p => p.Info.sName.Equals("winlogon.exe", StringComparison.OrdinalIgnoreCase)).Info.dwPID;
-        var game = processes.Where(p => p.Info.sName.Equals("Aion.bin", StringComparison.OrdinalIgnoreCase)).ToArray();
-        if (game.Length > 1) return State(LoginStage.Blocked, "目标电脑有多个 Aion 进程，无法唯一确定登录窗口。");
-        if (game.Length == 1)
-        {
-            var process = game[0].Process;
-            if (game[0].Info.fWow64) return State(LoginStage.Loading, "等待游戏启动器切换到 64 位游戏…");
-            var module = process.MapModuleFromName("Game.dll");
-            if (module.vaBase == 0) return State(LoginStage.Loading, "正在加载游戏模块…");
-            var local = Exact(process, module.vaBase + 0xd6cb08, 2);
-            int gameState = BitConverter.ToInt32(Exact(process,module.vaBase+0xd6ca90,4));
-            uint mapId = BitConverter.ToUInt32(Exact(process,module.vaBase+0xd647c0+0x20dc,4));
-            if (gameState == 15 && mapId is not 0 and not uint.MaxValue && BitConverter.ToUInt16(local) != 0
-                && !HasVisibleGameMessage((address, size) => Exact(process, address, size), module.vaBase))
-            {
-                var player = AionVmmGameApi.ReadLoginPlayer(process, module.vaBase);
-                if (player.EntityId != 0 && player.Position is not null && !string.IsNullOrWhiteSpace(player.CharacterName))
-                    return new(new(session + ":" + module.vaBase, LoginStage.InWorld, LoginAction.None, "world", "角色已进入游戏：" + player.CharacterName,
-                        player.CharacterName, checked((int)process.PID)), process.PID, sessionPid, "", Point.Empty, Rectangle.Empty);
-            }
-            var ui = Json(new GameLoginProbe(process).Capture());
-            var windows = Windows(process);
-            var viewport = ui.GetProperty("Viewport");
-            var window = windows.Single(w => w.GetProperty("ClientRect")[2].GetInt32() - w.GetProperty("ClientRect")[0].GetInt32() == (int)viewport[0].GetDouble()
-                && w.GetProperty("ClientRect")[3].GetInt32() - w.GetProperty("ClientRect")[1].GetInt32() == (int)viewport[1].GetDouble());
-            return ProjectGame(ui, window, account.CharacterName, session + ":" + module.vaBase, sessionPid);
-        }
-        var sdo = processes.Where(p => p.Info.sName.Equals("sdologin.exe", StringComparison.OrdinalIgnoreCase)).ToArray();
-        if (sdo.Length > 1) return State(LoginStage.Blocked, "发现多个通行证登录进程，请先保留一个登录窗口。");
-        if (sdo.Length == 1)
-        {
-            var ui = Json(SdoUiProbe.Run(sdo[0].Process));
-            return ProjectSdo(ui, session, sdo[0].Info.dwPID, sessionPid);
-        }
-        var launchers = processes.Where(p => p.Info.sName.Equals("Launcher.dat", StringComparison.OrdinalIgnoreCase)).ToArray();
-        if (launchers.Length > 1) return State(LoginStage.Blocked, "发现多个游戏启动器，请先保留一个。");
-        if (launchers.Length == 1)
-        {
-            var process = launchers[0].Process;
-            var windows = Windows(process).Where(w => Text(w, "TitleCandidate") == "永恒之塔").ToArray();
-            if (windows.Length == 0) return State(LoginStage.Loading, "等待游戏启动器页面…");
-            var window = windows.Single(); var bounds = Client(window);
-            if (bounds.Size != new Size(1280, 730)) return State(LoginStage.Loading, "等待游戏启动器窗口恢复到可操作尺寸…");
-            return Target(LoginStage.Launcher, LoginAction.StartLauncher, "点击开始游戏", session, process.PID, sessionPid,
-                window, new(bounds.Left + 980, bounds.Top + 625), "launcher-start");
-        }
         var uu = processes.Where(p => p.Info.sName.Equals("uu.exe", StringComparison.OrdinalIgnoreCase)).ToArray();
-        if (uu.Length > 1) return State(LoginStage.Blocked, "发现多个 UU 主进程，请先保留一个。");
-        if (uu.Length == 0) return OpenUu("打开 UU 加速器");
-        if (SessionInputProbe.Foreground(vmm, sessionPid).GetProperty("Pid").GetUInt32() != uu[0].Info.dwPID)
-            return OpenUu("将 UU 加速器置于前台");
-        var uuWindows = Windows(uu[0].Process).Where(w => Text(w, "Manager") != "0x0" && Client(w).Width >= 800).ToArray();
-        if (uuWindows.Length == 0) return OpenUu("打开 UU 主窗口");
-        var uuWindow = uuWindows.Single();
-        return ProjectUu(Json(new UuUiReader(uu[0].Process).Run(uuWindow)), uuWindow, session, uu[0].Info.dwPID, sessionPid);
+        var game = processes.Where(p => p.Info.sName.Equals("Aion.bin", StringComparison.OrdinalIgnoreCase)).ToArray();
+        JsonElement[] uuWindows = [];
+        var captured = CaptureInPriorityOrder(ReadWorld, ReadReconnect, ReadLogin);
+        return WithGameProcesses(captured,game.Select(p=>p.Info.dwPID).ToArray());
+
+        LoginObservation? ReadWorld()
+        {
+            if (game.Length != 1 || game[0].Info.fWow64) return null;
+            var process = game[0].Process;
+            var module = process.MapModuleFromName("Game.dll");
+            if (module.vaBase == 0) return null;
+            return CaptureWorld((address, size) => Exact(process, address, size),
+                () => AionVmmGameApi.ReadLoginPlayer(process, module.vaBase), module.vaBase, session, process.PID, sessionPid);
+        }
+
+        LoginObservation? ReadReconnect()
+        {
+            if (uu.Length != 1) return null;
+            uuWindows = Json(WindowInventory.Run(uu[0].Process, SessionInputProbe.SessionProcess(vmm,sessionPid))).GetProperty("Windows").EnumerateArray().ToArray();
+            // The disconnect popup owns an independent window while the main UU window may
+            // be minimized/disabled. An authenticated in-world scene needs no UU window data;
+            // otherwise handle reconnect before foreground, launch waits or login pages.
+            return ProjectUuReconnectWindows(uuWindows,
+                window => Json(new UuUiReader(uu[0].Process).Run(window)), session, uu[0].Info.dwPID, sessionPid);
+        }
+
+        LoginObservation ReadLogin()
+        {
+            if (game.Length > 1) return State(LoginStage.Blocked, "目标电脑有多个 Aion 进程，无法唯一确定登录窗口。");
+            if (game.Length == 1)
+            {
+                var process = game[0].Process;
+                if (game[0].Info.fWow64) return State(LoginStage.Loading, "等待游戏启动器切换到 64 位游戏…");
+                var module = process.MapModuleFromName("Game.dll");
+                if (module.vaBase == 0) return State(LoginStage.Loading, "正在加载游戏模块…");
+                var ui = Json(new GameLoginProbe(process).Capture());
+                var windows = Windows(process, SessionInputProbe.SessionProcess(vmm,sessionPid));
+                var viewport = ui.GetProperty("Viewport");
+                var window = windows.Single(w => w.GetProperty("ClientRect")[2].GetInt32() - w.GetProperty("ClientRect")[0].GetInt32() == (int)viewport[0].GetDouble()
+                    && w.GetProperty("ClientRect")[3].GetInt32() - w.GetProperty("ClientRect")[1].GetInt32() == (int)viewport[1].GetDouble());
+                return ProjectGame(ui, window, account.CharacterName, session + ":" + module.vaBase, sessionPid);
+            }
+            var sdo = processes.Where(p => p.Info.sName.Equals("sdologin.exe", StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (sdo.Length > 1) return State(LoginStage.Blocked, "发现多个通行证登录进程，请先保留一个登录窗口。");
+            if (sdo.Length == 1)
+            {
+                var ui = Json(SdoUiProbe.Run(sdo[0].Process));
+                return ProjectSdo(ui, session, sdo[0].Info.dwPID, sessionPid);
+            }
+            var launchers = processes.Where(p => p.Info.sName.Equals("Launcher.dat", StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (launchers.Length > 1) return State(LoginStage.Blocked, "发现多个游戏启动器，请先保留一个。");
+            if (launchers.Length == 1)
+            {
+                var process = launchers[0].Process;
+                var windows = Json(WindowInventory.Run(process, SessionInputProbe.SessionProcess(vmm,sessionPid)))
+                    .GetProperty("Windows").EnumerateArray().ToArray();
+                return ProjectLauncher(windows,session,process.PID,sessionPid);
+            }
+            if (uu.Length > 1) return State(LoginStage.Blocked, "发现多个 UU 主进程，请先保留一个。");
+            if (uu.Length == 0) return OpenUu("打开 UU 加速器");
+            if (SessionInputProbe.Foreground(vmm, sessionPid).GetProperty("Pid").GetUInt32() != uu[0].Info.dwPID)
+                return OpenUu("将 UU 加速器置于前台");
+            var mainWindows = uuWindows.Where(w => Flag(w,"Visible") && !Flag(w,"Disabled")
+                && (Address(Text(w,"Style")) & 0x40000000) == 0 && Text(w, "Manager") != "0x0" && Client(w).Width >= 800).ToArray();
+            if (mainWindows.Length == 0) return OpenUu("打开 UU 主窗口");
+            var uuWindow = mainWindows.Single();
+            return ProjectUu(Json(new UuUiReader(uu[0].Process).Run(uuWindow)), uuWindow, session, uu[0].Info.dwPID, sessionPid);
+        }
 
         LoginObservation State(LoginStage stage, string description) => new(new(session, stage, LoginAction.None, stage.ToString(), description), 0, sessionPid, "", Point.Empty, Rectangle.Empty);
         LoginObservation OpenUu(string description) => new(new(session, LoginStage.Desktop, LoginAction.OpenAccelerator,
             "open-uu:" + SessionInputProbe.Foreground(vmm, sessionPid).GetRawText(), description), 0, sessionPid, "", new(35,35), Rectangle.Empty);
     }
 
-    internal static JsonElement[] Windows(VmmProcess process) => Json(WindowInventory.Run(process)).GetProperty("Windows").EnumerateArray()
+    // Keep the dependency order inside the provider. A complete online observation must
+    // not depend on an unrelated accelerator's native window tables being readable.
+    internal static LoginObservation CaptureInPriorityOrder(Func<LoginObservation?> readWorld,
+        Func<LoginObservation?> readReconnect, Func<LoginObservation> readLogin) =>
+        readWorld() ?? readReconnect() ?? readLogin();
+
+    internal static LoginObservation ProjectLauncher(IReadOnlyList<JsonElement> windows,string session,uint pid,uint sessionPid)
+    {
+        static ulong Style(JsonElement window)=>Address(Text(window,"Style"));
+        static bool Top(JsonElement window)=>Flag(window,"Visible")&&!Flag(window,"Disabled")&&(Style(window)&0x60000000)==0;
+        LoginObservation Wait(string description)=>new(new(session,LoginStage.Loading,LoginAction.None,"Loading",description),
+            pid,sessionPid,"",Point.Empty,Rectangle.Empty);
+        var candidates=windows.Where(w=>Top(w)&&Text(w,"TitleCandidate")=="永恒之塔").ToArray();
+        if(candidates.Length==0)
+        {
+            // The shipped launcher sometimes leaves its main caption empty. Its main
+            // dialog, browser host and child view still have the same verified thread
+            // and client rectangle. Do not substitute an arbitrary untitled window.
+            candidates=windows.Where(w=>Top(w)&&Text(w,"TitleCandidate").Length==0&&Style(w)==0x940A004C
+                &&Client(w).Size==new Size(1280,730)
+                &&windows.Any(other=>Companion(other,w,0x94000000))
+                &&windows.Any(other=>Companion(other,w,0x56010000))).ToArray();
+        }
+        if(candidates.Length==0)return Wait("等待游戏启动器页面…");
+        if(candidates.Length!=1)throw new InvalidOperationException("游戏启动器存在多个匹配窗口，等待唯一窗口。");
+        var window=candidates[0];var bounds=Client(window);
+        if(bounds.Size!=new Size(1280,730)||bounds.Left<0||bounds.Top<0)
+            return Wait("等待游戏启动器窗口恢复到可操作尺寸…");
+        return Target(LoginStage.Launcher,LoginAction.StartLauncher,"点击开始游戏",session,pid,sessionPid,
+            window,new(bounds.Left+980,bounds.Top+625),"launcher-start");
+
+        static bool Companion(JsonElement other,JsonElement main,ulong style)=>Flag(other,"Visible")&&!Flag(other,"Disabled")
+            &&Style(other)==style&&Text(other,"Hwnd")!=Text(main,"Hwnd")&&Client(other)==Client(main)
+            &&main.TryGetProperty("OwnerThread",out var owner)&&owner.GetUInt64()!=0
+            &&other.TryGetProperty("OwnerThread",out var otherOwner)&&otherOwner.GetUInt64()==owner.GetUInt64();
+    }
+
+    internal static LoginObservation WithGameProcesses(LoginObservation observed,IReadOnlyList<uint> gamePids) =>
+        observed with { Snapshot=observed.Snapshot with { GameProcessCount=gamePids.Count,
+            GameProcessId=gamePids.Count==1?checked((int)gamePids[0]):0 } };
+
+    internal static LoginObservation? CaptureWorld(Func<ulong, int, byte[]> read, Func<PlayerSnapshot> readPlayer,
+        ulong gameBase, string session, uint pid, uint sessionPid)
+    {
+        byte[] Field(ulong address, int size)
+        {
+            var bytes = read(address, size);
+            return bytes.Length == size ? bytes : throw new InvalidOperationException("Incomplete world login field.");
+        }
+        int gameState = BitConverter.ToInt32(Field(gameBase + 0xd6ca90, 4));
+        if (gameState != 15) return null;
+        uint mapId = BitConverter.ToUInt32(Field(gameBase + 0xd647c0 + 0x20dc, 4));
+        if (mapId is 0 or uint.MaxValue || BitConverter.ToUInt16(Field(gameBase + 0xd6cb08, 2)) == 0
+            || HasVisibleGameMessage(Field, gameBase)) return null;
+        var player = readPlayer();
+        if (player.EntityId == 0 || player.Position is null || string.IsNullOrWhiteSpace(player.CharacterName)) return null;
+        return new(new(session + ":" + gameBase, LoginStage.InWorld, LoginAction.None, "world", "角色已进入游戏：" + player.CharacterName,
+            player.CharacterName, checked((int)pid)), pid, sessionPid, "", Point.Empty, Rectangle.Empty);
+    }
+
+    internal static JsonElement[] Windows(VmmProcess process, VmmProcess? sessionProcess = null) => Json(WindowInventory.Run(process, sessionProcess)).GetProperty("Windows").EnumerateArray()
         .Where(w => Flag(w,"Visible") && !Flag(w,"Disabled") && (Address(Text(w,"Style")) & 0x40000000) == 0).ToArray();
     internal static Rectangle Client(JsonElement window)
     {
@@ -176,6 +252,12 @@ internal static class LoginNativeReader
         {
             var w = modals[0]; var message = w.GetProperty("Message");
             int confirm = message.GetProperty("ConfirmEvent").GetInt32();
+            if (IsAwayDisconnect(message))
+            {
+                var ok = w.GetProperty("Nodes").EnumerateArray().Single(n => Text(n,"Address") == Text(message,"Ok")
+                    && Text(n,"Name") == "ok" && Text(n,"Text") == "确认");
+                return Click(w,ok,LoginStage.Disconnected,LoginAction.ConfirmGameExit,"离开状态导致断线，确认后等待游戏退出");
+            }
             if (message.GetProperty("Owner").GetInt32() == 4 && confirm == 2203)
             {
                 if (chars.Length != 1 || selected != chars[0].GetProperty("Index").GetInt32()) return Block("进入游戏确认窗口的角色与配置不一致。");
@@ -216,6 +298,12 @@ internal static class LoginNativeReader
         if (agreements.Length == 1 && gameState == 8) return Click(agreements[0],Node(agreements[0],"agreement_yes"),LoginStage.Agreement,LoginAction.AcceptAgreement,"同意游戏协议");
         return new(new(session,LoginStage.Loading,LoginAction.None,"loading","等待游戏加载…"),pid,sessionPid,"",Point.Empty,Rectangle.Empty);
     }
+
+    internal static bool IsAwayDisconnect(JsonElement message) =>
+        message.GetProperty("Owner").GetInt32()==-1 && message.GetProperty("Style").GetInt32()==24
+        && message.GetProperty("ConfirmEvent").GetInt32()==2204 && message.GetProperty("CancelEvent").GetInt32()==2102
+        && message.GetProperty("Tag").GetInt32()==1
+        && Text(message,"Body").Trim()=="由于您一直处于离开状态，为了安全，连接已中断。";
 
     internal static LoginObservation ProjectSdo(JsonElement ui, string session, uint pid, uint sessionPid)
     {
@@ -287,5 +375,45 @@ internal static class LoginNativeReader
                 return Click(card[0],LoginStage.AcceleratorHome,LoginAction.Accelerate,"开启永恒之塔加速");
         }
         return new(new(session,LoginStage.Loading,LoginAction.None,"uu-loading","等待 UU 显示永恒之塔页面…"),pid,sessionPid,Text(window,"Hwnd"),Point.Empty,Client(window),ui);
+    }
+
+    internal static LoginObservation? ProjectUuReconnectWindows(IEnumerable<JsonElement> windows,
+        Func<JsonElement,JsonElement> readUi, string session, uint pid, uint sessionPid)
+    {
+        var matches = new List<LoginObservation>();
+        foreach (var window in windows.Where(w => Flag(w,"Visible") && !Flag(w,"Disabled")
+            && (Address(Text(w,"Style")) & 0x60000000) == 0 && Text(w,"Manager") != "0x0"
+            && Client(w).Width is > 0 and < 800 && Client(w).Height > 0))
+        {
+            var match = ProjectUuReconnect(readUi(window),window,session,pid,sessionPid);
+            if (match is not null) matches.Add(match);
+        }
+        if (matches.Count > 1) throw new InvalidOperationException("Multiple UU reconnect dialogs are active.");
+        return matches.SingleOrDefault();
+    }
+
+    internal static LoginObservation? ProjectUuReconnect(JsonElement ui, JsonElement window,
+        string session, uint pid, uint sessionPid)
+    {
+        var visible = ui.GetProperty("Controls").EnumerateArray().Where(c => Flag(c,"Visible") && Flag(c,"AncestorsVisible")).ToArray();
+        JsonElement[] Named(string name) => visible.Where(c => Text(c,"Name") == name).ToArray();
+        var body = Named("error_code_desc");
+        if (body.Length == 0) return null;
+        LoginObservation Wait() => new(new(session,LoginStage.AcceleratorReconnect,LoginAction.None,"uu-reconnect-pending",
+            "等待 UU 重新加速提示就绪…"),pid,sessionPid,Text(window,"Hwnd"),Point.Empty,Client(window),ui);
+        var ok = Named("Ok"); var feedback = Named("Cancel");
+        // These are the acc_error_confirm family identities, not a generic Ok button or
+        // the Steam-binding page which also contains the words '重新加速'.
+        if (body.Length != 1 || string.IsNullOrWhiteSpace(Text(body[0],"Text")) || ok.Length != 1 || feedback.Length != 1
+            || Text(ok[0],"Text") is not ("%{1451}" or "重新加速")
+            || Text(feedback[0],"Text") is not ("%{1452}" or "快速反馈")
+            || !(Named("error_code").Length == 1 || Named("error_code_desc2").Length == 1)
+            || !Flag(ok[0],"Enabled") || Flag(window,"Disabled")) return Wait();
+        var rect = ok[0].GetProperty("Rect"); var bounds = Client(window);
+        int left=rect.GetProperty("Left").GetInt32(), top=rect.GetProperty("Top").GetInt32(),
+            right=rect.GetProperty("Right").GetInt32(), bottom=rect.GetProperty("Bottom").GetInt32();
+        if (right<=left || bottom<=top) throw new InvalidOperationException("UU reconnect control geometry is not ready.");
+        return Target(LoginStage.AcceleratorReconnect,LoginAction.Reaccelerate,"UU 加速已断开，点击重新加速",session,pid,sessionPid,
+            window,new(bounds.Left+(left+right)/2,bounds.Top+(top+bottom)/2),"uu-reconnect:"+Text(ok[0],"Address"),ui);
     }
 }

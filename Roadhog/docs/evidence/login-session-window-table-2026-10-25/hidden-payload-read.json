@@ -1,0 +1,36 @@
+{
+    "CapturedUtc":  "2026-10-24T22:40:02.4477644+00:00",
+    "InputSent":  false,
+    "Window":  {
+                   "Hwnd":  "0x3032C",
+                   "OwnerThread":  380,
+                   "Address":  "0x2175B40",
+                   "Style":  "0x160F0000",
+                   "Visible":  true,
+                   "Disabled":  false,
+                   "Rect":  [
+                                12,
+                                20,
+                                1012,
+                                708
+                            ],
+                   "ClientRect":  [
+                                      12,
+                                      20,
+                                      1012,
+                                      708
+                                  ],
+                   "UserData":  "0xABB9A70",
+                   "Manager":  "0xABB9ABC",
+                   "Root":  "0x42907F8",
+                   "TitleCandidate":  null
+               },
+    "Error":  "System.InvalidOperationException: Incomplete UU UI field.\r\n   at Roadhog.Infrastructure.Login.Native.UuUiReader.Read(UInt64 address, Int32 length) in C:\\D\\Develop\\MyCode\\Tool\\Roadhog\\Infrastructure\\Login\\Native\\UuUiReader.cs:line 120\r\n   at Roadhog.Infrastructure.Login.Native.UuUiReader.Visit(UInt32 address, UInt32 manager, Boolean ancestorsVisible, Boolean ancestorsEnabled, Int32 depth, HashSet`1 visited, List`1 nodes) in C:\\D\\Develop\\MyCode\\Tool\\Roadhog\\Infrastructure\\Login\\Native\\UuUiReader.cs:line 28\r\n   at Roadhog.Infrastructure.Login.Native.UuUiReader.Visit(UInt32 address, UInt32 manager, Boolean ancestorsVisible, Boolean ancestorsEnabled, Int32 depth, HashSet`1 visited, List`1 nodes) in C:\\D\\Develop\\MyCode\\Tool\\Roadhog\\Infrastructure\\Login\\Native\\UuUiReader.cs:line 44\r\n   at Roadhog.Infrastructure.Login.Native.UuUiReader.Visit(UInt32 address, UInt32 manager, Boolean ancestorsVisible, Boolean ancestorsEnabled, Int32 depth, HashSet`1 visited, List`1 nodes) in C:\\D\\Develop\\MyCode\\Tool\\Roadhog\\Infrastructure\\Login\\Native\\UuUiReader.cs:line 44\r\n   at Roadhog.Infrastructure.Login.Native.UuUiReader.Visit(UInt32 address, UInt32 manager, Boolean ancestorsVisible, Boolean ancestorsEnabled, Int32 depth, HashSet`1 visited, List`1 nodes) in C:\\D\\Develop\\MyCode\\Tool\\Roadhog\\Infrastructure\\Login\\Native\\UuUiReader.cs:line 44\r\n   at Roadhog.Infrastructure.Login.Native.UuUiReader.Visit(UInt32 address, UInt32 manager, Boolean ancestorsVisible, Boolean ancestorsEnabled, Int32 depth, HashSet`1 visited, List`1 nodes) in C:\\D\\Develop\\MyCode\\Tool\\Roadhog\\Infrastructure\\Login\\Native\\UuUiReader.cs:line 44\r\n   at Roadhog.Infrastructure.Login.Native.UuUiReader.Run(JsonElement window) in C:\\D\\Develop\\MyCode\\Tool\\Roadhog\\Infrastructure\\Login\\Native\\UuUiReader.cs:line 21\r\n   at Program.\u003c\u003ec__DisplayClass0_1.\u003c\u003cMain\u003e$\u003eb__1(Vmm vmm) in C:\\D\\Develop\\MyCode\\Tool\\.tmp\\script4-login-probe\\Program.cs:line 84",
+    "PartialControl":  {
+                           "Address":  "0xB03DD30",
+                           "Length":  880,
+                           "Actual":  720,
+                           "Bytes":  "94DCA773F0FA9DD53CDD030B0000DF7CF34D784EB5438568E2B23FF9C94F60D0A3CD12C3EE471E7CF6E0872E42B0DE3B2EA6D43FF48F1FE302EF85BDBD85596F650AE6D238A3882E6EDC6FFFF6FD267BF0D082F66147D25989C39F0E1E57AED29E1F26B5E3B96CDF2C413430EC2BADF4210FEDC8A219DBD83E618062BAB77AF0ACC98ABFE97456385FA8A496000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000FCDD030B000083F7E0534F57D1236D2D56F7B4C811DEF5A507FFB2BF21F79291D7202B7EFDEA577F193D787424ECBDF35A8AC197ED4C3C02BA04B6E88762ED96A2A5094EF8AC2BD18C10CDD8C6F629074FEB1F4FEC28B8A8C94AA74AB198855B27409C8B4316040747B10FBE7F6FDE7C1B148EC5E8FDF03067B35B2142CD9B51A902E2F0BC9ABB0AE894030B88DE030B00005489DBBC8C253A2F935A4A610C0D55D20BAB262E237AF0B14745262B6F40D683D7C406A549E226C283EF87647D2770C56BD16DA849F273CB3E30C166C2D1C6FBAABACCB208BEDA24278DFED3E05F383A19DBD8C6568CE0F18EB5C9B867C833E79BE4A2DBF97D5CD7833F0F676778874F535D56A8498250819A1F77EF428B0CDF030B63006F006E0073006F006C0065005F00670061006D0065005F00730065007400740069006E00670000005AA20FE15CBE01072255906F562ED9F73E8AFCB3E8F64EECC94F4E4ED28EEBA488EC799F9BA970159692F0B4DE21D1C39F7E8696C6D8C636B6F25D0BDE1AF4CC83C7F455FA3D9FCF5245A77A84DC1BFB408A64E6BF2B010028B6000000000000000000000000000000001C000000100000000000000000000000000000000000000000000000000000000000000000000000840200000000000000000000000000000F2700000F2700000001010101000000FFFFFFFFAFC2568A00000000000000000000000000000000"
+                       },
+    "Explanation":  "Hidden node at 0xB03DD30: requested 880 bytes, only 720 before page boundary available. Identity and visibility at +0x14c / +0x2b0 were readable; Visible=0, InternVisible=1, Enabled=1. Hidden payload is not needed for an actionable scene."
+}

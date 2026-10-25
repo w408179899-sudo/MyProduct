@@ -120,18 +120,13 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
         // The attempt boundary retries from the current scene, never from an old PID/address.
         return api.WithLoginConnection(account.VmmDeviceName,read);
     }
-    private async Task FocusAsync(LoginObservation observation,CancellationToken token)
-    {
-        for(int i=0;i<20;i++)
-        {
-            token.ThrowIfCancellationRequested();
-            if(Read(vmm=>SessionInputProbe.Foreground(vmm,observation.SessionPid).GetProperty("Pid").GetUInt32())==observation.Pid)return;
-            LoginInputTarget.Validate(observation,await BindInputAsync(token).ConfigureAwait(false));
-            await HotkeyAsync([Keys.Menu,Keys.Escape],token).ConfigureAwait(false);
-            await Task.Delay(250,token).ConfigureAwait(false);
-        }
-        throw new InvalidOperationException("无法将当前登录窗口切到前台，已停止输入。");
-    }
+    internal Task FocusAsync(LoginObservation observation,CancellationToken token)=>LoginWindowFocus.EnsureAsync(observation.Pid,
+        ()=>Read(vmm=>SessionInputProbe.Foreground(vmm,observation.SessionPid).GetProperty("Pid").GetUInt32()),
+        async()=>LoginInputTarget.Validate(observation,await BindInputAsync(token).ConfigureAwait(false)),
+        HotkeyAsync,t=>Task.Delay(250,t),
+        (attempt,foreground,method)=>logger?.Info("login.focus.switch",new Dictionary<string,object?>
+        { ["account"]=account.AccountName,["targetPid"]=observation.Pid,["foregroundPid"]=foreground,
+            ["window"]=observation.Window,["attempt"]=attempt,["method"]=method }),token);
     private async Task MoveAsync(uint sessionPid,Point target,CancellationToken token)
     {
         if(target.X<0||target.Y<0||target.X>4096||target.Y>2160)throw new InvalidOperationException("登录坐标超出已支持的桌面范围。");
@@ -166,8 +161,8 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
         }
         if(Read(vmm=>SessionInputProbe.Foreground(vmm,expected.SessionPid).GetProperty("Pid").GetUInt32())!=expected.Pid)
             throw new InvalidOperationException("登录窗口失去焦点，已停止输入。");
-        bool finalClick=controlName is null&&(expected.Snapshot.Action is LoginAction.LaunchGame or LoginAction.StartLauncher
-            or LoginAction.SelectServer or LoginAction.EnterCharacter or LoginAction.ConfirmEntryAgreement)
+        bool finalClick=controlName is null&&(expected.Snapshot.Action is LoginAction.LaunchGame or LoginAction.StartLauncher or LoginAction.Reaccelerate
+            or LoginAction.SelectServer or LoginAction.EnterCharacter or LoginAction.ConfirmEntryAgreement or LoginAction.ConfirmGameExit)
             ||controlName=="LoginBtn"&&expected.Snapshot.Action==LoginAction.SubmitCredentials;
         await ClickAsync(token,finalClick?()=>_awaitingClickOutcome=true:null).ConfigureAwait(false);
     }

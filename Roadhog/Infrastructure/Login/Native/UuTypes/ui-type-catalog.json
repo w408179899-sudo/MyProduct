@@ -1,0 +1,676 @@
+{
+  "schemaVersion": 1,
+  "moduleName": "ui.dll",
+  "sha256": "1939022846a612be7802794c0c6f5d5d2ee38146b4ec47d48cdcc9f16f9bb72c",
+  "machine": 332,
+  "timeDateStamp": 1792141226,
+  "sizeOfImage": 2117632,
+  "optionalHeaderMagic": 267,
+  "preferredImageBase": 285212672,
+  "types": [
+    {
+      "vtableRva": 1673668,
+      "className": "UIButtonX",
+      "decoratedName": ".?AVUIButtonX@DuiLib@@",
+      "isContainer": false,
+      "colRva": 1781888,
+      "first8FunctionRvas": [
+        462560,
+        958928,
+        945664,
+        946208,
+        959632,
+        463232,
+        1097168,
+        1096736
+      ]
+    },
+    {
+      "vtableRva": 1674724,
+      "className": "CCurveUI",
+      "decoratedName": ".?AVCCurveUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 1782208,
+      "first8FunctionRvas": [
+        473744,
+        958928,
+        945664,
+        946208,
+        959632,
+        475888,
+        475904,
+        944960
+      ]
+    },
+    {
+      "vtableRva": 1675216,
+      "className": "CEditExUI",
+      "decoratedName": ".?AVCEditExUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 1782336,
+      "first8FunctionRvas": [
+        478544,
+        958928,
+        945664,
+        946208,
+        959632,
+        482112,
+        482736,
+        482384
+      ]
+    },
+    {
+      "vtableRva": 1676368,
+      "className": "CGifAnimUI",
+      "decoratedName": ".?AVCGifAnimUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 1782568,
+      "first8FunctionRvas": [
+        491776,
+        958928,
+        945664,
+        946208,
+        959632,
+        494752,
+        494800,
+        944960
+      ]
+    },
+    {
+      "vtableRva": 1676932,
+      "className": "CLineChartUI",
+      "decoratedName": ".?AVCLineChartUI@DuiLib@@",
+      "isContainer": true,
+      "colRva": 1782784,
+      "first8FunctionRvas": [
+        513152,
+        958928,
+        945664,
+        946208,
+        959632,
+        521904,
+        521920,
+        944960
+      ]
+    },
+    {
+      "vtableRva": 1679220,
+      "className": "CMpngAnimUI",
+      "decoratedName": ".?AVCMpngAnimUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 1783088,
+      "first8FunctionRvas": [
+        532768,
+        958928,
+        945664,
+        946208,
+        959632,
+        533232,
+        533248,
+        944960
+      ]
+    },
+    {
+      "vtableRva": 1679720,
+      "className": "UIOptionX",
+      "decoratedName": ".?AVUIOptionX@DuiLib@@",
+      "isContainer": false,
+      "colRva": 1783228,
+      "first8FunctionRvas": [
+        537136,
+        958928,
+        945664,
+        946208,
+        959632,
+        537808,
+        1182912,
+        1096736
+      ]
+    },
+    {
+      "vtableRva": 1680376,
+      "className": "CUIPopUp",
+      "decoratedName": ".?AVCUIPopUp@DuiLib@@",
+      "isContainer": false,
+      "colRva": 1783388,
+      "first8FunctionRvas": [
+        548096,
+        958928,
+        945664,
+        946208,
+        959632,
+        549008,
+        549024,
+        944960
+      ]
+    },
+    {
+      "vtableRva": 1680892,
+      "className": "CWebInterfaceUI",
+      "decoratedName": ".?AVCWebInterfaceUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 1783616,
+      "first8FunctionRvas": [
+        553920,
+        958928,
+        945664,
+        946208,
+        959632,
+        944944,
+        945728,
+        944960
+      ]
+    },
+    {
+      "vtableRva": 1682228,
+      "className": "CWebview2UI",
+      "decoratedName": ".?AVCWebview2UI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 1783764,
+      "first8FunctionRvas": [
+        606336,
+        958928,
+        945664,
+        946208,
+        959632,
+        614000,
+        614096,
+        944960
+      ]
+    },
+    {
+      "vtableRva": 1693704,
+      "className": "CControlUI",
+      "decoratedName": ".?AVCControlUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 1784948,
+      "first8FunctionRvas": [
+        725424,
+        958928,
+        945664,
+        946208,
+        959632,
+        944944,
+        945728,
+        944960
+      ]
+    },
+    {
+      "vtableRva": 1694132,
+      "className": "CContainerUI",
+      "decoratedName": ".?AVCContainerUI@DuiLib@@",
+      "isContainer": true,
+      "colRva": 1785300,
+      "first8FunctionRvas": [
+        725248,
+        958928,
+        945664,
+        946208,
+        959632,
+        929664,
+        929872,
+        944960
+      ]
+    },
+    {
+      "vtableRva": 1694868,
+      "className": "CVerticalLayoutUI",
+      "decoratedName": ".?AVCVerticalLayoutUI@DuiLib@@",
+      "isContainer": true,
+      "colRva": 1785624,
+      "first8FunctionRvas": [
+        729664,
+        958928,
+        945664,
+        946208,
+        959632,
+        1091392,
+        1091472,
+        1091408
+      ]
+    },
+    {
+      "vtableRva": 1695420,
+      "className": "CHorizontalLayoutUI",
+      "decoratedName": ".?AVCHorizontalLayoutUI@DuiLib@@",
+      "isContainer": true,
+      "colRva": 1785728,
+      "first8FunctionRvas": [
+        725952,
+        958928,
+        945664,
+        946208,
+        959632,
+        1081072,
+        1081152,
+        1081088
+      ]
+    },
+    {
+      "vtableRva": 1695972,
+      "className": "CTileLayoutUI",
+      "decoratedName": ".?AVCTileLayoutUI@DuiLib@@",
+      "isContainer": true,
+      "colRva": 1785832,
+      "first8FunctionRvas": [
+        729136,
+        958928,
+        945664,
+        946208,
+        959632,
+        1086432,
+        1086480,
+        944960
+      ]
+    },
+    {
+      "vtableRva": 1696524,
+      "className": "CTabLayoutUI",
+      "decoratedName": ".?AVCTabLayoutUI@DuiLib@@",
+      "isContainer": true,
+      "colRva": 1785936,
+      "first8FunctionRvas": [
+        728784,
+        958928,
+        945664,
+        946208,
+        959632,
+        1084592,
+        1084640,
+        944960
+      ]
+    },
+    {
+      "vtableRva": 1697076,
+      "className": "CChildLayoutUI",
+      "decoratedName": ".?AVCChildLayoutUI@DuiLib@@",
+      "isContainer": true,
+      "colRva": 1786040,
+      "first8FunctionRvas": [
+        724880,
+        958928,
+        945664,
+        946208,
+        959632,
+        1078688,
+        1078704,
+        944960
+      ]
+    },
+    {
+      "vtableRva": 1697732,
+      "className": "CListUI",
+      "decoratedName": ".?AVCListUI@DuiLib@@",
+      "isContainer": true,
+      "colRva": 1786580,
+      "first8FunctionRvas": [
+        727536,
+        958928,
+        945664,
+        946208,
+        959632,
+        1159040,
+        1160240,
+        1159232
+      ]
+    },
+    {
+      "vtableRva": 1698328,
+      "className": "CListBodyUI",
+      "decoratedName": ".?AVCListBodyUI@DuiLib@@",
+      "isContainer": true,
+      "colRva": 1786472,
+      "first8FunctionRvas": [
+        726304,
+        958928,
+        945664,
+        946208,
+        959632,
+        1091392,
+        1091472,
+        1091408
+      ]
+    },
+    {
+      "vtableRva": 1698880,
+      "className": "CListHeaderUI",
+      "decoratedName": ".?AVCListHeaderUI@DuiLib@@",
+      "isContainer": true,
+      "colRva": 1786144,
+      "first8FunctionRvas": [
+        727008,
+        958928,
+        945664,
+        946208,
+        959632,
+        1158992,
+        1160048,
+        1081088
+      ]
+    },
+    {
+      "vtableRva": 1699432,
+      "className": "CListHeaderItemUI",
+      "decoratedName": ".?AVCListHeaderItemUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 1786772,
+      "first8FunctionRvas": [
+        726832,
+        958928,
+        945664,
+        946208,
+        959632,
+        1158976,
+        1159984,
+        1159088
+      ]
+    },
+    {
+      "vtableRva": 1699812,
+      "className": "CListElementUI",
+      "decoratedName": ".?AVCListElementUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 1786848,
+      "first8FunctionRvas": [
+        726656,
+        958928,
+        945664,
+        946208,
+        959632,
+        1158960,
+        1159872,
+        1159072
+      ]
+    },
+    {
+      "vtableRva": 1700232,
+      "className": "CListLabelElementUI",
+      "decoratedName": ".?AVCListLabelElementUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 1786976,
+      "first8FunctionRvas": [
+        727184,
+        958928,
+        945664,
+        946208,
+        959632,
+        1159008,
+        1160112,
+        1159072
+      ]
+    },
+    {
+      "vtableRva": 1700652,
+      "className": "CListTextElementUI",
+      "decoratedName": ".?AVCListTextElementUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 1787080,
+      "first8FunctionRvas": [
+        727360,
+        958928,
+        945664,
+        946208,
+        959632,
+        1159024,
+        1160176,
+        1159152
+      ]
+    },
+    {
+      "vtableRva": 1701072,
+      "className": "CListContainerElementUI",
+      "decoratedName": ".?AVCListContainerElementUI@DuiLib@@",
+      "isContainer": true,
+      "colRva": 1787188,
+      "first8FunctionRvas": [
+        726480,
+        958928,
+        945664,
+        946208,
+        959632,
+        1158944,
+        1159760,
+        1159056
+      ]
+    },
+    {
+      "vtableRva": 1701664,
+      "className": "CComboUI",
+      "decoratedName": ".?AVCComboUI@DuiLib@@",
+      "isContainer": true,
+      "colRva": 1787344,
+      "first8FunctionRvas": [
+        725072,
+        958928,
+        945664,
+        946208,
+        959632,
+        1104864,
+        1105360,
+        1104912
+      ]
+    },
+    {
+      "vtableRva": 1702236,
+      "className": "CScrollBarUI",
+      "decoratedName": ".?AVCScrollBarUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 1785224,
+      "first8FunctionRvas": [
+        728256,
+        958928,
+        945664,
+        946208,
+        959632,
+        1217488,
+        1217504,
+        944960
+      ]
+    },
+    {
+      "vtableRva": 1702616,
+      "className": "CTreeNodeUI",
+      "decoratedName": ".?AVCTreeNodeUI@DuiLib@@",
+      "isContainer": true,
+      "colRva": 1787820,
+      "first8FunctionRvas": [
+        729312,
+        958928,
+        945664,
+        946208,
+        959632,
+        1239872,
+        1239936,
+        1159056
+      ]
+    },
+    {
+      "vtableRva": 1703208,
+      "className": "CTreeViewUI",
+      "decoratedName": ".?AVCTreeViewUI@DuiLib@@",
+      "isContainer": true,
+      "colRva": 1787500,
+      "first8FunctionRvas": [
+        729488,
+        958928,
+        945664,
+        946208,
+        959632,
+        1239888,
+        1240000,
+        1159232
+      ]
+    },
+    {
+      "vtableRva": 1703888,
+      "className": "CLabelUI",
+      "decoratedName": ".?AVCLabelUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 1787780,
+      "first8FunctionRvas": [
+        726128,
+        958928,
+        945664,
+        946208,
+        959632,
+        1132096,
+        1133072,
+        944960
+      ]
+    },
+    {
+      "vtableRva": 1704268,
+      "className": "CTextUI",
+      "decoratedName": ".?AVCTextUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 1787952,
+      "first8FunctionRvas": [
+        728960,
+        958928,
+        945664,
+        946208,
+        959632,
+        1233184,
+        1233264,
+        1233200
+      ]
+    },
+    {
+      "vtableRva": 1704648,
+      "className": "CEditUI",
+      "decoratedName": ".?AVCEditUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 1788032,
+      "first8FunctionRvas": [
+        725776,
+        958928,
+        945664,
+        946208,
+        959632,
+        1121248,
+        1121552,
+        1121264
+      ]
+    },
+    {
+      "vtableRva": 1705028,
+      "className": "CButtonUI",
+      "decoratedName": ".?AVCButtonUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 1788112,
+      "first8FunctionRvas": [
+        724528,
+        958928,
+        945664,
+        946208,
+        959632,
+        1096720,
+        1097168,
+        1096736
+      ]
+    },
+    {
+      "vtableRva": 1705408,
+      "className": "COptionUI",
+      "decoratedName": ".?AVCOptionUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 1787800,
+      "first8FunctionRvas": [
+        727728,
+        958928,
+        945664,
+        946208,
+        959632,
+        1182832,
+        1182912,
+        1096736
+      ]
+    },
+    {
+      "vtableRva": 1705792,
+      "className": "CCheckBoxUI",
+      "decoratedName": ".?AVCCheckBoxUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 1787692,
+      "first8FunctionRvas": [
+        724704,
+        958928,
+        945664,
+        946208,
+        959632,
+        1101392,
+        1101408,
+        1096736
+      ]
+    },
+    {
+      "vtableRva": 1706176,
+      "className": "CProgressUI",
+      "decoratedName": ".?AVCProgressUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 1788132,
+      "first8FunctionRvas": [
+        727904,
+        958928,
+        945664,
+        946208,
+        959632,
+        1186688,
+        1186736,
+        944960
+      ]
+    },
+    {
+      "vtableRva": 1706556,
+      "className": "CSliderUI",
+      "decoratedName": ".?AVCSliderUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 1788212,
+      "first8FunctionRvas": [
+        728608,
+        958928,
+        945664,
+        946208,
+        959632,
+        1229392,
+        1229456,
+        1229408
+      ]
+    },
+    {
+      "vtableRva": 1706936,
+      "className": "CRichEditUI",
+      "decoratedName": ".?AVCRichEditUI@DuiLib@@",
+      "isContainer": true,
+      "colRva": 1788296,
+      "first8FunctionRvas": [
+        728080,
+        958928,
+        945664,
+        946208,
+        959632,
+        1193184,
+        1193568,
+        1193200
+      ]
+    },
+    {
+      "vtableRva": 1707508,
+      "className": "CDateTimeUI",
+      "decoratedName": ".?AVCDateTimeUI@DuiLib@@",
+      "isContainer": false,
+      "colRva": 1788452,
+      "first8FunctionRvas": [
+        725600,
+        958928,
+        945664,
+        946208,
+        959632,
+        1117392,
+        1117408,
+        944960
+      ]
+    }
+  ],
+  "excludedPrimaryControls": []
+}

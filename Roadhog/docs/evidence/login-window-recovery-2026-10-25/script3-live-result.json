@@ -1,0 +1,32 @@
+{
+  "Account": "\u811A\u672C3",
+  "Initial": {
+    "Session": "d2711cbe-f9c4-4e30-ad9d-fdd53bd99c8e:fpga://devindex=4:33711845:888:FFFF9E060FF9E2C0:824ABE9000:False:winlogon.exe:0:0;7200:FFFF9E06083CC080:340000:True:sdologin.exe:10000000:1581056;8800:FFFF9E0613A60080:1650000:True:uu.exe:73750000:2117632",
+    "Stage": "PasswordLogin",
+    "Action": "SubmitCredentials",
+    "ActionIdentity": "SubmitCredentials:0x5353258:0x303F6:{X=523,Y=436}",
+    "Description": "\u8F93\u5165\u8D26\u53F7\u5BC6\u7801\u5E76\u767B\u5F55",
+    "CharacterName": "",
+    "GameProcessId": 0,
+    "GameProcessCount": 0
+  },
+  "ForegroundBefore": {
+    "Pid": 8800,
+    "Name": "uu.exe",
+    "Tid": 8804,
+    "Eprocess": "0xFFFF9E0613A60080",
+    "Ethread": "0xFFFF9E060FA090C0",
+    "Win32Thread": "0xFFFF845D42EAD010"
+  },
+  "ForegroundAfter": {
+    "Pid": 7200,
+    "Name": "sdologin.exe",
+    "Tid": 7132,
+    "Eprocess": "0xFFFF9E06083CC080",
+    "Ethread": "0xFFFF9E0614152080",
+    "Win32Thread": "0xFFFF845D470F3620"
+  },
+  "InputSent": true,
+  "TargetMemoryWritten": false,
+  "CredentialsSubmitted": false
+}

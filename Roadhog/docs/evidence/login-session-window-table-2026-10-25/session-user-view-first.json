@@ -1,0 +1,21 @@
+{
+  "InputSent": false,
+  "Modes": [
+    {
+      "Pid": 2147484548,
+      "Base": "0x0",
+      "cbImageSize": 0,
+      "Name": null,
+      "Symbol": "0x0",
+      "Error": "Failed to load PDB for module"
+    },
+    {
+      "Pid": 900,
+      "Base": "0x0",
+      "cbImageSize": 0,
+      "Name": null,
+      "Symbol": "0x0",
+      "Error": "Failed to load PDB for module"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "Session": "2ed641fa-6991-4899-b668-6227785373df:fpga://devindex=1:33711845:7504:FFFF8C0B48F46300:396000:False:Aion.bin:4CF50000:21090304;7584:FFFF8C0B4C8DC2C0:1891000:True:uu.exe:72BB0000:2117632;12076:FFFF8C0B5011C080:BD77195000:False:winlogon.exe:0:0:1291124736",
+  "Stage": "Disconnected",
+  "Action": "ConfirmGameExit",
+  "ActionIdentity": "ConfirmGameExit:0x33468A00:0x364F8400:1:0x1D045A:{X=630,Y=416}",
+  "Description": "\u79BB\u5F00\u72B6\u6001\u5BFC\u81F4\u65AD\u7EBF\uFF0C\u786E\u8BA4\u540E\u7B49\u5F85\u6E38\u620F\u9000\u51FA",
+  "CharacterName": "",
+  "GameProcessId": 7504,
+  "GameProcessCount": 1
+}

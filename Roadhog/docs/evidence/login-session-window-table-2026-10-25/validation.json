@@ -1,0 +1,23 @@
+{
+    "TestFilter":  "auto-login",
+    "Passed":  49,
+    "Failed":  0,
+    "FullSuiteRun":  false,
+    "BuildWarnings":  0,
+    "BuildErrors":  0,
+    "DllSha256":  "18E265FE1579EEDA366B5A864EB09401CB765D5429BEE2A6ACD442230594E3C0",
+    "RuntimeReplaced":  false,
+    "RuntimeDllSha256":  "6F0DED38944B9B6956BF6213E46176A3117F0F1BCBD1B8671E80BFD8CC68587F",
+    "InputSent":  true,
+    "TargetMemoryWritten":  false,
+    "Account":  "脚本4",
+    "Character":  "初次见面",
+    "GamePid":  9352,
+    "LiveLoginSuccess":  true,
+    "LiveLoginCompleted":  "2026-10-25T06:45:49+08:00",
+    "RuntimeResumed":  "2026-10-25T06:46:13+08:00",
+    "WorkerPid":  8736,
+    "SiblingWorkersRestarted":  false,
+    "LiveCaptchaEncountered":  false,
+    "Package":  "C:\\Users\\GoldGiven\\Desktop\\Roadhog_离线登录修复_20261025"
+}

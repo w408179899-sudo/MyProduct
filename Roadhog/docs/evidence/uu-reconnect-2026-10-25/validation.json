@@ -1,0 +1,14 @@
+﻿{
+    "Build":  "Release",
+    "Warnings":  0,
+    "Errors":  0,
+    "TestFilter":  "auto-login",
+    "Passed":  41,
+    "FullSuiteRun":  false,
+    "RoadhogDllSha256":  "5CB8DF2561FD65A3E774AAB6B7C84062753B5FB8616EA1742E505767DE770052",
+    "LiveAccount":  "脚本2",
+    "LiveCharacter":  "Tone",
+    "LiveResult":  "InWorld",
+    "FinalReadSentInput":  false,
+    "RunningClientReplaced":  false
+}
