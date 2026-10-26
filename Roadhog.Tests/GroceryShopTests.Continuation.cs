@@ -22,6 +22,8 @@ internal static partial class GroceryShopTests
         foreach (var failure in new[] { "sale_submit", "save_record", "final_release" })
         {
             using var trip = new Trip(); NpcMode(trip); trip.AddDiscardCandidates(4);
+            // Exercise the intended sale/save/release fault, not the separate nearby-route suffix branch.
+            trip.Route.Points[1].X = 1200;
             var settings = trip.Config.ScriptSettings!;
             settings.MainMode = trip.Config.MainMode = AccountMainMode.SemiAuto;
             settings.Maintenance.BagCleanupEnabled = false;
