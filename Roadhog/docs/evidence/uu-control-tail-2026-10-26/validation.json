@@ -1,0 +1,14 @@
+{
+  "Date": "2026-10-26",
+  "BuildWarnings": 0,
+  "BuildErrors": 0,
+  "TestFilter": "auto-login",
+  "Passed": 64,
+  "FullSuiteRun": false,
+  "Script3Login": "InWorld/KiraHa",
+  "Script5Validation": "Read-only AcceleratorReady/LaunchGame",
+  "HangupStarted": false,
+  "RuntimeDeployed": false,
+  "RoadhogSha256": "6B02F337BCC1988D9A8DE63D815DB7C4614D7735D34FBCA1537AAEF4FE6F37C4",
+  "SourcePublishedAtValidation": false
+}

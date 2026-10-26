@@ -1,0 +1,23 @@
+{
+  "Account": "脚本3",
+  "CapturedUtc": "2026-10-26T13:29:59.0582576+00:00",
+  "InputSent": false,
+  "Foreground": {
+    "Pid": 8800,
+    "Name": "uu.exe",
+    "Tid": 8804,
+    "Eprocess": "0xFFFF9E0613A60080",
+    "Ethread": "0xFFFF9E060FA090C0",
+    "Win32Thread": "0xFFFF845D42EAD010"
+  },
+  "Snapshot": {
+    "Session": "d2711cbe-f9c4-4e30-ad9d-fdd53bd99c8e:fpga://devindex=4:33711845:888:FFFF9E060FF9E2C0:824ABE9000:False:winlogon.exe:0:0;8800:FFFF9E0613A60080:1650000:True:uu.exe:73750000:2117632",
+    "Stage": "AcceleratorReady",
+    "Action": "LaunchGame",
+    "ActionIdentity": "LaunchGame:0x9853858:0x202AE:{X=107,Y=366}",
+    "Description": "永恒之塔已加速，启动游戏",
+    "CharacterName": "",
+    "GameProcessId": 0,
+    "GameProcessCount": 0
+  }
+}

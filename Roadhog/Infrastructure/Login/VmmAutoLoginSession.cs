@@ -207,11 +207,19 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
     }
     private async Task SolveCaptchaAsync(LoginObservation observation,CancellationToken token)
     {
+        void Trace(string phase,int attempt,params (string Key,object? Value)[] values)
+        {
+            var fields=new Dictionary<string,object?> { ["account"]=account.AccountName,["attempt"]=attempt };
+            foreach(var value in values)fields[value.Key]=value.Value;
+            logger?.Info("login.captcha."+phase,fields);
+        }
         var before=Read(vmm=>CaptchaMemoryReader.Discover(vmm.GetProcessByPID(observation.Pid),token));
+        Trace("discovered",0,("candidateCount",before.Count));
         // Bind by a positive change at an already observed encoded buffer, never by an arbitrary old image.
         for(int attempt=0;attempt<8;attempt++)
         {
             token.ThrowIfCancellationRequested();
+            Trace("refresh",attempt+1,("candidateCount",before.Count));
             await ClickSdoAsync(observation,"ChangeCodeBtn",token).ConfigureAwait(false);
             await Task.Delay(1300,token).ConfigureAwait(false);
             var after=Read(vmm=>
@@ -225,19 +233,30 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
                 return merged;
             });
             var changed=CaptchaMemoryReader.Changed(before,after.Values);
-            if(changed is null){before=Read(vmm=>CaptchaMemoryReader.Discover(vmm.GetProcessByPID(observation.Pid),token));continue;}
+            if(changed is null)
+            {
+                var discovered=Read(vmm=>CaptchaMemoryReader.Discover(vmm.GetProcessByPID(observation.Pid),token));
+                Trace("image_not_bound",attempt+1,("candidateCount",before.Count),("discoveredCount",discovered.Count),
+                    ("knownChangedHashes",after.Values.Where(image=>before.TryGetValue(image.Address,out var old)&&old.Hash!=image.Hash).Select(image=>image.Hash).Distinct().Count()),
+                    ("newAddresses",discovered.Keys.Count(address=>!before.ContainsKey(address))));
+                before=discovered;continue;
+            }
             before=after;
             string text;
-            try{text=_recognizer!.Predict(changed.Png);}catch(InvalidOperationException){continue;}
-            if(text.Length!=6)continue;
+            try{text=_recognizer!.Predict(changed.Png);}
+            catch(InvalidOperationException ex){Trace("image_rejected",attempt+1,("reason",ex.Message),("imageHash",changed.Hash));continue;}
+            if(text.Length!=6){Trace("recognition_rejected",attempt+1,("length",text.Length),("imageHash",changed.Hash));continue;}
+            Trace("input",attempt+1,("length",text.Length),("imageHash",changed.Hash));
             await FillSdoAsync(observation,"IdentifyingCodeEdit",text,token).ConfigureAwait(false);
             var still=Read(vmm=>CaptchaMemoryReader.Read(vmm.GetProcessByPID(observation.Pid),changed.Address));
             if(still?.Hash!=changed.Hash)throw new InvalidOperationException("验证码图片在输入时已刷新，未提交。");
             await ClickSdoAsync(observation,"OkBtn",token).ConfigureAwait(false);
+            Trace("submitted",attempt+1,("imageHash",changed.Hash));
             _captchaRound++;
             await Task.Delay(1800,token).ConfigureAwait(false);return;
         }
         // Re-entering password login obtains a new image session instead of retrying black pictures forever.
+        Trace("refresh_exhausted",8);
         await ClickSdoAsync(observation,"CancelBtn",token).ConfigureAwait(false);_captchaRound++;
     }
     public async Task ReleaseInputAsync()

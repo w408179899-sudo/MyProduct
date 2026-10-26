@@ -1,0 +1,76 @@
+{
+  "Account": "脚本3",
+  "ExpectedCharacter": "KiraHa",
+  "CompletedUtc": "2026-10-26T13:34:28.0160281+00:00",
+  "Success": true,
+  "Error": null,
+  "ProcessId": 4228,
+  "LastSnapshot": {
+    "Session": "d2711cbe-f9c4-4e30-ad9d-fdd53bd99c8e:fpga://devindex=4:33711845:888:FFFF9E060FF9E2C0:824ABE9000:False:winlogon.exe:0:0;4228:FFFF9E0616B0E080:22D000:False:Aion.bin:48F70000:21090304;8800:FFFF9E0613A60080:1650000:True:uu.exe:73750000:2117632:1224146944",
+    "Stage": "InWorld",
+    "Action": "None",
+    "ActionIdentity": "world",
+    "Description": "角色已进入游戏：KiraHa",
+    "CharacterName": "KiraHa",
+    "GameProcessId": 4228,
+    "GameProcessCount": 1
+  },
+  "Actions": [
+    {
+      "Utc": "2026-10-26T13:30:43.2106118+00:00",
+      "Action": "LaunchGame",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-26T13:31:11.0144774+00:00",
+      "Action": "StartLauncher",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-26T13:31:55.2139189+00:00",
+      "Action": "SubmitCredentials",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-26T13:32:30.2529522+00:00",
+      "Action": "SolveCaptcha",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-26T13:33:43.4672899+00:00",
+      "Action": "AcceptAgreement",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-26T13:33:45.7164834+00:00",
+      "Action": "SelectServer",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-26T13:33:55.5303033+00:00",
+      "Action": "AcceptAgreement",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-26T13:34:00.8343905+00:00",
+      "Action": "SelectCharacter",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-26T13:34:04.9586529+00:00",
+      "Action": "EnterCharacter",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-26T13:34:09.1882692+00:00",
+      "Action": "AcceptEntryAgreement",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-26T13:34:15.0993853+00:00",
+      "Action": "ConfirmEntryAgreement",
+      "Accepted": true
+    }
+  ],
+  "HangupStarted": false
+}

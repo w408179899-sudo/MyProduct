@@ -1,0 +1,17 @@
+{
+  "Date": "2026-10-26",
+  "SourceChange": "Diagnostic events only; refresh count, binding, recognition and input behavior unchanged",
+  "Passed": 64,
+  "BuildWarnings": 0,
+  "BuildErrors": 0,
+  "FullSuiteRun": false,
+  "LiveResult": "InWorld/ALAKA",
+  "GameProcessId": 9036,
+  "ObservedFirstAttempt": "1 baseline candidate; 3 rediscovered candidates; 2 new addresses; 0 known changed hashes",
+  "ObservedSecondAttempt": "Bound image; six-character recognition entered and submitted; server advanced to loading",
+  "HangupStarted": false,
+  "RuntimeDeployed": false,
+  "RoadhogSha256": "C0FD36406F81539B08AB105E027F7B05DC31669CE48E7A45B7F5CF57A4156889",
+  "PreviousRefreshRunCause": "Unknown: original run lacked per-attempt diagnostic events",
+  "SourcePublishedAtValidation": false
+}

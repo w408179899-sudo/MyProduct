@@ -1,0 +1,73 @@
+vmm.login.read_retry {"account":"\u811A\u672C3","device":"fpga://devindex=4","exceptionType":"System.InvalidOperationException","error":"Window owner thread inventory is not initialized."}
+2026-10-26T21:30:39.8268908+08:00 SCENE AcceleratorReady LaunchGame 永恒之塔已加速，启动游戏
+2026-10-26T21:30:39.8270796+08:00 PROGRESS 永恒之塔已加速，启动游戏
+2026-10-26T21:30:39.8274378+08:00 ACTION_BEGIN LaunchGame
+2026-10-26T21:30:43.2106362+08:00 ACTION_END LaunchGame True
+2026-10-26T21:30:44.7095384+08:00 SCENE Desktop OpenAccelerator 将 UU 加速器置于前台
+2026-10-26T21:30:44.7095909+08:00 PROGRESS 已点击启动游戏，等待启动器或游戏窗口出现…
+vmm.login.read_retry {"account":"\u811A\u672C3","device":"fpga://devindex=4","exceptionType":"System.InvalidOperationException","error":"Foreground owner could not be uniquely revalidated."}
+vmm.login.read_retry {"account":"\u811A\u672C3","device":"fpga://devindex=4","exceptionType":"System.InvalidOperationException","error":"No unique verified desktop mapping for window 130134."}
+2026-10-26T21:31:00.4091834+08:00 SCENE Launcher StartLauncher 点击开始游戏
+2026-10-26T21:31:00.4098032+08:00 PROGRESS 已点击启动游戏，等待启动器加载满 20 秒后再点击开始游戏…
+2026-10-26T21:31:05.4143460+08:00 PROGRESS 点击开始游戏
+2026-10-26T21:31:05.4143992+08:00 ACTION_BEGIN StartLauncher
+2026-10-26T21:31:11.0144784+08:00 ACTION_END StartLauncher True
+vmm.login.read_retry {"account":"\u811A\u672C3","device":"fpga://devindex=4","exceptionType":"System.InvalidOperationException","error":"Login scene changed during capture."}
+vmm.login.read_retry {"account":"\u811A\u672C3","device":"fpga://devindex=4","exceptionType":"System.InvalidOperationException","error":"Window shared-table owner does not belong to the verified target Windows session."}
+2026-10-26T21:31:20.7168990+08:00 SCENE Desktop OpenAccelerator 将 UU 加速器置于前台
+2026-10-26T21:31:20.7169409+08:00 PROGRESS 已点击启动游戏，等待启动器或游戏窗口出现…
+vmm.login.read_retry {"account":"\u811A\u672C3","device":"fpga://devindex=4","exceptionType":"System.InvalidOperationException","error":"Foreground owner could not be uniquely revalidated."}
+2026-10-26T21:31:25.2419778+08:00 SCENE PasswordLogin SubmitCredentials 输入账号密码并登录
+2026-10-26T21:31:25.2420285+08:00 PROGRESS 输入账号密码并登录
+2026-10-26T21:31:25.2420338+08:00 ACTION_BEGIN SubmitCredentials
+2026-10-26T21:31:55.2139205+08:00 ACTION_END SubmitCredentials True
+vmm.login.read_retry {"account":"\u811A\u672C3","device":"fpga://devindex=4","exceptionType":"System.InvalidOperationException","error":"Login UI child backlink changed."}
+2026-10-26T21:32:00.9247587+08:00 SCENE Captcha SolveCaptcha 识别并提交验证码
+2026-10-26T21:32:00.9248065+08:00 PROGRESS 识别并提交验证码
+2026-10-26T21:32:00.9248110+08:00 ACTION_BEGIN SolveCaptcha
+2026-10-26T21:32:30.2529542+08:00 ACTION_END SolveCaptcha True
+vmm.login.read_retry {"account":"\u811A\u672C3","device":"fpga://devindex=4","exceptionType":"System.InvalidOperationException","error":"Login dialog has not settled to one active manager."}
+vmm.login.read_retry {"account":"\u811A\u672C3","device":"fpga://devindex=4","exceptionType":"System.InvalidOperationException","error":"Invalid session window table pointers."}
+2026-10-26T21:32:35.4223082+08:00 SCENE Loading None 正在加载游戏模块…
+2026-10-26T21:32:35.4223469+08:00 PROGRESS 正在加载游戏模块…
+vmm.login.read_retry {"account":"\u811A\u672C3","device":"fpga://devindex=4","exceptionType":"System.InvalidOperationException","error":"Sequence contains no matching element"}
+vmm.login.read_retry {"account":"\u811A\u672C3","device":"fpga://devindex=4","exceptionType":"System.InvalidOperationException","error":"Sequence contains no matching element"}
+vmm.login.read_retry {"account":"\u811A\u672C3","device":"fpga://devindex=4","exceptionType":"System.InvalidOperationException","error":"Sequence contains no matching element"}
+vmm.login.read_retry {"account":"\u811A\u672C3","device":"fpga://devindex=4","exceptionType":"System.InvalidOperationException","error":"Incomplete game read 39BE9028/4"}
+2026-10-26T21:33:40.1157671+08:00 SCENE Agreement AcceptAgreement 同意游戏协议
+2026-10-26T21:33:40.1158076+08:00 PROGRESS 同意游戏协议
+2026-10-26T21:33:40.1158129+08:00 ACTION_BEGIN AcceptAgreement
+2026-10-26T21:33:43.4672928+08:00 ACTION_END AcceptAgreement True
+2026-10-26T21:33:44.4999974+08:00 SCENE ServerSelection SelectServer 进入服务器
+2026-10-26T21:33:44.5000415+08:00 PROGRESS 进入服务器
+2026-10-26T21:33:44.5000625+08:00 ACTION_BEGIN SelectServer
+2026-10-26T21:33:45.7164848+08:00 ACTION_END SelectServer True
+2026-10-26T21:33:51.9259545+08:00 SCENE Agreement AcceptAgreement 确认种族创建限制提示
+2026-10-26T21:33:51.9259759+08:00 PROGRESS 确认种族创建限制提示
+2026-10-26T21:33:51.9259848+08:00 ACTION_BEGIN AcceptAgreement
+2026-10-26T21:33:55.5303049+08:00 ACTION_END AcceptAgreement True
+vmm.login.read_retry {"account":"\u811A\u672C3","device":"fpga://devindex=4","exceptionType":"System.InvalidOperationException","error":"Game snapshot changed at 3B1B28A8; retry capture."}
+2026-10-26T21:33:57.7984459+08:00 SCENE CharacterSelection SelectCharacter 选择角色：KiraHa
+2026-10-26T21:33:57.7984681+08:00 PROGRESS 选择角色：KiraHa
+2026-10-26T21:33:57.7984755+08:00 ACTION_BEGIN SelectCharacter
+2026-10-26T21:34:00.8343916+08:00 ACTION_END SelectCharacter True
+2026-10-26T21:34:02.1330381+08:00 SCENE CharacterSelection EnterCharacter 进入角色：KiraHa
+2026-10-26T21:34:02.1330583+08:00 PROGRESS 进入角色：KiraHa
+2026-10-26T21:34:02.1330656+08:00 ACTION_BEGIN EnterCharacter
+2026-10-26T21:34:04.9586548+08:00 ACTION_END EnterCharacter True
+2026-10-26T21:34:06.3923334+08:00 SCENE EntryAgreement AcceptEntryAgreement 勾选自由对战协议
+2026-10-26T21:34:06.3923689+08:00 PROGRESS 勾选自由对战协议
+2026-10-26T21:34:06.3923818+08:00 ACTION_BEGIN AcceptEntryAgreement
+2026-10-26T21:34:09.1882705+08:00 ACTION_END AcceptEntryAgreement True
+2026-10-26T21:34:10.5361159+08:00 SCENE EntryAgreement ConfirmEntryAgreement 确认进入游戏
+2026-10-26T21:34:10.5361413+08:00 PROGRESS 确认进入游戏
+2026-10-26T21:34:10.5361462+08:00 ACTION_BEGIN ConfirmEntryAgreement
+2026-10-26T21:34:15.0993865+08:00 ACTION_END ConfirmEntryAgreement True
+2026-10-26T21:34:16.4047413+08:00 SCENE Loading None 等待游戏加载…
+2026-10-26T21:34:16.4047580+08:00 PROGRESS 等待游戏加载…
+vmm.login.read_retry {"account":"\u811A\u672C3","device":"fpga://devindex=4","exceptionType":"System.InvalidOperationException","error":"Game snapshot changed at 49CDCB08; retry capture."}
+2026-10-26T21:34:28.0137528+08:00 SCENE InWorld None 角色已进入游戏：KiraHa
+2026-10-26T21:34:28.0137689+08:00 PROGRESS 角色已进入游戏：KiraHa
+LOGIN_RESULT True
+Saved .tmp/login-uu-live-evidence/script3-login.json
+Lease released: True

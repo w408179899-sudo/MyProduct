@@ -171,6 +171,7 @@ internal static class AutoLoginResilienceTests
         private readonly Dictionary<ulong,byte[]> _pages=[];
         internal readonly JsonElement Window;
         internal ulong? FailedAddress;
+        internal int? ControlPayloadReadableBytes;
         internal uint Root;
         internal void DisableRoot()=>_pages[Root][0x2b2]=0;
         internal void HideRoot()=>_pages[Root][0x2b0]=0;
@@ -211,6 +212,8 @@ internal static class AutoLoginResilienceTests
         {
             if(at==FailedAddress)return null;
             ulong page=at&~0x3fffUL;int offset=(int)(at-page);
+            if(ControlPayloadReadableBytes is int readable && offset<0x370 && offset+length>readable)
+                length=Math.Max(0,readable-offset);
             return _pages.TryGetValue(page,out var bytes)&&offset+length<=bytes.Length?bytes.AsSpan(offset,length).ToArray():null;
         }
         internal LoginObservation Capture()=>LoginNativeReader.ProjectUu(JsonSerializer.SerializeToElement(new UuUiReader(Read).Run(Window)),Window,"one",1,2);
@@ -228,6 +231,28 @@ internal static class AutoLoginResilienceTests
             memory.DisableRoot();Require(memory.Capture().Snapshot.Action==LoginAction.None,"A disabled parent disables all child targets.");
             memory.HideRoot();memory.FailedAddress=memory.Root+0xc00;
             Require(memory.Capture().Snapshot.Action==LoginAction.None,"A completely read hidden ancestor excludes its dormant child subtree from the actionable scene.");
+        }
+        return Task.CompletedTask;
+    }
+
+    internal static Task UnusedControlTailDoesNotBlockLaunchAsync()
+    {
+        var memory=new UuMemory("11-uu-ui-after-acc");
+        var expected=memory.Capture();
+        Require(expected.Snapshot.Action==LoginAction.LaunchGame,"The archived page is ready to launch.");
+        // Script 3 and 5 stop at the next unreadable page after 864/824 bytes.
+        // Only the complete used fields are needed, including the final text pointer.
+        foreach(int readable in new[]{864,824,744})
+        {
+            memory.ControlPayloadReadableBytes=readable;
+            var actual=memory.Capture();
+            Require(actual.Snapshot==expected.Snapshot&&actual.Point==expected.Point&&actual.Bounds==expected.Bounds,
+                "An unreadable unused tail must preserve the validated launch action and its geometry.");
+        }
+        foreach(int readable in new[]{743,0x2b1,0x14f})
+        {
+            memory.ControlPayloadReadableBytes=readable;
+            Reject(()=>memory.Capture(),"A missing required text pointer, visibility or owner byte must still reject the scene.");
         }
         return Task.CompletedTask;
     }

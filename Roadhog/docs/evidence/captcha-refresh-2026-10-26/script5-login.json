@@ -1,0 +1,81 @@
+{
+  "Account": "脚本5",
+  "ExpectedCharacter": "ALAKA",
+  "CompletedUtc": "2026-10-26T13:52:57.2849016+00:00",
+  "Success": true,
+  "Error": null,
+  "ProcessId": 9036,
+  "LastSnapshot": {
+    "Session": "c1a50923-1135-4236-8ee9-2bfebbb8fb3d:fpga://devindex=0:33711845:900:FFFFB90E5CA532C0:E7AB539000:False:winlogon.exe:0:0;9036:FFFFB90E636E1300:2B6000:False:Aion.bin:49310000:21090304;9820:FFFFB90E61381300:48C000:True:uu.exe:73330000:2117632:1227948032",
+    "Stage": "InWorld",
+    "Action": "None",
+    "ActionIdentity": "world",
+    "Description": "角色已进入游戏：ALAKA",
+    "CharacterName": "ALAKA",
+    "GameProcessId": 9036,
+    "GameProcessCount": 1
+  },
+  "Actions": [
+    {
+      "Utc": "2026-10-26T13:48:45.0588764+00:00",
+      "Action": "OpenAccelerator",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-26T13:48:53.098601+00:00",
+      "Action": "LaunchGame",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-26T13:49:18.4646654+00:00",
+      "Action": "StartLauncher",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-26T13:50:05.0308008+00:00",
+      "Action": "SubmitCredentials",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-26T13:50:51.9317065+00:00",
+      "Action": "SolveCaptcha",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-26T13:52:09.2240415+00:00",
+      "Action": "AcceptAgreement",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-26T13:52:11.7628116+00:00",
+      "Action": "SelectServer",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-26T13:52:23.4658985+00:00",
+      "Action": "SelectCharacter",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-26T13:52:28.1065341+00:00",
+      "Action": "EnterCharacter",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-26T13:52:33.357927+00:00",
+      "Action": "AcceptEntryAgreement",
+      "Accepted": false
+    },
+    {
+      "Utc": "2026-10-26T13:52:38.6012333+00:00",
+      "Action": "AcceptEntryAgreement",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-26T13:52:44.0773229+00:00",
+      "Action": "ConfirmEntryAgreement",
+      "Accepted": true
+    }
+  ],
+  "HangupStarted": false
+}

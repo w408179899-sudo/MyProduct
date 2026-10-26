@@ -34,7 +34,10 @@ internal sealed class UuUiReader(Func<ulong,int,byte[]?> readMemory, UuControlTy
         // Visibility is an independently complete fact. A hidden subtree cannot contain
         // actionable controls, and its dormant/paged-out children are not scene inputs.
         if(!visible||!ancestorsVisible)return;
-        var data=Read(address,0x370);
+        // The last consumed field is the 4-byte text pointer at +0x2e4.
+        // Reading beyond it can cross into an unrelated nonresident page even
+        // when every required field is present (observed on script 3 and 5).
+        var data=Read(address,0x2e8);
         if(data is null||!data.AsSpan(0x14c,8).SequenceEqual(owner)||!data.AsSpan(0x2b0,3).SequenceEqual(state))
             throw new InvalidOperationException("UU control identity or visibility changed during capture.");
         uint vtable=U32(data,0),parent=U32(data,0x150);

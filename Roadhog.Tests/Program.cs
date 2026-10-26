@@ -244,6 +244,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("auto-login DuiLib child array fault injection", AutoLoginResilienceTests.UiChildrenFaultsAsync),
     ("auto-login raw UU tree replay and partial recovery", AutoLoginResilienceTests.UuRawTreeReplayAsync),
     ("auto-login hidden UU payload nonresident and visibility guards", AutoLoginResilienceTests.HiddenControlNonresidentPayloadAsync),
+    ("auto-login UU unreadable unused control tail preserves launch and required-field guards", AutoLoginResilienceTests.UnusedControlTailDoesNotBlockLaunchAsync),
     ("auto-login transitional pages wait and resume", AutoLoginResilienceTests.TransitionalPagesAsync),
     ("auto-login native Unicode path and concurrent workers", MemProcFsNativeRuntimeTests.ConcurrentStagingAsync),
     ("auto-login native cache repair and version isolation", MemProcFsNativeRuntimeTests.RepairAndVersionIsolationAsync),

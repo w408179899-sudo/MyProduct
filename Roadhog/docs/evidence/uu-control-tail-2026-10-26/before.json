@@ -1,0 +1,302 @@
+[
+  {
+    "Account": "脚本3",
+    "CapturedUtc": "2026-10-26T13:25:19.0052479+00:00",
+    "InputSent": false,
+    "Foreground": {
+      "Pid": 8800,
+      "Name": "uu.exe",
+      "Tid": 8804,
+      "Eprocess": "0xFFFF9E0613A60080",
+      "Ethread": "0xFFFF9E060FA090C0",
+      "Win32Thread": "0xFFFF845D42EAD010"
+    },
+    "Attempts": [
+      {
+        "Success": false,
+        "Error": "System.InvalidOperationException: Incomplete UU UI field.",
+        "ShortReads": [
+          {
+            "Address": "0x6A8DCA0",
+            "Requested": 880,
+            "Actual": 864,
+            "RequiredPrefix": 744,
+            "ControlName": "loss_hover_title2",
+            "Fields": [
+              {
+                "Offset": "0x0",
+                "Size": 4,
+                "Actual": 4
+              },
+              {
+                "Offset": "0x14C",
+                "Size": 8,
+                "Actual": 8
+              },
+              {
+                "Offset": "0x1D8",
+                "Size": 4,
+                "Actual": 4
+              },
+              {
+                "Offset": "0x260",
+                "Size": 16,
+                "Actual": 16
+              },
+              {
+                "Offset": "0x2B0",
+                "Size": 3,
+                "Actual": 3
+              },
+              {
+                "Offset": "0x2E4",
+                "Size": 4,
+                "Actual": 4
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "Success": false,
+        "Error": "System.InvalidOperationException: Incomplete UU UI field.",
+        "ShortReads": [
+          {
+            "Address": "0x6A8DCA0",
+            "Requested": 880,
+            "Actual": 864,
+            "RequiredPrefix": 744,
+            "ControlName": "loss_hover_title2",
+            "Fields": [
+              {
+                "Offset": "0x0",
+                "Size": 4,
+                "Actual": 4
+              },
+              {
+                "Offset": "0x14C",
+                "Size": 8,
+                "Actual": 8
+              },
+              {
+                "Offset": "0x1D8",
+                "Size": 4,
+                "Actual": 4
+              },
+              {
+                "Offset": "0x260",
+                "Size": 16,
+                "Actual": 16
+              },
+              {
+                "Offset": "0x2B0",
+                "Size": 3,
+                "Actual": 3
+              },
+              {
+                "Offset": "0x2E4",
+                "Size": 4,
+                "Actual": 4
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "Success": false,
+        "Error": "System.InvalidOperationException: Incomplete UU UI field.",
+        "ShortReads": [
+          {
+            "Address": "0x6A8DCA0",
+            "Requested": 880,
+            "Actual": 864,
+            "RequiredPrefix": 744,
+            "ControlName": "loss_hover_title2",
+            "Fields": [
+              {
+                "Offset": "0x0",
+                "Size": 4,
+                "Actual": 4
+              },
+              {
+                "Offset": "0x14C",
+                "Size": 8,
+                "Actual": 8
+              },
+              {
+                "Offset": "0x1D8",
+                "Size": 4,
+                "Actual": 4
+              },
+              {
+                "Offset": "0x260",
+                "Size": 16,
+                "Actual": 16
+              },
+              {
+                "Offset": "0x2B0",
+                "Size": 3,
+                "Actual": 3
+              },
+              {
+                "Offset": "0x2E4",
+                "Size": 4,
+                "Actual": 4
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "Account": "脚本5",
+    "CapturedUtc": "2026-10-26T12:22:14.2787375+00:00",
+    "InputSent": false,
+    "Foreground": {
+      "Pid": 9820,
+      "Name": "uu.exe",
+      "Tid": 9824,
+      "Eprocess": "0xFFFFB90E61381300",
+      "Ethread": "0xFFFFB90E5C64A0C0",
+      "Win32Thread": "0xFFFFFA5046228620"
+    },
+    "Attempts": [
+      {
+        "Success": false,
+        "Error": "System.InvalidOperationException: Incomplete UU UI field.",
+        "ShortReads": [
+          {
+            "Address": "0x670CCC8",
+            "Requested": 880,
+            "Actual": 824,
+            "RequiredPrefix": 744,
+            "ControlName": "loss_hover_text2",
+            "Fields": [
+              {
+                "Offset": "0x0",
+                "Size": 4,
+                "Actual": 4
+              },
+              {
+                "Offset": "0x14C",
+                "Size": 8,
+                "Actual": 8
+              },
+              {
+                "Offset": "0x1D8",
+                "Size": 4,
+                "Actual": 4
+              },
+              {
+                "Offset": "0x260",
+                "Size": 16,
+                "Actual": 16
+              },
+              {
+                "Offset": "0x2B0",
+                "Size": 3,
+                "Actual": 3
+              },
+              {
+                "Offset": "0x2E4",
+                "Size": 4,
+                "Actual": 4
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "Success": false,
+        "Error": "System.InvalidOperationException: Incomplete UU UI field.",
+        "ShortReads": [
+          {
+            "Address": "0x670CCC8",
+            "Requested": 880,
+            "Actual": 824,
+            "RequiredPrefix": 744,
+            "ControlName": "loss_hover_text2",
+            "Fields": [
+              {
+                "Offset": "0x0",
+                "Size": 4,
+                "Actual": 4
+              },
+              {
+                "Offset": "0x14C",
+                "Size": 8,
+                "Actual": 8
+              },
+              {
+                "Offset": "0x1D8",
+                "Size": 4,
+                "Actual": 4
+              },
+              {
+                "Offset": "0x260",
+                "Size": 16,
+                "Actual": 16
+              },
+              {
+                "Offset": "0x2B0",
+                "Size": 3,
+                "Actual": 3
+              },
+              {
+                "Offset": "0x2E4",
+                "Size": 4,
+                "Actual": 4
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "Success": false,
+        "Error": "System.InvalidOperationException: Incomplete UU UI field.",
+        "ShortReads": [
+          {
+            "Address": "0x670CCC8",
+            "Requested": 880,
+            "Actual": 824,
+            "RequiredPrefix": 744,
+            "ControlName": "loss_hover_text2",
+            "Fields": [
+              {
+                "Offset": "0x0",
+                "Size": 4,
+                "Actual": 4
+              },
+              {
+                "Offset": "0x14C",
+                "Size": 8,
+                "Actual": 8
+              },
+              {
+                "Offset": "0x1D8",
+                "Size": 4,
+                "Actual": 4
+              },
+              {
+                "Offset": "0x260",
+                "Size": 16,
+                "Actual": 16
+              },
+              {
+                "Offset": "0x2B0",
+                "Size": 3,
+                "Actual": 3
+              },
+              {
+                "Offset": "0x2E4",
+                "Size": 4,
+                "Actual": 4
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]
