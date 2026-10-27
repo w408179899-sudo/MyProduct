@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -11,6 +12,20 @@ internal static class MemProcFsNativeRuntime
 {
     private static readonly object Sync = new();
     private static string? _loadedFrom;
+    internal static string LoadedDirectory
+    {
+        get
+        {
+            if (_loadedFrom is not null) return _loadedFrom;
+            // ASCII installations can use VmmSharp's normal loader. Resolve its
+            // actual DLL location, including MEMPROCFS_HOME, instead of guessing.
+            using var process = Process.GetCurrentProcess();
+            var modules = process.Modules.Cast<ProcessModule>()
+                .Where(m => m.ModuleName.Equals("vmm.dll", StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (modules.Length != 1) throw new InvalidOperationException("MemProcFS native runtime directory is not unique.");
+            return Path.GetDirectoryName(modules[0].FileName)!;
+        }
+    }
     private static readonly string[] Required = ["vmm.dll", "leechcore.dll", "dbghelp.dll", "symsrv.dll"];
     private static readonly string[] Optional = ["FTD3XX.dll", "leechcore_driver.dll", "tinylz4.dll", "vcruntime140.dll", "info.db", "pdbcrust.dll"];
 

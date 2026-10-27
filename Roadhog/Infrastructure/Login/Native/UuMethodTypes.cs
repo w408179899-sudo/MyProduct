@@ -122,6 +122,6 @@ internal sealed class UuMethodTypes(Func<ulong,int,byte[]?> read, Func<uint,bool
     {
         if(!Pointer(address)||(ulong)address+(uint)length>=0x80000000)throw new InvalidOperationException("Invalid UU method pointer.");
         var bytes=read(address,length);
-        return bytes is not null&&bytes.Length==length?bytes:throw new InvalidOperationException("Incomplete UU method identity.");
+        return bytes is not null&&bytes.Length==length?bytes:throw new UuMetadataReadException("method identity",address,length,bytes?.Length??0);
     }
 }

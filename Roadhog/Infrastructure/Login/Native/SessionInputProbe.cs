@@ -17,11 +17,7 @@ internal static class SessionInputProbe
     public static JsonElement Foreground(Vmmsharp.Vmm vmm,uint sessionPid)
     {
         var kernel=SessionProcess(vmm,sessionPid);
-        var module=kernel.MapModuleFromName("win32kbase.sys");
-        if(module.vaBase==0||module.cbImageSize==0)
-            throw new InvalidOperationException("Foreground session module is not initialized.");
-        var pdb=kernel.Pdb(module.vaBase);
-        if(!pdb.SymbolAddress("gptiForeground",out ulong symbol)||symbol<module.vaBase||symbol>=module.vaBase+module.cbImageSize)throw new InvalidOperationException("Foreground session symbol unavailable.");
+        ulong symbol=SessionSymbolResolver.Resolve(vmm,sessionPid).Foreground;
         ulong ReadPointer(ulong address)
         {
             var a=kernel.MemRead(address,8,1);var b=kernel.MemRead(address,8,1);

@@ -1,0 +1,81 @@
+{
+  "Account": "\u811A\u672C2",
+  "ExpectedCharacter": "Tone",
+  "CompletedUtc": "2026-10-27T21:57:52.4110067+00:00",
+  "Success": true,
+  "Error": null,
+  "ProcessId": 10856,
+  "LastSnapshot": {
+    "Session": "2ed641fa-6991-4899-b668-6227785373df:fpga://devindex=1:33711845:7584:FFFF8C0B4C8DC2C0:1891000:True:uu.exe:72BB0000:2117632;10856:FFFF8C0B4CAAC0C0:26E000:False:Aion.bin:49090000:21090304;12076:FFFF8C0B5011C080:BD77195000:False:winlogon.exe:0:0:1225326592",
+    "Stage": "InWorld",
+    "Action": "None",
+    "ActionIdentity": "world",
+    "Description": "\u89D2\u8272\u5DF2\u8FDB\u5165\u6E38\u620F\uFF1ATone",
+    "CharacterName": "Tone",
+    "GameProcessId": 10856,
+    "GameProcessCount": 1
+  },
+  "Actions": [
+    {
+      "Utc": "2026-10-27T21:54:17.1480627+00:00",
+      "Action": "OpenAccelerator",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-27T21:54:21.0988733+00:00",
+      "Action": "OpenAccelerator",
+      "Accepted": false
+    },
+    {
+      "Utc": "2026-10-27T21:54:30.3536094+00:00",
+      "Action": "LaunchGame",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-27T21:54:55.8730706+00:00",
+      "Action": "StartLauncher",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-27T21:55:49.5018587+00:00",
+      "Action": "SubmitCredentials",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-27T21:57:02.9350551+00:00",
+      "Action": "AcceptAgreement",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-27T21:57:05.8329194+00:00",
+      "Action": "SelectServer",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-27T21:57:15.3203186+00:00",
+      "Action": "AcceptAgreement",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-27T21:57:22.048421+00:00",
+      "Action": "SelectCharacter",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-27T21:57:28.1332699+00:00",
+      "Action": "EnterCharacter",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-27T21:57:33.8356489+00:00",
+      "Action": "AcceptEntryAgreement",
+      "Accepted": true
+    },
+    {
+      "Utc": "2026-10-27T21:57:39.3730824+00:00",
+      "Action": "ConfirmEntryAgreement",
+      "Accepted": true
+    }
+  ],
+  "HangupStarted": false
+}

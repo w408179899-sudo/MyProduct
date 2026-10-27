@@ -7,7 +7,7 @@ namespace Roadhog.Infrastructure.Login.Native;
 // and unavailable to DMA. Use recorded types only after validating the actual PE
 // identity and all nine resident vtable slots (COL plus eight function pointers).
 // Unknown builds/types still use the native RTTI reader; no missing type means leaf.
-internal sealed class UuControlTypes(Func<ulong,int,byte[]?> read, IReadOnlyList<UuControlTypes.Module> modules)
+internal sealed class UuControlTypes(Func<ulong,int,byte[]?> read, IReadOnlyList<UuControlTypes.Module> modules, UuModuleIdentityCache? sharedIdentity=null)
 {
     internal sealed record Module(string Name, ulong Base, uint Size);
     internal sealed record ControlType(uint VtableRva, string DecoratedName, bool IsContainer, uint ColRva, uint[] First8FunctionRvas);
@@ -16,12 +16,12 @@ internal sealed class UuControlTypes(Func<ulong,int,byte[]?> read, IReadOnlyList
     private static readonly Catalog[] Catalogs = LoadCatalogs();
     private readonly Dictionary<ulong,bool> _identities = [];
 
-    internal static UuControlTypes For(VmmProcess process) => new((at,size)=>process.MemRead(at,(uint)size,1),
+    internal static UuControlTypes For(VmmProcess process, UuModuleIdentityCache? identity=null) => new((at,size)=>process.MemRead(at,(uint)size,1),
         new[]{"ui.dll","uu.exe"}.Select(name=>
         {
             var module=process.MapModuleFromName(name);
             return new Module(name,module.vaBase,module.cbImageSize);
-        }).Where(m=>m.Base!=0).ToArray());
+        }).Where(m=>m.Base!=0).ToArray(), identity);
 
     internal bool TryGet(uint vtable, out ControlType type)
     {
@@ -32,15 +32,19 @@ internal sealed class UuControlTypes(Func<ulong,int,byte[]?> read, IReadOnlyList
         if(catalog is null)return false;
         if(!_identities.TryGetValue(module.Base,out bool matches))
         {
-            var dos=Exact(module.Base,0x40);
-            int offset=BitConverter.ToInt32(dos,0x3c);
-            if(BitConverter.ToUInt16(dos)!=0x5a4d||offset<0x40||offset>0x1000)
-                throw new InvalidOperationException("Invalid UU module header.");
-            var pe=Exact(module.Base+(uint)offset,0x80);
-            if(BitConverter.ToUInt32(pe)!=0x4550)throw new InvalidOperationException("Invalid UU PE signature.");
-            matches=module.Size==catalog.SizeOfImage&&BitConverter.ToUInt16(pe,4)==catalog.Machine
-                &&BitConverter.ToUInt32(pe,8)==catalog.TimeDateStamp&&BitConverter.ToUInt16(pe,0x18)==catalog.OptionalHeaderMagic
-                &&BitConverter.ToUInt32(pe,0x50)==catalog.SizeOfImage;
+            bool Verify()
+            {
+                var dos=Exact(module.Base,0x40);
+                int offset=BitConverter.ToInt32(dos,0x3c);
+                if(BitConverter.ToUInt16(dos)!=0x5a4d||offset<0x40||offset>0x1000)
+                    throw new InvalidOperationException("Invalid UU module header.");
+                var pe=Exact(module.Base+(uint)offset,0x80);
+                if(BitConverter.ToUInt32(pe)!=0x4550)throw new InvalidOperationException("Invalid UU PE signature.");
+                return module.Size==catalog.SizeOfImage&&BitConverter.ToUInt16(pe,4)==catalog.Machine
+                    &&BitConverter.ToUInt32(pe,8)==catalog.TimeDateStamp&&BitConverter.ToUInt16(pe,0x18)==catalog.OptionalHeaderMagic
+                    &&BitConverter.ToUInt32(pe,0x50)==catalog.SizeOfImage;
+            }
+            matches=sharedIdentity is null?Verify():sharedIdentity.Resolve(module,Verify);
             _identities[module.Base]=matches;
         }
         if(!matches)return false;
@@ -57,7 +61,7 @@ internal sealed class UuControlTypes(Func<ulong,int,byte[]?> read, IReadOnlyList
     private byte[] Exact(ulong at,int size)
     {
         var bytes=read(at,size);
-        return bytes is not null&&bytes.Length==size?bytes:throw new InvalidOperationException("Incomplete UU type identity.");
+        return bytes is not null&&bytes.Length==size?bytes:throw new UuMetadataReadException("type identity",at,size,bytes?.Length??0);
     }
 
     private static Catalog[] LoadCatalogs()

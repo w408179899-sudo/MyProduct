@@ -1,0 +1,23 @@
+{
+  "Account": "\u811A\u672C2",
+  "CapturedUtc": "2026-10-27T21:53:40.2880753+00:00",
+  "InputSent": false,
+  "Foreground": {
+    "Pid": 3988,
+    "Name": "explorer.exe",
+    "Tid": 9868,
+    "Eprocess": "0xFFFF8C0B510DC340",
+    "Ethread": "0xFFFF8C0B44533080",
+    "Win32Thread": "0xFFFFE442446A08A0"
+  },
+  "Snapshot": {
+    "Session": "2ed641fa-6991-4899-b668-6227785373df:fpga://devindex=1:33711845:7584:FFFF8C0B4C8DC2C0:1891000:True:uu.exe:72BB0000:2117632;12076:FFFF8C0B5011C080:BD77195000:False:winlogon.exe:0:0",
+    "Stage": "Desktop",
+    "Action": "OpenAccelerator",
+    "ActionIdentity": "open-uu:{\u0022Pid\u0022:3988,\u0022Name\u0022:\u0022explorer.exe\u0022,\u0022Tid\u0022:9868,\u0022Eprocess\u0022:\u00220xFFFF8C0B510DC340\u0022,\u0022Ethread\u0022:\u00220xFFFF8C0B44533080\u0022,\u0022Win32Thread\u0022:\u00220xFFFFE442446A08A0\u0022}",
+    "Description": "\u5C06 UU \u52A0\u901F\u5668\u7F6E\u4E8E\u524D\u53F0",
+    "CharacterName": "",
+    "GameProcessId": 0,
+    "GameProcessCount": 0
+  }
+}

@@ -1,0 +1,80 @@
+2026-10-28T05:54:12.7813346+08:00 SCENE Desktop OpenAccelerator 将 UU 加速器置于前台
+2026-10-28T05:54:12.7820709+08:00 PROGRESS 将 UU 加速器置于前台
+2026-10-28T05:54:12.7824517+08:00 ACTION_BEGIN OpenAccelerator
+2026-10-28T05:54:17.1480934+08:00 ACTION_END OpenAccelerator True
+vmm.login.read_retry {"account":"\u811A\u672C2","device":"fpga://devindex=1","exceptionType":"System.InvalidOperationException","error":"Login scene changed during capture."}
+2026-10-28T05:54:19.3901118+08:00 ACTION_BEGIN OpenAccelerator
+2026-10-28T05:54:21.0988745+08:00 ACTION_END OpenAccelerator False
+2026-10-28T05:54:23.8364058+08:00 SCENE AcceleratorReady LaunchGame 永恒之塔已加速，启动游戏
+2026-10-28T05:54:23.8364665+08:00 PROGRESS 永恒之塔已加速，启动游戏
+2026-10-28T05:54:23.8364738+08:00 ACTION_BEGIN LaunchGame
+2026-10-28T05:54:30.3536107+08:00 ACTION_END LaunchGame True
+vmm.login.read_retry {"account":"\u811A\u672C2","device":"fpga://devindex=1","exceptionType":"System.InvalidOperationException","error":"Foreground owner could not be uniquely revalidated."}
+2026-10-28T05:54:33.1609120+08:00 PROGRESS 已点击启动游戏，等待启动器或游戏窗口出现…
+vmm.login.read_retry {"account":"\u811A\u672C2","device":"fpga://devindex=1","exceptionType":"System.InvalidOperationException","error":"Login scene changed during capture."}
+vmm.login.read_retry {"account":"\u811A\u672C2","device":"fpga://devindex=1","exceptionType":"System.InvalidOperationException","error":"Foreground owner could not be uniquely revalidated."}
+vmm.login.read_retry {"account":"\u811A\u672C2","device":"fpga://devindex=1","exceptionType":"System.InvalidOperationException","error":"Login scene changed during capture."}
+2026-10-28T05:54:46.1127076+08:00 SCENE Launcher StartLauncher 点击开始游戏
+2026-10-28T05:54:46.1133031+08:00 PROGRESS 已点击启动游戏，等待启动器加载满 20 秒后再点击开始游戏…
+2026-10-28T05:54:51.2106836+08:00 PROGRESS 点击开始游戏
+2026-10-28T05:54:51.2107125+08:00 ACTION_BEGIN StartLauncher
+2026-10-28T05:54:55.8730718+08:00 ACTION_END StartLauncher True
+2026-10-28T05:54:59.9870303+08:00 SCENE Loading None 等待游戏启动器页面…
+2026-10-28T05:54:59.9870633+08:00 PROGRESS 等待游戏启动器页面…
+vmm.login.read_retry {"account":"\u811A\u672C2","device":"fpga://devindex=1","exceptionType":"System.InvalidOperationException","error":"Invalid session window table pointers."}
+2026-10-28T05:55:05.8096628+08:00 SCENE Desktop OpenAccelerator 将 UU 加速器置于前台
+2026-10-28T05:55:05.8097187+08:00 PROGRESS 已点击启动游戏，等待启动器或游戏窗口出现…
+vmm.login.read_retry {"account":"\u811A\u672C2","device":"fpga://devindex=1","exceptionType":"System.InvalidOperationException","error":"Foreground owner could not be uniquely revalidated."}
+vmm.login.read_retry {"account":"\u811A\u672C2","device":"fpga://devindex=1","exceptionType":"System.InvalidOperationException","error":"Login scene changed during capture."}
+2026-10-28T05:55:16.1666474+08:00 SCENE PasswordLogin SubmitCredentials 输入账号密码并登录
+2026-10-28T05:55:16.1666780+08:00 PROGRESS 输入账号密码并登录
+2026-10-28T05:55:16.1666830+08:00 ACTION_BEGIN SubmitCredentials
+2026-10-28T05:55:49.5018605+08:00 ACTION_END SubmitCredentials True
+vmm.login.read_retry {"account":"\u811A\u672C2","device":"fpga://devindex=1","exceptionType":"System.InvalidOperationException","error":"Login dialog has not settled to one active manager."}
+vmm.login.read_retry {"account":"\u811A\u672C2","device":"fpga://devindex=1","exceptionType":"System.InvalidOperationException","error":"Invalid session window table pointers."}
+2026-10-28T05:55:57.0069592+08:00 SCENE Loading None 正在加载游戏模块…
+2026-10-28T05:55:57.0069883+08:00 PROGRESS 正在加载游戏模块…
+vmm.login.read_retry {"account":"\u811A\u672C2","device":"fpga://devindex=1","exceptionType":"System.InvalidOperationException","error":"Sequence contains no matching element"}
+vmm.login.read_retry {"account":"\u811A\u672C2","device":"fpga://devindex=1","exceptionType":"System.InvalidOperationException","error":"Sequence contains no matching element"}
+vmm.login.read_retry {"account":"\u811A\u672C2","device":"fpga://devindex=1","exceptionType":"System.InvalidOperationException","error":"Sequence contains no matching element"}
+vmm.login.read_retry {"account":"\u811A\u672C2","device":"fpga://devindex=1","exceptionType":"System.InvalidOperationException","error":"Incomplete game read 3F8AC828/4"}
+vmm.login.read_retry {"account":"\u811A\u672C2","device":"fpga://devindex=1","exceptionType":"System.InvalidOperationException","error":"Sequence contains no matching element"}
+vmm.login.read_retry {"account":"\u811A\u672C2","device":"fpga://devindex=1","exceptionType":"System.InvalidOperationException","error":"Incomplete game read 3B1C33D0/8"}
+vmm.login.read_retry {"account":"\u811A\u672C2","device":"fpga://devindex=1","exceptionType":"System.InvalidOperationException","error":"Incomplete game read 3AC2CC28/4"}
+2026-10-28T05:56:57.5095326+08:00 SCENE Agreement AcceptAgreement 同意游戏协议
+2026-10-28T05:56:57.5095759+08:00 PROGRESS 同意游戏协议
+2026-10-28T05:56:57.5095826+08:00 ACTION_BEGIN AcceptAgreement
+2026-10-28T05:57:02.9350564+08:00 ACTION_END AcceptAgreement True
+2026-10-28T05:57:04.1293790+08:00 SCENE ServerSelection SelectServer 进入服务器
+2026-10-28T05:57:04.1294027+08:00 PROGRESS 进入服务器
+2026-10-28T05:57:04.1294212+08:00 ACTION_BEGIN SelectServer
+2026-10-28T05:57:05.8329209+08:00 ACTION_END SelectServer True
+2026-10-28T05:57:11.8408878+08:00 SCENE Agreement AcceptAgreement 确认种族创建限制提示
+2026-10-28T05:57:11.8409270+08:00 PROGRESS 确认种族创建限制提示
+2026-10-28T05:57:11.8409337+08:00 ACTION_BEGIN AcceptAgreement
+2026-10-28T05:57:15.3203219+08:00 ACTION_END AcceptAgreement True
+vmm.login.read_retry {"account":"\u811A\u672C2","device":"fpga://devindex=1","exceptionType":"System.InvalidOperationException","error":"Game snapshot changed at 3B1F66E8; retry capture."}
+2026-10-28T05:57:17.8559879+08:00 SCENE CharacterSelection SelectCharacter 选择角色：Tone
+2026-10-28T05:57:17.8560080+08:00 PROGRESS 选择角色：Tone
+2026-10-28T05:57:17.8560152+08:00 ACTION_BEGIN SelectCharacter
+2026-10-28T05:57:22.0484223+08:00 ACTION_END SelectCharacter True
+2026-10-28T05:57:23.5218914+08:00 SCENE CharacterSelection EnterCharacter 进入角色：Tone
+2026-10-28T05:57:23.5219173+08:00 PROGRESS 进入角色：Tone
+2026-10-28T05:57:23.5219230+08:00 ACTION_BEGIN EnterCharacter
+2026-10-28T05:57:28.1332708+08:00 ACTION_END EnterCharacter True
+2026-10-28T05:57:29.7002934+08:00 SCENE EntryAgreement AcceptEntryAgreement 勾选自由对战协议
+2026-10-28T05:57:29.7003154+08:00 PROGRESS 勾选自由对战协议
+2026-10-28T05:57:29.7003212+08:00 ACTION_BEGIN AcceptEntryAgreement
+2026-10-28T05:57:33.8356499+08:00 ACTION_END AcceptEntryAgreement True
+2026-10-28T05:57:35.5705923+08:00 SCENE EntryAgreement ConfirmEntryAgreement 确认进入游戏
+2026-10-28T05:57:35.5706109+08:00 PROGRESS 确认进入游戏
+2026-10-28T05:57:35.5706170+08:00 ACTION_BEGIN ConfirmEntryAgreement
+2026-10-28T05:57:39.3730832+08:00 ACTION_END ConfirmEntryAgreement True
+2026-10-28T05:57:40.8855846+08:00 SCENE Loading None 等待游戏加载…
+2026-10-28T05:57:40.8856250+08:00 PROGRESS 等待游戏加载…
+vmm.login.read_retry {"account":"\u811A\u672C2","device":"fpga://devindex=1","exceptionType":"System.InvalidOperationException","error":"Game snapshot changed at 49DFCA90; retry capture."}
+2026-10-28T05:57:52.4077375+08:00 SCENE InWorld None 角色已进入游戏：Tone
+2026-10-28T05:57:52.4077549+08:00 PROGRESS 角色已进入游戏：Tone
+LOGIN_RESULT True
+Saved C:\D\Develop\MyCode\Tool\.tmp\script2-fixed-login-evidence\login.json
+Lease released: True

@@ -135,9 +135,8 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
             token.ThrowIfCancellationRequested();
             var position=await ReadAsync(vmm=>
             {
-                var kernel=vmm.GetProcessByPID(sessionPid|0x80000000);var module=kernel.MapModuleFromName("win32kbase.sys");
-                if(!kernel.Pdb(module.vaBase).SymbolAddress("gptCursorAsync",out var symbol)||symbol<module.vaBase||symbol>=module.vaBase+module.cbImageSize)
-                    throw new InvalidOperationException("目标桌面鼠标位置无法定位。");
+                var kernel=SessionInputProbe.SessionProcess(vmm,sessionPid);
+                ulong symbol=SessionSymbolResolver.Resolve(vmm,sessionPid).Cursor;
                 var bytes=LoginNativeReader.Exact(kernel,symbol,8);return new Point(BitConverter.ToInt32(bytes),BitConverter.ToInt32(bytes,4));
             },token).ConfigureAwait(false);
             int dx=target.X-position.X,dy=target.Y-position.Y;

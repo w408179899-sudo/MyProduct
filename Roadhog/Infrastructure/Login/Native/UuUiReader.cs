@@ -54,24 +54,34 @@ internal sealed class UuUiReader(Func<ulong,int,byte[]?> readMemory, UuControlTy
         if(!LoginUiChildren.Read(readMemory,address,manager,0x76c,0x14c,depth==0||type.Length>0,10000).SequenceEqual(children))
             throw new InvalidOperationException("UU children changed during traversal.");
     }
-    private string GetTypeName(uint vtable)
+    internal string GetTypeName(uint vtable)
     {
         if(typeCache.TryGetValue(vtable,out var name))return name;
-        if(verifiedTypes is not null&&verifiedTypes.TryGet(vtable,out var known))
+        UuMetadataReadException? incomplete=null;
+        try
         {
-            containerCache[vtable]=known.IsContainer;
-            return typeCache[vtable]=known.DecoratedName;
+            if(verifiedTypes is not null&&verifiedTypes.TryGet(vtable,out var known))
+            {
+                containerCache[vtable]=known.IsContainer;
+                return typeCache[vtable]=known.DecoratedName;
+            }
         }
-        if(methodTypes is not null&&methodTypes.TryGet(vtable,out var className,out bool container))
+        catch(UuMetadataReadException error){incomplete=error;}
+        try
         {
-            containerCache[vtable]=container;
-            return typeCache[vtable]=className;
+            if(methodTypes is not null&&methodTypes.TryGet(vtable,out var className,out bool container))
+            {
+                containerCache[vtable]=container;
+                return typeCache[vtable]=className;
+            }
         }
+        catch(UuMetadataReadException error){incomplete??=error;}
         var slot=Read(vtable-4,4);
         var locator=slot is null?null:Read(U32(slot,0),20);
         var descriptor=locator is null?null:Read(U32(locator,12)+8,160);
         name=descriptor is null?"":Encoding.ASCII.GetString(descriptor).Split('\0')[0];
         if(!name.StartsWith(".?AV")&&!name.StartsWith(".?AU"))name="";
+        if(name.Length==0&&incomplete is not null)throw incomplete;
         typeCache[vtable]=name;
         return name;
     }
@@ -126,7 +136,7 @@ internal sealed class UuUiReader(Func<ulong,int,byte[]?> readMemory, UuControlTy
         if(length==0)return [];
         if(address<0x10000||address+((ulong)length)>0x80000000||length<0||length>128000)return null;
         var data=readMemory(address,length);
-        if(data is null||data.Length!=length)throw new InvalidOperationException("Incomplete UU UI field.");
+        if(data is null||data.Length!=length)throw new InvalidOperationException($"Incomplete UU UI field: address=0x{address:X}, expected={length}, actual={data?.Length??0}.");
         return data;
     }
     private static bool Plausible(uint p)=>p>=0x10000&&p<0x80000000&&p%4==0;

@@ -1,0 +1,33 @@
+{
+    "Date":  "2026-10-28",
+    "Account":  "脚本2",
+    "Character":  "Tone",
+    "Device":  "fpga://devindex=1",
+    "BaseCommit":  "7df2528551ef3dc35143b8d2890217e8685ef910",
+    "Build":  {
+                  "Configuration":  "Release",
+                  "DesktopCopyRedirected":  true,
+                  "Errors":  0,
+                  "Warnings":  0
+              },
+    "Tests":  {
+                  "FullSuiteRun":  false,
+                  "AutoLoginPassed":  75,
+                  "NativeAfterFinalPathFixPassed":  4
+              },
+    "DllSha256":  "705106C659AB3793DC48F89C01937BBFD5DDFC3226F3CC1BE826B2C2B1CA3556",
+    "Package":  "C:\\Users\\GoldGiven\\Desktop\\Roadhog_登录双修复_20261028",
+    "Live":  {
+                 "GamePid":  10856,
+                 "Stage":  "InWorld",
+                 "CaptchaEncountered":  false,
+                 "HangupStarted":  false,
+                 "DeviceLeaseReleased":  true,
+                 "CompletedUtc":  "2026-10-27T21:57:52.4110067+00:00",
+                 "Success":  true,
+                 "Character":  "Tone"
+             },
+    "ProductionRuntimeReplaced":  false,
+    "OtherAccountsStopped":  false,
+    "SourcePushed":  false
+}

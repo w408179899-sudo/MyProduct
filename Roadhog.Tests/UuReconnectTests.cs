@@ -86,7 +86,12 @@ internal static class UuReconnectTests
                     "Every archived type must authenticate without reading nonresident RTTI: "+type.DecoratedName);
                 for(int slot=0;slot<9;slot++)
                 {
-                    slots[slot*4]^=1;Reject(()=>Types().TryGet(address,out _),"Every COL/function slot must be validated.");slots[slot*4]^=1;
+                    slots[slot*4]^=1;Reject(()=>Types().TryGet(address,out _),"Every COL/function slot must be validated.");
+                    bool alternateAttempted=false;
+                    var methods=new UuMethodTypes((_,_)=>{alternateAttempted=true;return null;});
+                    Reject(()=>new UuUiReader(Read,Types(),methods).GetTypeName(address),"A contradictory recorded identity must not switch to another proof.");
+                    Require(!alternateAttempted,"Only missing metadata may continue to alternate type proof.");
+                    slots[slot*4]^=1;
                 }
                 data.Remove(address-4);Reject(()=>Types().TryGet(address,out _),"Short or absent live identity is not a leaf type.");data[address-4]=slots;
             }
@@ -145,6 +150,9 @@ internal static class UuReconnectTests
             var methods=new UuMethodTypes(Read);
             Require(methods.TryGet(vtable,out string name,out bool container)&&name==expected
                 &&container==(expected is "ContainerUI" or "VerticalLayoutUI" or "HorizontalLayoutUI"),"Actual old-build methods prove the full type chain: "+expected);
+            var missingHeaderTypes=new UuControlTypes(Read,[new("ui.dll",0x10000,0x7ffe0000)]);
+            Require(new UuUiReader(Read,missingHeaderTypes,new UuMethodTypes(Read)).GetTypeName(vtable)==expected,
+                "Missing catalog header must allow the independent complete live-method proof: "+expected);
             failed=vtable+20;Reject(()=>new UuMethodTypes(Read).TryGet(vtable,out _,out _),"Short method slots cannot classify a control.");failed=null;
             uint getClass=Address(sample["GetClass"]!.GetValue<string>());var code=memory[getClass];uint namePointer=BitConverter.ToUInt32(code,8);
             failed=namePointer;Reject(()=>new UuMethodTypes(Read).TryGet(vtable,out _,out _),"Missing string is not a successful type proof.");failed=null;

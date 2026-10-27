@@ -1,0 +1,114 @@
+[
+  {
+    "stage": "lease",
+    "device": "fpga://devindex=1",
+    "inputSent": false,
+    "targetWrites": false
+  },
+  {
+    "stage": "initialized",
+    "utc": "2026-10-27T21:34:52.9196196+00:00",
+    "nativeHome": "C:\\Users\\GoldGiven\\AppData\\Local\\Roadhog\\MemProcFS\\BAB0EAF742C663601A806D139EEB8FF5FEEF2B05FF67C134C46FE25DE560EE26"
+  },
+  {
+    "stage": "module",
+    "ms": 153,
+    "pid": 12076,
+    "address": "0xFFFFE40F04200000",
+    "size": 2973696
+  },
+  {
+    "stage": "identity",
+    "fValid": true,
+    "dwAge": 0,
+    "sGuid": "",
+    "sPdbFilename": "",
+    "sFileVersion": ""
+  },
+  {
+    "stage": "memory",
+    "label": "module_header",
+    "address": "0xFFFFE40F04200000",
+    "requested": 4096,
+    "actual": 0
+  },
+  {
+    "stage": "memory",
+    "label": "dos_header",
+    "address": "0xFFFFE40F04200000",
+    "requested": 64,
+    "actual": 0
+  },
+  {
+    "stage": "memory",
+    "label": "first_code_page",
+    "address": "0xFFFFE40F04201000",
+    "requested": 64,
+    "actual": 64
+  },
+  {
+    "stage": "module_codeview_scan",
+    "readablePages": 386,
+    "unreadablePages": 340,
+    "codeViews": [
+      {
+        "address": "0xFFFFE40F04426410",
+        "guid": "6f63f6164996847eb668b0098d184f4b",
+        "age": 1,
+        "pdb": "win32kbase.pdb"
+      }
+    ]
+  },
+  {
+    "stage": "memory",
+    "label": "resolved_foreground",
+    "address": "0xFFFFE40F04453BE0",
+    "requested": 8,
+    "actual": 8
+  },
+  {
+    "stage": "memory",
+    "label": "resolved_cursor",
+    "address": "0xFFFFE40F04451E10",
+    "requested": 8,
+    "actual": 8
+  },
+  {
+    "stage": "memory",
+    "label": "resolved_thread",
+    "address": "0xFFFFE442446A08A0",
+    "requested": 8,
+    "actual": 8
+  },
+  {
+    "stage": "memory",
+    "label": "foreground_recheck",
+    "address": "0xFFFFE40F04453BE0",
+    "requested": 8,
+    "actual": 8
+  },
+  {
+    "stage": "memory",
+    "label": "thread_recheck",
+    "address": "0xFFFFE442446A08A0",
+    "requested": 8,
+    "actual": 8
+  },
+  {
+    "stage": "recovered_readonly",
+    "foreground": {
+      "pid": 3988,
+      "name": "explorer.exe",
+      "tid": 9868
+    },
+    "cursorX": 499,
+    "cursorY": 748,
+    "inputSent": false,
+    "targetWrites": false,
+    "productionChanged": false
+  },
+  {
+    "stage": "released",
+    "success": true
+  }
+]

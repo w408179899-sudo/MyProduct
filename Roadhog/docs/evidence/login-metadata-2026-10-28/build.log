@@ -1,0 +1,16 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  Hardware.KmBox -> C:\D\Develop\MyCode\Tool\.tmp\login-symbol-uu-fix-build\Hardware.KmBox.dll
+  Roadhog -> C:\D\Develop\MyCode\Tool\.tmp\login-symbol-uu-fix-build\Roadhog.dll
+  [Roadhog copy] Updated C:\D\Develop\MyCode\Tool\.tmp\login-symbol-uu-fix-sink\1
+  [Roadhog copy] Updated C:\D\Develop\MyCode\Tool\.tmp\login-symbol-uu-fix-sink\2
+  [Roadhog copy] Updated C:\D\Develop\MyCode\Tool\.tmp\login-symbol-uu-fix-sink\3
+  [Roadhog copy] Updated C:\D\Develop\MyCode\Tool\.tmp\login-symbol-uu-fix-sink\4
+  [Roadhog copy] Updated C:\D\Develop\MyCode\Tool\.tmp\login-symbol-uu-fix-sink\多账号客户端
+  Roadhog.Tests -> C:\D\Develop\MyCode\Tool\.tmp\login-symbol-uu-fix-build\Roadhog.Tests.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:09.31

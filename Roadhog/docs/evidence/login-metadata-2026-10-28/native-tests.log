@@ -1,0 +1,5 @@
+PASS auto-login native timeout rejects late publication and defers disposal
+PASS auto-login native Unicode path and concurrent workers
+PASS auto-login native cache repair and version isolation
+PASS auto-login native missing symbol dependency
+All Roadhog tests passed.

@@ -63,6 +63,8 @@
 - `Infrastructure/Login/Native` 封装已归档客户端布局。账号后台复用现有 `AionVmmGameApi` 连接、退役锁、设备租约和 KMBox，避免新增一个设备拥有者。
 - `login_scene` 在 `AionVmmSnapshotChannels` 统一登记为 Stable。页面、目标控件和坐标构成不可拆分的决策帧，不能跨页面按字段拼接。内部失败保留同一会话官方值，首次读取失败等待；完整的进程不存在是正常业务状态。
 - 符号初始化或原生读取抛出的 `VmmException` 在 provider 内等待、重试，不直接退出登录。诊断事件为 `vmm.login.read_retry`；相同持续错误最多每 10 秒记录一次，仍受登录取消及总超时约束。
+- Windows 会话模块头页无法读取时，可以通过当前模块驻留页中的完整 CodeView 匹配现有本地 PDB，恢复前台和鼠标符号。GUID、映像/DBI age、节和符号边界均验证；缺少匹配缓存仍等待重试。同一连接/Windows 会话只缓存静态符号元数据，实时前台所有者、鼠标和输入前页面仍重新验证。
+- UU 静态类型元数据短读时可尝试另一条完整的类型证明；已验证模块身份仅在同一账号/连接/进程/模块会话内保留。真实身份冲突不能回退，动态控件缺失不能补默认值。实现与脚本2实机验证见 [2026-10-28 记录](evidence/login-metadata-2026-10-28/README.md)。
 - 程序安装在中文路径时，内置 MemProcFS 的符号缓存路径存在兼容问题。原生库按内容哈希放入 `%LOCALAPPDATA%/Roadhog/MemProcFS/<hash>`，明确绑定同一份 `vmm.dll` 和 `leechcore.dll`，符号由该目录下的 `Symbols` 保存。准备过程有跨进程互斥与文件校验，不移动账号配置、不修改系统的符号注册表设置。相关诊断为 `vmm.native.loaded`，`reason=unicode_symbol_path`。缓存根路径本身含非 ASCII 字符时先尝试 Windows 短路径；无法取得兼容路径可配置英文路径的 `MEMPROCFS_HOME`。
 - 账号、DMA 连接、PID/EPROCESS/PEB、模块加载身份变化使旧会话失效。采集、验证、发布串行。可选的诊断文字不参与业务决策。
 - 窗口枚举以同一进程的桌面身份匹配共享堆映射。某个后台线程的 TEB 无法读取时，可用同桌面其他线程验证过的映射继续读取该窗口；目标桌面映射缺失或不唯一、窗口字段不完整时仍在 provider 内重试。原生线程表尚未初始化时不发布“窗口不存在”。

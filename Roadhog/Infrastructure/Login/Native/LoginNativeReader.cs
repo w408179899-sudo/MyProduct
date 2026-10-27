@@ -75,7 +75,7 @@ internal static class LoginNativeReader
             // be minimized/disabled. An authenticated in-world scene needs no UU window data;
             // otherwise handle reconnect before foreground, launch waits or login pages.
             return ProjectUuReconnectWindows(uuWindows,
-                window => Json(new UuUiReader(uu[0].Process).Run(window)), session, uu[0].Info.dwPID, sessionPid);
+                window => Json(UuMetadataReads.Reader(vmm,uu[0].Process,session).Run(window)), session, uu[0].Info.dwPID, sessionPid);
         }
 
         LoginObservation ReadLogin()
@@ -118,7 +118,7 @@ internal static class LoginNativeReader
                 && (Address(Text(w,"Style")) & 0x40000000) == 0 && Text(w, "Manager") != "0x0" && Client(w).Width >= 800).ToArray();
             if (mainWindows.Length == 0) return OpenUu("打开 UU 主窗口");
             var uuWindow = mainWindows.Single();
-            return ProjectUu(Json(new UuUiReader(uu[0].Process).Run(uuWindow)), uuWindow, session, uu[0].Info.dwPID, sessionPid);
+            return ProjectUu(Json(UuMetadataReads.Reader(vmm,uu[0].Process,session).Run(uuWindow)), uuWindow, session, uu[0].Info.dwPID, sessionPid);
         }
 
         LoginObservation State(LoginStage stage, string description) => new(new(session, stage, LoginAction.None, stage.ToString(), description), 0, sessionPid, "", Point.Empty, Rectangle.Empty);
