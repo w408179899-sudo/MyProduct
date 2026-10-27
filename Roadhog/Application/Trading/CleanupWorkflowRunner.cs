@@ -185,7 +185,7 @@ public sealed partial class CleanupWorkflowRunner(IKeyboardInput input, ISharedP
             if (request.Manual && flow.NpcCleanup && !request.ArrowRestock)
             {
                 request.PreparationStage = CleanupPreparationStage.Discarding;
-                await cleanup.RunDiscardRequestedAsync(context, Report);
+                await RunOptionalDiscardAsync(context, Report, afterSale: false);
             }
             request.PreparationStage = CleanupPreparationStage.None;
             if (flow.NpcCleanup && (request.AllowNpcSell || needsArrows))

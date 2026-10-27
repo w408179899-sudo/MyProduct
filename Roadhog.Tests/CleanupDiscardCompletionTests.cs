@@ -115,7 +115,7 @@ internal static partial class CleanupWorkflowTests
         Require(progress > 100 && !game.Open && game.Api.InventoryItems.Count == 0, "long batch completes only after fresh bag exhaustion and closed UI");
     }
 
-    public static async Task WorkerDiscardRetriesAsync()
+    public static async Task WorkerDiscardFailureContinuesAsync()
     {
         foreach (var failure in new[] { "hover", "confirmation", "stop" })
         {
@@ -158,18 +158,27 @@ internal static partial class CleanupWorkflowTests
             }
             try
             {
-                await WaitFor("cleanup_workflow.preparation_pending");
-                Require(context.CleanupRequests.Current != null && game.Removed.Count == 1 && !game.Open && !game.LeftHeld,
-                    "failed second discard preserves pending request and safely closes UI");
-                Require(!logger.Entries.Any(e => e.EventName is "cleanup_workflow.complete" or "cleanup_workflow.failed_continuing"),
-                    "unfinished discard cannot count as completion or resume normal work");
+                await WaitFor("cleanup_workflow.discard_skipped");
+                await WaitFor("cleanup_workflow.complete");
+                Require(game.Removed.Count == 1 && !game.Open && !game.LeftHeld,
+                    "failed second discard skips only its stage, closes UI and completes the original route home");
+                Require(!logger.Entries.Any(e => e.EventName is "bag_cleanup.discard.complete" or "cleanup_workflow.failed_continuing"),
+                    "skipped discard is not falsely reported as an exhausted batch");
+                var reads = game.Api.PlayerReadCount;
+                while (game.Api.PlayerReadCount < reads + 3)
+                { if (work.IsCompleted) await work; await Task.Delay(5, stop.Token); }
+                Require(!work.IsCompleted && context.CleanupRequests.Current == null,
+                    "normal player processing resumes in the same worker after discard failure");
                 if (failure != "stop")
                 {
                     game.WrongHover = game.RejectConfirm = false;
-                    await WaitFor("cleanup_workflow.complete");
+                    Require(context.CleanupRequests.Request(settings, true).Success,
+                        "an explicit new request remains allowed after abandoning the failed one");
+                    while (logger.Entries.Count(e => e.EventName == "cleanup_workflow.complete") < 2)
+                    { if (work.IsCompleted) await work; await Task.Delay(5, stop.Token); }
                     Require(game.Removed.SequenceEqual(new ulong[] { 100, 101 }) && game.Api.InventoryItems.Count == 0,
-                        "retry locates only remaining actual inventory items");
-                    Require(game.Input.Keys.Count(k => k == "F6") == 1, "discard retry must not recall again");
+                        "the explicit new request locates only remaining actual inventory items");
+                    Require(game.Input.Keys.Count(k => k == "F6") == 2, "only the explicit new request can recall again");
                 }
             }
             catch (OperationCanceledException) when (stop.IsCancellationRequested)
@@ -182,8 +191,9 @@ internal static partial class CleanupWorkflowTests
                 stop.Cancel();
                 try { await work.WaitAsync(TimeSpan.FromSeconds(2)); } catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
             }
-            Require(logger.Entries.Count(e => e.EventName == "worker.loop.enter") == 1, "discard retry preserves same worker");
-            if (failure == "stop") Require(game.Removed.Count == 1 && !logger.Entries.Any(e => e.EventName == "cleanup_workflow.complete"), "manual stop cancels retry, never claims all discarded");
+            Require(logger.Entries.Count(e => e.EventName == "worker.loop.enter") == 1, "discard abandonment preserves the same worker");
+            if (failure == "stop") Require(game.Removed.Count == 1 && logger.Entries.Count(e => e.EventName == "cleanup_workflow.complete") == 1,
+                "stopping after the skipped stage cannot submit another discard attempt");
         }
     }
 

@@ -6,7 +6,7 @@ using Roadhog.Core.Accounts;
 
 internal static partial class GroceryShopTests
 {
-    public static async Task PostSaleDiscardRetryAsync()
+    public static async Task PostSaleDiscardAbandonsRemainingAsync()
     {
         using var trip = new Trip { HoverFailuresRemaining = 2, HoverFailureAfterDiscards = 1 };
         trip.Stop.CancelAfter(TimeSpan.FromSeconds(30));
@@ -15,19 +15,19 @@ internal static partial class GroceryShopTests
         context.CleanupRequests.Request(trip.Config.ScriptSettings!, true, groceryTrigger: GroceryShopTrigger.Manual);
         await trip.Runner().RunAsync(context, context.CleanupRequests.Current!);
 
-        Check(trip.HoverFailuresRemaining == 0 && trip.Discards == 2 && trip.Api.InventoryItems.Count == 1 && !trip.BagOpen,
-            "hover mismatch after one discard retries only remaining items through multiple failures");
-        Check(trip.Logger.Entries.Count(e => e.EventName == "grocery_shop.final_discard.retry") == 2,
-            "every failed attempt remains retryable rather than pausing the grocery workflow");
+        Check(trip.HoverFailuresRemaining == 1 && trip.Discards == 1 && trip.Api.InventoryItems.Count == 2 && !trip.BagOpen,
+            "hover mismatch after one discard leaves the unconfirmed remaining item and abandons the attempt");
+        Check(trip.Logger.Entries.Count(e => e.EventName == "grocery_shop.final_discard.skipped") == 1,
+            "ordinary discard failure is reported once and does not hold the grocery workflow");
         Check(trip.ScrollClicks == 1 && trip.Follows == 1 && trip.ShopStarts == 1 && trip.Success.Saves == 1,
-            "final discard retries cannot repeat return travel selling or success persistence");
+            "skipping final discard cannot repeat return travel selling or success persistence");
         Check(trip.Success.Last == trip.FirstDiscardAt && trip.Now > trip.Success.Last && context.CleanupRequests.Current!.RequestsRestart,
-            "preserve actual sale timestamp and permit restart only after fresh empty candidate verification");
+            "preserve actual sale timestamp and allow the normal post-sale continuation after explicitly skipping discard");
         Check(trip.Logger.Entries.Count(e => e.EventName == "bag_cleanup.discard.verified" && Equals(e.Fields["instanceId"], (ulong)100)) == 1,
             "the previously confirmed discarded item cannot be discarded again");
     }
 
-    public static async Task PostSaleDiscardWorkerRetryAsync()
+    public static async Task PostSaleDiscardWorkerContinuesAsync()
     {
         using var trip = new Trip { FailDiscard = true };
         trip.Stop.CancelAfter(TimeSpan.FromSeconds(30));
@@ -48,17 +48,16 @@ internal static partial class GroceryShopTests
         try
         {
             Check(host.Start(trip.Config).Success, "start scheduled grocery worker");
-            await Until(() => trip.Logger.Entries.Any(e => e.EventName == "grocery_shop.final_discard.retry"));
-            Check(host.StandaloneShopRestartRequestId == null && trip.Success.Saves == 1 && trip.Discards == 0,
-                "actual sellout remains recorded but incomplete discard cannot request restart");
-            Check(!trip.Logger.Entries.Any(e => e.EventName == "grocery_shop.failed"), "local discard failure must not enter the paused worker branch");
-            trip.FailDiscard = false;
             await Until(() => host.StandaloneShopRestartRequestId.HasValue);
-            Check(trip.Discards == 1 && !trip.BagOpen && trip.ScrollClicks == 1 && trip.Follows == 1 && trip.ShopStarts == 1 && trip.Success.Saves == 1,
-                "recover remaining discard and signal restart without rerunning the grocery trip");
+            Check(host.CleanupFailure == null && !trip.Logger.Entries.Any(e => e.EventName == "grocery_shop.failed"),
+                "ordinary discard failure must not stop the account");
+            Check(trip.Logger.Entries.Count(e => e.EventName == "grocery_shop.final_discard.skipped") == 1 && trip.FailDiscard,
+                "normal continuation does not require the persistent discard fault to recover");
+            Check(trip.Discards == 0 && !trip.BagOpen && trip.ScrollClicks == 1 && trip.Follows == 1 && trip.ShopStarts == 1 && trip.Success.Saves == 1,
+                "skip remaining discard and signal normal continuation without rerunning the grocery trip");
             Check(trip.Logger.Entries.Count(e => e.EventName == "standalone_shop.restart.requested") == 1,
-                "successful retry publishes exactly one restart signal");
-            Check((await host.StopAsync()).Success, "worker stops after recovery");
+                "post-sale continuation publishes exactly one restart signal");
+            Check((await host.StopAsync()).Success, "worker remains stoppable after skipping discard");
         }
         finally { await host.StopAsync(); }
     }

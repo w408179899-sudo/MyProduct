@@ -292,12 +292,32 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                                 context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, ex.Message);
                             }
                             catch (Exception ex) when (!context.StopToken.IsCancellationRequested && !cleanup.StandaloneShop &&
-                                cleanup.PreparationStage != CleanupPreparationStage.None &&
-                                (!cleanup.GroceryShop || cleanup.GroceryTrigger == GroceryShopTrigger.Backpack && cleanup.PreparationStage == CleanupPreparationStage.Discarding))
+                                cleanup.PreparationStage == CleanupPreparationStage.Discarding)
                             {
-                                // Keep the same request and town-return progress. Re-read remaining items on retry;
-                                // never replay completed trades or treat an unfinished discard as a successful cleanup.
-                                var stage = cleanup.PreparationStage == CleanupPreparationStage.ReturningToTown ? "回城" : "丢弃";
+                                // Discard failure is local to this attempt. The discard adapter
+                                // has already cancelled its input and attempted to close the bag.
+                                // Do not retain the request or escalate ordinary UI failure into
+                                // a stopped account, even when the bag still meets the threshold.
+                                cleanupOperationActive = false;
+                                context.CleanupRequests.Complete();
+                                nextCleanupCheck = DateTimeOffset.UtcNow.AddSeconds(30);
+                                context.Logger.Warn("cleanup_workflow.discard_abandoned", new Dictionary<string, object?>
+                                {
+                                    ["account"] = context.Config.AccountName, ["error"] = ex.Message,
+                                    ["manual"] = cleanup.Manual, ["groceryTrigger"] = cleanup.GroceryTrigger.ToString(),
+                                    ["automaticRetryAfterMs"] = 30000
+                                });
+                                context.RuntimeStates.MarkWarning(context.Config.AccountName, "本次丢弃失败，已放弃并继续挂机：" + ex.Message);
+                                context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, string.Empty);
+                                stationaryCombatState.PathCombat.Reset();
+                                await _stationaryCombat.SetChannelSwitchPendingAsync(context, stationaryCombatState, false);
+                            }
+                            catch (Exception ex) when (!context.StopToken.IsCancellationRequested && !cleanup.StandaloneShop &&
+                                cleanup.PreparationStage == CleanupPreparationStage.ReturningToTown && !cleanup.GroceryShop)
+                            {
+                                // Preserve the pending town-return confirmation rather than
+                                // submitting its key again. Ordinary discard failure exits above.
+                                const string stage = "回城";
                                 if (++cleanup.PreparationFailures >= 3)
                                 {
                                     cleanup.Failure = stage + "连续重试未完成，账号已停止：" + ex.Message;

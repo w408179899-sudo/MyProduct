@@ -55,7 +55,6 @@ internal static partial class GroceryShopTests
         public readonly List<string> Events = new();
         public readonly List<GameUiPoint> CursorVisits = new();
         public Action? AfterScrollClick;
-        public Action<int>? BeforeDelay;
         public bool FailDiscard;
         public int HoverFailuresRemaining;
         public int HoverFailureAfterDiscards;
@@ -255,7 +254,7 @@ internal static partial class GroceryShopTests
             Api.InventoryItems = Api.InventoryItems.Concat(Enumerable.Range(0, count)
                 .Select(i => new InventoryItemSnapshot((uint)(100 + i), (uint)(100 + i), "junk" + i, 1, 2 + i, false))).ToArray();
         }
-        public Task Delay(int ms, CancellationToken token) { BeforeDelay?.Invoke(ms); token.ThrowIfCancellationRequested(); Now = Now.AddMilliseconds(ms); return Task.CompletedTask; }
+        public Task Delay(int ms, CancellationToken token) { token.ThrowIfCancellationRequested(); Now = Now.AddMilliseconds(ms); return Task.CompletedTask; }
         public CleanupWorkflowRunner Runner() => new(Input, new InMemorySharedPathStore(Route, NpcRoute), (_, name, points) =>
         {
             var route = name == NpcRoute.Name ? NpcRoute : Route;
@@ -327,20 +326,14 @@ internal static partial class GroceryShopTests
         trip.AddDiscardCandidates();
         var context = trip.Context;
         context.CleanupRequests.Request(trip.Config.ScriptSettings!, true, groceryTrigger: GroceryShopTrigger.Manual);
-        trip.BeforeDelay = ms =>
-        {
-            if (ms != 2000 || !trip.Logger.Entries.Any(e => e.EventName == "grocery_shop.final_discard.retry")) return;
-            Check(!context.CleanupRequests.Current!.RequestsRestart && !trip.BagOpen,
-                "persistent failure remains pending after cancelling input and closing the bag");
-            trip.Stop.Cancel();
-        };
-        try { await trip.Runner().RunAsync(context, context.CleanupRequests.Current!); throw new Exception("discard retry ignored cancellation"); }
-        catch (OperationCanceledException) { }
+        await trip.Runner().RunAsync(context, context.CleanupRequests.Current!);
         Check(trip.Events.Contains("sold_out") && trip.Success.Last >= At(20) && trip.Success.Last == trip.FirstDiscardAt && trip.Success.Saves == 1,
             "discard failure retains the actual successful sale record");
         Check(trip.Discards == 0 && trip.Api.InventoryItems.Any(i => i.Name == "junk0") && !trip.BagOpen &&
-            !context.CleanupRequests.Current!.RequestsRestart && !context.CleanupRequests.Current.SoldOutConfirmed,
-            "failed final discard cannot publish restart intent or delete unconfirmed items");
+            context.CleanupRequests.Current!.RequestsRestart && context.CleanupRequests.Current.SoldOutConfirmed,
+            "failed final discard preserves unconfirmed items and allows the already-settled trip to continue");
+        Check(trip.Logger.Entries.Count(e => e.EventName == "grocery_shop.final_discard.skipped") == 1,
+            "persistent discard failure is skipped once instead of retried until account stop");
     }
 
     public static async Task InterruptedBeforeDiscardAsync()

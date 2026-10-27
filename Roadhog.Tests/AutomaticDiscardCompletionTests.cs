@@ -10,7 +10,7 @@ using Roadhog.Core.Model;
 
 internal static partial class CleanupWorkflowTests
 {
-    public static async Task AutomaticWorkerDiscardCompletionAsync()
+    public static async Task AutomaticWorkerDiscardAbandonsFailureAsync()
     {
         var game = new InventoryDiscardTests.Simulation(3);
         game.Api.TargetEntityId = 0; game.Api.InventoryCapacity = 3;
@@ -37,22 +37,24 @@ internal static partial class CleanupWorkflowTests
             while (!logger.Entries.Any(e => e.EventName == name))
             {
                 if (work.IsCompleted) await work;
-                Require(!logger.Entries.Any(e => e.EventName == "cleanup_workflow.failed_continuing"), "automatic discard cannot be dropped");
+                Require(!logger.Entries.Any(e => e.EventName == "cleanup_workflow.terminated"), "automatic discard cannot terminate the worker");
                 await Task.Delay(5, stop.Token);
             }
         }
         try
         {
-            await WaitFor("cleanup_workflow.preparation_pending");
-            Require(context.CleanupRequests.Current is { Manual: false } && game.Removed.Count == 2 && game.Api.InventoryItems.Count == 1,
-                "real capacity trigger retains its automatic request after recovering enough free slots");
+            await WaitFor("cleanup_workflow.discard_abandoned");
+            Require(context.CleanupRequests.Current == null && game.Removed.Count == 2 && game.Api.InventoryItems.Count == 1,
+                "automatic failure drops the request and preserves the unconfirmed remaining item");
             Require(!logger.Entries.Any(e => e.EventName == "cleanup_workflow.complete"), "partial discard is not completion");
-            game.WrongHover = false;
-            await WaitFor("cleanup_workflow.complete");
-            Require(game.Removed.SequenceEqual(new ulong[] { 100, 101, 102 }) && !game.Open, "automatic worker clears the last item before resuming");
+            var reads = game.Api.PlayerReadCount;
+            while (game.Api.PlayerReadCount < reads + 3)
+            { if (work.IsCompleted) await work; await Task.Delay(5, stop.Token); }
+            Require(!work.IsCompleted && game.Removed.SequenceEqual(new ulong[] { 100, 101 }) && !game.Open,
+                "normal worker processing resumes even while the discard error remains present");
             Require(game.Input.Keys.FirstOrDefault() == "F1" && game.Input.Keys.Skip(1).All(k => k is "I" or "Escape")
                 && !game.Input.KeyDowns.Any(k => k is "W" or "A" or "S" or "D"),
-                "one startup F1 is followed only by inventory operations; retry never repeats startup, recalls, moves or opens NPC dialogue: " + string.Join(",", game.Input.Keys));
+                "abandonment never repeats startup, recalls, moves or opens NPC dialogue: " + string.Join(",", game.Input.Keys));
         }
         finally
         {
