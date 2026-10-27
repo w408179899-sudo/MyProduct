@@ -25,18 +25,20 @@ internal static partial class CleanupWorkflowTests
         var work = new DefaultAccountWorkerLoop(game.Input, semi, combat, cleanupWorkflow: runner).RunAsync(context);
         try
         {
-            try { await work; throw new Exception("failed shop must terminate"); }
-            catch (CleanupExecutionFailedException) { }
-            var keys = game.Input.Keys.Count;
+            while (!logger.Entries.Any(e => e.EventName == "cleanup_workflow.failed_continuing"))
+            { if (work.IsCompleted) await work; await Task.Delay(10, stop.Token); }
+            var reads = game.Api.PlayerReadCount;
+            while (game.Api.PlayerReadCount < reads + 3)
+            { if (work.IsCompleted) await work; await Task.Delay(10, stop.Token); }
             await Task.Delay(150, stop.Token);
-            Require(context.CleanupRequests.Current is { StandaloneShop: true, Failure: not null } && work.IsCompleted,
-                "failed request ends execution instead of leaving an idle running worker");
+            Require(context.CleanupRequests.Current == null && !work.IsCompleted,
+                "failed shop is abandoned and the main loop continues");
             Require(context.CleanupRequests.StandaloneShopRestartRequestId == null, "failure never authorizes automatic Stop/Start");
-            Require(game.Input.Keys.Count == keys && !game.Input.Keys.Any(k => k is "F6" or "F5"), "failure does not resume combat or recall");
-            Require(logger.Entries.Count(e => e.EventName == "standalone_shop.failed") == 1 &&
-                !logger.Entries.Any(e => e.EventName == "cleanup_workflow.failed_continuing"), "failure is reported once without replay or ordinary cleanup fallback");
+            Require(!game.Input.Keys.Any(k => k is "F6" or "F5"), "failed shop does not submit a recall");
+            Require(logger.Entries.Count(e => e.EventName == "cleanup_workflow.failed_continuing") == 1 &&
+                logger.Entries.Count(e => e.EventName == "worker.loop.enter") == 1, "failure returns to the same worker without replay");
         }
-        finally { stop.Cancel(); try { await work; } catch (OperationCanceledException) when (stop.IsCancellationRequested) { } catch (CleanupExecutionFailedException) { } }
-        Require(work.IsCompleted, "failure terminates task");
+        finally { stop.Cancel(); try { await work; } catch (OperationCanceledException) when (stop.IsCancellationRequested) { } }
+        Require(work.IsCompleted, "explicit stop still ends the task");
     }
 }

@@ -209,10 +209,11 @@ internal static class TownReturnTests
             "a nearby matching route can be rejoined once after sustained lack of progress");
         Check(h.Input.KeyUps.Contains("W") && !h.Input.Keys.Contains("Space"), "recovery releases forward instead of another jump");
         await (Task)recover.Invoke(h.Controller, new object[] { h.Context, h.State })!;
-        Check(h.State.ReturnNavigationBlocked, "repeated failure must stop rather than restart the same route forever");
-        var commands = h.Input.KeyDowns.Count + h.Input.Keys.Count;
-        await h.Tick();
-        Check(h.Input.KeyDowns.Count + h.Input.Keys.Count == commands, "blocked return cannot resume walking through normal work");
+        Check(!h.State.ReturnNavigationBlocked && !h.State.StartupRecoveryActive && !h.State.CleanupReturnToCombatActive,
+            "repeated route failure releases branch ownership instead of holding the main loop");
+        Check(await h.Controller.TryTickTownReturnAsync(h.Context, h.Plan, h.SemiState, h.State) == null,
+            "abandoned return no longer intercepts normal work");
+        h.Api.Player = Scene(10, hp: 0).Player!;
         h.Api.TransitionRead = () => Scene(10, hp: 0);
         await h.Tick();
         Check(!h.State.ReturnNavigationBlocked && h.State.TopLevelState == StationaryCombatTopLevelState.DeathRecovery,

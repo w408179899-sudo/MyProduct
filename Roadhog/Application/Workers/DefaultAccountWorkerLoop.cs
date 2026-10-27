@@ -12,7 +12,7 @@ using Roadhog.Application.Food;
 
 namespace Roadhog.Application.Workers;
 
-public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
+public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
 {
     private const int StartupScrollCount = 10;
     private const int StartupScrollDelta = -1;
@@ -129,12 +129,10 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                     context.RuntimeStates.MarkHeartbeat(context.Config.AccountName);
                     if (context.CleanupRequests.Current is { Failure: not null } failedShop)
                     {
-                        var recoveryDelay = await _stationaryCombat.TickPlayerLifeGuardAsync(
-                            context, semiAutoPlan, semiAutoState, stationaryCombatState,
-                            followRevivePath: false, reviveOnly: true).ConfigureAwait(false);
-                        context.RuntimeStates.MarkWarning(context.Config.AccountName, failedShop.Failure);
-                        await Task.Delay(recoveryDelay ?? context.Options.TickInterval, context.StopToken);
-                        continue;
+                        nextCleanupCheck = DateTimeOffset.UtcNow.AddSeconds(30);
+                        await AbandonCleanupAsync(context, stationaryCombatState, failedShop,
+                            new InvalidOperationException(failedShop.Failure));
+                        checkLifeAfterYield = true;
                     }
                     if (checkLifeAfterYield)
                     {
@@ -156,7 +154,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                     foodMaintenance.ObserveCombat(scriptSettings.Maintenance, foodCombatActive);
                     if (context.CleanupRequests.StandaloneShopRestartRequestId.HasValue)
                     {
-                        // The manager owns Stop/Start. Keep the completed worker idle until cancellation.
+                        // Verified sellout keeps the existing manager-owned Stop/Start handoff.
                         await Task.Delay(context.Options.TickInterval, context.StopToken).ConfigureAwait(false);
                         continue;
                     }
@@ -185,7 +183,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                     if (_cleanupWorkflow != null && !fixedChannelState.AwaitingConfirmation)
                     {
                         var now = DateTimeOffset.UtcNow;
-                        if (context.CleanupRequests.Current == null && now >= nextCleanupCheck &&
+                        if (context.CleanupRequests.Current == null && now >= nextCleanupCheck && now >= context.CleanupRequests.AutomaticRetryAfter &&
                             !stationaryCombatState.Fighting && !stationaryCombatState.LootAfterKill.Active &&
                             stationaryCombatState.TopLevelState == StationaryCombatTopLevelState.Normal)
                         {
@@ -272,7 +270,6 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                                 else context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, "清包已排队，先处理当前战斗 / 复活");
                             }
                             catch (SnapshotReadBudgetExceededException) { throw; }
-                            catch (CleanupExecutionFailedException) { throw; }
                             catch (Exception ex) when (!context.StopToken.IsCancellationRequested && cleanup.GroceryShop && !cleanup.GroceryNpcStageStarted &&
                                 ex is GroceryTripInterruptedException or GroceryTripDepartureFailedException or CleanupCombatInterruptionException or CleanupDeathInterruptionException)
                             {
@@ -312,45 +309,13 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                                 stationaryCombatState.PathCombat.Reset();
                                 await _stationaryCombat.SetChannelSwitchPendingAsync(context, stationaryCombatState, false);
                             }
-                            catch (Exception ex) when (!context.StopToken.IsCancellationRequested && !cleanup.StandaloneShop &&
-                                cleanup.PreparationStage == CleanupPreparationStage.ReturningToTown && !cleanup.GroceryShop)
-                            {
-                                // Preserve the pending town-return confirmation rather than
-                                // submitting its key again. Ordinary discard failure exits above.
-                                const string stage = "回城";
-                                if (++cleanup.PreparationFailures >= 3)
-                                {
-                                    cleanup.Failure = stage + "连续重试未完成，账号已停止：" + ex.Message;
-                                    throw new CleanupExecutionFailedException(cleanup.Failure, ex);
-                                }
-                                context.Logger.Warn("cleanup_workflow.preparation_pending", new Dictionary<string, object?>
-                                {
-                                    ["account"] = context.Config.AccountName, ["stage"] = stage, ["error"] = ex.Message
-                                });
-                                context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, stage + "未完成，等待重试：" + ex.Message);
-                                await Task.Delay(2000, context.StopToken);
-                            }
                             catch (Exception ex) when (!context.StopToken.IsCancellationRequested)
                             {
-                                if (cleanup.StandaloneShop || cleanup.GroceryShop || cleanup.ArrowRestock || ex is ArrowPurchaseUnconfirmedException)
-                                {
-                                    cleanup.Failure = (cleanup.ArrowRestock || ex is ArrowPurchaseUnconfirmedException ? "补箭" : cleanup.GroceryShop ? "杂货摆摊" : "自动摆摊") + "失败，账号已停止，请核对当前操作结果：" + ex.Message;
-                                    context.Logger.Error(cleanup.ArrowRestock || ex is ArrowPurchaseUnconfirmedException ? "arrow_restock.failed" : cleanup.GroceryShop ? "grocery_shop.failed" : "standalone_shop.failed", ex, new Dictionary<string, object?> { ["account"] = context.Config.AccountName });
-                                    context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, cleanup.Failure);
-                                    throw new CleanupExecutionFailedException(cleanup.Failure, ex);
-                                }
-                                // Drop this execution, not the worker. Never immediately replay uncertain trade actions.
-                                context.CleanupRequests.Complete();
+                                cleanupOperationActive = false;
                                 nextCleanupCheck = DateTimeOffset.UtcNow.AddSeconds(30);
                                 lastCleanup = DateTimeOffset.UtcNow;
-                                context.Logger.Error("cleanup_workflow.failed_continuing", ex, new Dictionary<string, object?>
-                                {
-                                    ["account"] = context.Config.AccountName, ["automaticRetryAfterMs"] = 30000
-                                });
-                                context.RuntimeStates.MarkWarning(context.Config.AccountName, "本次清包失败，继续挂机：" + ex.Message);
-                                context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, string.Empty);
-                                stationaryCombatState.PathCombat.Reset();
-                                await _stationaryCombat.SetChannelSwitchPendingAsync(context, stationaryCombatState, false);
+                                await AbandonCleanupAsync(context, stationaryCombatState, cleanup, ex);
+                                checkLifeAfterYield = true;
                             }
                             await Task.Delay(context.Options.TickInterval, context.StopToken);
                             continue;
@@ -520,13 +485,32 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                     await ReleaseActiveInputAsync(context, stationaryCombatState).ConfigureAwait(false);
                     if (cleanupOperationActive && context.CleanupRequests.Current is { } interrupted)
                     {
-                        interrupted.Failure = "清包操作等待超时，账号已停止，请核对当前操作结果。";
                         context.Logger.Warn("cleanup_workflow.operation_timeout", new Dictionary<string, object?>
                             { ["account"] = context.Config.AccountName, ["channel"] = ex.Channel });
-                        throw new CleanupExecutionFailedException(interrupted.Failure, ex);
+                        nextCleanupCheck = DateTimeOffset.UtcNow.AddSeconds(30);
+                        lastCleanup = DateTimeOffset.UtcNow;
+                        await AbandonCleanupAsync(context, stationaryCombatState, interrupted, ex);
                     }
                     context.Logger.Info("worker.read_budget.yield", new Dictionary<string, object?>
                         { ["account"] = context.Config.AccountName, ["waitMs"] = 2000 });
+                    await Task.Delay(context.Options.TickInterval, context.StopToken).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (!context.StopToken.IsCancellationRequested)
+                {
+                    // A failed tick must return to this loop, never terminate the account.
+                    checkLifeAfterYield = true;
+                    if (context.CleanupRequests.Current is { } interrupted)
+                    {
+                        nextCleanupCheck = DateTimeOffset.UtcNow.AddSeconds(30);
+                        await AbandonCleanupAsync(context, stationaryCombatState, interrupted, ex);
+                    }
+                    else
+                    {
+                        context.Logger.Error("worker.tick.failed_continuing", ex,
+                            new Dictionary<string, object?> { ["account"] = context.Config.AccountName });
+                        context.RuntimeStates.MarkWarning(context.Config.AccountName, "本次操作失败，返回主流程：" + ex.Message);
+                        await ReleaseFailedBranchInputAsync(context, stationaryCombatState);
+                    }
                     await Task.Delay(context.Options.TickInterval, context.StopToken).ConfigureAwait(false);
                 }
             }

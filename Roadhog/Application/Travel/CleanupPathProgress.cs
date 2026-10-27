@@ -23,6 +23,6 @@ internal sealed class CleanupPathProgress
             progressedAt = elapsed;
         }
         if (elapsed - progressedAt >= TimeSpan.FromSeconds(60) || elapsed - enteredAt >= TimeSpan.FromMinutes(5))
-            throw new CleanupExecutionFailedException($"清包路径 {pathName} 第 {pointIndex + 1} 点长时间未到达，距离 {distance:0.0} 米；账号已停止。", new TimeoutException());
+            throw new CleanupExecutionFailedException($"清包路径 {pathName} 第 {pointIndex + 1} 点长时间未到达，距离 {distance:0.0} 米；放弃本次清包，返回主流程。", new TimeoutException());
     }
 }

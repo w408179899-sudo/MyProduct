@@ -129,7 +129,11 @@ internal static class WorkerReadBudgetTests
             var context = new AccountWorkerContext(new() { AccountName = "yield", MainMode = settings.MainMode, ScriptSettings = settings },
                 api, logger, new AccountRuntimeManager(logger), new() { TickInterval = TimeSpan.FromMilliseconds(10) }, stop.Token, mailbox);
             var keyboard = new RecordingKeyboardInput();
-            keyboard.AfterMouseUp = button => { if (button == RoadhogMouseButton.Left) api.Player = api.Player with { CurrentHp = 100 }; };
+            keyboard.AfterMouseUp = button =>
+            {
+                if (button == RoadhogMouseButton.Left && logger.Entries.Any(e => e.EventName == "player_life.death.detected"))
+                    api.Player = api.Player with { CurrentHp = 100 };
+            };
             var semi = new SemiAutoCombatController(keyboard);
             var worker = new DefaultAccountWorkerLoop(keyboard, semi, new StationaryCombatController(keyboard, semi));
             run = worker.RunAsync(context);
@@ -139,10 +143,9 @@ internal static class WorkerReadBudgetTests
             if (paused)
             {
                 await Task.Delay(200, stop.Token);
-                Check(ReferenceEquals(request, mailbox.Current) && request!.Failure == "uncertain sale", "revival must preserve the paused transaction and not replay it");
-                Check(!logger.Entries.Any(e => e.EventName.StartsWith("stationary_combat.death_recovery.post_revive") ||
-                    e.EventName == "stationary_combat.death_recovery.path_selected"), "paused account must not start post-revive maintenance or routes");
-                Check(keyboard.Keys.All(key => key == "F1"), "paused account must not send combat or transaction keys");
+                Check(mailbox.Current == null && !run.IsCompleted, "failed transaction is dropped so life recovery and normal work remain active");
+                Check(logger.Entries.Count(e => e.EventName == "cleanup_workflow.failed_continuing") == 1,
+                    "the old paused request is abandoned exactly once without replay");
             }
             else Check(logger.Entries.Any(e => e.EventName == "worker.read_budget.yield"), "two-second blocked read must yield before death handling");
             if (queued) Check(ReferenceEquals(request, mailbox.Current) && request!.Failure == null &&

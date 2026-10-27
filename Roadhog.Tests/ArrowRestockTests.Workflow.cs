@@ -117,23 +117,20 @@ internal static partial class ArrowRestockTests
             Check(!f.Logger.Entries.Any(e => e.EventName == "arrow_restock.requested") && f.BuyClicks == 0,
                 "exactly 10000 does not queue a combat supply trip");
             f.Api.InventoryItems = f.Api.InventoryItems.Select(i => i.InstanceId == 11 ? i with { Count = 9999 } : i).ToArray();
-            await Until(() => f.Context.CleanupRequests.Current?.Failure != null);
-            try { await task; throw new Exception("unconfirmed purchase must terminate the worker"); }
-            catch (CleanupExecutionFailedException) { }
-            Check(f.Context.CleanupRequests.Current is { ArrowRestock: true, GroceryShop: false, AllowNpcSell: false } &&
+            await Until(() => f.Logger.Entries.Any(e => e.EventName == "cleanup_workflow.failed_continuing"));
+            Check(f.Context.CleanupRequests.Current == null &&
                 f.Logger.Entries.Count(e => e.EventName == "arrow_restock.requested") == 1 && f.BuyClicks == 1,
                 "below 10000 buys even with cleanup disabled, free backpack and grocery mode");
-            Check(task.IsCompleted && f.Logger.Entries.Any(e => e.EventName == "arrow_restock.failed"), "ambiguous purchase ends execution as supply failure");
-            var inputCount = f.Input.Keys.Count + f.Input.MouseCommands.Count;
+            Check(!task.IsCompleted, "ambiguous purchase abandons supply and resumes the main loop");
+            var reads = f.Api.PlayerReadCount;
             await Task.Delay(2200, f.Stop.Token);
-            Check(inputCount == f.Input.Keys.Count + f.Input.MouseCommands.Count && f.BuyClicks == 1 &&
-                f.Context.CleanupRequests.StandaloneShopRestartRequestId == null, "ambiguous purchase neither repeats payment nor resumes combat or restarts");
+            Check(f.Api.PlayerReadCount > reads && f.BuyClicks == 1 &&
+                f.Context.CleanupRequests.StandaloneShopRestartRequestId == null, "normal processing resumes without repeating payment or restarting");
         }
         finally
         {
             f.Stop.Cancel();
             try { await task; } catch (OperationCanceledException) when (f.Stop.IsCancellationRequested) { }
-            catch (CleanupExecutionFailedException) { }
         }
     }
 

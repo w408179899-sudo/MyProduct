@@ -2479,16 +2479,15 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                     ["error"] = press.Error
                 });
             }
-            state.ReturnNavigationBlocked = true;
             await PrepareForTownReturnAsync(context, semiAutoState, state).ConfigureAwait(false);
-            context.RuntimeStates.MarkWarning(context.Config.AccountName, "回城按键未配置或发送失败，已停止移动，请检查回城设置。");
+            AbandonReturnNavigation(context, state, "回城按键未配置或发送失败");
             return IdleDelay;
         }
 
         if (wrongMap)
         {
-            state.ReturnNavigationBlocked = true;
             await PrepareForTownReturnAsync(context, semiAutoState, state).ConfigureAwait(false);
+            AbandonReturnNavigation(context, state, "当前地图与返回路线不符");
             return IdleDelay;
         }
 

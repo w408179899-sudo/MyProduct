@@ -304,7 +304,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("skill audit elemental unknown identity cannot inherit special behavior", SpiritmasterElementalRankTests.UnknownIdentityDoesNotBecomeElementalByNameAsync),
     ("worker read budget submitted channel transition keeps loading hold", ChannelPeaceTests.ReadBudgetPreservesSubmittedTransitionAsync),
     ("worker read budget independent opening entry", WorkerReadBudgetTests.OpeningEntryUsesBudgetAsync),
-    ("worker read budget cleanup resumes transient reads and terminates without replay", CleanupWorkflowTests.WorkerReadBudgetDoesNotReplayCleanupAsync),
+    ("worker read budget cleanup failure resumes main loop without replay", CleanupWorkflowTests.WorkerReadBudgetDoesNotReplayCleanupAsync),
     ("worker read budget queued cleanup yields without termination", WorkerReadBudgetTests.QueuedCleanupYieldDoesNotTerminateAsync),
     ("cleanup deadlines recall path progress and missing warehouse", CleanupWorkflowTests.CleanupDeadlinesAsync),
     ("grocery shop return deadline loading and wrong destination", GroceryShopTests.ReturnDeadlineAsync),
@@ -313,7 +313,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("cleanup blocking unresponsive capture remains bounded without duplicate reads", CleanupBlockingRegressionTests.UnresponsiveCaptureAsync),
     ("cleanup blocking confirmation cancels underlying composite read", CleanupBlockingRegressionTests.ConfirmationCancelsProviderAsync),
     ("worker read budget blocked work yields to death", WorkerReadBudgetTests.WorkerYieldChecksDeathBeforeBlockedWorkAsync),
-    ("worker read budget paused trade revives without resuming", WorkerReadBudgetTests.PausedWorkerRevivesWithoutResumingTradeAsync),
+    ("worker read budget failed trade releases main loop and revival", WorkerReadBudgetTests.PausedWorkerRevivesWithoutResumingTradeAsync),
     ("worker read budget transaction cancellation cannot become confirmation failure", WorkerReadBudgetTests.TransactionCancellationIsNotConfirmationFailureAsync),
     ("skill audit availability two second wait yields and resumes", QuickbarSkillFinalGuardTests.AvailabilityWaitYieldsAndResumesAsync),
     ("skill audit availability wait preserves explicit stop", QuickbarSkillFinalGuardTests.AvailabilityWaitPreservesStopAsync),
@@ -682,7 +682,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("town return death and pending read cancellation", TownReturnTests.DeathAndCancellationAsync),
     ("town return cleanup branches confirm coherent destination", TownReturnTests.CleanupBothReturnsAsync),
     ("town return worker owns transition before normal work", TownReturnTests.WorkerOwnsTransitionAsync),
-    ("town return sustained obstruction rejoins once then stops", TownReturnTests.StuckRecoveryIsBoundedAsync),
+    ("town return sustained obstruction rejoins once then resumes main flow", TownReturnTests.StuckRecoveryIsBoundedAsync),
     ("town return path map persistence and recording isolation", TownReturnTests.PathMapRoundTripAsync),
     ("channel transition delayed and slow loading awaits recovered character", ChannelTransitionTests.DelayedAndSlowLoadingAsync),
     ("channel transition no loading and wrong destination remain retryable", ChannelTransitionTests.NoLoadingAndWrongDestinationAsync),
@@ -1431,7 +1431,7 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("arrow restock repeated ALL registration and one verified purchase", ArrowRestockTests.PurchaseAsync)
     ,("arrow restock post-sale jump reopens merchant and preserves return", ArrowRestockTests.PostSaleJumpAsync)
     ,("arrow restock standalone nearby workflow without sale discard or restart", ArrowRestockTests.SupplyWorkflowAsync)
-    ,("arrow restock worker combat boundary and ambiguous purchase termination", ArrowRestockTests.WorkerThresholdAndFailureAsync)
+    ,("arrow restock worker combat boundary and failed purchase resumes main loop", ArrowRestockTests.WorkerThresholdAndFailureAsync)
     ,("arrow restock grocery junk sale jump and three stack purchase", ArrowRestockTests.GrocerySaleThenSupplyAsync)
     ,("grocery continuation worker restarts after sale record and final cleanup failures", GroceryShopTests.NpcContinuationWorkerAsync)
     ,("grocery continuation failed travel skips trade and user stop cancels restart", GroceryShopTests.NpcContinuationTravelAndStopAsync)
@@ -1447,8 +1447,8 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("standalone shop batches confirmed prices sale proof and resume", CleanupWorkflowTests.DiscountedStallAsync)
     ,("standalone shop empty and stop never resume", StandaloneShopTests.EmptyAndCancelAsync)
     ,("standalone shop UI discount and button layout", StandaloneShopTests.UiAsync)
-    ,("standalone shop worker failure terminates without replay", CleanupWorkflowTests.StandaloneShopWorkerFailureAsync)
-    ,("standalone shop terminal cleanup IPC blocks automatic recovery", WorkerProcessManagerTests.CleanupFailureBlocksRecoveryAsync)
+    ,("standalone shop worker failure resumes main loop without replay", CleanupWorkflowTests.StandaloneShopWorkerFailureAsync)
+    ,("standalone shop cleanup failure IPC preserves running intent", WorkerProcessManagerTests.CleanupFailurePreservesRecoveryAsync)
     ,("standalone shop worker IPC stopped and running dispatch", WorkerProcessManagerTests.StandaloneShopDispatchAsync)
     ,("standalone shop workflow settles and closes without old worker return", CleanupWorkflowTests.StandaloneShopCompletionAsync)
     ,("standalone shop real worker waits for stop and fresh startup F1", CleanupWorkflowTests.StandaloneShopWorkerCompletionAsync)
@@ -1472,6 +1472,7 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("auction path NPC flows use saved name and diagnostic remains noncommitting", CleanupWorkflowTests.AuctionNpcFlowsAsync)
     ,("worker recovery initialization exceptions cancellation return and manual stop", WorkerRecoveryTests.HostRecoveryAsync)
     ,("worker recovery cleanup failure continues and accepts next request", CleanupWorkflowTests.WorkerFailureRecoveryAsync)
+    ,("worker recovery all cleanup branch failures return to the same main loop", CleanupWorkflowTests.CleanupBranchesReturnToMainAsync)
     ,("worker recovery cleanup death hands off to revival", CleanupWorkflowTests.WorkerCleanupDeathRecoveryAsync)
     ,("cleanup workflow cooldown still prioritizes discard over sale", CleanupWorkflowTests.CooldownPreservesSellRulesAsync)
     ,("cleanup workflow discard then auction without NPC sale", CleanupWorkflowTests.DiscardThenAuctionWithoutSaleAsync)

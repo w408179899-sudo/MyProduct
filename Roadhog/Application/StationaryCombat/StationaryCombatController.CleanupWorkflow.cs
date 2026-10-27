@@ -16,7 +16,7 @@ public sealed partial class StationaryCombatController
         {
             context.StopToken.ThrowIfCancellationRequested();
             if (elapsed.Elapsed >= limit)
-                throw new CleanupExecutionFailedException("清包后返回挂机点长时间未完成，账号已停止。", new TimeoutException());
+                throw new CleanupExecutionFailedException("清包后返回挂机点长时间未完成，放弃本次清包，返回主流程。", new TimeoutException());
             var life = await TickPlayerLifeGuardAsync(context, plan, semiAutoState, state, followRevivePath: true);
             if (life.HasValue)
             {

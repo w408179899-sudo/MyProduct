@@ -886,21 +886,11 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 {
                     var status = await Client(entry).CallAsync<WorkerStatus>(WorkerCommands.Status, [], timeout.Token).ConfigureAwait(false);
                     if (status.InstanceId != entry.Config.InstanceId || status.ProcessId != entry.Process!.Id) throw new IOException("账号后台身份不匹配。");
-                    var persistCleanupStop = false;
                     lock (entry.Sync)
                     {
                         if (Superseded()) return;
                         entry.Status = status; entry.PollFailures = 0;
-                        if (status.CleanupFailure is { } cleanupFailure)
-                        {
-                            // Terminal cleanup must survive IPC polling and generic AutoRecover.
-                            // Only an explicit user Start may admit a new operation after review.
-                            persistCleanupStop = entry.Desired;
-                            entry.Desired = false;
-                            entry.State = "failed";
-                            entry.Error = cleanupFailure;
-                        }
-                        else if (status.IsRunning)
+                        if (status.IsRunning)
                         {
                             entry.State = "running"; entry.Error = null;
                             entry.RunningSince ??= DateTimeOffset.UtcNow;
@@ -909,7 +899,6 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                         else if (!entry.Desired) entry.State = entry.Status?.LoginCompleted == true ? "logged_in" : "idle";
                         else if (!status.Authorized) { entry.State = "failed"; entry.Error = status.AuthorizationError ?? "需要授权"; }
                     }
-                    if (persistCleanupStop) await SaveIntentAsync().ConfigureAwait(false);
                     if (status.StandaloneShopRestartRequestId is { } requestId && requestId != Guid.Empty && status.IsRunning && status.Authorized)
                     {
                         shopRestart = RestartAfterStandaloneShopAsync(entry, requestId);
@@ -1057,13 +1046,9 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                     {
                         entry.Process?.Dispose(); entry.Process = process; process = null;
                         entry.Descriptor = verified; entry.Status = status;
-                        if (status.CleanupFailure is { } cleanupFailure && !entry.StartingRequest)
-                        {
-                            entry.Desired = false;
-                            entry.State = "failed";
-                            entry.Error = cleanupFailure;
-                        }
-                        else entry.State = status.IsRunning ? "running" : entry.Desired ? "starting" : "idle";
+                        // A legacy cleanup failure is diagnostic only; it must not
+                        // revoke the user's durable intent to keep this account running.
+                        entry.State = status.IsRunning ? "running" : entry.Desired ? "starting" : "idle";
                     }
                     ClearPending(entry.Config.InstanceId, verified.Token);
                     return;

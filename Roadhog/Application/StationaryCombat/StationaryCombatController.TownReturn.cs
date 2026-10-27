@@ -28,10 +28,7 @@ public sealed partial class StationaryCombatController
         }
         if (state.ReturnNavigationBlocked)
         {
-            var scene = (await context.Snapshots.ReadChannelTransitionAsync().WaitAsync(context.StopToken).ConfigureAwait(false)).Value;
-            if (scene.IsReady && scene.Player!.IsDead) state.EnterDeathRecovery(DateTimeOffset.Now);
-            else context.RuntimeStates.MarkWarning(context.Config.AccountName, "返回路线持续卡住，已停止移动，请检查路线或重新启动任务。");
-            return IdleDelay;
+            AbandonReturnNavigation(context, state, "返回路线异常");
         }
         return null;
     }
@@ -121,7 +118,19 @@ public sealed partial class StationaryCombatController
                 }
             }
         }
-        state.ReturnNavigationBlocked = true;
-        context.RuntimeStates.MarkWarning(context.Config.AccountName, "返回路线持续卡住，已停止移动，请检查路线或重新启动任务。");
+        AbandonReturnNavigation(context, state, "返回路线持续卡住");
+    }
+
+    private static void AbandonReturnNavigation(AccountWorkerContext context, StationaryCombatState state, string reason)
+    {
+        state.ReturnNavigationBlocked = false;
+        state.CompleteCleanupReturnToCombat();
+        state.ClearStartupRecovery();
+        state.ClearPostCombatReturn();
+        state.ReturningHome = false;
+        state.NoKillRecovery.Postpone(DateTimeOffset.Now, TimeSpan.FromSeconds(30));
+        context.RuntimeStates.MarkWarning(context.Config.AccountName, reason + "，放弃本次返回分支，继续主流程。");
+        context.Logger.Warn("town_return.branch_abandoned", new Dictionary<string, object?>
+            { ["account"] = context.Config.AccountName, ["reason"] = reason });
     }
 }

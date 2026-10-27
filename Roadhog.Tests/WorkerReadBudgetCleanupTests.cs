@@ -18,32 +18,34 @@ internal static partial class CleanupWorkflowTests
         await CleanupReadRecoveryAsync(true);
         var logger = new InMemoryRoadhogLogger();
         var states = new AccountRuntimeManager(logger);
-        var loop = new TerminalCleanupLoop();
+        var loop = new FailedCleanupLoop();
         var host = new AccountWorkerHost(new FakeGameApi(), logger, states, loop,
             new() { RecoveryDelay = TimeSpan.FromMilliseconds(1) });
         try
         {
-            Require(host.Start(new() { AccountName = "terminal-cleanup" }).Success, "start terminal cleanup test");
+            Require(host.Start(new() { AccountName = "recovering-cleanup", ScriptSettings = new() }, cleanupFirst: true).Success, "start cleanup recovery test");
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-            while (host.IsRunning) await Task.Delay(10, deadline.Token);
-            Require(loop.Calls == 1 && host.CleanupFailure != null && logger.Entries.Any(e => e.EventName == "cleanup_workflow.terminated") &&
-                !logger.Entries.Any(e => e.EventName == "worker.loop.exception"),
-                "terminal cleanup ends the host without generic recovery replay");
+            while (loop.Calls < 2) await Task.Delay(10, deadline.Token);
+            Require(host.IsRunning && loop.Calls == 2 && loop.PendingOnRecovery == false && host.CleanupFailure == null &&
+                !logger.Entries.Any(e => e.EventName is "cleanup_workflow.terminated" or "account.failed"),
+                "escaped cleanup exception recovers the host without retaining or replaying its request");
         }
         finally { await host.StopAsync(); }
     }
 
-    private sealed class TerminalCleanupLoop : IAccountWorkerLoop
+    private sealed class FailedCleanupLoop : IAccountWorkerLoop
     {
         public int Calls;
-        public Task RunAsync(AccountWorkerContext context)
+        public bool PendingOnRecovery;
+        public async Task RunAsync(AccountWorkerContext context)
         {
-            Calls++;
-            throw new CleanupExecutionFailedException("unconfirmed sale", new TimeoutException());
+            if (++Calls == 1) throw new CleanupExecutionFailedException("unconfirmed sale", new TimeoutException());
+            PendingOnRecovery = context.CleanupRequests.Current != null;
+            await Task.Delay(Timeout.Infinite, context.StopToken);
         }
     }
 
-    private static async Task CleanupReadRecoveryAsync(bool terminal)
+    private static async Task CleanupReadRecoveryAsync(bool timesOut)
     {
         var api = new FakeGameApi { TargetEntityId = 0, InventoryCapacity = 81,
             InventoryItems = new[] { new InventoryItemSnapshot(167000001, 1, "魔石:攻击力+5", 1, 0, false, QualityRank: 2) } };
@@ -63,7 +65,7 @@ internal static partial class CleanupWorkflowTests
         var runner = new CleanupWorkflowRunner(input, paths, async (context, _, _) =>
         {
             calls++;
-            if (terminal) throw new SnapshotReadBudgetExceededException("npc_trade");
+            if (timesOut) throw new SnapshotReadBudgetExceededException("npc_trade");
             var watch = System.Diagnostics.Stopwatch.StartNew();
             api.NpcTradeRead = () => watch.Elapsed < TimeSpan.FromMilliseconds(2300)
                 ? throw new IOException("transient NPC UI")
@@ -82,19 +84,27 @@ internal static partial class CleanupWorkflowTests
         var run = worker.RunAsync(context);
         try
         {
-            try
+            if (timesOut)
             {
-                await run;
-                throw new Exception("expected cleanup cancellation or termination");
+                while (!logger.Entries.Any(e => e.EventName == "cleanup_workflow.failed_continuing"))
+                { if (run.IsCompleted) await run; await Task.Delay(10, stop.Token); }
+                var reads = api.PlayerReadCount;
+                while (api.PlayerReadCount < reads + 3)
+                { if (run.IsCompleted) await run; await Task.Delay(10, stop.Token); }
+                Require(!run.IsCompleted && context.CleanupRequests.Current == null && request!.Failure != null,
+                    "timed-out cleanup is abandoned and the same worker resumes normal processing");
             }
-            catch (CleanupExecutionFailedException) when (terminal) { }
-            catch (OperationCanceledException) when (!terminal && stop.IsCancellationRequested) { }
-            Require(calls == 1 && ReferenceEquals(request, context.CleanupRequests.Current) && (request!.Failure != null) == terminal,
-                "cleanup resumes the same read or terminates explicitly; never replays the path/trade");
-            Require(readRecovered == !terminal, "a transient read longer than the combat budget resumes the original operation");
-            Require(logger.Entries.Any(e => e.EventName == "cleanup_workflow.operation_timeout") == terminal &&
-                !logger.Entries.Any(e => e.EventName is "cleanup_workflow.failed_continuing" or "cleanup_workflow.complete"),
-                "an unconfirmed operation cannot become completion or a replayable cleanup failure");
+            else
+            {
+                try { await run; throw new Exception("expected explicit cancellation"); }
+                catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
+                Require(ReferenceEquals(request, context.CleanupRequests.Current), "transient read resumes the original operation");
+            }
+            Require(calls == 1 && readRecovered == !timesOut, "failed cleanup cannot replay the path/trade");
+            Require(logger.Entries.Any(e => e.EventName == "cleanup_workflow.operation_timeout") == timesOut &&
+                !logger.Entries.Any(e => e.EventName is "cleanup_workflow.complete" or "cleanup_workflow.terminated") &&
+                logger.Entries.Count(e => e.EventName == "worker.loop.enter") == 1,
+                "timeout is neither completion, worker stop nor worker restart");
         }
         catch (Exception ex)
         {
@@ -106,7 +116,6 @@ internal static partial class CleanupWorkflowTests
             stop.Cancel();
             try { await run.WaitAsync(TimeSpan.FromSeconds(3)); }
             catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
-            catch (CleanupExecutionFailedException) when (terminal) { }
         }
     }
 }

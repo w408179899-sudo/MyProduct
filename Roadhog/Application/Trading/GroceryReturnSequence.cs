@@ -118,7 +118,7 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
                     return;
                 }
                 if (Now() - tripStartedAt >= ArrivalTimeout)
-                    throw new CleanupExecutionFailedException($"{tripName}落点确认超过 {ArrivalTimeout.TotalSeconds:0} 秒：阶段={phase}，目标地图={destination.MapId}，当前地图={scene.Channel?.MapId}；未确认到达，账号已停止。", new TimeoutException());
+                    throw new CleanupExecutionFailedException($"{tripName}落点确认超过 {ArrivalTimeout.TotalSeconds:0} 秒：阶段={phase}，目标地图={destination.MapId}，当前地图={scene.Channel?.MapId}；放弃本次清包，返回主流程。", new TimeoutException());
                 // Do not inspect attackers from the departure map once loading starts.
                 if (!transition.SawLoading && scene.IsReady && scene.Channel!.MapId == departure.Channel!.MapId)
                 {

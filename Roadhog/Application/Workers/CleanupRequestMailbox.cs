@@ -23,7 +23,6 @@ public sealed record CleanupRequest(ScriptSettings Settings, bool Manual, bool R
     internal bool TownReturnCompleted { get; set; }
     internal bool FullCleanupStarted { get; set; }
     internal bool SharedConfigurationLoaded { get; set; }
-    internal int PreparationFailures { get; set; }
 }
 
 /// <summary>One pending or executing request per worker session. Never survives Stop/Start.</summary>
@@ -32,8 +31,10 @@ public sealed class CleanupRequestMailbox
     private readonly object sync = new();
     private CleanupRequest? request;
     private Guid? standaloneShopRestartRequestId;
+    private DateTimeOffset automaticRetryAfter;
     public CleanupRequest? Current { get { lock (sync) return request; } }
     public Guid? StandaloneShopRestartRequestId { get { lock (sync) return standaloneShopRestartRequestId; } }
+    public DateTimeOffset AutomaticRetryAfter { get { lock (sync) return automaticRetryAfter; } }
     public OperationResult Request(ScriptSettings settings, bool manual, bool resetsCooldown = true, bool allowNpcSell = true, bool standaloneShop = false,
         GroceryShopTrigger groceryTrigger = GroceryShopTrigger.None, bool arrowRestock = false)
     {
@@ -75,6 +76,16 @@ public sealed class CleanupRequestMailbox
         }
     }
     public void Complete() { lock (sync) request = null; }
+
+    public void Abandon()
+    {
+        lock (sync)
+        {
+            request = null;
+            standaloneShopRestartRequestId = null;
+            automaticRetryAfter = DateTimeOffset.UtcNow.AddSeconds(30);
+        }
+    }
 
     public void CompleteStandaloneShopForRestart(CleanupRequest completed)
     {

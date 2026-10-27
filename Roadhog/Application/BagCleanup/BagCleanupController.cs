@@ -1622,7 +1622,7 @@ public sealed partial class BagCleanupController
     private static void EnsureCleanupReturnDeadline(TownReturnTransition transition)
     {
         if (transition.Active && DateTimeOffset.UtcNow - transition.StartedAt >= TimeSpan.FromMinutes(2))
-            throw new CleanupExecutionFailedException($"清包回城落点确认超过 120 秒：阶段={transition.Phase}，路径={transition.Destination?.Name}；账号已停止。", new TimeoutException());
+            throw new CleanupExecutionFailedException($"清包回城落点确认超过 120 秒：阶段={transition.Phase}，路径={transition.Destination?.Name}；放弃本次清包，返回主流程。", new TimeoutException());
     }
 
     private static BagCleanupTickResult WaitForCleanupReturnScene(BagCleanupState state)
@@ -1630,7 +1630,7 @@ public sealed partial class BagCleanupController
         // This wait precedes TownReturnTransition.Start, so the arrival deadline
         // cannot cover a scene that never becomes ready for the first keypress.
         if (DateTimeOffset.Now - state.StepStartedAt >= TimeSpan.FromMinutes(2))
-            throw new CleanupExecutionFailedException("清包回城前场景超过 120 秒未就绪，未发送回城按键，账号已停止。", new TimeoutException());
+            throw new CleanupExecutionFailedException("清包回城前场景超过 120 秒未就绪，未发送回城按键；放弃本次清包，返回主流程。", new TimeoutException());
         return BagCleanupTickResult.Running("waiting_for_return_scene");
     }
 
