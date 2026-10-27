@@ -12,48 +12,76 @@ internal sealed class LoginSnapshotPublisher(GameApiReadContext context, IRoadho
 {
     private readonly DmaStableSnapshotStore _store=new(AionVmmSnapshotChannels.Registry);
     private readonly DmaSnapshotReadCoordinator _coordinator=new();
+    private readonly object _commitSync=new();
+    private bool _disposed;
     private string? _session;
     private string? _lastFailure;
     private DateTimeOffset _nextFailureLog;
 
     internal LoginObservation? Capture(Func<Action<string>,LoginObservation> capture,
-        Action<LoginObservation>? bindInputTarget = null) =>
+        Action<LoginObservation>? bindInputTarget = null, CancellationToken cancellationToken = default) =>
         _coordinator.Execute(context.AccountName,AionVmmSnapshotChannels.Login,()=>
         {
             try
             {
+                lock(_commitSync) CheckActive(cancellationToken);
                 var value=capture(key=>
                 {
-                    if(key==_session)return;
-                    if(_session is not null)_store.ClearSession(_session);
-                    _session=key;
+                    lock(_commitSync)
+                    {
+                        CheckActive(cancellationToken);
+                        if(key==_session)return;
+                        if(_session is not null)_store.ClearSession(_session);
+                        _session=key;
+                    }
                 });
-                if(_session is null)throw new InvalidOperationException("Login source must establish its lifecycle before capture.");
-                _store.Resolve(_session,AionVmmSnapshotChannels.Login,context,OperationResult<LoginObservation>.Ok(value),DateTimeOffset.UtcNow);
-                _lastFailure=null;
-                // Only the completed capture may bind a physical input target. Returning
-                // the official held scene below must never authorize clicking old geometry.
-                bindInputTarget?.Invoke(value);
-                return value;
+                lock(_commitSync)
+                {
+                    CheckActive(cancellationToken);
+                    if(_session is null)throw new InvalidOperationException("Login source must establish its lifecycle before capture.");
+                    _store.Resolve(_session,AionVmmSnapshotChannels.Login,context,OperationResult<LoginObservation>.Ok(value),DateTimeOffset.UtcNow);
+                    _lastFailure=null;
+                    // Only the completed capture may bind a physical input target. Returning
+                    // the official held scene below must never authorize clicking old geometry.
+                    bindInputTarget?.Invoke(value);
+                    return value;
+                }
             }
             catch(Exception exception) when(LoginReadErrors.IsRetryable(exception))
             {
-                // VmmPdb throws VmmException while its asynchronous symbol initialization is pending.
-                // Keep it below the provider boundary, just like partial/failed native reads.
-                var failure=exception.GetType().FullName+":"+exception.Message;
-                var now=DateTimeOffset.UtcNow;
-                if(failure!=_lastFailure||now>=_nextFailureLog)
+                lock(_commitSync)
                 {
-                    _lastFailure=failure;_nextFailureLog=now.AddSeconds(10);
-                    logger?.Warn("vmm.login.read_retry",new Dictionary<string,object?>
-                    { ["account"]=context.AccountName,["device"]=context.VmmDeviceName,
-                        ["exceptionType"]=exception.GetType().FullName,["error"]=exception.Message });
+                    CheckActive(cancellationToken);
+                    // VmmPdb throws VmmException while its asynchronous symbol initialization is pending.
+                    // Keep it below the provider boundary, just like partial/failed native reads.
+                    var failure=exception.GetType().FullName+":"+exception.Message;
+                    var now=DateTimeOffset.UtcNow;
+                    if(failure!=_lastFailure||now>=_nextFailureLog)
+                    {
+                        _lastFailure=failure;_nextFailureLog=now.AddSeconds(10);
+                        logger?.Warn("vmm.login.read_retry",new Dictionary<string,object?>
+                        { ["account"]=context.AccountName,["device"]=context.VmmDeviceName,
+                            ["exceptionType"]=exception.GetType().FullName,["error"]=exception.Message });
+                    }
+                    if(_session is null)return null;
+                    var result=_store.Resolve(_session,AionVmmSnapshotChannels.Login,context,OperationResult<LoginObservation>.Fail(exception.GetType().Name),DateTimeOffset.UtcNow);
+                    return result.Result.Success?result.Result.Value:null;
                 }
-                if(_session is null)return null;
-                var result=_store.Resolve(_session,AionVmmSnapshotChannels.Login,context,OperationResult<LoginObservation>.Fail(exception.GetType().Name),DateTimeOffset.UtcNow);
-                return result.Result.Success?result.Result.Value:null;
             }
         });
-    public void Dispose()=>_coordinator.Execute(context.AccountName,AionVmmSnapshotChannels.Login,()=>
-    {if(_session is not null)_store.ClearSession(_session);_session=null;return true;});
+    private void CheckActive(CancellationToken token)
+    {
+        ObjectDisposedException.ThrowIf(_disposed,this);
+        token.ThrowIfCancellationRequested();
+    }
+    public void Dispose()
+    {
+        // Invalidate publication immediately, without joining a stuck native capture.
+        lock(_commitSync)
+        {
+            _disposed=true;
+            if(_session is not null)_store.ClearSession(_session);
+            _session=null;
+        }
+    }
 }

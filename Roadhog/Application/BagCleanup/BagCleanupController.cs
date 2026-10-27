@@ -978,7 +978,7 @@ public sealed partial class BagCleanupController
             return BagCleanupTickResult.Running("town_return_item_confirmed");
         }
         var departure = (await context.Snapshots.ReadChannelTransitionAsync().WaitAsync(context.StopToken).ConfigureAwait(false)).Value;
-        if (!departure.IsReady) return BagCleanupTickResult.Running("waiting_for_return_scene");
+        if (!departure.IsReady) return WaitForCleanupReturnScene(state);
         var destination = await _pathStore.LoadAsync(state.ReturnDestinationPathName ?? context.Config.ScriptSettings!.Paths.MaintenancePathName, context.StopToken).ConfigureAwait(false);
         if (destination.Value is not { Points.Count: > 0 })
             throw new InvalidOperationException("回城目标路线不可用：" + destination.Error);
@@ -1031,6 +1031,7 @@ public sealed partial class BagCleanupController
     {
         var transition = state.ReturnTransition ?? throw new InvalidOperationException("清包回城确认状态缺失。");
         var phase = await transition.TickAsync(context).ConfigureAwait(false);
+        EnsureCleanupReturnDeadline(transition);
         if (phase == TownReturnPhase.Dead) throw new CleanupDeathInterruptionException();
         if (phase == TownReturnPhase.Arrived)
         {
@@ -1210,6 +1211,7 @@ public sealed partial class BagCleanupController
                 return BagCleanupTickResult.Running(outcome == NpcSaleOutcome.NoSale ? "npc_sale_no_sale" : "npc_sale_verified");
             }
             catch (SnapshotReadBudgetExceededException) { throw; }
+            catch (CleanupExecutionFailedException) { throw; }
             catch (Exception ex) when (!context.StopToken.IsCancellationRequested && ex is not OperationCanceledException)
             {
                 return ReturnByReversePathAfterFailure(context, state, "npc_sale_unconfirmed", ex.Message);
@@ -1552,7 +1554,7 @@ public sealed partial class BagCleanupController
     {
         var key = context.Config.ScriptSettings?.Paths?.TownReturnKey?.Trim() ?? string.Empty;
         var departure = (await context.Snapshots.ReadChannelTransitionAsync().WaitAsync(context.StopToken).ConfigureAwait(false)).Value;
-        if (!departure.IsReady) return BagCleanupTickResult.Running("waiting_for_return_scene");
+        if (!departure.IsReady) return WaitForCleanupReturnScene(state);
         var destination = await _pathStore.LoadAsync(context.Config.ScriptSettings!.Paths.RevivePathName, context.StopToken).ConfigureAwait(false);
         if (destination.Value is not { Points.Count: > 0 })
         {
@@ -1609,11 +1611,27 @@ public sealed partial class BagCleanupController
     {
         var transition = state.ReturnTransition ?? throw new InvalidOperationException("返回复活点的确认状态缺失。");
         var phase = await transition.TickAsync(context).ConfigureAwait(false);
+        EnsureCleanupReturnDeadline(transition);
         if (phase == TownReturnPhase.Dead) throw new CleanupDeathInterruptionException();
         if (phase != TownReturnPhase.Arrived) return BagCleanupTickResult.Running("waiting_for_return_to_revive");
         context.Logger.Info("bag_cleanup.return_to_revive.verify.ok", new Dictionary<string, object?>
         { ["account"] = context.Config.AccountName, ["mapId"] = transition.Arrival!.Channel!.MapId });
         return FinishCleanupAfterReturn(context, state, returnedByReversePath: false);
+    }
+
+    private static void EnsureCleanupReturnDeadline(TownReturnTransition transition)
+    {
+        if (transition.Active && DateTimeOffset.UtcNow - transition.StartedAt >= TimeSpan.FromMinutes(2))
+            throw new CleanupExecutionFailedException($"清包回城落点确认超过 120 秒：阶段={transition.Phase}，路径={transition.Destination?.Name}；账号已停止。", new TimeoutException());
+    }
+
+    private static BagCleanupTickResult WaitForCleanupReturnScene(BagCleanupState state)
+    {
+        // This wait precedes TownReturnTransition.Start, so the arrival deadline
+        // cannot cover a scene that never becomes ready for the first keypress.
+        if (DateTimeOffset.Now - state.StepStartedAt >= TimeSpan.FromMinutes(2))
+            throw new CleanupExecutionFailedException("清包回城前场景超过 120 秒未就绪，未发送回城按键，账号已停止。", new TimeoutException());
+        return BagCleanupTickResult.Running("waiting_for_return_scene");
     }
 
     private static BagCleanupTickResult FallbackToReversePathAfterTownReturnFailure(

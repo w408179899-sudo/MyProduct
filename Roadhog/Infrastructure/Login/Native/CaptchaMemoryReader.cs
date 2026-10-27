@@ -13,9 +13,11 @@ internal static class CaptchaMemoryReader
         var regions=process.MapVAD();var pages=new SortedSet<ulong>();
         foreach(var pte in process.MapPTE(false))
         {
+            token.ThrowIfCancellationRequested();
             if(!pte.fR||pte.vaBase>=0x80000000)continue;
             for(ulong address=pte.vaBase;address<=pte.vaEnd&&address<0x80000000;address+=4096)
             {
+                token.ThrowIfCancellationRequested();
                 if(pages.Count>=131072)throw new InvalidOperationException("验证码候选扫描超过范围。");
                 var region=regions.FirstOrDefault(r=>address>=r.vaStart&&address<=r.vaEnd);
                 if(region.cbSize>0&&!region.fImage&&!region.fStack&&!region.fTeb&&!region.fFile)pages.Add(address);

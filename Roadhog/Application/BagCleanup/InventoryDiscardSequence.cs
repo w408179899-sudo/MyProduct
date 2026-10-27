@@ -111,6 +111,7 @@ public sealed class InventoryDiscardSequence(IKeyboardInput input, IRoadhogLogge
         {
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
             deadline.CancelAfter(TimeSpan.FromSeconds(4));
+            using var readCancellation = SnapshotReadBudget.EnterCancellation(deadline.Token);
             try
             {
                 while (true)

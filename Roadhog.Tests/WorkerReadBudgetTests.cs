@@ -100,9 +100,10 @@ internal static class WorkerReadBudgetTests
     }
 
     public static async Task WorkerYieldChecksDeathBeforeBlockedWorkAsync() => await RunWorkerAsync(paused: false);
+    public static async Task QueuedCleanupYieldDoesNotTerminateAsync() => await RunWorkerAsync(paused: false, queued: true);
     public static async Task PausedWorkerRevivesWithoutResumingTradeAsync() => await RunWorkerAsync(paused: true);
 
-    private static async Task RunWorkerAsync(bool paused)
+    private static async Task RunWorkerAsync(bool paused, bool queued = false)
     {
         var previous = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS");
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS", "0");
@@ -118,11 +119,11 @@ internal static class WorkerReadBudgetTests
             settings.Maintenance.AutoFoodEnabled = true;
             var mailbox = new CleanupRequestMailbox();
             CleanupRequest? request = null;
-            if (paused)
+            if (paused || queued)
             {
                 mailbox.Request(settings, manual: true, standaloneShop: true);
                 request = mailbox.Current!;
-                request.Failure = "uncertain sale";
+                if (paused) request.Failure = "uncertain sale";
             }
             var logger = new InMemoryRoadhogLogger();
             var context = new AccountWorkerContext(new() { AccountName = "yield", MainMode = settings.MainMode, ScriptSettings = settings },
@@ -144,6 +145,9 @@ internal static class WorkerReadBudgetTests
                 Check(keyboard.Keys.All(key => key == "F1"), "paused account must not send combat or transaction keys");
             }
             else Check(logger.Entries.Any(e => e.EventName == "worker.read_budget.yield"), "two-second blocked read must yield before death handling");
+            if (queued) Check(ReferenceEquals(request, mailbox.Current) && request!.Failure == null &&
+                !logger.Entries.Any(e => e.EventName == "cleanup_workflow.operation_timeout"),
+                "a queued cleanup has submitted no actions and cannot be terminated by an unrelated combat read");
         }
         finally
         {

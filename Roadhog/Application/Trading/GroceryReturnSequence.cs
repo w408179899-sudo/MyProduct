@@ -16,6 +16,7 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
 {
     public const int MaxScrollClicks = 3;
     public static readonly TimeSpan DepartureTimeout = TimeSpan.FromSeconds(20);
+    public static readonly TimeSpan ArrivalTimeout = TimeSpan.FromMinutes(2);
     public static InventoryItemSnapshot? FindScroll(IEnumerable<InventoryItemSnapshot> bag, string name) =>
         bag.Where(i => !i.IsEquipped && i.Slot >= 0 && i.Count > 0 &&
             string.Equals(i.Name, name.Trim(), StringComparison.OrdinalIgnoreCase)).OrderBy(i => i.Slot).FirstOrDefault();
@@ -59,6 +60,7 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
             return idle;
         }
         var hp = departure.Player!.CurrentHp;
+        Exception? failure = null;
         async Task CheckAttack(ChannelTransitionSnapshot scene)
         {
             var attacker = await safety.FindAttackingTargetNameAsync(context);
@@ -96,6 +98,7 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
             report("使用回程卷轴：" + item.Name + "，等待读条和落点确认");
             await actions.RightClickBag(item, BeforeClick);
             var clickedAt = Now();
+            var tripStartedAt = clickedAt;
             var clicks = 1;
             while (true)
             {
@@ -114,6 +117,8 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
                     report("卷轴回程落点已确认");
                     return;
                 }
+                if (Now() - tripStartedAt >= ArrivalTimeout)
+                    throw new CleanupExecutionFailedException($"{tripName}落点确认超过 {ArrivalTimeout.TotalSeconds:0} 秒：阶段={phase}，目标地图={destination.MapId}，当前地图={scene.Channel?.MapId}；未确认到达，账号已停止。", new TimeoutException());
                 // Do not inspect attackers from the departure map once loading starts.
                 if (!transition.SawLoading && scene.IsReady && scene.Channel!.MapId == departure.Channel!.MapId)
                 {
@@ -164,12 +169,13 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
                 await actions.Pause(100);
             }
         }
+        catch (Exception ex) { failure = ex; throw; }
         finally
         {
             // Closing a still-open bag makes the normal combat shortcut usable again.
             try
             {
-                if (!token.IsCancellationRequested)
+                if (!token.IsCancellationRequested && failure is not (Roadhog.Core.Api.SnapshotReadBudgetExceededException or CleanupExecutionFailedException))
                 {
                     var scene = await Scene();
                     if (scene.IsReady && !scene.Player!.IsDead)
@@ -180,7 +186,20 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
                     }
                 }
             }
-            finally { await actions.Reset(); }
+            catch (Exception ex) when (failure != null)
+            {
+                context.Logger.Warn("grocery_shop.return.close_failed", new Dictionary<string, object?>
+                    { ["account"] = context.Config.AccountName, ["originalError"] = failure.Message, ["error"] = ex.Message });
+            }
+            finally
+            {
+                try { await actions.Reset(); }
+                catch (Exception ex) when (failure != null)
+                {
+                    context.Logger.Warn("grocery_shop.return.release_failed", new Dictionary<string, object?>
+                        { ["account"] = context.Config.AccountName, ["originalError"] = failure.Message, ["error"] = ex.Message });
+                }
+            }
         }
     }
 }

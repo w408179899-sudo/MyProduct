@@ -17,6 +17,10 @@ public sealed partial class CleanupWorkflowRunner(IKeyboardInput input, ISharedP
 {
     public async Task RunAsync(AccountWorkerContext source, CleanupRequest request, Func<AccountWorkerContext, Task>? returnToCombat = null)
     {
+        // A cleanup is a multi-step transaction, not a combat tick. Keep provider retries
+        // at the current await so a transient read cannot unwind and replay submitted input.
+        // The per-read limit still bounds unavailable channels and respects account Stop.
+        using var readBudget = Roadhog.Core.Api.SnapshotReadBudget.Enter(TimeSpan.FromSeconds(30));
         if (sharedConfigurationFactory?.Invoke(source.Config) is { } shared)
             await SharedConfigurationRefresh.CaptureCleanupAsync(shared, request, source.StopToken).ConfigureAwait(false);
         var context = source.ForCleanup(request.Settings); var token = context.StopToken;

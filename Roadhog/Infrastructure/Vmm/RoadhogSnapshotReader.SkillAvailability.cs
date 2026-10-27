@@ -24,7 +24,7 @@ internal sealed partial class RoadhogSnapshotReader : ISkillAvailabilitySnapshot
                 try
                 {
                     result = _gameApi is ISkillAvailabilityGameApi api
-                        ? await api.ReadSkillAvailabilityAsync(_readContext, stop).ConfigureAwait(false)
+                        ? await ReadBoundedAsync("skill_availability", ct => api.ReadSkillAvailabilityAsync(_readContext, ct), stop).ConfigureAwait(false)
                         : OperationResult<SkillAvailabilitySnapshot>.Fail("Skill availability provider is not installed.");
                 }
                 catch (OperationCanceledException) when (stop.IsCancellationRequested) { throw; }
@@ -44,9 +44,9 @@ internal sealed partial class RoadhogSnapshotReader : ISkillAvailabilitySnapshot
                 await Task.Delay(RetryDelay, stop).ConfigureAwait(false);
             }
         }
-        catch (OperationCanceledException) when (budget.IsCancellationRequested && !linked.IsCancellationRequested)
+        catch (OperationCanceledException) when (budget.IsCancellationRequested && !linked.IsCancellationRequested && !SnapshotReadBudget.OperationCancelled)
         {
-            throw new SnapshotReadBudgetExceededException();
+            throw new SnapshotReadBudgetExceededException("skill_availability");
         }
     }
 }

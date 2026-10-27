@@ -174,12 +174,15 @@ public sealed partial class CleanupWorkflowRunner
                 return;
             }
             catch (SnapshotReadBudgetExceededException) { throw; }
+            catch (CleanupExecutionFailedException) { throw; }
             catch (Exception ex) when (!token.IsCancellationRequested &&
                 ex is not (OperationCanceledException or CleanupCombatInterruptionException or CleanupDeathInterruptionException))
             {
                 // The discard controller cancels pending input and closes the bag before returning failure.
                 context.Logger.Warn("grocery_shop.final_discard.retry", new Dictionary<string, object?>
                 { ["account"] = context.Config.AccountName, ["retry"] = ++retry, ["error"] = ex.Message });
+                if (retry >= 3)
+                    throw new InvalidOperationException("售空后丢弃连续 3 次未完成，结束本次清包。", ex);
                 report("售空后丢弃未完成，2 秒后重试剩余物品");
                 await (groceryDelay?.Invoke(2000, token) ?? Task.Delay(2000, token));
             }

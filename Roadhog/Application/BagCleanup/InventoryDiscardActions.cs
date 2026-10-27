@@ -62,6 +62,7 @@ public sealed class InventoryDiscardActions(IKeyboardInput input, IRoadhogSnapsh
         logger.Info("inventory_discard.confirmed", Fields(item));
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(TimeSpan.FromSeconds(4));
+        using var readCancellation = SnapshotReadBudget.EnterCancellation(deadline.Token);
         try
         {
             while (true)
@@ -82,6 +83,7 @@ public sealed class InventoryDiscardActions(IKeyboardInput input, IRoadhogSnapsh
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(dialogTimeout ?? TimeSpan.FromSeconds(4));
+        using var readCancellation = SnapshotReadBudget.EnterCancellation(deadline.Token);
         var loggedWait = false;
         try
         {

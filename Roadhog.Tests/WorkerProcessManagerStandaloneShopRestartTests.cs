@@ -6,6 +6,38 @@ using Roadhog.Infrastructure.WorkerProcesses;
 
 internal static partial class WorkerProcessManagerTests
 {
+    public static async Task CleanupFailureBlocksRecoveryAsync()
+    {
+        await using var test = new TestEnvironment();
+        var account = test.Account(1); account.AutoRecover = true;
+        var neighbor = test.Account(2);
+        var manager = await test.ManagerAsync(new[] { account, neighbor });
+        Require((await manager.StartAsync(account.InstanceId)).Success, "start cleanup account");
+        Require((await manager.StartAsync(neighbor.InstanceId)).Success, "start neighbor");
+        var pid = (await test.RunningAsync(manager, account)).WorkerProcessId;
+        await test.Client(account).CallAsync<OperationResult>("mock.cleanup.failed", []);
+        await UntilAsync(() => View(manager, account).State == "failed", "terminal cleanup propagates over IPC");
+        await Task.Delay(400);
+        Require((await test.InfoAsync(account)).Starts == 1 && View(manager, account).WorkerProcessId == pid,
+            "AutoRecover cannot replay an unconfirmed cleanup");
+        Require((await test.InfoAsync(neighbor)).Running, "neighbor remains running");
+        var intentPath = Path.Combine(test.Root, "config", "workers", "run-intent.json");
+        Require(!File.ReadAllText(intentPath).Contains(account.InstanceId) && File.ReadAllText(intentPath).Contains(neighbor.InstanceId),
+            "terminal cleanup clears durable intent without stopping its neighbor");
+        await test.DetachAsync(manager);
+        // Simulate an older/crash-interrupted intent file: adoption must still honor
+        // the live worker's terminal reason before automatic startup is admitted.
+        await File.WriteAllTextAsync(intentPath, JsonSerializer.Serialize(new[] { account.InstanceId, neighbor.InstanceId }));
+        manager = await test.ManagerAsync(new[] { account, neighbor });
+        await Task.Delay(300);
+        Require(View(manager, account) is { State: "failed", DesiredRunning: false } &&
+            (await test.InfoAsync(account)).Starts == 1 && !File.ReadAllText(intentPath).Contains(account.InstanceId),
+            "manager reconnect must preserve cleanup failure and repair stale intent");
+        Require((await manager.StartAsync(account.InstanceId)).Success, "explicit start after review is allowed");
+        await test.RunningAsync(manager, account);
+        Require((await test.InfoAsync(account)).Starts == 2, "explicit start admits exactly one new execution");
+    }
+
     public static async Task StandaloneShopRestartsFreshWorkerAsync()
     {
         foreach (var alreadyRunning in new[] { false, true })

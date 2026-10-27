@@ -85,6 +85,12 @@ public sealed class AccountOrchestrator
             return _workers.TryGetValue(accountName, out var worker) ? worker.StandaloneShopRestartRequestId : null;
     }
 
+    public string? GetCleanupFailure(string accountName)
+    {
+        lock (_syncRoot)
+            return _workers.TryGetValue(accountName, out var worker) ? worker.CleanupFailure : null;
+    }
+
     private OperationResult StartCore(AccountConfig config, bool cleanupFirst = false, bool standaloneShop = false)
     {
         if (_licenseRuntimeGate is not null && !_licenseRuntimeGate.IsAuthorized)

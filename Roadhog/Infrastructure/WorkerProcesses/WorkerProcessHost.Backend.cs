@@ -130,6 +130,7 @@ internal sealed class RoadhogWorkerProcessBackend : IWorkerProcessBackend
             IsRunning = state?.Status is "starting" or "running" or "stopping",
             LoginCompleted = _loginCompleted,
             StandaloneShopRestartRequestId = _services.AccountOrchestrator.GetStandaloneShopRestartRequestId(_spec.Account.AccountName),
+            CleanupFailure = _services.AccountOrchestrator.GetCleanupFailure(_spec.Account.AccountName),
             Snapshot = state
         };
     }

@@ -28,12 +28,13 @@ public sealed class TradingActions(IKeyboardInput input, IRoadhogSnapshotReader 
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(timeoutMs);
+        using var readCancellation = SnapshotReadBudget.EnterCancellation(deadline.Token);
         try
         {
             while (true)
             {
                 var value = await read().WaitAsync(deadline.Token);
-                await Alive();
+                await Alive().WaitAsync(deadline.Token);
                 if (condition(value)) return value;
                 await Pause(100, deadline.Token);
             }
@@ -41,6 +42,7 @@ public sealed class TradingActions(IKeyboardInput input, IRoadhogSnapshotReader 
         catch (SnapshotReadBudgetExceededException) { throw; }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         { throw new ConfirmationTimeoutException(); }
+        finally { deadline.Cancel(); }
     }
     public async Task Click<T>(Func<Task<T>> read, Func<T, GameUiPoint?> locate, Func<T, bool> guard,
         RoadhogMouseButton button = RoadhogMouseButton.Left, bool shift = false)

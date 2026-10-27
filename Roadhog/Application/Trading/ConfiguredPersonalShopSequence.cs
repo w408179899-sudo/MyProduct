@@ -7,7 +7,8 @@ namespace Roadhog.Application.Trading;
 
 public sealed record PlannedShopItem(InventoryItemSnapshot Item, ulong UnitPrice);
 
-public sealed class ConfiguredPersonalShopSequence(IKeyboardInput input, Func<int, CancellationToken, Task>? delay = null)
+public sealed class ConfiguredPersonalShopSequence(IKeyboardInput input, Func<int, CancellationToken, Task>? delay = null,
+    int settlementTimeoutMs = 30000)
 {
     public async Task RunAsync(IRoadhogSnapshotReader snapshots, IReadOnlyList<PlannedShopItem> plan, Action<string> report, CancellationToken token,
         int? advertisementDiscount = null)
@@ -17,11 +18,32 @@ public sealed class ConfiguredPersonalShopSequence(IKeyboardInput input, Func<in
         async Task<PersonalShopSnapshot> Ui() => (await snapshots.ReadPersonalShopAsync().WaitAsync(token)).Value;
         async Task<IReadOnlyList<InventoryItemSnapshot>> Bag() => (await snapshots.ReadInventoryAsync().WaitAsync(token)).Value;
         async Task<ulong> Money() => (await snapshots.ReadInventoryMoneyAsync().WaitAsync(token)).Value;
+        async Task StopEmptyStall()
+        {
+            var current = await Ui();
+            Require(current.Editor == null && current.Listings.Count == 0 && !current.OtherModalOpen, "空摊关闭前界面发生变化。");
+            if (!current.IsSelling) return;
+            try
+            {
+                await actions.Click(Ui, s => s.StopButton, s => s.IsSelling && s.Listings.Count == 0 && s.Editor == null && !s.OtherModalOpen);
+            }
+            catch (InvalidOperationException) when (!token.IsCancellationRequested)
+            {
+                // Automatic sellout can stop the stall between observation and the click.
+                // Accept only the already-stopped empty state; never toggle it back on.
+                current = await Ui();
+                if (current.IsSelling || current.Listings.Count != 0 || current.Editor != null || current.OtherModalOpen) throw;
+            }
+            await actions.Wait(Ui, s => !s.IsSelling && s.Listings.Count == 0 && s.Editor == null && !s.OtherModalOpen);
+        }
         try
         {
             await actions.Reset();
+            var batchNumber = 0;
             foreach (var batch in plan.Chunk(10))
             {
+                batchNumber++;
+                report($"摆摊第 {batchNumber}/{(plan.Count + 9) / 10} 批：准备登记 {batch.Length} 项");
                 var ui = await Ui();
                 Require(!ui.IsSelling && ui.Editor == null && ui.Listings.Count == 0 && !ui.OtherModalOpen, "已有摊位或登记内容，停止以免混入本次计划。");
                 await PersonalShopStance.EnsureNormalAsync(actions, snapshots, report, token);
@@ -67,27 +89,43 @@ public sealed class ConfiguredPersonalShopSequence(IKeyboardInput input, Func<in
                 await actions.Click(Ui, s => s.StartButton, s => s.IsOpen && !s.IsSelling && s.Editor == null && !s.InventoryOpen &&
                     s.AdvertisementText == expectedAdvertisement &&
                     s.Listings.Count == registered.Count && registered.All(s.Listings.Contains));
-                await actions.Wait(Ui, s => s.IsSelling);
+                // A buyer may take the entire batch before the first post-click read.
+                // An empty list enters settlement verification; it is not sale success by itself.
+                await actions.Wait(Ui, s => s.IsSelling || s.Listings.Count == 0 && s.Editor == null);
                 var started = DateTimeOffset.UtcNow; var nextReport = DateTimeOffset.MinValue;
                 while (true)
                 {
                     await actions.Alive(); ui = await Ui(); var bag = await Bag(); var money = await Money();
                     if (Consumed(bag) && money >= checked(gold + expectedProceeds) && ui.Listings.Count == 0) break;
-                    if (!ui.IsSelling)
+                    if (ui.Listings.Count == 0 || !ui.IsSelling)
                     {
-                        Require(ui.IsOpen && ui.Editor == null && ui.Listings.Count == 0, "摆摊中断，未确认本轮全部售罄。");
+                        Require(ui.IsOpen && ui.Editor == null && ui.Listings.Count == 0 && !ui.OtherModalOpen, "摆摊中断，未确认本轮全部售罄。");
+                        // An empty stall can remain in selling mode. Close that empty stall
+                        // before settlement so it cannot occupy the character indefinitely.
+                        if (ui.IsSelling)
+                        {
+                            await StopEmptyStall();
+                        }
                         // The game can clear/stop the stall before inventory and proceeds arrive.
                         // Await all sale postconditions, without treating the empty UI as success.
-                        report("摊位清单已清空，核对背包扣除和出售收入");
-                        var settled = await actions.Wait(async () =>
+                        report($"第 {batchNumber} 批清单已清空，核对背包扣除和出售收入（最多 {settlementTimeoutMs / 1000} 秒）");
+                        var consumed = Consumed(bag);
+                        var proceeds = money;
+                        try
                         {
-                            var current = await Ui();
-                            var consumed = Consumed(await Bag());
-                            var proceeds = await Money();
-                            return (Ui: current, Consumed: consumed, Money: proceeds);
-                        }, s => !s.Ui.OtherModalOpen && s.Ui.Editor == null && s.Ui.Listings.Count == 0 &&
-                            s.Consumed && s.Money >= checked(gold + expectedProceeds));
-                        ui = settled.Ui;
+                            ui = await actions.Wait(async () =>
+                            {
+                                var current = await Ui();
+                                consumed = Consumed(await Bag());
+                                proceeds = await Money();
+                                return current;
+                            }, s => !s.IsSelling && !s.OtherModalOpen && s.Editor == null && s.Listings.Count == 0 &&
+                                consumed && proceeds >= checked(gold + expectedProceeds), settlementTimeoutMs);
+                        }
+                        catch (TradingActions.ConfirmationTimeoutException ex)
+                        {
+                            throw new InvalidOperationException($"第 {batchNumber} 批售罄结算超时：背包扣除={consumed}，金币={proceeds}，应至少={checked(gold + expectedProceeds)}；未确认售罄，不重复提交。", ex);
+                        }
                         break;
                     }
                     Require(ui.Listings.All(l => registered.Any(p => p.InstanceId == l.InstanceId && p.TemplateId == l.TemplateId && p.UnitPrice == l.UnitPrice && l.Quantity <= p.Quantity)), "摊位清单与计划不一致。");
@@ -100,10 +138,10 @@ public sealed class ConfiguredPersonalShopSequence(IKeyboardInput input, Func<in
                 }
                 if (ui.IsSelling)
                 {
-                    await actions.Click(Ui, s => s.StopButton, s => s.IsSelling && s.Listings.Count == 0);
-                    await actions.Wait(Ui, s => !s.IsSelling);
+                    await StopEmptyStall();
                 }
                 if ((await Ui()).IsOpen) { await actions.Key("Y"); await actions.Wait(Ui, s => !s.IsOpen); }
+                report($"第 {batchNumber} 批已确认售罄，剩余 {Math.Max(0, plan.Count - batchNumber * 10)} 项待摆摊");
             }
         }
         finally { await actions.Reset(); }

@@ -36,6 +36,7 @@ internal sealed class AutoLoginOptions
     public TimeSpan PollInterval { get; init; } = TimeSpan.FromMilliseconds(800);
     public TimeSpan ActionRetryInterval { get; init; } = TimeSpan.FromSeconds(3);
     public TimeSpan LauncherReadyDelay { get; init; } = TimeSpan.FromSeconds(20);
+    public TimeSpan InputReleaseTimeout { get; init; } = TimeSpan.FromSeconds(5);
 }
 
 internal sealed class AutoLoginRunner(AutoLoginOptions? options = null, TimeProvider? timeProvider = null)
@@ -46,10 +47,28 @@ internal sealed class AutoLoginRunner(AutoLoginOptions? options = null, TimeProv
     public async Task<OperationResult<int>> RunAsync(IAutoLoginSession session, string expectedCharacter,
         IProgress<string>? progress, CancellationToken cancellationToken)
     {
+        try { return await RunCoreAsync(session, expectedCharacter, progress, cancellationToken).ConfigureAwait(false); }
+        catch (InputReleaseException exception)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            // Return an explicit rejection so the account manager does not treat
+            // uncertain input release as a crashed worker to relaunch automatically.
+            return OperationResult<int>.Fail(exception.Message);
+        }
+    }
+
+    private sealed class InputReleaseException(Exception cause)
+        : Exception("登录结束时未能确认释放输入，已阻止继续启动：" + cause.Message, cause);
+
+    private async Task<OperationResult<int>> RunCoreAsync(IAutoLoginSession session, string expectedCharacter,
+        IProgress<string>? progress, CancellationToken cancellationToken)
+    {
         if (string.IsNullOrWhiteSpace(expectedCharacter))
             return OperationResult<int>.Fail("请先在设备/角色中保存目标角色。");
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(_options.Timeout);
+        using var stepDeadline = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token);
+        stepDeadline.CancelAfter(_options.TransitionTimeout);
         string? lastDispatched = null, lastDescription = null;
         var gameActions = new HashSet<string>(StringComparer.Ordinal);
         string? enteringWorldSession = null;
@@ -59,6 +78,7 @@ internal sealed class AutoLoginRunner(AutoLoginOptions? options = null, TimeProv
         bool reconnectRequested = false;
         bool waitingForGameExit = false;
         LoginStage? lastStage = null;
+        LoginAction? lastAction = null;
         var actionStarted = System.Diagnostics.Stopwatch.StartNew();
         var transitionStarted = System.Diagnostics.Stopwatch.StartNew();
         try
@@ -66,7 +86,7 @@ internal sealed class AutoLoginRunner(AutoLoginOptions? options = null, TimeProv
             while (true)
             {
                 deadline.Token.ThrowIfCancellationRequested();
-                var snapshot = await session.ReadAsync(deadline.Token).ConfigureAwait(false);
+                var snapshot = await session.ReadAsync(stepDeadline.Token).ConfigureAwait(false);
                 if (waitingForGameExit)
                 {
                     if (snapshot.GameProcessCount > 0)
@@ -89,6 +109,7 @@ internal sealed class AutoLoginRunner(AutoLoginOptions? options = null, TimeProv
                     gameActions.Clear();
                     lastStage = null;
                     transitionStarted.Restart();
+                    stepDeadline.CancelAfter(_options.TransitionTimeout);
                 }
                 // A verified reconnect popup can interrupt any login stage. Reset launch guards
                 // only after the provider confirms that no game/passport/launcher remains.
@@ -112,10 +133,12 @@ internal sealed class AutoLoginRunner(AutoLoginOptions? options = null, TimeProv
                     && gameLaunchTimestamp is long launchedAt
                     && _time.GetElapsedTime(launchedAt) < _options.LauncherReadyDelay;
                 // A confirmed page transition is progress even when that page has no button yet.
-                if (!waitingForGameWindow && lastStage != snapshot.Stage)
+                if (!waitingForGameWindow && (lastStage != snapshot.Stage || lastAction != snapshot.Action))
                 {
                     lastStage = snapshot.Stage;
+                    lastAction = snapshot.Action;
                     transitionStarted.Restart();
+                    stepDeadline.CancelAfter(_options.TransitionTimeout);
                 }
                 var description = waitingForGameWindow
                     ? "已点击启动游戏，等待启动器或游戏窗口出现…"
@@ -137,6 +160,8 @@ internal sealed class AutoLoginRunner(AutoLoginOptions? options = null, TimeProv
                 {
                     if (snapshot.Stage is LoginStage.Blocked or LoginStage.CredentialsRejected)
                         return OperationResult<int>.Fail(snapshot.Description);
+                    if (transitionStarted.Elapsed >= _options.TransitionTimeout)
+                        return OperationResult<int>.Fail("登录步骤等待超时：" + description + "。可再次点击登录接续。");
                     var identity = snapshot.Session + ":" + snapshot.ActionIdentity;
                     bool gameAction = snapshot.Stage is LoginStage.Agreement or LoginStage.ServerSelection or LoginStage.CharacterSelection or LoginStage.EntryAgreement;
                     // Only retry controls whose current state proves the operation is still
@@ -151,7 +176,7 @@ internal sealed class AutoLoginRunner(AutoLoginOptions? options = null, TimeProv
                         && (snapshot.Action is LoginAction.Reaccelerate or LoginAction.ConfirmGameExit || snapshot.Session != enteringWorldSession)
                         && !(authenticationSubmitted && snapshot.Stage is LoginStage.Launcher or LoginStage.AcceleratorReady))
                     {
-                        if (await session.ExecuteAsync(snapshot, snapshot.Action, deadline.Token).ConfigureAwait(false))
+                        if (await session.ExecuteAsync(snapshot, snapshot.Action, stepDeadline.Token).ConfigureAwait(false))
                         {
                             if (gameAction) gameActions.Add(identity);
                             if (snapshot.Action == LoginAction.ConfirmEntryAgreement) enteringWorldSession = snapshot.Session;
@@ -165,7 +190,8 @@ internal sealed class AutoLoginRunner(AutoLoginOptions? options = null, TimeProv
                             if (snapshot.Action == LoginAction.ConfirmGameExit) waitingForGameExit = true;
                             lastDispatched = identity;
                             actionStarted.Restart();
-                            transitionStarted.Restart();
+                            // Accepted input is not observed progress. Repeated clicks on
+                            // an unchanged page must not extend the step indefinitely.
                         }
                     }
                     if (transitionStarted.Elapsed >= _options.TransitionTimeout)
@@ -175,7 +201,23 @@ internal sealed class AutoLoginRunner(AutoLoginOptions? options = null, TimeProv
             }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        { return OperationResult<int>.Fail("自动登录超过 10 分钟，已停止输入。可检查当前页面后重新登录。"); }
-        finally { await session.ReleaseInputAsync().ConfigureAwait(false); }
+        {
+            return OperationResult<int>.Fail(deadline.IsCancellationRequested
+                ? "自动登录超过 10 分钟，已停止输入。可检查当前页面后重新登录。"
+                : "登录步骤等待超时：" + lastDescription + "。可再次点击登录接续。");
+        }
+        catch (TimeoutException exception)
+        { return OperationResult<int>.Fail(exception.Message); }
+        finally
+        {
+            try
+            {
+                var release = session.ReleaseInputAsync();
+                _ = release.ContinueWith(done => { _ = done.Exception; }, CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                await release.WaitAsync(_options.InputReleaseTimeout).ConfigureAwait(false);
+            }
+            catch (Exception exception) { throw new InputReleaseException(exception); }
+        }
     }
 }

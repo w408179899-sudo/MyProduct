@@ -36,6 +36,9 @@ public sealed class WarehousePurchaseSequence(IKeyboardInput input, Func<int, Ca
                 var selected = target.HasTarget && seller != 0 && target.Name == settings.WarehouseName;
                 if (selected && ui.IsOpen && ui.SellerObjectId == seller && ui.Items.Count > 0) break;
                 var now = Now();
+                if (now - started >= TimeSpan.FromMinutes(5))
+                    throw new Roadhog.Application.Workers.CleanupExecutionFailedException(
+                        $"等待仓库号 {settings.WarehouseName} 到场并摆摊超过 5 分钟，账号已停止。", new TimeoutException());
                 if (now >= nextReport)
                 {
                     report($"等待仓库号 {settings.WarehouseName} 到场并摆摊（{(int)(now - started).TotalSeconds} 秒）");

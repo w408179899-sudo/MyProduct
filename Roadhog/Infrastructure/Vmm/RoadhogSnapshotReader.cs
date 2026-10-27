@@ -334,7 +334,7 @@ internal sealed partial class RoadhogSnapshotReader : IRoadhogSnapshotReader
                 OperationResult<T> observed;
                 try
                 {
-                    observed = await read(stop).ConfigureAwait(false);
+                    observed = await ReadBoundedAsync(channel, read, stop).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (stop.IsCancellationRequested)
                 {
@@ -367,9 +367,9 @@ internal sealed partial class RoadhogSnapshotReader : IRoadhogSnapshotReader
                 await Task.Delay(RetryDelay, stop).ConfigureAwait(false);
             }
         }
-        catch (OperationCanceledException) when (budget.IsCancellationRequested && !_stopToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (budget.IsCancellationRequested && !_stopToken.IsCancellationRequested && !SnapshotReadBudget.OperationCancelled)
         {
-            throw new SnapshotReadBudgetExceededException();
+            throw new SnapshotReadBudgetExceededException(channel);
         }
     }
 

@@ -91,6 +91,8 @@ public sealed partial class BagCleanupController
                 // Re-read after closing too: additions or delayed inventory changes cannot be skipped.
             }
         }
+        catch (Roadhog.Core.Api.SnapshotReadBudgetExceededException) { throw; }
+        catch (CleanupExecutionFailedException) { throw; }
         catch (Exception ex) when (!context.StopToken.IsCancellationRequested &&
             ex is not (CleanupCombatInterruptionException or CleanupDeathInterruptionException))
         {

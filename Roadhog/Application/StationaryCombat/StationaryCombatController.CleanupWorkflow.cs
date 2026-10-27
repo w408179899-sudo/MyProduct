@@ -7,12 +7,16 @@ namespace Roadhog.Application.StationaryCombat;
 public sealed partial class StationaryCombatController
 {
     public async Task ReturnAfterCleanupAsync(AccountWorkerContext context, SemiAutoSkillPlan plan,
-        SemiAutoCombatState semiAutoState, StationaryCombatState state)
+        SemiAutoCombatState semiAutoState, StationaryCombatState state, TimeSpan? timeout = null)
     {
         state.StartCleanupReturnToCombat();
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        var limit = timeout ?? TimeSpan.FromMinutes(15);
         while (true)
         {
             context.StopToken.ThrowIfCancellationRequested();
+            if (elapsed.Elapsed >= limit)
+                throw new CleanupExecutionFailedException("清包后返回挂机点长时间未完成，账号已停止。", new TimeoutException());
             var life = await TickPlayerLifeGuardAsync(context, plan, semiAutoState, state, followRevivePath: true);
             if (life.HasValue)
             {

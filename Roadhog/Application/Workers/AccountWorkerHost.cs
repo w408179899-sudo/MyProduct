@@ -19,6 +19,8 @@ public sealed class AccountWorkerHost
     private CancellationTokenSource? _stopSource;
     private Task? _task;
     private CleanupRequestMailbox _cleanupRequests = new();
+    private string? _cleanupFailure;
+    public string? CleanupFailure { get { lock (_syncRoot) return _cleanupFailure; } }
 
     public AccountWorkerHost(
         IRoadhogSnapshotReaderFactory snapshotReaders,
@@ -74,6 +76,7 @@ public sealed class AccountWorkerHost
             }
 
             var workerConfig = config.Clone();
+            _cleanupFailure = null;
             _cleanupRequests = new();
             if (cleanupFirst || standaloneShop)
             {
@@ -141,6 +144,7 @@ public sealed class AccountWorkerHost
     {
         AccountWorkerContext? context = null;
         var failures = 0;
+        var cleanupFailed = false;
         try
         {
             while (!stopToken.IsCancellationRequested)
@@ -160,6 +164,18 @@ public sealed class AccountWorkerHost
                     await _workerLoop.RunAsync(context).ConfigureAwait(false);
                     stopToken.ThrowIfCancellationRequested();
                     throw new InvalidOperationException("账号主循环意外返回，自动恢复运行。");
+                }
+                catch (CleanupExecutionFailedException ex) when (!stopToken.IsCancellationRequested)
+                {
+                    // Unconfirmed trades must not be replayed by the generic recovery loop.
+                    cleanupFailed = true;
+                    lock (_syncRoot) _cleanupFailure = ex.Message;
+                    // Also cancel any read still completing after a UI confirmation deadline.
+                    _stopSource?.Cancel();
+                    _logger.Error("cleanup_workflow.terminated", ex, new Dictionary<string, object?>
+                        { ["account"] = config.AccountName });
+                    _runtimeStates.MarkFailed(config.AccountName, ex.Message);
+                    return;
                 }
                 catch (Exception ex) when (!stopToken.IsCancellationRequested)
                 {
@@ -190,7 +206,7 @@ public sealed class AccountWorkerHost
         }
         finally
         {
-            _runtimeStates.MarkStopped(config.AccountName);
+            if (!cleanupFailed) _runtimeStates.MarkStopped(config.AccountName);
         }
     }
 

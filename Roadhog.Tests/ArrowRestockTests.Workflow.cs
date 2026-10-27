@@ -118,10 +118,12 @@ internal static partial class ArrowRestockTests
                 "exactly 10000 does not queue a combat supply trip");
             f.Api.InventoryItems = f.Api.InventoryItems.Select(i => i.InstanceId == 11 ? i with { Count = 9999 } : i).ToArray();
             await Until(() => f.Context.CleanupRequests.Current?.Failure != null);
+            try { await task; throw new Exception("unconfirmed purchase must terminate the worker"); }
+            catch (CleanupExecutionFailedException) { }
             Check(f.Context.CleanupRequests.Current is { ArrowRestock: true, GroceryShop: false, AllowNpcSell: false } &&
                 f.Logger.Entries.Count(e => e.EventName == "arrow_restock.requested") == 1 && f.BuyClicks == 1,
                 "below 10000 buys even with cleanup disabled, free backpack and grocery mode");
-            Check(f.Logger.Entries.Any(e => e.EventName == "arrow_restock.failed"), "ambiguous purchase is held as supply failure");
+            Check(task.IsCompleted && f.Logger.Entries.Any(e => e.EventName == "arrow_restock.failed"), "ambiguous purchase ends execution as supply failure");
             var inputCount = f.Input.Keys.Count + f.Input.MouseCommands.Count;
             await Task.Delay(2200, f.Stop.Token);
             Check(inputCount == f.Input.Keys.Count + f.Input.MouseCommands.Count && f.BuyClicks == 1 &&
@@ -131,6 +133,7 @@ internal static partial class ArrowRestockTests
         {
             f.Stop.Cancel();
             try { await task; } catch (OperationCanceledException) when (f.Stop.IsCancellationRequested) { }
+            catch (CleanupExecutionFailedException) { }
         }
     }
 

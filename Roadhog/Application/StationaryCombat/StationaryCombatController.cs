@@ -1154,6 +1154,9 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         var displayName = string.IsNullOrWhiteSpace(pathName) ? "manual_path" : pathName.Trim();
         var reachDistance = ResolvePathFollowReachDistance(context.Config.ScriptSettings?.Combat);
 
+        var cleanupProgress = fromStart ? new CleanupPathProgress() : null;
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+
         try
         {
             var initialPlayer = await ReadManualPathPlayerAsync(
@@ -1193,6 +1196,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 var distance = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, point);
                 if (distance > reachDistance)
                 {
+                    cleanupProgress?.Observe(pointIndex, distance, elapsed.Elapsed, displayName);
                     await PathFollowStepAsync(context, state, player, point, reachDistance).ConfigureAwait(false);
                     await TryJumpPathCombatIfStuckAsync(context, state, playerPosition, pointIndex, distance)
                         .ConfigureAwait(false);

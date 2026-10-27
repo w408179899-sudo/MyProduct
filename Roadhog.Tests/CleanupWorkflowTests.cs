@@ -144,13 +144,13 @@ internal static partial class CleanupWorkflowTests
     private static async Task ConfiguredStallCoreAsync(bool discounted, bool integrated = false, bool worker = false)
     {
         foreach (var scenario in (integrated ? new[] { "auto_stop_delayed" } : discounted
-            ? new[] { "batches", "closed_early", "cancel_wait", "auto_stop_delayed", "empty_unconfirmed", "wrong_price" }
-            : new[] { "batches", "purchased_merge", "closed_early", "cancel_wait", "auto_stop_delayed", "empty_unconfirmed" }))
+            ? new[] { "batches", "closed_early", "cancel_wait", "auto_stop_delayed", "empty_unconfirmed", "empty_selling", "selling_delayed", "instant_sale", "stop_race", "wrong_price" }
+            : new[] { "batches", "purchased_merge", "closed_early", "cancel_wait", "auto_stop_delayed", "empty_unconfirmed", "empty_selling", "selling_delayed", "instant_sale", "stop_race" }))
         {
             var api = new FakeGameApi { InventoryMoney = 100 }; var input = new RecordingKeyboardInput(); Cursor(api,input);
             if (worker) api.TargetEntityId = 0;
             using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(integrated ? 15 : 3));
-            var count = scenario == "batches" ? 12 : 1;
+            var count = scenario is "batches" or "selling_delayed" or "instant_sale" or "stop_race" ? 12 : 1;
             var plan = Enumerable.Range(0,count).Select(i => new PlannedShopItem(new InventoryItemSnapshot((uint)(20+i),(ulong)(11+i),"item"+i,3,i,false, VendorSellUnitPrice: (ulong)(17+i)*40),(ulong)(17+i))).ToArray();
             api.InventoryItems = plan.Select(p => scenario == "purchased_merge" ? p.Item with { Count = 8 } : p.Item).ToArray();
             var state = Shop() with { StartButton = new(700,100), StopButton = new(750,100), AdvertisementText = "     50 %     ",
@@ -161,7 +161,9 @@ internal static partial class CleanupWorkflowTests
             PersonalShopListing[]? pendingSale=null;
             api.PersonalShopRead = () =>
             {
-                if(pendingSale!=null && scenario=="auto_stop_delayed")
+                if (scenario == "stop_race" && state.IsSelling && state.Listings.Count == 0)
+                    state = state with { IsSelling = false };
+                if(pendingSale!=null && scenario is "auto_stop_delayed" or "selling_delayed")
                 {
                     settlementReads++;
                     if(settlementReads==3)
@@ -173,14 +175,15 @@ internal static partial class CleanupWorkflowTests
                         pendingSale=null;
                     }
                 }
-                if(state.IsSelling && ++sellingReads == 5)
+                if(state.IsSelling && ++sellingReads == (scenario == "instant_sale" ? 1 : 5))
                 {
                     if(scenario=="closed_early")state=state with{IsSelling=false,IsOpen=false,Listings=Array.Empty<PersonalShopListing>()};
                     else if(scenario=="cancel_wait")stop.Cancel();
-                    else if(scenario is "auto_stop_delayed" or "empty_unconfirmed")
+                    else if(scenario is "auto_stop_delayed" or "empty_unconfirmed" or "empty_selling" or "selling_delayed")
                     {
                         pendingSale=state.Listings.ToArray();
-                        state=state with{IsSelling=false,Listings=Array.Empty<PersonalShopListing>()};
+                        settlementReads = 0;
+                        state=state with{IsSelling=scenario is "empty_selling" or "selling_delayed",Listings=Array.Empty<PersonalShopListing>()};
                     }
                     else
                     {
@@ -189,7 +192,7 @@ internal static partial class CleanupWorkflowTests
                             api.InventoryMoney += l.Quantity*l.UnitPrice;
                             api.InventoryItems = api.InventoryItems.Select(i => i.InstanceId==l.InstanceId ? i with{Count=checked(i.Count-(uint)l.Quantity)}:i).Where(i=>i.Count>0).ToArray();
                         }
-                        state=state with{Listings=Array.Empty<PersonalShopListing>()};
+                        state=state with{IsSelling=scenario != "instant_sale",Listings=Array.Empty<PersonalShopListing>()};
                     }
                 }
                 var items=api.InventoryItems.Select(i=>new InventoryUiItem((uint)i.InstanceId,i.TemplateId,i.Count,new(400+i.Slot*20,300))).ToArray();
@@ -303,21 +306,23 @@ internal static partial class CleanupWorkflowTests
                             "old shop worker does not recall or run return-to-combat");
                     }
                     else await DiscountedPersonalShopWorkflow.RunAsync(reader, settings,
-                        p => new ConfiguredPersonalShopSequence(input,Fast).RunAsync(reader,p,_=>{},stop.Token,5),
+                        p => new ConfiguredPersonalShopSequence(input,Fast, settlementTimeoutMs: 150).RunAsync(reader,p,_=>{},stop.Token,5),
                         Resume, _=>{}, stop.Token);
                 }
-                else await new ConfiguredPersonalShopSequence(input,Fast).RunAsync(reader,plan,_=>{},stop.Token);
-                Require(scenario is "batches" or "purchased_merge" or "auto_stop_delayed","closed UI cannot prove sold out");
+                else await new ConfiguredPersonalShopSequence(input,Fast, settlementTimeoutMs: 150).RunAsync(reader,plan,_=>{},stop.Token);
+                Require(scenario is "batches" or "purchased_merge" or "auto_stop_delayed" or "selling_delayed" or "instant_sale" or "stop_race","closed UI cannot prove sold out");
                 Require(confirms==count&&starts==(count+9)/10,"all matching entries sold over batches");
                 Require(state.AdvertisementText == (discounted ? "     50 %     " : string.Empty),
                     "discounted stalls retain percentage text while cleanup stalls clear old advertisement");
                 if(scenario=="purchased_merge")Require(api.InventoryItems.Single().Count==5,"warehouse purchase excluded even when merged into same stack");
             }
             catch(InvalidOperationException)when(scenario=="closed_early"){}
-            catch(OperationCanceledException)when(scenario is "cancel_wait" or "empty_unconfirmed" or "wrong_price"){}
+            catch(InvalidOperationException ex)when(scenario is "empty_unconfirmed" or "empty_selling")
+            { Require(ex.Message.Contains("结算超时") && !stop.IsCancellationRequested, "unsettled empty stall exits on its own deadline with diagnostics"); }
+            catch(OperationCanceledException)when(scenario is "cancel_wait" or "wrong_price"){}
             if(scenario=="auto_stop_delayed")Require(settlementReads>=5&&api.InventoryMoney==151&&api.InventoryItems.Count==0,"await inventory and money independently after automatic shop stop");
-            if(scenario=="empty_unconfirmed")Require(starts==1&&api.InventoryMoney==100&&api.InventoryItems.Count==1,"empty shop alone never succeeds or submits another sale");
-            if (discounted) Require(resumed == (scenario is "batches" or "auto_stop_delayed"), "failed, cancelled or unsettled trades never resume grinding");
+            if(scenario is "empty_unconfirmed" or "empty_selling")Require(starts==1&&api.InventoryMoney==100&&api.InventoryItems.Count==1&&!state.IsSelling,"empty shop stops without claiming success or submitting another sale");
+            if (discounted) Require(resumed == (scenario is "batches" or "auto_stop_delayed" or "selling_delayed" or "instant_sale" or "stop_race"), "failed, cancelled or unsettled trades never resume grinding");
             if (scenario == "wrong_price") Require(confirms == 0 && starts == 0, "unconfirmed price never registers or starts stall");
             Require(!down&&input.KeyUps.Contains("ControlKey"),"stall input released on every exit");
         }

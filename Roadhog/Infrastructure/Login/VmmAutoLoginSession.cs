@@ -16,11 +16,12 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
 {
     private readonly LoginSnapshotPublisher _publication = new(new(account.AccountName,0,"",account.VmmDeviceName,true),logger);
     private readonly LoginInputRecovery _recovery = new(account.AccountName,logger);
+    private readonly LoginOperationExecutor _reads = new();
+    private readonly LoginOperationExecutor _inputOperations = new();
     private OnnxCaptchaRecognizer? _recognizer;
     private bool _inputUsed;
     private bool _awaitingClickOutcome;
     private int _captchaRound;
-    private CancellationToken _operationToken;
 
     public async Task<LoginSnapshot> ReadAsync(CancellationToken cancellationToken) =>
         (await ObserveAsync(cancellationToken).ConfigureAwait(false)).Snapshot;
@@ -39,7 +40,7 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
     // Both reads and input binding use the same capture/validate/publish pipeline.
     // A failed attempt still returns the official scene to readers, but cannot bind input.
     private Task<LoginObservation?> CaptureAsync(CancellationToken token,Action<LoginObservation>? bindInputTarget=null) =>
-        Task.Run(()=>_publication.Capture(lifecycle=>api.WithLoginConnection(account.VmmDeviceName,vmm=>
+        _reads.RunAsync(readToken=>_publication.Capture(lifecycle=>api.WithLoginConnection(account.VmmDeviceName,vmm=>
             {
                 var key=LoginNativeReader.SessionKey(vmm,account);
                 lifecycle(key);
@@ -50,7 +51,7 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
                 if(observed.Snapshot.Action==LoginAction.SolveCaptcha)
                     observed=observed with{Snapshot=observed.Snapshot with{ActionIdentity=observed.Snapshot.ActionIdentity+":"+_captchaRound}};
                 return observed;
-            }),bindInputTarget),token);
+            }),bindInputTarget,readToken),"页面读取",token);
 
     private async Task<LoginObservation> BindInputAsync(CancellationToken token)
     {
@@ -61,7 +62,6 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
 
     public async Task<bool> ExecuteAsync(LoginSnapshot expected,LoginAction action,CancellationToken token)
     {
-        _operationToken=token;
         _awaitingClickOutcome=false;
         // Configuration/model errors are terminal and are deliberately outside input recovery.
         string? password=null;
@@ -74,9 +74,9 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
                 throw new InvalidOperationException("登录账号或密码为空，或包含当前输入设备不支持的字符。");
         }
         if(action==LoginAction.SolveCaptcha)
-            _recognizer??=new OnnxCaptchaRecognizer(Path.Combine(AppContext.BaseDirectory,"Source","Login"));
+            await _reads.RunAsync(_=>_recognizer??=new OnnxCaptchaRecognizer(Path.Combine(AppContext.BaseDirectory,"Source","Login")),"验证码模型加载",token).ConfigureAwait(false);
         return await _recovery.ExecuteAsync(()=>ExecuteInputAsync(expected,action,password,token),
-            releaseToken=>_inputUsed?input.ReleaseAllAsync(releaseToken):Task.FromResult(OperationResult.Ok()),token,
+            releaseToken=>_inputUsed?ReleaseAllAsync(releaseToken):Task.FromResult(OperationResult.Ok()),token,
             ()=>_awaitingClickOutcome).ConfigureAwait(false);
     }
 
@@ -88,10 +88,10 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
         {
             await HotkeyAsync([Keys.LWin,Keys.M],token).ConfigureAwait(false);
             await Task.Delay(600,token).ConfigureAwait(false);
-            if(!Read(vmm=>SessionInputProbe.Foreground(vmm,current.SessionPid).GetProperty("Name").GetString()!.Equals("explorer.exe",StringComparison.OrdinalIgnoreCase)))
+            if(!await ReadAsync(vmm=>SessionInputProbe.Foreground(vmm,current.SessionPid).GetProperty("Name").GetString()!.Equals("explorer.exe",StringComparison.OrdinalIgnoreCase),token).ConfigureAwait(false))
                 throw new InvalidOperationException("未能显示目标电脑桌面，未点击图标。");
             await MoveAsync(current.SessionPid,new(35,35),token).ConfigureAwait(false);
-            if(!Read(vmm=>SessionInputProbe.Foreground(vmm,current.SessionPid).GetProperty("Name").GetString()!.Equals("explorer.exe",StringComparison.OrdinalIgnoreCase)))
+            if(!await ReadAsync(vmm=>SessionInputProbe.Foreground(vmm,current.SessionPid).GetProperty("Name").GetString()!.Equals("explorer.exe",StringComparison.OrdinalIgnoreCase),token).ConfigureAwait(false))
                 throw new InvalidOperationException("目标桌面已失去焦点，未点击图标。");
             LoginInputTarget.Validate(current,await BindInputAsync(token).ConfigureAwait(false));
             await ClickAsync(token).ConfigureAwait(false);await Task.Delay(100,token).ConfigureAwait(false);await ClickAsync(token).ConfigureAwait(false);
@@ -102,7 +102,7 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
         {
             await FillSdoAsync(current,"AccountCombox",account.GameLoginAccount,token).ConfigureAwait(false);
             await FillSdoAsync(current,"PasswordEdit",password!,token).ConfigureAwait(false);
-            var verified=Read(vmm=>LoginNativeReader.Json(SdoUiProbe.Run(vmm.GetProcessByPID(current.Pid),true,account.GameLoginAccount,password!.Length)));
+            var verified=await ReadAsync(vmm=>LoginNativeReader.Json(SdoUiProbe.Run(vmm.GetProcessByPID(current.Pid),true,account.GameLoginAccount,password!.Length)),token).ConfigureAwait(false);
             var controls=ActiveSdoControls(verified,current.Window);
             if(!LoginNativeReader.Flag(controls.Single(c=>LoginNativeReader.Text(c,"Name")=="AccountCombox"),"MatchesExpectedInputIgnoringCase")
                 ||!LoginNativeReader.Flag(controls.Single(c=>LoginNativeReader.Text(c,"Name")=="PasswordEdit"),"MatchesExpectedLength"))
@@ -114,14 +114,14 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
         return true;
     }
 
-    private T Read<T>(Func<Vmmsharp.Vmm,T> read)
-    {
-        _operationToken.ThrowIfCancellationRequested();
-        // The attempt boundary retries from the current scene, never from an old PID/address.
-        return api.WithLoginConnection(account.VmmDeviceName,read);
-    }
+    private Task<T> ReadAsync<T>(Func<Vmmsharp.Vmm,T> read,CancellationToken token) =>
+        _reads.RunAsync(_=>api.WithLoginConnection(account.VmmDeviceName,read),"目标读取",token);
+    private Task<T> ReadAsync<T>(Func<Vmmsharp.Vmm,CancellationToken,T> read,CancellationToken token) =>
+        _reads.RunAsync(t=>api.WithLoginConnection(account.VmmDeviceName,vmm=>read(vmm,t)),"验证码读取",token);
+    private Task<OperationResult> InputAsync(Func<CancellationToken,Task<OperationResult>> send,CancellationToken token) =>
+        _inputOperations.RunTaskAsync(send,"设备输入",token);
     internal Task FocusAsync(LoginObservation observation,CancellationToken token)=>LoginWindowFocus.EnsureAsync(observation.Pid,
-        ()=>Read(vmm=>SessionInputProbe.Foreground(vmm,observation.SessionPid).GetProperty("Pid").GetUInt32()),
+        ()=>ReadAsync(vmm=>SessionInputProbe.Foreground(vmm,observation.SessionPid).GetProperty("Pid").GetUInt32(),token),
         async()=>LoginInputTarget.Validate(observation,await BindInputAsync(token).ConfigureAwait(false)),
         HotkeyAsync,t=>Task.Delay(250,t),
         (attempt,foreground,method)=>logger?.Info("login.focus.switch",new Dictionary<string,object?>
@@ -133,16 +133,16 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
         for(int i=0;i<16;i++)
         {
             token.ThrowIfCancellationRequested();
-            var position=Read(vmm=>
+            var position=await ReadAsync(vmm=>
             {
                 var kernel=vmm.GetProcessByPID(sessionPid|0x80000000);var module=kernel.MapModuleFromName("win32kbase.sys");
                 if(!kernel.Pdb(module.vaBase).SymbolAddress("gptCursorAsync",out var symbol)||symbol<module.vaBase||symbol>=module.vaBase+module.cbImageSize)
                     throw new InvalidOperationException("目标桌面鼠标位置无法定位。");
                 var bytes=LoginNativeReader.Exact(kernel,symbol,8);return new Point(BitConverter.ToInt32(bytes),BitConverter.ToInt32(bytes,4));
-            });
+            },token).ConfigureAwait(false);
             int dx=target.X-position.X,dy=target.Y-position.Y;
             if(Math.Abs(dx)<=2&&Math.Abs(dy)<=2)return;
-            _inputUsed=true;Check(await input.MoveMouseRelativeAsync(dx,dy,token).ConfigureAwait(false));
+            _inputUsed=true;Check(await InputAsync(t=>input.MoveMouseRelativeAsync(dx,dy,t),token).ConfigureAwait(false));
             await Task.Delay(120,token).ConfigureAwait(false);
         }
         throw new InvalidOperationException("鼠标未到达登录按钮，已停止输入。");
@@ -159,7 +159,7 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
             var target=new Point(now.Bounds.Left+(rect[0].GetInt32()+rect[2].GetInt32())/2,now.Bounds.Top+(rect[1].GetInt32()+rect[3].GetInt32())/2);
             if(target!=point)throw new InvalidOperationException("登录控件位置已改变，未点击旧坐标。");
         }
-        if(Read(vmm=>SessionInputProbe.Foreground(vmm,expected.SessionPid).GetProperty("Pid").GetUInt32())!=expected.Pid)
+        if(await ReadAsync(vmm=>SessionInputProbe.Foreground(vmm,expected.SessionPid).GetProperty("Pid").GetUInt32(),token).ConfigureAwait(false)!=expected.Pid)
             throw new InvalidOperationException("登录窗口失去焦点，已停止输入。");
         bool finalClick=controlName is null&&(expected.Snapshot.Action is LoginAction.LaunchGame or LoginAction.StartLauncher or LoginAction.Reaccelerate
             or LoginAction.SelectServer or LoginAction.EnterCharacter or LoginAction.ConfirmEntryAgreement or LoginAction.ConfirmGameExit)
@@ -168,12 +168,16 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
     }
     private async Task ClickAsync(CancellationToken token,Action? pressed=null)
     {
-        _inputUsed=true;Check(await input.MouseDownAsync(RoadhogMouseButton.Left,token).ConfigureAwait(false));
+        _inputUsed=true;Check(await InputAsync(t=>input.MouseDownAsync(RoadhogMouseButton.Left,t),token).ConfigureAwait(false));
         try{pressed?.Invoke();await Task.Delay(70,token).ConfigureAwait(false);}
-        finally{Check(await input.MouseUpAsync(RoadhogMouseButton.Left,CancellationToken.None).ConfigureAwait(false));}
+        finally
+        {
+            using var release=new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            Check(await InputAsync(t=>input.MouseUpAsync(RoadhogMouseButton.Left,t),release.Token).ConfigureAwait(false));
+        }
     }
     private async Task HotkeyAsync(Keys[] keys,CancellationToken token)
-    {_inputUsed=true;Check(await input.LoginHotkeyAsync(keys,token).ConfigureAwait(false));}
+    {_inputUsed=true;Check(await InputAsync(t=>input.LoginHotkeyAsync(keys,t),token).ConfigureAwait(false));}
     private static void Check(OperationResult result){if(!result.Success)throw new InvalidOperationException(result.Error);}
     private static JsonElement[] ActiveSdoControls(JsonElement ui,string hwnd)=>ui.GetProperty("Windows").EnumerateArray()
         .Single(w=>LoginNativeReader.Text(w.GetProperty("Window"),"Hwnd")==hwnd).GetProperty("Managers").EnumerateArray()
@@ -192,9 +196,9 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
         await ValidateTextTargetAsync(observation,name,token).ConfigureAwait(false);
         await HotkeyAsync([Keys.ControlKey,Keys.A],token).ConfigureAwait(false);
         await ValidateTextTargetAsync(observation,name,token).ConfigureAwait(false);
-        Check(await input.PressKeyAsync("Back",TimeSpan.FromMilliseconds(50),token).ConfigureAwait(false));
+        Check(await InputAsync(t=>input.PressKeyAsync("Back",TimeSpan.FromMilliseconds(50),t),token).ConfigureAwait(false));
         await ValidateTextTargetAsync(observation,name,token).ConfigureAwait(false);
-        Check(await input.TypeLoginTextAsync(value,token).ConfigureAwait(false));
+        Check(await InputAsync(t=>input.TypeLoginTextAsync(value,t),token).ConfigureAwait(false));
         await Task.Delay(150,token).ConfigureAwait(false);
     }
     private async Task ValidateTextTargetAsync(LoginObservation expected,string name,CancellationToken token)
@@ -202,7 +206,7 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
         var now=await BindInputAsync(token).ConfigureAwait(false);
         LoginInputTarget.Validate(expected,now,compareAction:true);
         if(!ActiveSdoControls(now.Ui,now.Window).Any(c=>LoginNativeReader.Text(c,"Name")==name)
-            ||Read(vmm=>SessionInputProbe.Foreground(vmm,now.SessionPid).GetProperty("Pid").GetUInt32())!=now.Pid)
+            ||await ReadAsync(vmm=>SessionInputProbe.Foreground(vmm,now.SessionPid).GetProperty("Pid").GetUInt32(),token).ConfigureAwait(false)!=now.Pid)
             throw new InvalidOperationException("登录输入页面或焦点已变化，重新定位输入框。");
     }
     private async Task SolveCaptchaAsync(LoginObservation observation,CancellationToken token)
@@ -213,7 +217,13 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
             foreach(var value in values)fields[value.Key]=value.Value;
             logger?.Info("login.captcha."+phase,fields);
         }
-        var before=Read(vmm=>CaptchaMemoryReader.Discover(vmm.GetProcessByPID(observation.Pid),token));
+        Trace("waiting_initial_image",0);
+        var before=await CaptchaImageWaiter.WaitAsync(t=>ReadAsync((vmm,readToken)=>
+        {
+            var candidates=CaptchaMemoryReader.Discover(vmm.GetProcessByPID(observation.Pid),readToken);
+            return candidates.Values.Any(IsCaptchaImageReady)?candidates:null;
+        },t),token).ConfigureAwait(false)
+            ??throw new TimeoutException("验证码图片尚未加载完成，等待超时，已停止本次登录输入。");
         Trace("discovered",0,("candidateCount",before.Count));
         // Bind by a positive change at an already observed encoded buffer, never by an arbitrary old image.
         for(int attempt=0;attempt<8;attempt++)
@@ -222,7 +232,8 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
             Trace("refresh",attempt+1,("candidateCount",before.Count));
             await ClickSdoAsync(observation,"ChangeCodeBtn",token).ConfigureAwait(false);
             await Task.Delay(1300,token).ConfigureAwait(false);
-            var after=Read(vmm=>
+            Dictionary<ulong,CaptchaImage> after=before;
+            var changed=await CaptchaImageWaiter.WaitAsync(t=>ReadAsync(vmm=>
             {
                 var merged=new Dictionary<ulong,CaptchaImage>(before);
                 foreach(var address in before.Keys)
@@ -230,12 +241,13 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
                     var image=CaptchaMemoryReader.Read(vmm.GetProcessByPID(observation.Pid),address);
                     if(image is not null)merged[address]=image;
                 }
-                return merged;
-            });
-            var changed=CaptchaMemoryReader.Changed(before,after.Values);
+                after=merged;
+                var candidate=CaptchaMemoryReader.Changed(before,merged.Values);
+                return candidate is not null&&IsCaptchaImageReady(candidate)?candidate:null;
+            },t),token).ConfigureAwait(false);
             if(changed is null)
             {
-                var discovered=Read(vmm=>CaptchaMemoryReader.Discover(vmm.GetProcessByPID(observation.Pid),token));
+                var discovered=await ReadAsync((vmm,readToken)=>CaptchaMemoryReader.Discover(vmm.GetProcessByPID(observation.Pid),readToken),token).ConfigureAwait(false);
                 Trace("image_not_bound",attempt+1,("candidateCount",before.Count),("discoveredCount",discovered.Count),
                     ("knownChangedHashes",after.Values.Where(image=>before.TryGetValue(image.Address,out var old)&&old.Hash!=image.Hash).Select(image=>image.Hash).Distinct().Count()),
                     ("newAddresses",discovered.Keys.Count(address=>!before.ContainsKey(address))));
@@ -243,12 +255,12 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
             }
             before=after;
             string text;
-            try{text=_recognizer!.Predict(changed.Png);}
+            try{text=await _reads.RunAsync(_=>_recognizer!.Predict(changed.Png),"验证码识别",token).ConfigureAwait(false);}
             catch(InvalidOperationException ex){Trace("image_rejected",attempt+1,("reason",ex.Message),("imageHash",changed.Hash));continue;}
             if(text.Length!=6){Trace("recognition_rejected",attempt+1,("length",text.Length),("imageHash",changed.Hash));continue;}
             Trace("input",attempt+1,("length",text.Length),("imageHash",changed.Hash));
             await FillSdoAsync(observation,"IdentifyingCodeEdit",text,token).ConfigureAwait(false);
-            var still=Read(vmm=>CaptchaMemoryReader.Read(vmm.GetProcessByPID(observation.Pid),changed.Address));
+            var still=await ReadAsync(vmm=>CaptchaMemoryReader.Read(vmm.GetProcessByPID(observation.Pid),changed.Address),token).ConfigureAwait(false);
             if(still?.Hash!=changed.Hash)throw new InvalidOperationException("验证码图片在输入时已刷新，未提交。");
             await ClickSdoAsync(observation,"OkBtn",token).ConfigureAwait(false);
             Trace("submitted",attempt+1,("imageHash",changed.Hash));
@@ -262,8 +274,24 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
     public async Task ReleaseInputAsync()
     {
         if(!_inputUsed)return;
-        using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(3));
-        try{await input.ReleaseAllAsync(timeout.Token).ConfigureAwait(false);}catch(Exception){ }
+        Check(await ReleaseAllAsync(CancellationToken.None).ConfigureAwait(false));
     }
-    public ValueTask DisposeAsync(){_recognizer?.Dispose();_publication.Dispose();return ValueTask.CompletedTask;}
+    private async Task<OperationResult> ReleaseAllAsync(CancellationToken token)
+    {
+        // Release is allowed even after an input timeout, but can never stall shutdown.
+        var release=new LoginOperationExecutor(TimeSpan.FromSeconds(3));
+        return await release.RunTaskAsync(input.ReleaseAllAsync,"释放输入",token).ConfigureAwait(false);
+    }
+    private static bool IsCaptchaImageReady(CaptchaImage image)
+    {
+        try { _=OnnxCaptchaRecognizer.Preprocess(image.Png);return true; }
+        catch(InvalidOperationException) { return false; }
+    }
+    public ValueTask DisposeAsync()
+    {
+        _publication.Dispose();
+        _reads.Close(()=>_recognizer?.Dispose());
+        _inputOperations.Close(()=>{});
+        return ValueTask.CompletedTask;
+    }
 }

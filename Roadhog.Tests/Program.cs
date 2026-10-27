@@ -195,6 +195,14 @@ if (KmboxKeyPressProbe.ShouldRun(args))
 var tests = new (string Name, Func<Task> Run)[]
 {
     ("auto-login full sequence and resume at every stage", AutoLoginTests.FullAndResumeAsync),
+    ("auto-login accepted retries and identity churn obey step deadline", AutoLoginDeadlineTests.AcceptedRetriesCannotResetDeadlineAsync),
+    ("auto-login same page verified progress renews step budget", AutoLoginDeadlineTests.SamePageProgressGetsNewBudgetAsync),
+    ("auto-login pending native read and action obey step deadline", AutoLoginDeadlineTests.ActionAndColdReadObeyStepBudgetAsync),
+    ("auto-login native timeout rejects late publication and defers disposal", AutoLoginDeadlineTests.NativeTimeoutRejectsLatePublicationAsync),
+    ("auto-login transient read recovery and timed out input isolation", AutoLoginDeadlineTests.TransientReadAndInputTimeoutAsync),
+    ("auto-login captcha waits for initial and positively bound images", AutoLoginDeadlineTests.CaptchaWaitsForBoundReadyImageAsync),
+    ("auto-login identity timeout cannot start late", AutoLoginDeadlineTests.IdentityTimeoutNeverStartsLateAsync),
+    ("auto-login input release timeout cannot claim success", AutoLoginDeadlineTests.ReleaseCannotHangOrClaimSuccessAsync),
     ("auto-login live untitled launcher identity and translated coordinates", LoginWindowRecoveryTests.ArchivedUntitledLauncherAsync),
     ("auto-login untitled launcher layout and ambiguity guards", LoginWindowRecoveryTests.UntitledLauncherGuardsAsync),
     ("auto-login focus restores minimized predecessor and cycles windows", LoginWindowRecoveryTests.FocusRestoreAndCycleAsync),
@@ -296,9 +304,14 @@ var tests = new (string Name, Func<Task> Run)[]
     ("skill audit elemental unknown identity cannot inherit special behavior", SpiritmasterElementalRankTests.UnknownIdentityDoesNotBecomeElementalByNameAsync),
     ("worker read budget submitted channel transition keeps loading hold", ChannelPeaceTests.ReadBudgetPreservesSubmittedTransitionAsync),
     ("worker read budget independent opening entry", WorkerReadBudgetTests.OpeningEntryUsesBudgetAsync),
-    ("worker read budget interrupted cleanup pauses without replay", CleanupWorkflowTests.WorkerReadBudgetDoesNotReplayCleanupAsync),
+    ("worker read budget cleanup resumes transient reads and terminates without replay", CleanupWorkflowTests.WorkerReadBudgetDoesNotReplayCleanupAsync),
+    ("worker read budget queued cleanup yields without termination", WorkerReadBudgetTests.QueuedCleanupYieldDoesNotTerminateAsync),
+    ("cleanup deadlines recall path progress and missing warehouse", CleanupWorkflowTests.CleanupDeadlinesAsync),
+    ("grocery shop return deadline loading and wrong destination", GroceryShopTests.ReturnDeadlineAsync),
     ("worker read budget provider channels and recovery", WorkerReadBudgetTests.ProviderBudgetAndRecoveryAsync),
     ("worker read budget drains pending capture and preserves loading", WorkerReadBudgetTests.PendingCaptureDrainedAsync),
+    ("cleanup blocking unresponsive capture remains bounded without duplicate reads", CleanupBlockingRegressionTests.UnresponsiveCaptureAsync),
+    ("cleanup blocking confirmation cancels underlying composite read", CleanupBlockingRegressionTests.ConfirmationCancelsProviderAsync),
     ("worker read budget blocked work yields to death", WorkerReadBudgetTests.WorkerYieldChecksDeathBeforeBlockedWorkAsync),
     ("worker read budget paused trade revives without resuming", WorkerReadBudgetTests.PausedWorkerRevivesWithoutResumingTradeAsync),
     ("worker read budget transaction cancellation cannot become confirmation failure", WorkerReadBudgetTests.TransactionCancellationIsNotConfirmationFailureAsync),
@@ -1418,7 +1431,7 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("arrow restock repeated ALL registration and one verified purchase", ArrowRestockTests.PurchaseAsync)
     ,("arrow restock post-sale jump reopens merchant and preserves return", ArrowRestockTests.PostSaleJumpAsync)
     ,("arrow restock standalone nearby workflow without sale discard or restart", ArrowRestockTests.SupplyWorkflowAsync)
-    ,("arrow restock worker combat boundary and ambiguous purchase hold", ArrowRestockTests.WorkerThresholdAndFailureAsync)
+    ,("arrow restock worker combat boundary and ambiguous purchase termination", ArrowRestockTests.WorkerThresholdAndFailureAsync)
     ,("arrow restock grocery junk sale jump and three stack purchase", ArrowRestockTests.GrocerySaleThenSupplyAsync)
     ,("grocery continuation worker restarts after sale record and final cleanup failures", GroceryShopTests.NpcContinuationWorkerAsync)
     ,("grocery continuation failed travel skips trade and user stop cancels restart", GroceryShopTests.NpcContinuationTravelAndStopAsync)
@@ -1434,7 +1447,8 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("standalone shop batches confirmed prices sale proof and resume", CleanupWorkflowTests.DiscountedStallAsync)
     ,("standalone shop empty and stop never resume", StandaloneShopTests.EmptyAndCancelAsync)
     ,("standalone shop UI discount and button layout", StandaloneShopTests.UiAsync)
-    ,("standalone shop worker failure holds until stop", CleanupWorkflowTests.StandaloneShopWorkerFailureAsync)
+    ,("standalone shop worker failure terminates without replay", CleanupWorkflowTests.StandaloneShopWorkerFailureAsync)
+    ,("standalone shop terminal cleanup IPC blocks automatic recovery", WorkerProcessManagerTests.CleanupFailureBlocksRecoveryAsync)
     ,("standalone shop worker IPC stopped and running dispatch", WorkerProcessManagerTests.StandaloneShopDispatchAsync)
     ,("standalone shop workflow settles and closes without old worker return", CleanupWorkflowTests.StandaloneShopCompletionAsync)
     ,("standalone shop real worker waits for stop and fresh startup F1", CleanupWorkflowTests.StandaloneShopWorkerCompletionAsync)

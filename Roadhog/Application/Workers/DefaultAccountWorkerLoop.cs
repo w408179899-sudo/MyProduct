@@ -123,6 +123,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
             while (!context.StopToken.IsCancellationRequested)
             {
                 using var readBudget = SnapshotReadBudget.Enter(TimeSpan.FromSeconds(2));
+                var cleanupOperationActive = false;
                 try
                 {
                     context.RuntimeStates.MarkHeartbeat(context.Config.AccountName);
@@ -238,16 +239,19 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                                         await jumpAssist.StopAsync("standalone_shop").ConfigureAwait(false);
                                     try
                                     {
+                                        cleanupOperationActive = true;
                                         await _cleanupWorkflow.RunAsync(context, cleanup, c => _stationaryCombat.ReturnAfterCleanupAsync(
                                             c, semiAutoPlan, semiAutoState, stationaryCombatState));
                                     }
                                     catch (SnapshotReadBudgetExceededException) { throw; }
+                                    catch (CleanupExecutionFailedException) { throw; }
                                     catch (Exception ex) when (!context.StopToken.IsCancellationRequested && cleanup.GroceryShop &&
                                         cleanup.Settings.Maintenance.CleanupWorkflow.GroceryPostSaleAction == GroceryPostSaleAction.NpcSell &&
                                         (cleanup.SoldOutConfirmed || cleanup.GroceryNpcStageStarted))
                                     {
                                         await _cleanupWorkflow.FinishGroceryAfterFailureAsync(context, cleanup, ex);
                                     }
+                                    cleanupOperationActive = false;
                                     context.StopToken.ThrowIfCancellationRequested();
                                     if (cleanup.RequestsRestart)
                                     {
@@ -268,6 +272,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                                 else context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, "清包已排队，先处理当前战斗 / 复活");
                             }
                             catch (SnapshotReadBudgetExceededException) { throw; }
+                            catch (CleanupExecutionFailedException) { throw; }
                             catch (Exception ex) when (!context.StopToken.IsCancellationRequested && cleanup.GroceryShop && !cleanup.GroceryNpcStageStarted &&
                                 ex is GroceryTripInterruptedException or GroceryTripDepartureFailedException or CleanupCombatInterruptionException or CleanupDeathInterruptionException)
                             {
@@ -293,6 +298,11 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                                 // Keep the same request and town-return progress. Re-read remaining items on retry;
                                 // never replay completed trades or treat an unfinished discard as a successful cleanup.
                                 var stage = cleanup.PreparationStage == CleanupPreparationStage.ReturningToTown ? "回城" : "丢弃";
+                                if (++cleanup.PreparationFailures >= 3)
+                                {
+                                    cleanup.Failure = stage + "连续重试未完成，账号已停止：" + ex.Message;
+                                    throw new CleanupExecutionFailedException(cleanup.Failure, ex);
+                                }
                                 context.Logger.Warn("cleanup_workflow.preparation_pending", new Dictionary<string, object?>
                                 {
                                     ["account"] = context.Config.AccountName, ["stage"] = stage, ["error"] = ex.Message
@@ -304,10 +314,10 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                             {
                                 if (cleanup.StandaloneShop || cleanup.GroceryShop || cleanup.ArrowRestock || ex is ArrowPurchaseUnconfirmedException)
                                 {
-                                    cleanup.Failure = (cleanup.ArrowRestock || ex is ArrowPurchaseUnconfirmedException ? "补箭" : cleanup.GroceryShop ? "杂货摆摊" : "自动摆摊") + "已暂停，未转入挂机；请停止账号后处理并重新启动：" + ex.Message;
+                                    cleanup.Failure = (cleanup.ArrowRestock || ex is ArrowPurchaseUnconfirmedException ? "补箭" : cleanup.GroceryShop ? "杂货摆摊" : "自动摆摊") + "失败，账号已停止，请核对当前操作结果：" + ex.Message;
                                     context.Logger.Error(cleanup.ArrowRestock || ex is ArrowPurchaseUnconfirmedException ? "arrow_restock.failed" : cleanup.GroceryShop ? "grocery_shop.failed" : "standalone_shop.failed", ex, new Dictionary<string, object?> { ["account"] = context.Config.AccountName });
                                     context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, cleanup.Failure);
-                                    continue;
+                                    throw new CleanupExecutionFailedException(cleanup.Failure, ex);
                                 }
                                 // Drop this execution, not the worker. Never immediately replay uncertain trade actions.
                                 context.CleanupRequests.Complete();
@@ -483,13 +493,18 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
 
                     await Task.Delay(delay, context.StopToken).ConfigureAwait(false);
                 }
-                catch (SnapshotReadBudgetExceededException) when (!context.StopToken.IsCancellationRequested)
+                catch (SnapshotReadBudgetExceededException ex) when (!context.StopToken.IsCancellationRequested)
                 {
                     checkLifeAfterYield = true;
                     // A transaction may already have been submitted: never replay the workflow.
-                    if (context.CleanupRequests.Current is { } interrupted)
-                        interrupted.Failure ??= "当前清包操作等待超时，已暂停；请检查操作结果后重新启动。";
                     await ReleaseActiveInputAsync(context, stationaryCombatState).ConfigureAwait(false);
+                    if (cleanupOperationActive && context.CleanupRequests.Current is { } interrupted)
+                    {
+                        interrupted.Failure = "清包操作等待超时，账号已停止，请核对当前操作结果。";
+                        context.Logger.Warn("cleanup_workflow.operation_timeout", new Dictionary<string, object?>
+                            { ["account"] = context.Config.AccountName, ["channel"] = ex.Channel });
+                        throw new CleanupExecutionFailedException(interrupted.Failure, ex);
+                    }
                     context.Logger.Info("worker.read_budget.yield", new Dictionary<string, object?>
                         { ["account"] = context.Config.AccountName, ["waitMs"] = 2000 });
                     await Task.Delay(context.Options.TickInterval, context.StopToken).ConfigureAwait(false);

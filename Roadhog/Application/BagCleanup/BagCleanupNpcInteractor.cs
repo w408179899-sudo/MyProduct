@@ -88,6 +88,7 @@ public sealed class BagCleanupNpcInteractor
         {
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(context.StopToken);
             deadline.CancelAfter(TimeSpan.FromSeconds(8));
+            using var readCancellation = SnapshotReadBudget.EnterCancellation(deadline.Token);
             try
             {
                 while (true)
