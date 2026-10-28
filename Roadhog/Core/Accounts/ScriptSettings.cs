@@ -227,6 +227,17 @@ public sealed class SemiAutoScriptSettings
 
 public sealed class CombatScriptSettings
 {
+    public const double DefaultTargetAcquireDistance = 30.0D;
+    public const double MinimumTargetAcquireDistance = 1.0D;
+    public const double MaximumTargetAcquireDistance = 500.0D;
+
+    public double TargetAcquireDistance { get; set; } = DefaultTargetAcquireDistance;
+
+    public static double NormalizeTargetAcquireDistance(double value) =>
+        double.IsFinite(value) && value > 0
+            ? Math.Clamp(value, MinimumTargetAcquireDistance, MaximumTargetAcquireDistance)
+            : DefaultTargetAcquireDistance;
+
     public const int DefaultStalledTargetExclusionSeconds = 60;
 
     public const int MinimumStalledTargetExclusionSeconds = 1;
@@ -287,6 +298,7 @@ public sealed class CombatScriptSettings
     {
         return new CombatScriptSettings
         {
+            TargetAcquireDistance = TargetAcquireDistance,
             EnableLoot = EnableLoot,
             JumpAssistEnabled = JumpAssistEnabled,
             ContestMonster = ContestMonster,

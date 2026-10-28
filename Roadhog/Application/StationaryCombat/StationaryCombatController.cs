@@ -37,7 +37,6 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
     private static readonly TimeSpan SmartPreAimTeamSnapshotRefreshInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan SmartPreAimTeamSnapshotRetention = TimeSpan.FromSeconds(5);
     private const double ReturnStopDistance = 2.0D;
-    private const double AcquireDistance = 25.0D;
     private const double FightSoftRestartApproachDistance = 5.0D;
     private const double GatherKeyActivationDistance = 20.0D;
     private const double TargetLeashExtraDistance = 5.0D;
@@ -816,7 +815,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 RadarNavigationPurpose.ApproachTarget,
                 target.ServerObjectId,
                 radarSettings,
-                AcquireDistance)
+                ReadTargetAcquireDistance(context))
             .ConfigureAwait(false);
         if (radarNavigation?.Action == RadarNavigationAction.Unreachable)
         {
@@ -831,7 +830,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
         var radarRequiresMovement = radarNavigation?.Action == RadarNavigationAction.MoveToWaypoint ||
                                     radarNavigation?.Action == RadarNavigationAction.Direct &&
-                                    playerDistanceToTarget > AcquireDistance;
+                                    playerDistanceToTarget > ReadTargetAcquireDistance(context);
         if (radarRequiresMovement && radarNavigation is not null)
         {
             semiAutoState.ResetAttackKeyPressThrottle();
@@ -950,10 +949,10 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             }
         }
 
-        if (playerDistanceToTarget > AcquireDistance)
+        if (playerDistanceToTarget > ReadTargetAcquireDistance(context))
         {
             semiAutoState.ResetAttackKeyPressThrottle();
-            await PathFollowStepAsync(context, state, player, targetPosition, AcquireDistance).ConfigureAwait(false);
+            await PathFollowStepAsync(context, state, player, targetPosition, ReadTargetAcquireDistance(context)).ConfigureAwait(false);
             await TryJumpCombatApproachIfStuckAsync(
                     context,
                     state,
@@ -2914,10 +2913,10 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             }
         }
 
-        if (playerDistanceToTarget > AcquireDistance)
+        if (playerDistanceToTarget > ReadTargetAcquireDistance(context))
         {
             semiAutoState.ResetAttackKeyPressThrottle();
-            await PathFollowStepAsync(context, state, player, targetPosition, AcquireDistance).ConfigureAwait(false);
+            await PathFollowStepAsync(context, state, player, targetPosition, ReadTargetAcquireDistance(context)).ConfigureAwait(false);
             await TryJumpCombatApproachIfStuckAsync(
                     context,
                     state,
@@ -3585,10 +3584,10 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             state.FacedCandidateEntityId = target.EntityId;
         }
 
-        if (playerDistanceToTarget > AcquireDistance)
+        if (playerDistanceToTarget > ReadTargetAcquireDistance(context))
         {
             semiAutoState.ResetAttackKeyPressThrottle();
-            await PathFollowStepAsync(context, state, player, targetPosition, AcquireDistance).ConfigureAwait(false);
+            await PathFollowStepAsync(context, state, player, targetPosition, ReadTargetAcquireDistance(context)).ConfigureAwait(false);
             await TryJumpCombatApproachIfStuckAsync(
                     context,
                     state,
@@ -3874,7 +3873,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 RadarNavigationPurpose.ApproachTarget,
                 target.ServerObjectId,
                 radarSettings,
-                AcquireDistance)
+                ReadTargetAcquireDistance(context))
             .ConfigureAwait(false);
         if (navigation?.Action == RadarNavigationAction.Unreachable)
         {
@@ -3889,7 +3888,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
         var requiresMovement = navigation?.Action == RadarNavigationAction.MoveToWaypoint ||
                                navigation?.Action == RadarNavigationAction.Direct &&
-                               distanceToTarget > AcquireDistance;
+                               distanceToTarget > ReadTargetAcquireDistance(context);
         if (!requiresMovement || navigation is null)
         {
             return null;
@@ -5263,7 +5262,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                     RadarNavigationPurpose.ApproachTarget,
                     target.ServerObjectId,
                     radarSettings,
-                    AcquireDistance)
+                    ReadTargetAcquireDistance(context))
                 .ConfigureAwait(false);
             if (navigation?.Action == RadarNavigationAction.Unreachable)
             {
@@ -5278,15 +5277,15 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
             var requiresMovement = navigation?.Action == RadarNavigationAction.MoveToWaypoint ||
                                    navigation?.Action == RadarNavigationAction.Direct &&
-                                   playerDistanceToTarget > AcquireDistance ||
-                                   navigation is null && playerDistanceToTarget > AcquireDistance;
+                                   playerDistanceToTarget > ReadTargetAcquireDistance(context) ||
+                                   navigation is null && playerDistanceToTarget > ReadTargetAcquireDistance(context);
             if (requiresMovement)
             {
                 semiAutoState.ResetAttackKeyPressThrottle();
                 var destination = navigation is null
                     ? targetPosition
                     : ToVector3(navigation.Destination, playerPosition.Z);
-                var reachDistance = navigation?.ReachDistanceMeters ?? AcquireDistance;
+                var reachDistance = navigation?.ReachDistanceMeters ?? ReadTargetAcquireDistance(context);
                 await PathFollowStepAsync(context, state, player, destination, reachDistance).ConfigureAwait(false);
                 if (navigation is not null)
                 {
@@ -5698,7 +5697,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 RadarNavigationPurpose.ApproachTarget,
                 target.ServerObjectId,
                 radarSettings,
-                AcquireDistance,
+                ReadTargetAcquireDistance(context),
                 allowDirectCommitment: false)
             .ConfigureAwait(false);
         if (navigation?.Action is RadarNavigationAction.Direct or RadarNavigationAction.Ready)
@@ -9074,7 +9073,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 RadarNavigationPurpose.ApproachTarget,
                 targetServerObjectId,
                 settings,
-                AcquireDistance)
+                ReadTargetAcquireDistance(context))
             .ConfigureAwait(false);
         var committed = confirmation?.Action is RadarNavigationAction.Direct or RadarNavigationAction.Ready;
         if (committed)
@@ -13127,6 +13126,10 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
     {
         return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_RECOVERY_TICK_MS", 200), 40, 2000);
     }
+
+    private static double ReadTargetAcquireDistance(AccountWorkerContext context) =>
+        CombatScriptSettings.NormalizeTargetAcquireDistance(context.Config.ScriptSettings?.Combat?.TargetAcquireDistance
+            ?? CombatScriptSettings.DefaultTargetAcquireDistance);
 
     private static int ReadDeathRevivePathStuckMs()
     {

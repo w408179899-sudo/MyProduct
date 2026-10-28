@@ -58,6 +58,7 @@ namespace Roadhog
         private FixedChannelMouseScriptSettings _legacyChannelMouse = new();
         private Label? stationaryCombatRadiusLabel;
         private RoundedTextBox? stationaryCombatRadiusTextBox;
+        private RoundedTextBox? targetAcquireDistanceTextBox;
         private Label? stationaryCombatRadiusUnitLabel;
         private Label? stalledTargetExclusionSecondsLabel;
         private RoundedTextBox? stalledTargetExclusionSecondsTextBox;
@@ -481,6 +482,8 @@ namespace Roadhog
             }
             _legacyChannelMouse = (settings.FixedChannelMouse ?? new FixedChannelMouseScriptSettings()).Clone();
             SetStationaryCombatRadius(settings.Combat);
+            SetText(targetAcquireDistanceTextBox, CombatScriptSettings.NormalizeTargetAcquireDistance(
+                settings.Combat.TargetAcquireDistance).ToString("0.##", CultureInfo.InvariantCulture));
             SetStalledTargetExclusionSeconds(settings.Combat);
             SetPathCombatRadius(settings.Combat);
             SetPathFollowReachDistance(settings.Combat);
@@ -647,6 +650,14 @@ namespace Roadhog
             var account = LoadAccountConfigOrDefault();
             var previousSettings = BuildEffectiveScriptSettings(account);
             var capturedSettings = CaptureScriptSettings();
+            var acquireDistance = ReadDouble(targetAcquireDistanceTextBox, double.NaN,
+                double.NegativeInfinity, double.PositiveInfinity);
+            if (!double.IsFinite(acquireDistance) || acquireDistance < CombatScriptSettings.MinimumTargetAcquireDistance ||
+                acquireDistance > CombatScriptSettings.MaximumTargetAcquireDistance)
+            {
+                error = "锁怪距离必须为 1 至 500 米之间的数字。";
+                return false;
+            }
             var returnDistance = ReadDouble(returnHomeAfterCombatDistanceTextBox, double.NaN,
                 double.NegativeInfinity, double.PositiveInfinity);
             if (!double.IsFinite(returnDistance) || returnDistance < 0)
@@ -921,6 +932,9 @@ namespace Roadhog
                     StationaryCombatY = 0.0D,
                     StationaryCombatZ = 0.0D,
                     StationaryCombatRadius = ReadDouble(stationaryCombatRadiusTextBox, 30.0D, 1.0D, 500.0D),
+                    TargetAcquireDistance = CombatScriptSettings.NormalizeTargetAcquireDistance(ReadDouble(
+                        targetAcquireDistanceTextBox, CombatScriptSettings.DefaultTargetAcquireDistance,
+                        CombatScriptSettings.MinimumTargetAcquireDistance, CombatScriptSettings.MaximumTargetAcquireDistance)),
                     StalledTargetExclusionSeconds = Math.Clamp(
                         ReadInt(
                             stalledTargetExclusionSecondsTextBox,
@@ -1447,6 +1461,10 @@ namespace Roadhog
             sitWhenNoTargetAtHomeCheckBox = AddCheckBox(behaviorPanel, "\u6ca1\u602a\u5750\u5730\u677f", 184, 114, 140, false);
             jumpAssistEnabledCheckBox = AddCheckBox(behaviorPanel, "\u6253\u602a\u8df3\u8dc3", 380, 114, 120, false);
             jumpAssistEnabledCheckBox.Name = "jumpAssistEnabledCheckBox";
+            AddLabel(behaviorPanel, "锁怪距离", 576, 114, 80, 24);
+            targetAcquireDistanceTextBox = AddTextBox(behaviorPanel, "30", 660, 112, 100, 28);
+            targetAcquireDistanceTextBox.Name = "targetAcquireDistanceTextBox";
+            AddLabel(behaviorPanel, "米", 768, 114, 28, 24);
             returnHomeAfterCombatCheckBox = AddCheckBox(behaviorPanel, "战斗结束回原点", 12, 150, 208, false);
             returnHomeAfterCombatCheckBox.Name = "returnHomeAfterCombatCheckBox";
             returnHomeAfterCombatCheckBox.Click += (_, _) => RefreshCombatModeVisibility();
