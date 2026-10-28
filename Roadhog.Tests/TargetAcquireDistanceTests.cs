@@ -26,12 +26,12 @@ internal static class TargetAcquireDistanceTests
             await File.WriteAllTextAsync(path, "{\"Accounts\":[{\"AccountName\":\"test\",\"ScriptSettings\":{\"Combat\":{}}}]}");
             var accounts = new JsonAccountConfigStore(path);
             var account = (await accounts.LoadAllAsync()).Value!.Single();
-            Check(account.ScriptSettings!.Combat.TargetAcquireDistance == 35, "legacy accounts default to 35 meters");
+            Check(account.ScriptSettings!.Combat.TargetAcquireDistance == 33, "legacy accounts default to 33 meters");
             var profiles = new JsonScriptProfileStore(Path.Combine(root, "profiles"));
             Directory.CreateDirectory(Path.Combine(root, "profiles"));
             await File.WriteAllTextAsync(Path.Combine(root, "profiles", "old.json"), "{\"Name\":\"old\",\"Settings\":{}}");
-            Check((await profiles.LoadAsync("old")).Value!.Settings.Combat.TargetAcquireDistance == 35,
-                "legacy profiles default to 35 meters");
+            Check((await profiles.LoadAsync("old")).Value!.Settings.Combat.TargetAcquireDistance == 33,
+                "legacy profiles default to 33 meters");
             account.ScriptSettings.Combat.TargetAcquireDistance = 22.5;
             Check((await accounts.UpsertAsync(account)).Success, "account save");
             Check((await profiles.SaveAsync(new ScriptProfileDocument { Name = "custom", Settings = account.ScriptSettings.Clone() })).Success,
@@ -87,8 +87,8 @@ internal static class TargetAcquireDistanceTests
                 var input = form.Controls.Find("targetAcquireDistanceTextBox", true).Single();
                 var ancestor = input.Parent;
                 while (ancestor is not null && ancestor is not TabPage) ancestor = ancestor.Parent;
-                Check(ancestor?.Text == "总览" && input.Visible && input.Enabled && input.Text == "35",
-                    "overview exposes the enabled 35-meter acquisition editor");
+                Check(ancestor?.Text == "总览" && input.Visible && input.Enabled && input.Text == "33",
+                    "overview exposes the enabled 33-meter acquisition editor");
                 Check(input.Parent!.ClientRectangle.Contains(input.Bounds) &&
                     !input.Parent.Controls.Cast<Control>().Any(c => c != input && c.Visible && c.Bounds.IntersectsWith(input.Bounds)),
                     "acquisition editor fits without overlapping neighboring controls");

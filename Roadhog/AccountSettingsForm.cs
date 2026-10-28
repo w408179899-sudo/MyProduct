@@ -1462,7 +1462,7 @@ namespace Roadhog
             jumpAssistEnabledCheckBox = AddCheckBox(behaviorPanel, "\u6253\u602a\u8df3\u8dc3", 380, 114, 120, false);
             jumpAssistEnabledCheckBox.Name = "jumpAssistEnabledCheckBox";
             AddLabel(behaviorPanel, "锁怪距离", 576, 114, 80, 24);
-            targetAcquireDistanceTextBox = AddTextBox(behaviorPanel, "35", 660, 112, 100, 28);
+            targetAcquireDistanceTextBox = AddTextBox(behaviorPanel, "33", 660, 112, 100, 28);
             targetAcquireDistanceTextBox.Name = "targetAcquireDistanceTextBox";
             AddLabel(behaviorPanel, "米", 768, 114, 28, 24);
             returnHomeAfterCombatCheckBox = AddCheckBox(behaviorPanel, "战斗结束回原点", 12, 150, 208, false);
