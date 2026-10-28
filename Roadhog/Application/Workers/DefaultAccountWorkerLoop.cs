@@ -73,6 +73,7 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
         }
         await ScrollStartupMouseAsync(context).ConfigureAwait(false);
         await ReleaseStartupMovementAsync(context).ConfigureAwait(false);
+        await new StartupWindowCloser(_keyboard).RunAsync(context).ConfigureAwait(false);
         await context.PrepareSkillBindingsAsync().ConfigureAwait(false);
 
         var scriptSettings = context.Config.ScriptSettings ?? new ScriptSettings
