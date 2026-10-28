@@ -10,7 +10,7 @@ using Roadhog.Core.Model;
 using Roadhog.Core.Paths;
 using Roadhog.Infrastructure.Paths;
 
-internal static class TownReturnTests
+internal static partial class TownReturnTests
 {
     private static void Check(bool value, string message) { if (!value) throw new Exception(message); }
     private static ChannelTransitionSnapshot Scene(float x, uint map = 1, uint hp = 100, float z = 0) =>
@@ -202,22 +202,19 @@ internal static class TownReturnTests
         using var h = new Harness();
         h.Api.TransitionRead = () => Scene(10);
         h.State.IsMovingForward = true;
-        var recover = typeof(StationaryCombatController).GetMethod("RecoverBlockedReturnRouteAsync",
-            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
-        await (Task)recover.Invoke(h.Controller, new object[] { h.Context, h.State })!;
-        Check(h.State.StartupRecoveryActive && h.State.StartupRecoveryPointIndex == 0 && h.State.ReturnRouteRejoinAttempted,
-            "a nearby matching route can be rejoined once after sustained lack of progress");
+        await RecoverStuck(h);
+        Check(h.State.StartupTownReturnPending && h.State.StuckTownReturnPending && h.Input.Keys.Count(k => k == "F8") == 1,
+            "even a nearby route requires recall when terrain prevents movement");
         Check(h.Input.KeyUps.Contains("W") && !h.Input.Keys.Contains("Space"), "recovery releases forward instead of another jump");
-        await (Task)recover.Invoke(h.Controller, new object[] { h.Context, h.State })!;
-        Check(!h.State.ReturnNavigationBlocked && !h.State.StartupRecoveryActive && !h.State.CleanupReturnToCombatActive,
-            "repeated route failure releases branch ownership instead of holding the main loop");
-        Check(await h.Controller.TryTickTownReturnAsync(h.Context, h.Plan, h.SemiState, h.State) == null,
-            "abandoned return no longer intercepts normal work");
+        await RecoverStuck(h);
+        await h.Tick();
+        Check(h.Input.Keys.Count(k => k == "F8") == 1 && !h.Input.KeyDowns.Contains("W"),
+            "a pending recall is not resubmitted and cannot fall through to walking");
         h.Api.Player = Scene(10, hp: 0).Player!;
         h.Api.TransitionRead = () => Scene(10, hp: 0);
         await h.Tick();
-        Check(!h.State.ReturnNavigationBlocked && h.State.TopLevelState == StationaryCombatTopLevelState.DeathRecovery,
-            "blocked navigation still hands a confirmed death to recovery");
+        Check(!h.State.StuckTownReturnPending && h.State.TopLevelState == StationaryCombatTopLevelState.DeathRecovery,
+            "terrain recall hands a confirmed death to recovery");
     }
 
     private sealed class Harness : IDisposable

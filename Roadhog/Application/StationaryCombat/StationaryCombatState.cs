@@ -274,7 +274,7 @@ public sealed class StationaryCombatState
     {
         ClearPostCombatReturn();
         ReturnNavigationBlocked = false;
-        ReturnRouteRejoinAttempted = false;
+        ReturnNavigationRetryAfter = DateTimeOffset.MinValue;
         ObstacleNavigation.ClearRoute();
         TopLevelState = StationaryCombatTopLevelState.DeathRecovery;
         ReturningHome = false;
@@ -919,7 +919,8 @@ public sealed class StationaryCombatState
     }
 
     public bool ReturnNavigationBlocked { get; set; }
-    public bool ReturnRouteRejoinAttempted { get; set; }
+    public bool StuckTownReturnPending { get; set; }
+    public DateTimeOffset ReturnNavigationRetryAfter { get; set; } = DateTimeOffset.MinValue;
     public void RetryStartupRecovery() => StartupRecoveryChecked = false;
 
     public void StartCleanupReturnToCombat()
@@ -1056,6 +1057,7 @@ public sealed class StationaryCombatState
 
     private void ResetStartupTownReturn()
     {
+        StuckTownReturnPending = false;
         ReturnTransition = null;
         StartupTownReturnPending = false;
         StartupTownReturnStartPosition = null;

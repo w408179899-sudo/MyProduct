@@ -11,6 +11,11 @@ public sealed partial class StationaryCombatController
     public async Task<TimeSpan?> TryTickTownReturnAsync(AccountWorkerContext context, SemiAutoSkillPlan plan,
         SemiAutoCombatState semiAutoState, StationaryCombatState state)
     {
+        if (state.StuckTownReturnPending)
+        {
+            semiAutoState.ResetAttackKeyPressThrottle();
+            return await TickStuckTownReturnAsync(context, state).ConfigureAwait(false);
+        }
         if (state.StartupTownReturnPending)
             return await TickStartupReturnTransitionAsync(context, state).ConfigureAwait(false);
         if (state.NoKillRecovery.Step == StationaryCombatNoKillRecoveryStep.WaitTownReturnSettle)
@@ -89,38 +94,6 @@ public sealed partial class StationaryCombatController
         return IdleDelay;
     }
 
-    private async Task RecoverBlockedReturnRouteAsync(AccountWorkerContext context, StationaryCombatState state)
-    {
-        await StopSoloJumpAsync(state, "return_route_stuck").ConfigureAwait(false);
-        StopNextTargetPreAim(context, state, "return_route_stuck", clearCandidate: true);
-        await WaitForNextTargetPreAimCameraIdleAsync(context, state).ConfigureAwait(false);
-        await StopMovementAsync(context, state, releaseRightMouse: true).ConfigureAwait(false);
-        StopPathFollowPoller(state);
-        if (!state.ReturnRouteRejoinAttempted && _pathStore != null)
-        {
-            state.ReturnRouteRejoinAttempted = true;
-            var path = await _pathStore.LoadAsync(GetRevivePathName(context), context.StopToken).ConfigureAwait(false);
-            var scene = (await context.Snapshots.ReadChannelTransitionAsync().WaitAsync(context.StopToken).ConfigureAwait(false)).Value;
-            if (path.Value is { Points.Count: >= 2 } route && scene.IsReady && !scene.Player!.IsDead &&
-                (route.MapId is not > 0 || route.MapId == scene.Channel!.MapId))
-            {
-                var points = route.Points.Select(p => p.ToVector3()).ToArray();
-                var position = scene.Player!.Position!.Value;
-                var index = FindNearestPathPointIndex(position, points, 15);
-                if (index >= 0 && Math.Abs(position.Z - points[index].Z) <= 10)
-                {
-                    state.StartStartupRecovery(route.Name, points, index);
-                    state.ReturningHome = false;
-                    state.ResetReturnHomeStuckTracking();
-                    context.Logger.Warn("town_return.route_rejoined", new Dictionary<string, object?>
-                    { ["account"] = context.Config.AccountName, ["pathName"] = route.Name, ["pointIndex"] = index });
-                    return;
-                }
-            }
-        }
-        AbandonReturnNavigation(context, state, "返回路线持续卡住");
-    }
-
     private static void AbandonReturnNavigation(AccountWorkerContext context, StationaryCombatState state, string reason)
     {
         state.ReturnNavigationBlocked = false;
@@ -128,6 +101,9 @@ public sealed partial class StationaryCombatController
         state.ClearStartupRecovery();
         state.ClearPostCombatReturn();
         state.ReturningHome = false;
+        state.ResetReturnHomeStuckTracking();
+        // Failure backoff, not a skill cooldown: normal combat/maintenance may continue.
+        state.ReturnNavigationRetryAfter = DateTimeOffset.UtcNow.AddSeconds(30);
         state.NoKillRecovery.Postpone(DateTimeOffset.Now, TimeSpan.FromSeconds(30));
         context.RuntimeStates.MarkWarning(context.Config.AccountName, reason + "，放弃本次返回分支，继续主流程。");
         context.Logger.Warn("town_return.branch_abandoned", new Dictionary<string, object?>

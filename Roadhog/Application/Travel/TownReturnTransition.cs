@@ -67,19 +67,22 @@ public sealed class TownReturnTransition
         HorizontalDistance(scene.Player!.Position!.Value, path.Points[0].ToVector3()) <= ArrivalRadius &&
         Math.Abs(scene.Player.Position.Value.Z - path.Points[0].Z) <= ArrivalHeightTolerance;
 
-    public async Task<TownReturnPhase> TickAsync(AccountWorkerContext context)
+    public async Task<TownReturnPhase> TickAsync(AccountWorkerContext context, CancellationToken cancellationToken = default)
     {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(context.StopToken, cancellationToken);
+        var token = linked.Token;
+        token.ThrowIfCancellationRequested();
         var pending = context.Snapshots.ReadChannelTransitionAsync();
         // One outstanding request, even while the provider is waiting for its first publication.
         while (!pending.IsCompleted)
         {
             Report(context);
             context.RuntimeStates.MarkHeartbeat(context.Config.AccountName);
-            await Task.WhenAny(pending, Task.Delay(200, context.StopToken)).ConfigureAwait(false);
-            context.StopToken.ThrowIfCancellationRequested();
+            await Task.WhenAny(pending, Task.Delay(200, token)).ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
         }
         var previous = Phase;
-        Observe((await pending.WaitAsync(context.StopToken).ConfigureAwait(false)).Value);
+        Observe((await pending.WaitAsync(token).ConfigureAwait(false)).Value);
         if (previous != Phase)
             context.Logger.Info("town_return.phase", Fields(context));
         Report(context);

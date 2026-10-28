@@ -44,7 +44,8 @@ public sealed partial class StationaryCombatController
         RadarObstacleScriptSettings radarSettings)
     {
         var settings = ResolvePostCombatReturnSettings(context);
-        if (!settings.Enabled || !IsPostCombatReturnMode(context, state))
+        if (!settings.Enabled || !IsPostCombatReturnMode(context, state) ||
+            DateTimeOffset.UtcNow < state.ReturnNavigationRetryAfter)
         {
             if (state.PostCombatReturningHome && !state.Fighting)
             {

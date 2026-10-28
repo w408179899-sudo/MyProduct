@@ -544,7 +544,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             state.ReturningHome = false;
             state.ResetReturnHomeStuckTracking();
         }
-        else if (playerDistanceFromHome > radius)
+        else if (playerDistanceFromHome > radius && DateTimeOffset.UtcNow >= state.ReturnNavigationRetryAfter)
         {
             state.ReturningHome = true;
         }
@@ -648,7 +648,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
             StopNextTargetPreAim(context, state, "target_unavailable", clearCandidate: true);
             state.ClearTarget();
-            if (combat.ReturnHomeWhenNoTarget && playerDistanceFromHome > ReturnStopDistance)
+            if (combat.ReturnHomeWhenNoTarget && playerDistanceFromHome > ReturnStopDistance &&
+                DateTimeOffset.UtcNow >= state.ReturnNavigationRetryAfter)
             {
                 state.ClearNoTargetRest();
                 LogActionThrottled(context, state, "stationary_combat.no_target.return_home", "home", new Dictionary<string, object?>
@@ -3287,6 +3288,12 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         int pointIndex,
         double distanceToPoint)
     {
+        if (!state.IsMovingForward)
+        {
+            state.ResetStartupRecoveryStuckTracking();
+            return;
+        }
+
         var now = DateTimeOffset.Now;
         var minProgressDistance = ReadDeathRevivePathStuckDistance();
         if (state.StartupRecoveryStuckPointIndex != pointIndex ||
@@ -11393,6 +11400,9 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             return false;
         }
 
+        // A new movement attempt must not inherit time spent fighting, turning or switching channels.
+        state.ResetReturnHomeStuckTracking();
+        state.ResetStartupRecoveryStuckTracking();
         var down = await _input.KeyDownAsync("W", context.StopToken).ConfigureAwait(false);
         state.IsMovingForward = down.Success;
         SetPathFollowMoving(state, state.IsMovingForward);
@@ -11491,6 +11501,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         StationaryCombatState state,
         bool releaseRightMouse = false)
     {
+        state.ResetReturnHomeStuckTracking();
+        state.ResetStartupRecoveryStuckTracking();
         if (state.IsMovingForward)
         {
             await _input.KeyUpAsync("W", context.StopToken).ConfigureAwait(false);
