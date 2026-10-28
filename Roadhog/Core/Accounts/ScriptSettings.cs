@@ -227,7 +227,7 @@ public sealed class SemiAutoScriptSettings
 
 public sealed class CombatScriptSettings
 {
-    public const double DefaultTargetAcquireDistance = 30.0D;
+    public const double DefaultTargetAcquireDistance = 29.0D;
     public const double MinimumTargetAcquireDistance = 1.0D;
     public const double MaximumTargetAcquireDistance = 500.0D;
 
