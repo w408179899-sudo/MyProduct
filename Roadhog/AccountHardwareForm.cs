@@ -222,8 +222,7 @@ public sealed class AccountHardwareForm : Form
     private void UpdateSave()
     {
         if (IsDisposed || Disposing) return;
-        try { _save.Enabled = !_busy && (_verification is not null ? _confirm.Checked : !_requiresVerification && SameHardware(ReadDraft(), _original) && Infrastructure.Hardware.HardwareVerificationSession.IsCurrent(_original)); }
-        catch { _save.Enabled = false; }
+        _save.Enabled = true;
     }
     private async Task VerifyAsync()
     {
@@ -258,7 +257,12 @@ public sealed class AccountHardwareForm : Form
     }
     private void Save()
     {
-        if (_busy || IsDisposed || Disposing) return;
+        if (IsDisposed || Disposing) return;
+        if (_busy)
+        {
+            _result.Text = "正在验证设备或授权，请等待完成后再保存。";
+            return;
+        }
         try
         {
             var draft = ReadDraft();
