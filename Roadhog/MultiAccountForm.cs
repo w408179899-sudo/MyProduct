@@ -349,13 +349,7 @@ public sealed class MultiAccountForm : Form
         {
             if (action == "启动") await RunAsync(id, false);
             else if (action == "停止") Check(await _workspace.Processes.StopAsync(id));
-            else if (action == "清包")
-            {
-                var account = _accounts.Single(a => a.InstanceId == id);
-                var description = account.ScriptSettings?.Maintenance.CleanupWorkflow.Describe();
-                if (string.IsNullOrWhiteSpace(description)) throw new InvalidOperationException("请先在清包页选择执行项目。");
-                if (MessageBox.Show(this, $"账号：{account.AccountName}\n{description}\n\n完成后继续挂机，停止按钮可取消流程。", "确认清包", MessageBoxButtons.OKCancel) == DialogResult.OK) await RunAsync(id, true);
-            }
+            else if (action == "清包") await StartManualGroceryShopAsync(id);
             else if (action == "硬件") await RunConfigurationActionAsync(() => EditHardwareAsync(id));
             else if (action == "设置") await RunConfigurationActionAsync(() => OpenSettingsAsync(id));
         }
@@ -373,6 +367,27 @@ public sealed class MultiAccountForm : Form
     {
         Check(await _workspace.Processes.StartAsync(id, cleanup, _operations.Token));
     }
+
+    private async Task StartManualGroceryShopAsync(string id, Func<string, bool>? confirm = null)
+    {
+        await ReloadAccountsAsync();
+        var account = _accounts.Single(a => a.InstanceId == id);
+        var built = await new Application.AccountStartConfigBuilder(
+            _workspace.Profiles, _workspace.NameListsFor(account), _workspace.Logger)
+            .BuildAsync(account, _operations.Token);
+        if (!built.Success || built.Value?.ScriptSettings is not { } settings)
+            throw new InvalidOperationException(built.Error ?? "无法读取账号摆摊配置。");
+        settings.Maintenance.CleanupWorkflow.Mode = CleanupMode.GroceryShop;
+        var remaining = settings.Maintenance.CleanupWorkflow.GroceryPostSaleAction == GroceryPostSaleAction.NpcSell
+            ? "剩余物品前往 NPC 出售" : "剩余物品按配置丢弃";
+        var message = $"账号：{account.AccountName}\n手动杂货摆摊：{settings.Maintenance.CleanupWorkflow.Describe()}\n{remaining}\n\n完成后重启挂机，停止按钮可取消流程。";
+        var accepted = confirm?.Invoke(message) ?? MessageBox.Show(this, message, "确认杂货摆摊",
+            MessageBoxButtons.OKCancel, MessageBoxIcon.Question) == DialogResult.OK;
+        if (!accepted) return;
+        Check(await _workspace.Processes.StartAsync(id, cancellationToken: _operations.Token,
+            groceryShopSettings: settings));
+    }
+
     private static void Check(Core.Common.OperationResult result) { if (!result.Success) throw new InvalidOperationException(result.Error); }
     private async Task LoginSelectedAsync()
     {

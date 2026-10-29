@@ -199,6 +199,71 @@ internal static class MultiAccountUiTests
         test.HideTray(form);
     });
 
+    public static Task ConsoleManualGroceryShopAsync() => Sta(() =>
+    {
+        using var test = new UiEnvironment();
+        var accounts = new[] { test.Account(1), test.Account(2) };
+        foreach (var account in accounts)
+        {
+            account.ScriptSettings = new();
+            account.ScriptSettings.Maintenance.CleanupWorkflow.NpcCleanup = false;
+            account.ScriptSettings.Paths.GroceryStallPathName = "saved-route";
+            account.ScriptSettings.Paths.GroceryReturnItemName = "saved-scroll";
+        }
+        accounts[0].ProfileName = accounts[0].ScriptSettings!.ProfileName = "grocery-profile";
+        test.Initialize(accounts);
+        using var form = test.Console(accounts);
+        var profile = accounts[0].ScriptSettings!.Clone();
+        profile.Paths.GroceryStallPathName = "latest-profile-route";
+        profile.Paths.GroceryReturnItemName = "latest-profile-scroll";
+        profile.Maintenance.CleanupWorkflow.GroceryPostSaleAction = GroceryPostSaleAction.NpcSell;
+        profile.Maintenance.CleanupWorkflow.StandaloneShopDiscount = 8;
+        Require(Pump(test.Workspace.Profiles.SaveAsync(new() { Name = "grocery-profile", Settings = profile })).Success,
+            "save profile after console creation");
+        foreach (var account in accounts)
+        {
+            var confirmations = 0;
+            bool Confirm(string message)
+            {
+                confirmations++;
+                Require(message.Contains(account.AccountName) && message.Contains("手动杂货摆摊") &&
+                    message.Contains("完成后重启挂机") && message.Contains("停止按钮可取消"),
+                    "confirmation describes the chosen account and manual grocery lifecycle");
+                Require(message.Contains(account == accounts[0] ? "NPC 出售" : "按配置丢弃"),
+                    "confirmation follows configured remaining-item handling");
+                return false;
+            }
+            Pump((Task)Invoke(form, "StartManualGroceryShopAsync", account.InstanceId, (Func<string, bool>)Confirm)!);
+            Require(confirmations == 1 && test.View(account).WorkerProcessId is null && !test.View(account).DesiredRunning,
+                "cancelled confirmation cannot start or submit any worker request");
+            Pump((Task)Invoke(form, "StartManualGroceryShopAsync", account.InstanceId, (Func<string, bool>)(_ => true))!);
+            var path = Path.Combine(test.Workspace.Processes.PathsFor(account).LogDirectory, "grocery-shop.json");
+            var received = System.Text.Json.JsonSerializer.Deserialize<AccountConfig>(File.ReadAllText(path))!;
+            var settings = received.ScriptSettings!;
+            Require(settings.Maintenance.CleanupWorkflow.Mode == CleanupMode.GroceryShop &&
+                settings.Paths.GroceryStallPathName == (account == accounts[0] ? "latest-profile-route" : "saved-route") &&
+                settings.Paths.GroceryReturnItemName == (account == accounts[0] ? "latest-profile-scroll" : "saved-scroll"),
+                "console dispatches grocery IPC with latest profile or account settings even when normal cleanup has no actions");
+            if (account == accounts[0]) Require(settings.Maintenance.CleanupWorkflow.StandaloneShopDiscount == 8,
+                "manual grocery dispatch preserves configured discount");
+            Require(Pump(test.Workspace.Accounts.LoadAllAsync()).Value!.Single(a => a.InstanceId == account.InstanceId)
+                .ScriptSettings!.Maintenance.CleanupWorkflow.Mode == CleanupMode.Normal,
+                "temporary manual request does not overwrite saved normal cleanup mode");
+        }
+        var first = accounts[0];
+        Until(() => test.View(first).State == "running", "first worker is running");
+        var pid = test.View(first).WorkerProcessId;
+        profile.Paths.GroceryStallPathName = "updated-running-route";
+        Require(Pump(test.Workspace.Profiles.SaveAsync(new() { Name = "grocery-profile", Settings = profile })).Success, "update running account profile");
+        Pump((Task)Invoke(form, "StartManualGroceryShopAsync", first.InstanceId, (Func<string, bool>)(_ => true))!);
+        var updated = System.Text.Json.JsonSerializer.Deserialize<AccountConfig>(File.ReadAllText(
+            Path.Combine(test.Workspace.Processes.PathsFor(first).LogDirectory, "grocery-shop.json")))!;
+        Require(updated.ScriptSettings!.Paths.GroceryStallPathName == "updated-running-route" && test.View(first).WorkerProcessId == pid,
+            "running account receives updated grocery request in the same worker");
+        Require(Pump(test.Workspace.Profiles.LoadAsync("grocery-profile")).Value!.Settings.Maintenance.CleanupWorkflow.Mode == CleanupMode.Normal,
+            "manual request does not overwrite the shared profile mode");
+    });
+
     public static Task ConsoleStopDuringStartAsync() => Sta(() =>
     {
         using var test = new UiEnvironment("slow-start");

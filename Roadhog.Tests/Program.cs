@@ -477,6 +477,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("account player info trusted reader and wire compatibility", AccountPlayerInfoTests.TrustedReaderAndWireAsync),
     ("multi-account ui player level and class over worker IPC", MultiAccountUiTests.ConsolePlayerInfoAsync),
     ("multi-account ui console rows selection and independent actions", MultiAccountUiTests.ConsoleRowsAndSelectionAsync),
+    ("multi-account ui console manual grocery confirmation and dispatch", MultiAccountUiTests.ConsoleManualGroceryShopAsync),
     ("multi-account ui select all header state filtering and refresh", MultiAccountUiTests.ConsoleSelectAllHeaderAsync),
     ("multi-account ui delete selected confirmation active guards and persistence", MultiAccountUiTests.DeleteSelectedAccountsAsync),
     ("multi-account ui stop remains available while startup is pending", MultiAccountUiTests.ConsoleStopDuringStartAsync),
