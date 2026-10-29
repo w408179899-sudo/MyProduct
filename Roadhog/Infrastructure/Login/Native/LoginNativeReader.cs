@@ -53,7 +53,11 @@ internal static class LoginNativeReader
         var sessionPid = processes.Single(p => p.Info.sName.Equals("winlogon.exe", StringComparison.OrdinalIgnoreCase)).Info.dwPID;
         var uu = processes.Where(p => p.Info.sName.Equals("uu.exe", StringComparison.OrdinalIgnoreCase)).ToArray();
         var game = processes.Where(p => p.Info.sName.Equals("Aion.bin", StringComparison.OrdinalIgnoreCase)).ToArray();
-        JsonElement[] uuWindows = [];
+        var uuProcesses = uu.ToDictionary(p => p.Info.dwPID, p => p.Process);
+        var uuCandidates = new UuLoginCandidates(uuProcesses.Keys,
+            pid => Json(WindowInventory.Run(uuProcesses[pid], SessionInputProbe.SessionProcess(vmm,sessionPid)))
+                .GetProperty("Windows").EnumerateArray().ToArray(),
+            (pid, window) => Json(UuMetadataReads.Reader(vmm,uuProcesses[pid],session + ":uu:" + pid).Run(window)), session, sessionPid);
         var captured = CaptureInPriorityOrder(ReadWorld, ReadReconnect, ReadLogin);
         return WithGameProcesses(captured,game.Select(p=>p.Info.dwPID).ToArray());
 
@@ -69,13 +73,10 @@ internal static class LoginNativeReader
 
         LoginObservation? ReadReconnect()
         {
-            if (uu.Length != 1) return null;
-            uuWindows = Json(WindowInventory.Run(uu[0].Process, SessionInputProbe.SessionProcess(vmm,sessionPid))).GetProperty("Windows").EnumerateArray().ToArray();
             // The disconnect popup owns an independent window while the main UU window may
             // be minimized/disabled. An authenticated in-world scene needs no UU window data;
             // otherwise handle reconnect before foreground, launch waits or login pages.
-            return ProjectUuReconnectWindows(uuWindows,
-                window => Json(UuMetadataReads.Reader(vmm,uu[0].Process,session).Run(window)), session, uu[0].Info.dwPID, sessionPid);
+            return uuCandidates.ReadReconnect();
         }
 
         LoginObservation ReadLogin()
@@ -110,15 +111,10 @@ internal static class LoginNativeReader
                     .GetProperty("Windows").EnumerateArray().ToArray();
                 return ProjectLauncher(windows,session,process.PID,sessionPid);
             }
-            if (uu.Length > 1) return State(LoginStage.Blocked, "发现多个 UU 主进程，请先保留一个。");
-            if (uu.Length == 0) return OpenUu("打开 UU 加速器");
-            if (SessionInputProbe.Foreground(vmm, sessionPid).GetProperty("Pid").GetUInt32() != uu[0].Info.dwPID)
-                return OpenUu("将 UU 加速器置于前台");
-            var mainWindows = uuWindows.Where(w => Flag(w,"Visible") && !Flag(w,"Disabled")
-                && (Address(Text(w,"Style")) & 0x40000000) == 0 && Text(w, "Manager") != "0x0" && Client(w).Width >= 800).ToArray();
-            if (mainWindows.Length == 0) return OpenUu("打开 UU 主窗口");
-            var uuWindow = mainWindows.Single();
-            return ProjectUu(Json(UuMetadataReads.Reader(vmm,uu[0].Process,session).Run(uuWindow)), uuWindow, session, uu[0].Info.dwPID, sessionPid);
+            // Existing usable windows go through the normal focus/rebind adapter, even
+            // when another application is foreground. Reopening the desktop shortcut
+            // can create a second transient uu.exe and must not be our focus strategy.
+            return uuCandidates.ReadMain() ?? OpenUu("打开 UU 主窗口");
         }
 
         LoginObservation State(LoginStage stage, string description) => new(new(session, stage, LoginAction.None, stage.ToString(), description), 0, sessionPid, "", Point.Empty, Rectangle.Empty);
