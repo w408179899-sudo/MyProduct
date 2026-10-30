@@ -65,8 +65,8 @@ public sealed class MultiAccountForm : Form
         tools.Controls.Add(Button("启动所选", () => BatchAsync(true)));
         tools.Controls.Add(Button("停止所选", () => BatchAsync(false)));
         tools.Controls.Add(Button("删除所选", () => RunConfigurationActionAsync(() => DeleteSelectedAsync())));
-        tools.Controls.Add(Button("退出程序", () => ExitAsync(), exitAction: true));
         tools.Controls.Add(Button("重新登录", () => ReloginSelectedAsync()));
+        tools.Controls.Add(Button("退出程序", () => ExitAsync(), exitAction: true));
         root.Controls.Add(tools, 0, 0);
         var filters = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false };
         _filter.DropDownStyle = ComboBoxStyle.DropDownList; _filter.Size = new Size(110, 28);
