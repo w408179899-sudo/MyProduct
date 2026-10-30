@@ -5,7 +5,7 @@
 - `GameSessionOperation.Exit`：正常退出游戏，完成后停止账号，不再登录。
 - `GameSessionOperation.Relogin`：正常退出游戏，回收旧后台，再调用原有登录和挂机启动链路。
 
-未来定时下线、上线、重登应由独立调度器调用这些命令；定时上线调用原有 `StartAsync`。退出模块不读取时刻表，也不保存调度配置。
+定时下线、上线、重登由独立的 `WorkerProcessManager.Schedule` 调度模块复用这些命令的内部执行链路，并区分计划操作与手动停止。退出模块不读取时刻表，也不保存调度配置。配置入口与调度行为见 [每日定时计划](DAILY_GAME_SCHEDULE.md)。
 
 ## 执行与隔离
 

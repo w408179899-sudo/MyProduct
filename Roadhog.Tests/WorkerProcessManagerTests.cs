@@ -904,7 +904,7 @@ internal static partial class WorkerProcessManagerTests
             KmBox = new() { IpAddress = "127.0.0." + number, Port = _kmBoxPort, Mac = _hardwareScope + number }, AutoRecover = true
         };
 
-        public async Task<WorkerProcessManager> ManagerAsync(IReadOnlyList<AccountConfig> accounts, string scenario = "normal", IWorkerProcessExitReconciler? exitReconciler = null)
+        public async Task<WorkerProcessManager> ManagerAsync(IReadOnlyList<AccountConfig> accounts, string scenario = "normal", IWorkerProcessExitReconciler? exitReconciler = null, TimeProvider? scheduleTime = null)
         {
             var paths = new RoadhogServiceOptions
             {
@@ -923,7 +923,7 @@ internal static partial class WorkerProcessManagerTests
                 PrefixArguments = new[] { "--worker-scenario=" + scenario }, LeasePath = LeasePath,
                 StartupTimeout = TimeSpan.FromSeconds(5), StopTimeout = TimeSpan.FromMilliseconds(900),
                 PollInterval = TimeSpan.FromMilliseconds(50), RecoveryDelay = TimeSpan.FromMilliseconds(100)
-            }, exitReconciler);
+            }, exitReconciler, scheduleTime: scheduleTime);
             _managers.Add(manager);
             await manager.InitializeAsync(accounts);
             return manager;

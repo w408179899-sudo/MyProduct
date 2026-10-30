@@ -52,6 +52,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
         public Task? PollTask;
         public readonly List<CancellationTokenSource> RetiredOperations = new();
         public readonly Dictionary<string, object?[]> Notifications = new(StringComparer.Ordinal);
+        public readonly ScheduleRuntime Schedule = new();
     }
 
     private sealed class AccountResourceConflictException(string message) : InvalidOperationException(message);
@@ -80,7 +81,8 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
     private static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true, WriteIndented = true };
 
     public WorkerProcessManager(RoadhogServiceOptions paths, IRoadhogLogger logger, WorkerProcessLaunchOptions? launch = null,
-        IWorkerProcessExitReconciler? exitReconciler = null, IProcessIdentityPresenceProbe? processPresenceProbe = null)
+        IWorkerProcessExitReconciler? exitReconciler = null, IProcessIdentityPresenceProbe? processPresenceProbe = null,
+        TimeProvider? scheduleTime = null)
     {
         _paths = paths;
         _logger = logger;
@@ -89,6 +91,8 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
         _processPresenceProbe = processPresenceProbe ?? new WindowsProcessIdentityPresenceProbe();
         _root = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(paths.AccountConfigPath))!, "workers");
         Directory.CreateDirectory(_root);
+        _scheduleTime = scheduleTime ?? TimeProvider.System;
+        LoadScheduleStates();
     }
 
     public async Task<IDisposable> HoldStartAdmissionsAsync(CancellationToken cancellationToken = default)
@@ -148,6 +152,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
         cancellationToken.ThrowIfCancellationRequested();
         ThrowIfUnavailable();
         _monitor ??= Task.Run(MonitorAsync);
+        _scheduleMonitor ??= Task.Run(ScheduleMonitorAsync);
     }
 
     public void UpdateAccounts(IReadOnlyList<AccountConfig> accounts)
@@ -164,11 +169,17 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                     lock (entry.Sync)
                     {
                         entry.Config = config.Clone();
+                        RefreshSchedule(entry, false);
                         if (entry.State == "verification_required" && HardwareVerificationSession.IsCurrent(config))
                         { entry.State = "stopped"; entry.Error = null; }
                     }
                 }
-                else _entries.Add(config.InstanceId, new Entry(config));
+                else
+                {
+                    var added = new Entry(config);
+                    RefreshSchedule(added, true);
+                    _entries.Add(config.InstanceId, added);
+                }
             }
             foreach (var key in _entries.Keys.Except(accounts.Select(a => a.InstanceId), StringComparer.OrdinalIgnoreCase).ToArray())
             {
@@ -186,6 +197,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
             var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var config in accounts)
             {
+                (config.DailySchedule ?? new()).Normalize();
                 if (!Guid.TryParse(config.InstanceId, out _) || !ids.Add(config.InstanceId)) throw new InvalidOperationException("账号实例标识无效或重复。");
                 if (_entries.TryGetValue(config.InstanceId, out var entry) && (entry.Desired || entry.Process is not null) &&
                     (entry.Config.AccountName != config.AccountName || entry.Config.HardwareKey != config.HardwareKey ||
@@ -250,7 +262,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
         finally
         {
             OperationResult stopped;
-            try { stopped = await StopAsync(draft.InstanceId).ConfigureAwait(false); }
+            try { stopped = await BeginStop(entry).ConfigureAwait(false); }
             finally { lock (entry.Sync) entry.Config = old; }
             if (!stopped.Success) throw new InvalidOperationException("验证结束后无法释放账号后台：" + stopped.Error);
         }
@@ -258,19 +270,21 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
 
     public Task<OperationResult> StartAsync(string instanceId, bool cleanup = false, CancellationToken cancellationToken = default,
         ScriptSettings? standaloneShopSettings = null, ScriptSettings? groceryShopSettings = null) =>
-        StartAccountAsync(instanceId, cleanup, cancellationToken, standaloneShopSettings, groceryShopSettings: groceryShopSettings);
+        ManualScheduleCommandAsync(Get(instanceId), () => StartAccountAsync(instanceId, cleanup, cancellationToken,
+            standaloneShopSettings, groceryShopSettings: groceryShopSettings));
 
     public Task<OperationResult> LoginAsync(string instanceId, CancellationToken cancellationToken = default) =>
         StartAccountAsync(instanceId, false, cancellationToken, null, loginOnly: true);
 
     public Task<OperationResult> RequestGameSessionAsync(string instanceId, Application.GameSessions.GameSessionOperation operation,
         CancellationToken cancellationToken = default) =>
-        StartAccountAsync(instanceId, false, cancellationToken, null, gameSessionOperation: operation);
+        ManualScheduleCommandAsync(Get(instanceId), () => StartAccountAsync(instanceId, false, cancellationToken, null,
+            gameSessionOperation: operation), pause: operation == Application.GameSessions.GameSessionOperation.Exit);
 
     private async Task<OperationResult> StartAccountAsync(string instanceId, bool cleanup, CancellationToken cancellationToken,
         ScriptSettings? standaloneShopSettings, long? expectedStopGeneration = null, CancellationTokenSource? expectedOperation = null,
         ScriptSettings? groceryShopSettings = null, bool loginOnly = false,
-        Application.GameSessions.GameSessionOperation? gameSessionOperation = null)
+        Application.GameSessions.GameSessionOperation? gameSessionOperation = null, string? expectedScheduleSignature = null)
     {
         if (Volatile.Read(ref _shuttingDown) != 0 || Volatile.Read(ref _disposed) != 0) return OperationResult.Fail("主界面正在退出，不能启动账号。");
         standaloneShopSettings = standaloneShopSettings?.Clone();
@@ -300,7 +314,11 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 if (!_entries.TryGetValue(instanceId, out var current) || !ReferenceEquals(current, entry))
                     return OperationResult.Fail("账号配置已删除，请刷新后重试。");
                 if (Volatile.Read(ref _shuttingDown) != 0 || Volatile.Read(ref _disposed) != 0) return OperationResult.Fail("主界面正在退出，不能启动账号。");
+                if (gameSessionOperation != Application.GameSessions.GameSessionOperation.Exit && !ScheduleAllowsStart(entry))
+                    return OperationResult.Fail("当前为计划下线时段，请在总览页调整定时挂机时间。");
                 if (entry.StopGeneration != stopGeneration) return OperationResult.Fail("启动请求已被后续停止操作取消。");
+                if (expectedScheduleSignature is not null && entry.Schedule.Signature != expectedScheduleSignature)
+                    return OperationResult.Fail("定时计划已更改，本次未执行的任务已取消。");
                 if (expectedStopGeneration.HasValue && !ReferenceEquals(entry.Operation, expectedOperation))
                     return OperationResult.Fail("售罄后自动启动已被后续操作取消。");
                 if (!HardwareVerificationSession.IsCurrent(entry.Config))
@@ -422,6 +440,8 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                     + (entry.LoginOnly || !string.IsNullOrWhiteSpace(entry.Config.GameLoginAccount) ? _launch.LoginTimeout : TimeSpan.Zero));
         cancellationToken = deadline.Token;
         if (!entry.Desired) return OperationResult.Fail("账号已停止。");
+        if (gameSessionOperation != Application.GameSessions.GameSessionOperation.Exit && !ScheduleAllowsStart(entry))
+            return OperationResult.Fail("当前为计划下线时段。");
         // Recovery may have acquired the gate while a manual start persisted its intent.
         if (!cleanup && Alive(entry) && entry.Status?.IsRunning == true && !gameSessionOperation.HasValue) return OperationResult.Ok();
         var paths = PathsFor(entry.Config);
@@ -507,7 +527,9 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
     public Task<OperationResult> StopAsync(string instanceId, CancellationToken cancellationToken = default)
     {
         if (Volatile.Read(ref _disposed) != 0) return Task.FromResult(OperationResult.Fail("账号管理器已经关闭。"));
-        return BeginStop(Get(instanceId));
+        var entry = Get(instanceId);
+        PauseSchedule(entry);
+        return BeginStop(entry);
     }
 
     private Task<OperationResult> BeginStop(Entry entry)
@@ -527,7 +549,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
     private async Task<OperationResult> StopCoreAsync(Entry entry)
     {
         // Persist and stop independently: a full disk or a blocked writer must never delay input release or process termination.
-        var persistence = Task.Run(SaveIntentAsync);
+        var persistence = Task.Run(async () => { await SaveIntentAsync().ConfigureAwait(false); SaveScheduleStates(); });
         string? stopError = null;
         // Explicit stop completes even when a view/form that requested it has closed.
         await entry.Gate.WaitAsync().ConfigureAwait(false);
@@ -1226,6 +1248,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
         var entries = Entries();
         foreach (var entry in entries) lock (entry.Sync) entry.Operation.Cancel();
         if (_monitor is not null) await _monitor.ConfigureAwait(false);
+        if (_scheduleMonitor is not null) await _scheduleMonitor.ConfigureAwait(false);
         foreach (var entry in entries)
         {
             Task<OperationResult>? stopping;

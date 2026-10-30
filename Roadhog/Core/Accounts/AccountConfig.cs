@@ -9,6 +9,8 @@ public sealed class AccountConfig
 
     public bool AutoRecover { get; set; } = true;
 
+    public DailyGameScheduleSettings DailySchedule { get; set; } = new();
+
     public string LicenseCredentialPath { get; set; } = string.Empty;
 
     public string BagCleanupNameListPath { get; set; } = string.Empty;
@@ -78,6 +80,9 @@ public sealed class AccountConfig
             return false;
         }
 
+        try { (DailySchedule ?? new()).Normalize(); }
+        catch (FormatException exception) { error = exception.Message; return false; }
+
         error = string.Empty;
         return true;
     }
@@ -90,6 +95,7 @@ public sealed class AccountConfig
             Region = Region,
             KmBox = KmBox?.Clone(),
             AutoRecover = AutoRecover,
+            DailySchedule = (DailySchedule ?? new()).Clone(),
             LicenseCredentialPath = LicenseCredentialPath,
             BagCleanupNameListPath = BagCleanupNameListPath,
             RadarMapDirectory = RadarMapDirectory,

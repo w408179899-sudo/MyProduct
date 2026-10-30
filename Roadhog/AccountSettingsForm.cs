@@ -336,6 +336,7 @@ namespace Roadhog
         private void LoadSavedSettings()
         {
             var account = LoadAccountConfigOrDefault();
+            LoadDailySchedule(account.DailySchedule ?? new());
             LoadRegion(account);
             RefreshProfileLibrary();
             var settings = BuildEffectiveScriptSettings(account);
@@ -650,6 +651,7 @@ namespace Roadhog
             var account = LoadAccountConfigOrDefault();
             var previousSettings = BuildEffectiveScriptSettings(account);
             var capturedSettings = CaptureScriptSettings();
+            if (!CaptureDailySchedule(account, out error)) return false;
             var acquireDistance = ReadDouble(targetAcquireDistanceTextBox, double.NaN,
                 double.NegativeInfinity, double.PositiveInfinity);
             if (!double.IsFinite(acquireDistance) || acquireDistance < CombatScriptSettings.MinimumTargetAcquireDistance ||
@@ -730,6 +732,7 @@ namespace Roadhog
             currentRadarSettings = capturedSettings.Combat.RadarObstacleAvoidance.Clone();
             RefreshRadarStatus();
             SetProfileStatus("已保存方案: " + profileName, false);
+            AccountConfigurationSaved?.Invoke(account.Clone());
             return true;
         }
 
@@ -1377,7 +1380,7 @@ namespace Roadhog
             var tab = CreateBaseTab("总览");
             var page = CreatePagePanel();
             page.AutoScroll = true;
-            page.AutoScrollMinSize = new Size(852, 624);
+            page.AutoScrollMinSize = new Size(852, 860);
             tab.Controls.Add(page);
 
             Panel AddSection(string title, int top, int height)
@@ -1405,7 +1408,8 @@ namespace Roadhog
             AddLabel(modePanel, "保存后重启账号生效", 608, 2, 202, 24).BringToFront();
             var behaviorPanel = AddSection("选怪与拾取", 240, 184);
             var environmentPanel = AddSection("镜头与频道", 436, 126);
-            var loggingPanel = AddSection("日志", 574, 74);
+            BuildDailySchedule(AddSection("定时计划（当前账号）", 574, 176));
+            var loggingPanel = AddSection("日志", 762, 74);
             generateLogFilesCheckBox = AddCheckBox(loggingPanel, "生成日志文件", 12, 32, 180, true);
             generateLogFilesCheckBox.Name = "generateLogFilesCheckBox";
 

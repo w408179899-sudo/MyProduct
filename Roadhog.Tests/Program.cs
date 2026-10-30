@@ -194,6 +194,18 @@ if (KmboxKeyPressProbe.ShouldRun(args))
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("daily-schedule daytime overnight and timezone boundaries", DailyGameScheduleTests.WindowsAndMidnightAsync),
+    ("daily-schedule fixed slots offline priority and no replay", DailyGameScheduleTests.FixedSlotsAndOfflinePriorityAsync),
+    ("daily-schedule manual stop until next planned online", DailyGameScheduleTests.ManualStopAndNextDayAsync),
+    ("daily-schedule validation clone and legacy defaults", DailyGameScheduleTests.ValidationAndCloneAsync),
+    ("daily-schedule manual stop survives manager reopen", WorkerProcessManagerTests.DailyScheduleManualStopSurvivesReopenAsync),
+    ("daily-schedule offline beats fixed relogin", WorkerProcessManagerTests.DailyScheduleOfflineWinsAsync),
+    ("daily-schedule fixed relogin once across reopening", WorkerProcessManagerTests.DailyScheduleFixedReloginOnceAsync),
+    ("daily-schedule deadline cancels pending startup", WorkerProcessManagerTests.DailyScheduleDeadlineCancelsPendingStartAsync),
+    ("daily-schedule Stop wins queued admission", WorkerProcessManagerTests.DailyScheduleStopWinsQueuedAdmissionAsync),
+    ("daily-schedule changed config cancels queued admission", WorkerProcessManagerTests.DailyScheduleChangedBeforeDispatchAsync),
+    ("daily-schedule busy hardware defers without disturbing owner", WorkerProcessManagerTests.DailyScheduleBusyDeviceRetriesWithoutReplayAsync),
+    ("daily-schedule Overview UI validation and persistence", MultiAccountUiTests.DailyScheduleOverviewSaveAsync),
     ("game-session exit twelve seconds do not prove process exit", GameExitControllerTests.TwelveSecondsCannotProveExitAsync),
     ("game-session damage cancels before combat then retries", GameExitControllerTests.DamageCancelsBeforeCombatAndRetriesAsync),
     ("game-session existing countdown cancelled before preparation", GameExitControllerTests.ExistingCountdownMustBeCancelledAsync),

@@ -459,10 +459,16 @@ public sealed class MultiAccountForm : Form
     {
         var account = _accounts.Single(a => a.InstanceId == id);
         using var form = CreateAccountSettingsForm(account);
+        form.AccountConfigurationSaved += saved =>
+        {
+            _accounts = _workspace.Processes.Snapshot().Select(v => v.Config.InstanceId == saved.InstanceId ? saved : v.Config).ToList();
+            _workspace.Processes.UpdateAccounts(_accounts);
+            RefreshRows();
+        };
         form.ShowDialog(this);
         await ReloadAccountsAsync();
         if (!_workspace.Processes.Snapshot().Single(v => v.Config.InstanceId == id).DesiredRunning)
-            await _workspace.Processes.StopAsync(id);
+            await _workspace.Processes.ReleaseIdleWorkerAsync(id);
     }
 
     private AccountSettingsForm CreateAccountSettingsForm(AccountConfig account) =>

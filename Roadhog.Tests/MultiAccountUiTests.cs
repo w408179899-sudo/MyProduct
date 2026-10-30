@@ -9,7 +9,7 @@ using Roadhog.Infrastructure.Shell;
 using Roadhog.Infrastructure.WorkerProcesses;
 using System.Windows.Forms;
 
-internal static class MultiAccountUiTests
+internal static partial class MultiAccountUiTests
 {
     public static Task LoginSelectionAndCredentialFieldsAsync() => Sta(() =>
     {
