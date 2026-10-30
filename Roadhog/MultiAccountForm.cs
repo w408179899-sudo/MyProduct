@@ -66,7 +66,7 @@ public sealed class MultiAccountForm : Form
         tools.Controls.Add(Button("停止所选", () => BatchAsync(false)));
         tools.Controls.Add(Button("删除所选", () => RunConfigurationActionAsync(() => DeleteSelectedAsync())));
         tools.Controls.Add(Button("退出程序", () => ExitAsync(), exitAction: true));
-        tools.Controls.Add(Button("登录所选", LoginSelectedAsync));
+        tools.Controls.Add(Button("重新登录", () => ReloginSelectedAsync()));
         root.Controls.Add(tools, 0, 0);
         var filters = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false };
         _filter.DropDownStyle = ComboBoxStyle.DropDownList; _filter.Size = new Size(110, 28);
@@ -313,7 +313,9 @@ public sealed class MultiAccountForm : Form
         : !Infrastructure.Hardware.HardwareVerificationSession.IsCurrent(view.Config) ? "待验证" : view.State switch
     {
         "logging_in" => "登录中", "logged_in" => "已登录 · 待启动", "starting" => "启动中", "stopping" => "停止中", "recovering" => "恢复中", "failed" => "需处理",
-        "idle" => "已停止 · 设置连接中", "running" => view.Worker?.Snapshot?.CleanupProgress is { Length: > 0 } progress
+        "idle" => "已停止 · 设置连接中",
+        "running" when view.Worker?.PendingGameSessionOperation is { } operation => operation == Application.GameSessions.GameSessionOperation.Relogin ? "重登中" : "退出游戏中",
+        "running" => view.Worker?.Snapshot?.CleanupProgress is { Length: > 0 } progress
             ? progress.StartsWith("等待仓库号", StringComparison.Ordinal) ? "等仓库" : progress.StartsWith("等待摆摊售罄", StringComparison.Ordinal) ? "摆摊中" : "清包中"
             : "运行中", _ => "已停止"
     };
@@ -389,17 +391,23 @@ public sealed class MultiAccountForm : Form
     }
 
     private static void Check(Core.Common.OperationResult result) { if (!result.Success) throw new InvalidOperationException(result.Error); }
-    private async Task LoginSelectedAsync()
+    private async Task ReloginSelectedAsync(Func<string, bool>? confirm = null)
     {
+        await ReloadAccountsAsync();
         _grid.EndEdit();
         var ids = _grid.Rows.Cast<DataGridViewRow>().Where(row => row.Cells[0].Value is true).Select(row => (string)row.Tag!).ToArray();
         if (ids.Length == 0) { Report("请先勾选账号。"); return; }
+        var names = string.Join("、", _accounts.Where(a => ids.Contains(a.InstanceId)).Select(a => a.AccountName));
+        var message = $"账号：{names}\n\n等待当前战斗结束后退出游戏，再重新登录并启动挂机。\n停止按钮可取消后续流程。";
+        var accepted = confirm?.Invoke(message) ?? MessageBox.Show(this, message,
+            "确认重新登录", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) == DialogResult.OK;
+        if (!accepted) return;
         var errors = await Task.WhenAll(ids.Select(async id =>
         {
-            try { Check(await _workspace.Processes.LoginAsync(id, _operations.Token)); return null; }
+            try { Check(await _workspace.Processes.RequestGameSessionAsync(id, Application.GameSessions.GameSessionOperation.Relogin, _operations.Token)); return null; }
             catch (Exception exception) { return _accounts.Single(a => a.InstanceId == id).AccountName + "：" + exception.Message; }
         }));
-        Report(errors.Any(error => error is not null) ? string.Join("；", errors.Where(error => error is not null)) : "所选账号已进入游戏；点击启动开始挂机。");
+        Report(errors.Any(error => error is not null) ? string.Join("；", errors.Where(error => error is not null)) : "所选账号已提交重新登录任务。");
         RefreshRows();
     }
 

@@ -730,6 +730,8 @@ internal static partial class WorkerProcessManagerTests
         private volatile bool _initialized;
         private volatile bool _loggedIn;
         private Guid? _shopRestartRequestId;
+        private Guid? _gameSessionRequestId;
+        private Roadhog.Application.GameSessions.GameSessionOperation? _gameSessionOperation;
         private string? _cleanupFailure;
         private readonly object _shopSync = new();
 
@@ -752,7 +754,9 @@ internal static partial class WorkerProcessManagerTests
             {
                 Authorized = scenario != "unauthorized", AuthorizationError = scenario == "unauthorized" ? "mock authorization denied" : null,
                 IsRunning = _running, LoginCompleted = _loggedIn, Snapshot = _states.Snapshot().SingleOrDefault(), StandaloneShopRestartRequestId = _shopRestartRequestId,
-                CleanupFailure = _cleanupFailure
+                CleanupFailure = _cleanupFailure,
+                GameSessionCompletedRequestId = _gameSessionRequestId,
+                CompletedGameSessionOperation = _gameSessionOperation
             };
         }
 
@@ -760,6 +764,18 @@ internal static partial class WorkerProcessManagerTests
         {
             await File.WriteAllTextAsync(Path.Combine(spec.Paths.LogDirectory, "standalone-shop.json"), JsonSerializer.Serialize(account), cancellationToken);
             return await StartAsync(account, true, cancellationToken);
+        }
+
+        public async Task<OperationResult> RequestGameSessionAsync(AccountConfig account,
+            Roadhog.Application.GameSessions.GameSessionOperation operation, CancellationToken token)
+        {
+            await File.WriteAllTextAsync(Path.Combine(spec.Paths.LogDirectory, "game-session.json"),
+                JsonSerializer.Serialize(new { Operation = operation, Account = account }), token);
+            _states.MarkStarting(account);
+            _states.MarkRunning(account.AccountName, Environment.CurrentManagedThreadId);
+            lock (_shopSync) { _gameSessionRequestId = null; _gameSessionOperation = operation; }
+            _running = true;
+            return OperationResult.Ok();
         }
 
         public async Task<OperationResult> LoginAsync(AccountConfig account, IProgress<string> progress, CancellationToken token)
@@ -791,7 +807,7 @@ internal static partial class WorkerProcessManagerTests
             await File.WriteAllTextAsync(Path.Combine(spec.Paths.LogDirectory, "started"), _starts.ToString(), cancellationToken);
             _states.MarkStarting(account);
             _states.MarkRunning(account.AccountName, Environment.CurrentManagedThreadId);
-            lock (_shopSync) { _shopRestartRequestId = null; _cleanupFailure = null; }
+            lock (_shopSync) { _shopRestartRequestId = null; _cleanupFailure = null; _gameSessionRequestId = null; _gameSessionOperation = null; }
             if (!cleanupFirst)
                 await File.WriteAllTextAsync(Path.Combine(spec.Paths.LogDirectory, "normal-start.json"), JsonSerializer.Serialize(account), cancellationToken);
             if (cleanupFirst && account.ScriptSettings?.Maintenance.CleanupWorkflow.Mode == CleanupMode.GroceryShop)
@@ -829,6 +845,15 @@ internal static partial class WorkerProcessManagerTests
 
         public async Task<object?> InvokeAsync(string method, JsonElement[] arguments, IProgress<string> progress, CancellationToken cancellationToken)
         {
+            if (method == "mock.game-session.completed")
+            {
+                lock (_shopSync)
+                {
+                    _gameSessionRequestId = arguments[0].GetGuid();
+                    _gameSessionOperation = arguments[1].Deserialize<Roadhog.Application.GameSessions.GameSessionOperation>();
+                }
+                return OperationResult.Ok();
+            }
             if (method == "mock.info") return new MockInfo(spec.Account.Clone(), spec.Paths, Volatile.Read(ref _starts), _running);
             if (method == "mock.cleanup.failed")
             {

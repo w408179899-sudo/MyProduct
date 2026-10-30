@@ -14,7 +14,8 @@ public sealed class AccountWorkerContext
         AccountRuntimeManager runtimeStates,
         AccountWorkerOptions options,
         CancellationToken stopToken,
-        CleanupRequestMailbox? cleanupRequests = null)
+        CleanupRequestMailbox? cleanupRequests = null,
+        GameSessions.GameSessionRequestMailbox? gameSessionRequests = null)
     {
         Config = config;
         Logger = logger;
@@ -23,6 +24,7 @@ public sealed class AccountWorkerContext
         StopToken = stopToken;
         Snapshots = snapshotReaders.Create(config, logger, stopToken);
         CleanupRequests = cleanupRequests ?? new();
+        GameSessionRequests = gameSessionRequests ?? new();
     }
 
     public AccountConfig Config { get; }
@@ -38,6 +40,7 @@ public sealed class AccountWorkerContext
     public CancellationToken StopToken { get; }
 
     public CleanupRequestMailbox CleanupRequests { get; }
+    public GameSessions.GameSessionRequestMailbox GameSessionRequests { get; }
     public bool WorkflowOwnsCleanup { get; set; }
 
     public SkillKeyBindings? SkillBindings { get; private set; }
@@ -74,6 +77,7 @@ public sealed class AccountWorkerContext
     {
         Config = config; Snapshots = source.Snapshots; Logger = source.Logger; RuntimeStates = source.RuntimeStates;
         Options = source.Options; StopToken = source.StopToken; CleanupRequests = source.CleanupRequests;
+        GameSessionRequests = source.GameSessionRequests;
         WorkflowOwnsCleanup = source.WorkflowOwnsCleanup;
         SkillBindings = source.SkillBindings;
     }

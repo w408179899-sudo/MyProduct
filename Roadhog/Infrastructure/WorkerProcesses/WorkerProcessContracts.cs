@@ -61,6 +61,9 @@ public sealed record WorkerStatus
     public bool IsRunning { get; init; }
     public bool LoginCompleted { get; init; }
     public Guid? StandaloneShopRestartRequestId { get; init; }
+    public Guid? GameSessionCompletedRequestId { get; init; }
+    public Roadhog.Application.GameSessions.GameSessionOperation? PendingGameSessionOperation { get; init; }
+    public Roadhog.Application.GameSessions.GameSessionOperation? CompletedGameSessionOperation { get; init; }
     public string? CleanupFailure { get; init; }
     public AccountRuntimeSnapshot? Snapshot { get; init; }
     public DateTimeOffset ReportedAtUtc { get; init; } = DateTimeOffset.UtcNow;
@@ -71,6 +74,8 @@ public static class WorkerCommands
     public const string Status = "$status";
     public const string Start = "$start";
     public const string Login = "$login";
+    public const string Relogin = "$relogin";
+    public const string ExitGame = "$exitGame";
     public const string Stop = "$stop";
     public const string Cleanup = "$cleanup";
     public const string StandaloneShop = "$standaloneShop";

@@ -19,6 +19,9 @@ public sealed class AccountWorkerHost
     private CancellationTokenSource? _stopSource;
     private Task? _task;
     private CleanupRequestMailbox _cleanupRequests = new();
+    private GameSessions.GameSessionRequestMailbox _gameSessionRequests = new();
+    public GameSessions.GameSessionRequest? CompletedGameSession => _gameSessionRequests.Completed;
+    public GameSessions.GameSessionRequest? PendingGameSession => _gameSessionRequests.Current;
     // Retained for IPC compatibility. Branch failures never put an account in a terminal state.
     public string? CleanupFailure => null;
 
@@ -61,7 +64,8 @@ public sealed class AccountWorkerHost
         }
     }
 
-    public OperationResult Start(AccountConfig config, bool cleanupFirst = false, bool standaloneShop = false)
+    public OperationResult Start(AccountConfig config, bool cleanupFirst = false, bool standaloneShop = false,
+        GameSessions.GameSessionOperation? gameSessionOperation = null)
     {
         if (!config.Validate(out var error))
         {
@@ -77,6 +81,8 @@ public sealed class AccountWorkerHost
 
             var workerConfig = config.Clone();
             _cleanupRequests = new();
+            _gameSessionRequests = new();
+            if (gameSessionOperation.HasValue) _gameSessionRequests.Request(gameSessionOperation.Value);
             if (cleanupFirst || standaloneShop)
             {
                 var request = _cleanupRequests.Request(workerConfig.ScriptSettings ?? new(), true, standaloneShop: standaloneShop);
@@ -119,7 +125,8 @@ public sealed class AccountWorkerHost
             stopSource?.Cancel();
         }
 
-        var completed = await Task.WhenAny(task, Task.Delay(_options.StopTimeout)).ConfigureAwait(false);
+        var stopTimeout = _gameSessionRequests.Current is null ? _options.StopTimeout : _options.StopTimeout + TimeSpan.FromSeconds(5);
+        var completed = await Task.WhenAny(task, Task.Delay(stopTimeout)).ConfigureAwait(false);
         if (completed != task)
         {
             return OperationResult.Fail("Account worker did not stop before timeout: " + accountName);
@@ -155,7 +162,7 @@ public sealed class AccountWorkerHost
                     {
                         if (_pathStore is not null)
                             await CombatPathRadiusBinding.ApplyAsync(config, _pathStore, _logger, stopToken).ConfigureAwait(false);
-                        context = new AccountWorkerContext(config, _snapshotReaders, _logger, _runtimeStates, _options, stopToken, _cleanupRequests);
+                        context = new AccountWorkerContext(config, _snapshotReaders, _logger, _runtimeStates, _options, stopToken, _cleanupRequests, _gameSessionRequests);
                     }
 
                     // Keep the same provider session. Only controller state is rebuilt after an exception.
@@ -218,7 +225,21 @@ public sealed class AccountWorkerHost
         {
             if (_task is not { IsCompleted: false } || _stopSource?.IsCancellationRequested != false)
                 return OperationResult.Fail("账号正在停止或未运行。");
+            if (_gameSessionRequests.Current is not null || _gameSessionRequests.Completed is not null)
+                return OperationResult.Fail("退出 / 重登任务正在执行，请等待完成。");
             return _cleanupRequests.Request(settings, true, standaloneShop: standaloneShop);
+        }
+    }
+
+    public OperationResult RequestGameSession(GameSessions.GameSessionOperation operation)
+    {
+        lock (_syncRoot)
+        {
+            if (_task is not { IsCompleted: false } || _stopSource?.IsCancellationRequested != false)
+                return OperationResult.Fail("账号正在停止或未运行。");
+            if (_cleanupRequests.Current is not null || _cleanupRequests.StandaloneShopRestartRequestId.HasValue)
+                return OperationResult.Fail("清包流程正在执行，请等待完成后再重新登录。");
+            return _gameSessionRequests.Request(operation);
         }
     }
 }

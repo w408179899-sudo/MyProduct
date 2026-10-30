@@ -263,9 +263,14 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
     public Task<OperationResult> LoginAsync(string instanceId, CancellationToken cancellationToken = default) =>
         StartAccountAsync(instanceId, false, cancellationToken, null, loginOnly: true);
 
+    public Task<OperationResult> RequestGameSessionAsync(string instanceId, Application.GameSessions.GameSessionOperation operation,
+        CancellationToken cancellationToken = default) =>
+        StartAccountAsync(instanceId, false, cancellationToken, null, gameSessionOperation: operation);
+
     private async Task<OperationResult> StartAccountAsync(string instanceId, bool cleanup, CancellationToken cancellationToken,
         ScriptSettings? standaloneShopSettings, long? expectedStopGeneration = null, CancellationTokenSource? expectedOperation = null,
-        ScriptSettings? groceryShopSettings = null, bool loginOnly = false)
+        ScriptSettings? groceryShopSettings = null, bool loginOnly = false,
+        Application.GameSessions.GameSessionOperation? gameSessionOperation = null)
     {
         if (Volatile.Read(ref _shuttingDown) != 0 || Volatile.Read(ref _disposed) != 0) return OperationResult.Fail("主界面正在退出，不能启动账号。");
         standaloneShopSettings = standaloneShopSettings?.Clone();
@@ -313,7 +318,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                     return OperationResult.Fail("账号正在执行登录或启动，请等待完成后再切换操作。");
                 if (entry.Desired && (entry.StartingRequest || entry.State == "starting"))
                     return standaloneShopSettings != null || groceryShopSettings != null ? OperationResult.Fail("账号正在启动，请稍后再提交摆摊任务。") : OperationResult.Ok();
-                if (entry.Desired && Alive(entry) && entry.Status?.IsRunning == true && !cleanup) return OperationResult.Ok();
+                if (entry.Desired && Alive(entry) && entry.Status?.IsRunning == true && !cleanup && !gameSessionOperation.HasValue) return OperationResult.Ok();
                 resourceConflict = FindResourceConflict(entry);
                 if (resourceConflict is not null)
                 {
@@ -365,7 +370,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(linked.Token);
                 deadline.CancelAfter(_launch.StartupTimeout + _launch.StopTimeout + TimeSpan.FromSeconds(5)
                     + (entry.LoginOnly || !string.IsNullOrWhiteSpace(entry.Config.GameLoginAccount) ? _launch.LoginTimeout : TimeSpan.Zero));
-                var result = await StartCoreAsync(entry, cleanup, deadline.Token, standaloneShopSettings, groceryShopSettings).ConfigureAwait(false);
+                var result = await StartCoreAsync(entry, cleanup, deadline.Token, standaloneShopSettings, groceryShopSettings, gameSessionOperation).ConfigureAwait(false);
                 startedSuccessfully = result.Success;
                 return result;
             }
@@ -406,7 +411,8 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
     }
 
     private async Task<OperationResult> StartCoreAsync(Entry entry, bool cleanup, CancellationToken cancellationToken,
-        ScriptSettings? standaloneShopSettings = null, ScriptSettings? groceryShopSettings = null)
+        ScriptSettings? standaloneShopSettings = null, ScriptSettings? groceryShopSettings = null,
+        Application.GameSessions.GameSessionOperation? gameSessionOperation = null)
     {
         ThrowIfUnavailable();
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -417,7 +423,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
         cancellationToken = deadline.Token;
         if (!entry.Desired) return OperationResult.Fail("账号已停止。");
         // Recovery may have acquired the gate while a manual start persisted its intent.
-        if (!cleanup && Alive(entry) && entry.Status?.IsRunning == true) return OperationResult.Ok();
+        if (!cleanup && Alive(entry) && entry.Status?.IsRunning == true && !gameSessionOperation.HasValue) return OperationResult.Ok();
         var paths = PathsFor(entry.Config);
         var sharedPath = Roadhog.Infrastructure.Config.SharedAccountConfigurationStore.PathFor(_paths.AccountConfigPath);
         var builder = new AccountStartConfigBuilder(new Roadhog.Infrastructure.Profiles.JsonScriptProfileStore(paths.ProfileLibraryDirectory),
@@ -459,7 +465,10 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
         {
             if (standaloneShopSettings != null) built.Value.ScriptSettings = standaloneShopSettings.Clone();
             if (groceryShopSettings != null) built.Value.ScriptSettings = groceryShopSettings.Clone();
-            var result = await client.CallAsync<OperationResult>(entry.LoginOnly ? WorkerCommands.Login : standaloneShopSettings != null ? WorkerCommands.StandaloneShop : cleanup ? WorkerCommands.Cleanup : WorkerCommands.Start,
+            var command = gameSessionOperation.HasValue ? gameSessionOperation == Application.GameSessions.GameSessionOperation.Relogin
+                ? WorkerCommands.Relogin : WorkerCommands.ExitGame
+                : entry.LoginOnly ? WorkerCommands.Login : standaloneShopSettings != null ? WorkerCommands.StandaloneShop : cleanup ? WorkerCommands.Cleanup : WorkerCommands.Start;
+            var result = await client.CallAsync<OperationResult>(command,
                 [built.Value], cancellationToken, new Progress<string>(message =>
                 {
                     lock (entry.Sync)
@@ -898,6 +907,11 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                         }
                         else if (!entry.Desired) entry.State = entry.Status?.LoginCompleted == true ? "logged_in" : "idle";
                         else if (!status.Authorized) { entry.State = "failed"; entry.Error = status.AuthorizationError ?? "需要授权"; }
+                    }
+                    if (status.GameSessionCompletedRequestId is { } exitId && exitId != Guid.Empty && status.IsRunning && status.Authorized)
+                    {
+                        shopRestart = CompleteGameSessionAsync(entry, exitId);
+                        return;
                     }
                     if (status.StandaloneShopRestartRequestId is { } requestId && requestId != Guid.Empty && status.IsRunning && status.Authorized)
                     {

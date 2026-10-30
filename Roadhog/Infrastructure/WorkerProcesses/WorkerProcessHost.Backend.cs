@@ -15,6 +15,8 @@ public interface IWorkerProcessBackend : IAsyncDisposable
     Task<OperationResult> StartAsync(AccountConfig account, bool cleanupFirst, CancellationToken cancellationToken);
     Task<OperationResult> LoginAsync(AccountConfig account, IProgress<string> progress, CancellationToken cancellationToken) =>
         Task.FromResult(OperationResult.Fail("账号后台尚未支持自动登录，请更新程序。"));
+    Task<OperationResult> RequestGameSessionAsync(AccountConfig account, Application.GameSessions.GameSessionOperation operation, CancellationToken token) =>
+        Task.FromResult(OperationResult.Fail("账号后台尚未支持退出 / 重登，请更新程序。"));
     Task<OperationResult> StartWithProgressAsync(AccountConfig account, bool cleanupFirst, IProgress<string> progress, CancellationToken token) =>
         StartAsync(account, cleanupFirst, token);
     Task<OperationResult> StartStandaloneShopAsync(AccountConfig account, CancellationToken cancellationToken) =>
@@ -130,6 +132,9 @@ internal sealed class RoadhogWorkerProcessBackend : IWorkerProcessBackend
             IsRunning = state?.Status is "starting" or "running" or "stopping",
             LoginCompleted = _loginCompleted,
             StandaloneShopRestartRequestId = _services.AccountOrchestrator.GetStandaloneShopRestartRequestId(_spec.Account.AccountName),
+            GameSessionCompletedRequestId = _services.AccountOrchestrator.GetCompletedGameSession(_spec.Account.AccountName)?.Id,
+            PendingGameSessionOperation = _services.AccountOrchestrator.GetPendingGameSession(_spec.Account.AccountName)?.Operation,
+            CompletedGameSessionOperation = _services.AccountOrchestrator.GetCompletedGameSession(_spec.Account.AccountName)?.Operation,
             CleanupFailure = _services.AccountOrchestrator.GetCleanupFailure(_spec.Account.AccountName),
             Snapshot = state
         };
@@ -147,6 +152,28 @@ internal sealed class RoadhogWorkerProcessBackend : IWorkerProcessBackend
         var binding = ValidatePhysicalBinding();
         if (!binding.Success) return binding;
         return await EnsureLoginAsync(account, progress, token).ConfigureAwait(false);
+    }
+
+    public Task<OperationResult> RequestGameSessionAsync(AccountConfig account, Application.GameSessions.GameSessionOperation operation, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        var binding = ValidatePhysicalBinding();
+        if (!binding.Success) return Task.FromResult(binding);
+        if (operation == Application.GameSessions.GameSessionOperation.Relogin)
+        {
+            if (string.IsNullOrWhiteSpace(account.GameLoginAccount) || string.IsNullOrWhiteSpace(account.ProtectedGameLoginPassword))
+                return Task.FromResult(OperationResult.Fail("请先保存游戏账号和密码，再重新登录。"));
+            try
+            {
+                var password = Login.LoginPasswordProtector.Unprotect(account.ProtectedGameLoginPassword);
+                if (password.Length == 0 || !account.GameLoginAccount.All(c => c >= 32 && c <= 126) || !password.All(c => c >= 32 && c <= 126))
+                    return Task.FromResult(OperationResult.Fail("游戏账号或密码无法通过当前输入设备输入。"));
+            }
+            catch (Exception) { return Task.FromResult(OperationResult.Fail("无法读取已保存的登录密码，请重新保存。")); }
+        }
+        if (_services.AccountConfigStore is WorkerAccountConfigStore store) store.Update(account);
+        _loginCompleted = false;
+        return Task.FromResult(_services.AccountOrchestrator.RequestGameSession(account, operation));
     }
 
     private async Task<OperationResult> EnsureLoginAsync(AccountConfig account, IProgress<string>? progress, CancellationToken token)

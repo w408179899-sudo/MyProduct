@@ -26,6 +26,7 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
     private readonly FixedChannelController? _fixedChannel;
     private readonly CleanupWorkflowRunner? _cleanupWorkflow;
     private readonly Func<AccountConfig, ISharedAccountConfiguration?>? _sharedConfigurationFactory;
+    private readonly Func<AccountConfig, GameSessions.IGameExitSession>? _gameExitSessionFactory;
 
     public DefaultAccountWorkerLoop(
         IKeyboardInput keyboard,
@@ -35,7 +36,8 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
         TeamOutputController? teamOutput = null,
         FixedChannelController? fixedChannel = null,
         CleanupWorkflowRunner? cleanupWorkflow = null,
-        Func<AccountConfig, ISharedAccountConfiguration?>? sharedConfigurationFactory = null)
+        Func<AccountConfig, ISharedAccountConfiguration?>? sharedConfigurationFactory = null,
+        Func<AccountConfig, GameSessions.IGameExitSession>? gameExitSessionFactory = null)
     {
         _keyboard = keyboard;
         _semiAuto = semiAuto;
@@ -45,10 +47,50 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
         _fixedChannel = fixedChannel;
         _cleanupWorkflow = cleanupWorkflow;
         _sharedConfigurationFactory = sharedConfigurationFactory;
+        _gameExitSessionFactory = gameExitSessionFactory;
     }
 
     public async Task RunAsync(AccountWorkerContext context)
     {
+        await using var exitSession = _gameExitSessionFactory?.Invoke(context.Config);
+        try { await RunCoreAsync(context, exitSession).ConfigureAwait(false); }
+        finally
+        {
+            if (context.StopToken.IsCancellationRequested && context.GameSessionRequests.Current is not null && _gameExitSessionFactory is not null)
+            {
+                // A cancelled read executor is retired. This new adapter can only cancel an existing countdown.
+                using var cancelDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                try
+                {
+                    await using var cancelSession = _gameExitSessionFactory(context.Config);
+                    await GameSessions.GameExitController.CancelAsync(cancelSession, cancelDeadline.Token);
+                }
+                catch (Exception error)
+                {
+                    context.Logger.Warn("game_exit.stop_cancel_failed", new Dictionary<string, object?>
+                        { ["account"] = context.Config.AccountName, ["error"] = error.Message });
+                }
+            }
+        }
+    }
+
+    private async Task RunCoreAsync(AccountWorkerContext context, GameSessions.IGameExitSession? exitSession)
+    {
+        // Offline requests must reach the manager without waiting for a nonexistent player.
+        if (context.GameSessionRequests.Current is { } initialExit && exitSession is not null)
+        {
+            var initialScene = await exitSession.ReadAsync(context.StopToken);
+            context.StopToken.ThrowIfCancellationRequested();
+            if (!initialScene.ProcessPresent) context.GameSessionRequests.Complete(initialExit);
+        }
+        if (context.GameSessionRequests.Completed is not null)
+        {
+            while (true)
+            {
+                context.RuntimeStates.MarkHeartbeat(context.Config.AccountName);
+                await Task.Delay(250, context.StopToken);
+            }
+        }
         // Capture the session boundary before input setup or readiness waits can cross a due time.
         // Recovery uses the same context, so it retains the original boundary and pending task.
         _cleanupWorkflow?.InitializeGrocerySchedule(context);
@@ -128,6 +170,36 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                 try
                 {
                     context.RuntimeStates.MarkHeartbeat(context.Config.AccountName);
+                    // Exit owns input and process observation before any game-world read.
+                    if (context.GameSessionRequests.Completed is not null)
+                    {
+                        await Task.Delay(250, context.StopToken);
+                        continue;
+                    }
+                    if (context.GameSessionRequests.Current is { } exitRequest)
+                    {
+                        if (exitSession is null) throw new InvalidOperationException("未配置退出游戏适配器。");
+                        var exitTick = await exitRequest.Exit.TickAsync(exitSession, async () =>
+                        {
+                            if (fixedChannelState.AwaitingConfirmation) return false;
+                            if (!await _stationaryCombat.PrepareCleanupTickAsync(context, semiAutoPlan, semiAutoState, stationaryCombatState)) return false;
+                            if (jumpAssist is not null) await jumpAssist.StopAsync("game_exit");
+                            return true;
+                        }, context.StopToken);
+                        context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, exitTick.Message);
+                        if (exitTick.Completed)
+                        {
+                            context.GameSessionRequests.Complete(exitRequest);
+                            context.Logger.Info("game_exit.completed", new Dictionary<string, object?>
+                                { ["account"] = context.Config.AccountName, ["requestId"] = exitRequest.Id,
+                                    ["operation"] = exitRequest.Operation.ToString() });
+                        }
+                        if (!exitTick.YieldToCombat || !fixedChannelState.AwaitingConfirmation)
+                        {
+                            await Task.Delay(250, context.StopToken);
+                            continue;
+                        }
+                    }
                     if (context.CleanupRequests.Current is { Failure: not null } failedShop)
                     {
                         nextCleanupCheck = DateTimeOffset.UtcNow.AddSeconds(30);

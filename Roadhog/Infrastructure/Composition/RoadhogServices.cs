@@ -241,7 +241,9 @@ public sealed class RoadhogServices : IDisposable
                     stationaryCombatController.ExecuteCleanupPathAsync,
                     new JsonAuctionListingJournal(Path.Combine(Path.GetDirectoryName(options.AccountConfigPath)!, "auction-listings")), SharedConfiguration,
                     new JsonGroceryShopSuccessStore(Path.Combine(configDirectory, "grocery-shop-success"))),
-                SharedConfiguration),
+                SharedConfiguration,
+                gameApi is AionVmmGameApi exitApi && keyboardInput is KmBoxNetKeyboardInput exitInput
+                    ? account => new Roadhog.Infrastructure.GameSessions.VmmGameExitSession(exitApi, exitInput, account, logger) : null),
             workerOptions,
             licenseCoordinator,
             sharedPathStore);

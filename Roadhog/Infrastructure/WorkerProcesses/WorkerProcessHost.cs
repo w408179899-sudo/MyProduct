@@ -300,7 +300,7 @@ public sealed class WorkerProcessHost
             {
                 if (!_initialized || _initializationError is not null || !_backend.GetStatus().Authorized)
                     throw new InvalidOperationException(_initializationError ?? "账号授权尚未通过，请先完成激活。");
-                if (method is WorkerCommands.Start or WorkerCommands.Cleanup or WorkerCommands.StandaloneShop or WorkerCommands.Login)
+                if (method is WorkerCommands.Start or WorkerCommands.Cleanup or WorkerCommands.StandaloneShop or WorkerCommands.Login or WorkerCommands.Relogin or WorkerCommands.ExitGame)
                 {
                     if (arguments.Length != 1) throw new InvalidDataException("启动请求缺少账号配置。");
                     var requested = arguments[0].Deserialize<AccountConfig>(WorkerRpcProtocol.Json)
@@ -314,7 +314,10 @@ public sealed class WorkerProcessHost
                     effective.HardwareDeviceInstanceId = _spec.Account.HardwareDeviceInstanceId;
                     effective.HardwareLocationKey = _spec.Account.HardwareLocationKey;
                     effective.HardwareDisplayName = _spec.Account.HardwareDisplayName;
-                    return method == WorkerCommands.Login
+                    return method is WorkerCommands.Relogin or WorkerCommands.ExitGame
+                        ? await _backend.RequestGameSessionAsync(effective, method == WorkerCommands.Relogin
+                            ? Application.GameSessions.GameSessionOperation.Relogin : Application.GameSessions.GameSessionOperation.Exit, operation.Token).ConfigureAwait(false)
+                        : method == WorkerCommands.Login
                         ? await _backend.LoginAsync(effective, progress, operation.Token).ConfigureAwait(false)
                         : method == WorkerCommands.StandaloneShop
                         ? await _backend.StartStandaloneShopAsync(effective, operation.Token).ConfigureAwait(false)

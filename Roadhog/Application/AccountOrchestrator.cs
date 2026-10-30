@@ -85,13 +85,36 @@ public sealed class AccountOrchestrator
             return _workers.TryGetValue(accountName, out var worker) ? worker.StandaloneShopRestartRequestId : null;
     }
 
+    public GameSessions.GameSessionRequest? GetCompletedGameSession(string accountName)
+    {
+        lock (_syncRoot)
+            return _workers.TryGetValue(accountName, out var worker) ? worker.CompletedGameSession : null;
+    }
+
+    public GameSessions.GameSessionRequest? GetPendingGameSession(string accountName)
+    {
+        lock (_syncRoot)
+            return _workers.TryGetValue(accountName, out var worker) ? worker.PendingGameSession : null;
+    }
+
+    public OperationResult RequestGameSession(AccountConfig config, GameSessions.GameSessionOperation operation)
+    {
+        lock (_syncRoot)
+        {
+            if (_manualInputActive) return OperationResult.Fail("手动测试正在执行。");
+            var worker = GetOrCreateWorker(config.AccountName);
+            return worker.IsRunning ? worker.RequestGameSession(operation) : StartCore(config, gameSessionOperation: operation);
+        }
+    }
+
     public string? GetCleanupFailure(string accountName)
     {
         lock (_syncRoot)
             return _workers.TryGetValue(accountName, out var worker) ? worker.CleanupFailure : null;
     }
 
-    private OperationResult StartCore(AccountConfig config, bool cleanupFirst = false, bool standaloneShop = false)
+    private OperationResult StartCore(AccountConfig config, bool cleanupFirst = false, bool standaloneShop = false,
+        GameSessions.GameSessionOperation? gameSessionOperation = null)
     {
         if (_licenseRuntimeGate is not null && !_licenseRuntimeGate.IsAuthorized)
         {
@@ -127,7 +150,7 @@ public sealed class AccountOrchestrator
 
         TryResolveRuntimeProcess(startConfig);
 
-        var startResult = worker.Start(startConfig, cleanupFirst, standaloneShop);
+        var startResult = worker.Start(startConfig, cleanupFirst, standaloneShop, gameSessionOperation);
         if (!startResult.Success)
         {
             ReleaseHardware(startConfig.AccountName);
