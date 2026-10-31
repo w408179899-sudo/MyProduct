@@ -160,7 +160,7 @@ public sealed partial class WorkerProcessManager
         var decision = outside ? due : runtime.Pending ?? due;
         if (decision == null || now < runtime.RetryAt) return null;
         if (entry.StopTask is { IsCompleted: false }) return null;
-        var stopFirst = outside && (entry.StartingRequest || runtime.Task is { IsCompleted: false } ||
+        var stopFirst = outside && (entry.RecoveringGameDisconnect || entry.StartingRequest || runtime.Task is { IsCompleted: false } ||
             entry.Status?.PendingGameSessionOperation == GameSessionOperation.Relogin);
         var stopping = stopFirst ? BeginStop(entry) : Task.FromResult(OperationResult.Ok());
         var generation = entry.StopGeneration;

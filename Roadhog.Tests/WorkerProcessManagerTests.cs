@@ -733,6 +733,8 @@ internal static partial class WorkerProcessManagerTests
         private Guid? _gameSessionRequestId;
         private Roadhog.Application.GameSessions.GameSessionOperation? _gameSessionOperation;
         private string? _cleanupFailure;
+        private Guid? _disconnectRequestId;
+        private bool _loginRetryPending;
         private readonly object _shopSync = new();
 
         public async Task InitializeAsync(CancellationToken cancellationToken)
@@ -755,6 +757,8 @@ internal static partial class WorkerProcessManagerTests
                 Authorized = scenario != "unauthorized", AuthorizationError = scenario == "unauthorized" ? "mock authorization denied" : null,
                 IsRunning = _running, LoginCompleted = _loggedIn, Snapshot = _states.Snapshot().SingleOrDefault(), StandaloneShopRestartRequestId = _shopRestartRequestId,
                 CleanupFailure = _cleanupFailure,
+                GameDisconnectRequestId = _disconnectRequestId,
+                LoginRetryPending = _loginRetryPending,
                 GameSessionCompletedRequestId = _gameSessionRequestId,
                 CompletedGameSessionOperation = _gameSessionOperation
             };
@@ -791,6 +795,17 @@ internal static partial class WorkerProcessManagerTests
         public async Task<OperationResult> StartAsync(AccountConfig account, bool cleanupFirst, CancellationToken cancellationToken)
         {
             if (!_initialized) throw new InvalidOperationException("backend started before initialization");
+            if (File.Exists(Path.Combine(spec.Paths.LogDirectory, "delay-normal-start")))
+            {
+                await File.WriteAllTextAsync(Path.Combine(spec.Paths.LogDirectory, "delayed-recovery-entered"), "waiting", cancellationToken);
+                await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
+            }
+            if (File.Exists(Path.Combine(spec.Paths.LogDirectory, "network-offline")))
+            {
+                lock (_shopSync) _loginRetryPending = true;
+                await File.AppendAllTextAsync(Path.Combine(spec.Paths.LogDirectory, "login-retries"), "attempt\n", cancellationToken);
+                return OperationResult.Fail("mock UU reconnect not completed");
+            }
             if (!cleanupFirst && File.Exists(Path.Combine(spec.Paths.LogDirectory, "reject-normal-start")))
                 return OperationResult.Fail("mock normal restart rejected");
             if (scenario == "reject-start" && account.AccountName.EndsWith("1", StringComparison.Ordinal)
@@ -845,6 +860,12 @@ internal static partial class WorkerProcessManagerTests
 
         public async Task<object?> InvokeAsync(string method, JsonElement[] arguments, IProgress<string> progress, CancellationToken cancellationToken)
         {
+            if (method == "mock.game-disconnected")
+            {
+                lock (_shopSync) { _disconnectRequestId = arguments[0].GetGuid(); _running = false; }
+                _states.MarkStopped(spec.Account.AccountName);
+                return OperationResult.Ok();
+            }
             if (method == "mock.game-session.completed")
             {
                 lock (_shopSync)

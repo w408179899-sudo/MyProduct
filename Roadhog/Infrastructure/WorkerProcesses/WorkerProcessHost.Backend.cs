@@ -44,7 +44,7 @@ public sealed class WorkerAccountConfigStore : IAccountConfigStore
         Task.FromResult(OperationResult.Fail("后台进程不能修改共享账号配置。"));
 }
 
-internal sealed class RoadhogWorkerProcessBackend : IWorkerProcessBackend
+internal sealed partial class RoadhogWorkerProcessBackend : IWorkerProcessBackend
 {
     private readonly WorkerLaunchSpec _spec;
     private readonly RoadhogServices _services;
@@ -131,6 +131,8 @@ internal sealed class RoadhogWorkerProcessBackend : IWorkerProcessBackend
             AuthorizationError = license.ErrorCode ?? (license.IsAuthorized ? null : license.Kind.ToString()),
             IsRunning = state?.Status is "starting" or "running" or "stopping",
             LoginCompleted = _loginCompleted,
+            GameDisconnectRequestId = DisconnectRequestId,
+            LoginRetryPending = _loginRetryPending,
             StandaloneShopRestartRequestId = _services.AccountOrchestrator.GetStandaloneShopRestartRequestId(_spec.Account.AccountName),
             GameSessionCompletedRequestId = _services.AccountOrchestrator.GetCompletedGameSession(_spec.Account.AccountName)?.Id,
             PendingGameSessionOperation = _services.AccountOrchestrator.GetPendingGameSession(_spec.Account.AccountName)?.Operation,
@@ -172,12 +174,22 @@ internal sealed class RoadhogWorkerProcessBackend : IWorkerProcessBackend
             catch (Exception) { return Task.FromResult(OperationResult.Fail("无法读取已保存的登录密码，请重新保存。")); }
         }
         if (_services.AccountConfigStore is WorkerAccountConfigStore store) store.Update(account);
-        _loginCompleted = false;
-        return Task.FromResult(_services.AccountOrchestrator.RequestGameSession(account, operation));
+        lock (_disconnectSync)
+        {
+            var requested = _services.AccountOrchestrator.RequestGameSession(account, operation);
+            if (requested.Success)
+            {
+                CancelDisconnectWatch();
+                _disconnectRequestId = null;
+                _loginCompleted = false;
+            }
+            return Task.FromResult(requested);
+        }
     }
 
     private async Task<OperationResult> EnsureLoginAsync(AccountConfig account, IProgress<string>? progress, CancellationToken token)
     {
+        _loginRetryPending = false;
         if (_services.LoginGameApi is null || _services.KeyboardInput is not KmBoxNetKeyboardInput input)
             return OperationResult.Fail("当前后台未配置真实登录适配器。");
         _loginCompleted = false;
@@ -189,7 +201,11 @@ internal sealed class RoadhogWorkerProcessBackend : IWorkerProcessBackend
         });
         updates.Report("正在检查目标电脑的游戏与登录状态…");
         var result = await new Roadhog.Application.Login.AutoLoginRunner().RunAsync(session, account.CharacterName, updates, token).ConfigureAwait(false);
-        if (!result.Success) return OperationResult.Fail(result.Error ?? "登录未完成。");
+        if (!result.Success)
+        {
+            _loginRetryPending = true;
+            return OperationResult.Fail(result.Error ?? "登录未完成。");
+        }
         token.ThrowIfCancellationRequested();
         account.ProcessId = result.Value;
         account.TargetProcessName = "Aion.bin";
@@ -220,9 +236,11 @@ internal sealed class RoadhogWorkerProcessBackend : IWorkerProcessBackend
         if (GetStatus().IsRunning) return StartBusiness();
         var login = await EnsureLoginAsync(account, progress, cancellationToken).ConfigureAwait(false);
         if (!login.Success) return login;
-        return await AccountIdentityStartGuard.RunAsync(_spec.Account,
+        var started = await AccountIdentityStartGuard.RunAsync(_spec.Account,
             async token => (await new Roadhog.Infrastructure.Vmm.RoadhogSnapshotReader(account, _services.LoginGameApi!, _services.Logger, token)
                 .ReadPlayerAsync().ConfigureAwait(false)).Value, StartBusiness, cancellationToken).ConfigureAwait(false);
+        if (started.Success) StartDisconnectWatch(account);
+        return started;
     }
 
     public async Task<OperationResult> StopAsync(CancellationToken cancellationToken)
@@ -235,6 +253,7 @@ internal sealed class RoadhogWorkerProcessBackend : IWorkerProcessBackend
 
     private Task<IReadOnlyDictionary<string, OperationResult>> BeginStop()
     {
+        CancelDisconnectWatch();
         lock (_stopSync) return _pendingStop ??= _services.AccountOrchestrator.StopAllAsync();
     }
 
@@ -281,7 +300,7 @@ internal sealed class RoadhogWorkerProcessBackend : IWorkerProcessBackend
     {
         _radarWatcher?.Dispose();
         try { await StopAsync(CancellationToken.None).ConfigureAwait(false); }
-        finally { _services.Dispose(); }
+        finally { await DisposeDisconnectWatchAsync().ConfigureAwait(false); _services.Dispose(); }
     }
 
     private void RadarFileChanged(object sender, FileSystemEventArgs args) => InvalidateMap(args.FullPath);

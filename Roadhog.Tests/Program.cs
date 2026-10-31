@@ -194,6 +194,18 @@ if (KmboxKeyPressProbe.ShouldRun(args))
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("game-disconnect cold read retries and held publication", GameDisconnectTests.ColdStartAndFailureAsync),
+    ("game-disconnect complete absence and lifecycle isolation", GameDisconnectTests.PublicationAndLifecycleAsync),
+    ("game-disconnect late capture cannot publish", GameDisconnectTests.LateCaptureIsRejectedAsync),
+    ("game-disconnect monitor tracks process replacement independently", GameDisconnectTests.MonitorProcessReplacementAsync),
+    ("game-disconnect retries login and isolates neighbor", WorkerProcessManagerTests.DisconnectRecoveryRetriesAndIsolatesAsync),
+    ("game-disconnect manual stop and disabled recovery", WorkerProcessManagerTests.DisconnectStopAndDisabledAsync),
+    ("game-disconnect scheduled offline supersedes retries", WorkerProcessManagerTests.DisconnectScheduleOfflineWinsAsync),
+    ("game-disconnect scheduled offline cancels long login", WorkerProcessManagerTests.DisconnectScheduleCancelsLongLoginAsync),
+    ("game-disconnect stop wins old worker reconciliation gap", WorkerProcessManagerTests.DisconnectStopDuringReconciliationAsync),
+    ("game-disconnect configuration rejection does not retry", WorkerProcessManagerTests.DisconnectConfigurationFailureStopsRetryAsync),
+    ("game-disconnect cancellation does not wait for native capture", GameDisconnectTests.NativeWaitCancellationAsync),
+    ("game-disconnect business cannot inspect raw read quality", GameDisconnectTests.BusinessBoundaryAsync),
     ("daily-schedule daytime overnight and timezone boundaries", DailyGameScheduleTests.WindowsAndMidnightAsync),
     ("daily-schedule fixed slots offline priority and no replay", DailyGameScheduleTests.FixedSlotsAndOfflinePriorityAsync),
     ("daily-schedule manual stop until next planned online", DailyGameScheduleTests.ManualStopAndNextDayAsync),
@@ -1304,10 +1316,21 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat reacquires revive path clear target claimed by other", TestStationaryCombatReacquiresRevivePathClearTargetClaimedByOtherAsync),
     ("stationary combat treats locked zero hp target as combat", TestStationaryCombatTreatsLockedZeroHpTargetAsCombatAsync),
     ("stationary combat loots locked dead target directly", TestStationaryCombatLootsLockedDeadTargetDirectlyAsync),
+    ("loot touch ready corpse completes on acknowledgement", LootTouchTests.ReadyAndTouchedAsync),
+    ("loot touch waits for readiness without fixed delay", LootTouchTests.ReadinessAsync),
+    ("loot touch retries after two second knockdown", LootTouchTests.KnockdownAndRecoveryAsync),
+    ("loot touch latches transient and rejects wrong corpse", LootTouchTests.TransientAndWrongCorpseAsync),
+    ("loot touch ignores limited and confirmation items after touch", LootTouchTests.ConfirmationAndLimitedItemsAsync),
+    ("loot touch auto closing UI avoids opening game menu", LootTouchTests.AutoClosingWindowAsync),
+    ("loot touch timeout backoff and changed target", LootTouchTests.TimeoutAndChangedTargetAsync),
+    ("loot touch observation stop death and account isolation", LootTouchTests.StopAndIsolationAsync),
+    ("loot touch input and popup failure release the branch", LootTouchTests.InputAndUiFailureAsync),
+    ("loot touch decoder partial failed zero and lifecycle publication", LootTouchTests.DecoderAndPublicationAsync),
+    ("loot touch snapshot cold start and cancellation", LootTouchTests.ColdStartAndCancellationAsync),
     ("stationary combat skips dead target when corpse is not lootable", TestStationaryCombatSkipsDeadTargetWhenCorpseIsNotLootableAsync),
     ("stationary combat attempts same loot corpse once", TestStationaryCombatAttemptsSameLootCorpseOnceAsync),
-    ("stationary combat waits after kill before loot key", TestStationaryCombatWaitsAfterKillBeforeLootKeyAsync),
-    ("stationary combat waits near corpse after loot key", TestStationaryCombatWaitsNearCorpseAfterLootKeyAsync),
+    ("stationary combat waits for loot readiness after kill", TestStationaryCombatWaitsAfterKillBeforeLootKeyAsync),
+    ("stationary combat waits for loot acknowledgement while approaching", TestStationaryCombatWaitsNearCorpseAfterLootKeyAsync),
     ("stationary combat runs after-combat maintenance after loot", TestStationaryCombatRunsAfterCombatMaintenanceAfterLootAsync),
     ("stationary combat runs after-combat maintenance without loot", TestStationaryCombatRunsAfterCombatMaintenanceWithoutLootAsync),
     ("stationary combat runs after-combat maintenance round", TestStationaryCombatRunsAfterCombatMaintenanceRoundAsync),
@@ -22773,7 +22796,7 @@ static async Task TestStationaryCombatNudgesForwardWhenTabStaysOnAttemptedCorpse
         var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
         var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
         var state = new StationaryCombatState();
-        state.MarkLootCorpseAttempted(200, 200, DateTimeOffset.Now);
+        state.MarkLootCorpseTouched(200, 200, DateTimeOffset.Now);
         var context = CreateContext(settings, gameApi, logger);
 
         await controller
@@ -22784,7 +22807,7 @@ static async Task TestStationaryCombatNudgesForwardWhenTabStaysOnAttemptedCorpse
         AssertFalse(keyboard.Keys.Contains("D2"), "attempted corpse lock must not release skills");
         AssertFalse(!logger.Entries.Any(entry =>
             entry.EventName == "stationary_combat.tab.corpse_nudge_pressed" &&
-            string.Equals(Convert.ToString(entry.Fields["reason"]), "already_attempted", StringComparison.Ordinal)),
+            string.Equals(Convert.ToString(entry.Fields["reason"]), "already_touched", StringComparison.Ordinal)),
             "attempted corpse nudge should be logged with reason");
 
         await controller
@@ -25970,7 +25993,7 @@ static async Task TestStationaryCombatAttemptsSameLootCorpseOnceAsync()
         AssertFalse(
             !logger.Entries.Any(entry =>
                 entry.EventName == "stationary_combat.loot.skipped" &&
-                string.Equals(Convert.ToString(entry.Fields["reason"]), "already_attempted", StringComparison.Ordinal)),
+                string.Equals(Convert.ToString(entry.Fields["reason"]), "already_touched", StringComparison.Ordinal)),
             "second same-corpse pass should log already attempted");
     }
     finally
@@ -26006,6 +26029,7 @@ static async Task TestStationaryCombatWaitsAfterKillBeforeLootKeyAsync()
             Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(1, 0, 0), DateTimeOffset.Now, 90, 10, 90),
             TargetEntityId = 100,
             TargetCurrentHp = 0,
+            TargetLootableRaw = 0,
             TargetMaxHp = 4430,
             TargetPosition = new Vector3Snapshot(1, 0, 0),
             Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
@@ -26024,7 +26048,7 @@ static async Task TestStationaryCombatWaitsAfterKillBeforeLootKeyAsync()
             .TickAsync(CreateContext(settings, gameApi, new InMemoryRoadhogLogger()), plan, new SemiAutoCombatState(), state)
             .ConfigureAwait(false);
 
-        AssertSequence(Array.Empty<string>(), keyboard.Keys, "loot key should wait after kill");
+        AssertSequence(Array.Empty<string>(), keyboard.Keys, "loot key should wait while the corpse is not yet lootable");
         AssertEqual(0, gameApi.LootReadCount, "locked dead target loot should not scan corpse list");
         AssertEqual(StationaryCombatLootAfterKillStep.WaitAfterKill, state.LootAfterKill.Step, "loot should be waiting after kill");
     }
@@ -26083,8 +26107,9 @@ static async Task TestStationaryCombatWaitsNearCorpseAfterLootKeyAsync()
             .ConfigureAwait(false);
 
         AssertSequence(new[] { "NumPadDecimal" }, keyboard.Keys, "loot key should be pressed before approach wait");
-        AssertEqual(StationaryCombatLootAfterKillStep.WaitNearCorpse, state.LootAfterKill.Step, "loot should wait until player is near corpse");
+        AssertEqual(StationaryCombatLootAfterKillStep.WaitForTouch, state.LootAfterKill.Step, "loot must await acknowledgement regardless of distance");
         AssertFalse(!state.LootAfterKill.Active, "loot state should stay active while approaching corpse");
+        state.ClearLootAfterKill();
     }
     finally
     {
@@ -26498,10 +26523,7 @@ static async Task TestStationaryCombatReleasesRightMouseWhenBagCleanupStartsAsyn
             0,
             DateTimeOffset.Now),
         DateTimeOffset.Now);
-    for (var i = 0; i < 5; i++)
-    {
-        state.LootAfterKill.Advance(DateTimeOffset.Now);
-    }
+    state.LootAfterKill.MoveToPostCombatMaintenance(DateTimeOffset.Now);
 
     await controller
         .TickAsync(
@@ -26575,10 +26597,7 @@ static async Task TestStationaryCombatReturnsFromBagCleanupThroughRevivePathBefo
                 0,
                 DateTimeOffset.Now),
             DateTimeOffset.Now);
-        for (var i = 0; i < 5; i++)
-        {
-            state.LootAfterKill.Advance(DateTimeOffset.Now);
-        }
+        state.LootAfterKill.MoveToPostCombatMaintenance(DateTimeOffset.Now);
 
         state.StartCleanupReturnToCombat();
 
@@ -26689,10 +26708,7 @@ static async Task TestStationaryCombatRefreshesPositionAfterBagCleanupReturnAsyn
                 0,
                 DateTimeOffset.Now),
             DateTimeOffset.Now);
-        for (var i = 0; i < 5; i++)
-        {
-            state.LootAfterKill.Advance(DateTimeOffset.Now);
-        }
+        state.LootAfterKill.MoveToPostCombatMaintenance(DateTimeOffset.Now);
 
         state.BagCleanup.Start(0, 2);
         state.BagCleanup.SetPath(cleanupPath);
@@ -26935,10 +26951,7 @@ static async Task TestStationaryCombatAbandonsDiscardBeforeAdoptingDefenseTarget
             0,
             DateTimeOffset.Now),
         DateTimeOffset.Now);
-    for (var i = 0; i < 5; i++)
-    {
-        state.LootAfterKill.Advance(DateTimeOffset.Now);
-    }
+    state.LootAfterKill.MoveToPostCombatMaintenance(DateTimeOffset.Now);
 
     state.BagCleanup.StartDiscard(1, 2, 1);
     state.BagCleanup.SetDiscardWindow(gameApi.InventoryWindow);
@@ -33950,6 +33963,7 @@ static Task TestDmaSnapshotCatalogRegistersEveryBusinessChannelAsync()
         "equipment_upgrade_inventory",
         "equipment_upgrade_ui",
         "game_exit_scene",
+        "game_processes",
         "gather",
         "inventory",
         "inventory_capacity",
@@ -33961,6 +33975,7 @@ static Task TestDmaSnapshotCatalogRegistersEveryBusinessChannelAsync()
         "locked_target_abnormal_statuses",
         "login_scene",
         "loot_corpses",
+        "loot_interaction",
         "npc_trade",
         "party",
         "personal_shop",
@@ -35344,7 +35359,7 @@ sealed class InMemoryScriptProfileStore : IScriptProfileStore
     }
 }
 
-sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi, IChannelSwitchUiGameApi, IChannelTransitionGameApi, IInventoryInteractionGameApi, IReviveUiGameApi, IAuctionHouseGameApi, INpcTradeGameApi, IQuickbarGameApi, ISkillAvailabilityGameApi
+sealed partial class FakeGameApi : ILootInteractionGameApi, IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi, IChannelSwitchUiGameApi, IChannelTransitionGameApi, IInventoryInteractionGameApi, IReviveUiGameApi, IAuctionHouseGameApi, INpcTradeGameApi, IQuickbarGameApi, ISkillAvailabilityGameApi
 #if DEBUG
     , IRoadhogApiAddressProbe
     , IRoadhogSnapshotDiagnostics

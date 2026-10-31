@@ -4,8 +4,12 @@ using Roadhog.Core.Model;
 
 namespace Roadhog.Infrastructure.Mock;
 
-internal sealed class MockRoadhogGameApi : IRoadhogGameApi
+internal sealed class MockRoadhogGameApi : IRoadhogGameApi, ILootInteractionGameApi
 {
+    public Task<OperationResult<LootInteractionSnapshot>> ReadLootInteractionAsync(
+        GameApiReadContext context, CancellationToken cancellationToken = default) =>
+        Task.FromResult(OperationResult<LootInteractionSnapshot>.Ok(LootInteractionSnapshot.Closed));
+
     public Task<OperationResult<PlayerSnapshot>> ReadPlayerAsync(CancellationToken cancellationToken = default)
     {
         var snapshot = new PlayerSnapshot(

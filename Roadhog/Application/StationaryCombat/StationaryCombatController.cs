@@ -4070,16 +4070,13 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                         semiAutoState,
                         state)
                     .ConfigureAwait(false),
-                StationaryCombatLootAfterKillStep.WaitAfterKill => TickLootWaitAfterKillNode(state),
+                StationaryCombatLootAfterKillStep.WaitAfterKill => await TickLootReadyAsync(context, state).ConfigureAwait(false),
                 StationaryCombatLootAfterKillStep.PressLootKey => await TickLootPressLootKeyNodeAsync(
                         context,
                         state)
                     .ConfigureAwait(false),
-                StationaryCombatLootAfterKillStep.WaitNearCorpse => await TickLootWaitNearCorpseNodeAsync(
-                        context,
-                        state)
-                    .ConfigureAwait(false),
-                StationaryCombatLootAfterKillStep.WaitAfterNear => TickLootWaitAfterNearNode(state),
+                StationaryCombatLootAfterKillStep.WaitForTouch => await TickLootConfirmationAsync(context, state).ConfigureAwait(false),
+                StationaryCombatLootAfterKillStep.CloseLootWindow => await TickLootCloseWindowAsync(context, state).ConfigureAwait(false),
                 StationaryCombatLootAfterKillStep.PostCombatMaintenance => await TickLootPostCombatMaintenanceNodeAsync(
                         context,
                         plan,
@@ -4126,133 +4123,18 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         return StationaryCombatBehaviorStatus.Success;
     }
 
-    private static StationaryCombatBehaviorStatus TickLootWaitAfterKillNode(StationaryCombatState state)
-    {
-        return DateTimeOffset.Now - state.LootAfterKill.StepStartedAt >= TimeSpan.FromMilliseconds(ReadLootAfterKillWaitMs())
-            ? StationaryCombatBehaviorStatus.Success
-            : StationaryCombatBehaviorStatus.Running;
-    }
-
-    private async Task<StationaryCombatBehaviorStatus> TickLootPressLootKeyNodeAsync(
-        AccountWorkerContext context,
-        StationaryCombatState state)
-    {
-        var now = DateTimeOffset.Now;
-        var attemptTtl = TimeSpan.FromMilliseconds(ReadLootAttemptCacheTtlMs());
-        if (state.HasAttemptedLootCorpse(
-                state.LootAfterKill.KilledTargetEntityId,
-                state.LootAfterKill.KilledTargetServerObjectId,
-                now,
-                attemptTtl))
-        {
-            LogLootSkipped(
-                context,
-                state,
-                "already_attempted",
-                "attempt_cache",
-                state.LootAfterKill.KilledTargetLootableRaw,
-                state.LootAfterKill.KilledTargetInteractionState);
-            state.LootAfterKill.MoveToPostCombatMaintenance(now);
-            return StationaryCombatBehaviorStatus.Running;
-        }
-
-        var eligibility = await ReadLootAttemptEligibilityAsync(context, state).ConfigureAwait(false);
-        if (!eligibility.HasLoot)
-        {
-            LogLootSkipped(
-                context,
-                state,
-                eligibility.Reason,
-                eligibility.Source,
-                eligibility.LootableRaw,
-                eligibility.InteractionState,
-                eligibility.Error);
-            state.LootAfterKill.MoveToPostCombatMaintenance(DateTimeOffset.Now);
-            return StationaryCombatBehaviorStatus.Running;
-        }
-
-        var pressCount = ReadLootPressCount();
-        var pressIntervalMs = ReadLootPressIntervalMs();
-        for (var pressIndex = 0; pressIndex < pressCount; pressIndex++)
-        {
-            if (pressIndex > 0 && pressIntervalMs > 0)
-            {
-                await DelayAsync(TimeSpan.FromMilliseconds(pressIntervalMs), context).ConfigureAwait(false);
-            }
-
-            var result = await _input
-                .PressKeyAsync("NumPadDecimal", TimeSpan.FromMilliseconds(ReadLootKeyHoldMs()), context.StopToken)
-                .ConfigureAwait(false);
-            if (!result.Success)
-            {
-                context.Logger.Warn("stationary_combat.loot.pick_failed", new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["targetEntityId"] = state.LootAfterKill.KilledTargetEntityId,
-                    ["targetServerObjectId"] = state.LootAfterKill.KilledTargetServerObjectId,
-                    ["targetName"] = state.LootAfterKill.KilledTargetName,
-                    ["pressIndex"] = pressIndex + 1,
-                    ["error"] = result.Error
-                });
-                return StationaryCombatBehaviorStatus.Failure;
-            }
-        }
-
-        state.MarkLootCorpseAttempted(
-            state.LootAfterKill.KilledTargetEntityId,
-            state.LootAfterKill.KilledTargetServerObjectId,
-            DateTimeOffset.Now);
-        state.LootAfterKill.MarkLootKeyPressed();
-        context.Logger.Info("stationary_combat.loot.pick_pressed", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["targetEntityId"] = state.LootAfterKill.KilledTargetEntityId,
-            ["targetServerObjectId"] = state.LootAfterKill.KilledTargetServerObjectId,
-            ["targetName"] = state.LootAfterKill.KilledTargetName,
-            ["lootRaw"] = eligibility.LootableRaw,
-            ["interactionState"] = eligibility.InteractionState,
-            ["lootabilitySource"] = eligibility.Source,
-            ["pressCount"] = pressCount,
-            ["pressIntervalMs"] = pressIntervalMs
-        });
-        return StationaryCombatBehaviorStatus.Success;
-    }
-
     private async Task<LootAttemptEligibility> ReadLootAttemptEligibilityAsync(
         AccountWorkerContext context,
         StationaryCombatState state)
     {
-        var lockedResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
-        if (lockedResult is { HasTarget: true } locked)
-        {
-            if (IsSameLootTarget(state.LootAfterKill, locked))
-            {
-                return new LootAttemptEligibility(
-                    locked.HasLoot,
-                    "locked_target",
-                    locked.HasLoot ? "lootable" : "not_lootable",
-                    locked.LootableRaw,
-                    locked.InteractionState);
-            }
-        }
-        var corpses = await ReadLootCorpsesAsync(context).ConfigureAwait(false);
-        var corpse = corpses.FirstOrDefault(corpse => IsSameLootTarget(state.LootAfterKill, corpse));
-        if (corpse is null)
-        {
-            return new LootAttemptEligibility(
-                false,
-                "loot_corpses",
-                "corpse_not_found",
-                state.LootAfterKill.KilledTargetLootableRaw,
-                state.LootAfterKill.KilledTargetInteractionState);
-        }
-
-        return new LootAttemptEligibility(
-            corpse.HasLoot,
-            "loot_corpses",
-            corpse.HasLoot ? "lootable" : "not_lootable",
-            corpse.LootableRaw,
-            corpse.InteractionState);
+        var locked = await ReadLockedTargetAsync(context).ConfigureAwait(false);
+        if (locked is not { HasTarget: true })
+            return new(false, "locked_target", "corpse_not_found", 0, 0);
+        if (!IsSameLootTarget(state.LootAfterKill, locked))
+            return new(false, "locked_target", "target_changed", locked.LootableRaw, locked.InteractionState);
+        if (locked.IsAlive)
+            return new(false, "locked_target", "target_alive", locked.LootableRaw, locked.InteractionState);
+        return new(locked.HasLoot, "locked_target", locked.HasLoot ? "lootable" : "not_lootable", locked.LootableRaw, locked.InteractionState);
     }
 
     private static void LogLootSkipped(
@@ -4276,88 +4158,6 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             ["interactionState"] = interactionState,
             ["error"] = error
         });
-    }
-
-    private async Task<StationaryCombatBehaviorStatus> TickLootWaitNearCorpseNodeAsync(
-        AccountWorkerContext context,
-        StationaryCombatState state)
-    {
-        var targetPosition = state.LootAfterKill.KilledTargetPosition;
-        double? distance = null;
-
-        var lockedResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
-        if (lockedResult is { HasTarget: true } locked)
-        {
-            if (!IsSameLootTarget(state.LootAfterKill, locked))
-            {
-                context.Logger.Info("stationary_combat.loot.target_changed_after_pick", new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["targetEntityId"] = state.LootAfterKill.KilledTargetEntityId,
-                    ["targetServerObjectId"] = state.LootAfterKill.KilledTargetServerObjectId,
-                    ["lockedEntityId"] = locked.TargetEntityId,
-                    ["lockedServerObjectId"] = locked.ServerObjectId,
-                    ["lockedName"] = locked.Name
-                });
-                return StationaryCombatBehaviorStatus.Success;
-            }
-
-            targetPosition = locked.Position ?? targetPosition;
-            distance = locked.DistanceToLocalPlayer;
-        }
-        else
-        {
-            context.Logger.Info("stationary_combat.loot.target_missing_after_pick", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["targetEntityId"] = state.LootAfterKill.KilledTargetEntityId,
-                ["targetServerObjectId"] = state.LootAfterKill.KilledTargetServerObjectId,
-                ["targetName"] = state.LootAfterKill.KilledTargetName
-            });
-            return StationaryCombatBehaviorStatus.Success;
-        }
-
-        if (!distance.HasValue && targetPosition is { } position)
-        {
-            var player = await ReadPlayerAsync(context).ConfigureAwait(false);
-            distance = StationaryCombatTargetSelector.HorizontalDistance(player.Position!.Value, position);
-        }
-
-        if (distance.HasValue && distance.Value <= ReadLootApproachDistance())
-        {
-            context.Logger.Info("stationary_combat.loot.near_corpse", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["targetEntityId"] = state.LootAfterKill.KilledTargetEntityId,
-                ["targetServerObjectId"] = state.LootAfterKill.KilledTargetServerObjectId,
-                ["targetName"] = state.LootAfterKill.KilledTargetName,
-                ["distance"] = Math.Round(distance.Value, 2)
-            });
-            return StationaryCombatBehaviorStatus.Success;
-        }
-
-        if (DateTimeOffset.Now - state.LootAfterKill.StepStartedAt >= TimeSpan.FromMilliseconds(ReadLootApproachTimeoutMs()))
-        {
-            context.Logger.Warn("stationary_combat.loot.approach_timeout", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["targetEntityId"] = state.LootAfterKill.KilledTargetEntityId,
-                ["targetServerObjectId"] = state.LootAfterKill.KilledTargetServerObjectId,
-                ["targetName"] = state.LootAfterKill.KilledTargetName,
-                ["distance"] = distance.HasValue ? Math.Round(distance.Value, 2) : null,
-                ["timeoutMs"] = ReadLootApproachTimeoutMs()
-            });
-            return StationaryCombatBehaviorStatus.Failure;
-        }
-
-        return StationaryCombatBehaviorStatus.Running;
-    }
-
-    private static StationaryCombatBehaviorStatus TickLootWaitAfterNearNode(StationaryCombatState state)
-    {
-        return DateTimeOffset.Now - state.LootAfterKill.StepStartedAt >= TimeSpan.FromMilliseconds(ReadLootAfterPickWaitMs())
-            ? StationaryCombatBehaviorStatus.Success
-            : StationaryCombatBehaviorStatus.Running;
     }
 
     private async Task<StationaryCombatBehaviorStatus> TickLootPostCombatMaintenanceNodeAsync(
@@ -4941,47 +4741,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         return true;
     }
 
-    private static bool IsSameLootTarget(
-        StationaryCombatLootAfterKillState loot,
-        LockedTargetSnapshot locked)
-    {
-        if (loot.KilledTargetServerObjectId != 0 &&
-            locked.ServerObjectId != 0 &&
-            loot.KilledTargetServerObjectId == locked.ServerObjectId)
-        {
-            return true;
-        }
-
-        if (loot.KilledTargetEntityId != 0 &&
-            locked.TargetEntityId != 0 &&
-            loot.KilledTargetEntityId == locked.TargetEntityId)
-        {
-            return true;
-        }
-
-        return string.Equals(loot.KilledTargetName, locked.Name, StringComparison.Ordinal);
-    }
-
-    private static bool IsSameLootTarget(
-        StationaryCombatLootAfterKillState loot,
-        LootCorpseSnapshot corpse)
-    {
-        if (loot.KilledTargetServerObjectId != 0 &&
-            corpse.ServerObjectId != 0 &&
-            loot.KilledTargetServerObjectId == corpse.ServerObjectId)
-        {
-            return true;
-        }
-
-        if (loot.KilledTargetEntityId != 0 &&
-            corpse.EntityId != 0 &&
-            loot.KilledTargetEntityId == corpse.EntityId)
-        {
-            return true;
-        }
-
-        return string.Equals(loot.KilledTargetName, corpse.Name, StringComparison.Ordinal);
-    }
+    private static bool IsSameLootTarget(StationaryCombatLootAfterKillState loot, LockedTargetSnapshot locked) =>
+        loot.KilledTargetServerObjectId != 0 && loot.KilledTargetServerObjectId == locked.ServerObjectId;
 
     private static bool IsLockedTargetEmpty(LockedTargetSnapshot lockedResult)
     {
@@ -5035,10 +4796,14 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
     {
         var finishedAt = DateTimeOffset.Now;
         var lootKeyPressed = state.LootAfterKill.LootKeyPressed;
+        var touchConfirmed = state.LootAfterKill.TouchConfirmed;
         context.Logger.Info("stationary_combat.loot.finished", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
-            ["success"] = success,
+            ["success"] = success && (!lootKeyPressed || touchConfirmed),
+            ["touchConfirmed"] = touchConfirmed,
+            ["outcome"] = state.LootAfterKill.Outcome,
+            ["attempts"] = state.LootAfterKill.PressAttempts,
             ["reason"] = reason,
             ["targetEntityId"] = state.LootAfterKill.KilledTargetEntityId,
             ["targetServerObjectId"] = state.LootAfterKill.KilledTargetServerObjectId,
@@ -6274,12 +6039,12 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             return "not_lootable";
         }
 
-        return state.HasAttemptedLootCorpse(
+        return state.HasTouchedLootCorpse(
                 lockedTarget.TargetEntityId,
                 lockedTarget.ServerObjectId,
                 DateTimeOffset.Now,
                 TimeSpan.FromMilliseconds(ReadLootAttemptCacheTtlMs()))
-            ? "already_attempted"
+            ? "already_touched"
             : "lootable";
     }
 
@@ -13311,39 +13076,14 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         return ClampInt(ReadRawIntFromEnv("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", 1_200), 0, 10_000);
     }
 
-    private static int ReadLootAfterPickWaitMs()
-    {
-        return ClampInt(ReadRawIntFromEnv("ROADHOG_LOOT_AFTER_PICK_WAIT_MS", 200), 0, 10_000);
-    }
-
     private static int ReadLootAttemptCacheTtlMs()
     {
         return ClampInt(ReadRawIntFromEnv("ROADHOG_LOOT_ATTEMPT_CACHE_TTL_MS", 300_000), 30_000, 600_000);
     }
 
-    private static int ReadLootPressCount()
-    {
-        return ClampInt(ReadRawIntFromEnv("ROADHOG_LOOT_PRESS_COUNT", 1), 1, 5);
-    }
-
-    private static int ReadLootPressIntervalMs()
-    {
-        return ClampInt(ReadRawIntFromEnv("ROADHOG_LOOT_PRESS_INTERVAL_MS", 30), 0, 1000);
-    }
-
     private static int ReadLootKeyHoldMs()
     {
         return ClampInt(ReadRawIntFromEnv("ROADHOG_LOOT_KEY_HOLD_MS", 25), 1, 1000);
-    }
-
-    private static double ReadLootApproachDistance()
-    {
-        return Math.Max(0.2D, ReadDoubleFromEnv("ROADHOG_LOOT_APPROACH_DISTANCE", 3.0D));
-    }
-
-    private static int ReadLootApproachTimeoutMs()
-    {
-        return ClampInt(ReadRawIntFromEnv("ROADHOG_LOOT_APPROACH_TIMEOUT_MS", 5_000), 0, 5_000);
     }
 
     private readonly record struct PostLootNoTargetDelayResult(bool Delayed, WorldObjectSnapshot? Target);

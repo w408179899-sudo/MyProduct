@@ -178,7 +178,7 @@ public sealed class StationaryCombatState
 
     public HashSet<uint> IgnoredTargetServerObjectIds { get; } = new();
 
-    private readonly Dictionary<LootCorpseKey, DateTimeOffset> _attemptedLootCorpses = new();
+    private readonly Dictionary<LootCorpseKey, DateTimeOffset> _touchedLootCorpses = new();
 
     private readonly object _targetSelectionFilterSync = new();
 
@@ -806,43 +806,57 @@ public sealed class StationaryCombatState
         }
     }
 
-    public bool HasAttemptedLootCorpse(
+    public bool HasTouchedLootCorpse(
         ushort entityId,
         uint serverObjectId,
         DateTimeOffset now,
         TimeSpan ttl)
     {
-        PruneAttemptedLootCorpses(now, ttl);
+        PruneTouchedLootCorpses(now, ttl);
         return TryCreateLootCorpseKey(entityId, serverObjectId, out var key) &&
-               _attemptedLootCorpses.ContainsKey(key);
+               _touchedLootCorpses.ContainsKey(key);
     }
 
-    public void MarkLootCorpseAttempted(ushort entityId, uint serverObjectId, DateTimeOffset now)
+    public void MarkLootCorpseTouched(ushort entityId, uint serverObjectId, DateTimeOffset now)
     {
         if (TryCreateLootCorpseKey(entityId, serverObjectId, out var key))
         {
-            _attemptedLootCorpses[key] = now;
+            _touchedLootCorpses[key] = now;
         }
     }
 
-    private void PruneAttemptedLootCorpses(DateTimeOffset now, TimeSpan ttl)
+    private readonly Dictionary<LootCorpseKey, DateTimeOffset> _deferredLootCorpses = new();
+
+    public void DeferLootCorpse(ushort entityId, uint serverObjectId, DateTimeOffset now)
     {
-        if (_attemptedLootCorpses.Count == 0)
+        foreach (var expired in _deferredLootCorpses.Where(pair => pair.Value <= now).Select(pair => pair.Key).ToArray())
+            _deferredLootCorpses.Remove(expired);
+        if (TryCreateLootCorpseKey(entityId, serverObjectId, out var key))
+            _deferredLootCorpses[key] = now.AddSeconds(5);
+    }
+
+    public bool IsLootCorpseDeferred(ushort entityId, uint serverObjectId, DateTimeOffset now) =>
+        TryCreateLootCorpseKey(entityId, serverObjectId, out var key) &&
+        _deferredLootCorpses.TryGetValue(key, out var until) && now < until;
+
+    private void PruneTouchedLootCorpses(DateTimeOffset now, TimeSpan ttl)
+    {
+        if (_touchedLootCorpses.Count == 0)
         {
             return;
         }
 
         if (ttl <= TimeSpan.Zero)
         {
-            _attemptedLootCorpses.Clear();
+            _touchedLootCorpses.Clear();
             return;
         }
 
-        foreach (var entry in _attemptedLootCorpses.ToArray())
+        foreach (var entry in _touchedLootCorpses.ToArray())
         {
             if (now - entry.Value >= ttl)
             {
-                _attemptedLootCorpses.Remove(entry.Key);
+                _touchedLootCorpses.Remove(entry.Key);
             }
         }
     }
@@ -1804,6 +1818,27 @@ public sealed class StationaryCombatPathCombatState
 
 public sealed class StationaryCombatLootAfterKillState
 {
+    internal LootTouchObservation? Observation { get; set; }
+    public bool TouchConfirmed { get; private set; }
+    public int PressAttempts { get; private set; }
+    public DateTimeOffset LastPressAt { get; private set; }
+    public DateTimeOffset LastCloseAt { get; set; }
+    public string Outcome { get; set; } = string.Empty;
+
+    public void ConfirmTouch(DateTimeOffset now)
+    {
+        TouchConfirmed = true;
+        Outcome = "touched";
+        Step = StationaryCombatLootAfterKillStep.CloseLootWindow;
+        StepStartedAt = now;
+    }
+
+    public void RecordPress(DateTimeOffset now)
+    {
+        MarkLootKeyPressed();
+        LastPressAt = now;
+        PressAttempts++;
+    }
     public StationaryCombatLootAfterKillStep Step { get; private set; } = StationaryCombatLootAfterKillStep.Inactive;
 
     public DateTimeOffset StartedAt { get; private set; } = DateTimeOffset.MinValue;
@@ -1829,6 +1864,7 @@ public sealed class StationaryCombatLootAfterKillState
 
     public void Start(LockedTargetSnapshot killedTarget, DateTimeOffset now)
     {
+        Reset();
         Step = StationaryCombatLootAfterKillStep.StopInput;
         StartedAt = now;
         StepStartedAt = now;
@@ -1848,6 +1884,8 @@ public sealed class StationaryCombatLootAfterKillState
 
     public void MoveToPostCombatMaintenance(DateTimeOffset now)
     {
+        Observation?.Dispose();
+        Observation = null;
         Step = StationaryCombatLootAfterKillStep.PostCombatMaintenance;
         StepStartedAt = now;
     }
@@ -1858,9 +1896,8 @@ public sealed class StationaryCombatLootAfterKillState
         {
             StationaryCombatLootAfterKillStep.StopInput => StationaryCombatLootAfterKillStep.WaitAfterKill,
             StationaryCombatLootAfterKillStep.WaitAfterKill => StationaryCombatLootAfterKillStep.PressLootKey,
-            StationaryCombatLootAfterKillStep.PressLootKey => StationaryCombatLootAfterKillStep.WaitNearCorpse,
-            StationaryCombatLootAfterKillStep.WaitNearCorpse => StationaryCombatLootAfterKillStep.WaitAfterNear,
-            StationaryCombatLootAfterKillStep.WaitAfterNear => StationaryCombatLootAfterKillStep.PostCombatMaintenance,
+            StationaryCombatLootAfterKillStep.PressLootKey => StationaryCombatLootAfterKillStep.WaitForTouch,
+            StationaryCombatLootAfterKillStep.CloseLootWindow => StationaryCombatLootAfterKillStep.PostCombatMaintenance,
             StationaryCombatLootAfterKillStep.PostCombatMaintenance => StationaryCombatLootAfterKillStep.Complete,
             _ => StationaryCombatLootAfterKillStep.Complete
         };
@@ -1869,6 +1906,13 @@ public sealed class StationaryCombatLootAfterKillState
 
     public void Reset()
     {
+        Observation?.Dispose();
+        Observation = null;
+        TouchConfirmed = false;
+        PressAttempts = 0;
+        LastPressAt = DateTimeOffset.MinValue;
+        LastCloseAt = DateTimeOffset.MinValue;
+        Outcome = string.Empty;
         Step = StationaryCombatLootAfterKillStep.Inactive;
         StartedAt = DateTimeOffset.MinValue;
         StepStartedAt = DateTimeOffset.MinValue;
@@ -1888,8 +1932,8 @@ public enum StationaryCombatLootAfterKillStep
     StopInput,
     WaitAfterKill,
     PressLootKey,
-    WaitNearCorpse,
-    WaitAfterNear,
+    WaitForTouch,
+    CloseLootWindow,
     PostCombatMaintenance,
     Complete
 }

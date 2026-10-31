@@ -58,6 +58,9 @@ public interface IRoadhogSnapshotReader
 
     Task<PublishedGameSnapshot<IReadOnlyList<LootCorpseSnapshot>>> ReadLootCorpsesAsync(long afterVersion = 0);
 
+    Task<PublishedGameSnapshot<LootInteractionSnapshot>> ReadLootInteractionAsync(
+        CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
     Task<PublishedGameSnapshot<InventoryWindowSnapshot>> ReadInventoryWindowAsync(
         InventoryWindowRectSource rectSource = InventoryWindowRectSource.LegacyDialogRect,
         long afterVersion = 0);

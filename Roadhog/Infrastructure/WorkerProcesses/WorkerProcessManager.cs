@@ -48,6 +48,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
         public DateTimeOffset? RunningSince;
         public bool StartingRequest;
         public bool LoginOnly;
+        public bool RecoveringGameDisconnect;
         public Task<OperationResult>? StopTask;
         public Task? PollTask;
         public readonly List<CancellationTokenSource> RetiredOperations = new();
@@ -349,6 +350,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 }
                 else
                 {
+                    entry.RecoveringGameDisconnect = false;
                     entry.Desired = true;
                     entry.Operation.Cancel();
                     entry.RetiredOperations.Add(entry.Operation);
@@ -505,7 +507,13 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 var error = result.Error ?? "启动失败";
                 if (entry.Status?.IsRunning != true)
                 {
-                    lock (entry.Sync) entry.Desired = false;
+                    var retryLogin = false;
+                    if (entry.RecoveringGameDisconnect)
+                    {
+                        var rejected = await client.CallAsync<WorkerStatus>(WorkerCommands.Status, [], cancellationToken).ConfigureAwait(false);
+                        retryLogin = rejected.LoginRetryPending && rejected.Authorized;
+                    }
+                    lock (entry.Sync) if (!retryLogin) entry.Desired = false;
                     await ShutdownCoreAsync(entry).ConfigureAwait(false);
                     try { await SaveIntentAsync().ConfigureAwait(false); }
                     catch (Exception ex) { error += "；停止状态未能保存：" + ex.Message; }
@@ -514,7 +522,12 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 return OperationResult.Fail(error);
             }
             var status = await client.CallAsync<WorkerStatus>(WorkerCommands.Status, [], cancellationToken).ConfigureAwait(false);
-            lock (entry.Sync) { entry.Status = status; entry.State = status.IsRunning ? "running" : entry.LoginOnly ? "logged_in" : "starting"; entry.Error = null; entry.RunningSince ??= DateTimeOffset.UtcNow; }
+            lock (entry.Sync)
+            {
+                entry.Status = status; entry.State = status.IsRunning ? "running" : entry.LoginOnly ? "logged_in" : "starting";
+                entry.Error = null; entry.RunningSince ??= DateTimeOffset.UtcNow;
+                if (status.IsRunning) entry.RecoveringGameDisconnect = false;
+            }
             return result;
         }
         catch
@@ -537,6 +550,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
         lock (entry.Sync)
         {
             entry.StopGeneration++;
+            entry.RecoveringGameDisconnect = false;
             if (entry.StopTask is { IsCompleted: false }) return entry.StopTask;
             entry.Desired = false;
             entry.Operation.Cancel();
@@ -938,6 +952,12 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                     if (status.StandaloneShopRestartRequestId is { } requestId && requestId != Guid.Empty && status.IsRunning && status.Authorized)
                     {
                         shopRestart = RestartAfterStandaloneShopAsync(entry, requestId);
+                        return;
+                    }
+                    if (status.GameDisconnectRequestId is { } disconnectId && disconnectId != Guid.Empty && status.Authorized
+                        && status.PendingGameSessionOperation == null && status.GameSessionCompletedRequestId == null)
+                    {
+                        await RecoverDisconnectedGameAsync(entry, disconnectId, Superseded, pollOperation).ConfigureAwait(false);
                         return;
                     }
                     if (entry.Desired && entry.Config.AutoRecover && !status.IsRunning && status.Authorized && DateTimeOffset.UtcNow >= entry.RetryAt)

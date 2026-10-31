@@ -33,6 +33,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Empty designer companions for partial classes collide with the canonical form resource. -->
+    <EmbeddedResource Remove="AccountSettingsForm.Layout.resx;AccountSettingsForm.CleanupWorkflow.resx" />
     <EmbeddedResource Include="Infrastructure\Login\Native\UuTypes\*.json" />
     <Content Include="Source\Login\*" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Source\client_skills.xml" Condition="Exists('Source\client_skills.xml')">

@@ -37,6 +37,23 @@ internal static class VmmGameApiLiveProbe
         };
         var context = new GameApiReadContext("live-probe", processId, processName, device, true);
         var api = new AionVmmGameApi(options, new SnapshotProbeLogger(verbose));
+        if (args.Contains("--loot-interaction-only", StringComparer.OrdinalIgnoreCase))
+        {
+            using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var snapshots = new RoadhogSnapshotReader(new Roadhog.Core.Accounts.AccountConfig
+            { AccountName = "loot-read-probe", ProcessId = processId, TargetProcessName = processName, VmmDeviceName = device },
+                api, new SnapshotProbeLogger(verbose), stop.Token);
+            var actor = (await snapshots.ReadPlayerAsync().ConfigureAwait(false)).Value;
+            Console.WriteLine("LootInteractionPlayer=" + actor.CharacterName);
+            for (var i = 0; i < 3; i++)
+            {
+                var value = await snapshots.ReadLootInteractionAsync(stop.Token).ConfigureAwait(false);
+                Console.WriteLine("LootInteraction=" + JsonSerializer.Serialize(value));
+                await Task.Delay(20, stop.Token).ConfigureAwait(false);
+            }
+            Console.WriteLine("Loot interaction read-only probe passed.");
+            return 0;
+        }
         var requiredReadsPassed = true;
         var snapshotRepeat = Math.Max(1, ReadIntOption(args, "--snapshot-repeat="));
 

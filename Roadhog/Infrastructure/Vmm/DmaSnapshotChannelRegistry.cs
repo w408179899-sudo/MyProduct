@@ -247,6 +247,9 @@ internal static class AionVmmSnapshotChannels
     public static readonly DmaSnapshotChannel<Roadhog.Infrastructure.GameSessions.GameExitObservation> GameExit =
         ChannelRegistry.Register<Roadhog.Infrastructure.GameSessions.GameExitObservation>("game_exit_scene");
 
+    public static readonly DmaSnapshotChannel<Roadhog.Application.GameSessions.GameProcessSnapshot> GameProcesses =
+        ChannelRegistry.Register<Roadhog.Application.GameSessions.GameProcessSnapshot>("game_processes");
+
     public static readonly DmaSnapshotChannel<PlayerAbnormalStatusSnapshot> PlayerAbnormalStatuses =
         ChannelRegistry.Register<PlayerAbnormalStatusSnapshot>("player_abnormal_statuses");
 
@@ -338,6 +341,9 @@ internal static class AionVmmSnapshotChannels
 
     public static readonly DmaSnapshotChannel<IReadOnlyList<LootCorpseSnapshot>> LootCorpses =
         ChannelRegistry.Register<IReadOnlyList<LootCorpseSnapshot>>("loot_corpses");
+
+    public static readonly DmaSnapshotChannel<LootInteractionSnapshot> LootInteraction =
+        ChannelRegistry.Register<LootInteractionSnapshot>("loot_interaction", mergePolicy: DmaSnapshotMergePolicy.FieldAware);
 
     public static readonly DmaSnapshotChannel<InventoryWindowSnapshot> InventoryWindow =
         ChannelRegistry.Register<InventoryWindowSnapshot>(
