@@ -108,7 +108,7 @@ public partial class AccountSettingsForm
         {
             Name = "groceryScheduleTime", Location = new Point(84, 40), Size = new Size(78, 28),
             Format = DateTimePickerFormat.Custom, CustomFormat = "HH:mm", ShowUpDown = true,
-            Value = DateTime.Today.AddHours(12), Font = new Font("Microsoft YaHei UI", 9F)
+            Value = DateTime.Today, Font = new Font("Microsoft YaHei UI", 9F)
         };
         groceryOptionsPanel.Controls.Add(groceryScheduleTime);
         var add = AddButton(groceryOptionsPanel, "添加 / 修改", 174, 38, 104, 30);
