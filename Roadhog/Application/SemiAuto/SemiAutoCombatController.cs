@@ -282,8 +282,14 @@ public sealed partial class SemiAutoCombatController
     {
         var settings = context.Config.ScriptSettings?.SemiAuto ?? new SemiAutoScriptSettings();
         var maintenance = context.Config.ScriptSettings?.Maintenance;
-        return maintenance is not null &&
-               await TryHandleMaintenanceAsync(
+        if (IsSpiritmasterPetBuffMaintenanceEnabled(context) && state.HasSpiritmasterPetBuffConfirmation)
+        {
+            await FinishSpiritmasterPetBuffMaintenanceAsync(context, state).ConfigureAwait(false);
+            return true;
+        }
+
+        if (maintenance is not null &&
+            await TryHandleMaintenanceAsync(
                        context,
                        state,
                        settings,
@@ -296,7 +302,13 @@ public sealed partial class SemiAutoCombatController
                         requireCooldownCalibrationForMaintenance,
                         runTiming,
                         includeAlwaysRules)
-                    .ConfigureAwait(false);
+                    .ConfigureAwait(false))
+        {
+            return true;
+        }
+
+        return await TryHandleSpiritmasterPetBuffMaintenanceAsync(context, state, settings,
+            runTiming, includeAlwaysRules, beforeMaintenanceKeyPress).ConfigureAwait(false);
     }
 
     public async Task<bool> TryRecoverAfterReviveAsync(
@@ -2218,13 +2230,16 @@ public sealed partial class SemiAutoCombatController
         SpiritmasterSkillSettings spiritSettings,
         IReadOnlyList<SkillSnapshot> skills,
         OwnedSummonedPetSnapshot localPet,
-        PlayerSnapshot? player)
+        PlayerSnapshot? player,
+        MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.InCombat,
+        bool includeAlwaysRules = true,
+        Func<Task>? beforeMaintenanceKeyPress = null)
     {
         // A timed-out cast must leave an input opportunity for normal
         // maintenance/attack before either missing pet buff can start again.
         if (state.ConsumeSpiritmasterPetBuffYield()) return false;
 
-        foreach (var rule in spiritSettings.PetBuffRules.Where(rule => !string.IsNullOrWhiteSpace(rule.Key)))
+        foreach (var rule in spiritSettings.PetBuffRules.Where(rule => IsPetBuffRuleAllowed(rule, runTiming, includeAlwaysRules)))
         {
             var skill = ResolveSpiritmasterConfiguredSkill(rule.SkillId, rule.SkillName, skills);
             if (skill is null)
@@ -2283,6 +2298,14 @@ public sealed partial class SemiAutoCombatController
 
             var beforeIds = currentRoster.LocalPlayerPet.AbnormalStatuses.Select(entry => entry.AbnormalId)
                 .Where(id => id != 0).ToHashSet();
+
+            if (runTiming != MaintenanceRuleRunTiming.InCombat)
+            {
+                if (beforeMaintenanceKeyPress is not null)
+                    await beforeMaintenanceKeyPress().ConfigureAwait(false);
+                if (!await EnsureStandingBeforeMaintenanceKeyAsync(context, state, settings,
+                        currentPlayer, "pet_buff", rule.Key).ConfigureAwait(false)) return false;
+            }
 
             var burst = await PressSpiritmasterPetBuffBurstAsync(context, state, settings, rule, skill,
                 currentPet.ServerObjectId, requiredDp).ConfigureAwait(false);

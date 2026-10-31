@@ -1203,6 +1203,8 @@ public sealed class SpiritmasterPetHpRuleConfig
 
 public sealed class SpiritmasterPetBuffRuleConfig
 {
+    public MaintenanceRuleRunTiming RunTiming { get; set; } = MaintenanceRuleRunTiming.Always;
+
     public uint AbnormalStatusId { get; set; }
 
     public uint SkillId { get; set; }
@@ -1215,6 +1217,7 @@ public sealed class SpiritmasterPetBuffRuleConfig
     {
         return new SpiritmasterPetBuffRuleConfig
         {
+            RunTiming = RunTiming,
             AbnormalStatusId = AbnormalStatusId,
             SkillId = SkillId,
             SkillName = SkillName,

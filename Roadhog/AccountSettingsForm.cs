@@ -6732,7 +6732,8 @@ namespace Roadhog
                 spiritmasterPetBuffRuleList.Controls.Clear();
                 foreach (var rule in spiritmaster.PetBuffRules ?? new List<SpiritmasterPetBuffRuleConfig>())
                 {
-                    AddSpiritmasterPetBuffRuleRow(spiritmasterPetBuffRuleList, rule.SkillId, rule.SkillName, rule.Key);
+                    AddSpiritmasterPetBuffRuleRow(spiritmasterPetBuffRuleList, rule.SkillId, rule.SkillName, rule.Key,
+                        rule.RunTiming, rule.AbnormalStatusId);
                 }
 
                 if (!spiritmasterPetBuffRuleList.Controls.OfType<Panel>().Any())
@@ -6854,7 +6855,10 @@ namespace Roadhog
                 {
                     SkillId = selectedSkill.SkillId,
                     SkillName = selectedSkill.SkillName,
-                    Key = key
+                    Key = key,
+                    AbnormalStatusId = row.Tag is uint abnormalId ? abnormalId : 0,
+                    RunTiming = GetSelectedMaintenanceRunTiming(row.Controls.OfType<RoundedComboBox>()
+                        .FirstOrDefault(combo => combo.Name == "spiritmasterPetBuffTimingCombo"))
                 });
             }
 
@@ -7155,12 +7159,19 @@ namespace Roadhog
             FlowLayoutPanel list,
             uint skillId = 0,
             string skillName = "",
-            string key = "")
+            string key = "",
+            MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.Always,
+            uint abnormalStatusId = 0)
         {
             var row = CreateSpiritmasterRuleRow();
+            row.Tag = abnormalStatusId;
             AddLabel(row, "技能", 0, 3, 34, 24);
-            var skillCombo = AddSpiritmasterSkillCombo(row, 44, 1, 514, skillId, skillName);
+            var skillCombo = AddSpiritmasterSkillCombo(row, 44, 1, 414, skillId, skillName);
             skillCombo.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            var timingCombo = AddCombo(row, 466, 1, 92, 28);
+            timingCombo.Name = "spiritmasterPetBuffTimingCombo";
+            timingCombo.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            PopulateMaintenanceTimingCombo(timingCombo, runTiming);
             var keyButton = AddSpiritmasterKeyButton(row, 570, 0, key);
             keyButton.Width = 120;
             keyButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;

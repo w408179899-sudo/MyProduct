@@ -85,6 +85,11 @@ public sealed partial class SemiAutoCombatController
             state.ResetOpeningSkill();
             state.ResetAttackKeyPressThrottle();
             state.ClearSpiritmasterPetHpIncreaseConfirmation();
+            if (maintenancePlan.UsesSpiritmasterAutoLogic &&
+                await RunWithJumpPauseAsync(jumpAssist, "semi_auto_idle_pet_buff",
+                    () => TryHandleSpiritmasterPetBuffMaintenanceAsync(context, state, settings,
+                        killed ? MaintenanceRuleRunTiming.AfterCombat : MaintenanceRuleRunTiming.Always,
+                        includeAlwaysRules: true)).ConfigureAwait(false)) return tick;
             return Ms(settings.TargetIdleDelayMs, 200);
         }
 

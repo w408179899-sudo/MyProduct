@@ -13,18 +13,40 @@ public sealed partial class SemiAutoCombatController
         MaintenanceScriptSettings maintenance, SemiAutoSkillPlan plan, CombatJumpAssistSession? jumpAssist,
         bool requireCooldownCalibrationForMaintenance, Func<Task<bool>>? ensureHpMaintenanceTargetBeforeKeyPress)
     {
+        var observation = await ObserveSpiritmasterPetBuffConfirmationAsync(context, state, spiritSettings, skills).ConfigureAwait(false);
+        if (!observation.Awaiting) return false;
+        var player = observation.Player;
+        if (player.IsDead)
+        {
+            state.ClearSpiritmasterPetBuffAttempts();
+            return true;
+        }
+        // Only player HP recovery may interrupt this short cast reservation.
+        await RunWithJumpPauseAsync(jumpAssist, "semi_auto_pet_buff_confirmation",
+            () => TryPressMaintenanceRuleAsync(context, state, settings, maintenance.HpMaintenanceRules,
+                "hp", player.CurrentHp, player.MaxHp, player, plan: plan,
+                requireCooldownCalibrationForMaintenance: requireCooldownCalibrationForMaintenance,
+                runTiming: MaintenanceRuleRunTiming.InCombat, includeAlwaysRules: true,
+                ensureTargetBeforeKeyPress: ensureHpMaintenanceTargetBeforeKeyPress)).ConfigureAwait(false);
+        return true;
+    }
+
+    private async Task<(bool Awaiting, PlayerSnapshot Player)> ObserveSpiritmasterPetBuffConfirmationAsync(
+        AccountWorkerContext context, SemiAutoCombatState state, SpiritmasterSkillSettings spiritSettings,
+        IReadOnlyList<SkillSnapshot> skills)
+    {
         var roster = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
         var player = await ReadPlayerAsync(context).ConfigureAwait(false);
         context.StopToken.ThrowIfCancellationRequested();
         if (player.IsDead)
         {
             state.ClearSpiritmasterPetBuffAttempts();
-            return true;
+            return (true, player);
         }
         if (roster.LocalPlayerPet.Pet is not { IsSummoned: true, IsAlive: true } pet)
         {
             state.ClearSpiritmasterPetBuffAttempts();
-            return false;
+            return (false, player);
         }
 
         var awaiting = false;
@@ -60,16 +82,6 @@ public sealed partial class SemiAutoCombatController
             }
             awaiting |= state.IsAwaitingSpiritmasterPetBuffConfirmation(skillId, pet.ServerObjectId);
         }
-        if (!awaiting) return false;
-
-        // Only player HP recovery may interrupt this short cast reservation.
-        // Reuse the usual thresholds, timing, cooldown, targeting and input guards.
-        await RunWithJumpPauseAsync(jumpAssist, "semi_auto_pet_buff_confirmation",
-            () => TryPressMaintenanceRuleAsync(context, state, settings, maintenance.HpMaintenanceRules,
-                "hp", player.CurrentHp, player.MaxHp, player, plan: plan,
-                requireCooldownCalibrationForMaintenance: requireCooldownCalibrationForMaintenance,
-                runTiming: MaintenanceRuleRunTiming.InCombat, includeAlwaysRules: true,
-                ensureTargetBeforeKeyPress: ensureHpMaintenanceTargetBeforeKeyPress)).ConfigureAwait(false);
-        return true;
+        return (awaiting, player);
     }
 }

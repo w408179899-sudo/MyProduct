@@ -94,8 +94,9 @@ internal sealed class SharedSkillAuditFixture : IDisposable
     public void ClearAttackTree() => Settings.QuickbarSkills.ExecutionTree.Clear();
     public void Confirm(uint id) => Api.Skills = Api.Skills.Select(skill => skill.SkillId == id
         ? skill with { CooldownEndTime = unchecked((uint)Environment.TickCount64 + skill.CooldownDuration) } : skill).ToArray();
-    public void AddPetBuff(uint id = 1662) => Settings.Skills.Spiritmaster.PetBuffRules.Add(new()
-        { SkillId = id, SkillName = Api.Skills.Single(skill => skill.SkillId == id).Name, AbnormalStatusId = id });
+    public void AddPetBuff(uint id = 1662, MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.InCombat) =>
+        Settings.Skills.Spiritmaster.PetBuffRules.Add(new()
+        { SkillId = id, SkillName = Api.Skills.Single(skill => skill.SkillId == id).Name, AbnormalStatusId = id, RunTiming = runTiming });
     public void ConfigureResource(string resource)
     {
         if (resource == "hp")

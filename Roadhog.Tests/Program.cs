@@ -326,6 +326,14 @@ var tests = new (string Name, Func<Task> Run)[]
     ("skill audit pet buff final pet read death and DP guard", SpiritmasterPetBuffConfirmationTests.DeathDuringFinalPetReadCannotPressAsync),
     ("skill audit pet buff cast window and release evidence", SpiritmasterPetBuffConfirmationTests.CastWindowProtectsBothBuffsAndReleasesOnEvidenceAsync),
     ("skill audit pet buff cast priority and pending death", SpiritmasterPetBuffConfirmationTests.PendingCastAllowsHpButBlocksOpeningAndHandlesDeathAsync),
+    ("pet buff timing configuration defaults and persistence", SpiritmasterPetBuffTimingTests.ConfigurationAsync),
+    ("pet buff timing combat selection", SpiritmasterPetBuffTimingTests.CombatSelectionAsync),
+    ("pet buff timing standalone maintenance selection", SpiritmasterPetBuffTimingTests.MaintenanceSelectionAsync),
+    ("pet buff timing idle and bounded timeout", SpiritmasterPetBuffTimingTests.IdleAndTimeoutAsync),
+    ("pet buff timing UI selection and reload", SpiritmasterPetBuffTimingTests.UiAsync),
+    ("pet buff timing after-loot and no-loot flow", SpiritmasterPetBuffTimingTests.AfterLootAsync),
+    ("pet buff timing standalone guards and cancellation", SpiritmasterPetBuffTimingTests.GuardsAsync),
+    ("pet buff timing mixed rules and excluded Always", SpiritmasterPetBuffTimingTests.MixedRulesAsync),
     ("pet buff maintenance finite three-press burst", SpiritmasterPetBuffMaintenanceTests.MissingStatusStartsBoundedBurstAsync),
     ("pet buff maintenance cooldown is not status confirmation", SpiritmasterPetBuffMaintenanceTests.CooldownAloneDoesNotReleaseStatusConfirmationAsync),
     ("pet buff maintenance three-second retry guard", SpiritmasterPetBuffMaintenanceTests.MissingStatusRetryWaitsThreeSecondsAsync),
@@ -29628,7 +29636,7 @@ static async Task TestSpiritmasterTickGatesPetBuffByDpAsync()
     var settings = CreateSpiritmasterScriptSettings();
     settings.Skills.Spiritmaster.PetBuffRules = new List<SpiritmasterPetBuffRuleConfig>
     {
-        new() { SkillId = 1787, SkillName = "Pet DP Buff", Key = "NumPad9" }
+        new() { SkillId = 1787, SkillName = "Pet DP Buff", Key = "NumPad9", RunTiming = MaintenanceRuleRunTiming.InCombat }
     };
     settings.Skills.ExecutionTree[0] = Node(1600, "Normal Skill", "active");
     var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
@@ -29661,7 +29669,7 @@ static async Task TestSpiritmasterPetBuffSuppressesRepeatedUnknownCooldownAsync(
     settings.SemiAuto.ConfirmTimeoutMs = 1000;
     settings.Skills.Spiritmaster.PetBuffRules = new List<SpiritmasterPetBuffRuleConfig>
     {
-        new() { SkillId = 1662, SkillName = "Pet Buff", Key = "NumPad0" }
+        new() { SkillId = 1662, SkillName = "Pet Buff", Key = "NumPad0", RunTiming = MaintenanceRuleRunTiming.InCombat }
     };
     settings.Skills.ExecutionTree[0] = Node(1600, "Normal Skill", "active");
     var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
@@ -29691,7 +29699,7 @@ static async Task TestSpiritmasterPetBuffRejectsUnrelatedLearnedAbnormalIdAsync(
     var settings = CreateSpiritmasterScriptSettings();
     settings.Skills.Spiritmaster.PetBuffRules = new List<SpiritmasterPetBuffRuleConfig>
     {
-        new() { SkillId = 1662, SkillName = "Pet Buff", Key = "NumPad0" }
+        new() { SkillId = 1662, SkillName = "Pet Buff", Key = "NumPad0", RunTiming = MaintenanceRuleRunTiming.InCombat }
     };
     settings.Skills.ExecutionTree[0] = Node(1600, "Normal Skill", "active");
     var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
