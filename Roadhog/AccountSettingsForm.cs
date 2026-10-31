@@ -9276,6 +9276,7 @@ namespace Roadhog
                 .Select(modifier => numberKeys.Select(key =>
                     (Text: modifier.Label + key.Text, Value: modifier.Value + key.Value)).ToArray());
             rows = rows.Take(2).Concat(modifierRows).Concat(rows.Skip(2)).ToArray();
+            (rows[1], rows[3]) = (rows[3], rows[1]);
 
             var y = 48;
             for (var rowIndex = 0; rowIndex < rows.Length; rowIndex++)
