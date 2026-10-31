@@ -9,23 +9,20 @@ public sealed record BoundSkill(uint SkillId, string Name, string Key);
 public sealed class SkillKeyBindings
 {
     private static readonly string[] MainKeys = { "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "D0", "OemMinus", "OemPlus" };
-    // The user's second bindings end with Num+ then Num- (the keyboard picker order).
-    private static readonly string[] AltKeys = { "NumPad1", "NumPad2", "NumPad3", "NumPad4", "NumPad5", "NumPad6", "NumPad7", "NumPad8", "NumPad9", "NumPad0", "NumPadAdd", "NumPadSubtract" };
     private readonly IReadOnlyList<SkillSnapshot> _skills;
     private readonly Dictionary<uint, string> _keys;
     private readonly Dictionary<string, (SkillQuickbar Bar, int Slot)> _locations = new(StringComparer.Ordinal);
     public int Page { get; }
-    public QuickbarKeyMode KeyMode { get; }
     public IReadOnlyList<uint> SkillIds { get; }
 
-    public static string? GetSlotKey(SkillQuickbar bar, int slot, QuickbarKeyMode mode = QuickbarKeyMode.Numpad)
+    public static string? GetSlotKey(SkillQuickbar bar, int slot)
     {
         if (slot is < 0 or >= 12) return null;
         return bar switch
         {
             SkillQuickbar.Main => MainKeys[slot],
-            SkillQuickbar.Alt => mode == QuickbarKeyMode.GameDefault ? "Alt+" + MainKeys[slot] : AltKeys[slot],
-            SkillQuickbar.Ctrl when mode == QuickbarKeyMode.GameDefault => "Ctrl+" + MainKeys[slot],
+            SkillQuickbar.Alt => "Alt+" + MainKeys[slot],
+            SkillQuickbar.Ctrl => "Ctrl+" + MainKeys[slot],
             _ => null
         };
     }
@@ -37,16 +34,14 @@ public sealed class SkillKeyBindings
         return found;
     }
 
-    public SkillKeyBindings(QuickbarSnapshot quickbar, IReadOnlyList<SkillSnapshot> skills,
-        QuickbarKeyMode mode = QuickbarKeyMode.Numpad)
+    public SkillKeyBindings(QuickbarSnapshot quickbar, IReadOnlyList<SkillSnapshot> skills)
     {
         Page = quickbar.Page;
-        KeyMode = mode;
         _skills = skills.ToArray();
         _keys = new();
         // Prefer the main bar, then the earlier row and leftmost occurrence.
         foreach (var slot in quickbar.Slots.OrderBy(s => s.Bar).ThenBy(s => s.Slot))
-            if (slot.ContentType == 21 && slot.SkillId != 0 && GetSlotKey(slot.Bar, slot.Slot, mode) is { } key)
+            if (slot.ContentType == 21 && slot.SkillId != 0 && GetSlotKey(slot.Bar, slot.Slot) is { } key)
             {
                 _keys.TryAdd(slot.SkillId, key);
                 _locations.TryAdd(key, (slot.Bar, slot.Slot));

@@ -46,7 +46,7 @@ internal static class OpeningSkillListTests
         });
         var missing = new List<string>();
         var bound = SemiAutoSkillPlan.FromSettings(settings, new SkillKeyBindings(bar, snapshots), missing.Add);
-        Check(bound.OpeningSkills.Select(s => s.Key).SequenceEqual(new[] { "D1", "NumPad2" }), "every entry binds independently in list order");
+        Check(bound.OpeningSkills.Select(s => s.Key).SequenceEqual(new[] { "D1", "Alt+D2" }), "every entry binds independently in list order");
         Check(missing.Count == 1 && bound.OpeningSkills.Count == 2, "unbound entry skips with a diagnostic");
         roundtrip.Skills = new();
         Check(!SemiAutoSkillPlan.FromSettings(settings).HasOpeningSkill && roundtrip.Clone().GetEffectiveSkills().Count == 0, "explicit empty list never falls back to stale legacy fields");
@@ -108,7 +108,7 @@ internal static class OpeningSkillListTests
                 }), Array.Empty<SkillSnapshot>());
                 typeof(AccountSettingsForm).GetField("previewSkillBindings", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(form, preview);
                 Call("RefreshAutomaticSkillDisplays");
-                Check(rows.Controls[0].Controls["openingSkillKeyButton"]!.Text.Contains("Num2") &&
+                Check(rows.Controls[0].Controls["openingSkillKeyButton"]!.Text.Contains("A+2") &&
                     rows.Controls[1].Controls["openingSkillKeyButton"]!.Text.Contains("1"), "every row refreshes its own automatic key");
                 foreach (Control row in rows.Controls)
                 {

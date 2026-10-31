@@ -12,7 +12,7 @@ internal static class SpiritmasterPetBuffMaintenanceTests
             f.AddPetBuff(id);
             await f.PrepareAsync();
             await f.TickAsync();
-            var key = id == 1662 ? "NumPad1" : "NumPad2";
+            var key = id == 1662 ? "Alt+D1" : "Alt+D2";
             Sequence(Enumerable.Repeat(key, 3), f.Keyboard.Keys,
                 "missing pet status uses a finite three-press maintenance burst");
             await f.TickAsync();
@@ -199,10 +199,10 @@ internal static class SpiritmasterPetBuffMaintenanceTests
         f.ClearAttackTree();
         f.Clock.Advance(1499);
         await f.TickAsync();
-        Check(f.Keyboard.Keys.Count(key => key == "NumPad1") == 3, "retry stays blocked at last-input plus 2999ms");
+        Check(f.Keyboard.Keys.Count(key => key == "Alt+D1") == 3, "retry stays blocked at last-input plus 2999ms");
         f.Clock.Advance(1);
         await f.TickAsync();
-        Check(f.Keyboard.Keys.Count(key => key == "NumPad1") == 6, "retry starts at exactly last-input plus 3000ms");
+        Check(f.Keyboard.Keys.Count(key => key == "Alt+D1") == 6, "retry starts at exactly last-input plus 3000ms");
         Check(f.Logger.Entries.Count(entry => entry.EventName == "semi_auto.spiritmaster.pet_buff_unconfirmed") == 1,
             "an expired wait logs once rather than once per tick");
     }
@@ -322,10 +322,10 @@ internal static class SpiritmasterPetBuffMaintenanceTests
             var expected = resource == "mp" ? "D3" : "D1";
             Check(f.Keyboard.Keys.Last() == expected,
                 "an unconfirmed buff timeout yields one input opportunity before another pet buff can reclaim the tick: " + resource);
-            Check(!f.Keyboard.Keys.Contains("NumPad2"), "the second missing buff cannot starve normal work at the first timeout");
+            Check(!f.Keyboard.Keys.Contains("Alt+D2"), "the second missing buff cannot starve normal work at the first timeout");
             f.Api.Player = f.Api.Player with { CurrentMp = 100 };
             await f.TickAsync();
-            Check(f.Keyboard.Keys.Count(key => key == "NumPad2") == 3, "the second buff still gets its own subsequent maintenance burst");
+            Check(f.Keyboard.Keys.Count(key => key == "Alt+D2") == 3, "the second buff still gets its own subsequent maintenance burst");
             f.Clock.Advance(1500);
             await f.TickAsync();
             Check(f.Keyboard.Keys.Last() == "D1", "the second timeout also yields rather than immediately retrying the first buff");

@@ -59,13 +59,13 @@ public sealed class AccountWorkerContext
         if (missingIds.Length > 0)
             skills = skills.Concat((await Snapshots.ReadSkillsAsync(missingIds).ConfigureAwait(false)).Value)
                 .DistinctBy(s => s.SkillId).ToArray();
-        var bindings = new SkillKeyBindings(quickbar, skills, Config.ScriptSettings?.QuickbarKeyMode ?? QuickbarKeyMode.Numpad);
+        var bindings = new SkillKeyBindings(quickbar, skills);
         Config.ScriptSettings = bindings.ApplyTo(Config.ScriptSettings ?? new(), ReportMissingSkillBinding);
         SkillBindings = bindings;
         Logger.Info("skills.bindings.loaded", new Dictionary<string, object?>
         {
             ["account"] = Config.AccountName, ["page"] = quickbar.Page + 1,
-            ["keyMode"] = bindings.KeyMode.ToString(),
+            ["keyMode"] = "GameDefault",
             ["bindings"] = string.Join("; ", quickbar.Slots.Where(s => s.SkillId != 0)
                 .Select(s => bindings.Resolve(s.SkillId, "")).OfType<BoundSkill>().Select(s => s.SkillId + ":" + s.Name + "=" + s.Key))
         });

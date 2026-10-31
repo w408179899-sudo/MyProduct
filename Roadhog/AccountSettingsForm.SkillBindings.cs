@@ -68,16 +68,15 @@ public sealed partial class AccountSettingsForm
     private async Task RefreshSkillBindingsPreviewAsync()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-        var mode = SelectedQuickbarKeyMode;
-        var revision = quickbarKeyModeRevision;
+        var revision = skillBindingsPreviewRevision;
         // Preview is optional; worker startup always captures its own official snapshot.
         try
         {
-            var quickbar = await _runtime.ReadQuickbarForKeyModeAsync(mode, _account, timeout.Token).ConfigureAwait(true);
-            if (IsDisposed || revision != quickbarKeyModeRevision) return;
-            previewSkillBindings = new(quickbar, currentManualSkills, mode);
+            var quickbar = await _runtime.ReadQuickbarAsync(_account, timeout.Token).ConfigureAwait(true);
+            if (IsDisposed || revision != skillBindingsPreviewRevision) return;
+            previewSkillBindings = new(quickbar, currentManualSkills);
         }
-        catch (OperationCanceledException) { if (revision == quickbarKeyModeRevision) previewSkillBindings = null; }
+        catch (OperationCanceledException) { if (revision == skillBindingsPreviewRevision) previewSkillBindings = null; }
         RefreshAutomaticSkillDisplays();
     }
 

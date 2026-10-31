@@ -46,10 +46,14 @@ internal static class KeyboardPickerChordTests
                     dialog.StartPosition = FormStartPosition.Manual; dialog.Location = new(-32000, -32000);
                     dialog.Show(); System.Windows.Forms.Application.DoEvents();
                     var keys = dialog.Controls.OfType<Button>().Where(b => b.Tag is string).ToArray();
-                    Check(keys.Length == 75 && keys.Select(b => (string)b.Tag!).Distinct().Count() == 75, "all 51 old keys and 24 chords remain distinct");
+                    Check(keys.Length == 63 && keys.Select(b => (string)b.Tag!).Distinct().Count() == 63, "all 39 single keys and 24 chords remain distinct");
+                    Check(keys.All(b => !((string)b.Tag!).StartsWith("NumPad")), "picker has no numpad row");
+                    Check(keys.Single(b => b.Text == "C+1").Top < keys.Single(b => b.Text == "A+1").Top &&
+                        keys.Single(b => b.Text == "A+1").Top < keys.Single(b => b.Text == "1").Top,
+                        "remaining row order stays Ctrl, Alt, numbers");
                     var cancel = dialog.Controls.OfType<Button>().Single(b => b.Text == "取消");
                     foreach (var key in keys)
-                        Check(key.Right <= dialog.ClientSize.Width && key.Bottom <= cancel.Top && key.Left >= 0, "all six rows fit above cancel");
+                        Check(key.Right <= dialog.ClientSize.Width && key.Bottom <= cancel.Top && key.Left >= 0, "all five rows fit above cancel");
                     Check(dialog.Controls.OfType<Label>().Any(l => l.Text == "A = Alt，C = Ctrl"), "modifier legend is visible");
                     if (slot == 0 && label == "A+" && Environment.GetEnvironmentVariable("ROADHOG_TEST_KEYBOARD_PICKER_IMAGE") is { Length: > 0 } imagePath)
                     {
@@ -65,8 +69,7 @@ internal static class KeyboardPickerChordTests
                     Check((bool)Call("SaveCurrentSettings", new object?[] { null })!, "manual chord saves");
                     var saved = store.LoadAllAsync().GetAwaiter().GetResult().Value!.Single().ScriptSettings!;
                     var restored = JsonSerializer.Deserialize<ScriptSettings>(JsonSerializer.Serialize(saved))!.Clone();
-                    Check(restored.Paths.TownReturnKey == selected && restored.QuickbarKeyMode == QuickbarKeyMode.Numpad,
-                        "manual chord persists independently of automatic key mode");
+                    Check(restored.Paths.TownReturnKey == selected, "manual chord persists");
                     Call("ApplyScriptSettings", restored);
                     Check((string?)returnButton.Tag == selected && returnButton.Text == label + labels[slot], "reload retains executable key and display");
                     recorder.Calls.Clear();

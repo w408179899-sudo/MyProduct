@@ -303,32 +303,32 @@ internal static class FoodMaintenanceTests
         game.Api.Quickbar = new(2, new[] { slot });
         var preferences = new List<FoodQuickbarPreference> { new(high.TemplateId, high.Name) };
         var binding = FoodQuickbarBindings.Select(game.Api.Quickbar, game.Api.InventoryItems, catalog, FoodKind.Drink, 50, preferences)!;
-        Check(binding.Item == high && binding.Key == "NumPadAdd", "selected bar item outranks lower-grade unselected item");
+        Check(binding.Item == high && binding.Key == "Alt+OemMinus", "selected bar item outranks lower-grade unselected item");
         Check(FoodQuickbarBindings.Select(game.Api.Quickbar, game.Api.InventoryItems, catalog, FoodKind.Food, 50, preferences) == null,
             "drink cannot bind as food");
         Check(FoodQuickbarBindings.Select(game.Api.Quickbar, game.Api.InventoryItems, catalog, FoodKind.Drink, 30, preferences) == null,
             "character must meet selected item level");
         Check(await game.Run(binding: binding) && game.Hotkeys == 1 && game.Clicks == 0 && !game.Open &&
-            game.Input.Keys.SequenceEqual(new[] { "NumPadAdd" }), "hotkey confirms without opening inventory or clicking");
+            game.Input.Keys.SequenceEqual(new[] { "Alt+OemMinus" }), "hotkey confirms without opening inventory or clicking");
         Check(!await game.Run(binding: binding) && game.Hotkeys == 1, "existing category never repeats hotkey");
 
         foreach (var bar in new[] { SkillQuickbar.Alt, SkillQuickbar.Ctrl })
         {
-            var test = new Simulation { KeyMode = QuickbarKeyMode.GameDefault };
+            var test = new Simulation();
             test.Api.Quickbar = new(2, new[] { slot with { Bar = bar } });
             var settings = new MaintenanceScriptSettings { AutoDrinkEnabled = true, PreferredDrinks = preferences };
             var logger = new InMemoryRoadhogLogger();
             var context = new AccountWorkerContext(new AccountConfig { AccountName = "chord-food", ScriptSettings = new()
-                { QuickbarKeyMode = QuickbarKeyMode.GameDefault, Maintenance = settings } },
+                { Maintenance = settings } },
                 test.Api, logger, new AccountRuntimeManager(logger), new(), CancellationToken.None);
             var controller = new FoodMaintenanceController(test.Input);
             controller.ObserveCombat(settings, true);
             Check(await controller.TickAsync(context, new(), () => Task.CompletedTask, () => false), "chord food confirms");
             Check(test.Input.Keys.SequenceEqual(new[] { bar == SkillQuickbar.Alt ? "Alt+OemMinus" : "Ctrl+OemMinus" }) && test.Clicks == 0,
-                "food controller uses selected account mode and real slot");
+                "food controller uses game defaults and real slot");
             if (bar == SkillQuickbar.Ctrl)
-                Check(FoodQuickbarBindings.Select(test.Api.Quickbar, test.Api.InventoryItems, catalog, FoodKind.Drink, 50, preferences) is null,
-                    "default food binding ignores third row");
+                Check(FoodQuickbarBindings.Select(test.Api.Quickbar, test.Api.InventoryItems, catalog, FoodKind.Drink, 50, preferences)?.Key == "Ctrl+OemMinus",
+                    "default food binding includes third row");
         }
 
         foreach (var fault in new[] { "page", "slot", "empty", "modal", "no-status" })
@@ -367,7 +367,6 @@ internal static class FoodMaintenanceTests
 
     private sealed class Simulation
     {
-        public QuickbarKeyMode KeyMode;
         public FakeGameApi Api = new();
         public RecordingKeyboardInput Input = new();
         public bool Open;
@@ -398,7 +397,7 @@ internal static class FoodMaintenanceTests
             Input.AfterPress = key =>
             {
                 if (key == "I") { Open = !Open; return; }
-                var bound = Api.Quickbar.Slots.FirstOrDefault(s => SkillKeyBindings.GetSlotKey(s.Bar, s.Slot, KeyMode) == key);
+                var bound = Api.Quickbar.Slots.FirstOrDefault(s => SkillKeyBindings.GetSlotKey(s.Bar, s.Slot) == key);
                 if (bound == null) return;
                 Hotkeys++;
                 if (Failure != "no-status") Api.PlayerAbnormalStatuses = Status(10062);

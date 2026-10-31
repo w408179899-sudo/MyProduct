@@ -608,12 +608,12 @@ internal static class ConfiguredSkillQuickbarRefreshTests
         }
         protected override object? Invoke(MethodInfo? method, object?[]? args)
         {
-            if (method!.Name is nameof(IRoadhogRuntime.RefreshSkillsAsync) or nameof(IRoadhogRuntime.ReadQuickbarAsync) or nameof(IRoadhogRuntime.ReadQuickbarForKeyModeAsync) or
+            if (method!.Name is nameof(IRoadhogRuntime.RefreshSkillsAsync) or nameof(IRoadhogRuntime.ReadQuickbarAsync) or
                 nameof(IRoadhogRuntime.RefreshSkillsByIdsAsync))
             {
                 var stage = method.Name == nameof(IRoadhogRuntime.RefreshSkillsAsync) ? "learned" :
-                    method.Name is nameof(IRoadhogRuntime.ReadQuickbarAsync) or nameof(IRoadhogRuntime.ReadQuickbarForKeyModeAsync) ? "bar" : "exact";
-                var accountIndex = stage == "exact" || method.Name == nameof(IRoadhogRuntime.ReadQuickbarForKeyModeAsync) ? 1 : 0;
+                    method.Name is nameof(IRoadhogRuntime.ReadQuickbarAsync) ? "bar" : "exact";
+                var accountIndex = stage == "exact" ? 1 : 0;
                 Accounts.Add((string?)args![accountIndex]);
                 AllTokensCancelable &= ((CancellationToken)args[accountIndex + 1]!).CanBeCanceled;
                 if (stage == FailureStage || FailureStage == "cancelled" && stage == "exact")

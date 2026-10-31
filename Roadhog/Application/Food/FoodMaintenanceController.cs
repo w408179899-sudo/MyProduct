@@ -75,8 +75,7 @@ public sealed class FoodMaintenanceController(IKeyboardInput input,
                     if (preferences is { Count: > 0 })
                     {
                         var quickbar = (await context.Snapshots.ReadQuickbarAsync().WaitAsync(context.StopToken)).Value;
-                        binding = FoodQuickbarBindings.Select(quickbar, inventory, catalog, kind, player.Level, preferences,
-                            context.Config.ScriptSettings?.QuickbarKeyMode ?? QuickbarKeyMode.Numpad);
+                        binding = FoodQuickbarBindings.Select(quickbar, inventory, catalog, kind, player.Level, preferences);
                     }
                     var item = binding?.Item ?? catalog.Select(inventory, kind, player.Level);
                     if (item == null) continue;

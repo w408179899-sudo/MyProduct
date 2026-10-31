@@ -68,14 +68,14 @@ internal static class SkillTreeReleaseIntegrationTests
     {
         var (api, settings) = Fixture();
         settings.SkillTreeReleaseMode = SkillTreeReleaseMode.QuickbarAvailability;
-        settings.Maintenance.StatusMaintenanceRules.Add(new() { SkillId = 8200, AbnormalStatusId = 8232, SkillName = "疾风真言", Key = "NumPad1" });
+        settings.Maintenance.StatusMaintenanceRules.Add(new() { SkillId = 8200, AbnormalStatusId = 8232, SkillName = "疾风真言", Key = "Alt+D1" });
         var logger = new InMemoryRoadhogLogger();
         using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         var context = await ContextAsync(api, settings, logger, stop.Token);
         var keyboard = new RecordingKeyboardInput();
         keyboard.AfterPress = key =>
         {
-            if (key == "NumPad1")
+            if (key == "Alt+D1")
                 api.PlayerAbnormalStatuses = new(api.Player.EntityId, DateTimeOffset.Now, 0,
                     new[] { new AbnormalStatusEntrySnapshot(0, 8232, PlayerAbnormalStatusSnapshot.BuffCategory, 0, 1, 0) });
             if (key == "D2")
@@ -90,7 +90,7 @@ internal static class SkillTreeReleaseIntegrationTests
         var plan = SemiAutoSkillPlan.FromSettings(context.Config.ScriptSettings!.Skills, context.SkillBindings);
         var state = new SemiAutoCombatState();
         await controller.TickAsync(context, plan, state);
-        Check(keyboard.Keys.Count > 0 && keyboard.Keys.All(key => key == "NumPad1"), "missing chant runs existing maintenance before the new tree");
+        Check(keyboard.Keys.Count > 0 && keyboard.Keys.All(key => key == "Alt+D1"), "missing chant runs existing maintenance before the new tree");
         Check(api.SkillAvailabilityReadCount == 0, "maintenance tick does not concurrently run the new selector");
         Check(logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.status_key_pressed"), "existing chant effect confirmation preserved");
         keyboard.Keys.Clear();

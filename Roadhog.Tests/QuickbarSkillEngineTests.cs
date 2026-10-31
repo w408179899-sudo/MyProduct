@@ -49,7 +49,7 @@ internal static class QuickbarSkillEngineTests
     {
         var plan = Plan();
         Check(plan.Roots.Select(node => node.SkillId).SequenceEqual(new uint[] { 21, 11, 31 }), "configured order survives key position");
-        Check(plan.Roots[2].Key == "NumPadAdd", "Alt Num+ slot binding preserved");
+        Check(plan.Roots[2].Key == "Alt+OemMinus", "Alt minus slot binding preserved");
         Check(plan.Roots[1].Children[0].Key == "D1" && plan.Roots[1].Children[0].BaseSkillId == 11, "child keeps inherited source identity");
         Check(plan.SkillReadIds.Order().SequenceEqual(new uint[] { 11, 12, 13, 21, 31 }), "trigger and all child ids included for action confirmation");
         var missing = new List<string>();
@@ -374,7 +374,7 @@ internal static class QuickbarSkillEngineTests
             "true CD progression protects the handoff without pretending the actor release was confirmed");
         fixture.Clock.Advance(TimeSpan.FromMilliseconds(1500));
         await fixture.Tick(cooldown: skill => skill.SkillId == 11 ? SemiAutoSkillCooldownReadiness.CoolingDown : SemiAutoSkillCooldownReadiness.Ready);
-        Check(fixture.Keyboard.Keys.SequenceEqual(new[] { "D1", "NumPadAdd" }) && fixture.State.ActiveChainSource is null,
+        Check(fixture.Keyboard.Keys.SequenceEqual(new[] { "D1", "Alt+OemMinus" }) && fixture.State.ActiveChainSource is null,
             "unconfirmed provisional handoff is finite and then allows the next ready root");
 
         fixture = new(); fixture.Reader.Value = Available(root: true, time: 100);
@@ -398,7 +398,7 @@ internal static class QuickbarSkillEngineTests
         await fixture.Tick(cooldown: _ => SemiAutoSkillCooldownReadiness.Ready);
         fixture.Reader.Value = Available(root: true, counter: true, ordinary: true, last: 31, time: 3);
         await fixture.Tick(cooldown: _ => SemiAutoSkillCooldownReadiness.Ready);
-        Check(fixture.Keyboard.Keys.SequenceEqual(new[] { "D2", "D1", "NumPadAdd", "D2" }), "accepted zero-CD roots yield configured order before starting a new round");
+        Check(fixture.Keyboard.Keys.SequenceEqual(new[] { "D2", "D1", "Alt+OemMinus", "D2" }), "accepted zero-CD roots yield configured order before starting a new round");
 
         fixture = new(); fixture.Reader.Value = Available(root: true);
         var originalAttempt = default(QuickbarSkillPendingAction);
@@ -419,7 +419,7 @@ internal static class QuickbarSkillEngineTests
         }
         fixture.Reader.Value = Available(root: true, ordinary: true);
         await fixture.Tick(cooldown: _ => SemiAutoSkillCooldownReadiness.Ready);
-        Check(fixture.Keyboard.Keys.Count == QuickbarSkillCombatState.MaximumUnconfirmedAttempts + 1 && fixture.Keyboard.Keys.Last() == "NumPadAdd",
+        Check(fixture.Keyboard.Keys.Count == QuickbarSkillCombatState.MaximumUnconfirmedAttempts + 1 && fixture.Keyboard.Keys.Last() == "Alt+OemMinus",
             "bounded unaccepted retries locally suppress one root so another root cannot starve");
 
         fixture = new(); fixture.Reader.Value = HybridAvailable();

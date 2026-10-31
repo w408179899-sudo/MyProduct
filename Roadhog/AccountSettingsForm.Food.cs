@@ -33,18 +33,17 @@ public sealed partial class AccountSettingsForm
     {
         if (refreshingFoodCandidates) return;
         refreshingFoodCandidates = true;
-        var mode = SelectedQuickbarKeyMode;
-        var revision = quickbarKeyModeRevision;
+        var revision = skillBindingsPreviewRevision;
         try
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
             var inventory = await _runtime.RefreshInventoryAsync(_account, timeout.Token).ConfigureAwait(true);
-            var quickbar = await _runtime.ReadQuickbarForKeyModeAsync(mode, _account, timeout.Token).ConfigureAwait(true);
-            if (!IsDisposed && revision == quickbarKeyModeRevision) UpdateFoodCandidates(quickbar, inventory);
+            var quickbar = await _runtime.ReadQuickbarAsync(_account, timeout.Token).ConfigureAwait(true);
+            if (!IsDisposed && revision == skillBindingsPreviewRevision) UpdateFoodCandidates(quickbar, inventory);
         }
         catch (Exception)
         {
-            if (!IsDisposed && revision == quickbarKeyModeRevision)
+            if (!IsDisposed && revision == skillBindingsPreviewRevision)
             {
                 drinkPreferencePicker?.MarkUnresolved();
                 foodPreferencePicker?.MarkUnresolved();
@@ -55,8 +54,8 @@ public sealed partial class AccountSettingsForm
 
     private void UpdateFoodCandidates(QuickbarSnapshot quickbar, IReadOnlyList<InventoryItemSnapshot> inventory)
     {
-        drinkPreferencePicker?.SetCandidates(quickbar, inventory, FoodKind.Drink, SelectedQuickbarKeyMode);
-        foodPreferencePicker?.SetCandidates(quickbar, inventory, FoodKind.Food, SelectedQuickbarKeyMode);
+        drinkPreferencePicker?.SetCandidates(quickbar, inventory, FoodKind.Drink);
+        foodPreferencePicker?.SetCandidates(quickbar, inventory, FoodKind.Food);
     }
 
     private sealed class FoodPreferencePicker
@@ -89,13 +88,13 @@ public sealed partial class AccountSettingsForm
             PopulateChoices();
         }
 
-        public void SetCandidates(QuickbarSnapshot quickbar, IReadOnlyList<InventoryItemSnapshot> inventory, FoodKind kind, QuickbarKeyMode mode)
+        public void SetCandidates(QuickbarSnapshot quickbar, IReadOnlyList<InventoryItemSnapshot> inventory, FoodKind kind)
         {
             var catalog = FoodCatalog.Default;
             candidates = inventory.Where(i => catalog.Select(new[] { i }, kind, int.MaxValue) != null)
                 .OrderBy(i => i.Food!.Level).ThenBy(i => i.TemplateId).DistinctBy(i => i.TemplateId)
                 .Select(i => new FoodQuickbarPreference(i.TemplateId, i.Name)).ToArray();
-            bindings = FoodQuickbarBindings.Candidates(quickbar, inventory, catalog, kind, int.MaxValue, mode);
+            bindings = FoodQuickbarBindings.Candidates(quickbar, inventory, catalog, kind, int.MaxValue);
             PopulateChoices();
         }
 

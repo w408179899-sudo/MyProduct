@@ -28,14 +28,14 @@ internal static partial class SpiritmasterPetBuffTimingTests
                 f.Api.TargetCurrentHp = 0;
                 f.Api.TargetPosition = new(2.5f, 0, 0);
                 var pressed = false;
-                f.Keyboard.AfterPress = key => { if (key == "NumPad1") pressed = true; };
+                f.Keyboard.AfterPress = key => { if (key == "Alt+D1") pressed = true; };
                 // Status appears during the confirmation wait, not during the burst.
                 f.BeforePetBuffDelay = count => { if (pressed && count == 3) f.SetPet(11, 50, 1662); };
                 await f.PrepareAsync();
                 var controller = new StationaryCombatController(f.Keyboard, f.Controller);
                 var state = new StationaryCombatState { Fighting = true, CurrentTargetEntityId = 100, CandidateEntityId = 100 };
                 await controller.TickAsync(f.Context, f.Plan, f.State, state);
-                Sequence((loot ? new[] { "NumPadDecimal" } : Array.Empty<string>()).Concat(Enumerable.Repeat("NumPad1", 3)),
+                Sequence((loot ? new[] { "NumPadDecimal" } : Array.Empty<string>()).Concat(Enumerable.Repeat("Alt+D1", 3)),
                     f.Keyboard.Keys, "after-combat pet buff follows loot and also runs when loot is disabled");
                 Check(f.Logged("semi_auto.spiritmaster.pet_buff_confirmed", "skillId", 1662) &&
                     !f.State.HasSpiritmasterPetBuffConfirmation && !state.LootAfterKill.Active,
@@ -64,7 +64,7 @@ internal static partial class SpiritmasterPetBuffTimingTests
                 var list = (FlowLayoutPanel)typeof(AccountSettingsForm)
                     .GetField("spiritmasterPetBuffRuleList", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form)!;
                 list.Controls.Clear();
-                Call("AddSpiritmasterPetBuffRuleRow", list, 1662u, "强化甲胄 I", "NumPad1", Type.Missing, 9000u);
+                Call("AddSpiritmasterPetBuffRuleRow", list, 1662u, "强化甲胄 I", "Alt+D1", Type.Missing, 9000u);
                 var combo = list.Controls[0].Controls.Find("spiritmasterPetBuffTimingCombo", false).Single();
                 var selected = combo.GetType().GetProperty("SelectedIndex")!;
                 Check((int)selected.GetValue(combo)! == 0, "UI defaults to Always");

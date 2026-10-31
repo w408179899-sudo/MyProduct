@@ -35,12 +35,12 @@ internal static class SkillBindingTests
         var missing = new List<string>();
         var plan = SemiAutoSkillPlan.FromSettings(settings, bindings, missing.Add);
         Check(plan.Roots.Select(n => n.SkillId).SequenceEqual(new uint[] { 102, 101 }), "tree order survives placement; missing root omitted");
-        Check(plan.Roots.Select(n => n.Key).SequenceEqual(new[] { "NumPad4", "D8" }), "fixed bar keys and main preference");
+        Check(plan.Roots.Select(n => n.Key).SequenceEqual(new[] { "Alt+D4", "D8" }), "fixed bar keys and main preference");
         Check(plan.Roots[1].Children.Single().Key == "D8", "confirmed chain inherits source slot only");
         Check(missing.Count == 2, "unbound nonchain child cannot blindly inherit");
-        Check(bindings.Resolve(103, "summon")?.Key == "NumPadAdd", "Alt eleventh slot uses agreed Num+ key");
+        Check(bindings.Resolve(103, "summon")?.Key == "Alt+OemMinus", "Alt eleventh slot uses default Alt+- key");
         var lastSlot = new SkillKeyBindings(new(0, new[] { new QuickbarSlotSnapshot(SkillQuickbar.Alt, 11, 21, 102) }), Skills);
-        Check(lastSlot.Resolve(102, "heal")?.Key == "NumPadSubtract", "Alt twelfth slot uses agreed Num- key");
+        Check(lastSlot.Resolve(102, "heal")?.Key == "Alt+OemPlus", "Alt twelfth slot uses default Alt+= key");
         Check(bindings.Resolve(105, "unbound") is null, "item with same id is never a skill");
         var duplicate = new SkillKeyBindings(new(0, new[] { new QuickbarSlotSnapshot(SkillQuickbar.Main, 11, 21, 102), new(SkillQuickbar.Main, 2, 21, 102) }), Skills);
         Check(duplicate.Resolve(102, "heal")?.Key == "D3", "duplicate prefers leftmost");
@@ -54,7 +54,7 @@ internal static class SkillBindingTests
         var ambiguous = new SkillKeyBindings(Bar(), Skills.Select(s => s with { DisplayBaseName = "same" }).ToArray());
         Check(ambiguous.Resolve(0, "same") is null, "ambiguous legacy names never pick an arbitrary slot");
         settings.OpeningSkill = new() { Enabled = true, SkillId = 103, SkillName = "summon", Key = "" };
-        Check(SemiAutoSkillPlan.FromSettings(settings, bindings).OpeningSkill?.Key == "NumPadAdd", "opening skill needs no saved manual key");
+        Check(SemiAutoSkillPlan.FromSettings(settings, bindings).OpeningSkill?.Key == "Alt+OemMinus", "opening skill needs no saved manual key");
         settings.Mode = SkillConfigurationMode.SystemClassification;
         settings.SystemExecutionTree.Add(Node(103, "summon"));
         Check(SemiAutoSkillPlan.FromSettings(settings, bindings).Roots.Single().SkillId == 103, "system tree retains its own sequence");
@@ -88,14 +88,14 @@ internal static class SkillBindingTests
         var source = Settings();
         var before = JsonSerializer.Serialize(source);
         var result = new SkillKeyBindings(Bar(), Skills).ApplyTo(source);
-        Check(result.Maintenance.HpMaintenanceRules[0].Key == "NumPad4" && result.Maintenance.HpMaintenanceRules[0].BelowPercent == 61, "HP key changes without threshold changes");
-        Check(result.Maintenance.MpMaintenanceRules[0].Key == "NumPad4" && result.Maintenance.MpMaintenanceRules[1].Key == "F8", "MP skill remaps, potion stays manual");
-        Check(result.Maintenance.StatusMaintenanceRules[0].Key == "NumPad4" && result.Maintenance.StatusMaintenanceRules[0].AbnormalStatusId == 999, "buff policy retained");
-        Check(result.Maintenance.DpMaintenanceRules[0].Key == "NumPad4", "DP remapped");
-        Check(result.Skills.Spiritmaster.SummonSkills.Select(r => r.Key).SequenceEqual(new[] { "NumPadAdd", "F7" }), "summon skill and manual macro coexist");
+        Check(result.Maintenance.HpMaintenanceRules[0].Key == "Alt+D4" && result.Maintenance.HpMaintenanceRules[0].BelowPercent == 61, "HP key changes without threshold changes");
+        Check(result.Maintenance.MpMaintenanceRules[0].Key == "Alt+D4" && result.Maintenance.MpMaintenanceRules[1].Key == "F8", "MP skill remaps, potion stays manual");
+        Check(result.Maintenance.StatusMaintenanceRules[0].Key == "Alt+D4" && result.Maintenance.StatusMaintenanceRules[0].AbnormalStatusId == 999, "buff policy retained");
+        Check(result.Maintenance.DpMaintenanceRules[0].Key == "Alt+D4", "DP remapped");
+        Check(result.Skills.Spiritmaster.SummonSkills.Select(r => r.Key).SequenceEqual(new[] { "Alt+OemMinus", "F7" }), "summon skill and manual macro coexist");
         Check(result.Skills.Spiritmaster.OpeningAttackKey == "D8", "spirit opening skill remapped");
-        Check(result.Skills.Spiritmaster.PetHpMaintenanceRules[0].Key == "NumPad4" && result.Skills.Spiritmaster.PetBuffRules[0].Key == "NumPad4", "pet HP and buffs remapped");
-        Check(result.Team.Support.HealSkillRules[0].Key == "NumPad4" && result.Team.Support.MentalCleanseKey == "NumPad4" && result.Team.Support.GroupCleanseKey == "F5", "team skill and manual cleanse coexist");
+        Check(result.Skills.Spiritmaster.PetHpMaintenanceRules[0].Key == "Alt+D4" && result.Skills.Spiritmaster.PetBuffRules[0].Key == "Alt+D4", "pet HP and buffs remapped");
+        Check(result.Team.Support.HealSkillRules[0].Key == "Alt+D4" && result.Team.Support.MentalCleanseKey == "Alt+D4" && result.Team.Support.GroupCleanseKey == "F5", "team skill and manual cleanse coexist");
         Check(JsonSerializer.Serialize(source) == before, "saved config untouched");
         var restored = JsonSerializer.Deserialize<ScriptSettings>(before)!.Clone();
         Check(restored.Skills.Spiritmaster.OpeningAttackSkillId == 101 && restored.Team.Support.MentalCleanseSkillId == 102, "new selections roundtrip and clone");
@@ -103,7 +103,7 @@ internal static class SkillBindingTests
         Check(new SkillKeyBindings(Bar(), Skills).ApplyTo(source).Maintenance.HpMaintenanceRules[0].Key == "", "missing skill cannot press old slot");
         source.Maintenance.HpMaintenanceRules[0].SkillId = 0;
         var named = new SkillKeyBindings(Bar(), Skills).ApplyTo(source).Maintenance.HpMaintenanceRules[0];
-        Check(named.SkillId == 102 && named.Key == "NumPad4", "legacy name binds identity and key together for cooldown confirmation");
+        Check(named.SkillId == 102 && named.Key == "Alt+D4", "legacy name binds identity and key together for cooldown confirmation");
         return Task.CompletedTask;
     }
 
@@ -171,12 +171,12 @@ internal static class SkillBindingTests
         await first.PrepareSkillBindingsAsync();
         api.Quickbar = Bar(2, 5);
         await first.PrepareSkillBindingsAsync();
-        Check(api.QuickbarReadCount == 1 && first.Config.ScriptSettings!.Maintenance.HpMaintenanceRules[0].Key == "NumPad4", "one mapping per startup");
+        Check(api.QuickbarReadCount == 1 && first.Config.ScriptSettings!.Maintenance.HpMaintenanceRules[0].Key == "Alt+D4", "one mapping per startup");
         var second = Context();
         await second.PrepareSkillBindingsAsync();
-        Check(api.QuickbarReadCount == 2 && second.Config.ScriptSettings!.Maintenance.HpMaintenanceRules[0].Key == "NumPad6", "new session sees moved skill");
+        Check(api.QuickbarReadCount == 2 && second.Config.ScriptSettings!.Maintenance.HpMaintenanceRules[0].Key == "Alt+D6", "new session sees moved skill");
         Check(first.SkillBindings!.Resolve(101, "attack")!.Key == "D8" && second.SkillBindings!.Resolve(101, "attack")!.Key == "D3", "account sessions keep independent plans");
-        Check(first.ForCleanup(saved.ScriptSettings!).Config.ScriptSettings!.Maintenance.HpMaintenanceRules[0].Key == "NumPad4", "manual cleanup cannot restore obsolete skill keys");
+        Check(first.ForCleanup(saved.ScriptSettings!).Config.ScriptSettings!.Maintenance.HpMaintenanceRules[0].Key == "Alt+D4", "manual cleanup cannot restore obsolete skill keys");
         Check(JsonSerializer.Serialize(saved) == before, "startup never rewrites saved settings");
         api.QuickbarRead = () => throw new IOException("not available yet");
         using var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(150));
@@ -208,7 +208,7 @@ internal static class SkillBindingTests
         var controller = new SemiAutoCombatController(input);
         var plan = SemiAutoSkillPlan.FromSettings(context.Config.ScriptSettings!.Skills, context.SkillBindings);
         await controller.TickAsync(context, plan, new());
-        Check(input.Keys.SequenceEqual(new[] { "NumPad4" }), "real combat controller follows first tree skill instead of first slot");
+        Check(input.Keys.SequenceEqual(new[] { "Alt+D4" }), "real combat controller follows first tree skill instead of first slot");
 
         settings = new ScriptSettings();
         settings.Maintenance.SitMaintenanceEnabled = false;
@@ -223,7 +223,7 @@ internal static class SkillBindingTests
         } };
         controller = new(input);
         await controller.TryHandleMaintenanceAsync(context, new(), api.Player, allowSitMaintenance: false);
-        Check(input.Keys.SequenceEqual(new[] { "NumPad4" }), "real HP controller sends resolved key: " + string.Join(",", input.Keys));
+        Check(input.Keys.SequenceEqual(new[] { "Alt+D4" }), "real HP controller sends resolved key: " + string.Join(",", input.Keys));
 
         settings = new ScriptSettings();
         settings.Skills.SpiritmasterAutoSkillLogicEnabled = true;
@@ -235,7 +235,7 @@ internal static class SkillBindingTests
         input = new(); controller = new(input);
         plan = SemiAutoSkillPlan.FromSettings(context.Config.ScriptSettings!.Skills, context.SkillBindings);
         await controller.EnsureSpiritmasterPetAsync(context, plan, new());
-        Check(input.Keys.SequenceEqual(new[] { "NumPadAdd" }), "unbound speed does not shift summon or press obsolete key");
+        Check(input.Keys.SequenceEqual(new[] { "Alt+OemMinus" }), "unbound speed does not shift summon or press obsolete key");
         Check(log.Entries.Any(e => e.EventName == "semi_auto.spiritmaster.key_pressed" && Convert.ToString(e.Fields["phase"]) == "summon_pet"), "summon phase retains second-slot meaning");
     }
 
@@ -257,7 +257,7 @@ internal static class SkillBindingTests
                 Call("RefreshAutomaticSkillDisplays");
                 var hp = ((FlowLayoutPanel)Get("hpMaintenanceRuleList")!).Controls.OfType<Panel>().First();
                 var hpButton = (Button)hp.Controls.Find("maintenanceRuleKeyButton", false).Single();
-                Check(!hpButton.Enabled && hpButton.Text.Contains("Num4") && (string?)hpButton.Tag == "D1", "selected skill auto display keeps stored config intact");
+                Check(!hpButton.Enabled && hpButton.Text.Contains("A+4") && (string?)hpButton.Tag == "D1", "selected skill auto display keeps stored config intact");
                 var mp = ((FlowLayoutPanel)Get("mpMaintenanceRuleList")!).Controls.OfType<Panel>().Last();
                 Check(((Button)mp.Controls.Find("maintenanceRuleKeyButton", false).Single()).Enabled, "potion retains keyboard picker");
                 Check(((Button)Get("teamGroupCleanseKeyButton")!).Enabled, "manual system/macro key remains selectable");
@@ -304,7 +304,7 @@ internal static class SkillBindingTests
                 delayInput.Text = "500";
                 var automatic = summon.Controls[0].Controls.OfType<Label>().Single(l => l.Name == "spiritmasterAutomaticKeyLabel");
                 var manual = summon.Controls[1].Controls.OfType<Button>().Single();
-                Check(automatic.Visible && automatic.Text.Contains("Num+") && manual.Visible && manual.Enabled, "automatic badge and manual button coexist");
+                Check(automatic.Visible && automatic.Text.Contains("A+-") && manual.Visible && manual.Enabled, "automatic badge and manual button coexist");
                 var combo = summon.Controls[0].Controls.OfType<RoundedComboBox>().Single();
                 var originalSelection = combo.SelectedIndex;
                 combo.SelectedIndex = 0;

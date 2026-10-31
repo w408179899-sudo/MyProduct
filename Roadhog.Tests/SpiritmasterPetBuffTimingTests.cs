@@ -29,7 +29,7 @@ internal static partial class SpiritmasterPetBuffTimingTests
             f.AddPetBuff(runTiming: timing);
             await f.PrepareAsync();
             await f.TickAsync();
-            Check(f.Keyboard.Keys.Contains("NumPad1") == (timing != MaintenanceRuleRunTiming.AfterCombat),
+            Check(f.Keyboard.Keys.Contains("Alt+D1") == (timing != MaintenanceRuleRunTiming.AfterCombat),
                 $"combat must select only Always/InCombat pet buffs: {timing}");
         }
     }
@@ -42,12 +42,12 @@ internal static partial class SpiritmasterPetBuffTimingTests
             using var f = new SharedSkillAuditFixture();
             f.AddPetBuff(runTiming: timing);
             f.Api.TargetEntityId = 0;
-            f.Keyboard.AfterPress = key => { if (key == "NumPad1") f.SetPet(11, 50, 1662); };
+            f.Keyboard.AfterPress = key => { if (key == "Alt+D1") f.SetPet(11, 50, 1662); };
             await f.PrepareAsync();
             var handled = await f.Controller.TryHandleMaintenanceAsync(f.Context, f.State, f.Api.Player,
                 allowSitMaintenance: false, plan: f.Plan, runTiming: phase);
             var expected = timing == MaintenanceRuleRunTiming.Always || timing == phase;
-            Check(f.Keyboard.Keys.Contains("NumPad1") == expected && handled == expected,
+            Check(f.Keyboard.Keys.Contains("Alt+D1") == expected && handled == expected,
                 $"pet-only maintenance runs without a monster: {phase}/{timing}");
             Check(!f.State.HasSpiritmasterPetBuffConfirmation, "standalone maintenance settles confirmation before returning");
         }
@@ -60,7 +60,7 @@ internal static partial class SpiritmasterPetBuffTimingTests
         f.Api.TargetEntityId = 0;
         await f.PrepareAsync();
         await f.TickAsync();
-        Sequence(Enumerable.Repeat("NumPad1", 3), f.Keyboard.Keys, "idle Always buff gets one bounded burst");
+        Sequence(Enumerable.Repeat("Alt+D1", 3), f.Keyboard.Keys, "idle Always buff gets one bounded burst");
         Check(f.Logged("semi_auto.spiritmaster.pet_buff_unconfirmed", "skillId", 1662), "idle timeout is observed");
         Check(!f.State.HasSpiritmasterPetBuffConfirmation, "idle timeout releases reservation");
         var count = f.Keyboard.Keys.Count;
@@ -75,17 +75,17 @@ internal static partial class SpiritmasterPetBuffTimingTests
         f.AddPetBuff(1787, MaintenanceRuleRunTiming.InCombat);
         f.Keyboard.AfterPress = key =>
         {
-            if (key == "NumPad1") f.SetPet(11, 50, 1662, 1787);
-            if (key == "NumPad2") f.SetPet(11, 50, 1787);
+            if (key == "Alt+D1") f.SetPet(11, 50, 1662, 1787);
+            if (key == "Alt+D2") f.SetPet(11, 50, 1787);
         };
         await f.PrepareAsync();
         await f.TickAsync();
-        Sequence(new[] { "NumPad2" }, f.Keyboard.Keys, "first after-combat rule cannot hide a later combat rule");
+        Sequence(new[] { "Alt+D2" }, f.Keyboard.Keys, "first after-combat rule cannot hide a later combat rule");
         await f.TickAsync();
         f.Keyboard.Keys.Clear();
         await f.Controller.TryHandleMaintenanceAsync(f.Context, f.State, f.Api.Player,
             allowSitMaintenance: false, plan: f.Plan, runTiming: MaintenanceRuleRunTiming.AfterCombat);
-        Sequence(new[] { "NumPad1" }, f.Keyboard.Keys, "after-combat uses only its missing rule");
+        Sequence(new[] { "Alt+D1" }, f.Keyboard.Keys, "after-combat uses only its missing rule");
 
         using var excluded = new SharedSkillAuditFixture();
         excluded.AddPetBuff(runTiming: MaintenanceRuleRunTiming.Always);
@@ -115,7 +115,7 @@ internal static partial class SpiritmasterPetBuffTimingTests
             f.Keyboard.AfterPress = key =>
             {
                 Check(prepared, "movement callback must precede standalone inputs");
-                if (key != "NumPad1") return;
+                if (key != "Alt+D1") return;
                 if (scenario == "replacement") f.SetPet(12, 50, 1662);
                 if (scenario == "cancel") f.Cancel();
                 if (scenario == "rest") f.SetPet(11, 50, 1662);
@@ -129,9 +129,9 @@ internal static partial class SpiritmasterPetBuffTimingTests
             }
             catch (OperationCanceledException) when (scenario == "cancel") { }
             if (scenario is "replacement" or "cancel")
-                Sequence(new[] { "NumPad1" }, f.Keyboard.Keys, "pet replacement/stop ends inputs");
+                Sequence(new[] { "Alt+D1" }, f.Keyboard.Keys, "pet replacement/stop ends inputs");
             else if (scenario == "rest")
-                Check(f.Keyboard.Keys.Count == 2 && f.Keyboard.Keys.Last() == "NumPad1" &&
+                Check(f.Keyboard.Keys.Count == 2 && f.Keyboard.Keys.Last() == "Alt+D1" &&
                     f.Logger.Entries.Any(e => e.EventName == "semi_auto.maintenance.rest_exit_before_key"),
                     "resting character stands before standalone pet buff");
             else Check(f.Keyboard.Keys.IsEmpty, $"{scenario} cannot cast or summon");

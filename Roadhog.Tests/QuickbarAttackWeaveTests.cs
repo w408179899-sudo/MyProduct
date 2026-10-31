@@ -67,7 +67,7 @@ internal static class QuickbarAttackWeaveTests
         await MixedPair(f);
         Equal(2, f.State.AttackWeave.ConfirmedCount, "ordinary and conditional confirmed releases form one pair");
         Check(f.State.AttackWeave.IsWaiting, "second confirmed release starts the configured pause");
-        Sequence(new[] { "NumPadAdd", "D2" }, f.Keyboard.Keys, "a confirmed pair has not yet sent C");
+        Sequence(new[] { "Alt+OemMinus", "D2" }, f.Keyboard.Keys, "a confirmed pair has not yet sent C");
         f.Clock.ShiftWall(TimeSpan.FromHours(1));
         await f.Tick();
         Check(!f.Keyboard.Keys.Contains("C"), "a wall-clock jump cannot shorten the monotonic attack pause");
@@ -78,7 +78,7 @@ internal static class QuickbarAttackWeaveTests
         Check(!f.Keyboard.Keys.Contains("C"), "C cannot run before all 530 milliseconds elapse");
         f.Clock.Advance(1);
         await f.Tick();
-        Sequence(new[] { "NumPadAdd", "D2", "C" }, f.Keyboard.Keys, "C runs once at the deadline");
+        Sequence(new[] { "Alt+OemMinus", "D2", "C" }, f.Keyboard.Keys, "C runs once at the deadline");
         Equal(0, f.State.AttackWeave.ConfirmedCount, "successful C clears only the completed pair");
         Check(f.State.AttackWeave.IsWaiting, "successful C starts the fixed post-attack pause");
         f.Clock.Advance(30);
@@ -146,7 +146,7 @@ internal static class QuickbarAttackWeaveTests
         var f = new Fixture(delayMs: 0);
         f.Keyboard.FailAttack = true;
         await MixedPair(f);
-        Sequence(new[] { "NumPadAdd", "D2", "C" }, f.Keyboard.Keys, "zero-delay C runs in the second-confirmation tick");
+        Sequence(new[] { "Alt+OemMinus", "D2", "C" }, f.Keyboard.Keys, "zero-delay C runs in the second-confirmation tick");
         Equal(2, f.State.AttackWeave.ConfirmedCount, "failed C retains the successful pair");
         f.Reader.Value = Bar(root: true, last: 21, time: 20);
         f.Clock.Advance(99);
@@ -155,7 +155,7 @@ internal static class QuickbarAttackWeaveTests
         f.Clock.Advance(1);
         f.Keyboard.FailAttack = false;
         await f.Tick();
-        Sequence(new[] { "NumPadAdd", "D2", "C", "C" }, f.Keyboard.Keys, "C retries at 100 milliseconds and owns that tick");
+        Sequence(new[] { "Alt+OemMinus", "D2", "C", "C" }, f.Keyboard.Keys, "C retries at 100 milliseconds and owns that tick");
         Equal(0, f.State.AttackWeave.ConfirmedCount, "successful retry clears the pair");
         f.Clock.Advance(30);
         await f.Tick();
@@ -395,7 +395,7 @@ internal static class QuickbarAttackWeaveTests
         };
         var delay = await f.Tick(ordinary: Ordinary);
         Check(fullRootsRead, "production-style selection reads the ordinary roots after the early pending read");
-        Sequence(new[] { "NumPadAdd", "D2", "C" }, f.Keyboard.Keys,
+        Sequence(new[] { "Alt+OemMinus", "D2", "C" }, f.Keyboard.Keys,
             "a confirmation first visible during slow ordinary-root selection gives zero-delay C the same tick");
         Equal(TimeSpan.Zero, delay, "a slow root snapshot read consumes the tick budget without sending an extra skill");
         Check(f.State.PendingAction is null && f.State.AttackWeave.IsWaiting && f.State.AttackWeave.ConfirmedCount == 0,
@@ -423,7 +423,7 @@ internal static class QuickbarAttackWeaveTests
         f.Reader.Value = Bar(last: 99, time: 20);
         await f.Tick();
         Equal(2, f.State.AttackWeave.ConfirmedCount, "the conditional skill counts with an unchanged unrelated release record");
-        Sequence(new[] { "NumPadAdd", "D2" }, f.Keyboard.Keys, "cooldown-based counting keeps the configured pre-C wait");
+        Sequence(new[] { "Alt+OemMinus", "D2" }, f.Keyboard.Keys, "cooldown-based counting keeps the configured pre-C wait");
         f.Clock.Advance(530);
         await f.Tick();
         Equal(1, f.Keyboard.Keys.Count(key => key == "C"), "two cooldown-backed actions schedule one C");
@@ -444,7 +444,7 @@ internal static class QuickbarAttackWeaveTests
         f.Clock.Advance(80);
         f.Reader.Value = Bar(counter: true, last: 98, time: 2);
         await f.Tick();
-        Sequence(new[] { "NumPadAdd", "D3", "C" }, f.Keyboard.Keys, "ordinary and trigger cooldowns complete the first pair");
+        Sequence(new[] { "Alt+OemMinus", "D3", "C" }, f.Keyboard.Keys, "ordinary and trigger cooldowns complete the first pair");
         f.Clock.Advance(30);
         await f.Tick();
         f.SetCooldown(21, 21000);
@@ -468,7 +468,7 @@ internal static class QuickbarAttackWeaveTests
         f.Clock.Advance(80);
         f.Reader.Value = Bar(last: 13, time: 6);
         await f.Tick();
-        Sequence(new[] { "NumPadAdd", "D3", "C", "D2", "D1", "C", "D1", "D1", "C" }, f.Keyboard.Keys,
+        Sequence(new[] { "Alt+OemMinus", "D3", "C", "D2", "D1", "C", "D1", "D1", "C" }, f.Keyboard.Keys,
             "ordinary, trigger, conditional and all three chain stages each contribute exactly one cooldown-backed action");
     }
 

@@ -38,8 +38,6 @@ public sealed class ScriptSettings
 
     public QuickbarSkillScriptSettings QuickbarSkills { get; set; } = new();
 
-    public QuickbarKeyMode QuickbarKeyMode { get; set; } = QuickbarKeyMode.Numpad;
-
     public SemiAutoScriptSettings SemiAuto { get; set; } = new();
 
     public ScriptSettings Clone()
@@ -61,7 +59,6 @@ public sealed class ScriptSettings
             Skills = (Skills ?? new SkillScriptSettings()).Clone(),
             SkillTreeReleaseMode = SkillTreeReleaseMode,
             QuickbarSkills = (QuickbarSkills ?? new QuickbarSkillScriptSettings()).Clone(),
-            QuickbarKeyMode = QuickbarKeyMode,
             SemiAuto = (SemiAuto ?? new SemiAutoScriptSettings()).Clone()
         };
         SkillTreeReleaseMigration.Migrate(settings);

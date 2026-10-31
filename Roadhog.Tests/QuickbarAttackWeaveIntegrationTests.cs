@@ -159,7 +159,7 @@ internal static class QuickbarAttackWeaveIntegrationTests
             using var f = new Fixture(true, 101, 102, 103);
             f.Settings.Maintenance.StatusMaintenanceRules.Add(new()
             {
-                SkillId = 901, SkillName = "maintenance", Key = "NumPad1", AbnormalStatusId = 900,
+                SkillId = 901, SkillName = "maintenance", Key = "Alt+D1", AbnormalStatusId = 900,
                 RunTiming = MaintenanceRuleRunTiming.Always
             });
             f.Api.PlayerAbnormalStatuses = Status(f.Api, active: true);
@@ -176,7 +176,7 @@ internal static class QuickbarAttackWeaveIntegrationTests
                 f.Api.PlayerAbnormalStatuses = Status(f.Api, active: false);
                 f.Keyboard.AfterPress = key =>
                 {
-                    if (key == "NumPad1") f.Api.PlayerAbnormalStatuses = Status(f.Api, active: true);
+                    if (key == "Alt+D1") f.Api.PlayerAbnormalStatuses = Status(f.Api, active: true);
                 };
             }
             f.Clock.Advance(600);
@@ -184,7 +184,7 @@ internal static class QuickbarAttackWeaveIntegrationTests
             Check(!f.Keyboard.Keys.Contains("C"), cause + " cancels a due C before any attack input");
             Equal(0, f.State.QuickbarSkills.AttackWeave.ConfirmedCount, cause + " clears the opening pair");
             Check(!f.State.QuickbarSkills.AttackWeave.IsWaiting, cause + " clears the pending weave wait");
-            if (cause == "maintenance") Check(f.Keyboard.Keys.Contains("NumPad1"), "existing maintenance runs before the canceled weave");
+            if (cause == "maintenance") Check(f.Keyboard.Keys.Contains("Alt+D1"), "existing maintenance runs before the canceled weave");
             AssertLegacyWeaveUnused(f);
         }
     }
@@ -331,7 +331,7 @@ internal static class QuickbarAttackWeaveIntegrationTests
             using var f = new Fixture(true, 101);
             f.Settings.Maintenance.StatusMaintenanceRules.Add(new()
             {
-                SkillId = 901, SkillName = "maintenance", Key = "NumPad1", AbnormalStatusId = 900,
+                SkillId = 901, SkillName = "maintenance", Key = "Alt+D1", AbnormalStatusId = 900,
                 RunTiming = MaintenanceRuleRunTiming.Always
             });
             f.Api.PlayerAbnormalStatuses = Status(f.Api, active: true);
@@ -345,7 +345,7 @@ internal static class QuickbarAttackWeaveIntegrationTests
                 f.Api.PlayerAbnormalStatuses = Status(f.Api, active: false);
                 f.Keyboard.AfterPress = key =>
                 {
-                    if (key == "NumPad1") f.Api.PlayerAbnormalStatuses = Status(f.Api, active: true);
+                    if (key == "Alt+D1") f.Api.PlayerAbnormalStatuses = Status(f.Api, active: true);
                 };
             }
             else if (cause == "disabled") f.Settings.SemiAuto.AttackWeaveEnabled = false;

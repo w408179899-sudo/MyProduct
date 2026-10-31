@@ -5,7 +5,8 @@ using Roadhog.Core.Model;
 internal static class QuickbarCombatTestFixture
 {
     private static readonly string[] MainKeys = { "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "D0", "OemMinus", "OemPlus" };
-    private static readonly string[] AltKeys = { "NumPad1", "NumPad2", "NumPad3", "NumPad4", "NumPad5", "NumPad6", "NumPad7", "NumPad8", "NumPad9", "NumPad0", "NumPadAdd", "NumPadSubtract" };
+    private static readonly string[] AltKeys = MainKeys.Select(key => "Alt+" + key).ToArray();
+    private static readonly string[] CtrlKeys = MainKeys.Select(key => "Ctrl+" + key).ToArray();
 
     // Existing shared-controller tests used manual keys before all combat used
     // the official quickbar. Give those fixtures an explicit matching bar.
@@ -23,6 +24,7 @@ internal static class QuickbarCombatTestFixture
             var slot = Array.IndexOf(MainKeys, key);
             var bar = SkillQuickbar.Main;
             if (slot < 0) { slot = Array.IndexOf(AltKeys, key); bar = SkillQuickbar.Alt; }
+            if (slot < 0) { slot = Array.IndexOf(CtrlKeys, key); bar = SkillQuickbar.Ctrl; }
             if (slot >= 0) slots[(bar, slot)] = new(bar, slot, 21, id);
         }
         var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);

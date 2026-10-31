@@ -100,10 +100,6 @@ public sealed class RemoteRoadhogRuntime : IRoadhogRuntime
     public Task<QuickbarSnapshot> ReadQuickbarAsync(string? accountName = null, CancellationToken cancellationToken = default) =>
         _client.CallAsync<QuickbarSnapshot>(nameof(ReadQuickbarAsync), new object?[] { Account(accountName) }, cancellationToken);
 
-    public Task<QuickbarSnapshot> ReadQuickbarForKeyModeAsync(QuickbarKeyMode keyMode,
-        string? accountName = null, CancellationToken cancellationToken = default) =>
-        _client.CallAsync<QuickbarSnapshot>(nameof(ReadQuickbarForKeyModeAsync), new object?[] { keyMode, Account(accountName) }, cancellationToken);
-
     public Task<IReadOnlyList<WorldObjectSnapshot>> RefreshWorldObjectsAsync(string? accountName = null, CancellationToken cancellationToken = default) =>
         _client.CallAsync<IReadOnlyList<WorldObjectSnapshot>>(nameof(RefreshWorldObjectsAsync), new object?[] { Account(accountName) }, cancellationToken);
 

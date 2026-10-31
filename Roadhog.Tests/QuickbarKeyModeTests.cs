@@ -27,28 +27,24 @@ internal static class QuickbarKeyModeTests
 
     public static Task MappingAsync()
     {
-        var old = JsonSerializer.Deserialize<ScriptSettings>("{}")!;
-        Check(old.QuickbarKeyMode == QuickbarKeyMode.Numpad && old.Clone().QuickbarKeyMode == QuickbarKeyMode.Numpad, "old JSON defaults to numpad");
-        old.QuickbarKeyMode = QuickbarKeyMode.GameDefault;
-        Check(JsonSerializer.Deserialize<ScriptSettings>(JsonSerializer.Serialize(old.Clone()))!.QuickbarKeyMode == QuickbarKeyMode.GameDefault, "new mode roundtrips and clones");
+        var old = JsonSerializer.Deserialize<ScriptSettings>("{\"QuickbarKeyMode\":0}")!.Clone();
+        Check(!JsonSerializer.Serialize(old).Contains("QuickbarKeyMode"), "obsolete saved numpad mode is ignored and no longer persisted");
+        Check(!JsonSerializer.Serialize(JsonSerializer.Deserialize<ScriptSettings>("{}")!.Clone()).Contains("QuickbarKeyMode"),
+            "profiles without a mode use the same defaults");
         var main = new[] { "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "D0", "OemMinus", "OemPlus" };
-        var numpad = new[] { "NumPad1", "NumPad2", "NumPad3", "NumPad4", "NumPad5", "NumPad6", "NumPad7", "NumPad8", "NumPad9", "NumPad0", "NumPadAdd", "NumPadSubtract" };
         for (var slot = 0; slot < 12; slot++)
-        {
             Check(SkillKeyBindings.GetSlotKey(SkillQuickbar.Main, slot) == main[slot] &&
-                SkillKeyBindings.GetSlotKey(SkillQuickbar.Alt, slot) == numpad[slot] &&
-                SkillKeyBindings.GetSlotKey(SkillQuickbar.Ctrl, slot) is null, "all old slots unchanged");
-            Check(SkillKeyBindings.GetSlotKey(SkillQuickbar.Alt, slot, QuickbarKeyMode.GameDefault) == "Alt+" + main[slot] &&
-                SkillKeyBindings.GetSlotKey(SkillQuickbar.Ctrl, slot, QuickbarKeyMode.GameDefault) == "Ctrl+" + main[slot], "all twelve chord slots map");
-        }
-        var bindings = new SkillKeyBindings(Bars, Skills, QuickbarKeyMode.GameDefault);
+                SkillKeyBindings.GetSlotKey(SkillQuickbar.Alt, slot) == "Alt+" + main[slot] &&
+                SkillKeyBindings.GetSlotKey(SkillQuickbar.Ctrl, slot) == "Ctrl+" + main[slot], "all thirty-six slots use game defaults");
+        Check(SkillKeyBindings.GetSlotKey(SkillQuickbar.Ctrl, 12) is null &&
+            SkillKeyBindings.GetSlotKey((SkillQuickbar)9, 0) is null, "unsupported slots are not bound");
+        var bindings = new SkillKeyBindings(Bars, Skills);
         var settings = new QuickbarSkillScriptSettings { ExecutionTree = new() { Node(102), Node(103), Node(101) } };
         settings.ExecutionTree[1].Children.Add(Node(104));
         var plan = QuickbarSkillPlan.FromSettings(settings, bindings);
         Check(plan.Roots.Select(n => n.Key).SequenceEqual(new[] { "Alt+OemMinus", "Ctrl+OemPlus", "D1" }), "tree order and main duplicate preference retained");
         var child = plan.Roots[1].Children.Single();
         Check(child.Key == "Ctrl+OemPlus" && child.Bar == SkillQuickbar.Ctrl && child.Slot == 11 && child.BaseSkillId == 103, "third-row chain inherits physical slot and anchor");
-        Check(QuickbarSkillPlan.FromSettings(settings, new(Bars, Skills)).Roots.Count == 2, "legacy mode omits third-row skill and chain");
         old.Maintenance.HpMaintenanceRules.Add(new() { SkillId = 103, Key = "D1", BelowPercent = 51 });
         old.Team.Support.MentalCleanseSkillId = 103;
         old.Skills.Spiritmaster.OpeningAttackSkillId = 103;
@@ -89,24 +85,19 @@ internal static class QuickbarKeyModeTests
     {
         var api = new FakeGameApi { Quickbar = Bars, Skills = Skills };
         var log = new InMemoryRoadhogLogger();
-        var source = new AccountConfig { AccountName = "account2", ScriptSettings = new() { QuickbarKeyMode = QuickbarKeyMode.GameDefault } };
+        var source = new AccountConfig { AccountName = "account2", ScriptSettings = JsonSerializer.Deserialize<ScriptSettings>("{\"QuickbarKeyMode\":0}") };
         var worker = new AccountWorkerContext(source.Clone(), api, log, new AccountRuntimeManager(log), new(), CancellationToken.None);
         await worker.PrepareSkillBindingsAsync();
-        Check(worker.SkillBindings!.Resolve(103, "")!.Key == "Ctrl+OemPlus", "worker startup applies account mode");
+        Check(worker.SkillBindings!.Resolve(103, "")!.Key == "Ctrl+OemPlus", "old numpad configuration starts with default Ctrl binding");
         Check(api.LastQuickbarReadContext?.IncludeThirdQuickbar == true, "startup reader requests third row");
         await ((ISkillAvailabilitySnapshotReader)worker.Snapshots).ReadSkillAvailabilityAsync();
-        Check(api.LastSkillAvailabilityReadContext?.IncludeThirdQuickbar == true, "availability reader requests the same mode");
-        Check(source.ScriptSettings!.QuickbarKeyMode == QuickbarKeyMode.GameDefault, "startup preserves saved mode");
-
-        source.ScriptSettings.QuickbarKeyMode = QuickbarKeyMode.Numpad;
+        Check(api.LastSkillAvailabilityReadContext?.IncludeThirdQuickbar == true, "availability reader requests all three rows");
         var accounts = new AccountRuntimeManager(log);
         accounts.MarkStarting(source);
         var runtime = new RoadhogRuntime(api, log, accounts, null!);
-        await runtime.ReadQuickbarForKeyModeAsync(QuickbarKeyMode.GameDefault, "account2");
-        Check(api.LastQuickbarReadContext?.IncludeThirdQuickbar == true, "unsaved preview mode reaches provider with active account");
-        await runtime.ReadQuickbarForKeyModeAsync(QuickbarKeyMode.Numpad, "account2");
-        Check(api.LastQuickbarReadContext?.IncludeThirdQuickbar == false && source.ScriptSettings.QuickbarKeyMode == QuickbarKeyMode.Numpad,
-            "returning preview to default reads two rows and does not mutate config");
+        await runtime.ReadQuickbarAsync("account2");
+        Check(api.LastQuickbarReadContext?.IncludeThirdQuickbar == true, "active-account preview requests all three rows without settings");
+
     }
 
     public static Task UiAsync()
@@ -125,29 +116,22 @@ internal static class QuickbarKeyModeTests
                     store, new InMemorySharedPathStore(), new InMemoryScriptProfileStore(), new RecordingFolderLauncher(), "test-paths");
                 object? Get(string name) => typeof(AccountSettingsForm).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form);
                 object? Call(string name, params object?[] values) => typeof(AccountSettingsForm).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(form, values);
-                var numpad = (RadioButton)Get("numpadKeyModeRadio")!;
-                var game = (RadioButton)Get("gameDefaultKeyModeRadio")!;
-                Check(numpad.Checked && !game.Checked, "old account loads numpad by default");
-                typeof(AccountSettingsForm).GetField("previewSkillBindings", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(form, new SkillKeyBindings(Bars, Skills));
-                game.Checked = true;
-                Check(!numpad.Checked && game.Checked && Get("previewSkillBindings") is null, "radios exclusive and stale preview invalidated");
-                Check(((ScriptSettings)Call("CaptureScriptSettings")!).QuickbarKeyMode == QuickbarKeyMode.GameDefault, "capture saves selected mode");
+                Check(!Controls(form).Any(c => c.Name is "numpadKeyModeRadio" or "gameDefaultKeyModeRadio" or "quickbarKeyModePanel"),
+                    "obsolete quickbar mode controls are removed");
                 Check((bool)Call("SaveCurrentSettings", new object?[] { null })!, "actual save succeeds");
-                Check(store.LoadAllAsync().GetAwaiter().GetResult().Value!.Single().ScriptSettings!.QuickbarKeyMode == QuickbarKeyMode.GameDefault, "account persistence keeps mode");
-                Call("ApplyScriptSettings", new ScriptSettings());
-                Check(numpad.Checked && !game.Checked, "loading old profile restores numpad");
-                var spiritButton = (Button)Get("spiritmasterSettingsButton")!;
-                Check(!game.Parent!.Bounds.IntersectsWith(spiritButton.Bounds), "mode group does not overlap spirit settings");
-                foreach (Control control in game.Parent.Controls)
-                    Check(control.Right <= game.Parent.Width && control.Bottom <= game.Parent.Height, "radio fits group");
+                Check(!JsonSerializer.Serialize(store.LoadAllAsync().GetAwaiter().GetResult().Value).Contains("QuickbarKeyMode"),
+                    "account save omits removed mode");
+                typeof(AccountSettingsForm).GetField("previewSkillBindings", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .SetValue(form, new SkillKeyBindings(Bars, Skills));
+                Call("ApplyScriptSettings", JsonSerializer.Deserialize<ScriptSettings>("{\"QuickbarKeyMode\":0}")!);
+                Check(Get("previewSkillBindings") is null, "loading another profile invalidates old preview");
 
                 var storedBefore = JsonSerializer.Serialize(store.LoadAllAsync().GetAwaiter().GetResult().Value);
-                game.Checked = true;
                 var pending = new TaskCompletionSource<QuickbarSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
                 preview.PendingBar = pending.Task;
                 var refresh = (Task<(int UpdatedCount, int DeletedCount, bool Saved, string Error)>)Call("RefreshConfiguredSkillsCoreAsync")!;
-                Check(!refresh.IsCompleted && preview.RequestedMode == QuickbarKeyMode.GameDefault, "refresh captures unsaved mode before awaiting bar");
-                numpad.Checked = true;
+                Check(!refresh.IsCompleted, "refresh awaits official bar snapshot");
+                Call("ApplyScriptSettings", new ScriptSettings());
                 pending.SetResult(Bars);
                 var deadline = DateTime.UtcNow.AddSeconds(3);
                 while (!refresh.IsCompleted && DateTime.UtcNow < deadline) { System.Windows.Forms.Application.DoEvents(); Thread.Sleep(1); }
@@ -155,7 +139,7 @@ internal static class QuickbarKeyModeTests
                 var result = refresh.GetAwaiter().GetResult();
                 Check(!result.Saved && result.DeletedCount == 0 && Get("previewSkillBindings") is null &&
                     JsonSerializer.Serialize(store.LoadAllAsync().GetAwaiter().GetResult().Value) == storedBefore,
-                    "mode change during refresh cannot delete skills or persist stale bindings");
+                    "profile change during refresh cannot delete skills or persist stale bindings");
                 completion.SetResult();
             }
             catch (Exception ex) { completion.SetException(ex); }
@@ -163,16 +147,17 @@ internal static class QuickbarKeyModeTests
         thread.SetApartmentState(ApartmentState.STA); thread.Start(); return completion.Task;
     }
 
+    private static IEnumerable<Control> Controls(Control parent) =>
+        parent.Controls.Cast<Control>().SelectMany(c => new[] { c }.Concat(Controls(c)));
+
     public class PreviewRuntime : DispatchProxy
     {
         public IRoadhogRuntime Inner { get; set; } = null!;
         public Task<QuickbarSnapshot>? PendingBar { get; set; }
-        public QuickbarKeyMode RequestedMode { get; private set; }
         protected override object? Invoke(MethodInfo? method, object?[]? args)
         {
-            if (method!.Name == nameof(IRoadhogRuntime.ReadQuickbarForKeyModeAsync) && PendingBar is not null)
+            if (method!.Name == nameof(IRoadhogRuntime.ReadQuickbarAsync) && PendingBar is not null)
             {
-                RequestedMode = (QuickbarKeyMode)args![0]!;
                 return PendingBar;
             }
             return method.Invoke(Inner, args);

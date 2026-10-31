@@ -469,7 +469,7 @@ namespace Roadhog
         {
             LoadEquipmentUpgradeSettings(settings.EquipmentUpgrade ?? new());
             settings = settings.Clone();
-            LoadQuickbarKeyMode(settings.QuickbarKeyMode);
+            InvalidateSkillBindingsPreview();
             SetChecked(generateLogFilesCheckBox, settings.GenerateLogFiles);
             SetText(profileNameTextBox, settings.ProfileName);
             UpdateCurrentProfileDisplay(settings.ProfileName);
@@ -906,7 +906,6 @@ namespace Roadhog
 
             var settings = new ScriptSettings
             {
-                QuickbarKeyMode = SelectedQuickbarKeyMode,
                 ProfileName = GetText(profileNameTextBox, "default_profile"),
                 GenerateLogFiles = generateLogFilesCheckBox?.Checked ?? true,
                 MainMode = ParseMainMode(mainModeCombo?.Text),
@@ -5901,8 +5900,7 @@ namespace Roadhog
             };
             page.Controls.Add(optionsPanel);
             AddLabel(optionsPanel, "技能配置", 12, 4, 90, 24, _textGreen, FontStyle.Bold);
-            quickbarKeyHintLabel = AddLabel(optionsPanel, "", 168, 4, 630, 24);
-            CreateQuickbarKeyModeEditor(optionsPanel);
+            AddLabel(optionsPanel, "匹配三排：数字 / Alt+数字 / Ctrl+数字；移动技能后重启脚本", 168, 4, 630, 24);
             openingAttackKeyCheckBox = AddCheckBox(optionsPanel, "开怪按C", 168, 32, 120, true);
             spiritmasterAutoSkillCheckBox = AddCheckBox(optionsPanel, "精灵专用", 324, 32, 120, false);
             spiritmasterAutoSkillCheckBox.Click += (_, _) => RefreshSpiritmasterAutoSkillCheckBoxState();
@@ -9135,7 +9133,7 @@ namespace Roadhog
                 AutoScaleDimensions = new SizeF(7F, 17F),
                 AutoScaleMode = AutoScaleMode.Font,
                 BackColor = _pageBackground,
-                ClientSize = new Size(760, 282),
+                ClientSize = new Size(760, 250),
                 Font = new Font("Microsoft YaHei UI", 9F),
                 FormBorderStyle = FormBorderStyle.FixedDialog,
                 MaximizeBox = false,
@@ -9187,7 +9185,7 @@ namespace Roadhog
                 CornerRadius = 8,
                 Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold),
                 ForeColor = Color.White,
-                Location = new Point(664, 242),
+                Location = new Point(664, 210),
                 ShadowDepth = 2,
                 Size = new Size(78, 30),
                 Text = "取消",
@@ -9205,21 +9203,6 @@ namespace Roadhog
         {
             var rows = new (string Text, string Value)[][]
             {
-                new[]
-                {
-                    ("Num1", "NumPad1"),
-                    ("Num2", "NumPad2"),
-                    ("Num3", "NumPad3"),
-                    ("Num4", "NumPad4"),
-                    ("Num5", "NumPad5"),
-                    ("Num6", "NumPad6"),
-                    ("Num7", "NumPad7"),
-                    ("Num8", "NumPad8"),
-                    ("Num9", "NumPad9"),
-                    ("Num0", "NumPad0"),
-                    ("Num+", "NumPadAdd"),
-                    ("Num-", "NumPadSubtract")
-                },
                 new[]
                 {
                     ("1", "D1"),
@@ -9271,12 +9254,11 @@ namespace Roadhog
             };
 
             // Display the game's short labels, but persist the canonical input values.
-            var numberKeys = rows[1];
-            var modifierRows = new[] { (Label: "A+", Value: "Alt+"), (Label: "C+", Value: "Ctrl+") }
+            var numberKeys = rows[0];
+            var modifierRows = new[] { (Label: "C+", Value: "Ctrl+"), (Label: "A+", Value: "Alt+") }
                 .Select(modifier => numberKeys.Select(key =>
                     (Text: modifier.Label + key.Text, Value: modifier.Value + key.Value)).ToArray());
-            rows = rows.Take(2).Concat(modifierRows).Concat(rows.Skip(2)).ToArray();
-            (rows[1], rows[3]) = (rows[3], rows[1]);
+            rows = modifierRows.Concat(rows).ToArray();
 
             var y = 48;
             for (var rowIndex = 0; rowIndex < rows.Length; rowIndex++)
