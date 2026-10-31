@@ -116,21 +116,25 @@ public sealed partial class AccountSettingsForm
         var originalText = button.Text;
         button.Enabled = false;
         button.Text = "刷新中...";
+        var mode = SelectedQuickbarKeyMode;
+        var revision = quickbarKeyModeRevision;
         try
         {
-            currentManualSkills = await _runtime.RefreshSkillsAsync(_account).ConfigureAwait(true);
+            var skills = await _runtime.RefreshSkillsAsync(_account).ConfigureAwait(true);
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-            var quickbar = await _runtime.ReadQuickbarAsync(_account, timeout.Token).ConfigureAwait(true);
+            var quickbar = await _runtime.ReadQuickbarForKeyModeAsync(mode, _account, timeout.Token).ConfigureAwait(true);
             // Learned lists contain the highest ranks; the bar may deliberately bind a lower rank.
             // Read the actual IDs instead of relabeling a highest-rank snapshot as a different skill.
             var missingIds = quickbar.Slots.Where(slot => slot.ContentType == 21 && slot.SkillId != 0 &&
-                    !currentManualSkills.Any(skill => skill.SkillId == slot.SkillId))
+                    !skills.Any(skill => skill.SkillId == slot.SkillId))
                 .Select(slot => slot.SkillId).Distinct().ToArray();
             if (missingIds.Length > 0)
-                currentManualSkills = currentManualSkills
+                skills = skills
                     .Concat(await _runtime.RefreshSkillsByIdsAsync(missingIds, _account, timeout.Token).ConfigureAwait(true))
                     .DistinctBy(skill => skill.SkillId).ToArray();
-            previewSkillBindings = new SkillKeyBindings(quickbar, currentManualSkills);
+            if (IsDisposed || revision != quickbarKeyModeRevision) return;
+            currentManualSkills = skills;
+            previewSkillBindings = new SkillKeyBindings(quickbar, skills, mode);
             if (quickbarAvailableSkillTree is not null)
                 PopulateAvailableSkillTreeFromSkills(quickbarAvailableSkillTree, currentManualSkills);
             RefreshSkillCandidateCombos();
@@ -142,6 +146,7 @@ public sealed partial class AccountSettingsForm
         }
         catch (Exception exception)
         {
+            if (IsDisposed || revision != quickbarKeyModeRevision) return;
             previewSkillBindings = null;
             RefreshAutomaticSkillDisplays();
             if (quickbarSkillStatusLabel is { IsDisposed: false })

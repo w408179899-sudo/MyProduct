@@ -59,6 +59,10 @@ public interface IRoadhogRuntime
     Task<QuickbarSnapshot> ReadQuickbarAsync(
         string? accountName = null, CancellationToken cancellationToken = default);
 
+    Task<QuickbarSnapshot> ReadQuickbarForKeyModeAsync(QuickbarKeyMode keyMode,
+        string? accountName = null, CancellationToken cancellationToken = default) =>
+        ReadQuickbarAsync(accountName, cancellationToken);
+
     Task<IReadOnlyList<WorldObjectSnapshot>> RefreshWorldObjectsAsync(
         string? accountName = null, CancellationToken cancellationToken = default);
 

@@ -312,6 +312,25 @@ internal static class FoodMaintenanceTests
             game.Input.Keys.SequenceEqual(new[] { "NumPadAdd" }), "hotkey confirms without opening inventory or clicking");
         Check(!await game.Run(binding: binding) && game.Hotkeys == 1, "existing category never repeats hotkey");
 
+        foreach (var bar in new[] { SkillQuickbar.Alt, SkillQuickbar.Ctrl })
+        {
+            var test = new Simulation { KeyMode = QuickbarKeyMode.GameDefault };
+            test.Api.Quickbar = new(2, new[] { slot with { Bar = bar } });
+            var settings = new MaintenanceScriptSettings { AutoDrinkEnabled = true, PreferredDrinks = preferences };
+            var logger = new InMemoryRoadhogLogger();
+            var context = new AccountWorkerContext(new AccountConfig { AccountName = "chord-food", ScriptSettings = new()
+                { QuickbarKeyMode = QuickbarKeyMode.GameDefault, Maintenance = settings } },
+                test.Api, logger, new AccountRuntimeManager(logger), new(), CancellationToken.None);
+            var controller = new FoodMaintenanceController(test.Input);
+            controller.ObserveCombat(settings, true);
+            Check(await controller.TickAsync(context, new(), () => Task.CompletedTask, () => false), "chord food confirms");
+            Check(test.Input.Keys.SequenceEqual(new[] { bar == SkillQuickbar.Alt ? "Alt+OemMinus" : "Ctrl+OemMinus" }) && test.Clicks == 0,
+                "food controller uses selected account mode and real slot");
+            if (bar == SkillQuickbar.Ctrl)
+                Check(FoodQuickbarBindings.Select(test.Api.Quickbar, test.Api.InventoryItems, catalog, FoodKind.Drink, 50, preferences) is null,
+                    "default food binding ignores third row");
+        }
+
         foreach (var fault in new[] { "page", "slot", "empty", "modal", "no-status" })
         {
             var bad = new Simulation();
@@ -348,6 +367,7 @@ internal static class FoodMaintenanceTests
 
     private sealed class Simulation
     {
+        public QuickbarKeyMode KeyMode;
         public FakeGameApi Api = new();
         public RecordingKeyboardInput Input = new();
         public bool Open;
@@ -378,7 +398,7 @@ internal static class FoodMaintenanceTests
             Input.AfterPress = key =>
             {
                 if (key == "I") { Open = !Open; return; }
-                var bound = Api.Quickbar.Slots.FirstOrDefault(s => SkillKeyBindings.GetSlotKey(s.Bar, s.Slot) == key);
+                var bound = Api.Quickbar.Slots.FirstOrDefault(s => SkillKeyBindings.GetSlotKey(s.Bar, s.Slot, KeyMode) == key);
                 if (bound == null) return;
                 Hotkeys++;
                 if (Failure != "no-status") Api.PlayerAbnormalStatuses = Status(10062);

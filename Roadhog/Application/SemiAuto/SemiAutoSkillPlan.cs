@@ -126,7 +126,7 @@ public sealed class SemiAutoSkillPlan
             var bound = bindings.ResolveChain(config.SkillId, config.Name, parent);
             if (bound is null)
             {
-                missing?.Invoke(config.Name + "：未放入主栏或 Alt 栏，也没有可确认的连续技栏位");
+                missing?.Invoke(config.Name + "：未放入当前模式支持的栏位，也没有可确认的连续技栏位");
                 return null;
             }
             var node = new SemiAutoSkillNode(bound.SkillId, bound.Name, config.BaseName, config.Type, config.ChainTimeMs, bound.Key, parent);
@@ -140,7 +140,7 @@ public sealed class SemiAutoSkillPlan
     private static SemiAutoSkillNode? BuildBoundOpeningSkill(OpeningSkillEntryConfig config, SkillKeyBindings bindings, Action<string>? missing)
     {
         var bound = bindings.Resolve(config.SkillId, config.SkillName);
-        if (bound is null) { missing?.Invoke("起手技能 " + config.SkillName + "：未放入主栏或 Alt 栏"); return null; }
+        if (bound is null) { missing?.Invoke("起手技能 " + config.SkillName + "：未放入当前模式支持的栏位"); return null; }
         return new(bound.SkillId, bound.Name, bound.Name, "主动技能", null, bound.Key);
     }
 

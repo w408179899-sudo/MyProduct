@@ -16,8 +16,9 @@ internal sealed class SkillOpportunityDecoder(
 {
     private sealed class OpportunityScopeChangedException(string message) : IOException(message);
 
-    public SkillOpportunityRead Read(ulong module, ulong actor, bool includeCombatState = false)
+    public SkillOpportunityRead Read(ulong module, ulong actor, bool includeCombatState = false, bool includeThirdBar = false)
     {
+        var rowCount = includeThirdBar ? 3 : 2;
         try
         {
             var guards = new List<(ulong Address, byte[] Bytes, int ScopeBytes)>();
@@ -59,7 +60,7 @@ internal sealed class SkillOpportunityDecoder(
                 return pointer;
             }
 
-            var anchors = new List<(ulong Address, int Size)> { (actor + 0x2C, 4), (module + 0xD4AE0C, 4), (module + 0x6E2180, 8) };
+            var anchors = new List<(ulong Address, int Size)> { (actor + 0x2C, 4), (module + 0xD4AE0C, 4), (module + 0x6E2180, rowCount * 4) };
             if (includeCombatState) anchors.AddRange(new (ulong Address, int Size)[]
                 { (module + 0xD6CB08, 4), (module + 0xD71BB4, 20), (actor + 0x358, 4) });
             Prefetch(anchors);
@@ -67,25 +68,25 @@ internal sealed class SkillOpportunityDecoder(
             if (serverId == 0) throw new InvalidDataException("Opportunity actor has no stable identity.");
             var page = BitConverter.ToInt32(Guard(module + 0xD4AE0C, 4, 4));
             if (page is < 0 or >= 10) throw new InvalidDataException("Invalid opportunity page.");
-            var dialogIds = Guard(module + 0x6E2180, 8, 8);
-            var layoutRequests = new List<(ulong Address, int Size)> { (module + 0xD61260 + (ulong)page * 768, 384) };
-            for (var bar = 0; bar < 2; bar++)
+            var dialogIds = Guard(module + 0x6E2180, rowCount * 4, rowCount * 4);
+            var layoutRequests = new List<(ulong Address, int Size)> { (module + 0xD61260 + (ulong)page * 768, rowCount * 192) };
+            for (var bar = 0; bar < rowCount; bar++)
             {
                 var dialogId = BitConverter.ToUInt32(dialogIds, bar * 4);
                 if (dialogId > 0x19D) throw new InvalidDataException("Invalid opportunity dialog.");
                 layoutRequests.Add((module + 0xD63990 + dialogId * 8, 8));
             }
             Prefetch(layoutRequests);
-            var table = Guard(module + 0xD61260 + (ulong)page * 768, 384);
+            var table = Guard(module + 0xD61260 + (ulong)page * 768, rowCount * 192);
             var panelRequests = new List<(ulong Address, int Size)>();
-            for (var bar = 0; bar < 2; bar++)
+            for (var bar = 0; bar < rowCount; bar++)
             {
                 var panel = Pointer(layoutRequests[bar + 1].Address);
                 panelRequests.AddRange(new (ulong Address, int Size)[] { (panel + 1344, 4), (panel + 0x28, 4), (panel + 1240, 96) });
             }
             Prefetch(panelRequests);
-            var bindingRequests = new List<(ulong Address, int Size)>(24);
-            for (var bar = 0; bar < 2; bar++)
+            var bindingRequests = new List<(ulong Address, int Size)>(rowCount * 12);
+            for (var bar = 0; bar < rowCount; bar++)
             {
                 var pointers = Bytes(panelRequests[bar * 3 + 2].Address, 96);
                 for (var slot = 0; slot < 12; slot++)
@@ -105,11 +106,11 @@ internal sealed class SkillOpportunityDecoder(
                 stateRequests.AddRange(new (ulong Address, int Size)[] { (control + 0x28, 4), (control + 984, 4) });
             }
             Prefetch(stateRequests);
-            var slots = new List<SkillOpportunitySlotObservation>(24);
+            var slots = new List<SkillOpportunitySlotObservation>(rowCount * 12);
             var issues = new List<string>();
             var presentationInactive = false;
-            var bindingParts = new List<string>(25) { page.ToString(CultureInfo.InvariantCulture) };
-            var layoutParts = new List<string>(26);
+            var bindingParts = new List<string>(rowCount * 12 + 1) { page.ToString(CultureInfo.InvariantCulture) };
+            var layoutParts = new List<string>(rowCount * 13);
             ushort playerEntityId = 0;
             ushort? targetEntityId = null;
             uint? targetServerId = null, currentHp = null, maxHp = null, currentMp = null, maxMp = null;
@@ -146,7 +147,7 @@ internal sealed class SkillOpportunityDecoder(
                 }
                 catch (Exception ex) when (ex is IOException or InvalidDataException) { issues.Add(ex.Message); }
             }
-            for (var bar = 0; bar < 2; bar++)
+            for (var bar = 0; bar < rowCount; bar++)
             {
                 var dialogId = BitConverter.ToUInt32(dialogIds, bar * 4);
                 if (dialogId > 0x19D) throw new InvalidDataException("Invalid opportunity dialog.");

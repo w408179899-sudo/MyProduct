@@ -345,7 +345,7 @@ internal static class SkillTreeReleaseModeTests
                     rankCandidates.Single(node => node.SkillId == 1227).Name != rankCandidates.Single(node => node.SkillId == 1271).Name,
                     "actual I rank and highest III rank remain separate selectable identities");
                 Check(((string)Call("AutomaticKeyText", 1227u, "裂破击 I")!).Contains("6") &&
-                    (string)Call("AutomaticKeyText", 1271u, "裂破击 III")! == "未放入两栏",
+                    (string)Call("AutomaticKeyText", 1271u, "裂破击 III")! == "未放入支持的栏位",
                     "slot 6 binds actual rank I and never substitutes rank III");
                 Check(JsonSerializer.Serialize(((ScriptSettings)Call("CaptureScriptSettings")!).Skills.ExecutionTree) == oldBeforeRefresh &&
                     JsonSerializer.Serialize(Call("CaptureSkillTree", newSelected.Nodes)) == newBeforeRefresh, "new refresh neither deletes nor rewrites either configured tree");

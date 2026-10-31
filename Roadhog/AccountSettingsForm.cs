@@ -469,6 +469,7 @@ namespace Roadhog
         {
             LoadEquipmentUpgradeSettings(settings.EquipmentUpgrade ?? new());
             settings = settings.Clone();
+            LoadQuickbarKeyMode(settings.QuickbarKeyMode);
             SetChecked(generateLogFilesCheckBox, settings.GenerateLogFiles);
             SetText(profileNameTextBox, settings.ProfileName);
             UpdateCurrentProfileDisplay(settings.ProfileName);
@@ -905,6 +906,7 @@ namespace Roadhog
 
             var settings = new ScriptSettings
             {
+                QuickbarKeyMode = SelectedQuickbarKeyMode,
                 ProfileName = GetText(profileNameTextBox, "default_profile"),
                 GenerateLogFiles = generateLogFilesCheckBox?.Checked ?? true,
                 MainMode = ParseMainMode(mainModeCombo?.Text),
@@ -5899,7 +5901,8 @@ namespace Roadhog
             };
             page.Controls.Add(optionsPanel);
             AddLabel(optionsPanel, "技能配置", 12, 4, 90, 24, _textGreen, FontStyle.Bold);
-            AddLabel(optionsPanel, "按键自动匹配主栏 / Alt栏；移动技能后重启脚本", 168, 4, 630, 24);
+            quickbarKeyHintLabel = AddLabel(optionsPanel, "", 168, 4, 630, 24);
+            CreateQuickbarKeyModeEditor(optionsPanel);
             openingAttackKeyCheckBox = AddCheckBox(optionsPanel, "开怪按C", 168, 32, 120, true);
             spiritmasterAutoSkillCheckBox = AddCheckBox(optionsPanel, "精灵专用", 324, 32, 120, false);
             spiritmasterAutoSkillCheckBox.Click += (_, _) => RefreshSpiritmasterAutoSkillCheckBoxState();
@@ -9316,6 +9319,11 @@ namespace Roadhog
 
         private static string FormatSkillKey(string? key)
         {
+            if (key is not null && (key.StartsWith("Alt+", StringComparison.Ordinal) || key.StartsWith("Ctrl+", StringComparison.Ordinal)))
+            {
+                var separator = key.IndexOf('+');
+                return key[..(separator + 1)] + FormatSkillKey(key[(separator + 1)..]);
+            }
             return key switch
             {
                 "D1" => "1",

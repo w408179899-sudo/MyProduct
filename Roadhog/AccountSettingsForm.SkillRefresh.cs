@@ -12,14 +12,16 @@ public sealed partial class AccountSettingsForm
     {
         IReadOnlyList<SkillSnapshot> skills;
         QuickbarSnapshot quickbar;
+        var mode = SelectedQuickbarKeyMode;
+        var revision = quickbarKeyModeRevision;
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
         try
         {
             skills = await _runtime.RefreshSkillsAsync(_account, timeout.Token).ConfigureAwait(true);
-            quickbar = await _runtime.ReadQuickbarAsync(_account, timeout.Token).ConfigureAwait(true);
+            quickbar = await _runtime.ReadQuickbarForKeyModeAsync(mode, _account, timeout.Token).ConfigureAwait(true);
             var barIds = quickbar.Slots
                 .Where(slot => slot.ContentType == 21 && slot.SkillId != 0 && slot.Slot is >= 0 and < 12 &&
-                    slot.Bar is SkillQuickbar.Main or SkillQuickbar.Alt)
+                    SkillKeyBindings.GetSlotKey(slot.Bar, slot.Slot, mode) is not null)
                 .Select(slot => slot.SkillId).Distinct().ToArray();
             // The learned list may contain only IV while the bar deliberately holds III.
             // Obtain III's real identity and metadata before replacing any configured reference.
@@ -38,8 +40,10 @@ public sealed partial class AccountSettingsForm
         }
 
         // Commit the candidate set only after every supported bar skill can be resolved.
+        if (IsDisposed || revision != quickbarKeyModeRevision)
+            return (0, 0, false, "按键模式已变化，请重新刷新；配置未修改。");
         currentManualSkills = skills;
-        previewSkillBindings = new SkillKeyBindings(quickbar, skills);
+        previewSkillBindings = new SkillKeyBindings(quickbar, skills, mode);
         if (quickbarAvailableSkillTree is not null)
             PopulateAvailableSkillTreeFromSkills(quickbarAvailableSkillTree, skills);
         return RefreshAndSaveConfiguredSkills();

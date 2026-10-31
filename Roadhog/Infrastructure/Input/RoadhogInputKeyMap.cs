@@ -95,4 +95,14 @@ public static class RoadhogInputKeyMap
     {
         return string.Join(", ", SupportedKeys);
     }
+
+    internal static bool TryResolveQuickbarChord(string key, out int modifier, out int primary)
+    {
+        modifier = primary = 0;
+        var parts = key?.Trim().Split('+');
+        if (parts is not { Length: 2 }) return false;
+        modifier = parts[0] switch { "Alt" => 0xE2, "Ctrl" => 0xE0, _ => 0 };
+        return modifier != 0 && TryResolveHidCode(parts[1], out primary) &&
+            (primary is >= 0x1E and <= 0x27 or 0x2D or 0x2E);
+    }
 }

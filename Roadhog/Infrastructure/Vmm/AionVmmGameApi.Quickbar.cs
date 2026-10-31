@@ -7,7 +7,9 @@ namespace Roadhog.Infrastructure.Vmm;
 internal sealed partial class AionVmmGameApi : IQuickbarGameApi
 {
     public Task<OperationResult<QuickbarSnapshot>> ReadQuickbarAsync(GameApiReadContext context, CancellationToken cancellationToken = default) =>
-        Task.Run(() => ReadStable(context, AionVmmSnapshotChannels.Quickbar, () => ReadQuickbarCore(context)), cancellationToken);
+        Task.Run(() => ReadStable(context, context.IncludeThirdQuickbar
+            ? AionVmmSnapshotChannels.QuickbarThreeRows : AionVmmSnapshotChannels.Quickbar,
+            () => ReadQuickbarCore(context)), cancellationToken);
 
     private OperationResult<QuickbarSnapshot> ReadQuickbarCore(GameApiReadContext context)
     {
@@ -26,7 +28,7 @@ internal sealed partial class AionVmmGameApi : IQuickbarGameApi
                         throw new InvalidDataException("Incomplete quickbar memory read.");
                     return bytes;
                 });
-                return OperationResult<QuickbarSnapshot>.Ok(decoder.Read(module));
+                return OperationResult<QuickbarSnapshot>.Ok(decoder.Read(module, context.IncludeThirdQuickbar));
             }
         }
         catch (Exception ex) { return OperationResult<QuickbarSnapshot>.Fail(ex.Message); }

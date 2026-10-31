@@ -48,6 +48,33 @@ internal static class SkillOpportunityTests
         return Task.CompletedTask;
     }
 
+    public static Task ThirdRowAsync()
+    {
+        var memory = new Memory(3);
+        memory.SetBarSkill(2, 11, 1227, 1227);
+        var old = memory.CaptureBatched(true);
+        var all = memory.CaptureBatched(true, true);
+        Check(old.Slots.Count == 24 && all.Slots.Count == 36 && all.Completeness == SkillOpportunityReadCompleteness.Complete,
+            "availability reads exactly the enabled rows");
+        var snapshot = SkillAvailabilityPublication.Merge(all, null)!.ToSnapshot();
+        Check(snapshot.BindingSlots!.Single(s => s.Bar == SkillQuickbar.Ctrl && s.Slot == 11).BaseSkillId == 1227 &&
+            snapshot.Slots.Any(s => s.Bar == SkillQuickbar.Ctrl && s.Slot == 11), "third row survives publication with native position");
+        foreach (var fault in new[] { "third-short", "third-changed" })
+        {
+            memory = new(3) { Fault = fault };
+            Check(memory.CaptureBatched().Completeness == SkillOpportunityReadCompleteness.Complete, "default ignores invalid third row");
+            Check(memory.CaptureBatched(true, true).Completeness == SkillOpportunityReadCompleteness.Failed, "reject torn third row " + fault);
+        }
+        var store = new DmaStableSnapshotStore(AionVmmSnapshotChannels.Registry);
+        var context = new GameApiReadContext("a", 1, "Aion.bin", "device");
+        var now = DateTimeOffset.UtcNow;
+        store.Resolve("a", AionVmmSnapshotChannels.SkillAvailability, context,
+            OperationResult<SkillAvailabilityPublication>.Ok(SkillAvailabilityPublication.Merge(old, null)!), now);
+        Check(!store.Resolve("a", AionVmmSnapshotChannels.SkillAvailabilityThreeRows, context,
+            OperationResult<SkillAvailabilityPublication>.Fail("partial"), now).Result.Success, "old availability never warms three-row channel");
+        return Task.CompletedTask;
+    }
+
     public static Task XmlSpecialClassificationAsync()
     {
         // Relevant fields copied from the supplied client_skills.xml. Exercise
@@ -332,17 +359,17 @@ internal static class SkillOpportunityTests
         public string? Fault { get; init; }
         private static ulong Control(int slot) => 0x11000000UL + (ulong)slot * 0x1000;
 
-        public Memory()
+        public Memory(int rows = 2)
         {
             _memory[Module + 0xD4AE0C] = BitConverter.GetBytes(0);
-            _memory[Module + 0xD61260] = new byte[384];
-            _memory[Module + 0x6E2180] = BitConverter.GetBytes(10U).Concat(BitConverter.GetBytes(11U)).ToArray();
+            _memory[Module + 0xD61260] = new byte[rows * 192];
+            _memory[Module + 0x6E2180] = Enumerable.Range(0, rows).SelectMany(row => BitConverter.GetBytes((uint)(10 + row))).ToArray();
             _memory[Actor + 0x2C] = BitConverter.GetBytes(77U);
             _memory[Module + 0xD6CB08] = BitConverter.GetBytes((uint)(7 | (22 << 16)));
             _memory[Actor + 0x358] = BitConverter.GetBytes(100U);
             SetResources(80, 100, 30, 60, 200);
             SetRelease(1227, 900);
-            for (int bar = 0; bar < 2; bar++)
+            for (int bar = 0; bar < rows; bar++)
             {
                 var panel = 0x10000000UL + (ulong)bar * 0x10000000;
                 _memory[Module + 0xD63990 + (ulong)(10 + bar) * 8] = BitConverter.GetBytes(panel);
@@ -386,8 +413,8 @@ internal static class SkillOpportunityTests
             _memory[Module + 0xD71BB4] = bytes;
         }
         public void ResetCounters() { BatchCalls = 0; SingleCalls = 0; _reads.Clear(); }
-        public SkillOpportunityRead CaptureBatched(bool includeCombatState = false) => new SkillOpportunityDecoder(Read,
-            id => id is 1227 or 1211 or 1268, Batch).Read(Module, Actor, includeCombatState);
+        public SkillOpportunityRead CaptureBatched(bool includeCombatState = false, bool includeThirdBar = false) => new SkillOpportunityDecoder(Read,
+            id => id is 1227 or 1211 or 1268, Batch).Read(Module, Actor, includeCombatState, includeThirdBar);
         private IReadOnlyList<byte[]> Batch(IReadOnlyList<(ulong Address, int Size)> requests)
         {
             BatchCalls++; _insideBatch = true;
@@ -406,8 +433,10 @@ internal static class SkillOpportunityTests
             var key = (address, size);
             _reads.TryGetValue(key, out var count);
             _reads[key] = ++count;
-            if (!_memory.TryGetValue(address, out var stored) || stored.Length != size) throw new IOException("missing test memory");
-            var bytes = stored.ToArray();
+            if (!_memory.TryGetValue(address, out var stored) || stored.Length < size) throw new IOException("missing test memory");
+            var bytes = stored.Take(size).ToArray();
+            if (Fault == "third-short" && address == 0x30000000 + 1240) return bytes[..^1];
+            if (Fault == "third-changed" && address == 0x30000000 + 1240 && count > 1) bytes[0]++;
             if (Fault == "short-resources" && address == Module + 0xD71BB4) return bytes[..8];
             if (Fault == "target-change" && address == Actor + 0x358 && count > 1) return BitConverter.GetBytes(101U);
             if (Fault == "page-change" && address == Module + 0xD4AE0C && count > 1) return BitConverter.GetBytes(1);
@@ -427,7 +456,7 @@ internal static class SkillOpportunityTests
                 if (Fault == "nan-timer") return BitConverter.GetBytes(float.NaN);
                 if (Fault == "negative-timer") return BitConverter.GetBytes(-1f);
             }
-            if (size == 4 && _memory.ContainsKey(address - 32) && address >= 0x11000000 && address < 0x31000000)
+            if (size == 4 && _memory.ContainsKey(address - 32) && address >= 0x11000000 && address < 0x41000000)
             {
                 var value = BitConverter.ToSingle(bytes);
                 if (value > 0 && count > 1 && !(Fault == "frozen-render" && address == Control(1) + 984))

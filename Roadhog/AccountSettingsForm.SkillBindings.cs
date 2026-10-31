@@ -13,7 +13,7 @@ public sealed partial class AccountSettingsForm
     {
         if (previewSkillBindings is null) return "启动时识别";
         var binding = previewSkillBindings.Resolve(id, name);
-        return binding is null ? "未放入两栏" : "自动: " + FormatSkillKey(binding.Key);
+        return binding is null ? "未放入支持的栏位" : "自动: " + FormatSkillKey(binding.Key);
     }
 
     private void BindAutomaticSkillButton(Button button, RoundedComboBox combo, Func<bool>? manualAction = null)
@@ -68,9 +68,16 @@ public sealed partial class AccountSettingsForm
     private async Task RefreshSkillBindingsPreviewAsync()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        var mode = SelectedQuickbarKeyMode;
+        var revision = quickbarKeyModeRevision;
         // Preview is optional; worker startup always captures its own official snapshot.
-        try { previewSkillBindings = new(await _runtime.ReadQuickbarAsync(_account, timeout.Token).ConfigureAwait(true), currentManualSkills); }
-        catch (OperationCanceledException) { previewSkillBindings = null; }
+        try
+        {
+            var quickbar = await _runtime.ReadQuickbarForKeyModeAsync(mode, _account, timeout.Token).ConfigureAwait(true);
+            if (IsDisposed || revision != quickbarKeyModeRevision) return;
+            previewSkillBindings = new(quickbar, currentManualSkills, mode);
+        }
+        catch (OperationCanceledException) { if (revision == quickbarKeyModeRevision) previewSkillBindings = null; }
         RefreshAutomaticSkillDisplays();
     }
 
@@ -82,7 +89,7 @@ public sealed partial class AccountSettingsForm
         {
             if (e.Node?.Tag is not SkillTreeNodeData data) { e.DrawDefault = true; return; }
             var binding = ResolveTreeBinding(e.Node);
-            var keyText = previewSkillBindings is null ? "启动时识别" : binding is null ? "未放入两栏" : "自动: " + FormatSkillKey(binding.Key);
+            var keyText = previewSkillBindings is null ? "启动时识别" : binding is null ? "未放入支持的栏位" : "自动: " + FormatSkillKey(binding.Key);
             var text = e.Node.Text + "  [" + keyText + "]";
             var selected = (e.State & TreeNodeStates.Selected) != 0;
             var bounds = new Rectangle(e.Bounds.X, e.Bounds.Y, Math.Max(0, tree.ClientSize.Width - e.Bounds.X), e.Bounds.Height);

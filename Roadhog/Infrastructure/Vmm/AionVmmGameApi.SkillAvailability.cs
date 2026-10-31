@@ -15,14 +15,14 @@ internal sealed partial class AionVmmGameApi : ISkillAvailabilityGameApi
     public Task<OperationResult<SkillAvailabilitySnapshot>> ReadSkillAvailabilityAsync(
         GameApiReadContext context, CancellationToken cancellationToken = default) =>
         Task.Run(() => _stableSnapshotReads.Execute(
-            BuildStableSnapshotReadScopeKey(context), AionVmmSnapshotChannels.SkillAvailability,
+            BuildStableSnapshotReadScopeKey(context), SkillAvailabilityChannel(context),
             () => ReadAndPublishSkillOpportunity(context, cancellationToken)), cancellationToken);
 
     private OperationResult<SkillAvailabilitySnapshot> ReadAndPublishSkillOpportunity(
         GameApiReadContext context, CancellationToken cancellationToken)
     {
-        var scope = BuildStableSnapshotReadScopeKey(context);
-        var channel = AionVmmSnapshotChannels.SkillAvailability;
+        var scope = BuildStableSnapshotReadScopeKey(context) + (context.IncludeThirdQuickbar ? "\u001ethree-rows" : "");
+        var channel = SkillAvailabilityChannel(context);
         OpportunitySession? session = null;
         lock (_opportunitySessionSync) _opportunitySessions?.TryGetValue(scope, out session);
         SkillOpportunityRead captured;
@@ -79,7 +79,7 @@ internal sealed partial class AionVmmGameApi : ISkillAvailabilityGameApi
 
                 captured = new SkillOpportunityDecoder(Read, id =>
                     catalog.Details.TryGetValue(id, out var detail) && SupportsSpecialOpportunity(detail), Batch)
-                    .Read(module, actor.Actor, includeCombatState: true);
+                    .Read(module, actor.Actor, includeCombatState: true, includeThirdBar: context.IncludeThirdQuickbar);
                 if ((captured.PresentationInactive || captured.ScopeChanged) && session is not null)
                 {
                     InvalidateOpportunitySession(scope, session);
@@ -163,6 +163,9 @@ internal sealed partial class AionVmmGameApi : ISkillAvailabilityGameApi
                 : OperationResult<SkillAvailabilitySnapshot>.Fail(resolution.Result.Error ?? "Skill opportunity capture is incomplete.");
         }
     }
+
+    private static DmaSnapshotChannel<SkillAvailabilityPublication> SkillAvailabilityChannel(GameApiReadContext context) =>
+        context.IncludeThirdQuickbar ? AionVmmSnapshotChannels.SkillAvailabilityThreeRows : AionVmmSnapshotChannels.SkillAvailability;
 
     private static bool SupportsSpecialOpportunity(SkillXmlStaticDetail detail) =>
         HasUsefulSkillXmlValue(detail.CounterSkill) || HasUsefulSkillXmlValue(detail.PrechainCategoryName) ||

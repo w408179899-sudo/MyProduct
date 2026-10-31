@@ -6,8 +6,6 @@ namespace Roadhog.Application.SemiAuto;
 /// <summary>Immutable, explicitly configured skill tree and startup key bindings for the new release mode.</summary>
 public sealed class QuickbarSkillPlan
 {
-    private static readonly string[] MainKeys = { "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "D0", "OemMinus", "OemPlus" };
-    private static readonly string[] AltKeys = { "NumPad1", "NumPad2", "NumPad3", "NumPad4", "NumPad5", "NumPad6", "NumPad7", "NumPad8", "NumPad9", "NumPad0", "NumPadAdd", "NumPadSubtract" };
 
     private QuickbarSkillPlan(int page, IReadOnlyList<QuickbarSkillNode> roots, bool triggerConditionSkillsPreemptChain)
     {
@@ -31,9 +29,9 @@ public sealed class QuickbarSkillPlan
         QuickbarSkillNode? Build(SkillConfigNode config, QuickbarSkillNode? parent, SemiAutoSkillNode? bindingParent, string path)
         {
             var bound = bindings.ResolveChain(config.SkillId, config.Name, bindingParent);
-            if (bound is null || !TryLocateKey(bound.Key, out var bar, out var slot))
+            if (bound is null || !bindings.TryLocateKey(bound.Key, out var bar, out var slot))
             {
-                missing?.Invoke(config.Name + "：未放入主栏或 Alt 栏，也没有可确认的连续技栏位");
+                missing?.Invoke(config.Name + "：未放入当前模式支持的栏位，也没有可确认的连续技栏位");
                 return null;
             }
 
@@ -57,16 +55,6 @@ public sealed class QuickbarSkillPlan
             if (settings.ExecutionTree![index] is { } config && Build(config, null, null, index.ToString()) is { } node)
                 roots.Add(node);
         return new QuickbarSkillPlan(bindings.Page, roots.AsReadOnly(), settings.TriggerConditionSkillsPreemptChain);
-    }
-
-    internal static bool TryLocateKey(string key, out SkillQuickbar bar, out int slot)
-    {
-        slot = Array.IndexOf(MainKeys, key);
-        bar = SkillQuickbar.Main;
-        if (slot >= 0) return true;
-        slot = Array.IndexOf(AltKeys, key);
-        bar = SkillQuickbar.Alt;
-        return slot >= 0;
     }
 
     private static IEnumerable<QuickbarSkillNode> Flatten(IEnumerable<QuickbarSkillNode> nodes)

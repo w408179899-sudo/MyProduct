@@ -5,4 +5,5 @@ internal sealed record GameApiReadContext(
     int ProcessId,
     string TargetProcessName,
     string VmmDeviceName,
-    bool BypassMemoryCache = false);
+    bool BypassMemoryCache = false,
+    bool IncludeThirdQuickbar = false);

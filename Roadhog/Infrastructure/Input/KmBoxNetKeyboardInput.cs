@@ -8,15 +8,19 @@ namespace Roadhog.Infrastructure.Input;
 public sealed class KmBoxNetKeyboardInput : IKeyboardInput, IInputStateReset, IDisposable
 {
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
+    private readonly SemaphoreSlim _inputLock = new(1, 1);
     private readonly KmBoxNetKeyboardInputOptions _options;
-    private readonly KmBoxNetDevice _device;
+    private readonly IKmBoxDevice _device;
     private bool _connected;
     private bool _disposed;
 
     public KmBoxNetKeyboardInput(KmBoxNetKeyboardInputOptions options)
+        : this(options, new KmBoxNetDevice((options ?? throw new ArgumentNullException(nameof(options))).ToKmBoxOptions())) { }
+
+    internal KmBoxNetKeyboardInput(KmBoxNetKeyboardInputOptions options, IKmBoxDevice device)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
-        _device = new KmBoxNetDevice(_options.ToKmBoxOptions());
+        _device = device ?? throw new ArgumentNullException(nameof(device));
     }
 
     internal Task<OperationResult> TypeLoginTextAsync(string text, CancellationToken token) =>
@@ -30,6 +34,25 @@ public sealed class KmBoxNetKeyboardInput : IKeyboardInput, IInputStateReset, ID
         TimeSpan holdDuration,
         CancellationToken cancellationToken = default)
     {
+        if (RoadhogInputKeyMap.TryResolveQuickbarChord(key, out var modifier, out var primary))
+        {
+            return await ExecuteAsync(async device =>
+            {
+                // Separate acknowledged reports are required by the game. Keep the entire chord atomic.
+                try
+                {
+                    await device.KeyDownAsync(modifier, cancellationToken).ConfigureAwait(false);
+                    await device.KeyDownAsync(primary, cancellationToken).ConfigureAwait(false);
+                    await Task.Delay(10, cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    try { await device.KeyUpAsync(primary, CancellationToken.None).ConfigureAwait(false); }
+                    finally { await device.KeyUpAsync(modifier, CancellationToken.None).ConfigureAwait(false); }
+                }
+            }, "KMBox Net quickbar chord failed.", cancellationToken).ConfigureAwait(false);
+        }
+
         if (!RoadhogInputKeyMap.TryResolveHidCode(key, out var hidCode))
         {
             return UnsupportedKey(key, "KMBox Net skill key");
@@ -129,33 +152,8 @@ public sealed class KmBoxNetKeyboardInput : IKeyboardInput, IInputStateReset, ID
             cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<OperationResult> ReleaseAllAsync(CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            ThrowIfDisposed();
-            // A previous worker may have died with input held; a fresh local connection is not proof of neutral device state.
-            var connect = await EnsureConnectedAsync(cancellationToken).ConfigureAwait(false);
-            if (!connect.Success)
-            {
-                return connect;
-            }
-
-            await _device.ReleaseAllAsync(cancellationToken).ConfigureAwait(false);
-            return OperationResult.Ok();
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _connected = false;
-            return OperationResult.Fail(
-                "KMBox Net release all failed. endpoint=" + _options.EndpointText() +
-                " error=" + ex.Message);
-        }
-    }
+    public Task<OperationResult> ReleaseAllAsync(CancellationToken cancellationToken = default) =>
+        ExecuteAsync(device => device.ReleaseAllAsync(cancellationToken), "KMBox Net release all failed.", cancellationToken);
 
     public void Dispose()
     {
@@ -165,8 +163,9 @@ public sealed class KmBoxNetKeyboardInput : IKeyboardInput, IInputStateReset, ID
         }
 
         _disposed = true;
-        _device.Dispose();
+        (_device as IDisposable)?.Dispose();
         _connectionLock.Dispose();
+        _inputLock.Dispose();
     }
 
     /// <summary>Connects and completes the device handshake without sending keyboard or mouse input.</summary>
@@ -174,13 +173,16 @@ public sealed class KmBoxNetKeyboardInput : IKeyboardInput, IInputStateReset, ID
         EnsureConnectedAsync(cancellationToken);
 
     private async Task<OperationResult> ExecuteAsync(
-        Func<KmBoxNetDevice, Task> action,
+        Func<IKmBoxDevice, Task> action,
         string errorPrefix,
         CancellationToken cancellationToken)
     {
+        var entered = false;
         try
         {
             ThrowIfDisposed();
+            await _inputLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            entered = true;
             var connect = await EnsureConnectedAsync(cancellationToken).ConfigureAwait(false);
             if (!connect.Success)
             {
@@ -202,6 +204,7 @@ public sealed class KmBoxNetKeyboardInput : IKeyboardInput, IInputStateReset, ID
                 " endpoint=" + _options.EndpointText() +
                 " error=" + ex.Message);
         }
+        finally { if (entered) _inputLock.Release(); }
     }
 
     private async Task<OperationResult> EnsureConnectedAsync(CancellationToken cancellationToken)

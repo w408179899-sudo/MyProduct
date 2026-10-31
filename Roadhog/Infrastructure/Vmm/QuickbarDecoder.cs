@@ -9,8 +9,9 @@ namespace Roadhog.Infrastructure.Vmm;
 /// </summary>
 internal sealed class QuickbarDecoder(Func<ulong, int, byte[]> read)
 {
-    public QuickbarSnapshot Read(ulong module)
+    public QuickbarSnapshot Read(ulong module, bool includeThirdBar = false)
     {
+        var rowCount = includeThirdBar ? 3 : 2;
         var guards = new List<(ulong Address, byte[] Bytes)>();
         byte[] Capture(ulong address, int length)
         {
@@ -27,10 +28,10 @@ internal sealed class QuickbarDecoder(Func<ulong, int, byte[]> read)
         }
         var page = BitConverter.ToInt32(Capture(module + 0xD4AE0C, 4));
         if (page is < 0 or >= 10) throw new InvalidDataException("Invalid quickbar page.");
-        var table = Capture(module + 0xD61260 + (ulong)page * 768, 384);
-        var dialogIds = Capture(module + 0x6E2180, 8);
-        var slots = new List<QuickbarSlotSnapshot>(24);
-        for (var bar = 0; bar < 2; bar++)
+        var table = Capture(module + 0xD61260 + (ulong)page * 768, rowCount * 192);
+        var dialogIds = Capture(module + 0x6E2180, rowCount * 4);
+        var slots = new List<QuickbarSlotSnapshot>(rowCount * 12);
+        for (var bar = 0; bar < rowCount; bar++)
         {
             var dialogId = BitConverter.ToUInt32(dialogIds, bar * 4);
             if (dialogId > 0x19D) throw new InvalidDataException("Invalid quickbar dialog.");

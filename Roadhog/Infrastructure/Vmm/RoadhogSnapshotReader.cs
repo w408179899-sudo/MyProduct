@@ -42,7 +42,8 @@ internal sealed partial class RoadhogSnapshotReader : IRoadhogSnapshotReader
             config.ProcessId,
             config.TargetProcessName,
             config.VmmDeviceName,
-            BypassMemoryCache: false);
+            BypassMemoryCache: false,
+            IncludeThirdQuickbar: config.ScriptSettings?.QuickbarKeyMode == QuickbarKeyMode.GameDefault);
     }
 
     public Task<PublishedGameSnapshot<PlayerSnapshot>> ReadPlayerAsync(long afterVersion = 0) =>

@@ -2,7 +2,17 @@
 
 The independent `ISkillAvailabilitySnapshotReader` contract is intended for the
 new skill-tree release mode. It must not change `QuickbarSnapshot`, the existing
-quickbar binding decoder, or legacy-mode startup reads.
+quickbar binding decoder's validation contract, or legacy-mode startup reads.
+
+## Optional third row (2026-10-31)
+
+`GameApiReadContext.IncludeThirdQuickbar` is set only for the account's
+`GameDefault` key mode. Both decoders then validate 36 slots instead of 24 using
+the existing row stride and guards. Native row 0/1/2 maps to main/Alt/Ctrl in the
+verified script 1 bindings; exported dialog class names alone do not establish
+the player's key binding. Default mode still reads only rows 0 and 1.
+The third row uses a separate sealed typed publication channel and availability
+session, so a two-row publication cannot satisfy a cold three-row request.
 
 ## Verified evidence (2026-10-03)
 

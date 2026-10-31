@@ -360,29 +360,29 @@ internal static class SkillBindingTests
         thread.SetApartmentState(ApartmentState.STA); thread.Start(); return completion.Task;
     }
 
-    sealed class Memory
+    internal sealed class Memory
     {
         public const ulong Module = 0x180000000;
         readonly Dictionary<ulong, byte[]> blocks = new();
         int pageReads;
         public string Fault { get; set; } = "";
-        public Memory()
+        public Memory(int rows = 2)
         {
             blocks[Module + 0xD4AE0C] = BitConverter.GetBytes(0);
-            var table = new byte[384];
+            var table = new byte[rows * 192];
             blocks[Module + 0xD61260] = table;
-            blocks[Module + 0x6E2180] = BitConverter.GetBytes(16u).Concat(BitConverter.GetBytes(18u)).ToArray();
-            for (var bar = 0; bar < 2; bar++)
+            blocks[Module + 0x6E2180] = Enumerable.Range(0, rows).SelectMany(row => BitConverter.GetBytes((uint)(16 + row * 2))).ToArray();
+            for (var bar = 0; bar < rows; bar++)
             {
                 ulong panel = 0x200000u + (ulong)bar * 0x10000;
-                blocks[Module + 0xD63990 + (bar == 0 ? 16u : 18u) * 8] = BitConverter.GetBytes(panel);
+                blocks[Module + 0xD63990 + (ulong)(16 + bar * 2) * 8] = BitConverter.GetBytes(panel);
                 blocks[panel + 1344] = BitConverter.GetBytes(bar);
                 var pointers = new byte[96]; blocks[panel + 1240] = pointers;
                 for (var slot = 0; slot < 12; slot++)
                 {
                     ulong control = panel + 0x1000 + (ulong)slot * 0x600;
                     BitConverter.GetBytes(control).CopyTo(pointers, slot * 8);
-                    uint id = bar == 0 && slot == 3 ? 101u : bar == 1 && slot == 4 ? 102u : 0;
+                    uint id = bar == 0 && slot == 3 ? 101u : bar == 1 && slot == 4 ? 102u : bar == 2 && slot == 11 ? 103u : 0;
                     uint type = id == 0 ? 0u : 21u;
                     blocks[control + 952] = BitConverter.GetBytes(id).Concat(BitConverter.GetBytes(type)).ToArray();
                     BitConverter.GetBytes(type).CopyTo(table, (bar * 12 + slot) * 16);
@@ -401,7 +401,10 @@ internal static class SkillBindingTests
         }
         public byte[] Read(ulong address, int count)
         {
-            var value = blocks[address].ToArray();
+            var value = blocks[address].Take(count).ToArray();
+            if (Fault == "third-short" && address == 0x220000 + 1240) return new byte[1];
+            if (Fault == "third-mismatch" && address == 0x221000 + 11 * 0x600 + 952) BitConverter.GetBytes(999u).CopyTo(value, 0);
+            if (Fault == "third-kind" && address == 0x220000 + 1344) return BitConverter.GetBytes(1);
             if (address == 0x201000 + 960 && Fault == "item-short") return new byte[1];
             if (address == 0x201000 + 960 && Fault == "item-template") return BitConverter.GetBytes(123u);
             if (address == 0x201000 + 952 && Fault == "item-instance") BitConverter.GetBytes(123u).CopyTo(value, 0);

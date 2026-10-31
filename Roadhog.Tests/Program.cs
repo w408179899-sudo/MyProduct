@@ -536,6 +536,14 @@ var tests = new (string Name, Func<Task> Run)[]
     ("multi-account ui hardware verification cancellation closes pending worker", MultiAccountUiTests.HardwareVerificationCancellationAsync),
     ("multi-account ui stopped settings save without authorization", MultiAccountUiTests.SettingsSaveWithoutAuthorizationAsync),
     ("skill binding fixed bars order duplicate missing and chain rules", SkillBindingTests.MappingAsync),
+    ("quickbar key mode legacy configuration and three-row mapping", QuickbarKeyModeTests.MappingAsync),
+    ("quickbar key mode decoder faults and isolated publications", QuickbarKeyModeTests.DecoderAsync),
+    ("quickbar key mode availability third row and torn captures", SkillOpportunityTests.ThirdRowAsync),
+    ("quickbar key mode worker startup", QuickbarKeyModeTests.StartupAsync),
+    ("quickbar key mode radio selection persistence and layout", QuickbarKeyModeTests.UiAsync),
+    ("quickbar chord sequence and legacy input", QuickbarChordTests.SequenceAsync),
+    ("quickbar chord cancellation and failure release both keys", QuickbarChordTests.CleanupAsync),
+    ("quickbar chord serializes ordinary input and reset", QuickbarChordTests.SerializationAsync),
     ("skill binding maintenance spirit team and manual action isolation", SkillBindingTests.ConsumersAsync),
     ("skill binding decoder rejects partial and changed captures", SkillBindingTests.DecoderAsync),
     ("skill binding official snapshot hold cold retry and session isolation", SkillBindingTests.LifecycleAsync),
@@ -33952,8 +33960,10 @@ static Task TestDmaSnapshotCatalogRegistersEveryBusinessChannelAsync()
         "player",
         "player_abnormal_statuses",
         "quickbar",
+        "quickbar_three_rows",
         "revive_ui",
         "skill_availability",
+        "skill_availability_three_rows",
         "skills",
         "summoned_pet",
         "summoned_pet_roster",
@@ -35350,18 +35360,22 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IR
     public SkillAvailabilitySnapshot SkillAvailability { get; set; } = new(0, Array.Empty<SkillAvailabilitySlotSnapshot>());
     public Func<SkillAvailabilitySnapshot>? SkillAvailabilityRead { get; set; }
     public int SkillAvailabilityReadCount { get; private set; }
+    public GameApiReadContext? LastSkillAvailabilityReadContext { get; private set; }
     public Task<OperationResult<SkillAvailabilitySnapshot>> ReadSkillAvailabilityAsync(GameApiReadContext context, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         SkillAvailabilityReadCount++;
+        LastSkillAvailabilityReadContext = context;
         return Task.FromResult(OperationResult<SkillAvailabilitySnapshot>.Ok(SkillAvailabilityRead?.Invoke() ?? SkillAvailability));
     }
     public int QuickbarReadCount { get; private set; }
+    public GameApiReadContext? LastQuickbarReadContext { get; private set; }
     public Func<QuickbarSnapshot>? QuickbarRead { get; set; }
     public Task<OperationResult<QuickbarSnapshot>> ReadQuickbarAsync(GameApiReadContext context, CancellationToken token = default)
     {
         token.ThrowIfCancellationRequested();
         QuickbarReadCount++;
+        LastQuickbarReadContext = context;
         return Task.FromResult(OperationResult<QuickbarSnapshot>.Ok(QuickbarRead?.Invoke() ?? Quickbar));
     }
 

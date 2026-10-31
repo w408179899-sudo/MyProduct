@@ -13,22 +13,44 @@ public sealed class SkillKeyBindings
     private static readonly string[] AltKeys = { "NumPad1", "NumPad2", "NumPad3", "NumPad4", "NumPad5", "NumPad6", "NumPad7", "NumPad8", "NumPad9", "NumPad0", "NumPadAdd", "NumPadSubtract" };
     private readonly IReadOnlyList<SkillSnapshot> _skills;
     private readonly Dictionary<uint, string> _keys;
+    private readonly Dictionary<string, (SkillQuickbar Bar, int Slot)> _locations = new(StringComparer.Ordinal);
     public int Page { get; }
+    public QuickbarKeyMode KeyMode { get; }
     public IReadOnlyList<uint> SkillIds { get; }
 
-    public static string? GetSlotKey(SkillQuickbar bar, int slot) =>
-        slot is >= 0 and < 12 && bar is SkillQuickbar.Main or SkillQuickbar.Alt
-            ? (bar == SkillQuickbar.Main ? MainKeys : AltKeys)[slot] : null;
+    public static string? GetSlotKey(SkillQuickbar bar, int slot, QuickbarKeyMode mode = QuickbarKeyMode.Numpad)
+    {
+        if (slot is < 0 or >= 12) return null;
+        return bar switch
+        {
+            SkillQuickbar.Main => MainKeys[slot],
+            SkillQuickbar.Alt => mode == QuickbarKeyMode.GameDefault ? "Alt+" + MainKeys[slot] : AltKeys[slot],
+            SkillQuickbar.Ctrl when mode == QuickbarKeyMode.GameDefault => "Ctrl+" + MainKeys[slot],
+            _ => null
+        };
+    }
 
-    public SkillKeyBindings(QuickbarSnapshot quickbar, IReadOnlyList<SkillSnapshot> skills)
+    public bool TryLocateKey(string key, out SkillQuickbar bar, out int slot)
+    {
+        var found = _locations.TryGetValue(key, out var location);
+        bar = location.Bar; slot = found ? location.Slot : -1;
+        return found;
+    }
+
+    public SkillKeyBindings(QuickbarSnapshot quickbar, IReadOnlyList<SkillSnapshot> skills,
+        QuickbarKeyMode mode = QuickbarKeyMode.Numpad)
     {
         Page = quickbar.Page;
+        KeyMode = mode;
         _skills = skills.ToArray();
         _keys = new();
-        // Prefer main bar, then the leftmost occurrence. Never bind items or Ctrl/hidden pages.
+        // Prefer the main bar, then the earlier row and leftmost occurrence.
         foreach (var slot in quickbar.Slots.OrderBy(s => s.Bar).ThenBy(s => s.Slot))
-            if (slot.ContentType == 21 && slot.SkillId != 0 && slot.Slot is >= 0 and < 12 && slot.Bar is SkillQuickbar.Main or SkillQuickbar.Alt)
-                _keys.TryAdd(slot.SkillId, GetSlotKey(slot.Bar, slot.Slot)!);
+            if (slot.ContentType == 21 && slot.SkillId != 0 && GetSlotKey(slot.Bar, slot.Slot, mode) is { } key)
+            {
+                _keys.TryAdd(slot.SkillId, key);
+                _locations.TryAdd(key, (slot.Bar, slot.Slot));
+            }
         SkillIds = Array.AsReadOnly(_keys.Keys.ToArray());
     }
 
@@ -99,7 +121,7 @@ public sealed class SkillKeyBindings
                 return (id, name, "");
             }
             var binding = Resolve(id, name);
-            if (binding is null) missing?.Invoke((string.IsNullOrWhiteSpace(name) ? id.ToString() : name) + "：未放入主栏或 Alt 栏");
+            if (binding is null) missing?.Invoke((string.IsNullOrWhiteSpace(name) ? id.ToString() : name) + "：未放入当前模式支持的栏位");
             return binding is null ? (id, name, "") : (binding.SkillId, binding.Name, binding.Key);
         }
         var maintenance = settings.Maintenance;

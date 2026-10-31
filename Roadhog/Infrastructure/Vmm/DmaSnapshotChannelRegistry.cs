@@ -305,9 +305,17 @@ internal static class AionVmmSnapshotChannels
     public static readonly DmaSnapshotChannel<QuickbarSnapshot> Quickbar =
         ChannelRegistry.Register<QuickbarSnapshot>("quickbar");
 
+    // Separate publications prevent a two-row snapshot from satisfying a three-row read.
+    public static readonly DmaSnapshotChannel<QuickbarSnapshot> QuickbarThreeRows =
+        ChannelRegistry.Register<QuickbarSnapshot>("quickbar_three_rows");
+
     public static readonly DmaSnapshotChannel<SkillAvailabilityPublication> SkillAvailability =
         ChannelRegistry.Register<SkillAvailabilityPublication>(
             "skill_availability", mergePolicy: DmaSnapshotMergePolicy.FieldAware);
+
+    public static readonly DmaSnapshotChannel<SkillAvailabilityPublication> SkillAvailabilityThreeRows =
+        ChannelRegistry.Register<SkillAvailabilityPublication>(
+            "skill_availability_three_rows", mergePolicy: DmaSnapshotMergePolicy.FieldAware);
 
     public static readonly DmaSnapshotChannel<IReadOnlyList<InventoryItemSnapshot>> Inventory =
         ChannelRegistry.Register<IReadOnlyList<InventoryItemSnapshot>>(

@@ -228,6 +228,17 @@ public sealed partial class RoadhogRuntime : IRoadhogRuntime
     public async Task<QuickbarSnapshot> ReadQuickbarAsync(string? accountName = null, CancellationToken cancellationToken = default) =>
         (await CreateSnapshotReader(accountName, cancellationToken).ReadQuickbarAsync().ConfigureAwait(false)).Value;
 
+    public async Task<QuickbarSnapshot> ReadQuickbarForKeyModeAsync(QuickbarKeyMode keyMode,
+        string? accountName = null, CancellationToken cancellationToken = default)
+    {
+        // Preview the unsaved selection without changing the worker or persisted account configuration.
+        var config = ResolveSnapshotConfig(accountName).Clone();
+        config.ScriptSettings ??= new();
+        config.ScriptSettings.QuickbarKeyMode = keyMode;
+        return (await _snapshotReaders.Create(config, _logger, cancellationToken)
+            .ReadQuickbarAsync().ConfigureAwait(false)).Value;
+    }
+
     public async Task<IReadOnlyList<WorldObjectSnapshot>> RefreshWorldObjectsAsync(
         string? accountName = null,
         CancellationToken cancellationToken = default)

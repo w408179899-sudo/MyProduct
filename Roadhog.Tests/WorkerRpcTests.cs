@@ -160,6 +160,9 @@ internal static class WorkerRpcTests
         }
         await proxy.ReadPlayerAsync(null, fixture.Token);
         Require((string?)recorder.LastArguments![0] == "account1", "omitted account must resolve to worker binding");
+        await proxy.ReadQuickbarForKeyModeAsync(QuickbarKeyMode.GameDefault, cancellationToken: fixture.Token);
+        Require((QuickbarKeyMode)recorder.LastArguments![0]! == QuickbarKeyMode.GameDefault &&
+            (string?)recorder.LastArguments[1] == "account1", "unsaved quickbar mode and bound account survive RPC");
         await ExpectAsync<InvalidOperationException>(() => proxy.ReadPlayerAsync("account2", fixture.Token), "different account");
         await ExpectAsync<WorkerRpcException>(() => fixture.Client.CallAsync<object>("ReadPlayerAsync", new object?[] { "account2" }, fixture.Token), "another account");
         await ExpectAsync<WorkerRpcException>(() => fixture.Client.CallAsync<object>("ReadPlayerForVmmDeviceAsync", new object?[] { "account1", "fpga://devindex=8" }, fixture.Token), "another DMA");
