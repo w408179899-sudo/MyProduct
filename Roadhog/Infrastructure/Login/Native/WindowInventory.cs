@@ -7,7 +7,7 @@ internal static class WindowInventory
 {
     internal sealed record WindowThread(uint Id, ulong Teb);
 
-    public static object Run(VmmProcess p, VmmProcess? sessionProcess = null)
+    public static object Run(VmmProcess p, VmmProcess? sessionProcess = null, bool inspectDuiManager = true)
     {
         var targetInfo=p.GetInfo();
         var sharedOwner=p;
@@ -33,7 +33,7 @@ internal static class WindowInventory
             .Select(t=>new WindowThread(t.dwTID,t.vaTeb)).ToArray();
         var result=Capture((address,length)=>p.MemRead(address,(uint)length,1),
             sharedAddress,threads,
-            p.MapModule(false).Any(m=>m.sText.Equals("ui.dll",StringComparison.OrdinalIgnoreCase)),
+            inspectDuiManager && p.MapModule(false).Any(m=>m.sText.Equals("ui.dll",StringComparison.OrdinalIgnoreCase)),
             (address,length)=>sharedOwner.MemRead(address,(uint)length,1));
         if(ownerInfo is { } before)
         {

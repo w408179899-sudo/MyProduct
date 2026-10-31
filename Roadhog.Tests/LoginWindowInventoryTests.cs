@@ -54,6 +54,8 @@ internal static class LoginWindowInventoryTests
         Reject(()=>memory.Capture(),"A replaced window cannot be silently removed from the scene.");
         memory=new Memory();U64(memory.Data[0x401000],0xd8,0x500000);
         Reject(()=>WindowInventory.Capture(memory.Read,0x100000,memory.Threads,true),"A missing visible UU manager must not be published as a minimized window.");
+        Require(JsonSerializer.SerializeToElement(WindowInventory.Capture(memory.Read,0x100000,memory.Threads,false))
+            .GetProperty("Windows").GetArrayLength()==2,"Window-only fallback must not depend on the unreadable UU manager or control tree.");
         return Task.CompletedTask;
     }
     internal static Task ColdThreadsAndAmbiguityAsync()

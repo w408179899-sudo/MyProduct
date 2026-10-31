@@ -16,6 +16,7 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
 {
     private readonly LoginSnapshotPublisher _publication = new(new(account.AccountName,0,"",account.VmmDeviceName,true),logger);
     private readonly LoginInputRecovery _recovery = new(account.AccountName,logger);
+    private readonly UuLaunchFallback _uuFallback = new();
     private readonly LoginOperationExecutor _reads = new();
     private readonly LoginOperationExecutor _inputOperations = new();
     private OnnxCaptchaRecognizer? _recognizer;
@@ -44,8 +45,11 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
             {
                 var key=LoginNativeReader.SessionKey(vmm,account);
                 lifecycle(key);
-                var observed=LoginNativeReader.Capture(vmm,account,key);
-                var verify=LoginNativeReader.Capture(vmm,account,key);
+                LoginObservation Capture() => _uuFallback.Capture(key,
+                    () => LoginNativeReader.Capture(vmm,account,key),
+                    () => UuLaunchFallbackWindow.Capture(vmm,key),readToken);
+                var observed=Capture();
+                var verify=Capture();
                 if(observed.Snapshot!=verify.Snapshot||observed.Window!=verify.Window||observed.Bounds!=verify.Bounds||key!=LoginNativeReader.SessionKey(vmm,account))
                     throw new InvalidOperationException("Login scene changed during capture.");
                 if(observed.Snapshot.Action==LoginAction.SolveCaptcha)
@@ -163,6 +167,17 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
         bool finalClick=controlName is null&&(expected.Snapshot.Action is LoginAction.LaunchGame or LoginAction.StartLauncher or LoginAction.Reaccelerate
             or LoginAction.SelectServer or LoginAction.EnterCharacter or LoginAction.ConfirmEntryAgreement or LoginAction.ConfirmGameExit)
             ||controlName=="LoginBtn"&&expected.Snapshot.Action==LoginAction.SubmitCredentials;
+        if (UuLaunchFallback.IsFallback(expected.Snapshot))
+        {
+            if (!_uuFallback.TryReserveAttempt(token)) throw new InvalidOperationException("UU 固定位置启动已尝试，等待启动结果。");
+            // A lost acknowledgement must not cause another fixed click.
+            _awaitingClickOutcome=true;
+            logger?.Warn("login.uu_fallback.click_attempt",new Dictionary<string,object?>
+            { ["account"]=account.AccountName,["pid"]=expected.Pid,["window"]=expected.Window,
+                ["x"]=point.X,["y"]=point.Y,["readFailureSeconds"]=30 });
+        }
+        else if (expected.Snapshot.Action is LoginAction.LaunchGame or LoginAction.StartLauncher)
+            _uuFallback.SuppressAfterNormalLaunch();
         await ClickAsync(token,finalClick?()=>_awaitingClickOutcome=true:null).ConfigureAwait(false);
     }
     private async Task ClickAsync(CancellationToken token,Action? pressed=null)

@@ -4,6 +4,9 @@ using static Roadhog.Infrastructure.Login.Native.LoginNativeReader;
 
 namespace Roadhog.Infrastructure.Login.Native;
 
+internal sealed class UuWindowReadException(Exception cause)
+    : InvalidOperationException("等待可用的 UU 窗口读取完成：" + cause.Message, cause);
+
 // One capture only: a process is a candidate, not proof of a usable accelerator.
 // Keep each validated page bound to its own PID/window. No cross-process UI merge.
 internal sealed class UuLoginCandidates(IEnumerable<uint> pids, Func<uint, JsonElement[]> readWindows,
@@ -82,6 +85,5 @@ internal sealed class UuLoginCandidates(IEnumerable<uint> pids, Func<uint, JsonE
         // Stable ordering avoids changing the chosen process while focus cycles.
         .ThenBy(match => match.Pid).ThenBy(match => Address(match.Window)).FirstOrDefault();
 
-    private static InvalidOperationException Unreadable(Exception cause) =>
-        new("等待可用的 UU 窗口读取完成：" + cause.Message, cause);
+    private static UuWindowReadException Unreadable(Exception cause) => new(cause);
 }
