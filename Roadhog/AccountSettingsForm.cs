@@ -9123,7 +9123,14 @@ namespace Roadhog
 
         private string? ShowKeyboardPicker(string? currentKey, string titleText = "选择技能按键")
         {
-            using var dialog = new Form
+            string? selectedKey = null;
+            using var dialog = CreateKeyboardPickerDialog(currentKey, titleText, key => selectedKey = key);
+            return dialog.ShowDialog(this) == DialogResult.OK ? selectedKey : null;
+        }
+
+        private Form CreateKeyboardPickerDialog(string? currentKey, string titleText, Action<string> selectKey)
+        {
+            var dialog = new Form
             {
                 AutoScaleDimensions = new SizeF(7F, 17F),
                 AutoScaleMode = AutoScaleMode.Font,
@@ -9139,7 +9146,6 @@ namespace Roadhog
                 Text = titleText
             };
 
-            var selectedKey = currentKey;
             var title = new Label
             {
                 AutoSize = false,
@@ -9165,10 +9171,11 @@ namespace Roadhog
                 TextAlign = ContentAlignment.MiddleLeft
             };
             dialog.Controls.Add(current);
+            AddLabel(dialog, "A = Alt，C = Ctrl", 474, 12, 268, 24);
 
             AddKeyboardRows(dialog, key =>
             {
-                selectedKey = key;
+                selectKey(key);
                 dialog.DialogResult = DialogResult.OK;
                 dialog.Close();
             });
@@ -9187,9 +9194,11 @@ namespace Roadhog
                 UseVisualStyleBackColor = false
             };
             cancel.Click += (_, _) => dialog.Close();
+            cancel.DialogResult = DialogResult.Cancel;
             dialog.Controls.Add(cancel);
+            dialog.CancelButton = cancel;
 
-            return dialog.ShowDialog(this) == DialogResult.OK ? selectedKey : null;
+            return dialog;
         }
 
         private void AddKeyboardRows(Control parent, Action<string> selectKey)
@@ -9261,6 +9270,13 @@ namespace Roadhog
                 }
             };
 
+            // Display the game's short labels, but persist the canonical input values.
+            var numberKeys = rows[1];
+            var modifierRows = new[] { (Label: "A+", Value: "Alt+"), (Label: "C+", Value: "Ctrl+") }
+                .Select(modifier => numberKeys.Select(key =>
+                    (Text: modifier.Label + key.Text, Value: modifier.Value + key.Value)).ToArray());
+            rows = rows.Take(2).Concat(modifierRows).Concat(rows.Skip(2)).ToArray();
+
             var y = 48;
             for (var rowIndex = 0; rowIndex < rows.Length; rowIndex++)
             {
@@ -9270,6 +9286,7 @@ namespace Roadhog
                 {
                     var width = GetKeyboardKeyWidth(key.Text);
                     var button = CreateKeyboardKeyButton(key.Text, x, y, width);
+                    button.Tag = key.Value;
                     button.Click += (_, _) => selectKey(key.Value);
                     parent.Controls.Add(button);
                     x += width + 6;
@@ -9298,6 +9315,7 @@ namespace Roadhog
 
         private static int GetKeyboardKeyWidth(string key)
         {
+            if (key.StartsWith("A+", StringComparison.Ordinal) || key.StartsWith("C+", StringComparison.Ordinal)) return 54;
             return key switch
             {
                 "Backspace" => 78,
@@ -9322,7 +9340,7 @@ namespace Roadhog
             if (key is not null && (key.StartsWith("Alt+", StringComparison.Ordinal) || key.StartsWith("Ctrl+", StringComparison.Ordinal)))
             {
                 var separator = key.IndexOf('+');
-                return key[..(separator + 1)] + FormatSkillKey(key[(separator + 1)..]);
+                return (key.StartsWith("Alt+", StringComparison.Ordinal) ? "A+" : "C+") + FormatSkillKey(key[(separator + 1)..]);
             }
             return key switch
             {

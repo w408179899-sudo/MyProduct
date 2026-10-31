@@ -544,6 +544,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("quickbar chord sequence and legacy input", QuickbarChordTests.SequenceAsync),
     ("quickbar chord cancellation and failure release both keys", QuickbarChordTests.CleanupAsync),
     ("quickbar chord serializes ordinary input and reset", QuickbarChordTests.SerializationAsync),
+    ("keyboard picker chords select persist reload and execute with legacy mode", KeyboardPickerChordTests.SelectionPersistenceAndInputAsync),
     ("skill binding maintenance spirit team and manual action isolation", SkillBindingTests.ConsumersAsync),
     ("skill binding decoder rejects partial and changed captures", SkillBindingTests.DecoderAsync),
     ("skill binding official snapshot hold cold retry and session isolation", SkillBindingTests.LifecycleAsync),
