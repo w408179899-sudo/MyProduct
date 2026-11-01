@@ -32,7 +32,8 @@ internal static class UuLaunchFallbackTests
         LoginNativeReader.Json(new { Pid = 10u, Name = name, Tid = thread });
 
     private static LoginObservation Target(string session = "one") =>
-        UuLaunchFallbackWindow.Project(session, 1, ["uu.exe"], Foreground(), [Window()])!;
+        UuLaunchFallbackWindow.Project(session, 1, ["uu.exe"], Foreground(),
+            [Window(width: 360, height: 416, hwnd: "0x200"), Window()])!;
 
     private static LoginObservation Fault() => throw new UuWindowReadException(
         new InvalidOperationException("Incomplete UU UI field: address=0x143CFE4, expected=4, actual=0."));
@@ -73,10 +74,16 @@ internal static class UuLaunchFallbackTests
         LoginObservation? Project(params JsonElement[] windows) => UuLaunchFallbackWindow.Project("one", 1, ["uu.exe", "uu.exe"], Foreground(), windows);
         Require(Project(Window(200, 100))!.Point == new Point(295, 446), "A moved window uses client-relative coordinates, including with extra UU processes.");
         foreach (var window in new[] { Window(width: 1250, height: 860), Window(height: 650), Window(x: -1), Window(y: 1900),
-            Window(visible: false), Window(disabled: true), Window(style: "0xB4000000"), Window(style: "0x54000000"), Window(thread: 8), Window(hwnd: "0x0") })
-            Require(Project(window) is null, "Unsupported geometry, hidden/minimized/disabled/child windows and foreign threads cannot authorize a click.");
-        Require(Project(Window(), Window(width: 360, height: 416, hwnd: "0x200")) is null, "A popup on the same UI thread blocks fixed input.");
-        Require(Project(Window(), Window(hwnd: "0x200")) is null, "Ambiguous main windows block fixed input.");
+            Window(visible: false), Window(disabled: true), Window(style: "0xB4000000"), Window(style: "0x54000000"), Window(hwnd: "0x0") })
+            Require(Project(window) is null, "Unsupported geometry and hidden/minimized/disabled/child windows cannot locate the fixed point.");
+        Require(Project(Window(), Window(width: 360, height: 416, hwnd: "0x200"))!.Point == new Point(107, 366),
+            "The reported two-visible-window layout must allow the fixed launch point.");
+        Require(Project(Window(thread: 8), Window(width: 360, height: 416, hwnd: "0x200"))!.Window == "0x9033C",
+            "A helper on the foreground thread cannot exclude the main window on another UU thread.");
+        foreach (var windows in new[] { new[] { Window(), Window(hwnd: "0x200") }, new[] { Window(hwnd: "0x200"), Window() } })
+            Require(Project(windows)!.Window == "0x200", "Multiple matching windows select a stable handle regardless of enumeration order.");
+        Require(Project(Window(), Window(thread: 8, hwnd: "0x200"))!.Window == "0x9033C",
+            "Prefer the foreground thread when multiple main layouts exist.");
         Require(Project(Window(), Window(visible: false, hwnd: "0x200")) is not null, "Hidden helper windows are not a modal obstruction.");
         Require(UuLaunchFallbackWindow.Project("one", 1, ["uu.exe"], Foreground("explorer.exe"), [Window()]) is null, "A background UU cannot receive fixed input.");
         foreach (var name in new[] { "Aion.bin", "Launcher.dat", "sdologin.exe", "AION.BIN" })

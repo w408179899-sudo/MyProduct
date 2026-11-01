@@ -278,6 +278,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("auto-login UU desktop changed evidence rejects input", UuDesktopOpenTests.ChangedEvidenceRejectsInputAsync),
     ("auto-login UU desktop uncertain input cancellation and launch suppression", UuDesktopOpenTests.LostAcknowledgementAndCancellationAsync),
     ("auto-login UU desktop opens then judges archived acceleration pages", UuDesktopOpenTests.OpenThenJudgeAccelerationAsync),
+    ("auto-login UU desktop double-click then thirty-second multi-window fallback", UuDesktopOpenTests.DoubleClickThenMultipleWindowFallbackAsync),
     ("auto-login UU desktop persistent faults timeout and cancellation", UuDesktopOpenTests.PersistentFaultWaitsAndCancelsAsync),
     ("auto-login UU desktop precedes guarded fixed launch without replay", UuDesktopOpenTests.DesktopPrecedesFixedLaunchAsync),
     ("auto-login UU fixed launch reports rejected window conditions", UuDesktopOpenTests.FixedLaunchRejectionReasonsAsync),

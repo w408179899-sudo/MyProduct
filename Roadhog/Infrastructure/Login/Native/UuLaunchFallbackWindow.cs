@@ -39,15 +39,17 @@ internal static class UuLaunchFallbackWindow
         LoginObservation? Reject(string reason) { rejected?.Invoke(reason); return null; }
         if (HasStartedClient(processNames)) return Reject("client_process_present");
         if (!Text(foreground, "Name").Equals("uu.exe", StringComparison.OrdinalIgnoreCase)) return Reject("uu_not_foreground");
-        // Foreground is a verified process/thread. Require its sole visible top-level
-        // window, rejecting popups even when they share the main window's thread.
+        // The desktop shortcut opens UU. Extra visible helper/popup windows must
+        // not veto the requested fixed click. Use the known main layout to locate
+        // its client origin, with stable ordering when several windows match.
         var visible = windows.Where(w => Flag(w, "Visible") && (Address(Text(w, "Style")) & 0x60000000) == 0).ToArray();
-        if (visible.Length != 1) return Reject("visible_window_count:" + visible.Length);
-        var window = visible[0];
-        if (Flag(window, "Disabled")) return Reject("window_disabled");
-        if (window.GetProperty("OwnerThread").GetUInt64() != foreground.GetProperty("Tid").GetUInt32()) return Reject("foreground_thread_mismatch");
+        var candidates = visible.Where(w => !Flag(w, "Disabled") && Client(w).Size == ClientSize
+            && Address(Text(w, "Hwnd")) != 0)
+            .OrderByDescending(w => w.GetProperty("OwnerThread").GetUInt64() == foreground.GetProperty("Tid").GetUInt32())
+            .ThenBy(w => Address(Text(w, "Hwnd"))).ToArray();
+        if (candidates.Length == 0) return Reject("main_window_unavailable");
+        var window = candidates[0];
         var bounds = Client(window);
-        if (bounds.Size != ClientSize) return Reject($"client_size:{bounds.Width}x{bounds.Height}");
         if (bounds.Left < 0 || bounds.Top < 0 || bounds.Right > 4096 || bounds.Bottom > 2160) return Reject("window_outside_screen");
         var pid = foreground.GetProperty("Pid").GetUInt32();
         var hwnd = Text(window, "Hwnd");
