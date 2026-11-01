@@ -88,7 +88,6 @@ public sealed class AccountWorkerContext
         config.ScriptSettings ??= new();
         config.ScriptSettings.Maintenance = settings.Maintenance.Clone();
         config.ScriptSettings.Paths = settings.Paths.Clone();
-        config.ScriptSettings.Paths.BagCleanupReturnByReversePath = true;
         if (SkillBindings is not null) config.ScriptSettings = SkillBindings.ApplyTo(config.ScriptSettings, ReportMissingSkillBinding);
         return new(this, config);
     }

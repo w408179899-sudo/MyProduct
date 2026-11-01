@@ -1560,6 +1560,8 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("arrow restock repeated ALL registration and one verified purchase", ArrowRestockTests.PurchaseAsync)
     ,("arrow restock post-sale jump reopens merchant and preserves return", ArrowRestockTests.PostSaleJumpAsync)
     ,("arrow restock standalone nearby workflow without sale discard or restart", ArrowRestockTests.SupplyWorkflowAsync)
+    ,("arrow restock recall returns directly after confirmed purchase and landing", ArrowRestockTests.DirectReturnWorkflowAsync)
+    ,("arrow restock recall stop during loading never resumes combat travel", ArrowRestockTests.DirectReturnCancellationAsync)
     ,("arrow restock worker combat boundary and failed purchase resumes main loop", ArrowRestockTests.WorkerThresholdAndFailureAsync)
     ,("arrow restock grocery junk sale jump and three stack purchase", ArrowRestockTests.GrocerySaleThenSupplyAsync)
     ,("grocery continuation worker restarts after sale record and final cleanup failures", GroceryShopTests.NpcContinuationWorkerAsync)
