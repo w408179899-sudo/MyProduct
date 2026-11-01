@@ -417,7 +417,8 @@ internal static class WorldObjectPublicationTests
                 {
                     MainMode = AccountMainMode.CustomCombat, CombatMode = AccountCombatMode.Stationary,
                     Combat = new CombatScriptSettings { HasStationaryCombatPosition = true, StationaryCombatRadius = 60,
-                        ReturnHomeWhenNoTarget = true, EnableLoot = false }
+                        // Keep the 34-meter target outside acquisition range regardless of the default.
+                        TargetAcquireDistance = 30, ReturnHomeWhenNoTarget = true, EnableLoot = false }
                 };
                 var context = new AccountWorkerContext(config, new RoadhogSnapshotReaderFactory(api), logger,
                     new AccountRuntimeManager(logger), new AccountWorkerOptions(), stop.Token);
@@ -430,7 +431,9 @@ internal static class WorldObjectPublicationTests
                     await controller.TickAsync(context, plan, semiState, state).WaitAsync(stop.Token).ConfigureAwait(false);
                     Require(state.CandidateServerObjectId == target.ServerObjectId && state.IsMovingForward &&
                         state.IsRightMouseDown && state.PathFollowPoller is not null,
-                        "baseline must actually start path following toward the selected monster");
+                        $"baseline must actually start path following toward the selected monster: " +
+                        $"candidate={state.CandidateServerObjectId}, forward={state.IsMovingForward}, " +
+                        $"rightMouse={state.IsRightMouseDown}, poller={state.PathFollowPoller is not null}");
                     var forwardReleases = input.KeyUps.Count(key => key == "W");
                     var relativeMoves = input.MouseCommands.Count(command => command.StartsWith("move:", StringComparison.Ordinal));
                     var baselineReads = api.WorldReadCount;

@@ -29532,6 +29532,7 @@ static async Task TestSpiritmasterPetHpLocalCooldownYieldsToNormalSkillsAsync()
 static async Task TestSpiritmasterElementalReplenishmentEnforcesPlayerHpFloorAsync()
 {
     var settings = CreateElementalReplenishmentTestSettings();
+    settings.Skills.Spiritmaster.PetHpMaintenanceRules[0].Key = "D1";
     var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
     var keyboard = new RecordingKeyboardInput();
     var logger = new InMemoryRoadhogLogger();
@@ -29541,6 +29542,7 @@ static async Task TestSpiritmasterElementalReplenishmentEnforcesPlayerHpFloorAsy
         Player = CreateSpiritmasterPlayer(currentHp: 64, maxHp: 100),
         SummonedPet = initialPetRoster.LocalPlayerPet.Pet,
         SummonedPetRoster = initialPetRoster,
+        Quickbar = new(0, new[] { new QuickbarSlotSnapshot(SkillQuickbar.Main, 0, 21, 1678) }),
         Skills = CreateSpiritmasterSkillSnapshots(
             new SkillSnapshot(1678, "Elemental Replenishment", 1, 1, "Elemental Replenishment", 1, false, 10_300, 0))
     };
@@ -29549,7 +29551,7 @@ static async Task TestSpiritmasterElementalReplenishmentEnforcesPlayerHpFloorAsy
 
     await controller.TickAsync(context, plan, new SemiAutoCombatState()).ConfigureAwait(false);
 
-    AssertFalse(keyboard.Keys.Contains("NumPad3"), "64 percent player hp must block elemental replenishment");
+    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "64 percent player hp must not send any skill key");
     AssertFalse(
         !logger.Entries.Any(entry =>
             entry.EventName == "semi_auto.spiritmaster.elemental_replenishment.player_hp_blocked"),
@@ -29562,7 +29564,7 @@ static async Task TestSpiritmasterElementalReplenishmentEnforcesPlayerHpFloorAsy
     gameApi.SummonedPetRoster = thresholdPetRoster;
     await controller.TickAsync(context, plan, new SemiAutoCombatState()).ConfigureAwait(false);
 
-    AssertSequence(new[] { "NumPad3" }, keyboard.Keys.ToArray(), "exactly 65 percent player hp should allow elemental replenishment");
+    AssertSequence(new[] { "D1" }, keyboard.Keys.ToArray(), "exactly 65 percent player hp should cast elemental replenishment from its main quickbar slot");
     AssertFalse(
         gameApi.LastPlayerContext is null || gameApi.LastPlayerContext.BypassMemoryCache,
         "player safety should use the ordinary stable snapshot");
