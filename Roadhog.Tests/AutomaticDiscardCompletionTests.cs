@@ -10,7 +10,7 @@ using Roadhog.Core.Model;
 
 internal static partial class CleanupWorkflowTests
 {
-    public static async Task AutomaticWorkerDiscardAbandonsFailureAsync()
+    public static async Task AutomaticWorkerDiscardRetriesFailureAsync()
     {
         var game = new InventoryDiscardTests.Simulation(3);
         game.Api.TargetEntityId = 0; game.Api.InventoryCapacity = 3;
@@ -43,18 +43,25 @@ internal static partial class CleanupWorkflowTests
         }
         try
         {
-            await WaitFor("cleanup_workflow.discard_abandoned");
-            Require(context.CleanupRequests.Current == null && game.Removed.Count == 2 && game.Api.InventoryItems.Count == 1,
-                "automatic failure drops the request and preserves the unconfirmed remaining item");
+            await WaitFor("bag_cleanup.discard.failed");
+            var request = context.CleanupRequests.Current;
+            Require(request != null && game.Removed.Count == 2 && game.Api.InventoryItems.Count == 1,
+                "automatic failure retains the same request and unconfirmed remaining item");
             Require(!logger.Entries.Any(e => e.EventName == "cleanup_workflow.complete"), "partial discard is not completion");
             var reads = game.Api.PlayerReadCount;
             while (game.Api.PlayerReadCount < reads + 3)
             { if (work.IsCompleted) await work; await Task.Delay(5, stop.Token); }
-            Require(!work.IsCompleted && game.Removed.SequenceEqual(new ulong[] { 100, 101 }) && !game.Open,
-                "normal worker processing resumes even while the discard error remains present");
+            Require(!work.IsCompleted && ReferenceEquals(request, context.CleanupRequests.Current) && !game.Open,
+                "retry wait retains ownership, closes the bag and keeps checking life");
+            game.WrongHover = false;
+            await WaitFor("cleanup_workflow.complete");
+            Require(game.Removed.SequenceEqual(new ulong[] { 100, 101, 102 }) && !game.Open,
+                "same batch clears only remaining items even though free slots already exceed the trigger threshold");
+            Require(!logger.Entries.Any(e => e.EventName == "cleanup_workflow.discard_abandoned"),
+                "recoverable discard failure never abandons the request");
             Require(game.Input.Keys.FirstOrDefault() == "F1" && game.Input.Keys.Skip(1).All(k => k is "I" or "Escape")
                 && !game.Input.KeyDowns.Any(k => k is "W" or "A" or "S" or "D"),
-                "abandonment never repeats startup, recalls, moves or opens NPC dialogue: " + string.Join(",", game.Input.Keys));
+                "retry never repeats startup, recalls, moves or opens NPC dialogue: " + string.Join(",", game.Input.Keys));
         }
         finally
         {

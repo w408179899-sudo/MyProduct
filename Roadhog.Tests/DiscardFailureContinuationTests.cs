@@ -10,7 +10,7 @@ internal static partial class CleanupWorkflowTests
 {
     // Replay script 3: backpack-triggered grocery preparation, full inventory,
     // UI preparation/hover failure with successful cancellation and bag closure.
-    public static async Task BackpackDiscardFailureKeepsHostRunningAsync()
+    public static async Task BackpackDiscardFailureRetriesInSameHostAsync()
     {
         foreach (var failure in new[] { "bag_not_open", "hover_changed" })
         {
@@ -57,7 +57,7 @@ internal static partial class CleanupWorkflowTests
             try
             {
                 Require(host.Start(config).Success, "start real worker host");
-                await Until(() => logger.Entries.Any(e => e.EventName == "cleanup_workflow.discard_abandoned"));
+                await Until(() => logger.Entries.Any(e => e.EventName == "bag_cleanup.discard.failed"));
                 var reads = game.Api.PlayerReadCount;
                 var bagKeys = game.Input.Keys.Count(k => k == "I");
                 await Until(() => game.Api.PlayerReadCount >= reads + 3);
@@ -66,14 +66,21 @@ internal static partial class CleanupWorkflowTests
                     "local discard failure keeps the same host running, without failure or restart intent");
                 Require(game.Removed.Count == 0 && game.Api.InventoryItems.Count == 1 && !game.Open && !game.LeftHeld,
                     "failed item is retained and input/bag cleanup finishes");
-                var abandoned = logger.Entries.Single(e => e.EventName == "cleanup_workflow.discard_abandoned");
-                Require(Equals(abandoned.Fields["groceryTrigger"], "Backpack") && Equals(abandoned.Fields["automaticRetryAfterMs"], 30000),
-                    "backpack-triggered grocery failure gets a bounded retry interval instead of three fatal retries");
+                var failed = logger.Entries.Single(e => e.EventName == "bag_cleanup.discard.failed");
+                Require(Equals(failed.Fields["resumePolicy"], "retry_remaining_items"),
+                    "backpack-triggered grocery retains the unfinished batch");
                 Require(game.Input.Keys.Count(k => k == "I") == bagKeys && logger.Entries.Count(e => e.EventName == "worker.loop.enter") == 1,
-                    "a still-full bag cannot immediately reopen inventory or restart the worker");
+                    "retry backoff cannot immediately reopen inventory or restart the worker");
                 Require(!logger.Entries.Any(e => e.EventName is "account.failed" or "cleanup_workflow.terminated" or
                     "cleanup_workflow.preparation_pending" or "grocery_shop.failed" or "cleanup_workflow.complete"),
-                    "abandonment is neither a success nor an account failure/retry loop");
+                    "pending retry is neither completion nor account failure");
+                game.WrongHover = false;
+                if (failure == "bag_not_open")
+                    game.Input.AfterPress = key => { if (key == "I") game.Open = !game.Open; };
+                await Until(() => game.Removed.Count == 1 && !game.Open);
+                Require(logger.Entries.Any(e => e.EventName == "bag_cleanup.discard.retry") &&
+                    !logger.Entries.Any(e => e.EventName == "cleanup_workflow.discard_abandoned"),
+                    "recovery continues the existing batch without abandoning it");
             }
             finally { await host.StopAsync(); }
         }

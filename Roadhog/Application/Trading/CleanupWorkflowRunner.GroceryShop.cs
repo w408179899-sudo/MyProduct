@@ -171,7 +171,7 @@ public sealed partial class CleanupWorkflowRunner
         catch (SnapshotReadBudgetExceededException) { throw; }
         catch (CleanupExecutionFailedException) { throw; }
         catch (Exception ex) when (!token.IsCancellationRequested &&
-            ex is not (OperationCanceledException or CleanupCombatInterruptionException or CleanupDeathInterruptionException))
+            ex is not (OperationCanceledException or CleanupCombatInterruptionException or CleanupDeathInterruptionException or CleanupSessionInterruptionException))
         {
             // Abandon only the optional discard stage. Preserve the existing route
             // home and any already-verified sale instead of stranding the account.

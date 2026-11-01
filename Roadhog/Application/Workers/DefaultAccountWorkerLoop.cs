@@ -316,6 +316,7 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                                     }
                                     catch (SnapshotReadBudgetExceededException) { throw; }
                                     catch (CleanupExecutionFailedException) { throw; }
+                                    catch (CleanupSessionInterruptionException) { throw; }
                                     catch (Exception ex) when (!context.StopToken.IsCancellationRequested && cleanup.GroceryShop &&
                                         cleanup.Settings.Maintenance.CleanupWorkflow.GroceryPostSaleAction == GroceryPostSaleAction.NpcSell &&
                                         (cleanup.SoldOutConfirmed || cleanup.GroceryNpcStageStarted))
@@ -343,6 +344,16 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                                 else context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, "清包已排队，先处理当前战斗 / 复活");
                             }
                             catch (SnapshotReadBudgetExceededException) { throw; }
+                            catch (CleanupSessionInterruptionException) when (!context.StopToken.IsCancellationRequested)
+                            {
+                                cleanupOperationActive = false;
+                                context.CleanupRequests.Complete();
+                                context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, string.Empty);
+                                stationaryCombatState.PathCombat.Reset();
+                                await _stationaryCombat.SetChannelSwitchPendingAsync(context, stationaryCombatState, false);
+                                context.Logger.Info("cleanup_workflow.discard.session_interrupted", new Dictionary<string, object?>
+                                    { ["account"] = context.Config.AccountName, ["requestId"] = cleanup.RequestId });
+                            }
                             catch (Exception ex) when (!context.StopToken.IsCancellationRequested && cleanup.GroceryShop && !cleanup.GroceryNpcStageStarted &&
                                 ex is GroceryTripInterruptedException or GroceryTripDepartureFailedException or CleanupCombatInterruptionException or CleanupDeathInterruptionException)
                             {
@@ -364,10 +375,9 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                             catch (Exception ex) when (!context.StopToken.IsCancellationRequested && !cleanup.StandaloneShop &&
                                 cleanup.PreparationStage == CleanupPreparationStage.Discarding)
                             {
-                                // Discard failure is local to this attempt. The discard adapter
-                                // has already cancelled its input and attempted to close the bag.
-                                // Do not retain the request or escalate ordinary UI failure into
-                                // a stopped account, even when the bag still meets the threshold.
+                                // Ordinary action failures stay inside the discard state machine.
+                                // Keep this boundary for exceptions that cannot resume that state;
+                                // never replay the full workflow or stop the account.
                                 cleanupOperationActive = false;
                                 context.CleanupRequests.Complete();
                                 nextCleanupCheck = DateTimeOffset.UtcNow.AddSeconds(30);

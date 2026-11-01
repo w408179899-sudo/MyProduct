@@ -25,6 +25,9 @@ public sealed class BagCleanupState
 
     public int DiscardedItemCount { get; private set; }
 
+    // The workflow owns any subsequent sale/travel stages.
+    public bool DiscardOnly { get; set; }
+
     public int DiscardConfirmClickCount { get; private set; }
 
     public long DiscardInventoryVersion { get; private set; }
@@ -100,6 +103,7 @@ public sealed class BagCleanupState
 
     public void Start(int freeSlots, int threshold)
     {
+        DiscardOnly = false;
         ArrowRestockOnly = false;
         Step = BagCleanupStep.WaitSafeToReturn;
         StartedAt = DateTimeOffset.Now;
@@ -331,6 +335,7 @@ public sealed class BagCleanupState
 
     public void Reset()
     {
+        DiscardOnly = false;
         ArrowRestockOnly = false;
         Step = BagCleanupStep.Inactive;
         StartedAt = DateTimeOffset.MinValue;

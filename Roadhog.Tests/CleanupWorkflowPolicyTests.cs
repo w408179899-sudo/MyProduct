@@ -98,7 +98,12 @@ internal static partial class CleanupWorkflowTests
         }, new Journal());
         using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(8));
         var context = new AccountWorkerContext(config, game.Api, logger, new AccountRuntimeManager(logger), new(), stop.Token);
-        await runner.RunAsync(context, new(config.ScriptSettings, true));
+        try { await runner.RunAsync(context, new(config.ScriptSettings, true)); }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested)
+        {
+            throw new Exception("discard/auction workflow timed out; removed=" + game.Removed.Count + "; traveled=" + string.Join(",", traveled) +
+                "; events=" + string.Join(" | ", logger.Entries.TakeLast(10).Select(e => e.EventName + ":" + string.Join(",", e.Fields.Select(f => f.Key + "=" + f.Value)))));
+        }
         Require(traveled.SequenceEqual(new[] { "auction:0", "auction:20", "resume:1000" }), "manual cleanup continues auction without sale, then returns to grinding");
         Require(!auction.IsOpen && logger.Entries.Any(e => e.EventName == "cleanup_workflow.complete"), "later stage completes normally");
     }

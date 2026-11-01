@@ -49,9 +49,9 @@ internal static partial class GroceryShopTests
 
     public static async Task BackpackDiscardInterruptionAsync()
     {
-        foreach (var scenario in new[] { "failure", "attack", "death", "cancel" })
+        foreach (var scenario in new[] { "attack", "death", "cancel" })
         {
-            using var trip = new Trip { AllowPreDiscard = true, FailDiscard = scenario == "failure" };
+            using var trip = new Trip { AllowPreDiscard = true };
             trip.Config.ScriptSettings!.Maintenance.BagCleanupEnabled = true;
             trip.Api.InventoryCapacity = 3;
             trip.AddDiscardCandidates();
@@ -70,16 +70,9 @@ internal static partial class GroceryShopTests
             catch (CleanupCombatInterruptionException) when (scenario == "attack") { }
             catch (CleanupDeathInterruptionException) when (scenario == "death") { }
             catch (OperationCanceledException) when (scenario == "cancel") { }
-            catch (InvalidOperationException) when (scenario == "failure") { }
             Check(trip.ScrollClicks == 0 && trip.Follows == 0 && trip.ShopStarts == 0 && trip.Success.Saves == 0 && trip.Discards == 0,
                 "failed or interrupted discard is not exhaustion and cannot authorize travel: " + scenario);
             Check(trip.Api.InventoryItems.Any(i => i.Name == "junk0") && !context.CleanupRequests.Current!.RequestsRestart, "unconfirmed discard preserves item and blocks restart");
-            if (scenario == "failure")
-            {
-                trip.FailDiscard = false;
-                await trip.Runner().RunAsync(context, context.CleanupRequests.Current!);
-                Check(trip.Discards == 1 && trip.ScrollClicks == 1 && trip.Success.Saves == 1, "same request retries remaining discard before departing");
-            }
         }
     }
 
@@ -102,16 +95,21 @@ internal static partial class GroceryShopTests
         try
         {
             Check(host.Start(trip.Config).Success, "start backpack trigger worker");
-            await Until(() => trip.Logger.Entries.Any(e => e.EventName == "cleanup_workflow.discard_abandoned"));
+            await Until(() => trip.Logger.Entries.Any(e => e.EventName == "bag_cleanup.discard.failed"));
             var reads = trip.Api.PlayerReadCount;
             var bagKeys = trip.Input.Keys.Count(k => k == "I");
             await Until(() => trip.Api.PlayerReadCount >= reads + 3);
             Check(host.CleanupFailure == null && !trip.Logger.Entries.Any(e => e.EventName is "grocery_shop.failed" or "cleanup_workflow.preparation_pending"),
-                "discard failure cannot pause the account or keep a pending retry");
+                "discard retry keeps the host alive without reporting a failed trip");
             Check(trip.FailDiscard && trip.Discards == 0 && !trip.BagOpen && trip.Input.Keys.Count(k => k == "I") == bagKeys,
-                "ordinary processing resumes with the fault still present and no immediate discard retry");
+                "retry backoff avoids immediate input while life checks continue");
             Check(trip.ScrollClicks == 0 && trip.Success.Saves == 0 && host.StandaloneShopRestartRequestId == null,
-                "abandoned local discard cannot depart, record a sale or restart the account");
+                "unfinished local discard cannot depart, record a sale or restart the account");
+            trip.FailDiscard = false;
+            await Until(() => trip.Discards == 1 && !trip.BagOpen);
+            Check(trip.ScrollClicks == 0 && trip.Success.Saves == 0 && host.StandaloneShopRestartRequestId == null &&
+                !trip.Logger.Entries.Any(e => e.EventName == "cleanup_workflow.discard_abandoned"),
+                "same local batch recovers capacity without travelling or abandoning work");
             Check((await host.StopAsync()).Success, "resumed worker remains stoppable");
         }
         finally { await host.StopAsync(); }

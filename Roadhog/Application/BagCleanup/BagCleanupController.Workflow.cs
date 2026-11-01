@@ -13,6 +13,11 @@ public sealed class CleanupDeathInterruptionException : Exception
     public CleanupDeathInterruptionException() : base("清包期间角色死亡，先复活再继续。") { }
 }
 
+public sealed class CleanupSessionInterruptionException : Exception
+{
+    public CleanupSessionInterruptionException() : base("丢弃让出给退出 / 重登请求。") { }
+}
+
 public sealed partial class BagCleanupController
 {
     public static TimeSpan FullCleanupCooldown => ReadCleanupCooldown();
@@ -55,46 +60,40 @@ public sealed partial class BagCleanupController
         var settings = context.Config.ScriptSettings!.Maintenance;
         try
         {
-            while (true)
+            var bag = (await context.Snapshots.ReadInventoryAsync().WaitAsync(context.StopToken)).Value;
+            var discard = BagCleanupItemMatcher.SelectDiscardItems(bag, settings);
+            var state = new BagCleanupState();
+            state.StartDiscard(0, int.MaxValue, discard.Count);
+            state.DiscardOnly = true;
+            if (discard.Count == 0) state.Advance(BagCleanupStep.CloseDiscardInventory);
+            while (state.Active)
             {
                 context.StopToken.ThrowIfCancellationRequested();
-                var bag = (await context.Snapshots.ReadInventoryAsync().WaitAsync(context.StopToken)).Value;
-                var discard = BagCleanupItemMatcher.SelectDiscardItems(bag, settings);
-                if (discard.Count == 0)
+                if (context.GameSessionRequests.Current is not null)
+                {
+                    // End only this discard batch; the worker owns the queued session command.
+                    await _discarder.CancelPendingDiscardAsync(context);
+                    await _discarder.CloseInventoryWindowIfOpenAsync(context);
+                    throw new CleanupSessionInterruptionException();
+                }
+                report("正在按配置丢弃背包物品，已确认丢弃 " + state.DiscardedItemCount + " 项");
+                var result = await TickWorkflowAsync(context, state);
+                if (result.Reason == "discard_interrupted_by_attack")
                 {
                     var ui = (await context.Snapshots.ReadInventoryInteractionAsync().WaitAsync(context.StopToken)).Value;
-                    InventoryDiscardActions.RequireIdle(ui);
-                    if (!ui.IsOpen) return;
-                    var closeEmpty = await _discarder.CloseInventoryWindowIfOpenAsync(context);
-                    if (!closeEmpty.Success) throw new InvalidOperationException(closeEmpty.Error);
-                    continue;
+                    if (ui.PendingDiscardInstanceId == 0 && ui.DiscardDialog == null && !ui.OtherModalOpen && !ui.IsOpen)
+                        throw new CleanupCombatInterruptionException();
                 }
-                var state = new BagCleanupState();
-                state.StartDiscard(0, int.MaxValue, discard.Count);
-                while (state.Active && state.Step != BagCleanupStep.CloseDiscardInventory)
-                {
-                    context.StopToken.ThrowIfCancellationRequested();
-                    report("正在按配置丢弃背包物品，已确认丢弃 " + state.DiscardedItemCount + " 项");
-                    var result = await TickWorkflowAsync(context, state);
-                    if (result.Reason == "discard_interrupted_by_attack")
-                    {
-                        var ui = (await context.Snapshots.ReadInventoryInteractionAsync().WaitAsync(context.StopToken)).Value;
-                        if (ui.PendingDiscardInstanceId == 0 && ui.DiscardDialog == null && !ui.OtherModalOpen && !ui.IsOpen)
-                            throw new CleanupCombatInterruptionException();
-                    }
-                    EnsureRunning(result);
-                    await Task.Delay(100, context.StopToken);
-                }
-                if (state.Step != BagCleanupStep.CloseDiscardInventory) throw new InvalidOperationException("丢弃清包被中断。");
-                var close = await _discarder.CloseInventoryWindowIfOpenAsync(context);
-                if (!close.Success) throw new InvalidOperationException(close.Error);
-                // Re-read after closing too: additions or delayed inventory changes cannot be skipped.
+                EnsureRunning(result);
+                if (result.Status == BagCleanupTickStatus.Completed) return;
+                await Task.Delay(100, context.StopToken);
             }
+            throw new InvalidOperationException("丢弃清包被中断。");
         }
         catch (Roadhog.Core.Api.SnapshotReadBudgetExceededException) { throw; }
         catch (CleanupExecutionFailedException) { throw; }
         catch (Exception ex) when (!context.StopToken.IsCancellationRequested &&
-            ex is not (CleanupCombatInterruptionException or CleanupDeathInterruptionException))
+            ex is not (CleanupCombatInterruptionException or CleanupDeathInterruptionException or CleanupSessionInterruptionException))
         {
             // A snapshot/input exception may leave a pending drag or dialog. Cancel it before retrying.
             await _discarder.CancelPendingDiscardAsync(context);

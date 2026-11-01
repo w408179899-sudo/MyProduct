@@ -326,14 +326,28 @@ internal static partial class GroceryShopTests
         trip.AddDiscardCandidates();
         var context = trip.Context;
         context.CleanupRequests.Request(trip.Config.ScriptSettings!, true, groceryTrigger: GroceryShopTrigger.Manual);
-        await trip.Runner().RunAsync(context, context.CleanupRequests.Current!);
-        Check(trip.Events.Contains("sold_out") && trip.Success.Last >= At(20) && trip.Success.Last == trip.FirstDiscardAt && trip.Success.Saves == 1,
-            "discard failure retains the actual successful sale record");
-        Check(trip.Discards == 0 && trip.Api.InventoryItems.Any(i => i.Name == "junk0") && !trip.BagOpen &&
-            context.CleanupRequests.Current!.RequestsRestart && context.CleanupRequests.Current.SoldOutConfirmed,
-            "failed final discard preserves unconfirmed items and allows the already-settled trip to continue");
-        Check(trip.Logger.Entries.Count(e => e.EventName == "grocery_shop.final_discard.skipped") == 1,
-            "persistent discard failure is skipped once instead of retried until account stop");
+        var work = trip.Runner().RunAsync(context, context.CleanupRequests.Current!);
+        try
+        {
+            while (!trip.Logger.Entries.Any(e => e.EventName == "bag_cleanup.discard.failed"))
+            {
+                if (work.IsCompleted) await work;
+                await Task.Delay(5, trip.Stop.Token);
+            }
+            Check(trip.Events.Contains("sold_out") && trip.Success.Last >= At(20) && trip.Success.Last == trip.FirstDiscardAt && trip.Success.Saves == 1,
+                "discard failure retains the actual successful sale record");
+            Check(trip.Discards == 0 && trip.Api.InventoryItems.Any(i => i.Name == "junk0") && !trip.BagOpen &&
+                !context.CleanupRequests.Current!.RequestsRestart && !work.IsCompleted,
+                "failed final discard preserves unconfirmed items and does not falsely complete the settled trip");
+        }
+        finally
+        {
+            trip.Stop.Cancel();
+            try { await work.WaitAsync(TimeSpan.FromSeconds(2)); }
+            catch (OperationCanceledException) when (trip.Stop.IsCancellationRequested) { }
+        }
+        Check(trip.Discards == 0 && !context.CleanupRequests.Current!.RequestsRestart,
+            "explicit stop during post-sale retry does not discard or request restart");
     }
 
     public static async Task InterruptedBeforeDiscardAsync()

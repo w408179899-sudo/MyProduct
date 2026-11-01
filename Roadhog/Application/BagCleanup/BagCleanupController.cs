@@ -63,8 +63,9 @@ public sealed partial class BagCleanupController
             return await TickAfterLootCoreAsync(context, state).ConfigureAwait(false);
         }
         catch (SnapshotReadBudgetExceededException) { throw; }
+        catch (CleanupExecutionFailedException) { throw; }
         catch (Exception ex) when (!context.StopToken.IsCancellationRequested &&
-            !context.WorkflowOwnsCleanup && state.DiscardActive)
+            state.DiscardActive)
         {
             return await FailDiscardLocallyAsync(context, state, "discard_action_exception", ex.Message).ConfigureAwait(false);
         }
@@ -669,6 +670,7 @@ public sealed partial class BagCleanupController
         BagCleanupState state)
     {
         var discardedCount = state.DiscardedItemCount;
+        var discardOnly = state.DiscardOnly;
         var close = await _discarder.CloseInventoryWindowIfOpenAsync(context).ConfigureAwait(false);
         if (!close.Success)
         {
@@ -682,11 +684,8 @@ public sealed partial class BagCleanupController
         var ui = (await context.Snapshots.ReadInventoryInteractionAsync().WaitAsync(context.StopToken)).Value;
         InventoryDiscardActions.RequireIdle(ui);
         var inventoryRead = await context.Snapshots.ReadInventoryAsync().ConfigureAwait(false);
-        var capacityRead = await ReadInventoryCapacityAsync(context).ConfigureAwait(false);
         var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
         var discardCandidates = BagCleanupItemMatcher.SelectDiscardItems(inventoryRead.Value, maintenance);
-        var sellCandidates = BagCleanupItemMatcher.SelectSellRegistrationItems(inventoryRead.Value, maintenance);
-        var freeSlots = CountFreeSlots(inventoryRead.Value, capacityRead.Value);
         var threshold = state.TriggerThreshold;
         if (discardCandidates.Count > 0)
         {
@@ -695,6 +694,9 @@ public sealed partial class BagCleanupController
             state.Advance(BagCleanupStep.PrepareDiscardInventory);
             return BagCleanupTickResult.Running("discard_candidates_refreshed");
         }
+        // Requested discard finishes on exhaustion. Its caller owns the capacity/sale decision.
+        int? freeSlots = discardOnly ? null : CountFreeSlots(inventoryRead.Value,
+            (await ReadInventoryCapacityAsync(context).ConfigureAwait(false)).Value);
         state.Reset();
 
         context.Logger.Info("bag_cleanup.discard.complete", new Dictionary<string, object?>
@@ -707,9 +709,12 @@ public sealed partial class BagCleanupController
             ["inventoryClosed"] = true
         });
 
-        if (freeSlots < threshold)
+        if (discardOnly) return BagCleanupTickResult.Completed("discard_completed");
+
+        if (freeSlots!.Value < threshold)
         {
-            return await TryBeginFullCleanupAsync(context, state, freeSlots, threshold, sellCandidates);
+            var sellCandidates = BagCleanupItemMatcher.SelectSellRegistrationItems(inventoryRead.Value, maintenance);
+            return await TryBeginFullCleanupAsync(context, state, freeSlots.Value, threshold, sellCandidates);
         }
 
         return BagCleanupTickResult.Skipped("discard_completed_capacity_recovered");
@@ -892,8 +897,7 @@ public sealed partial class BagCleanupController
         string error)
     {
         var failedStep = state.Step;
-        var keepPending = !context.WorkflowOwnsCleanup;
-        if (keepPending) state.Advance(BagCleanupStep.WaitDiscardRetry);
+        state.Advance(BagCleanupStep.WaitDiscardRetry);
         OperationResult cancel;
         OperationResult close;
         try
@@ -902,7 +906,7 @@ public sealed partial class BagCleanupController
             close = await _discarder.CloseInventoryWindowIfOpenAsync(context).ConfigureAwait(false);
         }
         catch (SnapshotReadBudgetExceededException) { throw; }
-        catch (Exception ex) when (keepPending && !context.StopToken.IsCancellationRequested)
+        catch (Exception ex) when (!context.StopToken.IsCancellationRequested)
         {
             // Retain ownership even if releasing/cancelling the failed action also fails.
             context.Logger.Warn("bag_cleanup.discard.retry_cleanup_failed", new Dictionary<string, object?>
@@ -919,16 +923,11 @@ public sealed partial class BagCleanupController
             ["inventoryCloseSuccess"] = close.Success,
             ["inventoryCloseError"] = close.Error,
             ["step"] = failedStep.ToString(),
-            ["resumePolicy"] = keepPending ? "retry_remaining_items" : "workflow_request"
+            ["resumePolicy"] = "retry_remaining_items"
         });
-        if (keepPending)
-        {
-            // After verified cancellation, an attack must not try to finish an obsolete dialog.
-            if (cancel.Success && close.Success) state.ClearDiscardTarget();
-            return BagCleanupTickResult.Running("discard_retry_pending");
-        }
-        state.Reset();
-        return BagCleanupTickResult.Skipped(reason);
+        // After verified cancellation, an attack must not try to finish an obsolete dialog.
+        if (cancel.Success && close.Success) state.ClearDiscardTarget();
+        return BagCleanupTickResult.Running("discard_retry_pending");
     }
 
     private async Task<BagCleanupTickResult> TickWaitSafeToReturnAsync(
