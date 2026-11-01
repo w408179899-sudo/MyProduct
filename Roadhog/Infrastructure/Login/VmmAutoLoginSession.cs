@@ -17,12 +17,14 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
     private readonly LoginSnapshotPublisher _publication = new(new(account.AccountName,0,"",account.VmmDeviceName,true),logger);
     private readonly LoginInputRecovery _recovery = new(account.AccountName,logger);
     private readonly UuLaunchFallback _uuFallback = new();
+    private readonly UuDesktopOpen _uuDesktop = new();
     private readonly LoginOperationExecutor _reads = new();
     private readonly LoginOperationExecutor _inputOperations = new();
     private OnnxCaptchaRecognizer? _recognizer;
     private bool _inputUsed;
     private bool _awaitingClickOutcome;
     private int _captchaRound;
+    private DateTimeOffset _nextUuFallbackRejectionLog;
 
     public async Task<LoginSnapshot> ReadAsync(CancellationToken cancellationToken) =>
         (await ObserveAsync(cancellationToken).ConfigureAwait(false)).Snapshot;
@@ -46,8 +48,9 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
                 var key=LoginNativeReader.SessionKey(vmm,account);
                 lifecycle(key);
                 LoginObservation Capture() => _uuFallback.Capture(key,
-                    () => LoginNativeReader.Capture(vmm,account,key),
-                    () => UuLaunchFallbackWindow.Capture(vmm,key),readToken);
+                    () => _uuDesktop.Capture(() => LoginNativeReader.Capture(vmm,account,key),
+                        () => UuDesktopReader.Capture(vmm,account),readToken),
+                    () => UuLaunchFallbackWindow.Capture(vmm,key,LogUuFallbackRejection),readToken);
                 var observed=Capture();
                 var verify=Capture();
                 if(observed.Snapshot!=verify.Snapshot||observed.Window!=verify.Window||observed.Bounds!=verify.Bounds||key!=LoginNativeReader.SessionKey(vmm,account))
@@ -62,6 +65,15 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
         LoginObservation? target=null;
         await CaptureAsync(token,value=>target=value).ConfigureAwait(false);
         return target??throw new InvalidOperationException("等待登录输入目标重新绑定。");
+    }
+
+    private void LogUuFallbackRejection(string reason)
+    {
+        var now=DateTimeOffset.UtcNow;
+        if(now<_nextUuFallbackRejectionLog)return;
+        _nextUuFallbackRejectionLog=now.AddSeconds(10);
+        logger?.Warn("login.uu_fallback.blocked",new Dictionary<string,object?>
+        { ["account"]=account.AccountName,["reason"]=reason });
     }
 
     public async Task<bool> ExecuteAsync(LoginSnapshot expected,LoginAction action,CancellationToken token)
@@ -86,21 +98,18 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
 
     private async Task<bool> ExecuteInputAsync(LoginSnapshot expected,LoginAction action,string? password,CancellationToken token)
     {
+        if(action==LoginAction.OpenAccelerator)
+            return await _uuDesktop.ExecuteAsync(expected,
+                t=>ReadAsync(vmm=>UuDesktopReader.Capture(vmm,account),t),
+                t=>HotkeyAsync([Keys.LWin,Keys.M],t),MoveAsync,
+                t=>ClickAsync(t),Task.Delay,()=>
+                {
+                    _awaitingClickOutcome=true;
+                    logger?.Info("login.uu_desktop.open_attempt",new Dictionary<string,object?>
+                    { ["account"]=account.AccountName,["x"]=UuDesktopOpen.Shortcut.X,["y"]=UuDesktopOpen.Shortcut.Y });
+                },token).ConfigureAwait(false);
         var current=await BindInputAsync(token).ConfigureAwait(false);
         if(current.Snapshot!=expected)return false;
-        if(action==LoginAction.OpenAccelerator)
-        {
-            await HotkeyAsync([Keys.LWin,Keys.M],token).ConfigureAwait(false);
-            await Task.Delay(600,token).ConfigureAwait(false);
-            if(!await ReadAsync(vmm=>SessionInputProbe.Foreground(vmm,current.SessionPid).GetProperty("Name").GetString()!.Equals("explorer.exe",StringComparison.OrdinalIgnoreCase),token).ConfigureAwait(false))
-                throw new InvalidOperationException("未能显示目标电脑桌面，未点击图标。");
-            await MoveAsync(current.SessionPid,new(35,35),token).ConfigureAwait(false);
-            if(!await ReadAsync(vmm=>SessionInputProbe.Foreground(vmm,current.SessionPid).GetProperty("Name").GetString()!.Equals("explorer.exe",StringComparison.OrdinalIgnoreCase),token).ConfigureAwait(false))
-                throw new InvalidOperationException("目标桌面已失去焦点，未点击图标。");
-            LoginInputTarget.Validate(current,await BindInputAsync(token).ConfigureAwait(false));
-            await ClickAsync(token).ConfigureAwait(false);await Task.Delay(100,token).ConfigureAwait(false);await ClickAsync(token).ConfigureAwait(false);
-            await Task.Delay(2000,token).ConfigureAwait(false);return true;
-        }
         await FocusAsync(current,token).ConfigureAwait(false);
         if(action==LoginAction.SubmitCredentials)
         {
@@ -172,12 +181,16 @@ internal sealed class VmmAutoLoginSession(AionVmmGameApi api, KmBoxNetKeyboardIn
             if (!_uuFallback.TryReserveAttempt(token)) throw new InvalidOperationException("UU 固定位置启动已尝试，等待启动结果。");
             // A lost acknowledgement must not cause another fixed click.
             _awaitingClickOutcome=true;
+            _uuDesktop.SuppressAfterLaunch();
             logger?.Warn("login.uu_fallback.click_attempt",new Dictionary<string,object?>
             { ["account"]=account.AccountName,["pid"]=expected.Pid,["window"]=expected.Window,
                 ["x"]=point.X,["y"]=point.Y,["readFailureSeconds"]=30 });
         }
         else if (expected.Snapshot.Action is LoginAction.LaunchGame or LoginAction.StartLauncher)
+        {
             _uuFallback.SuppressAfterNormalLaunch();
+            _uuDesktop.SuppressAfterLaunch();
+        }
         await ClickAsync(token,finalClick?()=>_awaitingClickOutcome=true:null).ConfigureAwait(false);
     }
     private async Task ClickAsync(CancellationToken token,Action? pressed=null)

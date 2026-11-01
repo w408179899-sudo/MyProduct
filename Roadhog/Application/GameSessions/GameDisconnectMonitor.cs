@@ -21,7 +21,9 @@ public sealed class GameDisconnectMonitor(TimeSpan? interval = null)
         {
             await Task.Delay(interval ?? TimeSpan.FromSeconds(3), token).ConfigureAwait(false);
             var current = await source.ReadAsync(token).ConfigureAwait(false);
-            if (current.Session != initial.Session || !current.Processes.Contains(process)) return;
+            // A reader reconnect invalidates provider publications, not the game process.
+            // Compare the original process identity even after a fresh session is published.
+            if (!current.Processes.Contains(process)) return;
         }
     }
 }

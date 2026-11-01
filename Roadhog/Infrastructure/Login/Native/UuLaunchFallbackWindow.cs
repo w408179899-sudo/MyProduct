@@ -11,21 +11,21 @@ internal static class UuLaunchFallbackWindow
     internal static readonly Size ClientSize = new(1000, 688);
     internal static readonly Point LaunchPoint = new(95, 346);
 
-    internal static LoginObservation? Capture(Vmmsharp.Vmm vmm, string session)
+    internal static LoginObservation? Capture(Vmmsharp.Vmm vmm, string session, Action<string>? rejected = null)
     {
         var processes = Inventory(vmm);
-        if (HasStartedClient(processes.Select(p => p.Info.sName))) return null;
+        if (HasStartedClient(processes.Select(p => p.Info.sName))) { rejected?.Invoke("client_process_present"); return null; }
         var sessionPid = processes.Single(p => p.Info.sName.Equals("winlogon.exe", StringComparison.OrdinalIgnoreCase)).Info.dwPID;
         var foreground = SessionInputProbe.Foreground(vmm, sessionPid);
         var pid = foreground.GetProperty("Pid").GetUInt32();
         var candidates = processes.Where(p => p.Info.dwPID == pid && p.Info.sName.Equals("uu.exe", StringComparison.OrdinalIgnoreCase)).ToArray();
-        if (candidates.Length != 1) return null;
+        if (candidates.Length != 1) { rejected?.Invoke("uu_not_foreground"); return null; }
         // No DuiLib manager, root, control type or child-tree dependency here.
         var windows = Json(WindowInventory.Run(candidates[0].Process,
             SessionInputProbe.SessionProcess(vmm, sessionPid), inspectDuiManager: false)).GetProperty("Windows");
         var after = SessionInputProbe.Foreground(vmm, sessionPid);
-        if (foreground.GetRawText() != after.GetRawText()) return null;
-        return Project(session, sessionPid, processes.Select(p => p.Info.sName), foreground, windows.EnumerateArray());
+        if (foreground.GetRawText() != after.GetRawText()) { rejected?.Invoke("foreground_changed"); return null; }
+        return Project(session, sessionPid, processes.Select(p => p.Info.sName), foreground, windows.EnumerateArray(), rejected);
     }
 
     internal static bool HasStartedClient(IEnumerable<string> names) => names.Any(name =>
@@ -34,20 +34,24 @@ internal static class UuLaunchFallbackWindow
         name.Equals("sdologin.exe", StringComparison.OrdinalIgnoreCase));
 
     internal static LoginObservation? Project(string session, uint sessionPid, IEnumerable<string> processNames,
-        JsonElement foreground, IEnumerable<JsonElement> windows)
+        JsonElement foreground, IEnumerable<JsonElement> windows, Action<string>? rejected = null)
     {
-        if (HasStartedClient(processNames) || !Text(foreground, "Name").Equals("uu.exe", StringComparison.OrdinalIgnoreCase)) return null;
+        LoginObservation? Reject(string reason) { rejected?.Invoke(reason); return null; }
+        if (HasStartedClient(processNames)) return Reject("client_process_present");
+        if (!Text(foreground, "Name").Equals("uu.exe", StringComparison.OrdinalIgnoreCase)) return Reject("uu_not_foreground");
         // Foreground is a verified process/thread. Require its sole visible top-level
         // window, rejecting popups even when they share the main window's thread.
         var visible = windows.Where(w => Flag(w, "Visible") && (Address(Text(w, "Style")) & 0x60000000) == 0).ToArray();
-        if (visible.Length != 1) return null;
+        if (visible.Length != 1) return Reject("visible_window_count:" + visible.Length);
         var window = visible[0];
-        if (Flag(window, "Disabled") || window.GetProperty("OwnerThread").GetUInt64() != foreground.GetProperty("Tid").GetUInt32()) return null;
+        if (Flag(window, "Disabled")) return Reject("window_disabled");
+        if (window.GetProperty("OwnerThread").GetUInt64() != foreground.GetProperty("Tid").GetUInt32()) return Reject("foreground_thread_mismatch");
         var bounds = Client(window);
-        if (bounds.Size != ClientSize || bounds.Left < 0 || bounds.Top < 0 || bounds.Right > 4096 || bounds.Bottom > 2160) return null;
+        if (bounds.Size != ClientSize) return Reject($"client_size:{bounds.Width}x{bounds.Height}");
+        if (bounds.Left < 0 || bounds.Top < 0 || bounds.Right > 4096 || bounds.Bottom > 2160) return Reject("window_outside_screen");
         var pid = foreground.GetProperty("Pid").GetUInt32();
         var hwnd = Text(window, "Hwnd");
-        if (pid == 0 || Address(hwnd) == 0) return null;
+        if (pid == 0 || Address(hwnd) == 0) return Reject("window_identity_missing");
         var point = new Point(bounds.Left + LaunchPoint.X, bounds.Top + LaunchPoint.Y);
         return new(new(session, LoginStage.AcceleratorReady, LoginAction.LaunchGame,
             UuLaunchFallback.Identity + hwnd, "UU 页面读取持续失败，尝试固定位置启动游戏"), pid, sessionPid, hwnd, point, bounds);

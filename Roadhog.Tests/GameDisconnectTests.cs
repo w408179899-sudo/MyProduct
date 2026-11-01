@@ -76,7 +76,7 @@ internal static class GameDisconnectTests
 
     public static async Task MonitorProcessReplacementAsync()
     {
-        foreach (var replacement in new[] { Snapshot(), Snapshot(Game with { InstanceKey = "new-instance" }), new("new-connection", new[] { Game }) })
+        foreach (var replacement in new[] { Snapshot(), Snapshot(Game with { InstanceKey = "new-instance" }), Snapshot(Game with { ProcessId = 8781 }) })
         {
             var source = new Source(Snapshot(Game));
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
