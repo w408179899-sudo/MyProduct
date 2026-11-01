@@ -517,6 +517,12 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                         {
                             delay = context.Options.TickInterval;
                         }
+                        else if (isStationaryCombat && semiAutoPlan.UsesSpiritmasterAutoLogic &&
+                                 await _stationaryCombat.TryPrepareStartupReturnAsync(
+                                     context, semiAutoPlan, semiAutoState, stationaryCombatState).ConfigureAwait(false) is { } startupReturnDelay)
+                        {
+                            delay = startupReturnDelay;
+                        }
                         else if (await _semiAuto
                                      .EnsureSpiritmasterPetAsync(
                                      context,

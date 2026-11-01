@@ -2316,7 +2316,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         Vector3Snapshot playerPosition,
         Vector3Snapshot home,
         double radius,
-        double playerDistanceFromHome)
+        double playerDistanceFromHome,
+        bool deferRouteMovement = false)
     {
         if (state.StartupTownReturnPending)
         {
@@ -2333,6 +2334,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
         if (state.StartupRecoveryActive)
         {
+            if (deferRouteMovement) return null;
             return await ContinueStartupRecoveryAsync(
                     context,
                     plan,
@@ -2502,6 +2504,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             return null;
         }
 
+        if (deferRouteMovement) return null;
         return await ContinueStartupRecoveryAsync(
                 context,
                 plan,

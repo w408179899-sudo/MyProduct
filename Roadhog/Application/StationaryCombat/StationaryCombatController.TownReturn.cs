@@ -7,6 +7,30 @@ namespace Roadhog.Application.StationaryCombat;
 
 public sealed partial class StationaryCombatController
 {
+    // Decide whether startup needs a recall before pet maintenance can block normal work.
+    // Pending transitions already own the worker; after landing, summon before route movement.
+    public async Task<TimeSpan?> TryPrepareStartupReturnAsync(AccountWorkerContext context, SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState, StationaryCombatState state)
+    {
+        if (state.StartupRecoveryChecked || state.StartupRecoveryActive || state.StartupTownReturnPending ||
+            state.TopLevelState != StationaryCombatTopLevelState.Normal || state.Fighting ||
+            state.LootAfterKill.Active || state.BagCleanup.Active || state.CleanupReturnToCombatActive)
+            return null;
+
+        var player = await ReadPlayerAsync(context).ConfigureAwait(false);
+        if (!player.IsAlive || !player.IsSpiritmaster || player.Position is not { } position)
+            return null;
+        var homeResult = await TryResolveStationaryHomeAsync(context, state).ConfigureAwait(false);
+        if (!homeResult.Success || homeResult.Value is null)
+            return null;
+
+        var home = homeResult.Value.Position;
+        return await TickStartupRecoveryAsync(context, plan, semiAutoState, state, player, position, home,
+            Math.Max(1.0D, context.Config.ScriptSettings?.Combat?.StationaryCombatRadius ?? 1.0D),
+            StationaryCombatTargetSelector.HorizontalDistance(position, home),
+            deferRouteMovement: true).ConfigureAwait(false);
+    }
+
     // Run before cleanup scheduling, channel switching and pet maintenance.
     public async Task<TimeSpan?> TryTickTownReturnAsync(AccountWorkerContext context, SemiAutoSkillPlan plan,
         SemiAutoCombatState semiAutoState, StationaryCombatState state)
