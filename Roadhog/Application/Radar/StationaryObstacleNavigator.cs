@@ -58,6 +58,8 @@ public sealed class StationaryObstacleNavigationState
 
     public RadarObstacleSpatialIndex? SpatialIndex { get; set; }
 
+    public RadarNavigationGraph? NavigationGraph { get; set; }
+
     public long LoadedRevision { get; set; } = -1L;
 
     public RadarNavigationPurpose Purpose { get; set; }
@@ -142,6 +144,7 @@ public sealed class StationaryObstacleNavigationState
         CurrentMapId = 0;
         MapDocument = null;
         SpatialIndex = null;
+        NavigationGraph = null;
         LoadedRevision = -1L;
         ClearRoute();
     }
@@ -251,6 +254,7 @@ public sealed class StationaryObstacleNavigator
                 start,
                 request,
                 loaded.Index,
+                loaded.Graph,
                 settings);
         }
 
@@ -279,21 +283,23 @@ public sealed class StationaryObstacleNavigator
         if (state.CurrentMapId != mapId ||
             state.MapDocument is null ||
             state.SpatialIndex is null ||
+            state.NavigationGraph is null ||
             state.LoadedRevision != revision)
         {
-            var load = await _mapStore.LoadAsync(mapId, cancellationToken).ConfigureAwait(false);
-            if (!load.Success || load.Value is null)
+            var load = await LoadScoringMapAsync(mapId, cancellationToken).ConfigureAwait(false);
+            if (load is null)
             {
                 state.ClearLoadedMap();
                 return Direct(goal, finalReachDistanceMeters, mapId, "map_load_failed");
             }
 
             state.CurrentMapId = mapId;
-            state.MapDocument = load.Value.Document;
-            state.SpatialIndex = new RadarObstacleSpatialIndex(load.Value.Document.Segments);
-            state.LoadedRevision = revision;
+            state.MapDocument = load.Document;
+            state.SpatialIndex = load.Index;
+            state.NavigationGraph = load.Graph;
+            state.LoadedRevision = load.Revision;
             state.ClearRoute();
-            if (!load.Value.Found || load.Value.Document.Segments.Count == 0)
+            if (!load.Found || load.Document.Segments.Count == 0)
             {
                 return Direct(goal, finalReachDistanceMeters, mapId, "map_missing_or_empty");
             }
@@ -375,20 +381,13 @@ public sealed class StationaryObstacleNavigator
 
         if (!routeMatches)
         {
-            var margin = Math.Max(
-                10.0D,
-                settings.MaximumDetourExtraMeters + 2.0D);
-            var localObstacles = index.QueryCorridor(start, goal, margin);
             var request = new RadarRouteRequest(
                 start,
                 goal,
-                localObstacles,
-                settings.MaximumDetourExtraMeters);
+                index.All,
+                settings.MaximumDetourExtraMeters,
+                state.NavigationGraph);
             var plan = _planner.Plan(request);
-            if (!plan.Success && localObstacles.Count < index.All.Count)
-            {
-                plan = _planner.Plan(request with { Obstacles = index.All });
-            }
 
             state.Purpose = purpose;
             state.TargetServerObjectId = targetServerObjectId;
@@ -482,7 +481,8 @@ public sealed class StationaryObstacleNavigator
             revision,
             load.Value.Found,
             load.Value.Document,
-            new RadarObstacleSpatialIndex(load.Value.Document.Segments));
+            new RadarObstacleSpatialIndex(load.Value.Document.Segments),
+            RadarNavigationGraphBuilder.Prepare(load.Value.Document.Segments, load.Value.Document.NavigationCache, cancellationToken));
         lock (_scoreMapSync)
         {
             _scoreMapCache = loaded;
@@ -496,6 +496,7 @@ public sealed class StationaryObstacleNavigator
         RadarPoint start,
         RadarRouteDistanceRequest request,
         RadarObstacleSpatialIndex index,
+        RadarNavigationGraph graph,
         RadarObstacleScriptSettings settings)
     {
         var directDistance = start.DistanceTo(request.Goal);
@@ -513,23 +514,12 @@ public sealed class StationaryObstacleNavigator
                 "direct");
         }
 
-        var margin = Math.Max(
-            10.0D,
-            settings.MaximumDetourExtraMeters + 2.0D);
-        var localObstacles = index.QueryCorridor(start, request.Goal, margin);
         var plan = _planner.Plan(new RadarRouteRequest(
             start,
             request.Goal,
-            localObstacles,
-            settings.MaximumDetourExtraMeters));
-        if (!plan.Success && localObstacles.Count < index.All.Count)
-        {
-            plan = _planner.Plan(new RadarRouteRequest(
-                start,
-                request.Goal,
-                index.All,
-                settings.MaximumDetourExtraMeters));
-        }
+            index.All,
+            settings.MaximumDetourExtraMeters,
+            graph));
 
         return plan.Success
             ? new RadarRouteDistanceScore(
@@ -701,5 +691,6 @@ public sealed class StationaryObstacleNavigator
         long Revision,
         bool Found,
         RadarMapDocument Document,
-        RadarObstacleSpatialIndex Index);
+        RadarObstacleSpatialIndex Index,
+        RadarNavigationGraph Graph);
 }

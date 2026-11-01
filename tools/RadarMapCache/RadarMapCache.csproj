@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Roadhog/Core/Radar/RadarPoint.cs" Link="Core/RadarPoint.cs" />
+    <Compile Include="../../Roadhog/Core/Radar/RadarMapDocument.cs" Link="Core/RadarMapDocument.cs" />
+    <Compile Include="../../Roadhog/Core/Radar/RadarGeometry.cs" Link="Core/RadarGeometry.cs" />
+    <Compile Include="../../Roadhog/Core/Radar/RadarNavigationCache.cs" Link="Core/RadarNavigationCache.cs" />
+    <Compile Include="../../Roadhog/Core/Radar/RadarNavigationGraphBuilder.cs" Link="Core/RadarNavigationGraphBuilder.cs" />
+    <Compile Include="../../Roadhog/Core/Radar/IRadarMapStore.cs" Link="Core/IRadarMapStore.cs" />
+    <Compile Include="../../Roadhog/Core/Common/OperationResult.cs" Link="Core/OperationResult.cs" />
+    <Compile Include="../../Roadhog/Infrastructure/Radar/JsonRadarMapStore.cs" Link="Infrastructure/JsonRadarMapStore.cs" />
+    <Compile Include="../../Roadhog/Infrastructure/Config/AtomicJsonFile.cs" Link="Infrastructure/AtomicJsonFile.cs" />
+  </ItemGroup>
+</Project>

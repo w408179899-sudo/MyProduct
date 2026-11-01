@@ -465,11 +465,14 @@ internal sealed class RadarEditorForm : Form
         }
 
         var settings = CaptureSettings();
+        var graph = RadarNavigationGraphBuilder.Prepare(_document.Segments, _document.NavigationCache);
+        _document.NavigationCache = graph.ToCache();
         var plan = _planner.Plan(new RadarRouteRequest(
             new RadarPoint(playerPosition.X, playerPosition.Y),
             new RadarPoint(monsterPosition.X, monsterPosition.Y),
             _document.Segments,
-            settings.MaximumDetourExtraMeters));
+            settings.MaximumDetourExtraMeters,
+            graph));
         _canvas.RoutePlan = plan;
         SetStatus(
             plan.Success

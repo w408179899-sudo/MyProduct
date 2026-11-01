@@ -16,6 +16,8 @@ public sealed class RadarMapDocument
 
     public List<RadarObstacleSegment> Segments { get; set; } = new();
 
+    public RadarNavigationCache? NavigationCache { get; set; }
+
     public RadarMapDocument Clone()
     {
         return new RadarMapDocument
@@ -25,7 +27,8 @@ public sealed class RadarMapDocument
             MapCode = MapCode,
             CreatedAt = CreatedAt,
             UpdatedAt = UpdatedAt,
-            Segments = Segments?.Select(segment => segment.Clone()).ToList() ?? new List<RadarObstacleSegment>()
+            Segments = Segments?.Select(segment => segment.Clone()).ToList() ?? new List<RadarObstacleSegment>(),
+            NavigationCache = NavigationCache?.Clone()
         };
     }
 }

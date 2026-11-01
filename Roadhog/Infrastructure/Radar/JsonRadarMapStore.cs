@@ -58,6 +58,14 @@ public sealed class JsonRadarMapStore : IRadarMapStore
             }
 
             var normalized = NormalizeAndValidate(document, mapId);
+            if (normalized.Success && normalized.Value is { } value)
+            {
+                // Old or stale derived data rebuilds in memory; ordinary readers never
+                // overwrite map edits. Saving (or the migration tool) persists the cache.
+                var graph = await Task.Run(() => RadarNavigationGraphBuilder.Prepare(
+                    value.Segments, value.NavigationCache, cancellationToken), cancellationToken).ConfigureAwait(false);
+                value.NavigationCache = graph.ToCache();
+            }
             return normalized.Success && normalized.Value is not null
                 ? OperationResult<RadarMapLoadResult>.Ok(new RadarMapLoadResult(true, normalized.Value))
                 : OperationResult<RadarMapLoadResult>.Fail(normalized.Error ?? "Radar map validation failed.");
@@ -94,6 +102,9 @@ public sealed class JsonRadarMapStore : IRadarMapStore
             Directory.CreateDirectory(DirectoryPath);
             var path = ResolvePath(document.MapId);
             var value = normalized.Value!;
+            var graph = await Task.Run(() => RadarNavigationGraphBuilder.Prepare(
+                value.Segments, value.NavigationCache, cancellationToken), cancellationToken).ConfigureAwait(false);
+            value.NavigationCache = graph.ToCache();
             if (File.Exists(path))
             {
                 await using var existingStream = AtomicJsonFile.OpenRead(path);
@@ -123,6 +134,7 @@ public sealed class JsonRadarMapStore : IRadarMapStore
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             AtomicJsonFile.Commit(temporaryPath, path);
             temporaryPath = null;
             return OperationResult.Ok();
@@ -230,7 +242,8 @@ public sealed class JsonRadarMapStore : IRadarMapStore
             MapCode = source.MapCode?.Trim() ?? string.Empty,
             CreatedAt = createdAt,
             UpdatedAt = source.UpdatedAt == default ? createdAt : source.UpdatedAt,
-            Segments = segments
+            Segments = segments,
+            NavigationCache = source.NavigationCache?.Clone()
         });
     }
 
@@ -250,7 +263,7 @@ public sealed class JsonRadarMapStore : IRadarMapStore
 
     private static string FormatPoint(RadarPoint point)
     {
-        return Math.Round(point.X, 4).ToString("0.####", CultureInfo.InvariantCulture) + "," +
-               Math.Round(point.Y, 4).ToString("0.####", CultureInfo.InvariantCulture);
+        return point.X.ToString("R", CultureInfo.InvariantCulture) + "," +
+               point.Y.ToString("R", CultureInfo.InvariantCulture);
     }
 }

@@ -359,7 +359,7 @@ internal static class RadarTests
             var nearestEndpointDistance = Math.Min(
                 waypoint.DistanceTo(obstacles[0].Start),
                 waypoint.DistanceTo(obstacles[0].End));
-            RequireNear(3.0D, nearestEndpointDistance, "wall waypoint should use the three meter endpoint radius");
+            RequireNear(3.0D, nearestEndpointDistance, "wall waypoint should extend three meters beyond the endpoint");
         }
 
         AssertEveryLegClear(plan, obstacles);
