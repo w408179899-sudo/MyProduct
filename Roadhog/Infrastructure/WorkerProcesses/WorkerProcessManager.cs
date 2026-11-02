@@ -39,6 +39,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
         public WorkerStatus? Status;
         public bool Desired;
         public long StopGeneration;
+        public Guid? PendingShopRestartId;
         public string State = "stopped";
         public string? Error;
         public CancellationTokenSource Operation = new();
@@ -350,6 +351,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 }
                 else
                 {
+                    if (!expectedStopGeneration.HasValue) entry.PendingShopRestartId = null;
                     entry.RecoveringGameDisconnect = false;
                     entry.Desired = true;
                     entry.Operation.Cancel();
@@ -373,14 +375,16 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
             }
             return OperationResult.Fail(resourceConflict);
         }
-        var startedSuccessfully = false;
         try
         {
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, operation.Token, _lifetime.Token);
             try { await SaveIntentAsync().ConfigureAwait(false); }
             catch (Exception ex)
             {
-                lock (entry.Sync) { entry.Desired = false; entry.Operation.Cancel(); }
+                lock (entry.Sync)
+                {
+                    if (!expectedStopGeneration.HasValue) { entry.Desired = false; entry.Operation.Cancel(); }
+                }
                 Fail(entry, "无法保存启动状态，未启动账号：" + ex.Message);
                 return OperationResult.Fail(entry.Error!);
             }
@@ -391,7 +395,6 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 deadline.CancelAfter(_launch.StartupTimeout + _launch.StopTimeout + TimeSpan.FromSeconds(5)
                     + (entry.LoginOnly || !string.IsNullOrWhiteSpace(entry.Config.GameLoginAccount) ? _launch.LoginTimeout : TimeSpan.Zero));
                 var result = await StartCoreAsync(entry, cleanup, deadline.Token, standaloneShopSettings, groceryShopSettings, gameSessionOperation).ConfigureAwait(false);
-                startedSuccessfully = result.Success;
                 return result;
             }
             finally { entry.Gate.Release(); }
@@ -420,8 +423,6 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 {
                     entry.StartingRequest = false;
                     if (entry.LoginOnly) { entry.Desired = false; saveStoppedIntent = true; }
-                    if (expectedStopGeneration.HasValue && !startedSuccessfully && entry.Desired)
-                    { entry.Desired = false; operation.Cancel(); saveStoppedIntent = true; }
                 }
             }
             if (saveStoppedIntent)
@@ -502,8 +503,8 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 })).ConfigureAwait(false);
             if (!result.Success)
             {
-                // An explicit rejection before any business started needs a user correction.
-                // Keep crash/transport recovery separate from repeatedly retrying a rejected configuration.
+                // Ordinary explicit starts retain the existing rejection policy. A planned
+                // post-sale restart instead keeps its pending continuation and backoff.
                 var error = result.Error ?? "启动失败";
                 if (entry.Status?.IsRunning != true)
                 {
@@ -513,7 +514,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                         var rejected = await client.CallAsync<WorkerStatus>(WorkerCommands.Status, [], cancellationToken).ConfigureAwait(false);
                         retryLogin = rejected.LoginRetryPending && rejected.Authorized;
                     }
-                    lock (entry.Sync) if (!retryLogin) entry.Desired = false;
+                    lock (entry.Sync) if (!retryLogin && !entry.PendingShopRestartId.HasValue) entry.Desired = false;
                     await ShutdownCoreAsync(entry).ConfigureAwait(false);
                     try { await SaveIntentAsync().ConfigureAwait(false); }
                     catch (Exception ex) { error += "；停止状态未能保存：" + ex.Message; }
@@ -545,14 +546,15 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
         return BeginStop(entry);
     }
 
-    private Task<OperationResult> BeginStop(Entry entry)
+    private Task<OperationResult> BeginStop(Entry entry, bool forShopRestart = false)
     {
         lock (entry.Sync)
         {
             entry.StopGeneration++;
             entry.RecoveringGameDisconnect = false;
+            // A user Stop must also cancel a planned restart while shutdown is already running.
+            if (!forShopRestart) { entry.PendingShopRestartId = null; entry.Desired = false; }
             if (entry.StopTask is { IsCompleted: false }) return entry.StopTask;
-            entry.Desired = false;
             entry.Operation.Cancel();
             entry.State = "stopping";
             // Coalescing prevents an older queued Stop from killing a subsequent explicit restart.
@@ -922,6 +924,12 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 pollOperationSource = entry.Operation;
                 pollStopGeneration = entry.StopGeneration;
                 pollOperation = entry.Operation.Token;
+                if (entry.Desired && entry.PendingShopRestartId is { } pendingShop)
+                {
+                    if (DateTimeOffset.UtcNow >= entry.RetryAt)
+                        shopRestart = RestartAfterStandaloneShopAsync(entry, pendingShop);
+                    return;
+                }
             }
             if (Alive(entry) && entry.Descriptor is not null)
             {

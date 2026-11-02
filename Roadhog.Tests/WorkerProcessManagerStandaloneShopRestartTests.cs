@@ -106,7 +106,7 @@ internal static partial class WorkerProcessManagerTests
         Require(!File.ReadAllText(Path.Combine(test.Root, "config", "workers", "run-intent.json")).Contains(account.InstanceId), "cancelled restart stays stopped durably");
     }
 
-    public static async Task StandaloneShopStopFailureNeverStartsAsync()
+    public static async Task StandaloneShopStopFailureRetriesSafelyAsync()
     {
         await using var test = new TestEnvironment();
         var account = test.Account(1);
@@ -121,9 +121,13 @@ internal static partial class WorkerProcessManagerTests
             await test.Client(account).CallAsync<OperationResult>("mock.shop.sold-out", new object?[] { Guid.NewGuid() });
             await UntilAsync(() => test.Logger.Entries.Any(e => e.EventName == "standalone_shop.restart.failed"), "stop failure aborts restart");
             await Task.Delay(300);
-            Require(!IsAlive(oldPid) && View(manager, account) is { DesiredRunning: false } && test.Spec(account).Token == token,
-                "failed exit reconciliation keeps intent stopped and cannot spawn replacement despite AutoRecover");
+            Require(!IsAlive(oldPid) && View(manager, account) is { DesiredRunning: true } && test.Spec(account).Token == token,
+                "failed exit reconciliation preserves intent but cannot spawn an overlapping replacement");
             Require(View(manager, account).Error?.Contains("mock residual") == true, "stop failure remains actionable");
+            reconciler.BlockedPid = 0;
+            await UntilAsync(() => View(manager, account) is { State: "running", WorkerProcessId: { } pid } && pid != oldPid,
+                "after residual cleanup recovers, the pending normal restart resumes without user Start");
+            Require((await test.InfoAsync(account)).Starts == 1, "recovery starts normal work once, without replaying shop");
         }
         finally { reconciler.BlockedPid = 0; }
     }
@@ -173,10 +177,13 @@ internal static partial class WorkerProcessManagerTests
         Require(!IsAlive(oldPid) && (await test.InfoAsync(account)).Starts == 1, "reconnection completes exactly one fresh ordinary startup");
     }
 
-    public static async Task StandaloneShopStartFailureNeverLoopsAsync()
+    public static async Task StandaloneShopStartFailureRetriesAsync()
     {
+        foreach (var autoRecover in new[] { false, true })
+        {
         await using var test = new TestEnvironment();
         var account = test.Account(1);
+        account.AutoRecover = autoRecover;
         var manager = await test.ManagerAsync(new[] { account });
         Require((await manager.StartAsync(account.InstanceId, standaloneShopSettings: new())).Success, "start shop before rejected ordinary startup");
         await test.RunningAsync(manager, account);
@@ -184,14 +191,34 @@ internal static partial class WorkerProcessManagerTests
         await File.WriteAllTextAsync(rejection, "reject");
         await test.Client(account).CallAsync<OperationResult>("mock.shop.sold-out", new object?[] { Guid.NewGuid() });
         await UntilAsync(() => test.Logger.Entries.Any(e => e.EventName == "standalone_shop.restart.failed"), "ordinary start failure reported");
-        var token = test.Spec(account).Token;
-        await Task.Delay(500);
-        Require(View(manager, account) is { DesiredRunning: false, WorkerProcessId: null } && test.Spec(account).Token == token,
-            "rejected ordinary start neither loops through AutoRecover nor replays shop");
-        Require(!File.ReadAllText(Path.Combine(test.Root, "config", "workers", "run-intent.json")).Contains(account.InstanceId), "failed restart clears durable intent");
+        Require(View(manager, account).DesiredRunning, "planned restart failure preserves running intent regardless of AutoRecover");
+        await UntilAsync(() => test.Logger.Entries.Any(e => e.EventName == "standalone_shop.restart.retry_scheduled"), "retry is delayed and observable");
+        Require(File.ReadAllText(Path.Combine(test.Root, "config", "workers", "run-intent.json")).Contains(account.InstanceId), "failed restart retains durable intent");
         File.Delete(rejection);
-        Require((await manager.StartAsync(account.InstanceId)).Success, "explicit Start remains possible after correcting failure");
+        await UntilAsync(() => View(manager, account) is { State: "running", DesiredRunning: true }, "normal startup resumes automatically after transient failure clears");
         Require((await test.InfoAsync(account)).Starts == 1, "corrected Start uses a fresh normal worker");
+        }
+    }
+
+    public static async Task StandaloneShopManualStopCancelsRetryAsync()
+    {
+        await using var test = new TestEnvironment();
+        var account = test.Account(1);
+        var manager = await test.ManagerAsync(new[] { account });
+        Require((await manager.StartAsync(account.InstanceId, standaloneShopSettings: new())).Success, "start shop before deferred restart");
+        await test.RunningAsync(manager, account);
+        var rejection = Path.Combine(manager.PathsFor(account).LogDirectory, "reject-normal-start");
+        await File.WriteAllTextAsync(rejection, "reject");
+        await test.Client(account).CallAsync<OperationResult>("mock.shop.sold-out", new object?[] { Guid.NewGuid() });
+        await UntilAsync(() => test.Logger.Entries.Any(e => e.EventName == "standalone_shop.restart.retry_scheduled"), "automatic retry is pending");
+        Require((await manager.StopAsync(account.InstanceId)).Success, "manual Stop cancels retry");
+        var token = test.Spec(account).Token;
+        File.Delete(rejection);
+        await Task.Delay(600);
+        Require(View(manager, account) is { DesiredRunning: false, WorkerProcessId: null } && test.Spec(account).Token == token,
+            "clearing a fault after manual Stop cannot revive the cancelled retry");
+        Require(!File.ReadAllText(Path.Combine(test.Root, "config", "workers", "run-intent.json")).Contains(account.InstanceId),
+            "explicit Stop remains durable");
     }
 
     public static async Task StandaloneShopShutdownWinsAsync()
