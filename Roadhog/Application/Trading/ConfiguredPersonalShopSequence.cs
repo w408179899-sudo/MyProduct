@@ -36,6 +36,7 @@ public sealed class ConfiguredPersonalShopSequence(IKeyboardInput input, Func<in
             }
             await actions.Wait(Ui, s => !s.IsSelling && s.Listings.Count == 0 && s.Editor == null && !s.OtherModalOpen);
         }
+        var ownsShop = false;
         try
         {
             await actions.Reset();
@@ -46,6 +47,7 @@ public sealed class ConfiguredPersonalShopSequence(IKeyboardInput input, Func<in
                 report($"摆摊第 {batchNumber}/{(plan.Count + 9) / 10} 批：准备登记 {batch.Length} 项");
                 var ui = await Ui();
                 Require(!ui.IsSelling && ui.Editor == null && ui.Listings.Count == 0 && !ui.OtherModalOpen, "已有摊位或登记内容，停止以免混入本次计划。");
+                ownsShop = true;
                 await PersonalShopStance.EnsureNormalAsync(actions, snapshots, report, token);
                 if (!ui.IsOpen) { await actions.Key("Y"); await actions.Wait(Ui, s => s.IsOpen); }
                 await PersonalShopAdvertisement.EnsureAsync(actions, Ui, advertisementDiscount, report);
@@ -143,6 +145,11 @@ public sealed class ConfiguredPersonalShopSequence(IKeyboardInput input, Func<in
                 if ((await Ui()).IsOpen) { await actions.Key("Y"); await actions.Wait(Ui, s => !s.IsOpen); }
                 report($"第 {batchNumber} 批已确认售罄，剩余 {Math.Max(0, plan.Count - batchNumber * 10)} 项待摆摊");
             }
+        }
+        catch (Exception) when (ownsShop && !token.IsCancellationRequested)
+        {
+            await new TradingWindowRecovery(input, snapshots, delay).TryCloseAsync(report, token, includeNpc: false);
+            throw;
         }
         finally { await actions.Reset(); }
     }

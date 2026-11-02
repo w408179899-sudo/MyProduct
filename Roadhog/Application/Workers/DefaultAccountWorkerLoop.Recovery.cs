@@ -25,6 +25,9 @@ public sealed partial class DefaultAccountWorkerLoop
         state.BagCleanup.Reset();
         state.CompleteCleanupReturnToCombat();
         state.ClearStartupRecovery();
+        // Grocery travel may have left us on another map. Re-enter the normal
+        // map/recall recovery instead of navigating straight towards old home coordinates.
+        if (request.GroceryShop && request.GroceryNpcStageStarted) state.RetryStartupRecovery();
         state.ClearPostCombatReturn();
         state.ReturnNavigationBlocked = false;
         state.ReturningHome = false;

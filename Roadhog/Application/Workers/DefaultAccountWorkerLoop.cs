@@ -319,7 +319,7 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                                     catch (CleanupSessionInterruptionException) { throw; }
                                     catch (Exception ex) when (!context.StopToken.IsCancellationRequested && cleanup.GroceryShop &&
                                         cleanup.Settings.Maintenance.CleanupWorkflow.GroceryPostSaleAction == GroceryPostSaleAction.NpcSell &&
-                                        (cleanup.SoldOutConfirmed || cleanup.GroceryNpcStageStarted))
+                                        (cleanup.SoldOutConfirmed || cleanup.GroceryProcessingCompleted))
                                     {
                                         await _cleanupWorkflow.FinishGroceryAfterFailureAsync(context, cleanup, ex);
                                     }

@@ -9,6 +9,7 @@ using Roadhog.Application.Trading;
 using Roadhog.Application.Travel;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
+using Roadhog.Core.Model;
 using Roadhog.Core.Api;
 using Roadhog.Core.Common;
 using Roadhog.Core.Diagnostics;
@@ -79,7 +80,13 @@ internal static class GroceryNpcLiveProbe
             var before = (await context.Snapshots.ReadInventoryAsync()).Value;
             Print("arrows", before.Where(i => i.Name.Contains('箭')).Select(i => new { i.Name, i.TemplateId, i.InstanceId, i.Count, i.Slot, i.IsEquipped, i.ItemType }));
             var money = (await context.Snapshots.ReadInventoryMoneyAsync()).Value;
-            var candidates = GroceryNpcSalePolicy.SelectCandidates(before, settings.Maintenance);
+            IReadOnlyList<InventoryItemSnapshot> CandidatesForProbe(IReadOnlyList<InventoryItemSnapshot> bag) => args.Contains("--npc-only")
+                ? GroceryNpcSalePolicy.SelectCandidates(bag, settings.Maintenance)
+                : GroceryNpcSalePolicy.SelectPendingItems(bag.Where(i =>
+                    !string.Equals(i.Name, settings.Paths.BagCleanupReturnItemName.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(i.Name, settings.Paths.GroceryReturnItemName.Trim(), StringComparison.OrdinalIgnoreCase)), settings.Maintenance)
+                    .Where(i => i.CanSellToNpc).ToArray();
+            var candidates = CandidatesForProbe(before);
             Print("excluded_from_npc", BagCleanupItemMatcher.SelectDiscardItems(before, settings.Maintenance)
                 .Where(i => !i.CanSellToNpc)
                 .Select(i => new { i.Name, i.InstanceId, i.ItemType, i.CanSellToNpc }));
@@ -193,8 +200,14 @@ internal static class GroceryNpcLiveProbe
                     await actions.Key("Space");
                     await actions.Wait(async () => (await context.Snapshots.ReadNpcTradeAsync()).Value, s => !s.IsOpen && !s.DialogOpen);
                 }
-                var run = args.Contains("--npc-only") ? NpcOnly() :
-                    new GroceryNpcSaleSequence(input, testPaths, movement.ExecuteCleanupPathAsync).RunAsync(context, s => Print("progress", s));
+                async Task FullNpcStage()
+                {
+                    var outcome = await new GroceryNpcSaleSequence(input, testPaths, movement.ExecuteCleanupPathAsync)
+                        .RunAsync(context, s => Print("progress", s));
+                    Print("npc_outcome", outcome.ToString());
+                    TradingActions.Require(outcome == GroceryNpcSaleOutcome.AllItemsSold, "NPC stage did not sell both configured sets; this probe does not execute the stall fallback.");
+                }
+                var run = args.Contains("--npc-only") ? NpcOnly() : FullNpcStage();
                 try
                 {
                     while (!run.IsCompleted)
@@ -209,8 +222,8 @@ internal static class GroceryNpcLiveProbe
                 }
                 finally { if (!run.IsCompleted) { stop.Cancel(); try { await run; } catch (OperationCanceledException) { } } }
                 var after = (await context.Snapshots.ReadInventoryAsync()).Value;
-                var remaining = GroceryNpcSalePolicy.SelectCandidates(after, settings.Maintenance);
-                TradingActions.Require(remaining.Count == 0, "Discard candidates remain after NPC sale.");
+                var remaining = CandidatesForProbe(after);
+                TradingActions.Require(remaining.Count == 0, "Configured candidates remain after NPC sale.");
                 var sold = logger.Entries.Where(e => e.EventName == "bag_cleanup.sell.batch_verified")
                     .SelectMany(e => (ulong[])e.Fields!["instanceIds"]!).ToHashSet();
                 TradingActions.Require(candidates.All(i => sold.Contains(i.InstanceId)), "Configured sale was not verified.");

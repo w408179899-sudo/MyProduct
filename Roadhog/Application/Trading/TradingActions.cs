@@ -139,12 +139,15 @@ public sealed class TradingActions(IKeyboardInput input, IRoadhogSnapshotReader 
     }
     public async Task Reset()
     {
-        if (input is IInputStateReset reset) Check(await reset.ReleaseAllAsync(CancellationToken.None));
+        // Release even on user Stop, but a failed device must not trap a finally block.
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var releaseToken = deadline.Token;
+        if (input is IInputStateReset reset) Check(await reset.ReleaseAllAsync(releaseToken).WaitAsync(releaseToken));
         else
         {
-            foreach (var key in new[] { "W", "A", "S", "D", "ShiftKey", "ControlKey" }) await input.KeyUpAsync(key, CancellationToken.None);
-            await input.MouseUpAsync(RoadhogMouseButton.Left, CancellationToken.None);
-            await input.MouseUpAsync(RoadhogMouseButton.Right, CancellationToken.None);
+            foreach (var key in new[] { "W", "A", "S", "D", "ShiftKey", "ControlKey" }) await input.KeyUpAsync(key, releaseToken).WaitAsync(releaseToken);
+            await input.MouseUpAsync(RoadhogMouseButton.Left, releaseToken).WaitAsync(releaseToken);
+            await input.MouseUpAsync(RoadhogMouseButton.Right, releaseToken).WaitAsync(releaseToken);
         }
     }
     public async Task BringBagToFront(Func<Task<bool>> guard)

@@ -42,6 +42,14 @@ public sealed class AccountWorkerContext
     public CleanupRequestMailbox CleanupRequests { get; }
     public GameSessions.GameSessionRequestMailbox GameSessionRequests { get; }
     public bool WorkflowOwnsCleanup { get; set; }
+    public double? CleanupPathFinalReachDistance { get; private init; }
+
+    internal AccountWorkerContext ForCleanupPath(double finalReachDistance)
+    {
+        if (!double.IsFinite(finalReachDistance) || finalReachDistance < .5 || finalReachDistance > 50)
+            throw new ArgumentOutOfRangeException(nameof(finalReachDistance));
+        return new(this, Config) { CleanupPathFinalReachDistance = finalReachDistance };
+    }
 
     public SkillKeyBindings? SkillBindings { get; private set; }
 

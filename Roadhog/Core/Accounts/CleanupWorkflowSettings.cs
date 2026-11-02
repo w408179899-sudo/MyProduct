@@ -2,6 +2,7 @@ namespace Roadhog.Core.Accounts;
 
 public enum AuctionOldListingAction { Keep, Reprice, Withdraw }
 public enum CleanupMode { Normal, GroceryShop }
+// Persisted names are retained for existing accounts; NpcSell now runs before the stall.
 public enum GroceryPostSaleAction { Discard, NpcSell }
 
 public sealed class CleanupWorkflowSettings
@@ -32,7 +33,11 @@ public sealed class CleanupWorkflowSettings
         if (!manual) { copy.Auction = false; copy.TransferGold = false; copy.PersonalShop = false; }
         return copy;
     }
-    public string Describe() => Mode == CleanupMode.GroceryShop ? "丢弃 → 卷轴回程 → 杂货摆摊" : string.Join(" → ", new[]
+    public string Describe() => Mode == CleanupMode.GroceryShop
+        ? GroceryPostSaleAction == GroceryPostSaleAction.NpcSell
+            ? "NPC 出售（杂货登录 → 丢弃装备 → 丢弃其他 → 出售集合）→ 未售空摆摊 → 重启"
+            : "丢弃 → 卷轴回程 → 杂货摆摊"
+        : string.Join(" → ", new[]
     {
         NpcCleanup ? "出售 / 丢弃清包" : null, Auction ? "拍卖行（全部撤单 → 登录物品 → 计算金币）" : null,
         TransferGold ? "转移金币" : null, PersonalShop ? "摆摊并等待售罄" : null

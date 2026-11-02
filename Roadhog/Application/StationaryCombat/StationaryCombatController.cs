@@ -1153,6 +1153,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         var pathPoints = points.ToArray();
         var displayName = string.IsNullOrWhiteSpace(pathName) ? "manual_path" : pathName.Trim();
         var reachDistance = ResolvePathFollowReachDistance(context.Config.ScriptSettings?.Combat);
+        var finalReachDistance = fromStart && context.CleanupPathFinalReachDistance is { } finalDistance
+            ? Math.Min(reachDistance, finalDistance) : reachDistance;
 
         var cleanupProgress = fromStart ? new CleanupPathProgress() : null;
         var elapsed = System.Diagnostics.Stopwatch.StartNew();
@@ -1177,7 +1179,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 ["startPointIndex"] = nearestPointIndex,
                 ["startPointNumber"] = nearestPointIndex + 1,
                 ["pathPointCount"] = pathPoints.Length,
-                ["reachDistance"] = Math.Round(reachDistance, 2)
+                ["reachDistance"] = Math.Round(reachDistance, 2),
+                ["finalReachDistance"] = Math.Round(finalReachDistance, 2)
             });
 
             while (state.PathCombat.Active &&
@@ -1194,10 +1197,11 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 var pointIndex = state.PathCombat.PointIndex;
                 var point = state.PathCombat.Points[pointIndex];
                 var distance = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, point);
-                if (distance > reachDistance)
+                var pointReachDistance = pointIndex == pathPoints.Length - 1 ? finalReachDistance : reachDistance;
+                if (distance > pointReachDistance)
                 {
                     cleanupProgress?.Observe(pointIndex, distance, elapsed.Elapsed, displayName);
-                    await PathFollowStepAsync(context, state, player, point, reachDistance).ConfigureAwait(false);
+                    await PathFollowStepAsync(context, state, player, point, pointReachDistance).ConfigureAwait(false);
                     await TryJumpPathCombatIfStuckAsync(context, state, playerPosition, pointIndex, distance)
                         .ConfigureAwait(false);
                     await Task.Delay(MoveTickDelay, context.StopToken).ConfigureAwait(false);

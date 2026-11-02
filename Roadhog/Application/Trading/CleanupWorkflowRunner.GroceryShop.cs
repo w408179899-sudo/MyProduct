@@ -43,9 +43,15 @@ public sealed partial class CleanupWorkflowRunner
         return due.HasValue;
     }
 
-    private async Task RunGroceryShopAsync(AccountWorkerContext context, CleanupRequest request, Action<string> report)
+    private async Task RunGroceryShopAsync(AccountWorkerContext context, CleanupRequest request, Action<string> report,
+        Func<AccountWorkerContext, Task>? returnToCombat)
     {
         var settings = context.Config.ScriptSettings!;
+        if (settings.Maintenance.CleanupWorkflow.GroceryPostSaleAction == GroceryPostSaleAction.NpcSell)
+        {
+            await RunNpcFirstGroceryAsync(context, request, report, returnToCombat);
+            return;
+        }
         var token = context.StopToken;
         var actions = new TradingActions(input, context.Snapshots, token, groceryDelay);
         void LogSkip(string message)
@@ -57,8 +63,6 @@ public sealed partial class CleanupWorkflowRunner
         try
         {
             Require(grocerySuccessStore != null, "杂货摆摊成功记录存储未配置。");
-            var sellToNpc = settings.Maintenance.CleanupWorkflow.GroceryPostSaleAction == GroceryPostSaleAction.NpcSell;
-            var npcSale = new GroceryNpcSaleSequence(input, paths, executePath, groceryDelay, groceryClock);
             settings.Paths.GroceryReturnItemName = settings.Paths.GroceryReturnItemName.Trim();
             settings.Paths.BagCleanupReturnItemName = settings.Paths.BagCleanupReturnItemName.Trim();
             bool IsReturnItem(InventoryItemSnapshot item) =>
@@ -75,7 +79,7 @@ public sealed partial class CleanupWorkflowRunner
                 var path = await paths.LoadAsync(settings.Paths.GroceryStallPathName, token);
                 return path.Value is { MapId: > 0, PointCount: > 0 } && await CleanupPathTravel.NearbyIndexAsync(context, path.Value) >= 0;
             }
-            if (!sellToNpc && !await CanReachGroceryAsync())
+            if (!await CanReachGroceryAsync())
             {
                 LogSkip("没有配置的回程卷轴，跳过本次杂货摆摊：" + settings.Paths.GroceryReturnItemName);
                 return;
@@ -86,17 +90,13 @@ public sealed partial class CleanupWorkflowRunner
                 var afterDiscard = await PrepareBackpackGroceryAsync(context, request, report);
                 if (afterDiscard == null) return;
                 bag = afterDiscard;
-                if (!sellToNpc && !await CanReachGroceryAsync())
+                if (!await CanReachGroceryAsync())
                 { LogSkip("丢弃后缺少所选回程卷轴，本次不出发"); return; }
             }
             var plan = DiscountedPersonalShopWorkflow.Plan(bag.Where(i => !IsReturnItem(i)).ToArray(), settings.Maintenance, report);
             if (plan.Count == 0)
             {
-                if (!sellToNpc) { LogSkip("没有可按折扣摆摊的物品，本次不出发"); return; }
-                report("没有可摆摊物品，直接前往 NPC 出售原丢弃候选");
-                request.GroceryNpcStageStarted = true;
-                await npcSale.RunAsync(context, report);
-                request.GroceryProcessingCompleted = true;
+                LogSkip("没有可按折扣摆摊的物品，本次不出发");
                 return;
             }
             var loaded = await paths.LoadAsync(settings.Paths.GroceryStallPathName, token);
@@ -104,11 +104,10 @@ public sealed partial class CleanupWorkflowRunner
             var route = loaded.Value!.Clone();
             var travelPlan = new ReturnItemPlan((await context.Snapshots.ReadChannelTransitionAsync().WaitAsync(token)).Value);
             travelPlan.Add(route, settings.Paths.GroceryReturnItemName);
-            if (sellToNpc) travelPlan.Add(await npcSale.LoadRouteAsync(context), settings.Paths.BagCleanupReturnItemName);
             CleanupPathTravel.RequireItems(travelPlan, bag);
             await new GroceryReturnSequence(input, groceryDelay, groceryClock).RunAsync(context, route, settings.Paths.GroceryReturnItemName, report);
             report("卷轴回程已确认，前往杂货摆摊终点");
-            Check(await CleanupPathTravel.FollowAsync(context, route, executePath));
+            await FollowGroceryStallPathAsync(context, route);
             token.ThrowIfCancellationRequested();
             // Replan after travel; the used scroll and any changed inventory cannot enter the stall.
             bag = (await context.Snapshots.ReadInventoryAsync().WaitAsync(token)).Value;
@@ -119,26 +118,11 @@ public sealed partial class CleanupWorkflowRunner
                 await new ConfiguredPersonalShopSequence(input, groceryDelay).RunAsync(context.Snapshots, plan,
                     report, token, settings.Maintenance.CleanupWorkflow.StandaloneShopDiscount);
                 soldOutAt = groceryClock?.Invoke() ?? DateTimeOffset.UtcNow;
-                if (sellToNpc)
-                {
-                    request.SoldOutConfirmed = true;
-                    await new GroceryStageContinuation(context, input, groceryDelay).TryAsync("sold_out_record",
-                        () => grocerySuccessStore!.RecordAsync(context.Config.InstanceId, soldOutAt.Value, token));
-                }
-                else await grocerySuccessStore!.RecordAsync(context.Config.InstanceId, soldOutAt.Value, token);
+                await grocerySuccessStore!.RecordAsync(context.Config.InstanceId, soldOutAt.Value, token);
             }
-            else Require(sellToNpc, "到达后没有可摆摊物品，未确认售罄。");
-            if (sellToNpc)
-            {
-                request.GroceryNpcStageStarted = true;
-                report(soldOutAt.HasValue ? "杂货摆摊全部售罄，开始前往 NPC 出售原丢弃候选" : "到达后没有可摆摊物品，前往 NPC 出售原丢弃候选");
-                await npcSale.RunAsync(context, report);
-            }
-            else
-            {
-                report("杂货摆摊全部售罄，开始按配置丢弃剩余背包物品");
-                await RunOptionalDiscardAsync(context, report, afterSale: true);
-            }
+            else throw new InvalidOperationException("到达后没有可摆摊物品，未确认售罄。");
+            report("杂货摆摊全部售罄，开始按配置丢弃剩余背包物品");
+            await RunOptionalDiscardAsync(context, report, afterSale: true);
             token.ThrowIfCancellationRequested();
             request.SoldOutConfirmed = soldOutAt.HasValue;
             request.GroceryProcessingCompleted = true;
@@ -194,7 +178,7 @@ public sealed partial class CleanupWorkflowRunner
             if (!settings.BagCleanupEnabled || settings.BagCleanupThreshold <= 0 || freeSlots >= settings.BagCleanupThreshold)
             {
                 request.PreparationStage = CleanupPreparationStage.None;
-                report("背包空位已满足阈值，本次不出发摆摊，继续挂机");
+                report("背包空位已满足阈值，本次不出发清包，继续挂机");
                 return null;
             }
             var candidates = BagCleanupItemMatcher.SelectDiscardItems(bag, settings);
@@ -206,10 +190,10 @@ public sealed partial class CleanupWorkflowRunner
                     ["account"] = context.Config.AccountName, ["freeSlots"] = freeSlots,
                     ["threshold"] = settings.BagCleanupThreshold, ["remainingDiscardCandidateCount"] = 0
                 });
-                report("已无可丢弃物品，背包空位仍低于阈值，准备出发摆摊");
+                report("已无可丢弃物品，背包空位仍低于阈值，准备出发清包");
                 return bag;
             }
-            report("背包空位不足，先按配置原地丢弃，再判断是否出发摆摊");
+            report("背包空位不足，先按配置原地丢弃，再判断是否出发清包");
             await new BagCleanupController(input, paths, executePath).RunDiscardRequestedAsync(context, report);
             // Only confirmed exhaustion plus a new capacity observation may authorize departure.
         }

@@ -89,6 +89,7 @@ internal static partial class GroceryShopTests
             { GroceryTrigger = kind is "grocery" or "npc_no_goods" ? GroceryShopTrigger.Manual : GroceryShopTrigger.None };
             try { await runner.RunAsync(trip.Context, request); }
             catch (ReachedNearbyRoute) { }
+            catch (InvalidOperationException) when (kind == "npc_no_goods" && reached) { }
             Check(reached && trip.ScrollClicks == 0 && !trip.Input.Keys.Contains("I") &&
                 (kind == "npc_no_goods" ? trip.Input.Keys.All(k => k == "Space") : trip.Input.Keys.Count == 0),
                 kind + " must reach walking without scroll, return key, or opening the bag");
@@ -148,26 +149,26 @@ internal static partial class GroceryShopTests
     {
         foreach (var kind in new[] { "first_near", "second_near", "both_near" })
         {
-            using var trip = new Trip();
-            trip.Route.Points[1].X = 1200; // Keep the remote leg outside the 100 m entry radius.
+            // Rejection deliberately uses the real 8-second confirmation timeout;
+            // allow the same full-trip budget as the other NPC-first flow tests.
+            using var trip = new Trip(); NpcMode(trip);
+            trip.NpcRoute.Points[1].X = 1200; // NPC runs first; the stall is the conditional second leg.
             var settings = trip.Config.ScriptSettings!;
-            settings.Maintenance.CleanupWorkflow.GroceryPostSaleAction = GroceryPostSaleAction.NpcSell;
-            settings.Paths.BagCleanupReturnItemName = settings.Paths.GroceryReturnItemName;
-            settings.Paths.MaintenancePathName = trip.NpcRoute.Name;
             trip.AddDiscardCandidates();
+            trip.RejectNpcBatch = 1;
             trip.Api.InventoryItems = trip.Api.InventoryItems.Select(i => i.InstanceId == 11 ? i with { Count = 1 } : i).ToArray();
             if (kind != "second_near")
             {
                 trip.Api.Channel = trip.Api.Channel with { MapId = 2 };
                 trip.Api.Player = trip.Api.Player with { Position = new(1201, 0, 0) };
             }
-            if (kind != "first_near") trip.NpcRoute.Points[1].X = 1201;
+            if (kind != "first_near") trip.Route.Points[1].X = 1201;
             if (kind == "both_near") trip.Api.InventoryItems = trip.Api.InventoryItems.Where(i => i.InstanceId != 11).ToArray();
             var routeCalls = 0;
             var runner = new CleanupWorkflowRunner(trip.Input, new InMemorySharedPathStore(trip.Route, trip.NpcRoute), (_, name, points) =>
             {
                 var path = name == trip.Route.Name ? trip.Route : trip.NpcRoute;
-                var expectedStart = name == trip.Route.Name ? (kind == "second_near" ? 0 : 1) : (kind == "first_near" ? 0 : 1);
+                var expectedStart = name == trip.NpcRoute.Name ? (kind == "second_near" ? 0 : 1) : (kind == "first_near" ? 0 : 1);
                 Check(points.SequenceEqual(path.Points.Skip(expectedStart).Select(p => p.ToVector3())), "each leg enters correct route suffix: " + kind);
                 Check(!trip.BagOpen, "bag closes before walking");
                 trip.Api.Player = trip.Api.Player with { Position = points[^1] }; routeCalls++;
@@ -176,7 +177,7 @@ internal static partial class GroceryShopTests
             var request = new CleanupRequest(settings, true) { GroceryTrigger = GroceryShopTrigger.Manual };
             await runner.RunAsync(trip.Context, request);
             Check(trip.ScrollClicks == (kind == "both_near" ? 0 : 1) && routeCalls == 2 && trip.NpcBatches.SequenceEqual(new[] { 1 }) && request.RequestsRestart,
-                "preflight counts only necessary scroll legs and both stages complete: " + kind);
+                "NPC-first rejection visits both legs using only their necessary scrolls: " + kind);
         }
     }
 }

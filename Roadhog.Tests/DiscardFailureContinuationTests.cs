@@ -5,6 +5,7 @@ using Roadhog.Application.Trading;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Diagnostics;
+using Roadhog.Core.Paths;
 
 internal static partial class CleanupWorkflowTests
 {
@@ -21,7 +22,7 @@ internal static partial class CleanupWorkflowTests
             game.Settings.BagCleanupThreshold = 2;
             game.Settings.CleanupWorkflow = new()
             {
-                Mode = CleanupMode.GroceryShop, GroceryPostSaleAction = GroceryPostSaleAction.NpcSell,
+                Mode = CleanupMode.GroceryShop, GroceryPostSaleAction = GroceryPostSaleAction.Discard,
                 GroceryScheduleEnabled = false, NpcCleanup = true
             };
             if (failure == "bag_not_open")
@@ -32,11 +33,19 @@ internal static partial class CleanupWorkflowTests
             var config = new AccountConfig
             {
                 AccountName = "discard-failure-" + failure, MainMode = AccountMainMode.SemiAuto,
-                ScriptSettings = new() { MainMode = AccountMainMode.SemiAuto, Maintenance = game.Settings }
+                ScriptSettings = new() { MainMode = AccountMainMode.SemiAuto, Maintenance = game.Settings,
+                    Paths = new() { GroceryStallPathName = "nearby-unused" } }
             };
             var logger = new InMemoryRoadhogLogger();
             var states = new AccountRuntimeManager(logger);
-            var paths = new InMemorySharedPathStore();
+            // Local-discard retry belongs to the retained Discard mode. Its departure
+            // guard needs a reachable route even though this test never leaves the bag.
+            var position = game.Api.Player.Position!.Value;
+            var paths = new InMemorySharedPathStore(new SharedPathDocument
+            {
+                Name = "nearby-unused", MapId = game.Api.Channel.MapId,
+                Points = new() { new() { X = position.X, Y = position.Y, Z = position.Z } }
+            });
             var semi = new SemiAutoCombatController(game.Input);
             var runner = new CleanupWorkflowRunner(game.Input, paths,
                 (_, _, _) => throw new Exception("abandoned local discard cannot depart for trading"),

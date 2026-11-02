@@ -50,11 +50,11 @@ public sealed partial class CleanupWorkflowRunner(IKeyboardInput input, ISharedP
             context.RuntimeStates.MarkHeartbeat(context.Config.AccountName);
             context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, text);
         }
-        // Backpack grocery requests first exhaust local discard; scheduled/manual departures
-        // bypass that gate. Remaining items use the selected post-sale action before restart.
+        // Both grocery modes exhaust local discard before backpack-triggered departure.
+        // Scheduled/manual requests enter their selected town workflow directly.
         if (request.GroceryShop)
         {
-            await RunGroceryShopAsync(context, request, Report);
+            await RunGroceryShopAsync(context, request, Report, returnToCombat);
             return;
         }
         if (request.StandaloneShop)

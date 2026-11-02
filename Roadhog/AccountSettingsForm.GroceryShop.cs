@@ -150,12 +150,15 @@ public partial class AccountSettingsForm
             var pathTabs = (TabControl)Controls.Find("pathTabs", true).Single();
             pathTabs.SelectedTab = pathTabs.TabPages.Cast<TabPage>().Single(p => p.Text == "杂货摆摊路径");
         };
-        AddLabel(groceryOptionsPanel, "回程 → 路线摆摊 → 剩余物品处理 → 重启", 8, 76, 556, 22);
-        AddLabel(groceryOptionsPanel, "售空后处理", 8, 112, 90, 24);
+        var flowHint = AddLabel(groceryOptionsPanel, "回程 → 路线摆摊 → 丢弃剩余物品 → 重启", 8, 76, 556, 22);
+        AddLabel(groceryOptionsPanel, "处理顺序", 8, 112, 90, 24);
         groceryPostSaleActionCombo = AddCombo(groceryOptionsPanel, 102, 108, 218, 28);
         groceryPostSaleActionCombo.Name = "groceryPostSaleActionCombo";
         groceryPostSaleActionCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        groceryPostSaleActionCombo.Items.AddRange(new object[] { "原地丢弃（原流程）", "前往 NPC 出售（三条一批）" });
+        groceryPostSaleActionCombo.Items.AddRange(new object[] { "摆摊后丢弃（原流程）", "先 NPC 出售，未售空再摆摊" });
+        groceryPostSaleActionCombo.SelectedIndexChanged += (_, _) => flowHint.Text = groceryPostSaleActionCombo.SelectedIndex == 1
+            ? "NPC：杂货登录→丢弃装备→丢弃其他→出售集合；未售空摆摊，售空重启"
+            : "回程 → 路线摆摊 → 丢弃剩余物品 → 重启";
         AddLabel(groceryOptionsPanel, "NPC 出售使用清包路径、清包 NPC 和清包回程物品", 334, 112, 480, 24);
     }
 
@@ -190,7 +193,7 @@ public partial class AccountSettingsForm
             settings.Maintenance.CleanupWorkflow.Mode = CleanupMode.GroceryShop;
             var result = await _startGroceryShop(settings);
             if (!IsDisposed) SetBagCleanupInventoryStatus(result.Success
-                ? "手动杂货摆摊已提交，完成所选剩余物品处理后重启。"
+                ? "手动杂货清包已提交，按所选顺序处理，售空后重启。"
                 : "无法启动杂货摆摊：" + result.Error, !result.Success);
         }
         catch (Exception ex) { if (!IsDisposed) SetBagCleanupInventoryStatus("无法启动杂货摆摊：" + ex.Message, true); }

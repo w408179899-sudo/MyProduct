@@ -138,13 +138,14 @@ internal static partial class ArrowRestockTests
     {
         using var f = new Fixture(24000);
         var route = SetupRoute(f);
+        f.Context.Config.ScriptSettings!.Maintenance.BagCleanupDiscardItemNameKeywords.Add("protected");
         var travel = 0;
         await new GroceryNpcSaleSequence(f.Input, new InMemorySharedPathStore(route), (_, _, _) =>
         {
             travel++; return Task.FromResult(OperationResult.Ok());
         }, f.Pause).RunAsync(f.Context, _ => { });
         Check(f.JunkClicks == 1 && f.SaleClicks == 1 && f.BuyClicks == 1 && f.AllClicks == 3 && travel == 1,
-            "grocery cleanup sells junk, jumps, then buys three arrow stacks at the same NPC");
+            "grocery cleanup sells automatic junk once without reselling the removed discard candidate, then replenishes arrows");
         var keys = f.Input.Keys.ToArray();
         var firstJump = Array.IndexOf(keys, "Space");
         Check(firstJump >= 0 && Array.IndexOf(keys, "C", firstJump) > firstJump && !f.Ui.IsOpen && !f.BagOpen,
@@ -160,6 +161,7 @@ internal static partial class ArrowRestockTests
         {
             using var f = new Fixture(24000) { Scenario = scenario };
             var route = SetupRoute(f);
+            f.Context.Config.ScriptSettings!.Maintenance.BagCleanupDiscardItemNameKeywords.Add("protected");
             var selectionAttempts = 0; var jumps = 0; var dialogs = 0;
             f.Input.PressResult = key =>
             {
@@ -174,18 +176,64 @@ internal static partial class ArrowRestockTests
                 if (key == "C" && ++dialogs == 2 && scenario == "missing_buy")
                     f.Ui = f.Ui with { DialogEntries = new Dictionary<string, GameUiPoint>() };
             };
-            await new GroceryNpcSaleSequence(f.Input, new InMemorySharedPathStore(route),
+            var outcome = await new GroceryNpcSaleSequence(f.Input, new InMemorySharedPathStore(route),
                 (_, _, _) => Task.FromResult(OperationResult.Ok()), f.Pause).RunAsync(f.Context, _ => { });
-            Check(f.Logger.Entries.Any(e => e.EventName == "grocery_shop.stage_skipped") &&
+            Check(f.Logger.Entries.Any(e => e.EventName == "grocery_shop.stage_skipped") == (scenario != "sale_limit") &&
                 f.Logger.Entries.Any(e => e.EventName == "grocery_shop.npc_sale.complete") &&
                 f.Ui.IsOpen == (scenario == "all_close_fail") && !f.BagOpen && !f.Shift,
                 "every failed step is recorded and processing still ends: " + scenario);
+            Check(outcome == (scenario == "sale_limit" ? GroceryNpcSaleOutcome.SaleRejected :
+                scenario is "sale_throw" or "select_fail" ? GroceryNpcSaleOutcome.Failed : GroceryNpcSaleOutcome.AllItemsSold),
+                "sale rejection and actual failures remain distinct from successful sale even when arrows fail");
             Check(f.SaleClicks == (scenario == "select_fail" ? 0 : 1) && f.BuyClicks == (scenario is "missing_buy" or "all_close_fail" ? 0 : 1),
                 "failed sale never repeats; later arrow purchase is attempted once: " + scenario);
             Check(ArrowRestockPolicy.Count(f.Api.InventoryItems) == (scenario is "missing_buy" or "money_only" or "all_close_fail" ? 24000UL : 54000UL),
                 "sale rejection and input failures do not block later arrow replenishment");
             if (scenario is "sale_limit" or "sale_throw" or "select_fail")
                 Check(f.Api.InventoryItems.Single(i => i.InstanceId == 12).Count == 3, "unsold item is retained");
+        }
+    }
+
+    private sealed class UnusedStallSuccess : IGroceryShopSuccessStore
+    {
+        public Task<DateTimeOffset?> LoadAsync(string accountId, CancellationToken token = default) => Task.FromResult<DateTimeOffset?>(null);
+        public Task RecordAsync(string accountId, DateTimeOffset soldOutAt, CancellationToken token = default) => throw new Exception("test never sells at stall");
+    }
+
+    public static async Task GrocerySupplyBeforeStallAsync()
+    {
+        foreach (var rejected in new[] { false, true })
+        {
+            using var f = new Fixture(24000) { Scenario = rejected ? "sale_limit" : "success" };
+            var route = SetupRoute(f);
+            var stall = new SharedPathDocument { Name = "stall", MapId = 2, Points = new() { new() { X = 110 }, new() { X = 130 } } };
+            var settings = f.Context.Config.ScriptSettings!;
+            settings.Maintenance.CleanupWorkflow.Mode = CleanupMode.GroceryShop;
+            settings.Maintenance.CleanupWorkflow.GroceryPostSaleAction = GroceryPostSaleAction.NpcSell;
+            settings.Maintenance.BagCleanupDiscardItemNameKeywords.Add("protected");
+            settings.Maintenance.BagCleanupStallItems.Add(new() { Name = "protected", UnitPrice = 1 });
+            settings.Paths.GroceryStallPathName = stall.Name;
+            f.Api.InventoryItems = f.Api.InventoryItems.Select(i => i.InstanceId == 12 ? i with { VendorSellUnitPrice = 20000 } : i).ToArray();
+            var atStallLeg = false;
+            var runner = new CleanupWorkflowRunner(f.Input, new InMemorySharedPathStore(route, stall), (context, name, points) =>
+            {
+                if (name == route.Name)
+                {
+                    f.Api.Player = f.Api.Player with { Position = points[^1] };
+                    return Task.FromResult(OperationResult.Ok());
+                }
+                Check(f.SaleClicks == 1 && f.BuyClicks == 1 && ArrowRestockPolicy.Count(f.Api.InventoryItems) == 54000 &&
+                    !f.Ui.IsOpen && !f.Ui.DialogOpen && !f.BagOpen, "sale and arrow purchase finish and close windows before stall movement");
+                Check(context.CleanupPathFinalReachDistance == 1 && points[^1] == stall.Points[^1].ToVector3(),
+                    "post-purchase movement targets the selected stall endpoint");
+                atStallLeg = true;
+                return Task.FromResult(OperationResult.Fail("end test before opening stall"));
+            }, new UnusedJournal(), grocerySuccessStore: new UnusedStallSuccess(), groceryDelay: f.Pause);
+            var request = new CleanupRequest(settings, true) { GroceryTrigger = GroceryShopTrigger.Manual };
+            try { await runner.RunAsync(f.Context, request); }
+            catch (InvalidOperationException) when (atStallLeg) { }
+            Check(atStallLeg == rejected && request.RequestsRestart == !rejected && f.BuyClicks == 1,
+                "sold-out NPC sale completes restock then skips stall; rejected sale finishes restock before travelling");
         }
     }
 }

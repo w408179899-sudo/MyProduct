@@ -23,7 +23,8 @@ public static class CleanupPathTravel
         }
     }
 
-    public static async Task<OperationResult> FollowAsync(AccountWorkerContext context, SharedPathDocument path, BagCleanupPathExecutor execute)
+    public static async Task<OperationResult> FollowAsync(AccountWorkerContext context, SharedPathDocument path, BagCleanupPathExecutor execute,
+        double? finalReachDistance = null)
     {
         var index = Math.Max(0, await NearbyIndexAsync(context, path));
         context.Logger.Info("cleanup_path.entry", new Dictionary<string, object?>
@@ -31,6 +32,7 @@ public static class CleanupPathTravel
             ["account"] = context.Config.AccountName, ["path"] = path.Name,
             ["startPointNumber"] = index + 1, ["pointCount"] = path.PointCount
         });
-        return await execute(context, path.Name, path.Points.Skip(index).Select(p => p.ToVector3()).ToArray());
+        var travelContext = finalReachDistance.HasValue ? context.ForCleanupPath(finalReachDistance.Value) : context;
+        return await execute(travelContext, path.Name, path.Points.Skip(index).Select(p => p.ToVector3()).ToArray());
     }
 }

@@ -95,7 +95,9 @@ internal static partial class ArrowRestockTests
             Context = new(new() { AccountName = "arrows", ScriptSettings = new() }, Api, Logger, new AccountRuntimeManager(Logger), new(), Stop.Token) { WorkflowOwnsCleanup = true };
             Api.NpcTradeRead = () => Ui;
             Api.AuctionRead = () => new(Ui.DialogOpen, null, false, 0, new Dictionary<string, GameUiPoint>(), "", "", Array.Empty<AuctionMarketRow>(), false, 0, null);
-            Api.InventoryInteractionRead = () => new(BagOpen, false, false, Array.Empty<InventoryUiItem>(), 0, 0, null, null, false);
+            InventoryUiItem[] Cells() => Api.InventoryItems.Select(i => new InventoryUiItem((uint)i.InstanceId, i.TemplateId, i.Count, new(700 + i.Slot * 32, 142))).ToArray();
+            Api.InventoryInteractionRead = () => new(BagOpen, false, false, Cells(),
+                Cells().FirstOrDefault(i => i.Point == Api.InventoryUiCursor)?.InstanceId ?? 0, 0, null, null, false);
             Input.AfterPress = key =>
             {
                 if (key == "F8") { Api.TargetEntityId = 42; Api.TargetOwnServerObjectId = 42; Api.TargetName = "merchant"; }
@@ -129,6 +131,13 @@ internal static partial class ArrowRestockTests
                 var point = Api.InventoryUiCursor;
                 if (button == RoadhogMouseButton.Right)
                 {
+                    if (Ui.IsSelling)
+                    {
+                        var item = Cells().Single(i => i.Point == point);
+                        Check(BagOpen && !Shift, "configured NPC sale uses ordinary item clicks");
+                        Ui = Ui with { Basket = Ui.Basket.Append(new NpcTradeItem(item.InstanceId, item.TemplateId, item.Quantity)).ToArray() };
+                        return;
+                    }
                     Check(Shift && point == Item.Point && Ui.Purchase!.QuantityDialog == null, "hold Shift while moving and clicking exact arrow");
                     RightClicks++;
                     rightClickAwaitingClientFrame = true;
