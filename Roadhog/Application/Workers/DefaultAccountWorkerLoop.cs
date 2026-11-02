@@ -793,12 +793,17 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
         AccountWorkerContext context,
         StationaryCombatState state)
     {
-        if (state.IsMovingForward)
+        await state.ForwardInputSync.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        try
         {
-            var result = await _keyboard.KeyUpAsync("W", CancellationToken.None).ConfigureAwait(false);
-            state.IsMovingForward = false;
-            LogInputRelease(context, "W", "key_up", result);
+            if (state.IsMovingForward)
+            {
+                var result = await _keyboard.KeyUpAsync("W", CancellationToken.None).ConfigureAwait(false);
+                state.IsMovingForward = false;
+                LogInputRelease(context, "W", "key_up", result);
+            }
         }
+        finally { state.ForwardInputSync.Release(); }
 
         if (state.IsRightMouseDown)
         {

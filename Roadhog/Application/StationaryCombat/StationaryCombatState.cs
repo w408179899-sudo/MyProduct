@@ -49,7 +49,10 @@ public sealed class StationaryCombatState
 
     public bool Fighting { get; set; }
 
-    public bool IsMovingForward { get; set; }
+    // Foreground navigation and arrival stopping share only the forward-key lane.
+    internal SemaphoreSlim ForwardInputSync { get; } = new(1, 1);
+    private volatile bool _isMovingForward;
+    public bool IsMovingForward { get => _isMovingForward; set => _isMovingForward = value; }
 
     public bool IsRightMouseDown { get; set; }
 

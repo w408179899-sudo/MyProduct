@@ -2118,6 +2118,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         int pointIndex,
         double distanceToPoint)
     {
+        if (!state.IsMovingForward) return;
+
         var now = DateTimeOffset.Now;
         var deathRecovery = state.DeathRecovery;
         var minProgressDistance = ReadDeathRevivePathStuckDistance();
@@ -3131,6 +3133,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         int pointIndex,
         double distanceToPoint)
     {
+        if (!state.IsMovingForward) return;
+
         var now = DateTimeOffset.Now;
         var pathCombat = state.PathCombat;
         var minProgressDistance = ReadDeathRevivePathStuckDistance();
@@ -9210,12 +9214,14 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
         var options = ReadPathFollowTurnOptions(context.Config.ScriptSettings?.Combat);
         var poller = EnsurePathFollowPoller(context, state, player, options);
-        SetPathFollowPollTarget(poller, targetIndex: 0, target, reachDistance, options);
+        var targetVersion = await SetPathFollowTargetAsync(context, state, poller, target, reachDistance, options)
+            .ConfigureAwait(false);
         if (TryConsumePathFollowArrival(poller, out var arrivedSnapshot))
         {
-            var stoppedForward = state.IsMovingForward;
+            var stoppedForward = state.IsMovingForward || poller.ArrivalStoppedForward;
             await StopMovementAsync(context, state, releaseRightMouse: false).ConfigureAwait(false);
-            LogPathAction(context, state, "arrived_latched", arrivedSnapshot, 0, 0);
+            if (state.IsMovingForward) return; // A failed W-up keeps the arrival executor available to retry.
+            if (arrivedSnapshot is not null) LogPathAction(context, state, "arrived_latched", arrivedSnapshot, 0, 0);
             if (afterWaypointStopAsync is not null)
             {
                 await afterWaypointStopAsync(
@@ -9249,6 +9255,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 TryMarkPathFollowArrivedNow(poller, out _, out _);
                 var stoppedForward = state.IsMovingForward;
                 await StopMovementAsync(context, state, releaseRightMouse: false).ConfigureAwait(false);
+                if (state.IsMovingForward) return;
                 LogPathAction(context, state, "arrived", snapshot, 0, 0);
                 if (afterWaypointStopAsync is not null)
                 {
@@ -9367,7 +9374,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         }
 
         await EnsureRightMouseDownAsync(context, state).ConfigureAwait(false);
-        var moveStarted = await EnsureMoveForwardAsync(context, state).ConfigureAwait(false);
+        var moveStarted = await EnsureMoveForwardAsync(context, state, poller, targetVersion).ConfigureAwait(false);
         LogActionThrottled(context, state, "stationary_combat.path_follow", "move_forward", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
@@ -11166,39 +11173,46 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
     }
 
     private async Task<bool> EnsureMoveForwardAsync(
-        AccountWorkerContext context,
-        StationaryCombatState state)
+        AccountWorkerContext context, StationaryCombatState state,
+        PathFollowPollState? expectedPoller = null, long? targetVersion = null)
     {
-        if (state.IsMovingForward)
+        var poller = expectedPoller ?? state.PathFollowPoller as PathFollowPollState;
+        await state.ForwardInputSync.WaitAsync(context.StopToken).ConfigureAwait(false);
+        try
         {
-            return false;
-        }
-
-        // A new movement attempt must not inherit time spent fighting, turning or switching channels.
-        state.ResetReturnHomeStuckTracking();
-        state.ResetStartupRecoveryStuckTracking();
-        var down = await _input.KeyDownAsync("W", context.StopToken).ConfigureAwait(false);
-        state.IsMovingForward = down.Success;
-        SetPathFollowMoving(state, state.IsMovingForward);
-        if (!down.Success)
-        {
-            context.Logger.Warn("stationary_combat.move_key.failed", new Dictionary<string, object?>
+            if (!CanStartPathForward(state, poller, targetVersion)) return false;
+            if (state.IsMovingForward)
             {
-                ["account"] = context.Config.AccountName,
-                ["key"] = "W",
-                ["error"] = down.Error
-            });
-        }
+                return false;
+            }
 
-        if (down.Success)
-        {
-            context.Logger.Info("stationary_combat.input.w_down", new Dictionary<string, object?>
+            // A new movement attempt must not inherit time spent fighting, turning or switching channels.
+            state.ResetReturnHomeStuckTracking();
+            state.ResetStartupRecoveryStuckTracking();
+            var down = await _input.KeyDownAsync("W", context.StopToken).ConfigureAwait(false);
+            state.IsMovingForward = down.Success;
+            SetPathFollowMoving(state, state.IsMovingForward);
+            if (!down.Success)
             {
-                ["account"] = context.Config.AccountName
-            });
-        }
+                context.Logger.Warn("stationary_combat.move_key.failed", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["key"] = "W",
+                    ["error"] = down.Error
+                });
+            }
 
-        return down.Success;
+            if (down.Success)
+            {
+                context.Logger.Info("stationary_combat.input.w_down", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName
+                });
+            }
+
+            return down.Success;
+        }
+        finally { state.ForwardInputSync.Release(); }
     }
 
     private async Task EnsureRightMouseDownAsync(
@@ -11250,25 +11264,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         });
     }
 
-    private async Task StopMoveForwardAsync(
-        AccountWorkerContext context,
-        StationaryCombatState state)
-    {
-        if (!state.IsMovingForward)
-        {
-            return;
-        }
-
-        await _input.KeyUpAsync("W", context.StopToken).ConfigureAwait(false);
-        state.IsMovingForward = false;
-        SetPathFollowMoving(state, false);
-        state.ResetCombatApproachStuckTracking();
-        context.Logger.Info("stationary_combat.input.w_up", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["source"] = "stop_move_forward"
-        });
-    }
+    private Task StopMoveForwardAsync(AccountWorkerContext context, StationaryCombatState state) =>
+        StopForwardInputAsync(context, state, "stop_move_forward", context.StopToken);
 
     private async Task StopMovementAsync(
         AccountWorkerContext context,
@@ -11277,18 +11274,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
     {
         state.ResetReturnHomeStuckTracking();
         state.ResetStartupRecoveryStuckTracking();
-        if (state.IsMovingForward)
-        {
-            await _input.KeyUpAsync("W", context.StopToken).ConfigureAwait(false);
-            state.IsMovingForward = false;
-            SetPathFollowMoving(state, false);
-            state.ResetCombatApproachStuckTracking();
-            context.Logger.Info("stationary_combat.input.w_up", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["source"] = "stop_movement"
-            });
-        }
+        await StopForwardInputAsync(context, state, "stop_movement", context.StopToken).ConfigureAwait(false);
 
         if (releaseRightMouse && state.IsRightMouseDown)
         {
@@ -11350,22 +11336,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         AccountWorkerContext context,
         StationaryCombatState state)
     {
-        if (state.IsMovingForward)
-        {
-            var result = await _input.KeyUpAsync("W", CancellationToken.None).ConfigureAwait(false);
-            state.IsMovingForward = false;
-            SetPathFollowMoving(state, false);
-            state.ResetCombatApproachStuckTracking();
-            if (!result.Success)
-            {
-                context.Logger.Warn("stationary_combat.input.w_up_failed", new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["source"] = "stop_movement_best_effort",
-                    ["error"] = result.Error
-                });
-            }
-        }
+        await StopForwardInputAsync(context, state, "stop_movement_best_effort", CancellationToken.None).ConfigureAwait(false);
 
         if (state.IsRightMouseDown)
         {
@@ -12089,6 +12060,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         {
             AccountName = context.Config.AccountName,
             ProcessId = context.Config.ProcessId,
+            IsMoving = state.IsMovingForward,
             Options = options,
             TargetPitch = options.TargetPitchDegrees,
             Cancellation = CancellationTokenSource.CreateLinkedTokenSource(context.StopToken)
@@ -12100,18 +12072,20 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             UpdatePathFollowPollMetricsLocked(poller);
         }
 
-        poller.Task = Task.Run(() => PathFollowPollLoopAsync(context, poller), CancellationToken.None);
         state.PathFollowPoller = poller;
+        poller.Task = Task.Run(() => PathFollowPollLoopAsync(context, state, poller), CancellationToken.None);
         return poller;
     }
 
-    private async Task PathFollowPollLoopAsync(AccountWorkerContext context, PathFollowPollState poller)
+    private async Task PathFollowPollLoopAsync(AccountWorkerContext context, StationaryCombatState state, PathFollowPollState poller)
     {
         using var backgroundReads = SnapshotReadBudget.Enter(Timeout.InfiniteTimeSpan);
         var interval = TimeSpan.FromMilliseconds(ReadPathFollowTickMs());
         while (!poller.Cancellation.IsCancellationRequested)
         {
             var player = await ReadPlayerForActionAsync(context).ConfigureAwait(false);
+            long arrivalVersion;
+            bool arrived;
             lock (poller.SyncRoot)
             {
                 if (poller.StopRequested)
@@ -12123,16 +12097,21 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 poller.LastReadTime = DateTimeOffset.Now;
                 poller.ReadCount++;
                 UpdatePathFollowPollMetricsLocked(poller);
-                if (poller.TargetIndex >= 0 &&
-                    !poller.HasArrived &&
-                    poller.HasMetrics &&
-                    poller.MetricsSnapshot is not null &&
-                    poller.MetricsSnapshot.DistanceToTarget <= poller.ReachDistance)
-                {
-                    poller.HasArrived = true;
-                    poller.ArrivedTargetIndex = poller.TargetIndex;
-                    poller.ArrivedSnapshot = poller.MetricsSnapshot;
-                }
+                MarkPathFollowArrivalLocked(poller);
+                arrivalVersion = poller.TargetVersion;
+                arrived = poller.ArrivalObserved;
+            }
+
+            try
+            {
+                if (arrived)
+                    await StopArrivedPathForwardAsync(context, state, poller, arrivalVersion).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (poller.Cancellation.IsCancellationRequested) { return; }
+            catch (Exception ex)
+            {
+                context.Logger.Warn("stationary_combat.path_arrival.stop_failed", new Dictionary<string, object?>
+                    { ["account"] = context.Config.AccountName, ["error"] = ex.Message });
             }
 
             try
@@ -12156,8 +12135,11 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         lock (poller.SyncRoot)
         {
             if (poller.TargetIndex != targetIndex ||
-                !SamePoint(poller.TargetPoint, target))
+                !SamePoint(poller.TargetPoint, target) || poller.ReachDistance != reachDistance)
             {
+                poller.TargetVersion++;
+                poller.ArrivalObserved = false;
+                poller.ArrivalStoppedForward = false;
                 poller.HasArrived = false;
                 poller.ArrivedTargetIndex = -1;
                 poller.ArrivedSnapshot = null;
@@ -12170,6 +12152,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             poller.Options = options;
             poller.TargetPitch = options.TargetPitchDegrees;
             UpdatePathFollowPollMetricsLocked(poller);
+            MarkPathFollowArrivalLocked(poller);
         }
     }
 
@@ -12220,25 +12203,20 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
     private static bool TryConsumePathFollowArrival(
         PathFollowPollState poller,
-        out CameraTurnSnapshot snapshot)
+        out CameraTurnSnapshot? snapshot)
     {
         lock (poller.SyncRoot)
         {
             if (!poller.HasArrived ||
-                poller.ArrivedTargetIndex != poller.TargetIndex ||
-                poller.ArrivedSnapshot is null)
+                poller.ArrivedTargetIndex != poller.TargetIndex)
             {
                 snapshot = default!;
                 return false;
             }
 
-            snapshot = poller.ArrivedSnapshot with
-            {
-                Age = DateTimeOffset.Now - poller.LastReadTime
-            };
-            poller.HasArrived = false;
-            poller.ArrivedTargetIndex = -1;
-            poller.ArrivedSnapshot = null;
+            snapshot = poller.ArrivedSnapshot is { } arrived
+                ? arrived with { Age = DateTimeOffset.Now - poller.LastReadTime } : null;
+            // Retain arrival until the poller is retired or explicitly retargeted, including failed W-up retries.
             return true;
         }
     }
@@ -12277,16 +12255,11 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
     {
         lock (poller.SyncRoot)
         {
-            if (poller.TargetIndex >= 0 &&
-                poller.HasMetrics &&
-                poller.MetricsSnapshot is not null &&
-                poller.MetricsSnapshot.DistanceToTarget <= poller.ReachDistance)
+            MarkPathFollowArrivalLocked(poller);
+            if (poller.ArrivalObserved)
             {
-                poller.HasArrived = true;
-                poller.ArrivedTargetIndex = poller.TargetIndex;
-                poller.ArrivedSnapshot = poller.MetricsSnapshot;
                 arrivedTargetIndex = poller.TargetIndex;
-                arrivedDistance = poller.MetricsSnapshot.DistanceToTarget;
+                arrivedDistance = poller.ArrivedDistance;
                 return true;
             }
         }
@@ -12300,9 +12273,9 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
     {
         lock (poller.SyncRoot)
         {
-            if (poller.StopRequested)
+            if (poller.StopRequested || poller.ArrivalObserved)
             {
-                reason = "poller_stop_requested";
+                reason = poller.StopRequested ? "poller_stop_requested" : "arrived";
                 return true;
             }
         }
@@ -13351,6 +13324,10 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         public bool HasMetrics { get; set; }
         public CameraTurnSnapshot? MetricsSnapshot { get; set; }
         public bool IsMoving { get; set; }
+        public long TargetVersion { get; set; }
+        public bool ArrivalObserved { get; set; }
+        public double ArrivedDistance { get; set; }
+        public bool ArrivalStoppedForward { get; set; }
         public bool HasArrived { get; set; }
         public int ArrivedTargetIndex { get; set; }
         public CameraTurnSnapshot? ArrivedSnapshot { get; set; }

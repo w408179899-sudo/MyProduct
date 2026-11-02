@@ -1271,6 +1271,12 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat death recovery leader siphon pauses and resumes revive path", TestStationaryCombatDeathRecoveryLeaderSiphonPausesAndResumesRevivePathAsync),
     ("worker runs team output during revive path leader siphon", TestWorkerRunsTeamOutputDuringRevivePathLeaderSiphonAsync),
     ("worker continues loot during revive path leader siphon", TestWorkerContinuesLootDuringRevivePathLeaderSiphonAsync),
+    ("path arrival stops W without foreground ticks using coordinate precision", PathArrivalTests.StopsWithoutForegroundTickAsync),
+    ("path arrival during pending W-down releases after the press", PathArrivalTests.ArrivalDuringKeyDownAsync),
+    ("path arrival during camera correction cannot restart W", PathArrivalTests.ArrivalDuringCameraAdjustmentAsync),
+    ("path arrival old signals cannot stop retargeted movement", PathArrivalTests.RetargetRejectsOldSignalsAsync),
+    ("path arrival failed release retries without restarting W", PathArrivalTests.ReleaseFailureRetriesAsync),
+    ("path arrival cancellation and account isolation", PathArrivalTests.CancellationAndIsolationAsync),
     ("manual path retries transient player read failures", TestManualPathRetriesTransientPlayerReadFailuresAsync),
     ("manual path waits through persistent player faults until canceled", TestManualPathFailsAfterPlayerReadRetryTimeoutAsync),
     ("path combat worker follows configured combat path", TestPathCombatWorkerFollowsConfiguredCombatPathAsync),
@@ -19924,22 +19930,30 @@ static async Task TestManualPathRetriesTransientPlayerReadFailuresAsync()
         var gameApi = new FakeGameApi();
         var atStart = gameApi.Player with { Position = new Vector3Snapshot(0, 0, 0) };
         var atEnd = gameApi.Player with { Position = new Vector3Snapshot(10, 0, 0) };
-        gameApi.Player = atEnd;
-        gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Ok(atStart));
-        gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Ok(atStart));
-        gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Ok(atStart));
-        for (var index = 0; index < 10; index++)
+        gameApi.Player = atStart;
+        keyboard.AfterKeyDown = key =>
         {
-            gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Fail("transient player read"));
-        }
+            if (key == "W") gameApi.PlayerReadFallback = OperationResult<PlayerSnapshot>.Fail("transient player read");
+        };
         var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
 
-        var result = await controller
+        var execution = controller
             .ExecutePathOnceAsync(
                 CreateContext(settings, gameApi, logger),
                 "cleanup-path",
-                new[] { new Vector3Snapshot(0, 0, 0), new Vector3Snapshot(10, 0, 0) })
-            .ConfigureAwait(false);
+                new[] { new Vector3Snapshot(0, 0, 0), new Vector3Snapshot(10, 0, 0) });
+
+        try
+        {
+            await WaitUntilAsync(() => keyboard.KeyDowns.Contains("W") &&
+                logger.Entries.Any(entry => entry.EventName == "snapshot.read.retry"), "moving path read retry");
+        }
+        finally
+        {
+            gameApi.Player = atEnd;
+            gameApi.PlayerReadFallback = null;
+        }
+        var result = await execution.ConfigureAwait(false);
 
         AssertFalse(!result.Success, "transient player reads should not abort path: " + result.Error);
         AssertFalse(!keyboard.KeyDowns.Contains("W"), "path should begin moving before the transient read failure");
@@ -24340,45 +24354,33 @@ static async Task TestStationaryCombatConsumesWaypointArrivalAndCommitsClearTarg
         AssertFalse(!keyboard.KeyDowns.Contains("W"), "first radar waypoint tick should hold W");
         AssertFalse(state.ObstacleNavigation.Route.Count == 0, "first radar tick should retain a waypoint route");
         var waypoint = state.ObstacleNavigation.Route[state.ObstacleNavigation.WaypointIndex];
+        var releaseStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finishRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        keyboard.AfterKeyUp = key =>
+        {
+            if (key != "W") return;
+            releaseStarted.TrySetResult();
+            finishRelease.Task.WaitAsync(TimeSpan.FromSeconds(3)).GetAwaiter().GetResult();
+            gameApi.Player = gameApi.Player with
+                { Position = new Vector3Snapshot(12, 0, 0), CapturedAt = DateTimeOffset.Now };
+        };
         gameApi.Player = gameApi.Player with
         {
             Position = new Vector3Snapshot((float)waypoint.X, (float)waypoint.Y, 0),
             CapturedAt = DateTimeOffset.Now
         };
-
-        var readsBeforeWaypoint = gameApi.PlayerReadCount;
-        var latchDeadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(2);
-        while (gameApi.PlayerReadCount <= readsBeforeWaypoint && DateTimeOffset.UtcNow < latchDeadline)
-        {
-            await Task.Delay(10).ConfigureAwait(false);
-        }
-
-        await Task.Delay(30).ConfigureAwait(false);
-        AssertFalse(gameApi.PlayerReadCount <= readsBeforeWaypoint, "path poller should sample the reached waypoint");
-
-        gameApi.Player = gameApi.Player with
-        {
-            Position = new Vector3Snapshot(5, 0, 0),
-            CapturedAt = DateTimeOffset.Now
-        };
-        await Task.Delay(70).ConfigureAwait(false);
-        keyboard.AfterKeyUp = key =>
-        {
-            if (string.Equals(key, "W", StringComparison.OrdinalIgnoreCase))
-            {
-                gameApi.Player = gameApi.Player with
-                {
-                    Position = new Vector3Snapshot(12, 0, 0),
-                    CapturedAt = DateTimeOffset.Now
-                };
-            }
-        };
-
-        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        await releaseStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        AssertEqual(1, keyboard.KeyUps.Count(key => key == "W"), "background arrival submits W-up before the foreground resumes");
+        // Foreground observes a blocked line while W-up is in flight; after release it must recheck the fresh position.
+        gameApi.Player = gameApi.Player with { Position = new Vector3Snapshot(5, 0, 0), CapturedAt = DateTimeOffset.Now };
+        Task nextTick;
+        try { nextTick = controller.TickAsync(context, plan, semiAutoState, state); }
+        finally { finishRelease.TrySetResult(); }
+        await nextTick.ConfigureAwait(false);
 
         AssertEqual(1, keyboard.KeyUps.Count(key => string.Equals(key, "W", StringComparison.OrdinalIgnoreCase)), "latched arrival should stop W once");
         AssertEqual(1, keyboard.KeyDowns.Count(key => string.Equals(key, "W", StringComparison.OrdinalIgnoreCase)), "clear confirmation must not restart W toward the old waypoint");
-        AssertFalse(!state.ObstacleNavigation.IsDirectApproachCommitted(targetServerObjectId), "clear post-stop snapshot should commit direct approach to the same target");
+        AssertFalse(!state.ObstacleNavigation.IsDirectApproachCommitted(targetServerObjectId), "clear post-stop snapshot should commit direct approach to the same target: " + string.Join(" | ", logger.Entries.TakeLast(15).Select(e => e.EventName + "=" + JsonSerializer.Serialize(e.Fields))));
         AssertFalse(state.ObstacleNavigation.Route.Count != 0, "direct commitment should discard the old waypoint route");
         AssertFalse(!logger.Entries.Any(entry =>
             entry.EventName == "stationary_combat.path_follow" &&
