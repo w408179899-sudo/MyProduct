@@ -64,6 +64,7 @@ public sealed record WorkerStatus
     // An attempted login did not complete. Distinct from hardware/configuration/authorization rejection.
     public bool LoginRetryPending { get; init; }
     public Guid? StandaloneShopRestartRequestId { get; init; }
+    public Guid? ScriptRestartRequestId { get; init; }
     public Guid? GameSessionCompletedRequestId { get; init; }
     public Roadhog.Application.GameSessions.GameSessionOperation? PendingGameSessionOperation { get; init; }
     public Roadhog.Application.GameSessions.GameSessionOperation? CompletedGameSessionOperation { get; init; }

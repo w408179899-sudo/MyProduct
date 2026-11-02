@@ -9,6 +9,8 @@ public enum TownReturnPhase { WaitingForDeparture, Loading, WaitingForDestinatio
 /// <summary>Action confirmation only. Scene/player coherence is owned by the snapshot provider.</summary>
 public sealed class TownReturnTransition
 {
+    public static readonly TimeSpan ConfirmationWait = TimeSpan.FromMinutes(1);
+    public const int MaximumAttempts = 20;
     public const double ArrivalRadius = 35;
     public const double ArrivalHeightTolerance = 20;
     public TownReturnPhase Phase { get; private set; }
@@ -17,7 +19,10 @@ public sealed class TownReturnTransition
     private ChannelTransitionSnapshot? _observed;
     public SharedPathDocument? Destination { get; private set; }
     public DateTimeOffset StartedAt { get; private set; }
+    public DateTimeOffset LastAttemptAt { get; private set; }
+    public int AttemptCount { get; private set; }
     public bool SawLoading { get; private set; }
+    public bool HasDeparted { get; private set; }
     public bool Active => Departure != null && Phase is not (TownReturnPhase.Arrived or TownReturnPhase.Dead);
     private string? _reported;
 
@@ -28,11 +33,26 @@ public sealed class TownReturnTransition
         Departure = departure;
         Destination = destination.Clone();
         StartedAt = now;
+        LastAttemptAt = now;
+        AttemptCount = 1;
         Arrival = null;
         _observed = departure;
         SawLoading = false;
+        HasDeparted = false;
         _reported = null;
         Phase = TownReturnPhase.WaitingForDeparture;
+    }
+
+    // Reserve before sending input: an uncertain input acknowledgement must still count.
+    // Only a completed scene observation at the original position permits another key press.
+    public bool TryReserveRetry(DateTimeOffset now)
+    {
+        if (!Active || Phase != TownReturnPhase.WaitingForDeparture || HasDeparted ||
+            now - LastAttemptAt < ConfirmationWait || AttemptCount >= MaximumAttempts)
+            return false;
+        AttemptCount++;
+        LastAttemptAt = now;
+        return true;
     }
 
     public TownReturnPhase Observe(ChannelTransitionSnapshot scene)
@@ -42,6 +62,7 @@ public sealed class TownReturnTransition
         if (!scene.IsReady)
         {
             SawLoading = true;
+            HasDeparted = true;
             return Phase = TownReturnPhase.Loading;
         }
         if (scene.Player!.IsDead)
@@ -54,8 +75,8 @@ public sealed class TownReturnTransition
         var moved = HorizontalDistance(scene.Player.Position!.Value, Departure.Player!.Position!.Value);
         // Accept a missed loading frame only with a completed destination observation and
         // action evidence. No movement input is allowed while this operation owns the worker.
-        var departed = SawLoading || mapChanged || moved >= 5;
-        if (!departed) return Phase = TownReturnPhase.WaitingForDeparture;
+        HasDeparted |= mapChanged || moved >= 5;
+        if (!HasDeparted) return Phase = TownReturnPhase.WaitingForDeparture;
         if (!MatchesDestination(scene, Destination!)) return Phase = TownReturnPhase.WaitingForDestination;
         Arrival = scene;
         return Phase = TownReturnPhase.Arrived;
@@ -101,8 +122,8 @@ public sealed class TownReturnTransition
             ? "回城后落点与路线入口不符，已停止移动，继续等待正确落点。"
             : SawLoading && elapsed >= TimeSpan.FromSeconds(60)
                 ? "回城地图加载较慢，正在等待角色恢复；可停止任务。"
-                : !SawLoading && elapsed >= TimeSpan.FromSeconds(30)
-                    ? "回城尚未确认，已停止移动，继续观察延迟传送；请检查回城技能或停止任务。"
+                : !SawLoading && elapsed >= ConfirmationWait
+                    ? "回城尚未确认，已停止移动，等待回城流程处理。"
                     : null;
         if (warning == null || warning == _reported) return;
         _reported = warning;
@@ -117,6 +138,7 @@ public sealed class TownReturnTransition
         ["sourceMapId"] = Departure?.Channel?.MapId, ["observedMapId"] = _observed?.Channel?.MapId,
         ["position"] = _observed?.Player?.Position, ["entry"] = Destination?.Points.FirstOrDefault()?.ToVector3(),
         ["elapsedMs"] = (DateTimeOffset.UtcNow - StartedAt).TotalMilliseconds,
+        ["attempt"] = AttemptCount,
         ["sawLoading"] = SawLoading, ["legacyPathWithoutMap"] = Destination?.MapId is not > 0
     };
 

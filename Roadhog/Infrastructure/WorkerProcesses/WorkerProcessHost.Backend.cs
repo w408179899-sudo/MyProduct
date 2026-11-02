@@ -134,6 +134,7 @@ internal sealed partial class RoadhogWorkerProcessBackend : IWorkerProcessBacken
             GameDisconnectRequestId = DisconnectRequestId,
             LoginRetryPending = _loginRetryPending,
             StandaloneShopRestartRequestId = _services.AccountOrchestrator.GetStandaloneShopRestartRequestId(_spec.Account.AccountName),
+            ScriptRestartRequestId = _services.AccountOrchestrator.GetScriptRestartRequestId(_spec.Account.AccountName),
             GameSessionCompletedRequestId = _services.AccountOrchestrator.GetCompletedGameSession(_spec.Account.AccountName)?.Id,
             PendingGameSessionOperation = _services.AccountOrchestrator.GetPendingGameSession(_spec.Account.AccountName)?.Operation,
             CompletedGameSessionOperation = _services.AccountOrchestrator.GetCompletedGameSession(_spec.Account.AccountName)?.Operation,

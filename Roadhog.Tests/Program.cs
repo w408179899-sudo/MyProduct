@@ -776,6 +776,13 @@ var tests = new (string Name, Func<Task> Run)[]
     ("target acquire distance approach and tab boundaries", TargetAcquireDistanceTests.AcquisitionBoundaryAsync),
     ("target acquire distance overview editor save validation and reload", TargetAcquireDistanceTests.OverviewUiAsync),
     ("town return delayed landing remains exclusive and reconnects route", TownReturnTests.StartupDelayedLandingAsync),
+    ("town return retries only after one minute and accepts late landing", TownReturnTests.RetryMinuteBoundaryAsync),
+    ("town return startup and no kill stop after twenty total attempts", TownReturnTests.RetryTwentyAttemptLimitAsync),
+    ("town return retry loading destination and death guards", TownReturnTests.RetrySceneGuardsAsync),
+    ("town return retry input failures are counted and spaced", TownReturnTests.RetryInputFailuresAsync),
+    ("town return retry pending read deadline stop and read yield", TownReturnTests.RetryPendingReadAsync),
+    ("town return retry exhaustion requests restart and holds normal work", TownReturnTests.RetryExhaustionRestartsWorkerAsync),
+    ("town return script restart host publication stop and fresh session", TownReturnTests.ScriptRestartHostLifecycleAsync),
     ("town return death and pending read cancellation", TownReturnTests.DeathAndCancellationAsync),
     ("town return cleanup branches confirm coherent destination", TownReturnTests.CleanupBothReturnsAsync),
     ("town return worker owns transition before normal work", TownReturnTests.WorkerOwnsTransitionAsync),
@@ -1604,6 +1611,9 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("standalone shop workflow settles and closes without old worker return", CleanupWorkflowTests.StandaloneShopCompletionAsync)
     ,("standalone shop real worker waits for stop and fresh startup F1", CleanupWorkflowTests.StandaloneShopWorkerCompletionAsync)
     ,("standalone shop restart fresh IPC worker config leases and account isolation", WorkerProcessManagerTests.StandaloneShopRestartsFreshWorkerAsync)
+    ,("script restart fresh IPC worker and account isolation", WorkerProcessManagerTests.ScriptRestartFreshWorkerAsync)
+    ,("script restart later manual stop wins", WorkerProcessManagerTests.ScriptRestartManualStopWinsAsync)
+    ,("script restart failed reconciliation retries without overlapping workers", WorkerProcessManagerTests.ScriptRestartStopFailureAsync)
     ,("standalone shop restart later manual stop wins admission race", WorkerProcessManagerTests.StandaloneShopManualStopWinsAsync)
     ,("standalone shop restart manual stop during old worker shutdown wins", WorkerProcessManagerTests.StandaloneShopManualStopDuringShutdownWinsAsync)
     ,("standalone shop restart completion survives manager reconnect", WorkerProcessManagerTests.StandaloneShopCompletionSurvivesManagerReconnectAsync)

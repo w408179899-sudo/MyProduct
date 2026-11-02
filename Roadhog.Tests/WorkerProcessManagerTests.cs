@@ -730,6 +730,7 @@ internal static partial class WorkerProcessManagerTests
         private volatile bool _initialized;
         private volatile bool _loggedIn;
         private Guid? _shopRestartRequestId;
+        private Guid? _scriptRestartRequestId;
         private Guid? _gameSessionRequestId;
         private Roadhog.Application.GameSessions.GameSessionOperation? _gameSessionOperation;
         private string? _cleanupFailure;
@@ -757,6 +758,7 @@ internal static partial class WorkerProcessManagerTests
                 Authorized = scenario != "unauthorized", AuthorizationError = scenario == "unauthorized" ? "mock authorization denied" : null,
                 IsRunning = _running, LoginCompleted = _loggedIn, Snapshot = _states.Snapshot().SingleOrDefault(), StandaloneShopRestartRequestId = _shopRestartRequestId,
                 CleanupFailure = _cleanupFailure,
+                ScriptRestartRequestId = _scriptRestartRequestId,
                 GameDisconnectRequestId = _disconnectRequestId,
                 LoginRetryPending = _loginRetryPending,
                 GameSessionCompletedRequestId = _gameSessionRequestId,
@@ -822,7 +824,7 @@ internal static partial class WorkerProcessManagerTests
             await File.WriteAllTextAsync(Path.Combine(spec.Paths.LogDirectory, "started"), _starts.ToString(), cancellationToken);
             _states.MarkStarting(account);
             _states.MarkRunning(account.AccountName, Environment.CurrentManagedThreadId);
-            lock (_shopSync) { _shopRestartRequestId = null; _cleanupFailure = null; _gameSessionRequestId = null; _gameSessionOperation = null; }
+            lock (_shopSync) { _shopRestartRequestId = null; _scriptRestartRequestId = null; _cleanupFailure = null; _gameSessionRequestId = null; _gameSessionOperation = null; }
             if (!cleanupFirst)
                 await File.WriteAllTextAsync(Path.Combine(spec.Paths.LogDirectory, "normal-start.json"), JsonSerializer.Serialize(account), cancellationToken);
             if (cleanupFirst && account.ScriptSettings?.Maintenance.CleanupWorkflow.Mode == CleanupMode.GroceryShop)
@@ -880,6 +882,11 @@ internal static partial class WorkerProcessManagerTests
             {
                 lock (_shopSync) { _cleanupFailure = "unconfirmed settlement"; _running = false; }
                 _states.MarkFailed(spec.Account.AccountName, "unconfirmed settlement");
+                return OperationResult.Ok();
+            }
+            if (method == "mock.script.restart")
+            {
+                lock (_shopSync) _scriptRestartRequestId = arguments[0].GetGuid();
                 return OperationResult.Ok();
             }
             if (method == "mock.shop.sold-out")

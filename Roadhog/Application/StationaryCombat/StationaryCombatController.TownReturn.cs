@@ -35,6 +35,7 @@ public sealed partial class StationaryCombatController
     public async Task<TimeSpan?> TryTickTownReturnAsync(AccountWorkerContext context, SemiAutoSkillPlan plan,
         SemiAutoCombatState semiAutoState, StationaryCombatState state)
     {
+        if (context.GameSessionRequests.ScriptRestartRequestId.HasValue) return IdleDelay;
         if (state.StuckTownReturnPending)
         {
             semiAutoState.ResetAttackKeyPressThrottle();
@@ -77,7 +78,7 @@ public sealed partial class StationaryCombatController
     private async Task<TimeSpan> TickStartupReturnTransitionAsync(AccountWorkerContext context, StationaryCombatState state)
     {
         var transition = state.ReturnTransition ?? throw new InvalidOperationException("回城确认状态缺失。");
-        var phase = await transition.TickAsync(context).ConfigureAwait(false);
+        var phase = await TickRetryableTownReturnAsync(context, state, transition).ConfigureAwait(false);
         if (phase == TownReturnPhase.Dead) state.EnterDeathRecovery(DateTimeOffset.Now);
         else if (phase == TownReturnPhase.Arrived)
         {
@@ -100,7 +101,7 @@ public sealed partial class StationaryCombatController
     {
         var recovery = state.NoKillRecovery;
         var transition = recovery.ReturnTransition ?? throw new InvalidOperationException("无击杀回城确认状态缺失。");
-        var phase = await transition.TickAsync(context).ConfigureAwait(false);
+        var phase = await TickRetryableTownReturnAsync(context, state, transition).ConfigureAwait(false);
         if (phase == TownReturnPhase.Dead) state.EnterDeathRecovery(DateTimeOffset.Now);
         else if (phase == TownReturnPhase.Arrived)
         {

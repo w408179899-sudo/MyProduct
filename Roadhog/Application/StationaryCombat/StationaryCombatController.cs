@@ -66,6 +66,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
     private readonly ISharedPathStore? _pathStore;
     private readonly StationaryObstacleNavigator? _obstacleNavigator;
     private readonly RadarLiveSnapshotRegistry? _radarSnapshots;
+    private readonly TimeProvider _townReturnTime;
     private readonly BagCleanupController? _bagCleanup;
     private readonly TacticalMarkCoordinator _tacticalMark;
     private readonly SemaphoreSlim _cameraTurnInputSync = new(1, 1);
@@ -75,7 +76,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         SemiAutoCombatController semiAuto,
         ISharedPathStore? pathStore = null,
         StationaryObstacleNavigator? obstacleNavigator = null,
-        RadarLiveSnapshotRegistry? radarSnapshots = null)
+        RadarLiveSnapshotRegistry? radarSnapshots = null,
+        TimeProvider? townReturnTime = null)
     {
         _input = input;
         _semiAuto = semiAuto;
@@ -83,6 +85,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         _pathStore = pathStore;
         _obstacleNavigator = obstacleNavigator;
         _radarSnapshots = radarSnapshots;
+        _townReturnTime = townReturnTime ?? TimeProvider.System;
         _bagCleanup = pathStore is null
             ? null
             : new BagCleanupController(input, pathStore, ExecutePathOnceAsync);
@@ -2446,7 +2449,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                     return IdleDelay;
                 }
                 var transition = new TownReturnTransition();
-                transition.Start(departure, pathResult.Value, DateTimeOffset.UtcNow);
+                transition.Start(departure, pathResult.Value, _townReturnTime.GetUtcNow());
                 var press = await _input
                     .PressKeyAsync(key, StartupTownReturnHoldDuration, context.StopToken)
                     .ConfigureAwait(false);
@@ -4535,7 +4538,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             var departure = (await context.Snapshots.ReadChannelTransitionAsync().WaitAsync(context.StopToken).ConfigureAwait(false)).Value;
             if (!departure.IsReady) return IdleDelay;
             var transition = new TownReturnTransition();
-            transition.Start(departure, pathResult.Value, DateTimeOffset.UtcNow);
+            transition.Start(departure, pathResult.Value, _townReturnTime.GetUtcNow());
             var press = await _input
                 .PressKeyAsync(key, NoKillTownReturnHoldDuration, context.StopToken)
                 .ConfigureAwait(false);

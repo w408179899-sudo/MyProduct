@@ -161,6 +161,7 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
             ["chainRoots"] = string.Join(" > ", attackPlan.Roots.Where(root => root.Children.Count > 0).Select(root => root.Name + "@" + root.Key))
         });
 
+        var restartInputReleased = false;
         try
         {
             while (!context.StopToken.IsCancellationRequested)
@@ -199,6 +200,18 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                             await Task.Delay(250, context.StopToken);
                             continue;
                         }
+                    }
+                    if (context.GameSessionRequests.ScriptRestartRequestId is { } restartRequestId)
+                    {
+                        if (!restartInputReleased)
+                        {
+                            await ReleaseActiveInputAsync(context, stationaryCombatState).ConfigureAwait(false);
+                            restartInputReleased = true;
+                            context.Logger.Info("account.restart.requested", new Dictionary<string, object?>
+                                { ["account"] = context.Config.AccountName, ["requestId"] = restartRequestId });
+                        }
+                        await Task.Delay(context.Options.TickInterval, context.StopToken).ConfigureAwait(false);
+                        continue;
                     }
                     if (context.CleanupRequests.Current is { Failure: not null } failedShop)
                     {

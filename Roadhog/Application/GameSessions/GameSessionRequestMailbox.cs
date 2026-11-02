@@ -15,6 +15,13 @@ public sealed class GameSessionRequestMailbox
     private readonly object _sync = new();
     private GameSessionRequest? _current;
     private GameSessionRequest? _completed;
+    private Guid? _scriptRestartRequestId;
+    public Guid? ScriptRestartRequestId { get { lock (_sync) return _scriptRestartRequestId; } }
+    // Restart the worker only; do not send game exit input or manufacture a shop completion.
+    public Guid RequestScriptRestart()
+    {
+        lock (_sync) return _scriptRestartRequestId ??= Guid.NewGuid();
+    }
     public GameSessionRequest? Current { get { lock (_sync) return _current; } }
     public GameSessionRequest? Completed { get { lock (_sync) return _completed; } }
     public OperationResult Request(GameSessionOperation operation)

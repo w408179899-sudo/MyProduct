@@ -85,6 +85,12 @@ public sealed class AccountOrchestrator
             return _workers.TryGetValue(accountName, out var worker) ? worker.StandaloneShopRestartRequestId : null;
     }
 
+    public Guid? GetScriptRestartRequestId(string accountName)
+    {
+        lock (_syncRoot)
+            return _workers.TryGetValue(accountName, out var worker) ? worker.ScriptRestartRequestId : null;
+    }
+
     public GameSessions.GameSessionRequest? GetCompletedGameSession(string accountName)
     {
         lock (_syncRoot)

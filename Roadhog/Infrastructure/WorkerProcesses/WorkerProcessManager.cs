@@ -40,6 +40,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
         public bool Desired;
         public long StopGeneration;
         public Guid? PendingShopRestartId;
+        public bool PendingScriptRestart;
         public string State = "stopped";
         public string? Error;
         public CancellationTokenSource Operation = new();
@@ -351,7 +352,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 }
                 else
                 {
-                    if (!expectedStopGeneration.HasValue) entry.PendingShopRestartId = null;
+                    if (!expectedStopGeneration.HasValue) { entry.PendingShopRestartId = null; entry.PendingScriptRestart = false; }
                     entry.RecoveringGameDisconnect = false;
                     entry.Desired = true;
                     entry.Operation.Cancel();
@@ -553,7 +554,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
             entry.StopGeneration++;
             entry.RecoveringGameDisconnect = false;
             // A user Stop must also cancel a planned restart while shutdown is already running.
-            if (!forShopRestart) { entry.PendingShopRestartId = null; entry.Desired = false; }
+            if (!forShopRestart) { entry.PendingShopRestartId = null; entry.PendingScriptRestart = false; entry.Desired = false; }
             if (entry.StopTask is { IsCompleted: false }) return entry.StopTask;
             entry.Operation.Cancel();
             entry.State = "stopping";
@@ -927,7 +928,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 if (entry.Desired && entry.PendingShopRestartId is { } pendingShop)
                 {
                     if (DateTimeOffset.UtcNow >= entry.RetryAt)
-                        shopRestart = RestartAfterStandaloneShopAsync(entry, pendingShop);
+                        shopRestart = RestartRequestedWorkerAsync(entry, pendingShop);
                     return;
                 }
             }
@@ -957,9 +958,9 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                         shopRestart = CompleteGameSessionAsync(entry, exitId);
                         return;
                     }
-                    if (status.StandaloneShopRestartRequestId is { } requestId && requestId != Guid.Empty && status.IsRunning && status.Authorized)
+                    if ((status.ScriptRestartRequestId ?? status.StandaloneShopRestartRequestId) is { } requestId && requestId != Guid.Empty && status.IsRunning && status.Authorized)
                     {
-                        shopRestart = RestartAfterStandaloneShopAsync(entry, requestId);
+                        shopRestart = RestartRequestedWorkerAsync(entry, requestId);
                         return;
                     }
                     if (status.GameDisconnectRequestId is { } disconnectId && disconnectId != Guid.Empty && status.Authorized
