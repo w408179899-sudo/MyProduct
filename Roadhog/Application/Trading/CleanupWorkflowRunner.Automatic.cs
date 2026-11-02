@@ -11,11 +11,18 @@ public sealed partial class CleanupWorkflowRunner
     {
         var settings = context.Config.ScriptSettings!.Maintenance;
         var cleanup = new BagCleanupController(input, paths, executePath);
+        var discardedCount = 0;
         request.PreparationStage = CleanupPreparationStage.Discarding;
         while (true)
         {
             context.StopToken.ThrowIfCancellationRequested();
-            await cleanup.RunDiscardRequestedAsync(context, report);
+            discardedCount += await cleanup.RunDiscardRequestedAsync(context, report, BagCleanupController.AutomaticDiscardLimit - discardedCount);
+            if (discardedCount >= BagCleanupController.AutomaticDiscardLimit)
+            {
+                request.PreparationStage = CleanupPreparationStage.None;
+                report("本轮已丢弃 13 项，关闭背包继续挂机");
+                return false;
+            }
             var bag = (await context.Snapshots.ReadInventoryAsync().WaitAsync(context.StopToken)).Value;
             var discardCount = BagCleanupItemMatcher.SelectDiscardItems(bag, settings).Count;
             // Items can arrive after closing the inventory. Finish these locally as well.

@@ -24,6 +24,8 @@ public sealed class BagCleanupState
     public int InitialDiscardCandidateCount { get; private set; }
 
     public int DiscardedItemCount { get; private set; }
+    public int? DiscardItemLimit { get; private set; }
+    public bool DiscardLimitReached => DiscardItemLimit.HasValue && DiscardedItemCount >= DiscardItemLimit.Value;
 
     // The workflow owns any subsequent sale/travel stages.
     public bool DiscardOnly { get; set; }
@@ -134,12 +136,14 @@ public sealed class BagCleanupState
         ResetDiscardFields();
     }
 
-    public void StartDiscard(int freeSlots, int threshold, int candidateCount)
+    public void StartDiscard(int freeSlots, int threshold, int candidateCount, int? itemLimit = null)
     {
+        if (itemLimit is <= 0) throw new ArgumentOutOfRangeException(nameof(itemLimit));
         Start(freeSlots, threshold);
         Step = BagCleanupStep.PrepareDiscardInventory;
         StepStartedAt = StartedAt;
         InitialDiscardCandidateCount = Math.Max(0, candidateCount);
+        DiscardItemLimit = itemLimit;
     }
 
     public void SetDiscardWindow(InventoryWindowSnapshot window)
@@ -370,6 +374,7 @@ public sealed class BagCleanupState
     {
         InitialDiscardCandidateCount = 0;
         DiscardedItemCount = 0;
+        DiscardItemLimit = null;
         DiscardConfirmClickCount = 0;
         DiscardTarget = null;
         DiscardWindow = null;

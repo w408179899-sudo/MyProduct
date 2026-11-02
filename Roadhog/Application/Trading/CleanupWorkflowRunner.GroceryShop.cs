@@ -169,6 +169,7 @@ public sealed partial class CleanupWorkflowRunner
     {
         var settings = context.Config.ScriptSettings!.Maintenance;
         var token = context.StopToken;
+        var discardedCount = 0;
         request.PreparationStage = CleanupPreparationStage.Discarding;
         while (true)
         {
@@ -194,7 +195,14 @@ public sealed partial class CleanupWorkflowRunner
                 return bag;
             }
             report("背包空位不足，先按配置原地丢弃，再判断是否出发清包");
-            await new BagCleanupController(input, paths, executePath).RunDiscardRequestedAsync(context, report);
+            discardedCount += await new BagCleanupController(input, paths, executePath)
+                .RunDiscardRequestedAsync(context, report, BagCleanupController.AutomaticDiscardLimit - discardedCount);
+            if (discardedCount >= BagCleanupController.AutomaticDiscardLimit)
+            {
+                request.PreparationStage = CleanupPreparationStage.None;
+                report("本轮已丢弃 13 项，关闭背包继续挂机");
+                return null;
+            }
             // Only confirmed exhaustion plus a new capacity observation may authorize departure.
         }
     }

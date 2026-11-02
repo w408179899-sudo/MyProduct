@@ -18,10 +18,28 @@ public sealed partial class BagCleanupController
 
         var ui = (await context.Snapshots.ReadInventoryInteractionAsync().WaitAsync(context.StopToken)).Value;
         InventoryDiscardActions.RequireIdle(ui);
-        state.ClearDiscardTarget();
-        state.Advance(BagCleanupStep.PrepareDiscardInventory);
+        await ReconcileCancelledDiscardAsync(context, state).ConfigureAwait(false);
+        state.Advance(state.DiscardLimitReached ? BagCleanupStep.CloseDiscardInventory : BagCleanupStep.PrepareDiscardInventory);
         context.Logger.Info("bag_cleanup.discard.retry", new Dictionary<string, object?>
         { ["account"] = context.Config.AccountName, ["discardedCount"] = state.DiscardedItemCount });
         return BagCleanupTickResult.Running("discard_retry_started");
+    }
+
+    private static async Task ReconcileCancelledDiscardAsync(AccountWorkerContext context, BagCleanupState state)
+    {
+        // A confirm input may succeed in the game and then report failure. Count the removed
+        // target before forgetting it, so recovery cannot grant an extra item beyond the limit.
+        if (state.DiscardTarget is { } target)
+        {
+            var bag = (await context.Snapshots.ReadInventoryAsync(state.DiscardInventoryVersion)
+                .WaitAsync(context.StopToken)).Value;
+            if (!bag.Any(item => item.InstanceId == target.InstanceId))
+            {
+                state.MarkDiscardVerified();
+                context.Logger.Info("bag_cleanup.discard.retry_verified", new Dictionary<string, object?>
+                { ["account"] = context.Config.AccountName, ["instanceId"] = target.InstanceId, ["discardedCount"] = state.DiscardedItemCount });
+            }
+        }
+        state.ClearDiscardTarget();
     }
 }

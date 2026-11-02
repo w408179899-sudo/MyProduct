@@ -271,7 +271,8 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                             {
                                 var scheduled = await _cleanupWorkflow.GroceryScheduleDueAsync(context);
                                 var bagFull = false;
-                                if (!scheduled && maintenance.BagCleanupEnabled && maintenance.BagCleanupThreshold > 0)
+                                if (!scheduled && maintenance.BagCleanupEnabled && maintenance.BagCleanupThreshold > 0 &&
+                                    now >= context.CleanupRequests.BackpackRetryAfter)
                                 {
                                     var bag = (await context.Snapshots.ReadInventoryAsync()).Value;
                                     var capacity = (await context.Snapshots.ReadInventoryCapacityAsync()).Value;
@@ -281,7 +282,8 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                                     context.CleanupRequests.Request(scriptSettings, manual: false, resetsCooldown: false, allowNpcSell: false,
                                         groceryTrigger: scheduled ? GroceryShopTrigger.Scheduled : GroceryShopTrigger.Backpack);
                             }
-                            else if (maintenance.BagCleanupEnabled && maintenance.BagCleanupThreshold > 0 && maintenance.CleanupWorkflow.NpcCleanup)
+                            else if (maintenance.BagCleanupEnabled && maintenance.BagCleanupThreshold > 0 && maintenance.CleanupWorkflow.NpcCleanup &&
+                                now >= context.CleanupRequests.BackpackRetryAfter)
                             {
                                 var bag = (await context.Snapshots.ReadInventoryAsync()).Value;
                                 var capacity = (await context.Snapshots.ReadInventoryCapacityAsync()).Value;

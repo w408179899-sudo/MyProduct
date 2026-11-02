@@ -32,9 +32,20 @@ public sealed class CleanupRequestMailbox
     private CleanupRequest? request;
     private Guid? standaloneShopRestartRequestId;
     private DateTimeOffset automaticRetryAfter;
+    private DateTimeOffset backpackRetryAfter;
     public CleanupRequest? Current { get { lock (sync) return request; } }
     public Guid? StandaloneShopRestartRequestId { get { lock (sync) return standaloneShopRestartRequestId; } }
     public DateTimeOffset AutomaticRetryAfter { get { lock (sync) return automaticRetryAfter; } }
+    public DateTimeOffset BackpackRetryAfter { get { lock (sync) return backpackRetryAfter; } }
+
+    public void DeferBackpackCleanup(TimeSpan delay)
+    {
+        lock (sync)
+        {
+            var retryAt = DateTimeOffset.UtcNow + delay;
+            if (retryAt > backpackRetryAfter) backpackRetryAfter = retryAt;
+        }
+    }
     public OperationResult Request(ScriptSettings settings, bool manual, bool resetsCooldown = true, bool allowNpcSell = true, bool standaloneShop = false,
         GroceryShopTrigger groceryTrigger = GroceryShopTrigger.None, bool arrowRestock = false)
     {

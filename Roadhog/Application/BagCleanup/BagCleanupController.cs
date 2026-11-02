@@ -158,6 +158,8 @@ public sealed partial class BagCleanupController
         {
             return BagCleanupTickResult.Skipped("threshold_disabled");
         }
+        if (DateTimeOffset.UtcNow < context.CleanupRequests.BackpackRetryAfter)
+            return BagCleanupTickResult.Skipped("discard_batch_cooldown");
 
         // Keep the original full-cleanup cooldown fast path when no discard rule is configured.
         // Configured discard work remains eligible during that cooldown; once it is exhausted,
@@ -233,7 +235,7 @@ public sealed partial class BagCleanupController
                 return BagCleanupTickResult.Skipped("discard_unsafe");
             }
 
-            state.StartDiscard(freeSlots, threshold, discardCandidates.Count);
+            state.StartDiscard(freeSlots, threshold, discardCandidates.Count, AutomaticDiscardLimit);
             context.Logger.Info("bag_cleanup.discard.start", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
@@ -379,6 +381,11 @@ public sealed partial class BagCleanupController
         AccountWorkerContext context,
         BagCleanupState state)
     {
+        if (state.DiscardLimitReached)
+        {
+            state.Advance(BagCleanupStep.CloseDiscardInventory);
+            return BagCleanupTickResult.Running("discard_limit_reached");
+        }
         var interrupted = await TryAbortDiscardIfUnsafeAsync(context, state).ConfigureAwait(false);
         if (interrupted is not null)
         {
@@ -671,6 +678,7 @@ public sealed partial class BagCleanupController
     {
         var discardedCount = state.DiscardedItemCount;
         var discardOnly = state.DiscardOnly;
+        var limitReached = state.DiscardLimitReached;
         var close = await _discarder.CloseInventoryWindowIfOpenAsync(context).ConfigureAwait(false);
         if (!close.Success)
         {
@@ -687,15 +695,15 @@ public sealed partial class BagCleanupController
         var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
         var discardCandidates = BagCleanupItemMatcher.SelectDiscardItems(inventoryRead.Value, maintenance);
         var threshold = state.TriggerThreshold;
-        if (discardCandidates.Count > 0)
+        if (discardCandidates.Count > 0 && !limitReached)
         {
             // Free slots only trigger a new run; they cannot terminate an active discard batch.
             state.ClearDiscardTarget();
             state.Advance(BagCleanupStep.PrepareDiscardInventory);
             return BagCleanupTickResult.Running("discard_candidates_refreshed");
         }
-        // Requested discard finishes on exhaustion. Its caller owns the capacity/sale decision.
-        int? freeSlots = discardOnly ? null : CountFreeSlots(inventoryRead.Value,
+        // Reaching the local batch limit always yields to grinding, even if no free slots remain.
+        int? freeSlots = discardOnly || limitReached ? null : CountFreeSlots(inventoryRead.Value,
             (await ReadInventoryCapacityAsync(context).ConfigureAwait(false)).Value);
         state.Reset();
 
@@ -706,8 +714,15 @@ public sealed partial class BagCleanupController
             ["freeSlots"] = freeSlots,
             ["threshold"] = threshold,
             ["remainingDiscardCandidateCount"] = discardCandidates.Count,
+            ["limitReached"] = limitReached,
             ["inventoryClosed"] = true
         });
+
+        if (limitReached)
+        {
+            context.CleanupRequests.DeferBackpackCleanup(DiscardBatchCooldown);
+            return discardOnly ? BagCleanupTickResult.Completed("discard_limit_reached") : BagCleanupTickResult.Skipped("discard_limit_reached");
+        }
 
         if (discardOnly) return BagCleanupTickResult.Completed("discard_completed");
 
@@ -904,6 +919,8 @@ public sealed partial class BagCleanupController
         {
             cancel = await _discarder.CancelPendingDiscardAsync(context).ConfigureAwait(false);
             close = await _discarder.CloseInventoryWindowIfOpenAsync(context).ConfigureAwait(false);
+            if (cancel.Success && close.Success)
+                await ReconcileCancelledDiscardAsync(context, state).ConfigureAwait(false);
         }
         catch (SnapshotReadBudgetExceededException) { throw; }
         catch (Exception ex) when (!context.StopToken.IsCancellationRequested)
@@ -925,8 +942,6 @@ public sealed partial class BagCleanupController
             ["step"] = failedStep.ToString(),
             ["resumePolicy"] = "retry_remaining_items"
         });
-        // After verified cancellation, an attack must not try to finish an obsolete dialog.
-        if (cancel.Success && close.Success) state.ClearDiscardTarget();
         return BagCleanupTickResult.Running("discard_retry_pending");
     }
 

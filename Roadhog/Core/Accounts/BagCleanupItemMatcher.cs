@@ -17,7 +17,17 @@ public static class BagCleanupItemMatcher
         IEnumerable<InventoryItemSnapshot> items,
         MaintenanceScriptSettings settings)
     {
-        return SelectItems(items, settings, BagCleanupAction.Discard);
+        // Prioritize only already-eligible candidates; whitelist and sale eligibility stay unchanged.
+        return SelectItems(items, settings, BagCleanupAction.Discard)
+            .OrderBy(DiscardPriority).ToArray();
+    }
+
+    private static int DiscardPriority(InventoryItemSnapshot item)
+    {
+        if (item.ItemType == SkillBookItemType || ContainsAny(item.Name, "技能书")) return 0;
+        if (item.ItemType == 9 || ContainsAny(item.Name, "烙印")) return 1;
+        if (item.ItemType == 27 || ContainsAny(item.Name, "图纸", "图案", "制作", "料理法")) return 2;
+        return 3;
     }
 
     public static IReadOnlyList<InventoryItemSnapshot> SelectSellDiscardConflicts(

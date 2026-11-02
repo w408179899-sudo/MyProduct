@@ -21,6 +21,8 @@ public sealed class CleanupSessionInterruptionException : Exception
 public sealed partial class BagCleanupController
 {
     public static TimeSpan FullCleanupCooldown => ReadCleanupCooldown();
+    public const int AutomaticDiscardLimit = 13;
+    public static readonly TimeSpan DiscardBatchCooldown = TimeSpan.FromSeconds(30);
 
     public async Task ReturnToTownRequestedAsync(AccountWorkerContext context, Action<string> report, string? destinationPathName = null)
     {
@@ -54,8 +56,8 @@ public sealed partial class BagCleanupController
         throw new InvalidOperationException("返回复活点未确认完成。");
     }
 
-    /// <summary>Completion requires a fresh empty candidate list, independent of time or free slots.</summary>
-    public async Task RunDiscardRequestedAsync(AccountWorkerContext context, Action<string> report)
+    /// <summary>Returns confirmed discarded entries after exhaustion or the optional limit, with the bag closed.</summary>
+    public async Task<int> RunDiscardRequestedAsync(AccountWorkerContext context, Action<string> report, int? maxItems = null)
     {
         var settings = context.Config.ScriptSettings!.Maintenance;
         try
@@ -63,7 +65,7 @@ public sealed partial class BagCleanupController
             var bag = (await context.Snapshots.ReadInventoryAsync().WaitAsync(context.StopToken)).Value;
             var discard = BagCleanupItemMatcher.SelectDiscardItems(bag, settings);
             var state = new BagCleanupState();
-            state.StartDiscard(0, int.MaxValue, discard.Count);
+            state.StartDiscard(0, int.MaxValue, discard.Count, maxItems);
             state.DiscardOnly = true;
             if (discard.Count == 0) state.Advance(BagCleanupStep.CloseDiscardInventory);
             while (state.Active)
@@ -77,6 +79,7 @@ public sealed partial class BagCleanupController
                     throw new CleanupSessionInterruptionException();
                 }
                 report("正在按配置丢弃背包物品，已确认丢弃 " + state.DiscardedItemCount + " 项");
+                var confirmedCount = state.DiscardedItemCount;
                 var result = await TickWorkflowAsync(context, state);
                 if (result.Reason == "discard_interrupted_by_attack")
                 {
@@ -85,7 +88,7 @@ public sealed partial class BagCleanupController
                         throw new CleanupCombatInterruptionException();
                 }
                 EnsureRunning(result);
-                if (result.Status == BagCleanupTickStatus.Completed) return;
+                if (result.Status == BagCleanupTickStatus.Completed) return confirmedCount;
                 await Task.Delay(100, context.StopToken);
             }
             throw new InvalidOperationException("丢弃清包被中断。");
