@@ -9,3 +9,18 @@ obj/
 *.exe
 owner-license.json
 owner-signing-key.dat
+
+# Local diagnostics, datasets and Python caches.
+/artifacts/
+/Roadhog/logs/
+__pycache__/
+*.pyc
+
+# Machine-specific launch profiles and hardware calibration notes.
+/Roadhog/Properties/launchSettings.json
+/Hardware.KmBox.Test/Properties/launchSettings.json
+/Hardware.KmBox.Test/kmbox-calibration-notes.md
+
+# Empty designer companions excluded by Roadhog.csproj.
+/Roadhog/AccountSettingsForm.CleanupWorkflow.resx
+/Roadhog/AccountSettingsForm.Layout.resx
