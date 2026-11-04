@@ -1,4 +1,5 @@
 .vs/
+.tmp/
 bin/
 obj/
 *.user
