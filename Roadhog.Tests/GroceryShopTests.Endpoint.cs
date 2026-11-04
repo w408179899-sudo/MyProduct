@@ -50,7 +50,7 @@ internal static partial class GroceryShopTests
     public static async Task StallEndpointGuardsAsync()
     {
         foreach (var npcFirst in new[] { false, true })
-        foreach (var scenario in new[] { "arrived", "outside", "wrong_map", "wrong_floor", "dead", "cancel", "failed" })
+        foreach (var scenario in new[] { "arrived", "post_stop_1_18m", "boundary_3m", "outside", "wrong_map", "wrong_floor", "dead", "cancel", "failed" })
         {
             using var trip = new Trip();
             if (npcFirst)
@@ -72,7 +72,14 @@ internal static partial class GroceryShopTests
                 Check(travel.CleanupPathFinalReachDistance == 1 && points[^1] == trip.Route.Points[^1].ToVector3(),
                     "both grocery modes approach the configured final point at 1m precision");
                 Check(!trip.BagOpen && !trip.Api.NpcTradeRead!().DialogOpen, "NPC and bag close before travelling to stall");
-                trip.Api.Player = trip.Api.Player with { Position = new(1020 - (scenario == "outside" ? 2.16f : .5f), 0, scenario == "wrong_floor" ? 8 : 0) };
+                var distance = scenario switch
+                {
+                    "post_stop_1_18m" => 1.18f,
+                    "boundary_3m" => 3f,
+                    "outside" => 3.01f,
+                    _ => .5f
+                };
+                trip.Api.Player = trip.Api.Player with { Position = new(1020 - distance, 0, scenario == "wrong_floor" ? 8 : 0) };
                 if (scenario == "wrong_map") trip.Api.Channel = trip.Api.Channel with { MapId = 3 };
                 if (scenario == "dead") trip.Api.Player = trip.Api.Player with { CurrentHp = 0 };
                 if (scenario == "cancel") trip.Stop.Cancel();
@@ -82,9 +89,10 @@ internal static partial class GroceryShopTests
             Exception? failure = null;
             try { await runner.RunAsync(context, request); }
             catch (Exception ex) when (ex is InvalidOperationException or OperationCanceledException) { failure = ex; }
-            Check((failure == null) == (scenario == "arrived") && trip.ShopStarts == (scenario == "arrived" ? 1 : 0),
+            var shouldOpen = scenario is "arrived" or "post_stop_1_18m" or "boundary_3m";
+            Check((failure == null) == shouldOpen && trip.ShopStarts == (shouldOpen ? 1 : 0),
                 "only confirmed endpoint arrival permits opening stall: " + npcFirst + "/" + scenario);
-            Check(request.RequestsRestart == (scenario == "arrived") && trip.Success.Saves == (scenario == "arrived" ? 1 : 0),
+            Check(request.RequestsRestart == shouldOpen && trip.Success.Saves == (shouldOpen ? 1 : 0),
                 "unconfirmed arrival cannot report sellout or restart");
             Check(context.CleanupPathFinalReachDistance == null && context.Config.ScriptSettings!.Combat.PathFollowReachDistance == 5,
                 "stall arrival policy does not leak to later paths");

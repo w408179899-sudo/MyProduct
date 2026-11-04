@@ -9,8 +9,9 @@ public sealed partial class CleanupWorkflowRunner
 {
     private async Task FollowGroceryStallPathAsync(AccountWorkerContext context, SharedPathDocument route)
     {
-        const double arrivalDistance = 1;
-        Check(await CleanupPathTravel.FollowAsync(context, route, executePath, finalReachDistance: arrivalDistance));
+        const double finalReachDistance = 1;
+        const double arrivalDistance = 3;
+        Check(await CleanupPathTravel.FollowAsync(context, route, executePath, finalReachDistance: finalReachDistance));
         context.StopToken.ThrowIfCancellationRequested();
         await new TradingActions(input, context.Snapshots, context.StopToken, groceryDelay).Reset();
         var scene = (await context.Snapshots.ReadChannelTransitionAsync().WaitAsync(context.StopToken)).Value;
