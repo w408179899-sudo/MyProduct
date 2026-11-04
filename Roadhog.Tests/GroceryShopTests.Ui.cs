@@ -154,6 +154,9 @@ internal static partial class GroceryShopTests
                 var grocery = Find<RadioButton>("groceryCleanupModeRadio");
                 var card = Find<Panel>("groceryOptionsPanel");
                 var warehouseToggle = Find<Button>("cleanupWorkflowOptionsButton");
+                var fullBagReturn = Find<RoundedCheckBox>("bagCleanupReturnWhenFullCheckBox");
+                Check(!fullBagReturn.Checked, "full bag town return is unchecked by default");
+                fullBagReturn.Checked = true;
                 var modePanel = Find<Panel>("cleanupModePanel");
                 Check(normal.Checked && !grocery.Checked && !card.Visible && warehouseToggle.Visible,
                     "legacy normal mode loads with a separate radio group and normal actions");
@@ -204,6 +207,7 @@ internal static partial class GroceryShopTests
                 manual.PerformClick(); System.Windows.Forms.Application.DoEvents();
                 Check(submitted is { } && submitted.Maintenance.CleanupWorkflow.Mode == CleanupMode.GroceryShop && submitted.Paths.GroceryReturnItemName == "贝达尔回程卷轴", "manual command captures current path scroll and forces grocery mode");
                 var saved = store.LoadAllAsync().GetAwaiter().GetResult().Value!.Single().ScriptSettings!;
+                Check(saved.Maintenance.BagCleanupReturnWhenFull, "save captures full bag town return checkbox");
                 Check(saved.Paths.BagCleanupReturnItemName == "清包回程物品" && saved.Paths.BagCleanupTownReturnKey == "OemMinus" &&
                     saved.Maintenance.CleanupWorkflow.GroceryPostSaleAction == GroceryPostSaleAction.NpcSell,
                     "capture independent cleanup scroll and NPC branch while preserving legacy key");
@@ -220,8 +224,10 @@ internal static partial class GroceryShopTests
                 grocery.Checked = true;
                 var capture = (ScriptSettings)typeof(AccountSettingsForm).GetMethod("CaptureScriptSettings", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(form, null)!;
                 Check(capture.Maintenance.CleanupWorkflow is { Mode: CleanupMode.GroceryShop, GroceryScheduleEnabled: true } && capture.Maintenance.CleanupWorkflow.GroceryScheduleTimes.SequenceEqual(new[] { "12:00", "19:00" }), "capture grocery and daily schedule configuration");
+                fullBagReturn.Checked = false;
                 manual.PerformClick(); System.Windows.Forms.Application.DoEvents();
                 saved = store.LoadAllAsync().GetAwaiter().GetResult().Value!.Single().ScriptSettings!;
+                Check(!saved.Maintenance.BagCleanupReturnWhenFull, "unchecked full bag return persists and permits manual cleanup");
                 Check(saved.Maintenance.CleanupWorkflow.Mode == CleanupMode.GroceryShop && saved.Maintenance.CleanupWorkflow.GroceryScheduleEnabled && saved.Maintenance.CleanupWorkflow.GroceryScheduleTimes.Count == 2, "persist selected mode and recurring times");
                 if (!string.IsNullOrEmpty(output))
                 {

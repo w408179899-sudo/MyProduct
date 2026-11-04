@@ -307,7 +307,7 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                                     if (!fullCleanupAllowed)
                                     {
                                         // Existing discard rules remain eligible during the full-cleanup cooldown.
-                                        if (!automatic.Maintenance.CleanupWorkflow.NpcCleanup || BagCleanupItemMatcher.SelectDiscardItems(bag, automatic.Maintenance).Count == 0)
+                                        if (!automatic.Maintenance.CleanupWorkflow.NpcCleanup || BagCleanupItemMatcher.SelectDiscardItems(bag, automatic.Maintenance, includeGreenArmorFallback: true).Count == 0)
                                             automatic.Maintenance.CleanupWorkflow.NpcCleanup = false;
                                     }
                                     if (automatic.Maintenance.CleanupWorkflow.NpcCleanup)

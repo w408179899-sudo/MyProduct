@@ -145,6 +145,7 @@ namespace Roadhog
         private Label? dpMaintenanceEmptyLabel;
         private RoundedTextBox? bagCleanupThresholdTextBox;
         private RoundedCheckBox? bagCleanupEnabledCheckBox;
+        private RoundedCheckBox? bagCleanupReturnWhenFullCheckBox;
         private (int X, int Y) _bagCleanupDiscardConfirmPoint = (
             MaintenanceScriptSettings.DefaultBagCleanupDiscardConfirmClickX,
             MaintenanceScriptSettings.DefaultBagCleanupDiscardConfirmClickY);
@@ -559,6 +560,7 @@ namespace Roadhog
             PopulateStatusMaintenanceRules(statusMaintenanceRuleList, statusMaintenanceEmptyLabel, settings.Maintenance.StatusMaintenanceRules);
             PopulateDpMaintenanceRules(dpMaintenanceRuleList, dpMaintenanceEmptyLabel, settings.Maintenance.DpMaintenanceRules);
             SetChecked(bagCleanupEnabledCheckBox, settings.Maintenance.BagCleanupEnabled);
+            SetChecked(bagCleanupReturnWhenFullCheckBox, settings.Maintenance.BagCleanupReturnWhenFull);
             SetText(bagCleanupThresholdTextBox, settings.Maintenance.BagCleanupThreshold.ToString());
             LoadCleanupWorkflow(settings.Maintenance.CleanupWorkflow);
             _bagCleanupDiscardConfirmPoint = (
@@ -1001,6 +1003,7 @@ namespace Roadhog
                     StatusMaintenanceRules = CaptureStatusMaintenanceRules(statusMaintenanceRuleList),
                     DpMaintenanceRules = CaptureDpMaintenanceRules(dpMaintenanceRuleList),
                     BagCleanupEnabled = bagCleanupEnabledCheckBox?.Checked ?? false,
+                    BagCleanupReturnWhenFull = bagCleanupReturnWhenFullCheckBox?.Checked ?? false,
                     BagCleanupThreshold = ReadInt(bagCleanupThresholdTextBox, 5),
                     CleanupWorkflow = CaptureCleanupWorkflow(),
                     BagCleanupSellItemClickX = _bagCleanupSellItemClickPoint.X,

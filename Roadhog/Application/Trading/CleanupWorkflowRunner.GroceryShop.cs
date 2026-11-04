@@ -182,7 +182,7 @@ public sealed partial class CleanupWorkflowRunner
                 report("背包空位已满足阈值，本次不出发清包，继续挂机");
                 return null;
             }
-            var candidates = BagCleanupItemMatcher.SelectDiscardItems(bag, settings);
+            var candidates = BagCleanupItemMatcher.SelectDiscardItems(bag, settings, includeGreenArmorFallback: true);
             if (candidates.Count == 0)
             {
                 request.PreparationStage = CleanupPreparationStage.None;
@@ -191,6 +191,11 @@ public sealed partial class CleanupWorkflowRunner
                     ["account"] = context.Config.AccountName, ["freeSlots"] = freeSlots,
                     ["threshold"] = settings.BagCleanupThreshold, ["remainingDiscardCandidateCount"] = 0
                 });
+                if (!settings.BagCleanupReturnWhenFull)
+                {
+                    report("未开启包满时回城清包，继续挂机，等待定时清包");
+                    return null;
+                }
                 report("已无可丢弃物品，背包空位仍低于阈值，准备出发清包");
                 return bag;
             }

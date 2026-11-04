@@ -24,6 +24,7 @@ internal static partial class CleanupWorkflowTests
             var logger = new InMemoryRoadhogLogger();
             var settings = new ScriptSettings { MainMode = AccountMainMode.SemiAuto };
             settings.Maintenance.BagCleanupEnabled = true;
+            settings.Maintenance.BagCleanupReturnWhenFull = true;
             settings.Maintenance.BagCleanupThreshold = 2;
             settings.Maintenance.CleanupWorkflow = new() { NpcCleanup = true };
             settings.Paths.MaintenancePathName = "merchant";

@@ -185,7 +185,7 @@ public sealed partial class BagCleanupController
         var occupiedSlots = CountOccupiedSlots(read.Value, totalSlots);
         var freeSlots = CountFreeSlots(read.Value, totalSlots);
         var sellCandidates = BagCleanupItemMatcher.SelectSellRegistrationItems(read.Value, settings);
-        var discardCandidates = BagCleanupItemMatcher.SelectDiscardItems(read.Value, settings);
+        var discardCandidates = BagCleanupItemMatcher.SelectDiscardItems(read.Value, settings, includeGreenArmorFallback: true);
         var conflicts = BagCleanupItemMatcher.SelectSellDiscardConflicts(read.Value, settings);
         var whitelistMatchCount = BagCleanupItemMatcher.CountWhitelistedBagItems(read.Value, settings);
         var blacklistMatchCount = BagCleanupItemMatcher.CountBlacklistedBagItems(read.Value, settings);
@@ -261,6 +261,9 @@ public sealed partial class BagCleanupController
         int threshold,
         IReadOnlyList<InventoryItemSnapshot> candidates)
     {
+        if (context.Config.ScriptSettings?.Maintenance.BagCleanupReturnWhenFull != true)
+            return BagCleanupTickResult.NotStarted("full_bag_town_return_disabled");
+
         var cooldownResult = TryGetFullCleanupCooldownResult(context, state);
         if (cooldownResult is not null)
         {
@@ -395,7 +398,7 @@ public sealed partial class BagCleanupController
         var read = await context.Snapshots.ReadInventoryAsync().ConfigureAwait(false);
 
         var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
-        var candidates = BagCleanupItemMatcher.SelectDiscardItems(read.Value, maintenance);
+        var candidates = BagCleanupItemMatcher.SelectDiscardItems(read.Value, maintenance, state.DiscardItemLimit.HasValue);
         if (candidates.Count == 0)
         {
             state.Advance(BagCleanupStep.CloseDiscardInventory);
@@ -447,7 +450,7 @@ public sealed partial class BagCleanupController
 
         var inventoryRead = await context.Snapshots.ReadInventoryAsync().ConfigureAwait(false);
         var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
-        var currentTarget = BagCleanupItemMatcher.SelectDiscardItems(inventoryRead.Value, maintenance)
+        var currentTarget = BagCleanupItemMatcher.SelectDiscardItems(inventoryRead.Value, maintenance, state.DiscardItemLimit.HasValue)
             .FirstOrDefault(item => InventoryDiscardActions.SameItem(item, lockedTarget));
         if (currentTarget is null)
         {
@@ -693,7 +696,7 @@ public sealed partial class BagCleanupController
         InventoryDiscardActions.RequireIdle(ui);
         var inventoryRead = await context.Snapshots.ReadInventoryAsync().ConfigureAwait(false);
         var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
-        var discardCandidates = BagCleanupItemMatcher.SelectDiscardItems(inventoryRead.Value, maintenance);
+        var discardCandidates = BagCleanupItemMatcher.SelectDiscardItems(inventoryRead.Value, maintenance, state.DiscardItemLimit.HasValue);
         var threshold = state.TriggerThreshold;
         if (discardCandidates.Count > 0 && !limitReached)
         {

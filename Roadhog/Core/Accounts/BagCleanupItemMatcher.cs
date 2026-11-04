@@ -15,12 +15,26 @@ public static class BagCleanupItemMatcher
 
     public static IReadOnlyList<InventoryItemSnapshot> SelectDiscardItems(
         IEnumerable<InventoryItemSnapshot> items,
-        MaintenanceScriptSettings settings)
+        MaintenanceScriptSettings settings,
+        bool includeGreenArmorFallback = false)
     {
-        // Prioritize only already-eligible candidates; whitelist and sale eligibility stay unchanged.
-        return SelectItems(items, settings, BagCleanupAction.Discard)
+        var bag = items.ToArray();
+        var configured = SelectItems(bag, settings, BagCleanupAction.Discard)
             .OrderBy(DiscardPriority).ToArray();
+        if (!includeGreenArmorFallback) return configured;
+
+        var selected = configured.Select(item => item.InstanceId).ToHashSet();
+        var whitelist = ReadKeywords(settings.BagCleanupExcludedItemNames);
+        // Require explicit quality/type; only belts and rings are eligible among accessories (type 8).
+        var fallback = bag.Where(item => IsBagItem(item) && IsGreenFallbackEquipment(item) &&
+                !selected.Contains(item.InstanceId) && !MatchesNameKeyword(item.Name, whitelist))
+            .OrderBy(item => item.Slot).ThenBy(item => item.TemplateId).ThenBy(item => item.InstanceId);
+        return configured.Concat(fallback).ToArray();
     }
+
+    private static bool IsGreenFallbackEquipment(InventoryItemSnapshot item) =>
+        item.QualityRank == 2 && (item.ItemType == 7 ||
+            item.ItemType == 8 && ContainsAny(item.Name, "腰带", "戒指"));
 
     private static int DiscardPriority(InventoryItemSnapshot item)
     {

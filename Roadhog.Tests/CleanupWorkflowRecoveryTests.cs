@@ -20,6 +20,7 @@ internal static partial class CleanupWorkflowTests
         var config = new AccountConfig { AccountName = "cleanup-recovery", MainMode = AccountMainMode.SemiAuto, ScriptSettings = new() };
         config.ScriptSettings.MainMode = AccountMainMode.SemiAuto;
         config.ScriptSettings.Maintenance.BagCleanupEnabled = true;
+        config.ScriptSettings.Maintenance.BagCleanupReturnWhenFull = true;
         config.ScriptSettings.Maintenance.BagCleanupThreshold = 5;
         config.ScriptSettings.Maintenance.CleanupWorkflow = new() { NpcCleanup = false, Auction = true };
         config.ScriptSettings.Paths.AuctionPathName = "missing";

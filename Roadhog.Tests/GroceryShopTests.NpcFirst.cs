@@ -68,14 +68,15 @@ internal static partial class GroceryShopTests
 
     public static async Task NpcFirstBackpackAndUnsellableAsync()
     {
-        foreach (var scenario in new[] { "recover", "still_full", "enough_space", "disabled", "unsellable", "late", "no_discard" })
+        foreach (var scenario in new[] { "recover", "return_disabled", "still_full", "enough_space", "disabled", "unsellable", "late", "no_discard" })
         {
             using var trip = new Trip { AllowPreDiscard = true }; AddNpcStages(trip);
             var settings = trip.Config.ScriptSettings!;
             settings.Maintenance.BagCleanupEnabled = scenario != "disabled";
+            settings.Maintenance.BagCleanupReturnWhenFull = scenario != "return_disabled";
             settings.Maintenance.BagCleanupDiscardItemNameKeywords.Add("卷轴");
             trip.Api.InventoryCapacity = scenario == "enough_space" ? 100 : 5;
-            if (scenario is "still_full" or "no_discard") settings.Maintenance.BagCleanupThreshold = 3;
+            if (scenario is "return_disabled" or "still_full" or "no_discard") settings.Maintenance.BagCleanupThreshold = 3;
             if (scenario == "unsellable") trip.Api.InventoryItems = trip.Api.InventoryItems.Select(i => i.InstanceId == 100 ? i with { CanSellToNpc = false } : i).ToArray();
             if (scenario == "no_discard")
             {
@@ -103,6 +104,7 @@ internal static partial class GroceryShopTests
     public static async Task NpcFirstScheduledUnsellableAsync()
     {
         using var trip = new Trip(); AddNpcStages(trip);
+        trip.Config.ScriptSettings!.Maintenance.BagCleanupReturnWhenFull = false;
         trip.Api.InventoryItems = trip.Api.InventoryItems.Select(i => i.InstanceId == 100 ? i with { CanSellToNpc = false } : i).ToArray();
         var request = new CleanupRequest(trip.Config.ScriptSettings!, false) { GroceryTrigger = GroceryShopTrigger.Scheduled };
         await trip.Runner().RunAsync(trip.Context, request);

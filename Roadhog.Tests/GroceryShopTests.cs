@@ -11,6 +11,11 @@ internal static partial class GroceryShopTests
     public static Task ConfigurationAndScheduleAsync()
     {
         var settings = new ScriptSettings();
+        Check(!settings.Maintenance.BagCleanupReturnWhenFull, "full bag return defaults off");
+        Check(!JsonSerializer.Deserialize<ScriptSettings>("{}")!.Maintenance.BagCleanupReturnWhenFull, "old config defaults off");
+        settings.Maintenance.BagCleanupReturnWhenFull = true;
+        Check(settings.Clone().Maintenance.BagCleanupReturnWhenFull, "clone preserves full bag return");
+        Check(JsonSerializer.Deserialize<ScriptSettings>(JsonSerializer.Serialize(settings))!.Maintenance.BagCleanupReturnWhenFull, "full bag return persists");
         Check(settings.Maintenance.CleanupWorkflow.Mode == CleanupMode.Normal, "old configurations retain normal cleanup");
         settings.Maintenance.CleanupWorkflow.Mode = CleanupMode.GroceryShop;
         settings.Maintenance.CleanupWorkflow.GroceryScheduleEnabled = true;

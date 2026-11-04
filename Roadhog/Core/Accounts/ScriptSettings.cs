@@ -675,6 +675,8 @@ public sealed class MaintenanceScriptSettings
 
     public bool BagCleanupEnabled { get; set; }
 
+    public bool BagCleanupReturnWhenFull { get; set; }
+
     public CleanupWorkflowSettings CleanupWorkflow { get; set; } = new();
 
     public bool SitMaintenanceEnabled { get; set; } = true;
@@ -754,6 +756,7 @@ public sealed class MaintenanceScriptSettings
             StatusMaintenanceRules = StatusMaintenanceRules?.Select(rule => rule.Clone()).ToList() ?? new List<StatusMaintenanceRuleConfig>(),
             DpMaintenanceRules = DpMaintenanceRules?.Select(rule => rule.Clone()).ToList() ?? new List<DpMaintenanceRuleConfig>(),
             BagCleanupEnabled = BagCleanupEnabled,
+            BagCleanupReturnWhenFull = BagCleanupReturnWhenFull,
             CleanupWorkflow = (CleanupWorkflow ?? new()).Clone(),
             AutoEquip = AutoEquip,
             AutoDecompose = AutoDecompose,

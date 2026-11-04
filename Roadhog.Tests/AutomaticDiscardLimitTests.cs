@@ -71,6 +71,48 @@ internal static class AutomaticDiscardLimitTests
         public void Dispose() => Stop.Dispose();
     }
 
+    public static async Task GreenArmorFallbackAsync()
+    {
+        foreach (var configuredCount in new[] { 0, 10, 13 })
+        {
+            using var run = new Run(configuredCount + 6);
+            run.Game.Api.InventoryItems = run.Game.Api.InventoryItems.Select((item, index) => index < configuredCount
+                ? item : item with
+                {
+                    Name = ((index - configuredCount) % 3) switch { 0 => "fallback armor", 1 => "绿色腰带", _ => "绿色戒指" },
+                    ItemType = (index - configuredCount) % 3 == 0 ? 7U : 8U,
+                    QualityRank = 2
+                }).ToArray();
+            var protectedItems = new[]
+            {
+                new InventoryItemSnapshot(1, 300, "keep armor", 1, 30, false, 7, 2),
+                new InventoryItemSnapshot(1, 301, "weapon", 1, 31, false, 1, 2),
+                new InventoryItemSnapshot(1, 302, "accessory", 1, 32, false, 8, 2),
+                new InventoryItemSnapshot(1, 303, "blue armor", 1, 33, false, 7, 3),
+                new InventoryItemSnapshot(1, 304, "equipped armor", 1, 34, true, 7, 2),
+                new InventoryItemSnapshot(1, 305, "green named unknown armor", 1, 35, false, 0, 0),
+                new InventoryItemSnapshot(1, 306, "绿色项链", 1, 36, false, 8, 2),
+                new InventoryItemSnapshot(1, 307, "绿色耳环", 1, 37, false, 8, 2),
+                new InventoryItemSnapshot(1, 308, "keep 腰带", 1, 38, false, 8, 2),
+                new InventoryItemSnapshot(1, 309, "已穿戴戒指", 1, 39, true, 8, 2),
+                new InventoryItemSnapshot(1, 310, "蓝色腰带", 1, 40, false, 8, 3),
+                new InventoryItemSnapshot(1, 311, "蓝色戒指", 1, 41, false, 8, 3),
+                new InventoryItemSnapshot(1, 312, "图案:绿色腰带", 1, 42, false, 27, 2)
+            };
+            run.Game.Settings.BagCleanupExcludedItemNames.Add("keep");
+            run.Game.Settings.BagCleanupSellItemNameKeywords.Add("fallback armor");
+            run.Game.Api.InventoryItems = run.Game.Api.InventoryItems.Concat(protectedItems).ToArray();
+            Check(BagCleanupItemMatcher.SelectDiscardItems(run.Game.Api.InventoryItems, run.Game.Settings).Count == configuredCount,
+                "manual discard keeps configured eligibility only");
+            var result = await run.Finish(new BagCleanupState());
+            var expected = Math.Min(13, configuredCount + 6);
+            Check(run.Game.Removed.SequenceEqual(Enumerable.Range(100, expected).Select(id => (ulong)id)),
+                "configured discard first, then green armor, belts and rings up to the same thirteen-entry limit: " + configuredCount);
+            Check(!run.Game.Open && protectedItems.All(item => run.Game.Api.InventoryItems.Any(left => left.InstanceId == item.InstanceId)),
+                "fallback closes bag and preserves whitelist, weapons, accessories, equipped items and unknown quality/type");
+        }
+    }
+
     public static async Task LimitAndPriorityAsync()
     {
         foreach (var count in new[] { 12, 13, 20 })
@@ -170,8 +212,11 @@ internal static class AutomaticDiscardLimitTests
     public static async Task WorkflowLimitAsync()
     {
         foreach (var mode in new[] { "normal", "grocery_npc", "grocery_discard" })
+        foreach (var fallback in new[] { false, true })
         {
             using var run = new Run(20);
+            if (fallback) run.Game.Api.InventoryItems = run.Game.Api.InventoryItems.Select((item, index) => index < 10
+                ? item : item with { Name = "fallback armor", ItemType = 7, QualityRank = 2 }).ToArray();
             var settings = run.Context.Config.ScriptSettings!;
             if (mode != "normal") settings.Maintenance.CleanupWorkflow.Mode = CleanupMode.GroceryShop;
             settings.Maintenance.CleanupWorkflow.GroceryPostSaleAction = mode == "grocery_npc" ? GroceryPostSaleAction.NpcSell : GroceryPostSaleAction.Discard;
@@ -183,6 +228,8 @@ internal static class AutomaticDiscardLimitTests
             await Runner(run).RunAsync(run.Context, request);
             Check(run.Game.Removed.Count == 13 && run.Game.Api.InventoryItems.Any(i => i.InstanceId == 999) && !run.Game.Open && !request.RequestsRestart,
                 "normal and both grocery workflows stop locally after 13, preserve return scroll, and do not restart: " + mode);
+            if (fallback) Check(run.Game.Removed.SequenceEqual(Enumerable.Range(100, 13).Select(id => (ulong)id)),
+                "all automatic workflows share the ten configured plus three green armor budget");
         }
     }
 

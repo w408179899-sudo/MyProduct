@@ -11,14 +11,15 @@ internal static partial class GroceryShopTests
 {
     public static async Task BackpackDiscardGateAsync()
     {
-        foreach (var scenario in new[] { "recover", "still_full", "empty", "late", "no_goods", "overlap", "missing_scroll", "already_recovered", "disabled" })
+        foreach (var scenario in new[] { "recover", "return_disabled", "still_full", "empty", "late", "no_goods", "overlap", "missing_scroll", "already_recovered", "disabled" })
         {
             using var trip = new Trip { AllowPreDiscard = true };
             var settings = trip.Config.ScriptSettings!;
             settings.Maintenance.BagCleanupEnabled = scenario != "disabled";
+            settings.Maintenance.BagCleanupReturnWhenFull = scenario != "return_disabled";
             trip.Api.InventoryCapacity = scenario is "recover" or "late" or "no_goods" or "already_recovered" ? 4 : 3;
             if (scenario == "recover") trip.AddDiscardCandidates(2);
-            if (scenario is "still_full" or "late" or "no_goods" or "missing_scroll" or "disabled") trip.AddDiscardCandidates();
+            if (scenario is "return_disabled" or "still_full" or "late" or "no_goods" or "missing_scroll" or "disabled") trip.AddDiscardCandidates();
             if (scenario is "empty" or "overlap") trip.Api.InventoryCapacity = 2;
             if (scenario == "no_goods") settings.Maintenance.BagCleanupStallItems.Clear();
             if (scenario == "missing_scroll") trip.Api.InventoryItems = trip.Api.InventoryItems.Skip(1).ToArray();
@@ -41,6 +42,7 @@ internal static partial class GroceryShopTests
             if (scenario is "recover" or "late") Check(trip.Discards == 2, "finish original and late discard work before rechecking capacity");
             if (scenario is "no_goods" or "overlap") Check(trip.Discards == 1, "local discard takes priority even if no sale plan remains");
             if (scenario is "missing_scroll" or "already_recovered" or "disabled") Check(trip.Discards == 0 && !trip.Input.Keys.Any(), "stale request or missing scroll cannot consume items");
+            if (scenario == "return_disabled") Check(trip.Discards == 1, "disabled town return preserves local discard");
             if (scenario == "still_full") Check(trip.Events.IndexOf("pre_discard") < trip.Events.IndexOf("scroll"), "confirmed local discard must precede scroll cast");
             if (scenario != "missing_scroll") Check(trip.Api.InventoryItems.Any(i => i.Name.Contains("卷轴")), "selected return scroll is protected during pre-discard");
             Check(!trip.BagOpen, "backpack gate closes inventory on completion");

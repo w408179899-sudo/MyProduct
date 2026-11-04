@@ -16,7 +16,9 @@ public partial class AccountSettingsForm
         cleanupAuction = AddCheckBox(options, "拍卖行", 472, 6, 92, false);
         cleanupTransfer = AddCheckBox(options, "转移金币", 576, 6, 110, false);
         cleanupShop = AddCheckBox(options, "摆摊", 700, 6, 90, false);
-        var hint = AddLabel(options, "", 344, 34, 480, 24);
+        bagCleanupReturnWhenFullCheckBox = AddCheckBox(options, "包满时回城清包", 344, 34, 160, false);
+        bagCleanupReturnWhenFullCheckBox.Name = "bagCleanupReturnWhenFullCheckBox";
+        var hint = AddLabel(options, "", 508, 34, 316, 24);
         var toggle = AddButton(page, "▶ 仓库号配置", 12, 124, 250, 28);
         toggle.Name = "cleanupWorkflowOptionsButton";
         var detail = new Panel { Name = "cleanupWarehousePanel", Location = new Point(12, 156), Size = new Size(828, 96), Visible = false, BackColor = _inputBackground };
@@ -39,9 +41,10 @@ public partial class AccountSettingsForm
             groceryOptionsPanel!.Visible = grocery;
             options.Height = grocery ? 44 : 64;
             hint.Top = grocery ? 20 : 34;
+            bagCleanupReturnWhenFullCheckBox.Top = hint.Top;
             groceryOptionsPanel.Top = options.Bottom + 8;
             cleanupModeHintLabel!.Text = grocery ? "按右侧摆摊名单和左侧折扣出售" : "丢弃 / 出售，按勾选项目清包";
-            hint.Text = grocery ? "丢弃后空位仍不足才出发；定时直接出发" : "勾选需要执行的清包和交易项目";
+            hint.Text = grocery ? "不勾选仅定时出发；原地丢弃照常" : "勾选需要执行的清包和交易项目";
             if (rules.Controls["standaloneShopButton"] is { } shopButton) shopButton.Visible = !grocery;
             if (rules.Controls["standaloneShopHintLabel"] is Label shopHint)
                 shopHint.Text = grocery ? "杂货摆摊使用此折扣，路线在上方配置" : "仅摆摊名单物品，全部售罄后重启脚本";

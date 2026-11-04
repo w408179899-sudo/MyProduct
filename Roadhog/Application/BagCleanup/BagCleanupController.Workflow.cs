@@ -63,7 +63,7 @@ public sealed partial class BagCleanupController
         try
         {
             var bag = (await context.Snapshots.ReadInventoryAsync().WaitAsync(context.StopToken)).Value;
-            var discard = BagCleanupItemMatcher.SelectDiscardItems(bag, settings);
+            var discard = BagCleanupItemMatcher.SelectDiscardItems(bag, settings, maxItems.HasValue);
             var state = new BagCleanupState();
             state.StartDiscard(0, int.MaxValue, discard.Count, maxItems);
             state.DiscardOnly = true;

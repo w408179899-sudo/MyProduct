@@ -21,6 +21,7 @@ internal static partial class CleanupWorkflowTests
         var settings = config.ScriptSettings;
         settings.MainMode = AccountMainMode.SemiAuto;
         settings.Maintenance.BagCleanupEnabled = true;
+        settings.Maintenance.BagCleanupReturnWhenFull = true;
         settings.Maintenance.BagCleanupThreshold = 2;
         settings.Maintenance.BagCleanupRules = game.Settings.BagCleanupRules;
         settings.Maintenance.BagCleanupRules.Add(new() { Key = BagCleanupRuleCatalog.SpellBook, Enabled = true, Action = BagCleanupAction.Sell });
@@ -67,11 +68,12 @@ internal static partial class CleanupWorkflowTests
 
     public static async Task AutomaticSaleAndAuctionPriorityAsync()
     {
-        foreach (var scenario in new[] { "category-sale", "name-sale", "missing-merchant", "capacity-recovered" })
+        foreach (var scenario in new[] { "return-disabled", "category-sale", "name-sale", "missing-merchant", "capacity-recovered" })
         {
             var game = new InventoryDiscardTests.Simulation(0);
             var config = AutomaticCleanupConfig(game);
             var settings = config.ScriptSettings!;
+            settings.Maintenance.BagCleanupReturnWhenFull = scenario != "return-disabled";
             settings.Maintenance.CleanupWorkflow = new() { NpcCleanup = true, Auction = true, TransferGold = true, PersonalShop = true };
             settings.Maintenance.BagCleanupAuctionHouseItems.Add(new() { Name = "咒语书", UnitPrice = 10 });
             if (scenario == "name-sale")
@@ -114,7 +116,7 @@ internal static partial class CleanupWorkflowTests
                 Require(rejected && followed.Count == 0 && !game.Input.Keys.Contains("F6"),
                     "a genuine NPC sale without a configured route fails before recall");
             }
-            else if (scenario == "capacity-recovered")
+            else if (scenario is "capacity-recovered" or "return-disabled")
             {
                 await runner.RunAsync(context, request);
                 Require(followed.Count == 0 && !game.Input.Keys.Contains("F6")

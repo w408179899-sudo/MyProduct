@@ -24,13 +24,13 @@ public sealed partial class CleanupWorkflowRunner
                 return false;
             }
             var bag = (await context.Snapshots.ReadInventoryAsync().WaitAsync(context.StopToken)).Value;
-            var discardCount = BagCleanupItemMatcher.SelectDiscardItems(bag, settings).Count;
+            var discardCount = BagCleanupItemMatcher.SelectDiscardItems(bag, settings, includeGreenArmorFallback: true).Count;
             // Items can arrive after closing the inventory. Finish these locally as well.
             if (discardCount > 0) continue;
             var capacity = (await context.Snapshots.ReadInventoryCapacityAsync().WaitAsync(context.StopToken)).Value;
             var freeSlots = BagCleanupController.CountFreeSlots(bag, capacity);
             var sellCount = BagCleanupItemMatcher.SelectSellRegistrationItems(bag, settings).Count;
-            var needsTown = settings.BagCleanupThreshold > 0 && freeSlots < settings.BagCleanupThreshold &&
+            var needsTown = settings.BagCleanupReturnWhenFull && settings.BagCleanupThreshold > 0 && freeSlots < settings.BagCleanupThreshold &&
                 request.AllowNpcSell && (settings.CleanupWorkflow.NpcCleanup && sellCount > 0 || settings.CleanupWorkflow.Auction);
             context.Logger.Info("cleanup_workflow.automatic.capacity_checked", new Dictionary<string, object?>
             {

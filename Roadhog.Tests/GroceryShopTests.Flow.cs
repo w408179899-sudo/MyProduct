@@ -82,6 +82,7 @@ internal static partial class GroceryShopTests
             var settings = Config.ScriptSettings!;
             settings.Maintenance.CleanupWorkflow.Mode = CleanupMode.GroceryShop;
             settings.Maintenance.BagCleanupThreshold = 2;
+            settings.Maintenance.BagCleanupReturnWhenFull = true;
             settings.Maintenance.BagCleanupStallItems.Add(new() { Name = "goods", UnitPrice = 99999 });
             settings.Paths.GroceryStallPathName = Route.Name;
             settings.Paths.GroceryReturnItemName = "伏魔殿回程卷轴";

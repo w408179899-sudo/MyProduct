@@ -1668,6 +1668,7 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("cleanup workflow automatic and manual recall require safety and observed position", CleanupWorkflowTests.CleanupRecallSafetyAndPositionAsync)
     ,("cleanup workflow local discard does not consume town cooldown", CleanupWorkflowTests.LocalDiscardDoesNotConsumeTownCooldownAsync)
     ,("automatic discard worker retries remaining batch after capacity recovers", CleanupWorkflowTests.AutomaticWorkerDiscardRetriesFailureAsync)
+    ,("automatic discard limit fills remaining slots with green armor", AutomaticDiscardLimitTests.GreenArmorFallbackAsync)
     ,("automatic discard limit prioritizes books stigmas and crafting scrolls", AutomaticDiscardLimitTests.PriorityAsync)
     ,("automatic discard limit stops at thirteen entries and honors priority", AutomaticDiscardLimitTests.LimitAndPriorityAsync)
     ,("automatic discard limit preserves confirmed count through hover close and confirm retry", AutomaticDiscardLimitTests.RetryPreservesLimitAsync)
@@ -10086,6 +10087,7 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
         settings.Maintenance = new MaintenanceScriptSettings
         {
             BagCleanupEnabled = true,
+            BagCleanupReturnWhenFull = true,
             BagCleanupThreshold = 5,
             BagCleanupRules = rules,
             BagCleanupSellItemClickX = 100,
@@ -10302,6 +10304,7 @@ static async Task TestBagCleanupControllerDetectsTownReturnBeforeTimeoutAsync()
         settings.Maintenance = new MaintenanceScriptSettings
         {
             BagCleanupEnabled = true,
+            BagCleanupReturnWhenFull = true,
             BagCleanupThreshold = 5,
             BagCleanupRules = rules
         };
@@ -10395,6 +10398,7 @@ static async Task TestBagCleanupControllerAbandonsTownReturnWhenAttackedAsync()
         settings.Maintenance = new MaintenanceScriptSettings
         {
             BagCleanupEnabled = true,
+            BagCleanupReturnWhenFull = true,
             BagCleanupThreshold = 5,
             BagCleanupRules = rules,
             BagCleanupSellItemClickX = 100,
@@ -10497,6 +10501,7 @@ static async Task TestBagCleanupControllerReversesCleanupPathWhenFollowFailsAsyn
         settings.Maintenance = new MaintenanceScriptSettings
         {
             BagCleanupEnabled = true,
+            BagCleanupReturnWhenFull = true,
             BagCleanupThreshold = 5,
             BagCleanupRules = rules,
             BagCleanupSellItemClickX = 100,
@@ -10679,6 +10684,7 @@ static async Task TestBagCleanupControllerSellsMoreThanThreeItemsInBatchesAsync(
         settings.Maintenance = new MaintenanceScriptSettings
         {
             BagCleanupEnabled = true,
+            BagCleanupReturnWhenFull = true,
             BagCleanupThreshold = 30,
             BagCleanupRules = rules,
             BagCleanupSellItemClickX = 100,
@@ -10925,6 +10931,7 @@ static async Task TestBagCleanupControllerSellsNonEquipmentBeforeEquipmentBatche
         settings.Maintenance = new MaintenanceScriptSettings
         {
             BagCleanupEnabled = true,
+            BagCleanupReturnWhenFull = true,
             BagCleanupThreshold = 30,
             BagCleanupRules = rules,
             BagCleanupSellItemClickX = 100,
@@ -11077,6 +11084,7 @@ static async Task TestBagCleanupControllerReturnsWhenNpcNotFoundAsync()
         settings.Maintenance = new MaintenanceScriptSettings
         {
             BagCleanupEnabled = true,
+            BagCleanupReturnWhenFull = true,
             BagCleanupThreshold = 5,
             BagCleanupRules = rules,
             BagCleanupSellItemClickX = 100,
@@ -11158,6 +11166,7 @@ static async Task TestBagCleanupControllerSkipsWithinCooldownAsync()
     settings.Maintenance = new MaintenanceScriptSettings
     {
         BagCleanupEnabled = true,
+        BagCleanupReturnWhenFull = true,
         BagCleanupThreshold = 5,
         BagCleanupRules = rules,
         BagCleanupSellItemClickX = 100,
@@ -11281,6 +11290,7 @@ static async Task TestBagCleanupControllerFailureCoolsDownAsync()
         settings.Maintenance = new MaintenanceScriptSettings
         {
             BagCleanupEnabled = true,
+            BagCleanupReturnWhenFull = true,
             BagCleanupThreshold = 5,
             BagCleanupRules = rules,
             BagCleanupSellItemClickX = 100,
@@ -11559,6 +11569,7 @@ static async Task TestBagCleanupBlacklistStartsDiscardDuringFullCleanupCooldownA
     settings.Maintenance = new MaintenanceScriptSettings
     {
         BagCleanupEnabled = true,
+        BagCleanupReturnWhenFull = true,
         BagCleanupThreshold = 2,
         BagCleanupRules = BagCleanupRuleCatalog.CreateDefaultRules(),
         BagCleanupDiscardItemNameKeywords = new List<string> { "trash" },
@@ -12322,6 +12333,7 @@ static ScriptSettings CreateDiscardScriptSettings(string discardRuleKey, int thr
     settings.Maintenance = new MaintenanceScriptSettings
     {
         BagCleanupEnabled = true,
+        BagCleanupReturnWhenFull = true,
         BagCleanupThreshold = threshold,
         BagCleanupRules = rules,
         BagCleanupDiscardConfirmClickX = 650,
@@ -12870,6 +12882,7 @@ static async Task TestAccountConfigPersistsBagCleanupRulesAsync()
                 Maintenance = new MaintenanceScriptSettings
                 {
                     BagCleanupEnabled = true,
+                    BagCleanupReturnWhenFull = true,
                     BagCleanupThreshold = 3,
                     BagCleanupSellItemClickX = 111,
                     BagCleanupSellItemClickY = 222,

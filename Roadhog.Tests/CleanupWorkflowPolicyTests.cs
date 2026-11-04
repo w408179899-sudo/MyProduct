@@ -21,6 +21,7 @@ internal static partial class CleanupWorkflowTests
         var settings = config.ScriptSettings;
         settings.MainMode = AccountMainMode.SemiAuto;
         settings.Maintenance.BagCleanupEnabled = true;
+        settings.Maintenance.BagCleanupReturnWhenFull = true;
         settings.Maintenance.BagCleanupThreshold = 2;
         settings.Maintenance.BagCleanupRules = new()
         {
