@@ -15,7 +15,7 @@ using Roadhog.Infrastructure.Config;
 using Roadhog.Infrastructure.Profiles;
 using Roadhog.Infrastructure.WorkerProcesses;
 
-internal static class PostCombatReturnTests
+internal static partial class PostCombatReturnTests
 {
     public static async Task BoundaryAsync()
     {

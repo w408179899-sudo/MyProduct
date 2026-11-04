@@ -101,8 +101,11 @@ public sealed partial class StationaryCombatController
         if (await TryHandleStationaryMaintenanceAsync(context, plan, semiAutoState, state, player).ConfigureAwait(false))
         {
             await StopMovementAsync(context, state).ConfigureAwait(false);
+            state.ResetReturnHomeStuckTracking();
             return IdleDelay;
         }
+        if (await WaitForStandingBeforeReturnHomeAsync(context, semiAutoState, state, player).ConfigureAwait(false))
+            return IdleDelay;
         semiAutoState.ResetAttackKeyPressThrottle();
         var navigation = await ResolveObstacleNavigationAsync(context, state, position, home,
             RadarNavigationPurpose.ReturnHome, 0, radarSettings, ReturnStopDistance).ConfigureAwait(false);

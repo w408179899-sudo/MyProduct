@@ -563,6 +563,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             }
             else
             {
+                if (await WaitForStandingBeforeReturnHomeAsync(context, semiAutoState, state, player).ConfigureAwait(false))
+                    return IdleDelay;
                 semiAutoState.ResetAttackKeyPressThrottle();
                 var navigation = await ResolveObstacleNavigationAsync(
                         context,
@@ -654,6 +656,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 DateTimeOffset.UtcNow >= state.ReturnNavigationRetryAfter)
             {
                 state.ClearNoTargetRest();
+                if (await WaitForStandingBeforeReturnHomeAsync(context, semiAutoState, state, player).ConfigureAwait(false))
+                    return IdleDelay;
                 LogActionThrottled(context, state, "stationary_combat.no_target.return_home", "home", new Dictionary<string, object?>
                 {
                     ["account"] = context.Config.AccountName,

@@ -1221,6 +1221,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat derives home from revive path endpoint", TestStationaryCombatDerivesHomeFromRevivePathEndpointAsync),
     ("stationary combat returns home when no target is available", TestStationaryCombatReturnsHomeWhenNoTargetAvailableAsync),
     ("stationary post-combat return distance boundary and disabled behavior", PostCombatReturnTests.BoundaryAsync),
+    ("stationary post-combat return posture gates all home returns until standing", PostCombatReturnTests.ReturnHomePostureAsync),
+    ("stationary post-combat return stand failure releases movement and retries", PostCombatReturnTests.ReturnHomeStandFailureAsync),
     ("stationary post-combat return persists through defense and stops at home", PostCombatReturnTests.ReturnAndDefenseAsync),
     ("stationary post-combat return follows loot position and excludes path combat", PostCombatReturnTests.LootAndModeAsync),
     ("stationary post-combat return overrides preaim gather and ordinary wrong locks", PostCombatReturnTests.PriorityAsync),
