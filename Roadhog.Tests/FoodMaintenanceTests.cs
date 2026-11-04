@@ -70,7 +70,7 @@ internal static class FoodMaintenanceTests
     {
         var game = new Simulation();
         Check(await game.Run(), "use confirms category status");
-        Check(game.CursorVisits.Contains(new GameUiPoint(680, 468)), "drink approaches via fixed reset point");
+        Check(game.CursorVisits.First() == new GameUiPoint(450, 300), "drink first moves left 50 pixels from current cursor");
         Check(game.Clicks == 1 && !game.Open && game.Input.Keys.SequenceEqual(new[] { "I", "I" }), "one click and restore bag");
         Check(game.Input.MouseCommands.Count(c => c == "up:Right") == 1, "single click releases right mouse");
         Check(!await game.Run() && game.Clicks == 1, "existing same-category status never consumes again");
@@ -80,7 +80,13 @@ internal static class FoodMaintenanceTests
             stale.Api.InventoryUiCursor = new(100 + offset, 100);
             Check(await stale.Run() && stale.LeftItem && stale.Clicks == 1 && !stale.Open,
                 "reopened bag requires leaving the item and reentering before one click");
+            Check(stale.CursorVisits.First() == new GameUiPoint(50 + offset, 100),
+                "hover refresh moves left relative to the original cursor");
         }
+        var edge = new Simulation();
+        edge.Api.InventoryUiCursor = new(20, 100);
+        Check(await edge.Run() && edge.CursorVisits.First() == new GameUiPoint(0, 100),
+            "left movement stops at window edge before approaching the item");
         var opened = new Simulation { Open = true };
         Check(await opened.Run() && opened.Open && opened.Input.Keys.Count == 0, "preserve user-opened bag");
         foreach (var failure in new[] { "combat", "modal", "moved", "changed", "scene", "hp", "hover", "no-status" })
@@ -163,8 +169,8 @@ internal static class FoodMaintenanceTests
             catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
             var interrupted = scenario is "combat-after-drink" or "cancel-after-drink";
             Check(batch.Clicks == (interrupted ? 1 : 2), scenario + " respects per-item safety");
-            Check(batch.CursorVisits.Count(p => p == new GameUiPoint(680, 468)) == batch.Clicks,
-                "each drink and food bag click first visits fixed point");
+            Check(batch.Input.MouseCommands.Count(c => c == "move:-50,0") == batch.Clicks,
+                "each drink and food bag click first moves left 50 pixels");
             var keys = scenario == "already-open" ? Array.Empty<string>() :
                 scenario == "cancel-after-drink" ? new[] { "I" } : new[] { "I", "I" };
             Check(batch.Input.Keys.SequenceEqual(keys), scenario + " opens and closes at most once per round");

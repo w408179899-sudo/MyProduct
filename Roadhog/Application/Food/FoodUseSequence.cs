@@ -74,7 +74,12 @@ public sealed class FoodUseSequence(IKeyboardInput input, FoodCatalog catalog,
                 GameUiPoint? Locate(InventoryInteractionSnapshot b) => b.Items.SingleOrDefault(i =>
                     i.InstanceId == item.InstanceId && i.TemplateId == item.TemplateId && i.Quantity == item.Count)?.Point;
                 var point = Locate(bag) ?? throw new InvalidOperationException("料理不在可见背包中。");
-                await new InventoryItemMouseMover(input, snapshots, delay).MoveAsync(point, ct, Guard);
+                var origin = (await snapshots.ReadUiCursorAsync().WaitAsync(ct)).Value.Position;
+                var mover = new FeedbackMouseMover(input, snapshots, delay);
+                // Refresh bag hover by leaving the current position before approaching the item.
+                await mover.MoveAsync(new(Math.Max(0, origin.X - 50), origin.Y), ct);
+                await Guard();
+                await mover.MoveAsync(point, ct);
                 while ((await Bag()).HoveredInstanceId != item.InstanceId) await Pause(100);
                 if (await HasStatus()) return false;
                 var inventory = (await snapshots.ReadInventoryAsync().WaitAsync(ct)).Value;
