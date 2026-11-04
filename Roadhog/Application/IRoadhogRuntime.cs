@@ -15,6 +15,8 @@ namespace Roadhog.Application;
 /// </summary>
 public interface IRoadhogRuntime
 {
+    Task<OperationResult<Roadhog.Application.ManastoneExchange.ManastoneExchangeResult>> RunManastoneExchangeAsync(
+        string accountName, IProgress<string>? progress, CancellationToken token) => throw new NotSupportedException();
     Task<EquipmentUpgradeInventory> RefreshEquipmentUpgradeAsync(string accountName, CancellationToken token) => throw new NotSupportedException();
     Task<OperationResult<Roadhog.Application.EquipmentUpgrade.EquipmentUpgradeResult>> RunEquipmentUpgradeBatchAsync(string accountName,
         EquipmentUpgradeSettings settings, IProgress<string>? progress, CancellationToken token) => throw new NotSupportedException();

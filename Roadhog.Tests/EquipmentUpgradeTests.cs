@@ -57,6 +57,12 @@ internal static class EquipmentUpgradeTests
                 {
                     using var bitmap=new System.Drawing.Bitmap(form.Width,form.Height);
                     form.DrawToBitmap(bitmap,new System.Drawing.Rectangle(0,0,form.Width,form.Height));bitmap.Save(path);
+                    var otherTabs = (TabControl)form.Controls.Find("otherTabs", true).Single();
+                    otherTabs.SelectedIndex = 1; Application.DoEvents();
+                    using var exchange = new System.Drawing.Bitmap(form.Width, form.Height);
+                    form.DrawToBitmap(exchange, new System.Drawing.Rectangle(0, 0, form.Width, form.Height));
+                    exchange.Save(Path.ChangeExtension(path, ".exchange.png"));
+                    otherTabs.SelectedIndex = 0;
                 }
                 var dispatcher=new RuntimeRpcDispatcher(runtime,"test","fake");
                 foreach(var method in new[]{"RefreshEquipmentUpgradeAsync","RunEquipmentUpgradeAsync","RunEquipmentUpgradeBatchAsync"})
@@ -65,6 +71,13 @@ internal static class EquipmentUpgradeTests
                     try {dispatcher.InvokeAsync(method,args.Select(a=>JsonSerializer.SerializeToElement(a)).ToArray(),new Progress<string>(),CancellationToken.None).GetAwaiter().GetResult();throw new Exception("cross-account call admitted");}
                     catch(InvalidOperationException ex){Require(ex.Message.Contains("another account"),ex.Message);}
                 }
+                try
+                {
+                    dispatcher.InvokeAsync("RunManastoneExchangeAsync", new[] { JsonSerializer.SerializeToElement("other") },
+                        new Progress<string>(), CancellationToken.None).GetAwaiter().GetResult();
+                    throw new Exception("cross-account exchange admitted");
+                }
+                catch (InvalidOperationException ex) { Require(ex.Message.Contains("another account"), ex.Message); }
                 form.Close();done.SetResult();
             }
             catch(Exception ex){done.SetException(ex);}

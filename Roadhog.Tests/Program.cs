@@ -93,6 +93,12 @@ if (args.Contains("--account-worker"))
     return;
 }
 
+if (args.Contains("--manastone-exchange-probe"))
+{
+    Environment.ExitCode = await ManastoneExchangeLiveProbe.RunAsync(args);
+    return;
+}
+
 if (args.Contains("--standalone-shop-probe"))
 {
     Environment.ExitCode = await StandaloneShopLiveProbe.RunAsync(args);
@@ -737,6 +743,13 @@ var tests = new (string Name, Func<Task> Run)[]
     ("equipment upgrade live equipment level and enchant priority", EquipmentUpgradeTests.PriorityAsync),
     ("equipment upgrade guards cancellation and persistence", EquipmentUpgradeTests.GuardsAsync),
     ("equipment upgrade UI persistence and RPC account isolation", EquipmentUpgradeTests.UiAndRpcAsync),
+    ("manastone exchange decoder identities geometry and malformed pages", ManastoneExchangeDecoderTests.DecodeAndGuardsAsync),
+    ("manastone exchange provider publication and lifecycle", ManastoneExchangeDecoderTests.PublicationAsync),
+    ("manastone exchange loops both quests until materials exhausted", ManastoneExchangeTests.LoopAsync),
+    ("manastone exchange resumes accepted and reward pages", ManastoneExchangeTests.ResumeAsync),
+    ("manastone exchange guards NPC task reward and modal identity", ManastoneExchangeTests.GuardsAsync),
+    ("manastone exchange confirms consumption and reward without replay", ManastoneExchangeTests.ConfirmationAsync),
+    ("manastone exchange cancellation releases input", ManastoneExchangeTests.CancellationAsync),
     ("equipment upgrade decoder inventory modal binding and faults", PersonalShopDecoderTests.EquipmentUpgradeAsync),
     ("inventory discard hover modal guards and release", InventoryDiscardTests.HoverModalAndReleaseAsync),
     ("inventory discard confirmation layers and no blind retry", InventoryDiscardTests.ConfirmLayersAndRejectionAsync),
@@ -34032,6 +34045,7 @@ static Task TestDmaSnapshotCatalogRegistersEveryBusinessChannelAsync()
         "channel_transition",
         "equipment_upgrade_inventory",
         "equipment_upgrade_ui",
+        "manastone_exchange",
         "game_exit_scene",
         "game_processes",
         "gather",

@@ -1,0 +1,1393 @@
+{
+  "date": "2026-11-04",
+  "timezone": "Asia/Shanghai",
+  "identity": {
+    "AccountName": "脚本5",
+    "InstanceId": "c1a50923-1135-4236-8ee9-2bfebbb8fb3d",
+    "VmmDeviceName": "fpga://devindex=2",
+    "CharacterName": "ALAKA",
+    "TargetEntityId": 65500
+  },
+  "target": {
+    "TargetEntityId": 65500,
+    "ServerObjectId": 2147613646,
+    "EntityType": 3,
+    "ObjectType": 2,
+    "Name": "比洛加",
+    "CurrentHp": 11836,
+    "MaxHp": 11836,
+    "Position": {
+      "X": 1305.6998,
+      "Y": 1998.9174,
+      "Z": 46.25
+    },
+    "DistanceToLocalPlayer": 1.4676987152470335,
+    "CapturedAt": "2026-11-04T17:19:09.0944844+08:00",
+    "TargetServerObjectId": 0,
+    "IsTargetingLocalPlayer": false,
+    "LocalServerObjectId": 1879093042,
+    "LootableRaw": 0,
+    "InteractionState": 14,
+    "HasTarget": true,
+    "IsMonster": true,
+    "HasKnownHealth": true,
+    "IsAlive": true,
+    "IsLockedMonster": true,
+    "IsMonsterAlive": true,
+    "HasLoot": false,
+    "IsLootableCorpse": false,
+    "TargetServerObjectIdMatchesLocal": false
+  },
+  "source_sha256": {
+    "aion202609091125.json": "51ad55b509a6edf7850b1bdfaa45d32381626c920e6f2cc96ffe5e056f583f43",
+    "Game.dll": "834300c2a85b6427de2d4a4be2931ff2ea59fd70f48f31754f5c2181753bd786"
+  },
+  "observed_consumption_timing": "Hand over consumes three white materials, ten each; confirmation grants one reward.",
+  "quest_cache": [
+    {
+      "questId": 4113,
+      "slot": 6,
+      "fields": [
+        167000354,
+        167000356,
+        167000361,
+        0,
+        10,
+        10,
+        10,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "questId": 4114,
+      "slot": 7,
+      "fields": [
+        167000355,
+        167000357,
+        167000360,
+        0,
+        10,
+        10,
+        10,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "manual_transitions": [
+    {
+      "step": 3,
+      "before_inventory": {
+        "167000354": {
+          "name": "魔石:生命力+60",
+          "quality": 1,
+          "count": 563
+        },
+        "167000355": {
+          "name": "魔石:精神力+60",
+          "quality": 1,
+          "count": 615
+        },
+        "167000356": {
+          "name": "魔石:命中+20",
+          "quality": 1,
+          "count": 570
+        },
+        "167000357": {
+          "name": "魔石:回避+12",
+          "quality": 1,
+          "count": 661
+        },
+        "167000358": {
+          "name": "魔石：攻击力+3",
+          "quality": 1,
+          "count": 536
+        },
+        "167000359": {
+          "name": "魔石:魔法增幅力+20",
+          "quality": 1,
+          "count": 1128
+        },
+        "167000360": {
+          "name": "魔石:武器防御+20",
+          "quality": 1,
+          "count": 556
+        },
+        "167000361": {
+          "name": "魔石:盾牌防御+20",
+          "quality": 1,
+          "count": 535
+        },
+        "167000363": {
+          "name": "魔石:物理致命一击+12",
+          "quality": 1,
+          "count": 1090
+        },
+        "167000514": {
+          "name": "魔石:生命力+85",
+          "quality": 2,
+          "count": 19
+        },
+        "167000515": {
+          "name": "魔石:精神力+85",
+          "quality": 2,
+          "count": 1
+        },
+        "167000518": {
+          "name": "魔石：攻击力+5",
+          "quality": 2,
+          "count": 3
+        },
+        "167000519": {
+          "name": "魔石:魔法增幅力+25",
+          "quality": 2,
+          "count": 2
+        },
+        "167000521": {
+          "name": "魔石:盾牌防御+25",
+          "quality": 2,
+          "count": 5
+        },
+        "167000542": {
+          "name": "魔石:魔法抵抗+12",
+          "quality": 2,
+          "count": 9
+        },
+        "188051284": {
+          "name": "比洛加的魔石袋",
+          "quality": 1,
+          "count": 2
+        }
+      },
+      "state": null,
+      "page_fields": [],
+      "after_dialog": {
+        "DialogOpen": true,
+        "DialogEntries": {
+          "接受。": {
+            "X": 169,
+            "Y": 399
+          },
+          "拒绝。": {
+            "X": 169,
+            "Y": 425
+          },
+          "关闭": {
+            "X": 307,
+            "Y": 501
+          }
+        },
+        "IsOpen": false,
+        "Mode": -1,
+        "NpcServerObjectId": 0,
+        "InventoryOpen": true,
+        "Basket": [],
+        "SellButton": null,
+        "OtherModalOpen": false,
+        "RegisterAllJunkButton": null,
+        "IsSelling": false,
+        "IsBuying": false,
+        "Purchase": null,
+        "BuyEntry": null,
+        "SellEntry": null
+      }
+    },
+    {
+      "step": 4,
+      "before_inventory": {
+        "167000354": {
+          "name": "魔石:生命力+60",
+          "quality": 1,
+          "count": 563
+        },
+        "167000355": {
+          "name": "魔石:精神力+60",
+          "quality": 1,
+          "count": 615
+        },
+        "167000356": {
+          "name": "魔石:命中+20",
+          "quality": 1,
+          "count": 570
+        },
+        "167000357": {
+          "name": "魔石:回避+12",
+          "quality": 1,
+          "count": 661
+        },
+        "167000358": {
+          "name": "魔石：攻击力+3",
+          "quality": 1,
+          "count": 536
+        },
+        "167000359": {
+          "name": "魔石:魔法增幅力+20",
+          "quality": 1,
+          "count": 1128
+        },
+        "167000360": {
+          "name": "魔石:武器防御+20",
+          "quality": 1,
+          "count": 556
+        },
+        "167000361": {
+          "name": "魔石:盾牌防御+20",
+          "quality": 1,
+          "count": 535
+        },
+        "167000363": {
+          "name": "魔石:物理致命一击+12",
+          "quality": 1,
+          "count": 1090
+        },
+        "167000514": {
+          "name": "魔石:生命力+85",
+          "quality": 2,
+          "count": 19
+        },
+        "167000515": {
+          "name": "魔石:精神力+85",
+          "quality": 2,
+          "count": 1
+        },
+        "167000518": {
+          "name": "魔石：攻击力+5",
+          "quality": 2,
+          "count": 3
+        },
+        "167000519": {
+          "name": "魔石:魔法增幅力+25",
+          "quality": 2,
+          "count": 2
+        },
+        "167000521": {
+          "name": "魔石:盾牌防御+25",
+          "quality": 2,
+          "count": 5
+        },
+        "167000542": {
+          "name": "魔石:魔法抵抗+12",
+          "quality": 2,
+          "count": 9
+        },
+        "188051284": {
+          "name": "比洛加的魔石袋",
+          "quality": 1,
+          "count": 2
+        }
+      },
+      "state": {
+        "npc": 2147613646,
+        "type": 1,
+        "page": 1003,
+        "quest": 4113
+      },
+      "page_fields": [
+        {
+          "offset": "0x528",
+          "text": "quest_accept_1"
+        },
+        {
+          "offset": "0x548",
+          "text": "\r\n        <html>\r\n        <body text=\"#302405\" topmargin=\"20\" leftmargin=\"15\"  speed=\"50\"><table><tr><td width=\"10\"> </td><td width=\"320\">\r\n          <p>请给我生命力+60、命中+20、盾牌防御+20的魔石。</p>\r\n          <p> </p>\r\n          <p>我这就给你交换成其他魔石。</p>\r\n          <p> </p>\r\n          <p>如果你放在仓库里了，就快去取出来。该不会已经卖给商店，或破坏掉了吧？</p>\r\n        </td><td width=\"10\"> </td></tr></table><p> </p><img src=\"textures/ui/basic_sep1.dds\" width=\"340\" height=\"2\"><p>&nbsp</p><p><button href=\"select1\" icon=\"v4_npcdlg_sel_1\" font_xml=\"v3_sel_button\" width=\"340\" height=\"28\" align=\"left\" skin=\"v4_npcdlg_sel_button\">交出魔石。</button></p><p>&nbsp</p></body>\r\n        </html>\r\n    "
+        },
+        {
+          "offset": "0x568",
+          "text": "交出魔石。"
+        },
+        {
+          "offset": "0x588",
+          "text": ""
+        },
+        {
+          "offset": "0xD68",
+          "text": "HACTION_CHECK_USER_HAS_QUEST_ITEM"
+        },
+        {
+          "offset": "0xD88",
+          "text": ""
+        }
+      ],
+      "after_dialog": {
+        "DialogOpen": true,
+        "DialogEntries": {
+          "交出魔石。": {
+            "X": 169,
+            "Y": 276
+          },
+          "关闭": {
+            "X": 307,
+            "Y": 501
+          }
+        },
+        "IsOpen": false,
+        "Mode": -1,
+        "NpcServerObjectId": 0,
+        "InventoryOpen": true,
+        "Basket": [],
+        "SellButton": null,
+        "OtherModalOpen": false,
+        "RegisterAllJunkButton": null,
+        "IsSelling": false,
+        "IsBuying": false,
+        "Purchase": null,
+        "BuyEntry": null,
+        "SellEntry": null
+      }
+    },
+    {
+      "step": 5,
+      "before_inventory": {
+        "167000354": {
+          "name": "魔石:生命力+60",
+          "quality": 1,
+          "count": 563
+        },
+        "167000355": {
+          "name": "魔石:精神力+60",
+          "quality": 1,
+          "count": 615
+        },
+        "167000356": {
+          "name": "魔石:命中+20",
+          "quality": 1,
+          "count": 570
+        },
+        "167000357": {
+          "name": "魔石:回避+12",
+          "quality": 1,
+          "count": 661
+        },
+        "167000358": {
+          "name": "魔石：攻击力+3",
+          "quality": 1,
+          "count": 536
+        },
+        "167000359": {
+          "name": "魔石:魔法增幅力+20",
+          "quality": 1,
+          "count": 1128
+        },
+        "167000360": {
+          "name": "魔石:武器防御+20",
+          "quality": 1,
+          "count": 556
+        },
+        "167000361": {
+          "name": "魔石:盾牌防御+20",
+          "quality": 1,
+          "count": 535
+        },
+        "167000363": {
+          "name": "魔石:物理致命一击+12",
+          "quality": 1,
+          "count": 1090
+        },
+        "167000514": {
+          "name": "魔石:生命力+85",
+          "quality": 2,
+          "count": 19
+        },
+        "167000515": {
+          "name": "魔石:精神力+85",
+          "quality": 2,
+          "count": 1
+        },
+        "167000518": {
+          "name": "魔石：攻击力+5",
+          "quality": 2,
+          "count": 3
+        },
+        "167000519": {
+          "name": "魔石:魔法增幅力+25",
+          "quality": 2,
+          "count": 2
+        },
+        "167000521": {
+          "name": "魔石:盾牌防御+25",
+          "quality": 2,
+          "count": 5
+        },
+        "167000542": {
+          "name": "魔石:魔法抵抗+12",
+          "quality": 2,
+          "count": 9
+        },
+        "188051284": {
+          "name": "比洛加的魔石袋",
+          "quality": 1,
+          "count": 2
+        }
+      },
+      "state": {
+        "npc": 2147613646,
+        "type": 4,
+        "page": 5,
+        "quest": 4113
+      },
+      "page_fields": [
+        {
+          "offset": "0x528",
+          "text": "select_quest_reward1"
+        },
+        {
+          "offset": "0x548",
+          "text": "\r\n        <html>\r\n        <body text=\"#302405\" topmargin=\"20\" leftmargin=\"15\"  speed=\"50\"><table><tr><td width=\"10\"> </td><td width=\"320\">\r\n          <p>那么，我就给你新的魔石。</p>\r\n          <p> </p>\r\n          <p>虽然不知道你是否满意，但总比你给我的魔石要有用得多吧？</p>\r\n          <p> </p>\r\n          <p>用于交换的魔石数量很充足，以后你有不用的魔石也尽管拿过来。 </p>\r\n        </td><td width=\"10\"> </td></tr></table><p> </p><img src=\"textures/ui/basic_sep1.dds\" width=\"340\" height=\"2\"><p> </p><p><button font_xml=\"v3_quest_reward\" width=\"340\" height=\"28\" skin=\"v4_npcdlg_reward_button\" icon=\"v4_npcdlg_reward\" align=\"left\">基本奖励</button></p><listview width=\"340\" itemHeight=\"40\" selectable=\"true\" skin=\"v4_listview_quest\"><item img=\"Data\\Items\\icon_quest_exp01.dds\" itemnameid=\"0\" itemcount=\"0\" itemtype=\"0\" selectable=\"true\" mask=\"false\">3,600 XP</item><item img=\"Data/Items/Icon_Item_Pouch01\" itemnameid=\"188051284\" itemcount=\"1\" itemtype=\"0\" selectable=\"true\" mask=\"false\">比洛加的魔石袋</item></listview><p>&nbsp;</p><p>&nbsp;</p></body>\r\n        </html>\r\n    "
+        },
+        {
+          "offset": "0x568",
+          "text": ""
+        },
+        {
+          "offset": "0x588",
+          "text": ""
+        },
+        {
+          "offset": "0xD68",
+          "text": ""
+        },
+        {
+          "offset": "0xD88",
+          "text": ""
+        }
+      ],
+      "after_dialog": {
+        "DialogOpen": true,
+        "DialogEntries": {
+          "基本奖励": {
+            "X": 169,
+            "Y": 289
+          },
+          "确认": {
+            "X": 254,
+            "Y": 501
+          },
+          "取消": {
+            "X": 307,
+            "Y": 501
+          }
+        },
+        "IsOpen": false,
+        "Mode": -1,
+        "NpcServerObjectId": 0,
+        "InventoryOpen": true,
+        "Basket": [],
+        "SellButton": null,
+        "OtherModalOpen": false,
+        "RegisterAllJunkButton": null,
+        "IsSelling": false,
+        "IsBuying": false,
+        "Purchase": null,
+        "BuyEntry": null,
+        "SellEntry": null
+      }
+    },
+    {
+      "step": 6,
+      "before_inventory": {
+        "167000354": {
+          "name": "魔石:生命力+60",
+          "quality": 1,
+          "count": 553
+        },
+        "167000355": {
+          "name": "魔石:精神力+60",
+          "quality": 1,
+          "count": 615
+        },
+        "167000356": {
+          "name": "魔石:命中+20",
+          "quality": 1,
+          "count": 560
+        },
+        "167000357": {
+          "name": "魔石:回避+12",
+          "quality": 1,
+          "count": 661
+        },
+        "167000358": {
+          "name": "魔石：攻击力+3",
+          "quality": 1,
+          "count": 536
+        },
+        "167000359": {
+          "name": "魔石:魔法增幅力+20",
+          "quality": 1,
+          "count": 1128
+        },
+        "167000360": {
+          "name": "魔石:武器防御+20",
+          "quality": 1,
+          "count": 556
+        },
+        "167000361": {
+          "name": "魔石:盾牌防御+20",
+          "quality": 1,
+          "count": 525
+        },
+        "167000363": {
+          "name": "魔石:物理致命一击+12",
+          "quality": 1,
+          "count": 1090
+        },
+        "167000514": {
+          "name": "魔石:生命力+85",
+          "quality": 2,
+          "count": 19
+        },
+        "167000515": {
+          "name": "魔石:精神力+85",
+          "quality": 2,
+          "count": 1
+        },
+        "167000518": {
+          "name": "魔石：攻击力+5",
+          "quality": 2,
+          "count": 3
+        },
+        "167000519": {
+          "name": "魔石:魔法增幅力+25",
+          "quality": 2,
+          "count": 2
+        },
+        "167000521": {
+          "name": "魔石:盾牌防御+25",
+          "quality": 2,
+          "count": 5
+        },
+        "167000542": {
+          "name": "魔石:魔法抵抗+12",
+          "quality": 2,
+          "count": 9
+        },
+        "188051284": {
+          "name": "比洛加的魔石袋",
+          "quality": 1,
+          "count": 2
+        }
+      },
+      "state": null,
+      "page_fields": [],
+      "after_dialog": {
+        "DialogOpen": false,
+        "DialogEntries": {},
+        "IsOpen": false,
+        "Mode": -1,
+        "NpcServerObjectId": 0,
+        "InventoryOpen": true,
+        "Basket": [],
+        "SellButton": null,
+        "OtherModalOpen": false,
+        "RegisterAllJunkButton": null,
+        "IsSelling": false,
+        "IsBuying": false,
+        "Purchase": null,
+        "BuyEntry": null,
+        "SellEntry": null
+      }
+    },
+    {
+      "step": 7,
+      "before_inventory": {
+        "167000354": {
+          "name": "魔石:生命力+60",
+          "quality": 1,
+          "count": 553
+        },
+        "167000355": {
+          "name": "魔石:精神力+60",
+          "quality": 1,
+          "count": 615
+        },
+        "167000356": {
+          "name": "魔石:命中+20",
+          "quality": 1,
+          "count": 560
+        },
+        "167000357": {
+          "name": "魔石:回避+12",
+          "quality": 1,
+          "count": 661
+        },
+        "167000358": {
+          "name": "魔石：攻击力+3",
+          "quality": 1,
+          "count": 536
+        },
+        "167000359": {
+          "name": "魔石:魔法增幅力+20",
+          "quality": 1,
+          "count": 1128
+        },
+        "167000360": {
+          "name": "魔石:武器防御+20",
+          "quality": 1,
+          "count": 556
+        },
+        "167000361": {
+          "name": "魔石:盾牌防御+20",
+          "quality": 1,
+          "count": 525
+        },
+        "167000363": {
+          "name": "魔石:物理致命一击+12",
+          "quality": 1,
+          "count": 1090
+        },
+        "167000514": {
+          "name": "魔石:生命力+85",
+          "quality": 2,
+          "count": 19
+        },
+        "167000515": {
+          "name": "魔石:精神力+85",
+          "quality": 2,
+          "count": 1
+        },
+        "167000518": {
+          "name": "魔石：攻击力+5",
+          "quality": 2,
+          "count": 3
+        },
+        "167000519": {
+          "name": "魔石:魔法增幅力+25",
+          "quality": 2,
+          "count": 2
+        },
+        "167000521": {
+          "name": "魔石:盾牌防御+25",
+          "quality": 2,
+          "count": 5
+        },
+        "167000542": {
+          "name": "魔石:魔法抵抗+12",
+          "quality": 2,
+          "count": 9
+        },
+        "188051284": {
+          "name": "比洛加的魔石袋",
+          "quality": 1,
+          "count": 3
+        }
+      },
+      "state": {
+        "npc": 2147613646,
+        "type": 5,
+        "page": 10,
+        "quest": 0
+      },
+      "page_fields": [
+        {
+          "offset": "0x528",
+          "text": "select_quest"
+        },
+        {
+          "offset": "0x548",
+          "text": "\r\n        <html>\r\n        <body text=\"#302405\" topmargin=\"20\" leftmargin=\"15\"  speed=\"50\"><table><tr><td width=\"10\"> </td><td width=\"320\">\r\n          <p>好的装备要用好魔石配，才能相得益彰。</p>\r\n          <p> </p>\r\n          <p>有时候看到一些上等的武器上镶的却是劣质的魔石，我真是觉得心痛不已。</p>\r\n          <p> </p>\r\n          <p>我可以随时帮您去除魔石，要想换魔石的话，可千万别犹豫。</p>\r\n        </td><td width=\"10\"> </td></tr></table><p> </p><img src=\"textures/ui/basic_sep1.dds\" width=\"340\" height=\"2\"><p>&nbsp</p><p><button href=\"NpcFunc37\" icon=\"v4_npc_func_removeoption\" font_xml=\"v3_trade_button\" width=\"340\" height=\"32\"  align=\"center\" skin=\"v4_npcdlg_func_button\" >去除魔石</button></p><p>&nbsp</p><p><button href=\"QuestSelect4113\" icon=\"v4_npcdlg_quest_givable\" font_xml=\"v3_sel_button\" width=\"340\" height=\"28\" align=\"left\" skin=\"v4_npcdlg_sel_button\">43级 新任务：[魔石批量交换]比洛加的魔石袋</button></p><p><button href=\"QuestSelect4114\" icon=\"v4_npcdlg_quest_givable\" font_xml=\"v3_sel_button\" width=\"340\" height=\"28\" align=\"left\" skin=\"v4_npcdlg_sel_button\">43级 新任务：[魔石批量交换]比洛加的魔石包袱</button></p><p><button href=\"QuestSelect4072\" icon=\"v4_npcdlg_quest_givable\" font_xml=\"v3_sel_button\" width=\"340\" height=\"28\" align=\"left\" skin=\"v4_npcdlg_sel_button\">43级 新任务：[魔石交换]研究用魔石</button></p><p><button href=\"QuestSelect4073\" icon=\"v4_npcdlg_quest_givable\" font_xml=\"v3_sel_button\" width=\"340\" height=\"28\" align=\"left\" skin=\"v4_npcdlg_sel_button\">43级 新任务：[魔石交换]魔石的重新利用</button></p><p>&nbsp</p></body>\r\n        </html>\r\n    "
+        },
+        {
+          "offset": "0x568",
+          "text": ""
+        },
+        {
+          "offset": "0x588",
+          "text": ""
+        },
+        {
+          "offset": "0xD68",
+          "text": ""
+        },
+        {
+          "offset": "0xD88",
+          "text": ""
+        }
+      ],
+      "after_dialog": {
+        "DialogOpen": true,
+        "DialogEntries": {
+          "去除魔石": {
+            "X": 169,
+            "Y": 291
+          },
+          "43级 新任务：[魔石批量交换]比洛加的魔石袋": {
+            "X": 169,
+            "Y": 332
+          },
+          "43级 新任务：[魔石批量交换]比洛加的魔石包袱": {
+            "X": 169,
+            "Y": 357
+          },
+          "43级 新任务：[魔石交换]研究用魔石": {
+            "X": 169,
+            "Y": 383
+          },
+          "43级 新任务：[魔石交换]魔石的重新利用": {
+            "X": 169,
+            "Y": 409
+          },
+          "关闭": {
+            "X": 307,
+            "Y": 501
+          }
+        },
+        "IsOpen": false,
+        "Mode": -1,
+        "NpcServerObjectId": 0,
+        "InventoryOpen": true,
+        "Basket": [],
+        "SellButton": null,
+        "OtherModalOpen": false,
+        "RegisterAllJunkButton": null,
+        "IsSelling": false,
+        "IsBuying": false,
+        "Purchase": null,
+        "BuyEntry": null,
+        "SellEntry": null
+      }
+    },
+    {
+      "step": 8,
+      "before_inventory": {
+        "167000354": {
+          "name": "魔石:生命力+60",
+          "quality": 1,
+          "count": 553
+        },
+        "167000355": {
+          "name": "魔石:精神力+60",
+          "quality": 1,
+          "count": 615
+        },
+        "167000356": {
+          "name": "魔石:命中+20",
+          "quality": 1,
+          "count": 560
+        },
+        "167000357": {
+          "name": "魔石:回避+12",
+          "quality": 1,
+          "count": 661
+        },
+        "167000358": {
+          "name": "魔石：攻击力+3",
+          "quality": 1,
+          "count": 536
+        },
+        "167000359": {
+          "name": "魔石:魔法增幅力+20",
+          "quality": 1,
+          "count": 1128
+        },
+        "167000360": {
+          "name": "魔石:武器防御+20",
+          "quality": 1,
+          "count": 556
+        },
+        "167000361": {
+          "name": "魔石:盾牌防御+20",
+          "quality": 1,
+          "count": 525
+        },
+        "167000363": {
+          "name": "魔石:物理致命一击+12",
+          "quality": 1,
+          "count": 1090
+        },
+        "167000514": {
+          "name": "魔石:生命力+85",
+          "quality": 2,
+          "count": 19
+        },
+        "167000515": {
+          "name": "魔石:精神力+85",
+          "quality": 2,
+          "count": 1
+        },
+        "167000518": {
+          "name": "魔石：攻击力+5",
+          "quality": 2,
+          "count": 3
+        },
+        "167000519": {
+          "name": "魔石:魔法增幅力+25",
+          "quality": 2,
+          "count": 2
+        },
+        "167000521": {
+          "name": "魔石:盾牌防御+25",
+          "quality": 2,
+          "count": 5
+        },
+        "167000542": {
+          "name": "魔石:魔法抵抗+12",
+          "quality": 2,
+          "count": 9
+        },
+        "188051284": {
+          "name": "比洛加的魔石袋",
+          "quality": 1,
+          "count": 3
+        }
+      },
+      "state": {
+        "npc": 2147613646,
+        "type": 1,
+        "page": 1011,
+        "quest": 4114
+      },
+      "page_fields": [
+        {
+          "offset": "0x528",
+          "text": "select1"
+        },
+        {
+          "offset": "0x548",
+          "text": "\r\n        <html>\r\n        <body text=\"#302405\" topmargin=\"20\" leftmargin=\"15\"  speed=\"50\"><table><tr><td width=\"10\"> </td><td width=\"320\">\r\n          <p>这样下去不行。</p>\r\n          <p> </p>\r\n          <p>一个个回收魔石很费力，又没什么成果。</p>\r\n          <p> </p>\r\n          <p>从现在开始，我决定要按10个为一组回收魔石。</p>\r\n          <p> </p>\r\n          <p>如果你有精神力+60、回避+12、武器防御+20的魔石想用来交换，就各收集10个带给我。</p>\r\n          <p> </p>\r\n          <p>当然我也会给你相应的丰厚奖励。 </p>\r\n        </td><td width=\"10\"> </td></tr></table><p> </p><img src=\"textures/ui/basic_sep1.dds\" width=\"340\" height=\"2\"><p>&nbsp</p><p><button href=\"select1\" icon=\"v4_npcdlg_sel_1\" font_xml=\"v3_sel_button\" width=\"340\" height=\"28\" align=\"left\" skin=\"v4_npcdlg_sel_button\">接受。</button></p><p><button href=\"select2\" icon=\"v4_npcdlg_sel_2\" font_xml=\"v3_sel_button\" width=\"340\" height=\"28\" align=\"left\" skin=\"v4_npcdlg_sel_button\">拒绝。</button></p><p>&nbsp</p></body>\r\n        </html>\r\n    "
+        },
+        {
+          "offset": "0x568",
+          "text": "接受。"
+        },
+        {
+          "offset": "0x588",
+          "text": "拒绝。"
+        },
+        {
+          "offset": "0xD68",
+          "text": "HACTION_QUEST_ACCEPT_1"
+        },
+        {
+          "offset": "0xD88",
+          "text": "HACTION_QUEST_REFUSE_1"
+        }
+      ],
+      "after_dialog": {
+        "DialogOpen": true,
+        "DialogEntries": {
+          "接受。": {
+            "X": 169,
+            "Y": 329
+          },
+          "拒绝。": {
+            "X": 169,
+            "Y": 355
+          },
+          "关闭": {
+            "X": 307,
+            "Y": 501
+          }
+        },
+        "IsOpen": false,
+        "Mode": -1,
+        "NpcServerObjectId": 0,
+        "InventoryOpen": true,
+        "Basket": [],
+        "SellButton": null,
+        "OtherModalOpen": false,
+        "RegisterAllJunkButton": null,
+        "IsSelling": false,
+        "IsBuying": false,
+        "Purchase": null,
+        "BuyEntry": null,
+        "SellEntry": null
+      }
+    },
+    {
+      "step": 9,
+      "before_inventory": {
+        "167000354": {
+          "name": "魔石:生命力+60",
+          "quality": 1,
+          "count": 553
+        },
+        "167000355": {
+          "name": "魔石:精神力+60",
+          "quality": 1,
+          "count": 615
+        },
+        "167000356": {
+          "name": "魔石:命中+20",
+          "quality": 1,
+          "count": 560
+        },
+        "167000357": {
+          "name": "魔石:回避+12",
+          "quality": 1,
+          "count": 661
+        },
+        "167000358": {
+          "name": "魔石：攻击力+3",
+          "quality": 1,
+          "count": 536
+        },
+        "167000359": {
+          "name": "魔石:魔法增幅力+20",
+          "quality": 1,
+          "count": 1128
+        },
+        "167000360": {
+          "name": "魔石:武器防御+20",
+          "quality": 1,
+          "count": 556
+        },
+        "167000361": {
+          "name": "魔石:盾牌防御+20",
+          "quality": 1,
+          "count": 525
+        },
+        "167000363": {
+          "name": "魔石:物理致命一击+12",
+          "quality": 1,
+          "count": 1090
+        },
+        "167000514": {
+          "name": "魔石:生命力+85",
+          "quality": 2,
+          "count": 19
+        },
+        "167000515": {
+          "name": "魔石:精神力+85",
+          "quality": 2,
+          "count": 1
+        },
+        "167000518": {
+          "name": "魔石：攻击力+5",
+          "quality": 2,
+          "count": 3
+        },
+        "167000519": {
+          "name": "魔石:魔法增幅力+25",
+          "quality": 2,
+          "count": 2
+        },
+        "167000521": {
+          "name": "魔石:盾牌防御+25",
+          "quality": 2,
+          "count": 5
+        },
+        "167000542": {
+          "name": "魔石:魔法抵抗+12",
+          "quality": 2,
+          "count": 9
+        },
+        "188051284": {
+          "name": "比洛加的魔石袋",
+          "quality": 1,
+          "count": 3
+        }
+      },
+      "state": {
+        "npc": 2147613646,
+        "type": 1,
+        "page": 1003,
+        "quest": 4114
+      },
+      "page_fields": [
+        {
+          "offset": "0x528",
+          "text": "quest_accept_1"
+        },
+        {
+          "offset": "0x548",
+          "text": "\r\n        <html>\r\n        <body text=\"#302405\" topmargin=\"20\" leftmargin=\"15\"  speed=\"50\"><table><tr><td width=\"10\"> </td><td width=\"320\">\r\n          <p>我再说一遍，必须凑齐精神力+60、回避+12、武器防御+20的魔石各10个带过来。</p>\r\n          <p> </p>\r\n          <p>因为这是有规定的，除了上述魔石之外，其他都不算数。</p>\r\n          <p> </p>\r\n          <p>把三种魔石全带来的话，我就给你交换成其他优质的魔石。</p>\r\n        </td><td width=\"10\"> </td></tr></table><p> </p><img src=\"textures/ui/basic_sep1.dds\" width=\"340\" height=\"2\"><p>&nbsp</p><p><button href=\"select1\" icon=\"v4_npcdlg_sel_1\" font_xml=\"v3_sel_button\" width=\"340\" height=\"28\" align=\"left\" skin=\"v4_npcdlg_sel_button\">交出魔石。</button></p><p>&nbsp</p></body>\r\n        </html>\r\n    "
+        },
+        {
+          "offset": "0x568",
+          "text": "交出魔石。"
+        },
+        {
+          "offset": "0x588",
+          "text": ""
+        },
+        {
+          "offset": "0xD68",
+          "text": "HACTION_CHECK_USER_HAS_QUEST_ITEM"
+        },
+        {
+          "offset": "0xD88",
+          "text": ""
+        }
+      ],
+      "after_dialog": {
+        "DialogOpen": true,
+        "DialogEntries": {
+          "交出魔石。": {
+            "X": 169,
+            "Y": 303
+          },
+          "关闭": {
+            "X": 307,
+            "Y": 501
+          }
+        },
+        "IsOpen": false,
+        "Mode": -1,
+        "NpcServerObjectId": 0,
+        "InventoryOpen": true,
+        "Basket": [],
+        "SellButton": null,
+        "OtherModalOpen": false,
+        "RegisterAllJunkButton": null,
+        "IsSelling": false,
+        "IsBuying": false,
+        "Purchase": null,
+        "BuyEntry": null,
+        "SellEntry": null
+      }
+    },
+    {
+      "step": 10,
+      "before_inventory": {
+        "167000354": {
+          "name": "魔石:生命力+60",
+          "quality": 1,
+          "count": 553
+        },
+        "167000355": {
+          "name": "魔石:精神力+60",
+          "quality": 1,
+          "count": 615
+        },
+        "167000356": {
+          "name": "魔石:命中+20",
+          "quality": 1,
+          "count": 560
+        },
+        "167000357": {
+          "name": "魔石:回避+12",
+          "quality": 1,
+          "count": 661
+        },
+        "167000358": {
+          "name": "魔石：攻击力+3",
+          "quality": 1,
+          "count": 536
+        },
+        "167000359": {
+          "name": "魔石:魔法增幅力+20",
+          "quality": 1,
+          "count": 1128
+        },
+        "167000360": {
+          "name": "魔石:武器防御+20",
+          "quality": 1,
+          "count": 556
+        },
+        "167000361": {
+          "name": "魔石:盾牌防御+20",
+          "quality": 1,
+          "count": 525
+        },
+        "167000363": {
+          "name": "魔石:物理致命一击+12",
+          "quality": 1,
+          "count": 1090
+        },
+        "167000514": {
+          "name": "魔石:生命力+85",
+          "quality": 2,
+          "count": 19
+        },
+        "167000515": {
+          "name": "魔石:精神力+85",
+          "quality": 2,
+          "count": 1
+        },
+        "167000518": {
+          "name": "魔石：攻击力+5",
+          "quality": 2,
+          "count": 3
+        },
+        "167000519": {
+          "name": "魔石:魔法增幅力+25",
+          "quality": 2,
+          "count": 2
+        },
+        "167000521": {
+          "name": "魔石:盾牌防御+25",
+          "quality": 2,
+          "count": 5
+        },
+        "167000542": {
+          "name": "魔石:魔法抵抗+12",
+          "quality": 2,
+          "count": 9
+        },
+        "188051284": {
+          "name": "比洛加的魔石袋",
+          "quality": 1,
+          "count": 3
+        }
+      },
+      "state": {
+        "npc": 2147613646,
+        "type": 4,
+        "page": 5,
+        "quest": 4114
+      },
+      "page_fields": [
+        {
+          "offset": "0x528",
+          "text": "select_quest_reward1"
+        },
+        {
+          "offset": "0x548",
+          "text": "\r\n        <html>\r\n        <body text=\"#302405\" topmargin=\"20\" leftmargin=\"15\"  speed=\"50\"><table><tr><td width=\"10\"> </td><td width=\"320\">\r\n          <p>给，这是新魔石，拿着吧。</p>\r\n          <p> </p>\r\n          <p>如果你喜欢，你就镶嵌在你的装备上吧。原来的魔石我会帮你去除的，哈哈。</p>\r\n          <p> </p>\r\n          <p>如果以后还有不用的魔石，也可以带给我。 </p>\r\n          <p> </p>\r\n          <p>有多少我就换多少。</p>\r\n        </td><td width=\"10\"> </td></tr></table><p> </p><img src=\"textures/ui/basic_sep1.dds\" width=\"340\" height=\"2\"><p> </p><p><button font_xml=\"v3_quest_reward\" width=\"340\" height=\"28\" skin=\"v4_npcdlg_reward_button\" icon=\"v4_npcdlg_reward\" align=\"left\">基本奖励</button></p><listview width=\"340\" itemHeight=\"40\" selectable=\"true\" skin=\"v4_listview_quest\"><item img=\"Data\\Items\\icon_quest_exp01.dds\" itemnameid=\"0\" itemcount=\"0\" itemtype=\"0\" selectable=\"true\" mask=\"false\">3,600 XP</item><item img=\"Data/Items/Icon_Item_Sack01\" itemnameid=\"188051283\" itemcount=\"1\" itemtype=\"0\" selectable=\"true\" mask=\"false\">比洛加的魔石包袱</item></listview><p>&nbsp;</p><p>&nbsp;</p></body>\r\n        </html>\r\n    "
+        },
+        {
+          "offset": "0x568",
+          "text": ""
+        },
+        {
+          "offset": "0x588",
+          "text": ""
+        },
+        {
+          "offset": "0xD68",
+          "text": ""
+        },
+        {
+          "offset": "0xD88",
+          "text": ""
+        }
+      ],
+      "after_dialog": {
+        "DialogOpen": true,
+        "DialogEntries": {
+          "基本奖励": {
+            "X": 169,
+            "Y": 303
+          },
+          "确认": {
+            "X": 254,
+            "Y": 501
+          },
+          "取消": {
+            "X": 307,
+            "Y": 501
+          }
+        },
+        "IsOpen": false,
+        "Mode": -1,
+        "NpcServerObjectId": 0,
+        "InventoryOpen": true,
+        "Basket": [],
+        "SellButton": null,
+        "OtherModalOpen": false,
+        "RegisterAllJunkButton": null,
+        "IsSelling": false,
+        "IsBuying": false,
+        "Purchase": null,
+        "BuyEntry": null,
+        "SellEntry": null
+      }
+    },
+    {
+      "step": 11,
+      "before_inventory": {
+        "167000354": {
+          "name": "魔石:生命力+60",
+          "quality": 1,
+          "count": 553
+        },
+        "167000355": {
+          "name": "魔石:精神力+60",
+          "quality": 1,
+          "count": 605
+        },
+        "167000356": {
+          "name": "魔石:命中+20",
+          "quality": 1,
+          "count": 560
+        },
+        "167000357": {
+          "name": "魔石:回避+12",
+          "quality": 1,
+          "count": 651
+        },
+        "167000358": {
+          "name": "魔石：攻击力+3",
+          "quality": 1,
+          "count": 536
+        },
+        "167000359": {
+          "name": "魔石:魔法增幅力+20",
+          "quality": 1,
+          "count": 1128
+        },
+        "167000360": {
+          "name": "魔石:武器防御+20",
+          "quality": 1,
+          "count": 546
+        },
+        "167000361": {
+          "name": "魔石:盾牌防御+20",
+          "quality": 1,
+          "count": 525
+        },
+        "167000363": {
+          "name": "魔石:物理致命一击+12",
+          "quality": 1,
+          "count": 1090
+        },
+        "167000514": {
+          "name": "魔石:生命力+85",
+          "quality": 2,
+          "count": 19
+        },
+        "167000515": {
+          "name": "魔石:精神力+85",
+          "quality": 2,
+          "count": 1
+        },
+        "167000518": {
+          "name": "魔石：攻击力+5",
+          "quality": 2,
+          "count": 3
+        },
+        "167000519": {
+          "name": "魔石:魔法增幅力+25",
+          "quality": 2,
+          "count": 2
+        },
+        "167000521": {
+          "name": "魔石:盾牌防御+25",
+          "quality": 2,
+          "count": 5
+        },
+        "167000542": {
+          "name": "魔石:魔法抵抗+12",
+          "quality": 2,
+          "count": 9
+        },
+        "188051284": {
+          "name": "比洛加的魔石袋",
+          "quality": 1,
+          "count": 3
+        }
+      },
+      "state": null,
+      "page_fields": [],
+      "after_dialog": {
+        "DialogOpen": false,
+        "DialogEntries": {},
+        "IsOpen": false,
+        "Mode": -1,
+        "NpcServerObjectId": 0,
+        "InventoryOpen": true,
+        "Basket": [],
+        "SellButton": null,
+        "OtherModalOpen": false,
+        "RegisterAllJunkButton": null,
+        "IsSelling": false,
+        "IsBuying": false,
+        "Purchase": null,
+        "BuyEntry": null,
+        "SellEntry": null
+      }
+    }
+  ],
+  "interrupted_reward_recovery": {
+    "Success": true,
+    "Value": {
+      "Bags": 1,
+      "Bundles": 1,
+      "MaterialsExhausted": false,
+      "Message": "本轮验证完成：魔石袋 1 个，魔石包袱 1 个。"
+    },
+    "Error": null
+  },
+  "full_run_status": "stopped_by_user",
+  "full_run_last_report": "正在兑换比洛加的魔石袋；已完成魔石袋 39 个、魔石包袱 39 个。",
+  "full_run_result": null,
+  "initial_inventory": {
+    "167000354": {
+      "name": "魔石:生命力+60",
+      "quality": 1,
+      "count": 563
+    },
+    "167000355": {
+      "name": "魔石:精神力+60",
+      "quality": 1,
+      "count": 615
+    },
+    "167000356": {
+      "name": "魔石:命中+20",
+      "quality": 1,
+      "count": 570
+    },
+    "167000357": {
+      "name": "魔石:回避+12",
+      "quality": 1,
+      "count": 661
+    },
+    "167000358": {
+      "name": "魔石：攻击力+3",
+      "quality": 1,
+      "count": 536
+    },
+    "167000359": {
+      "name": "魔石:魔法增幅力+20",
+      "quality": 1,
+      "count": 1128
+    },
+    "167000360": {
+      "name": "魔石:武器防御+20",
+      "quality": 1,
+      "count": 556
+    },
+    "167000361": {
+      "name": "魔石:盾牌防御+20",
+      "quality": 1,
+      "count": 535
+    },
+    "167000363": {
+      "name": "魔石:物理致命一击+12",
+      "quality": 1,
+      "count": 1090
+    },
+    "167000514": {
+      "name": "魔石:生命力+85",
+      "quality": 2,
+      "count": 19
+    },
+    "167000515": {
+      "name": "魔石:精神力+85",
+      "quality": 2,
+      "count": 1
+    },
+    "167000518": {
+      "name": "魔石：攻击力+5",
+      "quality": 2,
+      "count": 3
+    },
+    "167000519": {
+      "name": "魔石:魔法增幅力+25",
+      "quality": 2,
+      "count": 2
+    },
+    "167000521": {
+      "name": "魔石:盾牌防御+25",
+      "quality": 2,
+      "count": 5
+    },
+    "167000542": {
+      "name": "魔石:魔法抵抗+12",
+      "quality": 2,
+      "count": 9
+    },
+    "188051284": {
+      "name": "比洛加的魔石袋",
+      "quality": 1,
+      "count": 2
+    }
+  },
+  "final_inventory": null,
+  "later_changes": "F8 fixed NPC selection and single start/stop button implemented after user stopped testing; no further runtime tests.",
+  "total_count_deltas": null,
+  "unrelated_stones_unchanged": null,
+  "source_deployed_to_running_desktop": false
+}

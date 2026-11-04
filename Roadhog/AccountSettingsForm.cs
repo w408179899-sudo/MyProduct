@@ -274,6 +274,7 @@ namespace Roadhog
             _auctionTestCts?.Cancel();
             _inventoryDiscardTestCts?.Cancel();
             _equipmentUpgradeCts?.Cancel();
+            _manastoneExchangeCts?.Cancel();
             pathRecordTimer.Stop();
             pathRecordTimer.Dispose();
             base.OnFormClosed(e);
@@ -308,7 +309,7 @@ namespace Roadhog
             settingsTabs.TabPages.Add(CreateFilterTab());
             settingsTabs.TabPages.Add(CreateBagCleanupTab());
             settingsTabs.TabPages.Add(CreateTeamTab());
-            settingsTabs.TabPages.Add(CreateEquipmentUpgradeTab());
+            settingsTabs.TabPages.Add(CreateOtherTab());
 
             Controls.Add(settingsTabs);
             var saveButton = AddButton(this, "保存配置", ClientSize.Width - 160, 3, 150, 30, SaveSettingsButton_Click);

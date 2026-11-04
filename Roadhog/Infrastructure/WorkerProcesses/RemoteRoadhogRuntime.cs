@@ -11,6 +11,10 @@ namespace Roadhog.Infrastructure.WorkerProcesses;
 
 public sealed class RemoteRoadhogRuntime : IRoadhogRuntime
 {
+    public Task<OperationResult<Roadhog.Application.ManastoneExchange.ManastoneExchangeResult>> RunManastoneExchangeAsync(
+        string accountName, IProgress<string>? progress, CancellationToken token) =>
+        _client.CallAsync<OperationResult<Roadhog.Application.ManastoneExchange.ManastoneExchangeResult>>(nameof(RunManastoneExchangeAsync),
+            new object?[] { Account(accountName) }, token, progress);
     public Task<EquipmentUpgradeInventory> RefreshEquipmentUpgradeAsync(string accountName, CancellationToken token) =>
         _client.CallAsync<EquipmentUpgradeInventory>(nameof(RefreshEquipmentUpgradeAsync), new object?[] { Account(accountName) }, token);
 

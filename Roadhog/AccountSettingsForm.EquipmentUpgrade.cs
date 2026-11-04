@@ -14,7 +14,7 @@ public sealed partial class AccountSettingsForm
 
     private TabPage CreateEquipmentUpgradeTab()
     {
-        var tab = CreateBaseTab("其他");
+        var tab = CreateBaseTab("砸装备");
         var page = CreatePagePanel(); page.AutoScroll = true; page.AutoScrollMinSize = new(872, 714); tab.Controls.Add(page);
         _equipmentUpgradeRefresh = AddButton(page, "刷新背包", 24, 18, 110, 30);
         _equipmentUpgradeRefresh.Click += async (_, _) => await RefreshEquipmentUpgradeListsAsync();
@@ -161,6 +161,7 @@ public sealed partial class AccountSettingsForm
     private void SetEquipmentUpgradeBusy(bool busy)
     {
         if (IsDisposed) return;
+        if (_manastoneExchangeStart != null) _manastoneExchangeStart.Enabled = !busy;
         if (_equipmentUpgradeRefresh != null) _equipmentUpgradeRefresh.Enabled = !busy;
         foreach (var button in _equipmentUpgradeStarts) button.Enabled = !busy;
         foreach (var editor in _equipmentUpgradeEditors.Values)
