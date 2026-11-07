@@ -10,7 +10,7 @@ public sealed class CleanupWorkflowSettings
     public CleanupMode Mode { get; set; }
     public bool GroceryScheduleEnabled { get; set; }
     public GroceryPostSaleAction GroceryPostSaleAction { get; set; }
-    public List<string> GroceryScheduleTimes { get; set; } = new() { "00:00" };
+    public List<string> GroceryScheduleTimes { get; set; } = new() { "23:50" };
     public bool NpcCleanup { get; set; } = true;
     public bool Auction { get; set; }
     public bool TransferGold { get; set; }
