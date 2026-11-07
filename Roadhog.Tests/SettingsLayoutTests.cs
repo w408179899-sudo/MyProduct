@@ -18,7 +18,6 @@ internal static class SettingsLayoutTests
             {
                 var logger = new InMemoryRoadhogLogger();
                 var settings = new ScriptSettings();
-                settings.Combat.SmartPreAimEnabled = true;
                 settings.SemiAuto.AttackWeaveDelayMs = 530;
                 settings.Skills.OpeningSkill = new() { Enabled = true, SkillId = 101, SkillName = "起手技能", Key = "F1" };
                 var store = new InMemoryAccountConfigStore(new AccountConfig { AccountName = "layout", ScriptSettings = settings });
@@ -53,9 +52,9 @@ internal static class SettingsLayoutTests
                                 "summary does not retain a horizontal scrollbar after resizing");
                             foreach (var column in new[]
                             {
-                                new[] { "enableLootCheckBox", "smartPreAimEnabledCheckBox", "returnHomeWhenNoTargetCheckBox" },
-                                new[] { "contestMonsterCheckBox", "smartPreAimUseFightTargetPositionCheckBox", "sitWhenNoTargetAtHomeCheckBox" },
-                                new[] { "counterEnemyRaceCheckBox", "smartPreAimResponsiveSwitchingCheckBox", "jumpAssistEnabledCheckBox" },
+                                new[] { "enableLootCheckBox", "returnHomeWhenNoTargetCheckBox" },
+                                new[] { "contestMonsterCheckBox", "sitWhenNoTargetAtHomeCheckBox" },
+                                new[] { "counterEnemyRaceCheckBox", "jumpAssistEnabledCheckBox" },
                                 new[] { "combatModeCombo", "stalledTargetExclusionSecondsTextBox" }
                             })
                                 Check(column.Select(name => ((Control)Field(name)).Left).Distinct().Count() == 1,

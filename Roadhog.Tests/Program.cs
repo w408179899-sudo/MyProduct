@@ -14829,9 +14829,9 @@ static async Task TestPostLootSelectionOptimizationsAsync()
     var preferred = RouteDistanceMonster(80, 6080, "preferred", 0, 8);
     var alternative = RouteDistanceMonster(81, 6081, "alternative", 0, 20);
     foreach (var scenario in new[] { "reuse", "responsive_closer", "claimed", "filtered", "outside", "dead",
-        "identity_reused", "defense", "aggressive", "stale", "no_loot", "disabled", "empty", "route_detour", "recently_confirmed" })
+        "identity_reused", "defense", "aggressive", "stale", "no_loot", "legacy_disabled", "empty", "route_detour", "recently_confirmed" })
     {
-        var settings = CreateRouteDistanceStationarySettings(100, smartPreAimEnabled: scenario != "disabled");
+        var settings = CreateRouteDistanceStationarySettings(100, smartPreAimEnabled: scenario != "legacy_disabled");
         settings.Combat.SmartPreAimResponsiveSwitching = true;
         var candidate = preferred;
         var other = alternative;
@@ -14877,7 +14877,7 @@ static async Task TestPostLootSelectionOptimizationsAsync()
             _ => candidate.ServerObjectId
         };
         AssertEqual(expected, selected?.ServerObjectId ?? 0u, scenario + ": selection rules preserved");
-        AssertEqual(scenario is "reuse" or "recently_confirmed", logger.Entries.Any(e => e.EventName == "stationary_combat.smart_preaim.post_loot_reused"),
+        AssertEqual(scenario is "reuse" or "recently_confirmed" or "legacy_disabled", logger.Entries.Any(e => e.EventName == "stationary_combat.smart_preaim.post_loot_reused"),
             scenario + ": only validated best candidate bypasses full scoring");
         AssertFalse(!logger.Entries.Any(e => e.EventName == "stationary_combat.target.selection_timing"),
             scenario + ": selection timing emitted");
@@ -33992,7 +33992,6 @@ static Task TestDmaSnapshotCatalogRegistersEveryBusinessChannelAsync()
         "channel_transition",
         "equipment_upgrade_inventory",
         "equipment_upgrade_ui",
-        "manastone_exchange",
         "game_exit_scene",
         "game_processes",
         "gather",
@@ -34007,6 +34006,7 @@ static Task TestDmaSnapshotCatalogRegistersEveryBusinessChannelAsync()
         "login_scene",
         "loot_corpses",
         "loot_interaction",
+        "manastone_exchange",
         "npc_trade",
         "party",
         "personal_shop",
