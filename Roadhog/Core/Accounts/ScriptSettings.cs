@@ -254,11 +254,12 @@ public sealed class CombatScriptSettings
 
     public bool PreferAggressiveMonsters { get; set; }
 
-    public bool SmartPreAimEnabled { get; set; }
+    // Legacy JSON fields retained for round-trips; runtime uses fixed smart selection and loot-dependent origin.
+    public bool SmartPreAimEnabled { get; set; } = true;
 
     public bool SmartPreAimUseFightTargetPosition { get; set; }
 
-    public bool SmartPreAimResponsiveSwitching { get; set; }
+    public bool SmartPreAimResponsiveSwitching { get; set; } = true;
 
     public bool ReturnHomeWhenNoTarget { get; set; } = true;
 

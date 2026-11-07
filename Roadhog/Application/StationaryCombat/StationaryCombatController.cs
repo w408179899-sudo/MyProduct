@@ -9493,8 +9493,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
     private static bool IsSmartPreAimEnabled(AccountWorkerContext context)
     {
-        return context.Config.ScriptSettings?.CombatMode == AccountCombatMode.Stationary &&
-               context.Config.ScriptSettings?.Combat?.SmartPreAimEnabled == true;
+        return context.Config.ScriptSettings?.CombatMode == AccountCombatMode.Stationary;
     }
 
     private static bool ShouldPreserveDeathRecoverySmartPreAim(
@@ -9521,13 +9520,12 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
     private static bool UsesFightTargetPositionForSmartPreAim(AccountWorkerContext context)
     {
         return IsSmartPreAimEnabled(context) &&
-               context.Config.ScriptSettings?.Combat?.SmartPreAimUseFightTargetPosition == true;
+               context.Config.ScriptSettings?.Combat?.EnableLoot == true;
     }
 
     private static bool UsesResponsiveSmartPreAimSwitching(AccountWorkerContext context)
     {
-        return IsSmartPreAimEnabled(context) &&
-               context.Config.ScriptSettings?.Combat?.SmartPreAimResponsiveSwitching == true;
+        return IsSmartPreAimEnabled(context);
     }
 
     private static Vector3Snapshot ResolvePendingNextTargetSelectionOrigin(

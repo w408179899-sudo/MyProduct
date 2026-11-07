@@ -1217,7 +1217,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat smart pre-aim uses route distance", TestSmartPreAimUsesRouteDistanceAsync),
     ("stationary combat smart pre-aim logs candidate diagnostics", TestSmartPreAimLogsCandidateDiagnosticsAsync),
     ("stationary combat smart pre-aim selector keeps stable target", TestSmartPreAimSelectorKeepsStableTargetAsync),
-    ("stationary combat smart pre-aim stabilizes aligned target switching", TestSmartPreAimStabilizesAlignedTargetSwitchingAsync),
+    ("stationary combat smart pre-aim responsive aligned switching preserves priorities and current combat", TestSmartPreAimStabilizesAlignedTargetSwitchingAsync),
     ("stationary combat smart pre-aim responsive switching bypasses debounce", TestSmartPreAimResponsiveSwitchingBypassesDebounceAsync),
     ("stationary combat smart pre-aim does not force committed target", TestSmartPreAimDoesNotForceCommittedTargetAsync),
     ("stationary combat smart pre-aim missing aligned candidate does not block selection", TestSmartPreAimMissingAlignedCandidateDoesNotBlockSelectionAsync),
@@ -1422,8 +1422,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("retired condition preempt option stays archived during skill UI save", TestArchivedConditionPreemptSettingPreservedFromSkillUiAsync),
     ("return home when no target switch persists from summary UI", TestReturnHomeWhenNoTargetSwitchPersistsFromSummaryUiAsync),
     ("jump assist switch persists from summary UI", TestJumpAssistSwitchPersistsFromSummaryUiAsync),
-    ("smart pre-aim responsive switch persists from summary UI", TestSmartPreAimResponsiveSwitchPersistsFromSummaryUiAsync),
-    ("smart pre-aim dependent switches follow enabled state from summary UI", TestSmartPreAimDependentSwitchesFollowEnabledStateFromSummaryUiAsync),
+    ("smart pre-aim removed switches save fixed policy from summary UI", TestSmartPreAimResponsiveSwitchPersistsFromSummaryUiAsync),
+    ("smart pre-aim fixed policy ignores legacy switches and follows loot", TestSmartPreAimDependentSwitchesFollowEnabledStateFromSummaryUiAsync),
     ("selected skill refresh removes unavailable current skills", TestSelectedSkillRefreshRemovesUnavailableCurrentSkillsAsync),
     ("configured skill refresh updates all references and retains keys", TestConfiguredSkillRefreshUpdatesAllReferencesAsync),
     ("configured skill refresh exact bar ranks covers all references with spirit unopened", () => ConfiguredSkillQuickbarRefreshTests.AllReferencesAsync("unopened")),
@@ -4197,9 +4197,9 @@ static Task TestJumpAssistSettingDefaultsAndCloneAsync()
 {
     var defaults = new CombatScriptSettings();
     AssertFalse(defaults.JumpAssistEnabled, "jump assist must default disabled");
-    AssertFalse(defaults.SmartPreAimEnabled, "smart pre-aim must default disabled");
+    AssertFalse(!defaults.SmartPreAimEnabled, "smart pre-aim must default enabled");
     AssertFalse(defaults.SmartPreAimUseFightTargetPosition, "fight-target smart pre-aim origin must default disabled");
-    AssertFalse(defaults.SmartPreAimResponsiveSwitching, "responsive smart pre-aim switching must default disabled");
+    AssertFalse(!defaults.SmartPreAimResponsiveSwitching, "responsive smart pre-aim switching must default enabled");
 
     defaults.JumpAssistEnabled = true;
     defaults.SmartPreAimEnabled = true;
@@ -14314,7 +14314,7 @@ static Task TestSmartPreAimSupportsFightTargetDistanceOriginAsync()
     settings.Combat = new CombatScriptSettings
     {
         SmartPreAimEnabled = true,
-        SmartPreAimUseFightTargetPosition = true
+        SmartPreAimUseFightTargetPosition = false, EnableLoot = true
     };
     var context = CreateContext(settings, new FakeGameApi(), new InMemoryRoadhogLogger());
     var state = new StationaryCombatState();
@@ -14384,7 +14384,7 @@ static Task TestSmartPreAimSupportsFightTargetDistanceOriginAsync()
     AssertEqual(player.X, fallbackOrigin.X, "missing fight-target coordinates should fall back to player position");
     AssertEqual(player.Y, fallbackOrigin.Y, "missing fight-target coordinates should fall back to player position");
 
-    settings.Combat.SmartPreAimUseFightTargetPosition = false;
+    settings.Combat.EnableLoot = false;
     state.NextTargetPreAim.FightTargetPosition = fightTargetPosition;
     var disabledOrigin = (Vector3Snapshot)scanOriginMethod.Invoke(
         null,
@@ -15510,34 +15510,31 @@ static async Task TestSmartPreAimStabilizesAlignedTargetSwitchingAsync()
     ResetAlignedSelection(alignedTarget, 1, targetingLocalSide: false, aggressivePriority: false);
     gameApi.WorldObjects = new[] { alignedTarget, fartherAggressive };
     await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(alignedTarget.EntityId, preAim.TargetEntityId, "a farther aggressive target should not replace a visible aligned target");
+    AssertEqual(fartherAggressive.EntityId, preAim.TargetEntityId, "responsive selection preserves aggressive priority before distance");
 
     gameApi.WorldObjects = new[] { alignedTarget, slightlyCloserAggressive };
     await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(alignedTarget.EntityId, preAim.TargetEntityId, "an aggressive target only one meter closer should stay inside the two meter stability margin");
+    AssertEqual(slightlyCloserAggressive.EntityId, preAim.TargetEntityId, "responsive selection accepts a closer aggressive candidate immediately");
 
+    ResetAlignedSelection(alignedTarget, 1, targetingLocalSide: false, aggressivePriority: false);
     gameApi.WorldObjects = new[] { alignedTarget, clearlyCloserAggressive };
     await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(alignedTarget.EntityId, preAim.TargetEntityId, "first closer snapshot should keep the aligned target");
-    AssertEqual(1, preAim.ConsecutiveBetterTargetSnapshots, "first closer candidate confirmation count");
-    await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(alignedTarget.EntityId, preAim.TargetEntityId, "second closer snapshot should keep the aligned target");
-    AssertEqual(2, preAim.ConsecutiveBetterTargetSnapshots, "second closer candidate confirmation count");
-    await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(clearlyCloserAggressive.EntityId, preAim.TargetEntityId, "third closer snapshot should replace the aligned target");
-    AssertEqual(0, preAim.ConsecutiveBetterTargetSnapshots, "confirmed closer switch should reset its counter");
-    AssertEqual(alignedTarget.ServerObjectId, preAim.DisplacedTargetServerObjectId, "camera-committed switch should remember the displaced target");
-    AssertEqual(clearlyCloserAggressive.ServerObjectId, preAim.DisplacedTargetReplacementServerObjectId, "camera-committed switch should bind the displacement to its replacement");
-    AssertFalse(preAim.DisplacedTargetGuardActive, "displaced target guard should remain inactive until the replacement is consumed");
+    AssertEqual(clearlyCloserAggressive.EntityId, preAim.TargetEntityId, "responsive selection switches on the first snapshot");
+    AssertEqual(0, preAim.ConsecutiveBetterTargetSnapshots, "responsive selection needs no confirmation counter");
+    AssertEqual(alignedTarget.ServerObjectId, preAim.DisplacedTargetServerObjectId, "switch must remember displaced target");
+    AssertEqual(clearlyCloserAggressive.ServerObjectId, preAim.DisplacedTargetReplacementServerObjectId, "displacement binds to replacement");
+    AssertFalse(preAim.DisplacedTargetGuardActive, "guard activates only when replacement is consumed");
+    AssertEqual((ushort)100, state.CurrentTargetEntityId, "candidate switching must not change the current fight target");
+    AssertFalse(!state.Fighting, "candidate switching must not end current combat");
 
     ResetAlignedSelection(alignedTarget, 1, targetingLocalSide: false, aggressivePriority: false);
     gameApi.WorldObjects = new[] { alignedTarget, clearlyCloserAggressive };
     await RefreshAsync().ConfigureAwait(false);
     gameApi.WorldObjects = new[] { alignedTarget, differentCloserAggressive };
     await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(alignedTarget.EntityId, preAim.TargetEntityId, "a different closer candidate should restart confirmation instead of switching");
-    AssertEqual(1, preAim.ConsecutiveBetterTargetSnapshots, "different closer candidate should restart at one confirmation");
-    AssertEqual(differentCloserAggressive.ServerObjectId, preAim.PendingSwitchTargetServerObjectId, "pending switch identity should follow server-object identity");
+    AssertEqual(differentCloserAggressive.EntityId, preAim.TargetEntityId, "a replacement candidate switches immediately");
+    AssertEqual(0, preAim.ConsecutiveBetterTargetSnapshots, "responsive replacement needs no confirmation");
+    AssertEqual(differentCloserAggressive.ServerObjectId, preAim.TargetServerObjectId, "selected identity follows server-object identity");
 
     ResetAlignedSelection(alignedTarget, 1, targetingLocalSide: false, aggressivePriority: false);
     gameApi.WorldObjects = new[] { alignedTarget, urgentThreat };
@@ -15595,14 +15592,14 @@ static async Task TestSmartPreAimStabilizesAlignedTargetSwitchingAsync()
         Position = new Vector3Snapshot(9, 0, 0),
         DistanceToLocalPlayer = 9
     };
-    settings.Combat.SmartPreAimUseFightTargetPosition = true;
+    settings.Combat.EnableLoot = true;
     ResetAlignedSelection(playerNearTarget, 1, targetingLocalSide: false, aggressivePriority: false);
     preAim.FightTargetPosition = new Vector3Snapshot(10, 0, 0);
     gameApi.WorldObjects = new[] { playerNearTarget, fightNearButPlayerFarTarget };
     await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(playerNearTarget.EntityId, preAim.TargetEntityId, "a target farther from the player must not replace the aligned target when the moving fight origin prefers it");
+    AssertEqual(fightNearButPlayerFarTarget.EntityId, preAim.TargetEntityId, "loot-enabled selection uses the fight origin");
     AssertEqual(0, preAim.ConsecutiveBetterTargetSnapshots, "farther player-distance candidate should not start switch confirmation");
-    settings.Combat.SmartPreAimUseFightTargetPosition = false;
+    settings.Combat.EnableLoot = false;
 
     ResetAlignedSelection(alignedTarget, 1, targetingLocalSide: false, aggressivePriority: false);
     gameApi.WorldObjects = new[] { alignedTarget, teamThreat };
@@ -15619,8 +15616,8 @@ static async Task TestSmartPreAimStabilizesAlignedTargetSwitchingAsync()
         targetingTeamSide: true);
     gameApi.WorldObjects = new[] { teamThreat, secondTeamThreat };
     await RefreshAsync().ConfigureAwait(false);
-    AssertEqual(teamThreat.EntityId, preAim.TargetEntityId, "an equal-priority team threat should not cause an immediate camera reversal");
-    AssertEqual(1, preAim.ConsecutiveBetterTargetSnapshots, "equal-priority team threat should start normal closer-target confirmation");
+    AssertEqual(secondTeamThreat.EntityId, preAim.TargetEntityId, "closer equal-priority team threat switches immediately");
+    AssertEqual(0, preAim.ConsecutiveBetterTargetSnapshots, "responsive team switch needs no confirmation");
     await RefreshAsync().ConfigureAwait(false);
     await RefreshAsync().ConfigureAwait(false);
     AssertEqual(secondTeamThreat.EntityId, preAim.TargetEntityId, "an equal-priority team threat should switch after three stable closer snapshots");
@@ -16117,6 +16114,7 @@ static async Task TestSmartPreAimPreventsConsumedTargetBounceAsync()
     settings.Combat = new CombatScriptSettings
     {
         SmartPreAimEnabled = true,
+        EnableLoot = false,
         HasStationaryCombatPosition = true,
         StationaryCombatRadius = 30
     };
@@ -28655,121 +28653,57 @@ static Task TestSmartPreAimResponsiveSwitchPersistsFromSummaryUiAsync()
     {
         try
         {
-            var settings = CreateScriptSettings();
-            settings.MainMode = AccountMainMode.CustomCombat;
-            settings.CombatMode = AccountCombatMode.Stationary;
-            settings.Combat.SmartPreAimEnabled = true;
-            settings.Combat.SmartPreAimResponsiveSwitching = true;
-            var configStore = new InMemoryAccountConfigStore(new AccountConfig
+            foreach (var loot in new[] { true, false })
             {
-                AccountName = "account1",
-                ScriptSettings = settings
-            });
-
-            using var form = CreateAccountSettingsFormForTestsWithStore(configStore);
-            AssertFalse(
-                !GetCheckBoxCheckedForTest(form, "smartPreAimResponsiveSwitchingCheckBox"),
-                "responsive smart pre-aim switch should load enabled state");
-
-            SetCheckBoxCheckedForTest(form, "smartPreAimResponsiveSwitchingCheckBox", false);
-            var saved = InvokeSaveCurrentSettingsForTest(form, out var error);
-            AssertFalse(!saved, "responsive smart pre-aim switch save failed: " + error);
-
-            var load = configStore.LoadAllAsync().GetAwaiter().GetResult();
-            AssertFalse(!load.Success, "saved config should load");
-            var savedCombat = load.Value!
-                .Single(account => string.Equals(account.AccountName, "account1", StringComparison.OrdinalIgnoreCase))
-                .ScriptSettings!
-                .Combat;
-            AssertFalse(
-                savedCombat.SmartPreAimResponsiveSwitching,
-                "responsive smart pre-aim switch should persist disabled state");
+                var settings = CreateScriptSettings();
+                settings.CombatMode = AccountCombatMode.Stationary;
+                settings.Combat.EnableLoot = loot;
+                settings.Combat.SmartPreAimEnabled = false;
+                settings.Combat.SmartPreAimResponsiveSwitching = false;
+                settings.Combat.SmartPreAimUseFightTargetPosition = !loot;
+                var store = new InMemoryAccountConfigStore(new AccountConfig
+                {
+                    AccountName = "account1", ScriptSettings = settings
+                });
+                using var form = CreateAccountSettingsFormForTestsWithStore(store);
+                foreach (var name in new[] { "smartPreAimEnabledCheckBox", "smartPreAimUseFightTargetPositionCheckBox", "smartPreAimResponsiveSwitchingCheckBox" })
+                    AssertEqual(0, form.Controls.Find(name, true).Length, "retired switch must be removed");
+                AssertFalse(!InvokeSaveCurrentSettingsForTest(form, out var error), "save failed: " + error);
+                var saved = store.LoadAllAsync().GetAwaiter().GetResult().Value!.Single().ScriptSettings!.Combat;
+                AssertFalse(!saved.SmartPreAimEnabled || !saved.SmartPreAimResponsiveSwitching, "saving old settings must enable smart responsive selection");
+                AssertEqual(loot, saved.SmartPreAimUseFightTargetPosition, "saved origin follows loot");
+                AssertEqual(loot, saved.EnableLoot, "loot choice remains unchanged");
+            }
         }
-        catch (Exception ex)
-        {
-            failure = ex;
-        }
+        catch (Exception ex) { failure = ex; }
     });
-
     thread.SetApartmentState(ApartmentState.STA);
     thread.Start();
     thread.Join();
-
-    if (failure is not null)
-    {
-        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
-    }
-
+    if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
     return Task.CompletedTask;
 }
 
 static Task TestSmartPreAimDependentSwitchesFollowEnabledStateFromSummaryUiAsync()
 {
-    Exception? failure = null;
-    var thread = new Thread(() =>
+    var settings = CreateScriptSettings();
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat.SmartPreAimEnabled = false;
+    settings.Combat.SmartPreAimResponsiveSwitching = false;
+    var context = CreateContext(settings, new FakeGameApi(), new InMemoryRoadhogLogger());
+    bool Read(string name) => (bool)typeof(StationaryCombatController)
+        .GetMethod(name, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+        .Invoke(null, new object[] { context })!;
+    foreach (var loot in new[] { true, false })
     {
-        try
-        {
-            var settings = CreateScriptSettings();
-            settings.MainMode = AccountMainMode.CustomCombat;
-            settings.CombatMode = AccountCombatMode.Stationary;
-            settings.Combat.SmartPreAimEnabled = false;
-            settings.Combat.SmartPreAimUseFightTargetPosition = true;
-            settings.Combat.SmartPreAimResponsiveSwitching = true;
-            var configStore = new InMemoryAccountConfigStore(new AccountConfig
-            {
-                AccountName = "account1",
-                ScriptSettings = settings
-            });
-
-            using var form = CreateAccountSettingsFormForTestsWithStore(configStore);
-            SetComboSelectedIndexForTest(form, "settingsTabs", 0);
-            form.Show();
-            System.Windows.Forms.Application.DoEvents();
-
-            AssertFalse(
-                !GetControlVisibleForTest(form, "smartPreAimEnabledCheckBox"),
-                "smart pre-aim switch should show for custom stationary combat");
-            AssertFalse(
-                GetControlVisibleForTest(form, "smartPreAimUseFightTargetPositionCheckBox"),
-                "fight-target smart pre-aim origin switch should hide while smart pre-aim is disabled");
-            AssertFalse(
-                GetControlVisibleForTest(form, "smartPreAimResponsiveSwitchingCheckBox"),
-                "responsive smart pre-aim switching should hide while smart pre-aim is disabled");
-
-            ClickControlForTest(form, "smartPreAimEnabledCheckBox");
-            System.Windows.Forms.Application.DoEvents();
-            AssertFalse(
-                !GetControlVisibleForTest(form, "smartPreAimUseFightTargetPositionCheckBox"),
-                "fight-target smart pre-aim origin switch should show after smart pre-aim is enabled");
-            AssertFalse(
-                !GetControlVisibleForTest(form, "smartPreAimResponsiveSwitchingCheckBox"),
-                "responsive smart pre-aim switching should show after smart pre-aim is enabled");
-
-            ClickControlForTest(form, "smartPreAimEnabledCheckBox");
-            System.Windows.Forms.Application.DoEvents();
-            AssertFalse(
-                GetControlVisibleForTest(form, "smartPreAimUseFightTargetPositionCheckBox"),
-                "fight-target smart pre-aim origin switch should hide again after smart pre-aim is disabled");
-            AssertFalse(
-                GetControlVisibleForTest(form, "smartPreAimResponsiveSwitchingCheckBox"),
-                "responsive smart pre-aim switching should hide again after smart pre-aim is disabled");
-        }
-        catch (Exception ex)
-        {
-            failure = ex;
-        }
-    });
-
-    thread.SetApartmentState(ApartmentState.STA);
-    thread.Start();
-    thread.Join();
-
-    if (failure is not null)
-    {
-        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        settings.Combat.EnableLoot = loot;
+        settings.Combat.SmartPreAimUseFightTargetPosition = !loot;
+        AssertFalse(!Read("IsSmartPreAimEnabled"), "legacy disabled flag must not disable stationary smart selection");
+        AssertFalse(!Read("UsesResponsiveSmartPreAimSwitching"), "legacy disabled flag must not disable responsive selection");
+        AssertEqual(loot, Read("UsesFightTargetPositionForSmartPreAim"), "runtime origin must follow loot without resaving old configuration");
     }
-
+    settings.CombatMode = AccountCombatMode.Path;
+    AssertFalse(Read("IsSmartPreAimEnabled"), "path mode must retain its existing selection behavior");
     return Task.CompletedTask;
 }
 
