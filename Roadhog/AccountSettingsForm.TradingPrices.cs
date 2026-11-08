@@ -12,7 +12,7 @@ public partial class AccountSettingsForm
         var grid = new DataGridView
         {
             Name = "bagCleanupTradeItemGrid",
-            Location = new Point(0, 316),
+            Location = new Point(0, 292),
             Size = new Size(408, 138),
             BackgroundColor = Color.White,
             BorderStyle = BorderStyle.FixedSingle,

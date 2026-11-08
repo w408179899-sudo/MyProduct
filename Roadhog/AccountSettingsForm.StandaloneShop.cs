@@ -11,15 +11,15 @@ public partial class AccountSettingsForm
     private void BuildStandaloneShopControls(Panel rules)
     {
         rules.Height = Math.Max(rules.Height, 416);
-        AddLabel(rules, "摆摊折扣", 12, 354, 80, 28);
-        standaloneShopDiscount = AddCombo(rules, 94, 354, 80, 28, "4 折", "5 折", "6 折", "7 折", "8 折", "9 折");
+        AddLabel(rules, "摆摊折扣", 12, 310, 80, 28);
+        standaloneShopDiscount = AddCombo(rules, 94, 310, 80, 28, "4 折", "5 折", "6 折", "7 折", "8 折", "9 折");
         standaloneShopDiscount.Name = "standaloneShopDiscount";
         standaloneShopDiscount.SelectedIndex = 1;
-        var button = AddButton(rules, "自动摆摊", 190, 352, 120, 30);
+        var button = AddButton(rules, "自动摆摊", 190, 308, 120, 30);
         button.Name = "standaloneShopButton";
         button.Enabled = _startStandaloneShop != null;
         button.Click += async (_, _) => await StartStandaloneShopAsync(button);
-        var hint = AddLabel(rules, "仅摆摊名单物品，全部售罄后重启脚本", 12, 386, 392, 26);
+        var hint = AddLabel(rules, "仅摆摊名单物品，全部售罄后重启脚本", 12, 344, 392, 26);
         hint.Name = "standaloneShopHintLabel";
     }
 

@@ -4,6 +4,22 @@ public sealed partial class AccountSettingsForm
 {
     private Action? layoutSkillPage;
 
+    private static void ConfigureTeamSupportLayout(Panel panel, FlowLayoutPanel rules)
+    {
+        var footer = panel.Controls.Cast<Control>().Where(control => control.Top >= 266)
+            .Select(control => (Control: control, Offset: control.Top - 266)).ToArray();
+        void ResizeRules()
+        {
+            rules.Height = Math.Clamp(rules.Controls.Cast<Control>().Sum(row => row.Height + row.Margin.Vertical), 28, 152);
+            var footerTop = rules.Bottom + 8;
+            foreach (var (control, offset) in footer) control.Top = footerTop + offset;
+            panel.Height = footer.Max(entry => entry.Control.Bottom) + 8;
+        }
+        rules.ControlAdded += (_, _) => ResizeRules();
+        rules.ControlRemoved += (_, _) => ResizeRules();
+        ResizeRules();
+    }
+
     private void BuildBagCleanupNameListTabs(Panel parent)
     {
         var tabs = new TableLayoutPanel
@@ -161,15 +177,15 @@ public sealed partial class AccountSettingsForm
                 // Use the full viewport to avoid keeping scrollbars created by an intermediate resize.
                 var viewportWidth = page.ClientSize.Width + (page.VerticalScroll.Visible ? SystemInformation.VerticalScrollBarWidth : 0);
                 var viewportHeight = page.ClientSize.Height + (page.HorizontalScroll.Visible ? SystemInformation.HorizontalScrollBarHeight : 0);
-                var minimumHeight = 136 + 38 + 292 + 16 + opening.Height + 14 + 16;
+                var minimumHeight = 116 + 38 + 292 + 16 + opening.Height + 14 + 16;
                 page.AutoScroll = viewportWidth < 852 || viewportHeight < minimumHeight;
-                if (!page.AutoScroll) skills.Top = 136;
+                if (!page.AutoScroll) skills.Top = 116;
                 var width = Math.Max(828, viewportWidth - 24);
                 options.Width = skills.Width = width;
                 optionsLayout(width);
                 var treeWidth = (width - 196) / 2;
                 var rightX = treeWidth + 100;
-                var height = Math.Max(292, viewportHeight - 136 - 38 - 16 - opening.Height - 14 - 16);
+                var height = Math.Max(292, viewportHeight - 116 - 38 - 16 - opening.Height - 14 - 16);
                 quickbarAvailableSkillTree.SetBounds(0, 38, treeWidth, height);
                 quickbarSelectedSkillTree.SetBounds(rightX, 38, treeWidth, height);
                 quickbarSkillStatusLabel?.SetBounds(0, 38 + height + 1, width, 15);

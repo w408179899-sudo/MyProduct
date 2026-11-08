@@ -25,7 +25,7 @@ public sealed partial class AccountSettingsForm
         modeLabel.Disposed += (_, _) => modeTip.Dispose();
 
         triggerConditionSkillsPreemptChainCheckBox = AddCheckBox(options,
-            "触发／条件技优先于连续技后段", 336, 74, 360, true);
+            "触发／条件技优先于连续技后段", 336, 66, 360, true);
         triggerConditionSkillsPreemptChainCheckBox.Name = "triggerConditionSkillsPreemptChainCheckBox";
         triggerConditionSkillsPreemptChainCheckBox.BackColor = options.BackColor;
         var priorityTip = new ToolTip();
@@ -35,7 +35,7 @@ public sealed partial class AccountSettingsForm
 
         var panel = CreateSkillModePanel(page, "quickbarSkillPanel", true);
         quickbarSkillPanel = panel;
-        panel.SetBounds(12, 136, 828, 420);
+        panel.SetBounds(12, 116, 828, 420);
         AddLabel(panel, "可选技能", 0, 2, 120, 24, _textGreen, FontStyle.Bold);
         AddLabel(panel, "技能执行顺序", 416, 2, 160, 24, _textGreen, FontStyle.Bold);
         var source = CreateSkillTree(panel, "quickbarAvailableSkillTree", 0, 38, 316, 292);

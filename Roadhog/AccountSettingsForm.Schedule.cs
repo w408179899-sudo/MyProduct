@@ -13,23 +13,23 @@ public sealed partial class AccountSettingsForm
 
     private void BuildDailySchedule(Panel panel)
     {
-        scheduleOnlineCheckBox = AddCheckBox(panel, "定时挂机", 12, 38, 140, false);
+        scheduleOnlineCheckBox = AddCheckBox(panel, "定时挂机", 12, 36, 140, false);
         scheduleOnlineCheckBox.Name = "scheduleOnlineCheckBox";
-        AddLabel(panel, "每天上线", 170, 38, 80, 24);
-        scheduleStartTextBox = AddTextBox(panel, "08:00", 252, 36, 100, 28);
+        AddLabel(panel, "每天上线", 170, 36, 80, 24);
+        scheduleStartTextBox = AddTextBox(panel, "08:00", 252, 34, 100, 28);
         scheduleStartTextBox.Name = "scheduleStartTextBox";
-        AddLabel(panel, "下线", 380, 38, 60, 24);
-        scheduleEndTextBox = AddTextBox(panel, "22:00", 440, 36, 100, 28);
+        AddLabel(panel, "下线", 380, 36, 60, 24);
+        scheduleEndTextBox = AddTextBox(panel, "22:00", 440, 34, 100, 28);
         scheduleEndTextBox.Name = "scheduleEndTextBox";
-        AddLabel(panel, "其余时间下线，支持跨午夜", 564, 38, 250, 24);
-        scheduleReloginCheckBox = AddCheckBox(panel, "定时重登", 12, 76, 140, false);
+        AddLabel(panel, "其余时间下线，支持跨午夜", 564, 36, 250, 24);
+        scheduleReloginCheckBox = AddCheckBox(panel, "定时重登", 12, 70, 140, false);
         scheduleReloginCheckBox.Name = "scheduleReloginCheckBox";
-        AddLabel(panel, "每天时间", 170, 76, 80, 24);
-        scheduleReloginTimesTextBox = AddTextBox(panel, "22:00", 252, 74, 288, 28);
+        AddLabel(panel, "每天时间", 170, 70, 80, 24);
+        scheduleReloginTimesTextBox = AddTextBox(panel, "22:00", 252, 68, 288, 28);
         scheduleReloginTimesTextBox.Name = "scheduleReloginTimesTextBox";
-        AddLabel(panel, "多个时间用逗号分隔，例如 10:00,18:00", 564, 76, 252, 24);
-        AddLabel(panel, "北京时间（24小时制）；计划仅当前账号生效，主界面需保持运行。", 12, 112, 804, 24);
-        AddLabel(panel, "手动停止后等待下次计划上线；两项都开启时，仅在挂机时段内重登。", 12, 140, 804, 24);
+        AddLabel(panel, "多个时间用逗号分隔，例如 10:00,18:00", 564, 70, 252, 24);
+        AddLabel(panel, "北京时间（24小时制）；计划仅当前账号生效，主界面需保持运行。", 12, 102, 804, 24);
+        AddLabel(panel, "手动停止后等待下次计划上线；两项都开启时，仅在挂机时段内重登。", 12, 128, 804, 24);
         scheduleOnlineCheckBox.Click += (_, _) => RefreshDailyScheduleControls();
         scheduleReloginCheckBox.Click += (_, _) => RefreshDailyScheduleControls();
         RefreshDailyScheduleControls();

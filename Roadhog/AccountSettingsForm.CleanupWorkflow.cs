@@ -19,9 +19,9 @@ public partial class AccountSettingsForm
         bagCleanupReturnWhenFullCheckBox = AddCheckBox(options, "包满时回城清包", 344, 34, 160, false);
         bagCleanupReturnWhenFullCheckBox.Name = "bagCleanupReturnWhenFullCheckBox";
         var hint = AddLabel(options, "", 508, 34, 316, 24);
-        var toggle = AddButton(page, "▶ 仓库号配置", 12, 124, 250, 28);
+        var toggle = AddButton(page, "▶ 仓库号配置", 12, 116, 250, 28);
         toggle.Name = "cleanupWorkflowOptionsButton";
-        var detail = new Panel { Name = "cleanupWarehousePanel", Location = new Point(12, 156), Size = new Size(828, 96), Visible = false, BackColor = _inputBackground };
+        var detail = new Panel { Name = "cleanupWarehousePanel", Location = new Point(12, 148), Size = new Size(828, 96), Visible = false, BackColor = _inputBackground };
         page.Controls.Add(detail);
         AddLabel(detail, "仓库角色名", 8, 8, 95, 24);
         warehouseName = new TextBox { Location = new Point(105, 8), Width = 200 };

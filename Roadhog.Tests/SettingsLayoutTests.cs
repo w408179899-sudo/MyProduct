@@ -6,6 +6,7 @@ using Roadhog.Application;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Diagnostics;
+using Roadhog.Core.Radar;
 
 internal static class SettingsLayoutTests
 {
@@ -22,7 +23,8 @@ internal static class SettingsLayoutTests
                 settings.Skills.OpeningSkill = new() { Enabled = true, SkillId = 101, SkillName = "起手技能", Key = "F1" };
                 var store = new InMemoryAccountConfigStore(new AccountConfig { AccountName = "layout", ScriptSettings = settings });
                 using var form = new AccountSettingsForm("layout", new RoadhogRuntime(new FakeGameApi(), logger, new AccountRuntimeManager(logger), null!),
-                    store, new InMemorySharedPathStore(), new InMemoryScriptProfileStore(), new RecordingFolderLauncher(), "test-paths");
+                    store, new InMemorySharedPathStore(), new InMemoryScriptProfileStore(), new RecordingFolderLauncher(), "test-paths",
+                    radarMapStore: new StaticRadarMapStore(new RadarMapDocument { MapId = 777 }));
                 object Field(string name) => typeof(AccountSettingsForm).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form)!;
                 void Check(bool valid, string message) { if (!valid) throw new InvalidOperationException(message); }
                 Check(form.ClientSize == new Size(1000, 800), "default settings content is 1000 by 800");
@@ -38,6 +40,12 @@ internal static class SettingsLayoutTests
                     form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
                     foreach (var button in form.Controls.OfType<Button>())
                         button.DrawToBitmap(bitmap, new Rectangle(button.Location + (Size)(form.PointToScreen(Point.Empty) - (Size)form.Location), button.Size));
+                    // DrawToBitmap paints overlapping WinForms children in the wrong order.
+                    // Repaint summary headers back-to-front so their embedded editors remain visible.
+                    if (tabs.SelectedTab?.Text == "总览")
+                        foreach (var section in tabs.SelectedTab.Controls.OfType<Panel>().Single().Controls.OfType<Panel>())
+                            foreach (var control in section.Controls.Cast<Control>().Reverse().Where(c => c.Visible && c.Top < 28))
+                                control.DrawToBitmap(bitmap, new Rectangle(control.PointToScreen(Point.Empty) - (Size)form.Location, control.Size));
                     bitmap.Save(Path.Combine(preview, name + ".png"));
                 }
                 foreach (TabPage tab in tabs.TabPages)
@@ -50,6 +58,17 @@ internal static class SettingsLayoutTests
                             form.ClientSize = size; Application.DoEvents();
                             Check(!tab.Controls.OfType<Panel>().Single().HorizontalScroll.Visible,
                                 "summary does not retain a horizontal scrollbar after resizing");
+                            var summaryPage = tab.Controls.OfType<Panel>().Single();
+                            Check(!summaryPage.VerticalScroll.Visible,
+                                "compact summary fits the default window without vertical scrolling");
+                            var logging = (Control)Field("generateLogFilesCheckBox");
+                            var loggingBounds = summaryPage.RectangleToClient(logging.RectangleToScreen(logging.ClientRectangle));
+                            Check(summaryPage.ClientRectangle.Contains(loggingBounds),
+                                "logging option remains fully accessible without scrolling");
+                            var channel = (Control)Field("fixedChannelCombo");
+                            var radar = (Control)Field("radarEditorButton");
+                            Check(radar.Visible && channel.Right < radar.Left && radar.Bottom <= radar.Parent!.ClientSize.Height,
+                                "channel selector and radar action fit on the same row without overlap");
                             foreach (var column in new[]
                             {
                                 new[] { "enableLootCheckBox", "returnHomeWhenNoTargetCheckBox" },
@@ -96,7 +115,54 @@ internal static class SettingsLayoutTests
                             selectedIndex.SetValue(role, index); Application.DoEvents();
                             Capture("组队-" + role.Text);
                         }
+                        var healRules = (FlowLayoutPanel)Field("teamHealSkillRuleList");
+                        var cleanse = (Control)Field("teamMentalCleanseKeyButton");
+                        var initialCleanseTop = cleanse.Top;
+                        var addHeal = healRules.Parent!.Controls.OfType<Button>().Single(b => b.Text == "新增加血技能");
+                        for (var i = 0; i < 6; i++) addHeal.PerformClick();
+                        Application.DoEvents();
+                        Check(cleanse.Top > initialCleanseTop && cleanse.Top > healRules.Bottom,
+                            "healing rules grow without overlapping cleanse controls");
+                        while (healRules.Controls.Count > 0)
+                            healRules.Controls[0].Controls.OfType<Button>().Single(button => button.Text == "删除").PerformClick();
+                        Application.DoEvents();
+                        Check(cleanse.Top == initialCleanseTop, "empty healing list releases its reserved space");
                         selectedIndex.SetValue(role, 0); Application.DoEvents();
+                    }
+                    if (tab.Text == "维护")
+                    {
+                        var sections = (FlowLayoutPanel)tab.Controls.Find("maintenanceSections", true).Single();
+                        foreach (var section in sections.Controls.OfType<Panel>())
+                            section.Controls.OfType<Button>().Single().PerformClick();
+                        Application.DoEvents();
+                        var ordered = sections.Controls.Cast<Control>().ToArray();
+                        Check(ordered.Zip(ordered.Skip(1)).All(pair => pair.First.Bottom <= pair.Second.Top),
+                            "expanded maintenance sections do not overlap");
+                        Capture("维护-展开");
+                        foreach (var section in sections.Controls.OfType<Panel>())
+                            section.Controls.OfType<Button>().Single().PerformClick();
+                        Application.DoEvents();
+                    }
+                    if (tab.Text == "清包")
+                    {
+                        var warehouse = (Button)tab.Controls.Find("cleanupWorkflowOptionsButton", true).Single();
+                        warehouse.PerformClick(); Application.DoEvents();
+                        Capture("清包-仓库配置");
+                        warehouse.PerformClick();
+                        ((RadioButton)Field("groceryCleanupModeRadio")).Checked = true;
+                        Application.DoEvents(); Capture("清包-杂货摆摊");
+                        ((RadioButton)Field("normalCleanupModeRadio")).Checked = true;
+                        Application.DoEvents();
+                    }
+                    if (tab.Text == "其他")
+                    {
+                        var otherTabs = (TabControl)tab.Controls.Find("otherTabs", true).Single();
+                        foreach (TabPage otherTab in otherTabs.TabPages)
+                        {
+                            otherTabs.SelectedTab = otherTab; Application.DoEvents();
+                            Capture("其他-" + otherTab.Text);
+                        }
+                        otherTabs.SelectedIndex = 0; Application.DoEvents();
                     }
                     Capture(tab.Text);
                 }

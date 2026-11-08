@@ -1379,7 +1379,7 @@ namespace Roadhog
             var tab = CreateBaseTab("总览");
             var page = CreatePagePanel();
             page.AutoScroll = true;
-            page.AutoScrollMinSize = new Size(852, 860);
+            page.AutoScrollMinSize = new Size(852, 612);
             tab.Controls.Add(page);
 
             Panel AddSection(string title, int top, int height)
@@ -1396,8 +1396,8 @@ namespace Roadhog
                 return section;
             }
 
-            var profilePanel = AddSection("方案管理", 10, 80);
-            var modePanel = AddSection("运行模式与范围", 102, 126);
+            var profilePanel = AddSection("方案管理", 8, 66);
+            var modePanel = AddSection("运行模式与范围", 82, 100);
             // Header editors must sit above the full-width section heading label.
             AddLabel(modePanel, "所属区服", 380, 2, 80, 24).BringToFront();
             regionCombo = AddCombo(modePanel, 464, 0, 130, 28, "未分区", "一区", "二区", "三区", "四区", "五区", "六区", "七区", "八区", "九区", "十区");
@@ -1405,53 +1405,55 @@ namespace Roadhog
             regionCombo.BringToFront();
             regionCombo.SelectedIndexChanged += (_, _) => ChangeRegion();
             AddLabel(modePanel, "保存后重启账号生效", 608, 2, 202, 24).BringToFront();
-            var behaviorPanel = AddSection("选怪与拾取", 240, 184);
-            var environmentPanel = AddSection("镜头与频道", 436, 126);
-            BuildDailySchedule(AddSection("定时计划（当前账号）", 574, 176));
-            var loggingPanel = AddSection("日志", 762, 74);
-            generateLogFilesCheckBox = AddCheckBox(loggingPanel, "生成日志文件", 12, 32, 180, true);
+            var behaviorPanel = AddSection("选怪与拾取", 190, 134);
+            var environmentPanel = AddSection("镜头、频道与雷达", 332, 68);
+            BuildDailySchedule(AddSection("定时计划（当前账号）", 408, 156));
+            var loggingPanel = AddSection("日志", 572, 28);
+            generateLogFilesCheckBox = AddCheckBox(loggingPanel, "生成日志文件", 184, 1, 180, true);
             generateLogFilesCheckBox.Name = "generateLogFilesCheckBox";
+            generateLogFilesCheckBox.BackColor = _inputBackground;
+            generateLogFilesCheckBox.BringToFront();
 
             currentProfileLabel = AddLabel(profilePanel, "当前方案: default_profile", 124, 2, 304, 24, _textGreen, FontStyle.Bold);
             currentProfileLabel.BackColor = _inputBackground;
-            AddLabel(profilePanel, "方案名", 12, 44, 64, 24);
-            profileNameTextBox = AddTextBox(profilePanel, "default_profile", 88, 42, 236, 28);
-            AddLabel(profilePanel, "已保存方案", 380, 44, 80, 24);
+            AddLabel(profilePanel, "方案名", 12, 36, 64, 24);
+            profileNameTextBox = AddTextBox(profilePanel, "default_profile", 88, 34, 236, 28);
+            AddLabel(profilePanel, "已保存方案", 380, 36, 80, 24);
             profileStatusLabel = AddLabel(profilePanel, string.Empty, 436, 2, 380, 24);
             profileStatusLabel.BackColor = _inputBackground;
-            savedProfileCombo = AddCombo(profilePanel, 464, 42, 244, 28);
+            savedProfileCombo = AddCombo(profilePanel, 464, 34, 244, 28);
             savedProfileCombo.SelectedIndexChanged += (_, _) => LoadSelectedProfile();
-            AddButton(profilePanel, "删除", 724, 41, 92, 30, (_, _) => DeleteSavedProfile());
-            AddLabel(environmentPanel, "水平", 12, 44, 46, 24);
-            cameraYawPixelsPerDegreeTextBox = AddTextBox(environmentPanel, "11.0", 64, 42, 80, 28);
-            AddLabel(environmentPanel, "俯仰", 164, 44, 48, 24);
-            cameraPitchPixelsPerDegreeTextBox = AddTextBox(environmentPanel, "13.0", 220, 42, 80, 28);
+            AddButton(profilePanel, "删除", 724, 33, 92, 30, (_, _) => DeleteSavedProfile());
+            AddLabel(environmentPanel, "水平", 12, 36, 46, 24);
+            cameraYawPixelsPerDegreeTextBox = AddTextBox(environmentPanel, "11.0", 64, 34, 80, 28);
+            AddLabel(environmentPanel, "俯仰", 164, 36, 48, 24);
+            cameraPitchPixelsPerDegreeTextBox = AddTextBox(environmentPanel, "13.0", 220, 34, 80, 28);
 
-            mainModeCombo = AddCombo(modePanel, 88, 42, 236, 28, "自定义打怪", "路径采集", "半自动");
+            mainModeCombo = AddCombo(modePanel, 88, 34, 236, 28, "自定义打怪", "路径采集", "半自动");
             mainModeCombo.SelectedIndexChanged += (_, _) => RefreshCombatModeVisibility();
-            AddLabel(modePanel, "主模式", 12, 44, 72, 24, _textGreen, FontStyle.Bold);
+            AddLabel(modePanel, "主模式", 12, 36, 72, 24, _textGreen, FontStyle.Bold);
 
-            combatModeCombo = AddCombo(modePanel, 464, 42, 260, 28, "原地打怪", "路径打怪");
+            combatModeCombo = AddCombo(modePanel, 464, 34, 260, 28, "原地打怪", "路径打怪");
             combatModeCombo.SelectedIndexChanged += (_, _) => RefreshCombatModeVisibility();
-            combatModeLabel = AddLabel(modePanel, "打怪模式", 380, 44, 80, 24);
-            stationaryCombatRadiusLabel = AddLabel(modePanel, "半径", 12, 84, 72, 24);
-            stationaryCombatRadiusTextBox = AddTextBox(modePanel, "30.0", 88, 82, 100, 28);
-            stationaryCombatRadiusUnitLabel = AddLabel(modePanel, "m", 196, 84, 24, 24);
-            stalledTargetExclusionSecondsLabel = AddLabel(modePanel, "卡怪排除", 380, 84, 80, 24);
-            stalledTargetExclusionSecondsTextBox = AddTextBox(modePanel, "60", 464, 82, 100, 28);
+            combatModeLabel = AddLabel(modePanel, "打怪模式", 380, 36, 80, 24);
+            stationaryCombatRadiusLabel = AddLabel(modePanel, "半径", 12, 70, 72, 24);
+            stationaryCombatRadiusTextBox = AddTextBox(modePanel, "30.0", 88, 68, 100, 28);
+            stationaryCombatRadiusUnitLabel = AddLabel(modePanel, "m", 196, 70, 24, 24);
+            stalledTargetExclusionSecondsLabel = AddLabel(modePanel, "卡怪排除", 380, 70, 80, 24);
+            stalledTargetExclusionSecondsTextBox = AddTextBox(modePanel, "60", 464, 68, 100, 28);
             stalledTargetExclusionSecondsTextBox.Name = "stalledTargetExclusionSecondsTextBox";
-            stalledTargetExclusionSecondsUnitLabel = AddLabel(modePanel, "秒", 576, 84, 24, 24);
-            pathCombatRadiusLabel = AddLabel(modePanel, "半径", 12, 84, 72, 24);
-            pathCombatRadiusTextBox = AddTextBox(modePanel, "30.0", 88, 82, 100, 28);
-            pathCombatRadiusUnitLabel = AddLabel(modePanel, "m", 196, 84, 24, 24);
-            pathFollowReachDistanceLabel = AddLabel(modePanel, "精度", 380, 84, 80, 24);
-            pathFollowReachDistanceTextBox = AddTextBox(modePanel, "5.0", 464, 82, 100, 28);
-            pathFollowReachDistanceUnitLabel = AddLabel(modePanel, "m", 576, 84, 24, 24);
+            stalledTargetExclusionSecondsUnitLabel = AddLabel(modePanel, "秒", 576, 70, 24, 24);
+            pathCombatRadiusLabel = AddLabel(modePanel, "半径", 12, 70, 72, 24);
+            pathCombatRadiusTextBox = AddTextBox(modePanel, "30.0", 88, 68, 100, 28);
+            pathCombatRadiusUnitLabel = AddLabel(modePanel, "m", 196, 70, 24, 24);
+            pathFollowReachDistanceLabel = AddLabel(modePanel, "精度", 380, 70, 80, 24);
+            pathFollowReachDistanceTextBox = AddTextBox(modePanel, "5.0", 464, 68, 100, 28);
+            pathFollowReachDistanceUnitLabel = AddLabel(modePanel, "m", 576, 70, 24, 24);
 
-            enableLootCheckBox = AddCheckBox(behaviorPanel, "启用拾取", 12, 42, 120, true);
-            contestMonsterCheckBox = AddCheckBox(behaviorPanel, "抢怪", 184, 42, 140, false);
-            counterEnemyRaceCheckBox = AddCheckBox(behaviorPanel, "反击敌对种族", 380, 42, 180, false);
-            preferAggressiveMonsterCheckBox = AddCheckBox(behaviorPanel, "优先攻击主动怪", 576, 42, 190, false);
+            enableLootCheckBox = AddCheckBox(behaviorPanel, "启用拾取", 12, 34, 120, true);
+            contestMonsterCheckBox = AddCheckBox(behaviorPanel, "抢怪", 184, 34, 140, false);
+            counterEnemyRaceCheckBox = AddCheckBox(behaviorPanel, "反击敌对种族", 380, 34, 180, false);
+            preferAggressiveMonsterCheckBox = AddCheckBox(behaviorPanel, "优先攻击主动怪", 576, 34, 190, false);
 
 #if DEBUG
             var apiProbeButton = AddButton(page, "API探针", 702, 32, 134, 30);
@@ -1460,45 +1462,47 @@ namespace Roadhog
                 await RunApiProbeAsync(apiProbeButton).ConfigureAwait(true);
 #endif
 
-            returnHomeWhenNoTargetCheckBox = AddCheckBox(behaviorPanel, "\u6ca1\u602a\u56de\u4e2d\u5fc3", 12, 114, 140, true);
-            sitWhenNoTargetAtHomeCheckBox = AddCheckBox(behaviorPanel, "\u6ca1\u602a\u5750\u5730\u677f", 184, 114, 140, false);
-            jumpAssistEnabledCheckBox = AddCheckBox(behaviorPanel, "\u6253\u602a\u8df3\u8dc3", 380, 114, 120, false);
+            returnHomeWhenNoTargetCheckBox = AddCheckBox(behaviorPanel, "\u6ca1\u602a\u56de\u4e2d\u5fc3", 12, 68, 140, true);
+            sitWhenNoTargetAtHomeCheckBox = AddCheckBox(behaviorPanel, "\u6ca1\u602a\u5750\u5730\u677f", 184, 68, 140, false);
+            jumpAssistEnabledCheckBox = AddCheckBox(behaviorPanel, "\u6253\u602a\u8df3\u8dc3", 380, 68, 120, false);
             jumpAssistEnabledCheckBox.Name = "jumpAssistEnabledCheckBox";
-            AddLabel(behaviorPanel, "锁怪距离", 576, 114, 80, 24);
-            targetAcquireDistanceTextBox = AddTextBox(behaviorPanel, "34", 660, 112, 100, 28);
+            AddLabel(behaviorPanel, "锁怪距离", 576, 68, 80, 24);
+            targetAcquireDistanceTextBox = AddTextBox(behaviorPanel, "34", 660, 66, 100, 28);
             targetAcquireDistanceTextBox.Name = "targetAcquireDistanceTextBox";
-            AddLabel(behaviorPanel, "米", 768, 114, 28, 24);
-            returnHomeAfterCombatCheckBox = AddCheckBox(behaviorPanel, "战斗结束回原点", 12, 150, 208, false);
+            AddLabel(behaviorPanel, "米", 768, 68, 28, 24);
+            returnHomeAfterCombatCheckBox = AddCheckBox(behaviorPanel, "战斗结束回原点", 12, 102, 160, false);
             returnHomeAfterCombatCheckBox.Name = "returnHomeAfterCombatCheckBox";
             returnHomeAfterCombatCheckBox.Click += (_, _) => RefreshCombatModeVisibility();
-            returnHomeAfterCombatDistanceLabel = AddLabel(behaviorPanel, "距离超过", 232, 150, 76, 24);
-            returnHomeAfterCombatDistanceTextBox = AddTextBox(behaviorPanel, "5", 312, 148, 88, 28);
+            returnHomeAfterCombatDistanceLabel = AddLabel(behaviorPanel, "距离超过", 184, 102, 80, 24);
+            returnHomeAfterCombatDistanceTextBox = AddTextBox(behaviorPanel, "5", 268, 100, 100, 28);
             returnHomeAfterCombatDistanceTextBox.Name = "returnHomeAfterCombatDistanceTextBox";
-            returnHomeAfterCombatDistanceUnitLabel = AddLabel(behaviorPanel, "米", 408, 150, 28, 24);
+            returnHomeAfterCombatDistanceUnitLabel = AddLabel(behaviorPanel, "米", 376, 102, 28, 24);
             radarEditorButton = AddButton(
                 environmentPanel,
                 "\u7ed8\u5236\u96f7\u8fbe",
-                12,
-                82,
-                156,
+                660,
                 34,
+                156,
+                28,
                 (_, _) => OpenRadarEditor());
             radarEditorButton.Name = "radarEditorButton";
             radarStatusLabel = AddLabel(
                 environmentPanel,
                 string.Empty,
-                184,
-                84,
-                620,
-                30,
+                380,
+                2,
+                436,
+                24,
                 _textGreen,
                 FontStyle.Regular);
             radarStatusLabel.Name = "radarStatusLabel";
-            AddLabel(environmentPanel, "\u56fa\u5b9a\u9891\u9053", 380, 44, 80, 24);
+            radarStatusLabel.BackColor = _inputBackground;
+            radarStatusLabel.BringToFront();
+            AddLabel(environmentPanel, "\u56fa\u5b9a\u9891\u9053", 380, 36, 80, 24);
             fixedChannelCombo = AddCombo(
                 environmentPanel,
                 464,
-                42,
+                34,
                 152,
                 28,
                 new[] { "\u4e0d\u56fa\u5b9a" }
@@ -1945,36 +1949,36 @@ namespace Roadhog
             var page = CreatePagePanel();
             tab.Controls.Add(page);
 
-            AddLabel(page, "当前使用路径", 12, 4, 130, 22, _textGreen, FontStyle.Bold);
-            pathOverviewLabels[SharedPathKind.Revive] = AddLabel(page, "复活路径:  未选（0点）", 12, 28, 394, 22);
-            pathOverviewLabels[SharedPathKind.Combat] = AddLabel(page, "打怪路径:  未选（0点）", 430, 28, 394, 22);
-            pathOverviewLabels[SharedPathKind.Maintenance] = AddLabel(page, "清包路径:  未选（0点）", 12, 52, 394, 22);
-            pathOverviewLabels[SharedPathKind.Gather] = AddLabel(page, "采集路径:  未选（0点）", 430, 52, 394, 22);
-            AddLabel(page, "末尾加点间距", 12, 82, 104, 22, _textGreen, FontStyle.Bold);
+            // The four selected-path summaries serve as the page header.
+            pathOverviewLabels[SharedPathKind.Revive] = AddLabel(page, "复活路径:  未选（0点）", 12, 8, 394, 22);
+            pathOverviewLabels[SharedPathKind.Combat] = AddLabel(page, "打怪路径:  未选（0点）", 430, 8, 394, 22);
+            pathOverviewLabels[SharedPathKind.Maintenance] = AddLabel(page, "清包路径:  未选（0点）", 12, 32, 394, 22);
+            pathOverviewLabels[SharedPathKind.Gather] = AddLabel(page, "采集路径:  未选（0点）", 430, 32, 394, 22);
+            AddLabel(page, "末尾加点间距", 12, 62, 104, 22, _textGreen, FontStyle.Bold);
             pathRecordingMinimumDistanceTextBox = AddTextBox(
                 page,
                 PathScriptSettings.DefaultRecordingMinimumDistance.ToString("0.###", CultureInfo.InvariantCulture),
                 124,
-                78,
+                58,
                 80,
                 28);
-            AddLabel(page, "米", 212, 82, 28, 22);
-            AddLabel(page, "转向重置坐标", 430, 82, 104, 22, _textGreen, FontStyle.Bold);
+            AddLabel(page, "米", 212, 62, 28, 22);
+            AddLabel(page, "转向重置坐标", 430, 62, 104, 22, _textGreen, FontStyle.Bold);
             deathReviveClickPointTextBox = AddTextBox(
                 page,
                 FormatScreenPoint(PathScriptSettings.DefaultDeathReviveClickX, PathScriptSettings.DefaultDeathReviveClickY),
                 540,
-                78,
+                58,
                 150,
                 28);
-            deathReviveTestMoveButton = AddButton(page, "测试移动", 702, 78, 110, 28, TestDeathReviveMoveButton_Click);
+            deathReviveTestMoveButton = AddButton(page, "测试移动", 702, 58, 110, 28, TestDeathReviveMoveButton_Click);
 
             var pathTabs = new TabControl
             {
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
                 DrawMode = TabDrawMode.OwnerDrawFixed,
                 ItemSize = new Size(92, 28),
-                Location = new Point(0, 114),
+                Location = new Point(0, 94),
                 Name = "pathTabs",
                 SelectedIndex = 0,
                 Size = new Size(850, 462),
@@ -3389,21 +3393,21 @@ namespace Roadhog
 
             AddLabel(page, "坐地板维护", 12, 8, 82, 24, _textGreen, FontStyle.Bold);
             sitMaintenanceCheckBox = AddCheckBox(page, "启用", 96, 6, 70, true);
-            autoDrinkCheckBox = AddCheckBox(page, "自动饮品", 12, 112, 100, true);
-            autoFoodCheckBox = AddCheckBox(page, "自动食物", 12, 146, 100, true);
+            autoDrinkCheckBox = AddCheckBox(page, "自动饮品", 12, 76, 100, true);
+            autoFoodCheckBox = AddCheckBox(page, "自动食物", 12, 110, 100, true);
             CreateFoodPreferencePickers(page);
 
             AddLabel(page, "血量低于", 12, 44, 66, 24);
             sitHpBelowTextBox = AddTextBox(page, "25", 80, 42, 70, 28);
-            AddLabel(page, "%  坐地板，恢复到", 156, 44, 130, 24);
-            sitHpRecoverToTextBox = AddTextBox(page, "75", 292, 42, 70, 28);
-            AddLabel(page, "%  起来继续打怪", 368, 44, 160, 24);
+            AddLabel(page, "%  恢复至", 156, 44, 78, 24);
+            sitHpRecoverToTextBox = AddTextBox(page, "75", 236, 42, 70, 28);
+            AddLabel(page, "%", 312, 44, 28, 24);
 
-            AddLabel(page, "蓝量低于", 12, 78, 66, 24);
-            sitMpBelowTextBox = AddTextBox(page, "10", 80, 76, 70, 28);
-            AddLabel(page, "%  坐地板，恢复到", 156, 78, 130, 24);
-            sitMpRecoverToTextBox = AddTextBox(page, "90", 292, 76, 70, 28);
-            AddLabel(page, "%  起来继续打怪", 368, 78, 160, 24);
+            AddLabel(page, "蓝量低于", 430, 44, 66, 24);
+            sitMpBelowTextBox = AddTextBox(page, "10", 498, 42, 70, 28);
+            AddLabel(page, "%  恢复至", 574, 44, 78, 24);
+            sitMpRecoverToTextBox = AddTextBox(page, "90", 654, 42, 70, 28);
+            AddLabel(page, "%", 730, 44, 28, 24);
 
             var refreshMaintenanceSkillsButton = AddButton(page, "刷新技能", 720, 6, 120, 30);
             refreshMaintenanceSkillsButton.Click += async (_, _) =>
@@ -3412,7 +3416,7 @@ namespace Roadhog
             var sections = new FlowLayoutPanel
             {
                 Name = "maintenanceSections",
-                Location = new Point(12, 198),
+                Location = new Point(12, 150),
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 MinimumSize = new Size(828, 0),
@@ -3467,14 +3471,14 @@ namespace Roadhog
             var section = new Panel
             {
                 Name = name + "Section",
-                Size = new Size(828, 36),
-                Margin = new Padding(0, 0, 0, 12)
+                Size = new Size(828, 30),
+                Margin = new Padding(0, 0, 0, 6)
             };
             parent.Controls.Add(section);
             var header = new Button
             {
                 Name = name + "FoldoutButton",
-                Size = new Size(828, 36),
+                Size = new Size(828, 30),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 BackColor = _inputBackground,
                 ForeColor = _textGreen,
@@ -3488,7 +3492,7 @@ namespace Roadhog
             section.Controls.Add(header);
             var content = new Panel
             {
-                Location = new Point(0, 44),
+                Location = new Point(0, 36),
                 Width = 828,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 Visible = false
@@ -3497,7 +3501,7 @@ namespace Roadhog
             var list = CreateMaintenanceRuleList(content, 12, 42, 804, 28);
             list.AutoScroll = false;
             list.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-            var emptyLabel = AddLabel(content, "暂无" + title, 12, 42, 300, 24);
+            var emptyLabel = AddLabel(content, "暂无" + title, 156, 8, 300, 24);
             emptyLabel.BringToFront();
             var expanded = false;
 
@@ -3505,7 +3509,7 @@ namespace Roadhog
             {
                 var rows = list.Controls.OfType<Panel>().ToArray();
                 list.Height = Math.Max(28, rows.Sum(row => row.Height + row.Margin.Vertical));
-                content.Height = list.Bottom + 8;
+                content.Height = rows.Length == 0 ? 40 : list.Bottom + 8;
                 section.Height = expanded ? content.Bottom : header.Height;
                 header.Text = $"{(expanded ? "▼" : "▶")}  {title}（{rows.Length} 项）";
                 RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
@@ -3537,7 +3541,7 @@ namespace Roadhog
             var optionsPanel = new Panel
             {
                 BackColor = _inputBackground,
-                Location = new Point(12, 56),
+                Location = new Point(12, 48),
                 Size = new Size(828, 64)
             };
             page.Controls.Add(optionsPanel);
@@ -3588,51 +3592,51 @@ namespace Roadhog
             }
 
             AddCategory("装备品质", 36);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenEquipment), leftOptionX, leftComboX, 68);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.BlueEquipment), rightOptionX, rightComboX, 68);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteEquipment), leftOptionX, leftComboX, 98);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenEquipment), leftOptionX, leftComboX, 64);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.BlueEquipment), rightOptionX, rightComboX, 64);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteEquipment), leftOptionX, leftComboX, 92);
 
-            AddCategory("书卷", 134);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.Stigma), leftOptionX, leftComboX, 166);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.RecipeScroll), rightOptionX, rightComboX, 166);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.SkillBook), leftOptionX, leftComboX, 196);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.SpellBook), rightOptionX, rightComboX, 196);
+            AddCategory("书卷", 124);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.Stigma), leftOptionX, leftComboX, 152);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.RecipeScroll), rightOptionX, rightComboX, 152);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.SkillBook), leftOptionX, leftComboX, 180);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.SpellBook), rightOptionX, rightComboX, 180);
 
-            AddCategory("提炼石", 232);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteExtractionStone), leftOptionX, leftComboX, 264);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenExtractionStone), rightOptionX, rightComboX, 264);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.BlueExtractionStone), leftOptionX, leftComboX, 294);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GoldExtractionStone), rightOptionX, rightComboX, 294);
+            AddCategory("提炼石", 212);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteExtractionStone), leftOptionX, leftComboX, 240);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenExtractionStone), rightOptionX, rightComboX, 240);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.BlueExtractionStone), leftOptionX, leftComboX, 268);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GoldExtractionStone), rightOptionX, rightComboX, 268);
 
             BuildStandaloneShopControls(rulesPanel);
 
             BuildBagCleanupNameListTabs(namesPanel);
 
-            var refreshInventoryButton = AddButton(namesPanel, "刷新背包", 300, 36, 108, 30);
+            var refreshInventoryButton = AddButton(namesPanel, "刷新背包", 300, 34, 108, 30);
             refreshInventoryButton.Click += async (_, _) =>
                 await RefreshBagCleanupInventoryAsync(refreshInventoryButton).ConfigureAwait(true);
 
-            AddLabel(namesPanel, "背包物品 / 关键字", 0, 40, 200, 24, _textGreen, FontStyle.Bold);
-            bagCleanupManualNameTextBox = AddTextBox(namesPanel, string.Empty, 0, 76, 280, 28);
+            AddLabel(namesPanel, "背包物品 / 关键字", 0, 36, 200, 24, _textGreen, FontStyle.Bold);
+            bagCleanupManualNameTextBox = AddTextBox(namesPanel, string.Empty, 0, 68, 280, 28);
             bagCleanupManualNameTextBox.Name = "bagCleanupManualNameTextBox";
-            bagCleanupAddNameButton = AddButton(namesPanel, "加入不丢弃", 292, 75, 116, 30);
+            bagCleanupAddNameButton = AddButton(namesPanel, "加入不丢弃", 292, 67, 116, 30);
             bagCleanupAddNameButton.Name = "bagCleanupAddNameButton";
             bagCleanupAddNameButton.Click += async (_, _) =>
                 await AddSelectedBagCleanupNameAsync().ConfigureAwait(true);
 
-            bagCleanupInventoryCheckedListBox = CreateBagCleanupInventoryCheckedListBox(namesPanel, 0, 114, 408, 126);
+            bagCleanupInventoryCheckedListBox = CreateBagCleanupInventoryCheckedListBox(namesPanel, 0, 102, 408, 126);
             bagCleanupInventoryCheckedListBox.BackColor = Color.White;
             bagCleanupInventoryCheckedListBox.Name = "bagCleanupInventoryCheckedListBox";
-            bagCleanupInventoryStatusLabel = AddLabel(namesPanel, "等待刷新背包", 0, 244, 408, 24);
+            bagCleanupInventoryStatusLabel = AddLabel(namesPanel, "等待刷新背包", 0, 230, 408, 24);
 
-            bagCleanupNameListTitleLabel = AddLabel(namesPanel, "不丢弃：以下物品保留", 0, 280, 236, 24, _textGreen, FontStyle.Bold);
-            bagCleanupExcludedItemListBox = CreateFilterListBox(namesPanel, 0, 316, 408, 138);
+            bagCleanupNameListTitleLabel = AddLabel(namesPanel, "不丢弃：以下物品保留", 0, 260, 236, 24, _textGreen, FontStyle.Bold);
+            bagCleanupExcludedItemListBox = CreateFilterListBox(namesPanel, 0, 292, 408, 138);
             bagCleanupExcludedItemListBox.BackColor = Color.White;
             bagCleanupTradeItemGrid = CreateBagCleanupTradeItemGrid(namesPanel);
-            bagCleanupRemoveNameButton = AddButton(namesPanel, "移除选中", 248, 276, 72, 30);
+            bagCleanupRemoveNameButton = AddButton(namesPanel, "移除选中", 248, 256, 72, 30);
             bagCleanupRemoveNameButton.Click += async (_, _) =>
                 await RemoveSelectedBagCleanupNameAsync().ConfigureAwait(true);
-            bagCleanupClearNamesButton = AddButton(namesPanel, "清空", 336, 276, 72, 30);
+            bagCleanupClearNamesButton = AddButton(namesPanel, "清空", 336, 256, 72, 30);
             bagCleanupClearNamesButton.Click += async (_, _) =>
                 await ClearSelectedBagCleanupNameListAsync().ConfigureAwait(true);
 
@@ -3646,14 +3650,16 @@ namespace Roadhog
             var tab = CreateBaseTab("组队");
             var page = CreatePagePanel();
             tab.Controls.Add(page);
+            page.AutoScroll = true;
+            page.AutoScrollMinSize = new Size(852, 420);
 
-            AddLabel(page, "组队模式", 24, 16, 90, 24, _textGreen, FontStyle.Bold);
-            teamRoleCombo = AddCombo(page, 24, 52, 190, 28, "队长", "输出", "治疗");
+            AddLabel(page, "组队模式", 24, 12, 90, 24, _textGreen, FontStyle.Bold);
+            teamRoleCombo = AddCombo(page, 116, 10, 190, 28, "队长", "输出", "治疗");
             teamRoleCombo.Name = "teamRoleCombo";
-            AddLabel(page, "抱团距离", 240, 52, 90, 24, _textGreen, FontStyle.Bold);
-            teamGroupDistanceTextBox = AddTextBox(page, "20.0", 330, 52, 72, 28);
+            AddLabel(page, "抱团距离", 352, 12, 90, 24, _textGreen, FontStyle.Bold);
+            teamGroupDistanceTextBox = AddTextBox(page, "20.0", 442, 10, 72, 28);
             teamGroupDistanceTextBox.Name = "teamGroupDistanceTextBox";
-            AddLabel(page, "m", 408, 52, 24, 24, _textGreen, FontStyle.Bold);
+            AddLabel(page, "m", 520, 12, 24, 24, _textGreen, FontStyle.Bold);
 
             var leaderPanel = CreateTeamRolePanel(page);
             teamLeaderPanel = leaderPanel;
@@ -3661,13 +3667,13 @@ namespace Roadhog
             teamLeaderEnabledCheckBox = AddCheckBox(leaderPanel, "启用组队", 24, 30, 92, false);
             teamLeaderDungeonModeCheckBox = AddCheckBox(leaderPanel, "刷本模式", 188, 30, 92, false);
             teamLeaderAllowSelfDefenseCheckBox = AddCheckBox(leaderPanel, "允许自卫", 352, 30, 92, true);
-            teamLeaderStopAdvanceWhenMemberDisconnectedCheckBox = AddCheckBox(leaderPanel, "队员掉线停止推进", 24, 62, 170, false);
-            teamLeaderTacticalMarkCheckBox = AddCheckBox(leaderPanel, "攻击目标标记", 24, 94, 130, false);
-            teamLeaderTacticalMarkKeyLabel = AddLabel(leaderPanel, "标记键", 170, 97, 62, 24, _textGreen, FontStyle.Bold);
+            teamLeaderStopAdvanceWhenMemberDisconnectedCheckBox = AddCheckBox(leaderPanel, "队员掉线停止推进", 516, 30, 170, false);
+            teamLeaderTacticalMarkCheckBox = AddCheckBox(leaderPanel, "攻击目标标记", 24, 62, 130, false);
+            teamLeaderTacticalMarkKeyLabel = AddLabel(leaderPanel, "标记键", 170, 65, 62, 24, _textGreen, FontStyle.Bold);
             teamLeaderTacticalMarkKeyButton = AddTeamKeyButton(
                 leaderPanel,
                 236,
-                92,
+                60,
                 TeamLeaderScriptSettings.DefaultTacticalMarkKey);
 
             var dpsPanel = CreateTeamRolePanel(page);
@@ -3771,6 +3777,7 @@ namespace Roadhog
             BindAutomaticSkillButton(teamGroupCleanseKeyButton, teamGroupCleanseSkillCombo,
                 () => !HasSpiritmasterSkillSelection(GetSelectedMaintenanceSkill(teamGroupCleanseSkillCombo)));
             AddLabel(supportPanel, "选技能自动匹配\n留空时手动设置", 616, 297, 194, 61);
+            ConfigureTeamSupportLayout(supportPanel, teamHealSkillRuleList);
 
             teamRoleCombo.SelectedIndexChanged += (_, _) => RefreshTeamRolePanelVisibility();
             teamLeaderTacticalMarkCheckBox.Click += (_, _) => RefreshTeamTacticalMarkKeyVisibility();
@@ -3788,7 +3795,7 @@ namespace Roadhog
             var panel = new Panel
             {
                 BackColor = _pageBackground,
-                Location = new Point(0, 96),
+                Location = new Point(0, 48),
                 Size = new Size(830, 360)
             };
 
@@ -5843,8 +5850,8 @@ namespace Roadhog
             {
                 Name = "skillOptionsPanel",
                 BackColor = _inputBackground,
-                Location = new Point(12, 10),
-                Size = new Size(828, 112)
+                Location = new Point(12, 8),
+                Size = new Size(828, 100)
             };
             page.Controls.Add(optionsPanel);
             AddLabel(optionsPanel, "技能配置", 12, 4, 90, 24, _textGreen, FontStyle.Bold);
@@ -5855,16 +5862,16 @@ namespace Roadhog
             spiritmasterSettingsButton = AddButton(optionsPanel, "精灵设置", 456, 29, 112, 30, (_, _) => ShowSpiritmasterSettingsDialog());
             spiritmasterSettingsButton.Visible = false;
 
-            attackWeaveCheckBox = AddCheckBox(optionsPanel, "卡刀（每2技能）", 12, 74, 148, false);
+            attackWeaveCheckBox = AddCheckBox(optionsPanel, "卡刀（每2技能）", 12, 66, 148, false);
             attackWeaveCheckBox.Name = "attackWeaveCheckBox";
-            AddLabel(optionsPanel, "等待", 172, 74, 40, 24);
+            AddLabel(optionsPanel, "等待", 172, 66, 40, 24);
             attackWeaveDelayTextBox = AddTextBox(
-                optionsPanel, SemiAutoScriptSettings.DefaultAttackWeaveDelayMs.ToString(), 216, 72, 64, 28);
+                optionsPanel, SemiAutoScriptSettings.DefaultAttackWeaveDelayMs.ToString(), 216, 64, 64, 28);
             attackWeaveDelayTextBox.Name = "attackWeaveDelayTextBox";
             attackWeaveDelayTextBox.Enabled = false;
             attackWeaveCheckBox.Click += (_, _) =>
                 attackWeaveDelayTextBox.Enabled = attackWeaveCheckBox.Checked;
-            AddLabel(optionsPanel, "ms", 288, 74, 32, 24);
+            AddLabel(optionsPanel, "ms", 288, 66, 32, 24);
             foreach (var option in optionsPanel.Controls.OfType<RoundedCheckBox>())
             {
                 option.BackColor = optionsPanel.BackColor;
@@ -5906,23 +5913,23 @@ namespace Roadhog
             page.AutoScrollMinSize = new Size(836, 514);
             tab.Controls.Add(page);
 
-            var selectionPanel = CreateFilterSelectionPanel(page, 12);
-            AddLabel(selectionPanel, "当前怪物", 12, 10, 120, 24, _textGreen, FontStyle.Bold);
-            var refreshMonstersButton = AddButton(selectionPanel, "刷新当前怪物", 656, 8, 144, 30);
+            var selectionPanel = CreateFilterSelectionPanel(page, 8);
+            AddLabel(selectionPanel, "当前怪物", 12, 8, 100, 24, _textGreen, FontStyle.Bold);
+            var refreshMonstersButton = AddButton(selectionPanel, "刷新当前怪物", 528, 6, 128, 30);
             refreshMonstersButton.Click += async (_, _) =>
                 await RefreshCurrentMonstersAsync(refreshMonstersButton).ConfigureAwait(true);
 
-            activeMonsterFilterCombo = AddCombo(selectionPanel, 12, 46, 632, 30);
+            activeMonsterFilterCombo = AddCombo(selectionPanel, 116, 6, 400, 30);
             activeMonsterFilterCombo.Name = "activeMonsterFilterCombo";
-            AddButton(selectionPanel, "添加到过滤", 656, 46, 144, 30, (_, _) => AddSelectedActiveMonsterFilter());
+            AddButton(selectionPanel, "添加到过滤", 668, 6, 132, 30, (_, _) => AddSelectedActiveMonsterFilter());
 
-            activeMonsterFilterStatusLabel = AddLabel(selectionPanel, "等待刷新", 12, 82, 788, 24);
+            activeMonsterFilterStatusLabel = AddLabel(selectionPanel, "等待刷新", 12, 40, 788, 24);
 
-            AddLabel(page, _bagCleanupNameListStore is ISharedAccountConfiguration ? "已过滤怪物（全账号共享）" : "已过滤怪物", 12, 142, 240, 24, _textGreen, FontStyle.Bold);
-            activeMonsterFilterListBox = CreateFilterListBox(page, 12, 180, 812, 318);
+            AddLabel(page, _bagCleanupNameListStore is ISharedAccountConfiguration ? "已过滤怪物（全账号共享）" : "已过滤怪物", 12, 90, 240, 24, _textGreen, FontStyle.Bold);
+            activeMonsterFilterListBox = CreateFilterListBox(page, 12, 122, 812, 318);
             activeMonsterFilterListBox.BackColor = Color.White;
-            AddButton(page, "移除", 632, 138, 88, 30, (_, _) => RemoveSelectedActiveMonsterFilter());
-            AddButton(page, "清空", 736, 138, 88, 30, (_, _) => ClearActiveMonsterFilterList());
+            AddButton(page, "移除", 632, 86, 88, 30, (_, _) => RemoveSelectedActiveMonsterFilter());
+            AddButton(page, "清空", 736, 86, 88, 30, (_, _) => ClearActiveMonsterFilterList());
 
             ConfigureWideSettingsPage(page, 836);
             return tab;
@@ -5934,7 +5941,7 @@ namespace Roadhog
             {
                 BackColor = _inputBackground,
                 Location = new Point(12, top),
-                Size = new Size(812, 114)
+                Size = new Size(812, 68)
             };
             page.Controls.Add(panel);
             return panel;
@@ -5948,33 +5955,33 @@ namespace Roadhog
             page.AutoScrollMinSize = new Size(836, 514);
             tab.Controls.Add(page);
 
-            stationaryGatherEnabledCheckBox = AddCheckBox(page, "先采集后打怪", 24, 18, 176, false);
+            stationaryGatherEnabledCheckBox = AddCheckBox(page, "先采集后打怪", 24, 10, 176, false);
             stationaryGatherEnabledCheckBox.Name = "stationaryGatherEnabledCheckBox";
 
-            AddLabel(page, "安全清怪", 228, 18, 80, 24, _textGreen, FontStyle.Bold);
-            gatherThreatRadiusTextBox = AddTextBox(page, "7", 312, 16, 72, 28);
+            AddLabel(page, "安全清怪", 228, 10, 80, 24, _textGreen, FontStyle.Bold);
+            gatherThreatRadiusTextBox = AddTextBox(page, "7", 312, 8, 72, 28);
             gatherThreatRadiusTextBox.Name = "gatherThreatRadiusTextBox";
-            AddLabel(page, "米", 396, 18, 28, 24);
+            AddLabel(page, "米", 396, 10, 28, 24);
 
-            var selectionPanel = CreateFilterSelectionPanel(page, 60);
+            var selectionPanel = CreateFilterSelectionPanel(page, 44);
             gatherFilterStatusLabel = AddLabel(
                 selectionPanel,
                 "等待读取附近采集物",
                 12,
-                82,
+                40,
                 788,
                 24,
                 Color.FromArgb(166, 80, 24),
                 FontStyle.Bold);
             gatherFilterStatusLabel.Name = "gatherFilterStatusLabel";
 
-            AddLabel(selectionPanel, "附近采集物", 12, 10, 160, 24, _textGreen, FontStyle.Bold);
-            readNearbyGatherFilterButton = AddButton(selectionPanel, "读取附近", 656, 8, 144, 30);
+            AddLabel(selectionPanel, "附近采集物", 12, 8, 100, 24, _textGreen, FontStyle.Bold);
+            readNearbyGatherFilterButton = AddButton(selectionPanel, "读取附近", 528, 6, 128, 30);
             readNearbyGatherFilterButton.Name = "readNearbyGatherFilterButton";
             readNearbyGatherFilterButton.Click += async (_, _) =>
                 await RefreshNearbyGatherFiltersAsync(readNearbyGatherFilterButton).ConfigureAwait(true);
 
-            nearbyGatherFilterCombo = AddCombo(selectionPanel, 12, 46, 632, 30);
+            nearbyGatherFilterCombo = AddCombo(selectionPanel, 116, 6, 400, 30);
             nearbyGatherFilterCombo.Name = "nearbyGatherFilterCombo";
             nearbyGatherFilterCombo.DropDownWidth = 632;
             nearbyGatherFilterCombo.SelectedIndexChanged += (_, _) =>
@@ -5984,10 +5991,10 @@ namespace Roadhog
                     gatherFilterListView.SelectedItems.Clear();
                 }
             };
-            addGatherFilterButton = AddButton(selectionPanel, "加入采集", 656, 46, 144, 30, (_, _) => AddSelectedGatherFilter());
+            addGatherFilterButton = AddButton(selectionPanel, "加入采集", 668, 6, 132, 30, (_, _) => AddSelectedGatherFilter());
             addGatherFilterButton.Name = "addGatherFilterButton";
 
-            AddLabel(page, "要采集的采集物", 12, 190, 200, 24, _textGreen, FontStyle.Bold);
+            AddLabel(page, "要采集的采集物", 12, 126, 200, 24, _textGreen, FontStyle.Bold);
             gatherFilterListView = new ListView
             {
                 BackColor = Color.White,
@@ -5998,7 +6005,7 @@ namespace Roadhog
                 FullRowSelect = true,
                 HeaderStyle = ColumnHeaderStyle.Nonclickable,
                 HideSelection = false,
-                Location = new Point(12, 228),
+                Location = new Point(12, 158),
                 MultiSelect = true,
                 Name = "gatherFilterListView",
                 Size = new Size(812, 270),
@@ -6015,12 +6022,12 @@ namespace Roadhog
             };
             page.Controls.Add(gatherFilterListView);
 
-            gatherFilterKeyButton = AddButton(page, "设置按键", 504, 186, 112, 30, (_, _) => SetSelectedGatherFilterKey());
+            gatherFilterKeyButton = AddButton(page, "设置按键", 504, 122, 112, 30, (_, _) => SetSelectedGatherFilterKey());
             gatherFilterKeyButton.Name = "gatherFilterKeyButton";
             gatherFilterKeyButton.Enabled = false;
-            removeGatherFilterButton = AddButton(page, "移除", 632, 186, 88, 30, (_, _) => RemoveSelectedGatherFilters());
+            removeGatherFilterButton = AddButton(page, "移除", 632, 122, 88, 30, (_, _) => RemoveSelectedGatherFilters());
             removeGatherFilterButton.Name = "removeGatherFilterButton";
-            clearGatherFilterButton = AddButton(page, "清空", 736, 186, 88, 30, (_, _) => ClearGatherFilters());
+            clearGatherFilterButton = AddButton(page, "清空", 736, 122, 88, 30, (_, _) => ClearGatherFilters());
             clearGatherFilterButton.Name = "clearGatherFilterButton";
 
             ConfigureWideSettingsPage(page, 836);

@@ -12,8 +12,8 @@ public sealed partial class AccountSettingsForm
 
     private void CreateFoodPreferencePickers(Control page)
     {
-        drinkPreferencePicker = CreateFoodPreferencePicker(page, FoodKind.Drink, 112);
-        foodPreferencePicker = CreateFoodPreferencePicker(page, FoodKind.Food, 146);
+        drinkPreferencePicker = CreateFoodPreferencePicker(page, FoodKind.Drink, 76);
+        foodPreferencePicker = CreateFoodPreferencePicker(page, FoodKind.Food, 110);
     }
 
     private FoodPreferencePicker CreateFoodPreferencePicker(Control page, FoodKind kind, int y)

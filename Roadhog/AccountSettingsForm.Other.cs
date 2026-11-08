@@ -31,14 +31,16 @@ public sealed partial class AccountSettingsForm
         var page = CreatePagePanel();
         tab.Controls.Add(page);
         page.AutoScroll = true;
-        _manastoneExchangeStart = AddButton(page, "兑换魔石", 24, 18, 110, 30);
+        _manastoneExchangeStart = AddButton(page, "兑换魔石", 12, 8, 110, 30);
         _manastoneExchangeStart.Click += async (_, _) => await StartManastoneExchangeAsync();
-        AddLabel(page, "靠近比洛加后点击兑换魔石，先按 F1，再按 F8 选择 NPC，按 C 对话。", 24, 66, 850, 30);
-        AddLabel(page, "魔石袋：生命力 +60、命中 +20、盾牌防御 +20，每种 10 个。", 24, 112, 850, 30);
-        AddLabel(page, "魔石包袱：精神力 +60、回避 +12、武器防御 +20，每种 10 个。", 24, 150, 850, 30);
-        AddLabel(page, "自动接受 → 交出魔石 → 确认；两组材料都不足时结束。再次点击按钮可停止。", 24, 200, 850, 30);
-        _manastoneExchangeStatus = AddLabel(page, "等待开始。", 24, 250, 850, 80);
+        AddLabel(page, "靠近比洛加后点击兑换魔石，先按 F1，再按 F8 选择 NPC，按 C 对话。", 12, 46, 812, 24);
+        AddLabel(page, "魔石袋：生命力 +60、命中 +20、盾牌防御 +20，每种 10 个。", 12, 78, 812, 24);
+        AddLabel(page, "魔石包袱：精神力 +60、回避 +12、武器防御 +20，每种 10 个。", 12, 110, 812, 24);
+        AddLabel(page, "自动接受 → 交出魔石 → 确认；两组材料都不足时结束。再次点击按钮可停止。", 12, 142, 812, 24);
+        _manastoneExchangeStatus = AddLabel(page, "等待开始。", 12, 176, 812, 56);
         _manastoneExchangeStatus.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        page.AutoScrollMinSize = new Size(836, 244);
+        ConfigureWideSettingsPage(page, 836);
         return tab;
     }
 

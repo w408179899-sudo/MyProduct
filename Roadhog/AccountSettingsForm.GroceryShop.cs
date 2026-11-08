@@ -77,8 +77,8 @@ public partial class AccountSettingsForm
     {
         var modePanel = new Panel
         {
-            Name = "cleanupModePanel", Location = new Point(12, 10),
-            Size = new Size(828, 36), BackColor = _inputBackground
+            Name = "cleanupModePanel", Location = new Point(12, 8),
+            Size = new Size(828, 32), BackColor = _inputBackground
         };
         page.Controls.Add(modePanel);
         AddLabel(modePanel, "清包方式", 8, 5, 82, 26, _textGreen, FontStyle.Bold);
