@@ -17,7 +17,14 @@ public sealed partial class WorkerProcessManager
                 entry.Status?.GameSessionCompletedRequestId != requestId || entry.Descriptor is null ||
                 Volatile.Read(ref _shuttingDown) != 0 || Volatile.Read(ref _disposed) != 0) return;
             requested = entry.Status.CompletedGameSessionOperation;
-            stopping = BeginStop(entry);
+            if (requested == GameSessionOperation.Relogin)
+            {
+                // Exit has already completed. Retry only the stop/start continuation;
+                // never replay the game-exit request after a cleanup or login fault.
+                entry.PendingShopRestartId = requestId;
+                entry.PendingScriptRestart = true;
+            }
+            stopping = BeginStop(entry, forShopRestart: requested == GameSessionOperation.Relogin);
             generation = entry.StopGeneration;
             operation = entry.Operation;
         }
@@ -28,6 +35,8 @@ public sealed partial class WorkerProcessManager
         {
             fields["error"] = stopped.Error;
             _logger.Warn("game_session.stop_failed", fields);
+            if (requested == GameSessionOperation.Relogin)
+                await DeferShopRestartAsync(entry, requestId, generation, stopped.Error).ConfigureAwait(false);
             return;
         }
         if (requested != GameSessionOperation.Relogin)
@@ -37,6 +46,12 @@ public sealed partial class WorkerProcessManager
         }
         // A later user Stop/Start wins, including the gap between exit and login.
         var started = await StartAccountAsync(entry.Config.InstanceId, false, _lifetime.Token, null, generation, operation).ConfigureAwait(false);
+        if (!started.Success)
+            await DeferShopRestartAsync(entry, requestId, generation, started.Error).ConfigureAwait(false);
+        else
+            lock (entry.Sync)
+                if (entry.StopGeneration == generation && entry.PendingShopRestartId == requestId)
+                    entry.PendingShopRestartId = null;
         fields["success"] = started.Success;
         fields["error"] = started.Error;
         _logger.Info("game_session.relogin_complete", fields);

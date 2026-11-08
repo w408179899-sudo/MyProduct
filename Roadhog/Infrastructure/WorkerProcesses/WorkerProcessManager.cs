@@ -474,6 +474,12 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
             Fail(entry, error);
             return OperationResult.Fail(error);
         }
+        if (entry.Status?.InitializationError is { } initializationError)
+        {
+            await ShutdownCoreAsync(entry).ConfigureAwait(false);
+            Fail(entry, "后台初始化失败，将延迟重试：" + initializationError);
+            return OperationResult.Fail(entry.Error!);
+        }
         if (entry.Status is { InitializationComplete: true, Authorized: false } unavailable)
         {
             // A missing/rejected credential is an actionable setup failure, not a reason to spawn another process repeatedly.
@@ -504,18 +510,12 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 })).ConfigureAwait(false);
             if (!result.Success)
             {
-                // Ordinary explicit starts retain the existing rejection policy. A planned
-                // post-sale restart instead keeps its pending continuation and backoff.
+                // A failed attempt must not revoke the user's request to keep grinding.
+                // Recovery starts ordinary combat, never replays cleanup/trading requests.
                 var error = result.Error ?? "启动失败";
                 if (entry.Status?.IsRunning != true)
                 {
-                    var retryLogin = false;
-                    if (entry.RecoveringGameDisconnect)
-                    {
-                        var rejected = await client.CallAsync<WorkerStatus>(WorkerCommands.Status, [], cancellationToken).ConfigureAwait(false);
-                        retryLogin = rejected.LoginRetryPending && rejected.Authorized;
-                    }
-                    lock (entry.Sync) if (!retryLogin && !entry.PendingShopRestartId.HasValue) entry.Desired = false;
+                    lock (entry.Sync) if (entry.LoginOnly) entry.Desired = false;
                     await ShutdownCoreAsync(entry).ConfigureAwait(false);
                     try { await SaveIntentAsync().ConfigureAwait(false); }
                     catch (Exception ex) { error += "；停止状态未能保存：" + ex.Message; }
@@ -940,6 +940,8 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 {
                     var status = await Client(entry).CallAsync<WorkerStatus>(WorkerCommands.Status, [], timeout.Token).ConfigureAwait(false);
                     if (status.InstanceId != entry.Config.InstanceId || status.ProcessId != entry.Process!.Id) throw new IOException("账号后台身份不匹配。");
+                    if (status.InitializationError is { } initializationError)
+                        throw new InvalidOperationException("后台初始化失败：" + initializationError);
                     lock (entry.Sync)
                     {
                         if (Superseded()) return;

@@ -190,6 +190,7 @@ public sealed class WorkerProcessHost
         private readonly CancellationTokenSource _lifetime;
         private readonly Action<int> _terminateProcess;
         private readonly TimeSpan _shutdownTimeout;
+        private readonly Diagnostics.FileRoadhogLogger _logger;
         private readonly CancellationTokenSource _shutdownCompleted = new();
         private readonly SemaphoreSlim _actions = new(1, 1);
         private readonly object _sync = new();
@@ -205,6 +206,8 @@ public sealed class WorkerProcessHost
             Action<int> terminateProcess, TimeSpan? shutdownTimeout)
         {
             _spec = spec; _backend = backend; _lifetime = lifetime; _terminateProcess = terminateProcess;
+            _logger = new Diagnostics.FileRoadhogLogger(spec.Paths.LogDirectory,
+                enabled: spec.Paths.EnableLogging && (spec.Account.ScriptSettings?.GenerateLogFiles ?? true));
             _shutdownTimeout = shutdownTimeout ?? TimeSpan.FromSeconds(Math.Clamp(spec.Paths.AccountWorkerStopTimeout.TotalSeconds + 5, 5, 120));
             if (_shutdownTimeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(shutdownTimeout));
         }
@@ -212,43 +215,63 @@ public sealed class WorkerProcessHost
         public async Task InitializeAsync(CancellationToken cancellationToken)
         {
             try { await _backend.InitializeAsync(cancellationToken).ConfigureAwait(false); }
-            catch (Exception exception) { _initializationError = exception.Message; }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return; }
+            catch (Exception exception)
+            {
+                _initializationError = exception.Message;
+                LogFailure("worker.initialization.failed", exception);
+            }
             finally { _initialized = true; }
             if (_initializationError is not null) return;
-            var wasAuthorized = _backend.GetStatus().Authorized;
+            // Treat the first denied status as needing a stop too. A failed status read or
+            // stop must not permanently retire the authorization monitor.
+            var wasAuthorized = true;
             try
             {
                 while (!cancellationToken.IsCancellationRequested)
                 {
                     await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
-                    var authorized = _backend.GetStatus().Authorized;
-                    if (wasAuthorized && !authorized)
+                    try
                     {
-                        CancelManualOperations();
-                        // Authorization loss must release input even while a native read owns the action gate.
-                        try { await _backend.ReleaseInputAsync(cancellationToken).ConfigureAwait(false); }
-                        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
-                        { _initializationError = "授权失效后释放输入失败：" + exception.Message; }
-                        await _actions.WaitAsync(cancellationToken).ConfigureAwait(false);
-                        try { await _backend.StopAsync(cancellationToken).ConfigureAwait(false); }
-                        finally { _actions.Release(); }
+                        var authorized = _backend.GetStatus().Authorized;
+                        if (wasAuthorized && !authorized)
+                        {
+                            CancelManualOperations();
+                            // Authorization loss must release input even while a native read owns the action gate.
+                            try { await _backend.ReleaseInputAsync(cancellationToken).ConfigureAwait(false); }
+                            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+                            { LogFailure("worker.authorization.release_failed", exception); }
+                            await _actions.WaitAsync(cancellationToken).ConfigureAwait(false);
+                            try
+                            {
+                                var stopped = await _backend.StopAsync(cancellationToken).ConfigureAwait(false);
+                                if (!stopped.Success) throw new InvalidOperationException(stopped.Error ?? "授权失效后停止尚未完成。");
+                            }
+                            finally { _actions.Release(); }
+                        }
+                        wasAuthorized = authorized;
                     }
-                    wasAuthorized = authorized;
+                    catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+                    { LogFailure("worker.authorization.monitor_retry", exception); }
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
         }
 
+        private void LogFailure(string eventName, Exception exception) =>
+            _logger.Error(eventName, exception, new Dictionary<string, object?> { ["account"] = _spec.Account.AccountName });
+
         public async Task<object?> HandleAsync(string method, JsonElement[] arguments, IProgress<string> progress, CancellationToken cancellationToken)
         {
             if (method == WorkerCommands.Status)
             {
-                var status = _backend.GetStatus();
+                var status = _initializationError is null ? _backend.GetStatus() : new WorkerStatus();
                 return status with
                 {
                     InstanceId = _spec.Account.InstanceId,
                     ProcessId = Environment.ProcessId,
                     InitializationComplete = _initialized,
+                    InitializationError = _initializationError,
                     Authorized = _initialized && _initializationError is null && status.Authorized,
                     AuthorizationError = _initializationError ?? (!_initialized ? "正在验证授权" : status.AuthorizationError),
                     ReportedAtUtc = DateTimeOffset.UtcNow

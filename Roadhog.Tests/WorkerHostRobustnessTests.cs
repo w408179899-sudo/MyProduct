@@ -7,6 +7,59 @@ using Roadhog.Infrastructure.WorkerProcesses;
 
 internal static class WorkerHostRobustnessTests
 {
+    public static async Task InitializationExceptionHasDistinctStatusAndStackAsync()
+    {
+        using var test = new EnvironmentScope();
+        using var lifetime = new CancellationTokenSource();
+        var running = new WorkerProcessHost(_ => throw new IOException("temporary backend construction failure"))
+            .RunAsync(test.Spec, lifetime.Token);
+        try
+        {
+            await UntilAsync(() => File.Exists(test.Spec.ManifestPath), "failed backend remains controllable");
+            WorkerStatus status;
+            do
+            {
+                status = await test.Client.CallAsync<WorkerStatus>(WorkerCommands.Status, []);
+                if (!status.InitializationComplete) await Task.Delay(20);
+            } while (!status.InitializationComplete);
+            Require(!status.Authorized && status.InitializationError == "temporary backend construction failure",
+                "startup exception has a distinct retryable field without granting authorization");
+            var entry = File.ReadLines(Path.Combine(test.Root, "latest.log"))
+                .Select(line => JsonDocument.Parse(line)).Single(doc => doc.RootElement.GetProperty("EventName").GetString() == "worker.initialization.failed");
+            using (entry)
+            {
+                var fields = entry.RootElement.GetProperty("Fields");
+                Require(fields.GetProperty("exceptionType").GetString() == typeof(IOException).FullName &&
+                    !string.IsNullOrWhiteSpace(fields.GetProperty("stackTrace").GetString()), "initialization fault logs its full type and stack");
+            }
+            await test.Client.CallAsync<OperationResult>(WorkerCommands.Shutdown, []);
+            Require(await running.WaitAsync(TimeSpan.FromSeconds(5)) == 0, "failed initialization can still shut down cleanly");
+        }
+        finally { lifetime.Cancel(); await running.WaitAsync(TimeSpan.FromSeconds(5)); }
+    }
+
+    public static async Task AuthorizationMonitorSurvivesStatusExceptionAsync()
+    {
+        using var test = new EnvironmentScope();
+        using var lifetime = new CancellationTokenSource();
+        var backend = new Backend(test.Root);
+        var running = new WorkerProcessHost(_ => backend).RunAsync(test.Spec, lifetime.Token);
+        try
+        {
+            await ReadyAsync(test.Client);
+            Volatile.Write(ref backend.FailNextStatus, 1);
+            // Do not send status RPCs here: only the internal monitor can consume this fault.
+            await UntilAsync(() => Volatile.Read(ref backend.StatusFailures) == 1, "authorization monitor encounters injected status exception");
+            backend.Authorized = false;
+            await UntilAsync(() => Volatile.Read(ref backend.StopCalls) > 0, "monitor continues and enforces a later real authorization loss");
+            var status = await test.Client.CallAsync<WorkerStatus>(WorkerCommands.Status, []);
+            Require(!status.Authorized && status.InitializationError is null, "monitor fault is not misclassified as permanent initialization failure");
+            await test.Client.CallAsync<OperationResult>(WorkerCommands.Shutdown, []);
+            Require(await running.WaitAsync(TimeSpan.FromSeconds(5)) == 0, "monitor retry remains stoppable");
+        }
+        finally { lifetime.Cancel(); await running.WaitAsync(TimeSpan.FromSeconds(5)); }
+    }
+
     public static async Task<int> RunChildAsync(string[] args)
     {
         var index = Array.IndexOf(args, "--host-robustness-worker");
@@ -159,7 +212,17 @@ internal static class WorkerHostRobustnessTests
         public TaskCompletionSource ReleaseEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource ReleaseCompletion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Task InitializeAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-        public WorkerStatus GetStatus() => new() { Authorized = Authorized };
+        public int FailNextStatus;
+        public int StatusFailures;
+        public WorkerStatus GetStatus()
+        {
+            if (Interlocked.Exchange(ref FailNextStatus, 0) != 0)
+            {
+                Interlocked.Increment(ref StatusFailures);
+                throw new IOException("simulated status exception");
+            }
+            return new() { Authorized = Authorized };
+        }
         public Task<OperationResult> StartAsync(AccountConfig account, bool cleanupFirst, CancellationToken cancellationToken) => Task.FromResult(OperationResult.Ok());
         public Task<OperationResult> StopAsync(CancellationToken cancellationToken) { Interlocked.Increment(ref StopCalls); return Task.FromResult(OperationResult.Ok()); }
         public async Task<OperationResult> ReleaseInputAsync(CancellationToken cancellationToken)

@@ -588,7 +588,7 @@ internal static partial class WorkerProcessManagerTests
         }
     }
 
-    public static async Task RejectedStartReleasesWorkerAsync()
+    public static async Task RejectedStartRetriesWithoutAffectingNeighborsAsync()
     {
         await using var test = new TestEnvironment();
         var rejected = test.Account(1); var healthy = test.Account(2);
@@ -597,16 +597,15 @@ internal static partial class WorkerProcessManagerTests
         var healthyPid = (await test.RunningAsync(manager, healthy)).WorkerProcessId;
         var result = await manager.StartAsync(rejected.InstanceId);
         Require(!result.Success && result.Error == "mock binding mismatch", "actionable rejection is retained");
-        Require(View(manager, rejected) is { DesiredRunning: false, WorkerProcessId: null, State: "failed" }, "rejection stops and reclaims idle worker");
+        Require(View(manager, rejected) is { DesiredRunning: true, State: "recovering" }, "rejection keeps the requested run intent");
         var launchToken = test.Spec(rejected).Token;
-        await Task.Delay(600);
-        Require(test.Spec(rejected).Token == launchToken && View(manager, rejected).WorkerProcessId is null, "rejected configuration does not enter an automatic spawn loop");
-        Require(!File.ReadAllText(Path.Combine(test.Root, "config", "workers", "run-intent.json")).Contains(rejected.InstanceId), "rejected start clears durable intent");
-        Require(new DeviceLeaseStore(test.LeasePath).ReadActive().Value?.Count == 1, "only healthy account keeps its lease");
+        await UntilAsync(() => test.Logger.Entries.Count(e => e.EventName == "account_process.failed" &&
+            Equals(e.Fields["account"], rejected.AccountName)) >= 3, "repeated rejection remains recoverable");
+        Require(File.ReadAllText(Path.Combine(test.Root, "config", "workers", "run-intent.json")).Contains(rejected.InstanceId), "failed start preserves durable intent");
         Require(View(manager, healthy).WorkerProcessId == healthyPid && (await test.InfoAsync(healthy)).Running, "other account remains running with the same PID");
         await File.WriteAllTextAsync(Path.Combine(manager.PathsFor(rejected).LogDirectory, "allow-start"), "fixed");
-        Require((await manager.StartAsync(rejected.InstanceId)).Success, "explicit start works after correction");
-        Require(test.Spec(rejected).Token != launchToken && (await test.InfoAsync(rejected)).Running, "explicit retry uses a fresh authenticated worker");
+        await test.RunningAsync(manager, rejected);
+        Require(test.Spec(rejected).Token != launchToken && (await test.InfoAsync(rejected)).Running, "automatic retry succeeds after correction without another Start");
     }
 
     public static async Task StandaloneShopDispatchAsync()
@@ -741,6 +740,11 @@ internal static partial class WorkerProcessManagerTests
         public async Task InitializeAsync(CancellationToken cancellationToken)
         {
             Directory.CreateDirectory(spec.Paths.LogDirectory);
+            if (File.Exists(Path.Combine(spec.Paths.LogDirectory, "fail-initialization")))
+            {
+                await File.AppendAllTextAsync(Path.Combine(spec.Paths.LogDirectory, "initialization-attempts"), "attempt\n", cancellationToken);
+                throw new IOException("simulated initialization IO failure");
+            }
             _states.MarkStarting(spec.Account);
             _states.MarkStopped(spec.Account.AccountName);
             if (scenario is "slow-init" or "stuck-init")

@@ -12037,6 +12037,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         if (state.PathFollowPoller is PathFollowPollState existing &&
             !existing.StopRequested &&
             !existing.Cancellation.IsCancellationRequested &&
+            existing.Task is { IsCompleted: false } &&
             string.Equals(existing.AccountName, context.Config.AccountName, StringComparison.Ordinal) &&
             existing.ProcessId == context.Config.ProcessId)
         {
@@ -12085,40 +12086,49 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         var interval = TimeSpan.FromMilliseconds(ReadPathFollowTickMs());
         while (!poller.Cancellation.IsCancellationRequested)
         {
-            var player = await ReadPlayerForActionAsync(context).ConfigureAwait(false);
-            long arrivalVersion;
-            bool arrived;
-            lock (poller.SyncRoot)
-            {
-                if (poller.StopRequested)
-                {
-                    return;
-                }
-
-                poller.Local = player;
-                poller.LastReadTime = DateTimeOffset.Now;
-                poller.ReadCount++;
-                UpdatePathFollowPollMetricsLocked(poller);
-                MarkPathFollowArrivalLocked(poller);
-                arrivalVersion = poller.TargetVersion;
-                arrived = poller.ArrivalObserved;
-            }
-
+            var nextPoll = interval;
             try
             {
-                if (arrived)
-                    await StopArrivedPathForwardAsync(context, state, poller, arrivalVersion).ConfigureAwait(false);
+                var player = await ReadPlayerForActionAsync(context).ConfigureAwait(false);
+                long arrivalVersion;
+                bool arrived;
+                lock (poller.SyncRoot)
+                {
+                    if (poller.StopRequested) return;
+
+                    poller.Local = player;
+                    poller.LastReadTime = DateTimeOffset.Now;
+                    poller.ReadCount++;
+                    UpdatePathFollowPollMetricsLocked(poller);
+                    MarkPathFollowArrivalLocked(poller);
+                    arrivalVersion = poller.TargetVersion;
+                    arrived = poller.ArrivalObserved;
+                }
+
+                try
+                {
+                    if (arrived)
+                        await StopArrivedPathForwardAsync(context, state, poller, arrivalVersion).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (!poller.Cancellation.IsCancellationRequested)
+                {
+                    context.Logger.Warn("stationary_combat.path_arrival.stop_failed", new Dictionary<string, object?>
+                        { ["account"] = context.Config.AccountName, ["error"] = ex.Message });
+                }
             }
             catch (OperationCanceledException) when (poller.Cancellation.IsCancellationRequested) { return; }
             catch (Exception ex)
             {
-                context.Logger.Warn("stationary_combat.path_arrival.stop_failed", new Dictionary<string, object?>
-                    { ["account"] = context.Config.AccountName, ["error"] = ex.Message });
+                // Keep the independent arrival executor alive. A failed observation is not
+                // a new position and must not authorize movement or mark arrival.
+                nextPoll = TimeSpan.FromMilliseconds(Math.Max(250, interval.TotalMilliseconds));
+                context.Logger.Error("stationary_combat.path_poll.retry", ex, new Dictionary<string, object?>
+                    { ["account"] = context.Config.AccountName, ["retryAfterMs"] = nextPoll.TotalMilliseconds });
             }
 
             try
             {
-                await Task.Delay(interval, poller.Cancellation.Token).ConfigureAwait(false);
+                await Task.Delay(nextPoll, poller.Cancellation.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {

@@ -5,6 +5,7 @@ using Roadhog.Application.SemiAuto;
 using Roadhog.Application.StationaryCombat;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
+using Roadhog.Core.Api;
 using Roadhog.Core.Common;
 using Roadhog.Core.Diagnostics;
 using Roadhog.Core.Input;
@@ -150,6 +151,51 @@ internal static class PathArrivalTests
         Check(second.Input.Ups == 1 && !second.State.IsMovingForward, "worker cancellation still releases held W");
     }
 
+    public static async Task PollingExceptionRetriesWithoutForegroundTickAsync()
+    {
+        using var h = new Harness(injectReadFaults: true);
+        await h.Tick();
+        var poller = h.State.PathFollowPoller!;
+        Volatile.Write(ref h.ReadFaults!.Remaining, 3);
+        await Until(() => h.Logger.Entries.Count(e => e.EventName == "stationary_combat.path_poll.retry") >= 3);
+        Check(!Property<Task>(poller, "Task").IsCompleted && h.State.IsMovingForward,
+            "repeated observation exceptions keep the arrival worker alive without inventing an arrival");
+        h.Move(19);
+        await Until(() => !h.State.IsMovingForward);
+        Check(h.Input.Downs == 1 && h.Input.Ups == 1 && h.PointIndex == 1,
+            "recovered poller releases W at the original threshold without needing another foreground tick");
+        h.Controller.StopWorkerBackgroundWork(h.Context, h.State);
+        await Property<Task>(poller, "Task").WaitAsync(TimeSpan.FromSeconds(3));
+        Check(Property<Task>(poller, "Task").IsCompletedSuccessfully, "cancellation ends recovered polling without an unobserved exception");
+    }
+
+    public class FaultingSnapshots : DispatchProxy
+    {
+        public IRoadhogSnapshotReader Inner = null!;
+        public int Remaining;
+        protected override object? Invoke(MethodInfo? method, object?[]? args)
+        {
+            if (method!.Name == nameof(IRoadhogSnapshotReader.ReadPlayerAsync) &&
+                Interlocked.Decrement(ref Remaining) >= 0)
+                return Task.FromException<PublishedGameSnapshot<PlayerSnapshot>>(new IOException("simulated polling failure"));
+            try { return method.Invoke(Inner, args); }
+            catch (TargetInvocationException ex) when (ex.InnerException is not null)
+            { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex.InnerException).Throw(); throw; }
+        }
+    }
+
+    private sealed class FaultingFactory(FakeGameApi api) : IRoadhogSnapshotReaderFactory
+    {
+        public FaultingSnapshots Reader = null!;
+        public IRoadhogSnapshotReader Create(AccountConfig config, IRoadhogLogger logger, CancellationToken cancellationToken = default)
+        {
+            var proxy = DispatchProxy.Create<IRoadhogSnapshotReader, FaultingSnapshots>();
+            Reader = (FaultingSnapshots)proxy;
+            Reader.Inner = ((IRoadhogSnapshotReaderFactory)api).Create(config, logger, cancellationToken);
+            return proxy;
+        }
+    }
+
     private static async Task Invoke(Harness h, string method, params object?[] args) =>
         await (Task)typeof(StationaryCombatController).GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(h.Controller, args)!;
@@ -177,11 +223,12 @@ internal static class PathArrivalTests
         public readonly SemiAutoCombatController SemiAuto;
         public readonly StationaryCombatController Controller;
         public readonly AccountWorkerContext Context;
+        public readonly FaultingSnapshots? ReadFaults;
         private readonly SemiAutoSkillPlan _plan;
         private readonly bool _death;
         private readonly string? _bearing = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
         public int PointIndex => _death ? State.DeathRecovery.RevivePathPointIndex : State.StartupRecoveryPointIndex;
-        public Harness(bool death = false)
+        public Harness(bool death = false, bool injectReadFaults = false)
         {
             _death = death;
             Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
@@ -196,8 +243,10 @@ internal static class PathArrivalTests
             var path = new SharedPathDocument { Name = "arrival", Points = points.Select(p => new SharedPathPoint { X = p.X, Y = p.Y, Z = p.Z }).ToList() };
             SemiAuto = new(Input);
             Controller = new(Input, SemiAuto, new InMemorySharedPathStore(path));
-            Context = new(new AccountConfig { AccountName = "arrival", ScriptSettings = settings }, Api, Logger,
+            var faulting = injectReadFaults ? new FaultingFactory(Api) : null;
+            Context = new(new AccountConfig { AccountName = "arrival", ScriptSettings = settings }, (IRoadhogSnapshotReaderFactory?)faulting ?? Api, Logger,
                 new AccountRuntimeManager(Logger), new(), Stop.Token) { WorkflowOwnsCleanup = true };
+            ReadFaults = faulting?.Reader;
             _plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
             if (death)
             {

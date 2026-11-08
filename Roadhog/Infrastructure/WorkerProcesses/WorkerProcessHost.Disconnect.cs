@@ -1,5 +1,6 @@
 using Roadhog.Application.GameSessions;
 using Roadhog.Core.Accounts;
+using Roadhog.Core.Diagnostics;
 using Roadhog.Infrastructure.GameSessions;
 
 namespace Roadhog.Infrastructure.WorkerProcesses;
@@ -33,8 +34,11 @@ internal sealed partial class RoadhogWorkerProcessBackend
         var token = cancellation.Token;
         try
         {
-            using var source = new VmmGameProcessSnapshotSource(_services.LoginGameApi!, account, _services.Logger);
-            await new GameDisconnectMonitor().WaitForExitAsync(source, checked((int)account.ProcessId), token).ConfigureAwait(false);
+            await WaitForDisconnectWithRecoveryAsync(async attemptToken =>
+            {
+                using var source = new VmmGameProcessSnapshotSource(_services.LoginGameApi!, account, _services.Logger);
+                await new GameDisconnectMonitor().WaitForExitAsync(source, checked((int)account.ProcessId), attemptToken).ConfigureAwait(false);
+            }, _services.Logger, account.AccountName, token).ConfigureAwait(false);
             lock (_disconnectSync)
             {
                 if (token.IsCancellationRequested || !ReferenceEquals(_disconnectCancellation, cancellation)) return;
@@ -56,6 +60,28 @@ internal sealed partial class RoadhogWorkerProcessBackend
                 if (ReferenceEquals(_disconnectCancellation, cancellation)) _disconnectCancellation = null;
                 cancellation.Dispose();
             }
+        }
+    }
+
+    internal static async Task WaitForDisconnectWithRecoveryAsync(Func<CancellationToken, Task> observeExit,
+        IRoadhogLogger logger, string account, CancellationToken token, TimeSpan? retryDelay = null)
+    {
+        var delay = retryDelay ?? TimeSpan.FromSeconds(3);
+        while (true)
+        {
+            token.ThrowIfCancellationRequested();
+            try
+            {
+                await observeExit(token).ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
+                return; // Only the monitor's normal completion confirms game exit.
+            }
+            catch (Exception error) when (!token.IsCancellationRequested)
+            {
+                logger.Error("game_disconnect.monitor_retry", error, new Dictionary<string, object?>
+                    { ["account"] = account, ["retryAfterMs"] = delay.TotalMilliseconds });
+            }
+            await Task.Delay(delay, token).ConfigureAwait(false);
         }
     }
 

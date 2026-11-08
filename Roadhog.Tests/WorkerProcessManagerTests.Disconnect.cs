@@ -39,7 +39,7 @@ internal static partial class WorkerProcessManagerTests
             "a stop in the old-worker/new-worker gap prevents relogin");
     }
 
-    public static async Task DisconnectConfigurationFailureStopsRetryAsync()
+    public static async Task DisconnectStartFailureKeepsRetryingAsync()
     {
         await using var test = new TestEnvironment();
         var account = test.Account(1);
@@ -47,10 +47,12 @@ internal static partial class WorkerProcessManagerTests
         Require((await manager.StartAsync(account.InstanceId)).Success, "start before config rejection");
         await File.WriteAllTextAsync(Path.Combine(manager.PathsFor(account).LogDirectory, "reject-normal-start"), "invalid config");
         await test.Client(account).CallAsync<OperationResult>("mock.game-disconnected", [Guid.NewGuid()]);
-        await UntilAsync(() => View(manager, account) is { DesiredRunning: false, WorkerProcessId: null }, "configuration rejection clears recovery intent");
-        var token = test.Spec(account).Token;
-        await Task.Delay(350);
-        Require(test.Spec(account).Token == token, "only attempted login failures retry, configuration rejection does not loop");
+        await UntilAsync(() => test.Logger.Entries.Count(e => e.EventName == "account_process.failed") >= 3,
+            "failed restart keeps retrying even before login can run");
+        Require(View(manager, account).DesiredRunning, "startup rejection never revokes ongoing recovery");
+        File.Delete(Path.Combine(manager.PathsFor(account).LogDirectory, "reject-normal-start"));
+        await test.RunningAsync(manager, account);
+        Require((await test.InfoAsync(account)).Starts == 1, "recovery resumes ordinary combat once the cause clears");
     }
 
     public static async Task DisconnectRecoveryRetriesAndIsolatesAsync()

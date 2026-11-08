@@ -54,6 +54,8 @@ internal sealed record WorkerStartupFailure(string Code, string Message)
 public sealed record WorkerStatus
 {
     public bool InitializationComplete { get; init; }
+    // Infrastructure initialization faults are retryable; they are not authorization denials.
+    public string? InitializationError { get; init; }
     public string InstanceId { get; init; } = string.Empty;
     public int ProcessId { get; init; }
     public bool Authorized { get; init; }

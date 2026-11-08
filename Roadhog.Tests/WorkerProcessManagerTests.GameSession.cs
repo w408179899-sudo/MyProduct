@@ -113,7 +113,7 @@ internal static partial class WorkerProcessManagerTests
             "cancelled relogin leaves durable intent stopped");
     }
 
-    public static async Task GameSessionStopFailureDoesNotLoginAsync()
+    public static async Task GameSessionStopFailureRetriesBeforeLoginAsync()
     {
         await using var test = new TestEnvironment();
         var account = test.Account(1);
@@ -128,10 +128,13 @@ internal static partial class WorkerProcessManagerTests
             await test.Client(account).CallAsync<OperationResult>("mock.game-session.completed", new object?[] { Guid.NewGuid(), GameSessionOperation.Relogin });
             await UntilAsync(() => test.Logger.Entries.Any(entry => entry.EventName == "game_session.stop_failed"), "failed stop is diagnosed");
             await Task.Delay(250);
-            Require(View(manager, account) is { DesiredRunning: false } && test.Spec(account).Token == oldToken &&
+            Require(View(manager, account) is { DesiredRunning: true } && test.Spec(account).Token == oldToken &&
                 !test.Logger.Entries.Any(entry => entry.EventName == "game_session.relogin_complete"),
-                "failed worker cleanup cannot start login or retain automatic recovery intent");
+                "failed worker cleanup preserves recovery but cannot start a replacement before ownership is reconciled");
         }
         finally { reconciler.BlockedPid = 0; }
+        await UntilAsync(() => View(manager, account) is { State: "running", WorkerProcessId: { } pid } && pid != oldPid,
+            "relogin resumes after cleanup succeeds without another manual start");
+        Require((await test.InfoAsync(account)).Starts == 1, "retry does not replay game exit");
     }
 }
