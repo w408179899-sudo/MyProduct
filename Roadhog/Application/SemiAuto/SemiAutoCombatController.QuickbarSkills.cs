@@ -54,6 +54,13 @@ public sealed partial class SemiAutoCombatController
             await context.PrepareSkillBindingsAsync().ConfigureAwait(false);
         var plan = state.QuickbarPlan ??= QuickbarSkillPlan.FromSettings(script.QuickbarSkills ?? new(),
             context.SkillBindings!, context.ReportMissingSkillBinding);
+        LockedTargetSnapshot? advancedTarget = null;
+        if (script.AdvancedSkills?.Enabled == true)
+        {
+            advancedTarget = await ReadLockedTargetAsync(context).ConfigureAwait(false);
+            state.AdvancedSkillPlans ??= new(script.AdvancedSkills, plan, context.SkillBindings!, context.ReportMissingSkillBinding);
+            plan = state.AdvancedSkillPlans.Resolve(advancedTarget);
+        }
         if (!plan.HasCombatActions)
         {
             if (!settings.AttackWeaveEnabled) state.QuickbarSkills.Reset();
@@ -65,7 +72,7 @@ public sealed partial class SemiAutoCombatController
             }
         }
 
-        var target = await ReadLockedTargetAsync(context).ConfigureAwait(false);
+        var target = advancedTarget ?? await ReadLockedTargetAsync(context).ConfigureAwait(false);
         var killed = state.ObserveTarget(target, out var killedId, out var targetChanged);
         if (targetChanged)
         {
@@ -156,7 +163,7 @@ public sealed partial class SemiAutoCombatController
                 state.QuickbarSkills.SuspendInputAttempts(preserveAttackWeave: settings.AttackWeaveEnabled);
                 return tick;
             }
-            if (await PressQuickbarOpeningSkillIfNeededAsync(context, state, settings, maintenancePlan, target, skills).ConfigureAwait(false))
+            if (!plan.IsAdvancedMode && await PressQuickbarOpeningSkillIfNeededAsync(context, state, settings, maintenancePlan, target, skills).ConfigureAwait(false))
             {
                 jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
                 state.QuickbarSkills.SuspendInputAttempts(preserveAttackWeave: settings.AttackWeaveEnabled);
@@ -195,7 +202,7 @@ public sealed partial class SemiAutoCombatController
             return tick;
         }
 
-        if (await TryRetryOpeningSkillAsync(context, state, settings, maintenancePlan, target, skills).ConfigureAwait(false))
+        if (!plan.IsAdvancedMode && await TryRetryOpeningSkillAsync(context, state, settings, maintenancePlan, target, skills).ConfigureAwait(false))
             return tick;
 
         if (!plan.HasCombatActions && !state.QuickbarSkills.AttackWeave.IsWaiting)
@@ -259,7 +266,7 @@ public sealed partial class SemiAutoCombatController
                 readSuppressedRootSkillIds: readSuppressedRootSkillIds,
                 onSkillPressed: onSkillPressed,
                 readSuppressedSkillIds: readSuppressedSkillIds,
-                yieldAfterCurrentAction: state.OpeningSkillRetries.IsReady(_timeProvider))
+                yieldAfterCurrentAction: !plan.IsAdvancedMode && state.OpeningSkillRetries.IsReady(_timeProvider))
                 .ConfigureAwait(false);
             if (state.QuickbarSkills.YieldToWorker || !state.QuickbarSkills.SupportsCombatState)
                 return delay;

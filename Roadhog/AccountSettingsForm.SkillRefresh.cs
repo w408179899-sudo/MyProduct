@@ -74,6 +74,16 @@ public sealed partial class AccountSettingsForm
         if (quickbarSelectedSkillTree is not null)
             Add(RefreshConfiguredQuickbarSkillTree(quickbarSelectedSkillTree, barSkills));
 
+        foreach (var category in Enum.GetValues<Core.Accounts.AdvancedMonsterCategory>())
+        {
+            var group = currentAdvancedSkillSettings.Group(category);
+            if (group.Skills.Count == 0) continue;
+            using var tree = new TreeView();
+            PopulateSelectedSkillTreeFromConfig(tree, group.Skills);
+            Add(RefreshConfiguredQuickbarSkillTree(tree, barSkills));
+            group.Skills = CaptureSkillTree(tree.Nodes);
+        }
+
         var candidates = BuildHighestSkillCandidates(barSkills.Where(skill => !ShouldHideManualSkillCandidate(skill)));
         var allCandidates = BuildHighestSkillCandidates(barSkills);
         var openingCandidates = BuildHighestSkillCandidates(barSkills

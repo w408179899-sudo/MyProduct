@@ -38,6 +38,8 @@ public sealed class ScriptSettings
 
     public QuickbarSkillScriptSettings QuickbarSkills { get; set; } = new();
 
+    public AdvancedSkillSettings AdvancedSkills { get; set; } = new();
+
     public SemiAutoScriptSettings SemiAuto { get; set; } = new();
 
     public ScriptSettings Clone()
@@ -59,6 +61,7 @@ public sealed class ScriptSettings
             Skills = (Skills ?? new SkillScriptSettings()).Clone(),
             SkillTreeReleaseMode = SkillTreeReleaseMode,
             QuickbarSkills = (QuickbarSkills ?? new QuickbarSkillScriptSettings()).Clone(),
+            AdvancedSkills = (AdvancedSkills ?? new AdvancedSkillSettings()).Clone(),
             SemiAuto = (SemiAuto ?? new SemiAutoScriptSettings()).Clone()
         };
         SkillTreeReleaseMigration.Migrate(settings);

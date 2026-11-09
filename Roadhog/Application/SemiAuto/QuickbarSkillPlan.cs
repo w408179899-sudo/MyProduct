@@ -7,19 +7,34 @@ namespace Roadhog.Application.SemiAuto;
 public sealed class QuickbarSkillPlan
 {
 
-    private QuickbarSkillPlan(int page, IReadOnlyList<QuickbarSkillNode> roots, bool triggerConditionSkillsPreemptChain)
+    private QuickbarSkillPlan(int page, IReadOnlyList<QuickbarSkillNode> roots, bool triggerConditionSkillsPreemptChain, bool advancedMode = false)
     {
         Page = page;
         Roots = roots;
         TriggerConditionSkillsPreemptChain = triggerConditionSkillsPreemptChain;
-        SkillReadIds = Flatten(roots).Select(node => node.SkillId).Distinct().ToArray();
+        IsAdvancedMode = advancedMode;
+        Nodes = Flatten(roots).ToArray();
+        SkillReadIds = Nodes.Select(node => node.SkillId).Distinct().ToArray();
     }
 
     public int Page { get; }
     public IReadOnlyList<QuickbarSkillNode> Roots { get; }
+    internal IReadOnlyList<QuickbarSkillNode> Nodes { get; }
     public bool TriggerConditionSkillsPreemptChain { get; }
+    public bool IsAdvancedMode { get; }
     public IReadOnlyList<uint> SkillReadIds { get; }
     public bool HasCombatActions => Roots.Count > 0;
+
+    internal static QuickbarSkillPlan WithAdvanced(QuickbarSkillPlan ordinary, QuickbarSkillPlan advanced, string category)
+    {
+        QuickbarSkillNode Rebase(QuickbarSkillNode node) => node with
+        {
+            NodeKey = "advanced:" + category + ":" + node.NodeKey,
+            Children = node.Children.Select(Rebase).ToArray()
+        };
+        return new(ordinary.Page, advanced.Roots.Select(Rebase).Concat(ordinary.Roots).ToArray(),
+            ordinary.TriggerConditionSkillsPreemptChain, advancedMode: true);
+    }
 
     public static QuickbarSkillPlan FromSettings(
         QuickbarSkillScriptSettings settings,

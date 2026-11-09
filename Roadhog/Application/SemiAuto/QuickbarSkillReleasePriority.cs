@@ -28,11 +28,16 @@ public static class QuickbarSkillReleasePriority
         if (availability.Page != plan.Page)
             return QuickbarSkillReleaseDecision.None;
 
+        bool RepeatBlocked(QuickbarSkillNode node) => state.IsRepeatBlocked(node, now) ||
+            (plan.IsAdvancedMode && plan.Nodes.Any(other => other.NodeKey != node.NodeKey &&
+                other.SkillId == node.SkillId && other.Bar == node.Bar && other.Slot == node.Slot &&
+                other.BaseSkillId == node.BaseSkillId && state.IsRepeatBlocked(other, now)));
+
         bool IsLit(QuickbarSkillNode node) => GetMatchingSlot(node, availability) is { CanUse: true } &&
             suppressedSkillIds?.Contains(node.SkillId) != true &&
-            coolingSkillIds?.Contains(node.SkillId) != true && !state.IsRepeatBlocked(node, now);
+            coolingSkillIds?.Contains(node.SkillId) != true && !RepeatBlocked(node);
 
-        if (plan.TriggerConditionSkillsPreemptChain)
+        if (!plan.IsAdvancedMode && plan.TriggerConditionSkillsPreemptChain)
         {
             bool IsSpecialOpen(QuickbarSkillNode node) => node.IsTriggerOrCondition &&
                 GetMatchingSlot(node, availability) is { CanUse: true } &&
@@ -68,7 +73,10 @@ public static class QuickbarSkillReleasePriority
 
         // The client may replace the displayed id before the prior key is confirmed.
         // Only configured, exactly bound continuations can take over that key.
-        foreach (var child in Descendants(plan.Roots))
+        var continuationRoots = plan.IsAdvancedMode
+            ? state.ChainTransition?.Source ?? state.ActiveChainSource ?? state.PendingAction?.Node
+            : null;
+        foreach (var child in Descendants(continuationRoots is not null ? new[] { continuationRoots } : plan.Roots))
             if (IsLit(child)) return new(QuickbarSkillDecisionKind.PressChain, child);
 
         // A successful predecessor can enter CD before the client substitutes
@@ -87,20 +95,20 @@ public static class QuickbarSkillReleasePriority
             (GetMatchingSlot(pending.Node, availability) is { CanUse: true } ||
              (!pending.Node.NodeKey.Contains('/') && IsOrdinaryRootReady(pending.Node, availability, ordinaryReadyIds))))
         {
-            if (state.IsRepeatBlocked(pending.Node, now)) return QuickbarSkillReleaseDecision.None;
+            if (RepeatBlocked(pending.Node)) return QuickbarSkillReleaseDecision.None;
             return new(pending.Node.NodeKey.Contains('/') ? QuickbarSkillDecisionKind.PressChain : QuickbarSkillDecisionKind.PressRoot, pending.Node);
         }
 
-        // Confirmed zero-CD roots yield one round to other eligible roots. A new
-        // round starts only when all currently eligible roots have had their turn.
-        foreach (var includeYielded in new[] { false, true })
+        // Legacy zero-CD roots retain their existing round yielding. The opt-in
+        // advanced mode always starts from the first usable configured root.
+        foreach (var includeYielded in plan.IsAdvancedMode ? new[] { true } : new[] { false, true })
             foreach (var root in plan.Roots)
                 if ((includeYielded || !state.HasYieldedRoot(root)) &&
                     suppressedRootSkillIds?.Contains(root.SkillId) != true &&
                     suppressedSkillIds?.Contains(root.SkillId) != true &&
                     coolingSkillIds?.Contains(root.SkillId) != true &&
                     (GetMatchingSlot(root, availability) is { CanUse: true } || IsOrdinaryRootReady(root, availability, ordinaryReadyIds)) &&
-                    !state.IsRepeatBlocked(root, now))
+                    !RepeatBlocked(root))
                     return new(QuickbarSkillDecisionKind.PressRoot, root);
         return QuickbarSkillReleaseDecision.None;
     }

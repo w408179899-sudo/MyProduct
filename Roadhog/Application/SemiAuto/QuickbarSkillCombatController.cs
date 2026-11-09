@@ -352,7 +352,8 @@ public sealed partial class QuickbarSkillCombatController
                     plan, state, availability, _timeProvider.GetUtcNow(), ordinaryReadyIds, coolingIds,
                     suppressedRootSkillIds, suppressedSkillIds);
                 ObserveClockCalibration();
-                if (isCooldownClockCalibrated is null || state.ClockBootstrap.IsCompleted || rootsObserved is null ||
+                if ((plan.IsAdvancedMode && decision.Kind != QuickbarSkillDecisionKind.None) ||
+                    isCooldownClockCalibrated is null || state.ClockBootstrap.IsCompleted || rootsObserved is null ||
                     decision.Kind is QuickbarSkillDecisionKind.PressChain or QuickbarSkillDecisionKind.WaitForChain ||
                     (plan.TriggerConditionSkillsPreemptChain && decision.Node is { IsTriggerOrCondition: true }) ||
                     state.PendingAction is { IsClockBootstrap: false, RetryStopped: false }) return decision;

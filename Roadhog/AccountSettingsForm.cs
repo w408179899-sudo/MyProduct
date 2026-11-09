@@ -1028,7 +1028,8 @@ namespace Roadhog
                     SystemExecutionTree = loadedLegacySkillSettings.SystemExecutionTree.Select(node => node.Clone()).ToList()
                 },
                 SkillTreeReleaseMode = CaptureSkillTreeReleaseMode(),
-                QuickbarSkills = CaptureQuickbarSkillSettings()
+                QuickbarSkills = CaptureQuickbarSkillSettings(),
+                AdvancedSkills = currentAdvancedSkillSettings.Clone()
             };
 
             return settings;
@@ -5861,6 +5862,12 @@ namespace Roadhog
             spiritmasterAutoSkillCheckBox.Click += (_, _) => RefreshSpiritmasterAutoSkillCheckBoxState();
             spiritmasterSettingsButton = AddButton(optionsPanel, "精灵设置", 456, 29, 112, 30, (_, _) => ShowSpiritmasterSettingsDialog());
             spiritmasterSettingsButton.Visible = false;
+
+            AddButton(optionsPanel, "高级设置", 640, 29, 164, 30, (_, _) =>
+            {
+                using var dialog = CreateAdvancedSkillSettingsDialog();
+                dialog.ShowDialog(this);
+            }).Name = "advancedSkillSettingsButton";
 
             attackWeaveCheckBox = AddCheckBox(optionsPanel, "卡刀（每2技能）", 12, 66, 148, false);
             attackWeaveCheckBox.Name = "attackWeaveCheckBox";

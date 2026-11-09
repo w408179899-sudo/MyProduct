@@ -6,6 +6,7 @@ public sealed class SemiAutoCombatState
 {
     private QuickbarSkillCombatState? quickbarSkills;
     internal QuickbarSkillPlan? QuickbarPlan { get; set; }
+    internal AdvancedSkillCombatPlans? AdvancedSkillPlans { get; set; }
     public QuickbarSkillCombatState QuickbarSkills => quickbarSkills ??= new();
     internal OpeningSkillDiagnostics OpeningDiagnostics { get; } = new();
 

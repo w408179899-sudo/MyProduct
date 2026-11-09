@@ -208,6 +208,13 @@ if (KmboxKeyPressProbe.ShouldRun(args))
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("advanced skills settings persistence manual input and duplicate membership", AdvancedSkillTests.PersistenceAndMembershipAsync),
+    ("advanced skills exact matching and original plan isolation", AdvancedSkillTests.MatchingAndIsolationAsync),
+    ("advanced skills priority preserves pending actions and complete chains", AdvancedSkillTests.PriorityAndChainsAsync),
+    ("advanced skills runtime excludes opening and loops without interruption", AdvancedSkillTests.RuntimeLoopAsync),
+    ("advanced skills runtime disabled empty cooling and stop boundaries", AdvancedSkillTests.RuntimeFallbacksAsync),
+    ("advanced skills UI manual names scanning layout save and cancellation", AdvancedSkillUiTests.EditorAsync),
+    ("advanced skills executor finishes three-link chain and retains target guard", AdvancedSkillTests.ExecutorChainAsync),
     ("game-disconnect cold read retries and held publication", GameDisconnectTests.ColdStartAndFailureAsync),
     ("game-disconnect complete absence and lifecycle isolation", GameDisconnectTests.PublicationAndLifecycleAsync),
     ("game-disconnect late capture cannot publish", GameDisconnectTests.LateCaptureIsRejectedAsync),
