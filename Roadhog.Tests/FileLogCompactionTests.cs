@@ -46,7 +46,8 @@ internal static class FileLogCompactionTests
                 { ["index"] = i, ["payload"] = new string('x', 140) });
             var owned = Directory.GetFiles(root, "roadhog-*.log").Append(Path.Combine(root, "latest.log"));
             Require(owned.Sum(path => new FileInfo(path).Length) <= 2048, "capacity includes active and archived segments");
-            Require(File.ReadAllText(Path.Combine(root, "latest.log")).Contains("\"index\":39"), "newest record survives pruning");
+            Require(Read(root).Any(e => e.GetProperty("Fields").TryGetProperty("index", out var value) && value.GetInt32() == 39),
+                "newest record survives pruning");
         }
         finally { Directory.Delete(root, true); }
         return Task.CompletedTask;
@@ -131,6 +132,6 @@ internal static class FileLogCompactionTests
     }
     private static JsonElement[] Read(string root) => Directory.GetFiles(root, "roadhog-*.log")
         .Append(Path.Combine(root, "latest.log")).Where(File.Exists).SelectMany(File.ReadLines)
-        .Select(line => { using var json = JsonDocument.Parse(line); return json.RootElement.Clone(); }).ToArray();
+        .Select(line => { using var json = JsonDocument.Parse(FileLogCodec.Decode(line)); return json.RootElement.Clone(); }).ToArray();
     private static void Require(bool value, string message) { if (!value) throw new InvalidOperationException(message); }
 }

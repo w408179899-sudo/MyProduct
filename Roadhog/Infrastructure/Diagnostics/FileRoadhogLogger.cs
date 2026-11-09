@@ -1,8 +1,5 @@
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Encodings.Web;
-using System.Text.Json;
-using System.Text.Unicode;
 using Roadhog.Core.Diagnostics;
 
 namespace Roadhog.Infrastructure.Diagnostics;
@@ -12,7 +9,6 @@ public sealed class FileRoadhogLogger : IRoadhogLogger, IFileLoggingControl
     public const long DefaultMaxLogFileBytes = 1024L * 1024L;
     public const long DefaultMaxDirectoryBytes = 64L * 1024L * 1024L;
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
-    private static readonly JsonSerializerOptions JsonOptions = new() { Encoder = JavaScriptEncoder.Create(UnicodeRanges.All) };
     private static readonly TimeSpan LogRetention = TimeSpan.FromDays(1);
     private static readonly TimeSpan CleanupInterval = TimeSpan.FromMinutes(5);
     private readonly string _logDirectory;
@@ -84,7 +80,7 @@ public sealed class FileRoadhogLogger : IRoadhogLogger, IFileLoggingControl
                     var rotated = false;
                     foreach (var entry in entries)
                     {
-                        var line = JsonSerializer.Serialize(entry, JsonOptions) + Environment.NewLine;
+                        var line = FileLogCodec.Encode(entry) + Environment.NewLine;
                         rotated |= RotateIfNeeded(now, Utf8NoBom.GetByteCount(line));
                         File.AppendAllText(_latestPath, line, Utf8NoBom);
                     }

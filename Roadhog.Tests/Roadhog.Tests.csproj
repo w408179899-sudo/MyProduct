@@ -11,6 +11,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Roadhog\Roadhog.csproj" />
     <Content Include="Fixtures\radar-script2-20261101.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Fixtures\file-log-compact-v1.jsonl" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

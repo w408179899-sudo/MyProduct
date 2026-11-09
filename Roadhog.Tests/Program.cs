@@ -33,6 +33,14 @@ using Roadhog.Infrastructure.Paths;
 using Roadhog.Infrastructure.Profiles;
 using Roadhog.Infrastructure.Vmm;
 
+if (args.Contains("--file-log-replay"))
+{
+    var index = Array.IndexOf(args, "--file-log-replay");
+    try { FileLogCodecTests.ReplayDirectory(args[index + 1], args[index + 2]); }
+    catch (Exception ex) { Console.Error.WriteLine(ex); Environment.ExitCode = 1; }
+    return;
+}
+
 if (args.Contains("--device-discovery"))
 {
     Environment.ExitCode = await DeviceDiscoveryTests.RunChildAsync(args);
@@ -1111,6 +1119,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("file logger periodic retention and total capacity", FileLogCompactionTests.RetentionAndCapacityAsync),
     ("file logger summaries preserve changed causes and exceptions", FileLogCompactionTests.EvidenceAndSummariesAsync),
     ("file logger opening attempts and oversized errors stay diagnosable", FileLogCompactionTests.OpeningAndOversizedErrorAsync),
+    ("file logger compact format preserves evidence and legacy compatibility", FileLogCodecTests.RoundTripAsync),
+    ("file logger compact format cuts representative bytes by at least half", FileLogCodecTests.CompressionAsync),
+    ("file logger decoder preserves source and reports incomplete records", FileLogCodecTests.DecodeFilesAsync),
     ("input key map preserves Roadhog supported HID codes", TestInputKeyMapAsync),
     ("runtime test move uses configured screen point", TestRuntimeTestMoveUsesScreenPointAsync),
     ("runtime normalizes inventory window then closes", TestRuntimeNormalizesInventoryWindowThenClosesAsync),
@@ -9455,7 +9466,7 @@ static Task TestFileLoggerSamplesNoisyVmmReadsAsync()
         });
 
         var latestPath = Path.Combine(directory, "latest.log");
-        var text = File.ReadAllText(latestPath);
+        var text = string.Join(Environment.NewLine, File.ReadLines(latestPath).Select(FileLogCodec.Decode));
 
         AssertEqual(1, CountOccurrences(text, "\"EventName\":\"vmm.player.read\",\"Fields\":{\"account\":\"account1\",\"hp\""), "noisy vmm player reads should be sampled");
         AssertEqual(1, CountOccurrences(text, "\"EventName\":\"semi_auto.key.pressed\",\"Fields\":{\"account\":\"account1\",\"key\":\"D1\",\"phase\":\"skill\",\"skill\":\"skill1\""), "repeated key press reads should be sampled");

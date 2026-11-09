@@ -8,6 +8,16 @@ namespace Roadhog
         [STAThread]
         static void Main(string[] args)
         {
+            if (args.Length > 0 && args[0] == "--decode-log")
+            {
+                try
+                {
+                    if (args.Length != 3) throw new ArgumentException("Usage: Roadhog.exe --decode-log input.log output.jsonl");
+                    Infrastructure.Diagnostics.FileLogCodec.DecodeFile(args[1], args[2]);
+                }
+                catch (Exception ex) { Console.Error.WriteLine(ex.Message); Environment.ExitCode = 2; }
+                return;
+            }
             if (args.Length > 0 && args[0] == "--device-discovery")
             {
                 try { Environment.ExitCode = args.Length == 2

@@ -26,7 +26,8 @@ internal static class WorkerHostRobustnessTests
             Require(!status.Authorized && status.InitializationError == "temporary backend construction failure",
                 "startup exception has a distinct retryable field without granting authorization");
             var entry = File.ReadLines(Path.Combine(test.Root, "latest.log"))
-                .Select(line => JsonDocument.Parse(line)).Single(doc => doc.RootElement.GetProperty("EventName").GetString() == "worker.initialization.failed");
+                .Select(line => JsonDocument.Parse(Roadhog.Infrastructure.Diagnostics.FileLogCodec.Decode(line)))
+                .Single(doc => doc.RootElement.GetProperty("EventName").GetString() == "worker.initialization.failed");
             using (entry)
             {
                 var fields = entry.RootElement.GetProperty("Fields");
