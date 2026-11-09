@@ -7,6 +7,7 @@ public sealed class SemiAutoCombatState
     private QuickbarSkillCombatState? quickbarSkills;
     internal QuickbarSkillPlan? QuickbarPlan { get; set; }
     public QuickbarSkillCombatState QuickbarSkills => quickbarSkills ??= new();
+    internal OpeningSkillDiagnostics OpeningDiagnostics { get; } = new();
 
     public AttackWeaveState AttackWeave { get; } = new();
 
@@ -74,13 +75,20 @@ public sealed class SemiAutoCombatState
     private DateTimeOffset openingSkillAttemptStartedAt = DateTimeOffset.MinValue;
     public int OpeningSkillIndex { get; private set; }
     public bool OpeningSkillWasPressed { get; private set; }
+    internal SkillSnapshot? OpeningSkillBaseline { get; private set; }
+    internal OpeningSkillRetryState OpeningSkillRetries { get; } = new();
 
-    public void MarkOpeningSkillPressed() => OpeningSkillWasPressed = true;
+    public void MarkOpeningSkillPressed(SkillSnapshot skill)
+    {
+        OpeningSkillWasPressed = true;
+        OpeningSkillBaseline ??= skill;
+    }
 
     public void AdvanceOpeningSkill()
     {
         OpeningSkillIndex++;
         OpeningSkillWasPressed = false;
+        OpeningSkillBaseline = null;
         openingSkillAttemptStartedAt = DateTimeOffset.MinValue;
     }
     private ushort observedTargetEntityId;
@@ -158,6 +166,7 @@ public sealed class SemiAutoCombatState
             openingAttackTargetIdentity = 0;
             spiritmasterOpeningAttackTargetIdentity = 0;
             openingSkillTargetIdentity = 0;
+            OpeningSkillRetries.Reset();
             ClearOpeningSkillAttempt();
             return false;
         }
@@ -185,6 +194,7 @@ public sealed class SemiAutoCombatState
             openingAttackTargetIdentity = 0;
             spiritmasterOpeningAttackTargetIdentity = 0;
             openingSkillTargetIdentity = 0;
+            OpeningSkillRetries.Reset();
             ClearOpeningSkillAttempt();
         }
 
@@ -258,6 +268,8 @@ public sealed class SemiAutoCombatState
 
     public void ResetOpeningSkill()
     {
+        OpeningDiagnostics.Reset();
+        OpeningSkillRetries.Reset();
         openingSkillObservedTargetIdentity = 0;
         openingSkillTargetIdentity = 0;
         ClearOpeningSkillAttempt();
@@ -1208,6 +1220,7 @@ public sealed class SemiAutoCombatState
     {
         OpeningSkillIndex = 0;
         OpeningSkillWasPressed = false;
+        OpeningSkillBaseline = null;
         openingSkillAttemptTargetIdentity = 0;
         openingSkillAttemptStartedAt = DateTimeOffset.MinValue;
     }

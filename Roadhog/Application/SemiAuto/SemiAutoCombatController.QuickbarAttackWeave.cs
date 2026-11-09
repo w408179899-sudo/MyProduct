@@ -40,6 +40,7 @@ public sealed partial class SemiAutoCombatController
         var published = await reader.ReadSkillAvailabilityAsync(state.QuickbarSkills.LastAvailabilityVersion,
             context.StopToken).ConfigureAwait(false);
         context.StopToken.ThrowIfCancellationRequested();
+        state.OpeningDiagnostics.ObserveAvailability(context, target, published);
         state.QuickbarSkills.LastAvailabilityVersion = published.Version;
         state.QuickbarSkills.ObserveScope(target, published.Value);
         if (!QuickbarWeaveCombatMatches(target, published.Value, context.SkillBindings?.Page)) state.QuickbarSkills.Reset();
@@ -79,6 +80,7 @@ public sealed partial class SemiAutoCombatController
                 readTargetBeforePress: () => ReadLockedTargetAsync(context)).ConfigureAwait(false);
         }
         if (await PressQuickbarOpeningSkillIfNeededAsync(context, state, settings, plan, target, skills).ConfigureAwait(false)) return tick;
+        if (await TryRetryOpeningSkillAsync(context, state, settings, plan, target, skills).ConfigureAwait(false)) return tick;
         state.MarkOpeningAttackKeyAttempted(target);
         if (settings.AttackKeyLoopEnabled && state.ShouldPressAttackKey(DateTimeOffset.Now, Ms(settings.AttackKeyLoopIntervalMs, 300)))
             await PressAttackKeyAsync(context, state, settings).ConfigureAwait(false);

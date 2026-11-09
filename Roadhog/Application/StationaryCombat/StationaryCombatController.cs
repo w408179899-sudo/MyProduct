@@ -5749,6 +5749,21 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             return null;
         }
 
+        // An ordinary Tab miss is not permission to attack a different, closer aggressive
+        // monster. Keep the existing explicit local-side/team defense exceptions only.
+        if (!IsTargetingLocalSide(lockedWorldTarget, state) && !state.IsTeamLeaderProtectionTarget(lockedWorldTarget))
+        {
+            LogActionThrottled(context, state, "stationary_combat.tab.wrong_lock_rejected",
+                "locked:" + TargetActionKey(lockedWorldTarget.EntityId, lockedWorldTarget.ServerObjectId),
+                new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["candidateServerObjectId"] = target.ServerObjectId,
+                    ["lockedServerObjectId"] = lockedWorldTarget.ServerObjectId
+                }, TimeSpan.FromSeconds(3));
+            return null;
+        }
+
         var refreshedCandidate = objects.FirstOrDefault(candidate =>
             StationaryCombatState.IsSameTarget(
                 candidate.EntityId,

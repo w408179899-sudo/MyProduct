@@ -31,7 +31,8 @@ public sealed partial class QuickbarSkillCombatController
         Func<bool>? isCooldownClockCalibrated = null,
         Func<Task<IReadOnlySet<uint>>>? readSuppressedRootSkillIds = null,
         Func<QuickbarSkillNode, Task>? onSkillPressed = null,
-        Func<Task<IReadOnlySet<uint>>>? readSuppressedSkillIds = null)
+        Func<Task<IReadOnlySet<uint>>>? readSuppressedSkillIds = null,
+        bool yieldAfterCurrentAction = false)
     {
         if (context.Snapshots is not ISkillAvailabilitySnapshotReader availability)
             throw new InvalidOperationException("技能栏可用模式需要技能可用状态读取接口。");
@@ -40,7 +41,7 @@ public sealed partial class QuickbarSkillCombatController
             context.Config.ScriptSettings?.SemiAuto ?? new(), context.Logger, context.StopToken,
             readTargetBeforePress ?? (async () => (await context.Snapshots.ReadLockedTargetAsync().ConfigureAwait(false)).Value),
             ordinaryReadiness, cooldownReadiness, allowCombatSnapshot, availabilityCooldownReadiness, isCooldownClockCalibrated,
-            readSuppressedRootSkillIds, onSkillPressed, readSuppressedSkillIds);
+            readSuppressedRootSkillIds, onSkillPressed, readSuppressedSkillIds, yieldAfterCurrentAction);
     }
 
     /// <summary>Narrow mockable orchestration seam; every read returns an official published value.</summary>
@@ -61,7 +62,8 @@ public sealed partial class QuickbarSkillCombatController
         Func<bool>? isCooldownClockCalibrated = null,
         Func<Task<IReadOnlySet<uint>>>? readSuppressedRootSkillIds = null,
         Func<QuickbarSkillNode, Task>? onSkillPressed = null,
-        Func<Task<IReadOnlySet<uint>>>? readSuppressedSkillIds = null)
+        Func<Task<IReadOnlySet<uint>>>? readSuppressedSkillIds = null,
+        bool yieldAfterCurrentAction = false)
     {
         var tickStarted = _timeProvider.GetTimestamp();
         var attemptTickStartedAt = _timeProvider.GetUtcNow();
@@ -387,6 +389,15 @@ public sealed partial class QuickbarSkillCombatController
                 return decision;
             }
 
+            bool YieldAfterCurrentAction(QuickbarSkillReleaseDecision next)
+            {
+                if (!yieldAfterCurrentAction || state.PendingAction is not null || state.ChainTransition is not null ||
+                    next.Kind is QuickbarSkillDecisionKind.PressChain or QuickbarSkillDecisionKind.WaitForChain)
+                    return false;
+                state.YieldToWorker = true;
+                return true;
+            }
+
             if (state.PendingAction is { } pending)
             {
                 await Read(new[] { pending.Node.SkillId }, false).ConfigureAwait(false);
@@ -403,6 +414,8 @@ public sealed partial class QuickbarSkillCombatController
             if (settings.AttackWeaveEnabled && await HandleAttackWeaveAsync(state, target, availability, availabilityReader, settings,
                     Observe, readTargetBeforePress, logger, cancellationToken).ConfigureAwait(false))
                 return RemainingDelay();
+
+            if (YieldAfterCurrentAction(decision)) return RemainingDelay();
 
             // At most three selection changes and one finite key per tick. A CD
             // transition can hand over to another skill in this same tick, while
@@ -444,6 +457,7 @@ public sealed partial class QuickbarSkillCombatController
                         Observe, readTargetBeforePress, logger, cancellationToken).ConfigureAwait(false))
                     return RemainingDelay();
                 var rechecked = Select();
+                if (YieldAfterCurrentAction(rechecked)) return RemainingDelay();
                 if (rechecked.Kind is not (QuickbarSkillDecisionKind.PressChain or QuickbarSkillDecisionKind.WaitForChain) && ordinaryReadiness is not null && !selectingRoots)
                     rechecked = await SelectWithRoots().ConfigureAwait(false);
                 if (settings.AttackWeaveEnabled && await HandleAttackWeaveAsync(state, target, availability, availabilityReader, settings,

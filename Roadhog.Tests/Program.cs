@@ -1339,8 +1339,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat verifies target after each tab press", TestStationaryCombatVerifiesAfterEachTabAsync),
     ("stationary combat preempts radar approach for locked local attacker", TestStationaryCombatPreemptsRadarApproachForLockedLocalAttackerAsync),
     ("stationary combat keeps radar approach for unrelated wrong lock", TestStationaryCombatKeepsRadarApproachForUnrelatedWrongLockAsync),
-    ("stationary combat accepts closer aggressive wrong lock after tab", TestStationaryCombatAcceptsCloserAggressiveWrongLockAfterTabAsync),
-    ("stationary combat aligned smart pre-aim allows ordinary aggressive wrong lock", TestStationaryCombatAlignedSmartPreAimAllowsOrdinaryAggressiveWrongLockAsync),
+    ("stationary combat rejects aggressive wrong tab before pet attack", () => TestStationaryCombatRequiresMatchingTabBeforePetAttackAsync(false)),
+    ("stationary combat matching tab permits pet attack", () => TestStationaryCombatRequiresMatchingTabBeforePetAttackAsync(true)),
+    ("stationary combat aligned smart pre-aim rejects ordinary aggressive wrong lock", TestStationaryCombatAlignedSmartPreAimRejectsOrdinaryAggressiveWrongLockAsync),
     ("stationary combat accepts protected-side wrong lock during smart pre-aim handoff", TestStationaryCombatAcceptsProtectedSideWrongLockDuringSmartPreAimHandoffAsync),
     ("stationary combat accepts locked local defense target before tab", TestStationaryCombatAcceptsLockedLocalDefenseTargetBeforeTabAsync),
     ("stationary combat rejects closer passive wrong lock after tab", TestStationaryCombatRejectsCloserPassiveWrongLockAfterTabAsync),
@@ -1468,6 +1469,18 @@ var tests = new (string Name, Func<Task> Run)[]
     ("opening skill presses before C once", TestOpeningSkillPressesBeforeCOnceAsync),
     ("opening skill list legacy JSON clone and binding compatibility", OpeningSkillListTests.CompatibilityAsync),
     ("opening skill list UI order modes save and empty reload", OpeningSkillListTests.UiAsync),
+    ("opening skill retry succeeds after later skills and ordinary confirmation", OpeningSkillRetryTests.SuccessAsync),
+    ("opening skill retry failure is bounded without repeated input", OpeningSkillRetryTests.FailureBoundedAsync),
+    ("opening skill retry late cooldown and timeout boundary prevent duplicates", OpeningSkillRetryTests.LateConfirmationAsync),
+    ("opening skill retry single mode keeps its selected entry", OpeningSkillRetryTests.SingleModeAsync),
+    ("opening skill retry target death disabled and stop boundaries", OpeningSkillRetryTests.LifecycleAsync),
+    ("opening skill retry expiry and account isolation", OpeningSkillRetryTests.ExpiryAndIsolationAsync),
+    ("opening skill retry validates quickbar before input", OpeningSkillRetryTests.TargetGuardAsync),
+    ("opening skill retry empty normal tree and attack weave", OpeningSkillRetryTests.OpeningOnlyAndWeaveAsync),
+    ("opening skill retry multiple failures remain bounded", OpeningSkillRetryTests.MultipleFailuresAsync),
+    ("opening skill retry input failure is terminal", OpeningSkillRetryTests.RetryInputFailureAsync),
+    ("opening skill retry preserves ordinary chain ownership", QuickbarSkillChainHandoffTests.DeferredActionPreservesChainAsync),
+    ("opening skill retry player death cancels old target input", OpeningSkillRetryTests.PlayerDeathAsync),
     ("skill dropdown highest current ranks and legacy save compatibility", SkillCandidateTests.HighestAndCompatibilityAsync),
     ("opening skill list releases all in order", () => TestOpeningSkillListAsync("all")),
     ("opening skill list chooses first ready only", () => TestOpeningSkillListAsync("single")),
@@ -22236,7 +22249,7 @@ static async Task<(RecordingKeyboardInput Keyboard, InMemoryRoadhogLogger Logger
     return (keyboard, logger, state);
 }
 
-static async Task TestStationaryCombatAcceptsCloserAggressiveWrongLockAfterTabAsync()
+static async Task TestStationaryCombatRequiresMatchingTabBeforePetAttackAsync(bool matched)
 {
     var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
     var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
@@ -22256,6 +22269,8 @@ static async Task TestStationaryCombatAcceptsCloserAggressiveWrongLockAfterTabAs
             StationaryCombatRadius = 30
         };
 
+        settings.Skills.SpiritmasterAutoSkillLogicEnabled = true;
+        settings.Skills.Spiritmaster.OpeningAttackKey = "NumPad5";
         var logger = new InMemoryRoadhogLogger();
         var gameApi = new FakeGameApi
         {
@@ -22282,6 +22297,7 @@ static async Task TestStationaryCombatAcceptsCloserAggressiveWrongLockAfterTabAs
                 [10] = 0
             })
         };
+        gameApi.Player = gameApi.Player with { CharacterClassId = AionClassId.Spiritmaster };
         var keyboard = new RecordingKeyboardInput
         {
             AfterPress = key =>
@@ -22291,6 +22307,14 @@ static async Task TestStationaryCombatAcceptsCloserAggressiveWrongLockAfterTabAs
                     return;
                 }
 
+                if (matched)
+                {
+                    gameApi.TargetEntityId = 100;
+                    gameApi.TargetCurrentHp = gameApi.TargetMaxHp = 1000;
+                    gameApi.TargetName = "candidate";
+                    gameApi.TargetPosition = new Vector3Snapshot(20, 0, 0);
+                    return;
+                }
                 gameApi.TargetEntityId = 200;
                 gameApi.TargetCurrentHp = 1000;
                 gameApi.TargetMaxHp = 1000;
@@ -22315,21 +22339,23 @@ static async Task TestStationaryCombatAcceptsCloserAggressiveWrongLockAfterTabAs
             .ConfigureAwait(false);
 
         AssertFalse(!keyboard.Keys.Contains("Tab"), "acquire tick should press Tab");
-        AssertFalse(keyboard.Keys.Contains("W"), "closer aggressive wrong lock should not nudge forward");
-        AssertFalse(!keyboard.Keys.Contains("D1"), "closer aggressive wrong lock should enter skill release");
-        AssertFalse(!state.Fighting, "closer aggressive wrong lock should enter fight state");
-        AssertEqual((ushort)200, state.CurrentTargetEntityId, "current target should switch to closer aggressive lock");
-        AssertEqual((ushort)200, state.CandidateEntityId, "candidate should switch to closer aggressive lock");
-        AssertFalse(!logger.Entries.Any(entry =>
-            entry.EventName == "stationary_combat.target.accept_nearby_aggressive_lock" &&
-            Equals(Convert.ToUInt16(entry.Fields["candidateEntityId"]), (ushort)100) &&
-            Equals(Convert.ToUInt16(entry.Fields["lockedEntityId"]), (ushort)200)),
-            "nearby aggressive lock acceptance should be logged");
-        AssertFalse(!logger.Entries.Any(entry =>
-            entry.EventName == "stationary_combat.target.acquired" &&
-            Equals(Convert.ToUInt16(entry.Fields["targetEntityId"]), (ushort)200) &&
-            string.Equals(Convert.ToString(entry.Fields["phase"]), "after_tab_aggressive", StringComparison.Ordinal)),
-            "accepted nearby aggressive target should be acquired");
+        if (matched)
+        {
+            AssertEqual(2, keyboard.Keys.Count(key => key == "NumPad5"), "verified target permits the two pet command presses");
+            AssertFalse(!state.Fighting, "matching target enters combat");
+            AssertEqual((ushort)100, state.CurrentTargetEntityId, "matching target remains selected");
+        }
+        else
+        {
+            AssertFalse(keyboard.Keys.Contains("NumPad5"), "wrong Tab target must never receive the pet attack command");
+            AssertFalse(keyboard.Keys.Contains("D1"), "wrong Tab target must never receive an ordinary skill");
+            AssertFalse(state.Fighting, "wrong Tab target must not enter combat");
+            AssertEqual((ushort)100, state.CandidateEntityId, "original candidate remains selected");
+            AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.acquired"),
+                "closer aggressive status alone must not acquire a different target");
+            AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.tab.wrong_lock_rejected"),
+                "ordinary wrong target rejection is logged");
+        }
     }
     finally
     {
@@ -22338,7 +22364,7 @@ static async Task TestStationaryCombatAcceptsCloserAggressiveWrongLockAfterTabAs
     }
 }
 
-static async Task TestStationaryCombatAlignedSmartPreAimAllowsOrdinaryAggressiveWrongLockAsync()
+static async Task TestStationaryCombatAlignedSmartPreAimRejectsOrdinaryAggressiveWrongLockAsync()
 {
     var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
     var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
@@ -22445,18 +22471,11 @@ static async Task TestStationaryCombatAlignedSmartPreAimAllowsOrdinaryAggressive
             .ConfigureAwait(false);
 
         AssertFalse(!keyboard.Keys.Contains("Tab"), "aligned pre-aim acquire tick should still press Tab for the selected target");
-        AssertFalse(!keyboard.Keys.Contains("D1"), "ordinary aggressive wrong lock C should enter skill release when aligned pre-aim no longer forces B");
-        AssertFalse(!state.Fighting, "ordinary aggressive wrong lock C should become the formal fight target");
-        AssertEqual(ordinaryWrongLock.ServerObjectId, state.CurrentTargetServerObjectId, "current target should switch to ordinary aggressive wrong lock C");
-        AssertEqual(ordinaryWrongLock.ServerObjectId, state.CandidateServerObjectId, "candidate should switch to ordinary aggressive wrong lock C");
-        AssertFalse(state.HasSmartPreAimHandoff, "aligned pre-aim should not create or preserve a B handoff");
-        AssertFalse(logger.Entries.Any(entry =>
-            entry.EventName == "stationary_combat.smart_preaim.handoff_wrong_lock_rejected"),
-            "ordinary aggressive wrong lock should no longer be rejected by a smart pre-aim handoff");
-        AssertFalse(!logger.Entries.Any(entry =>
-            entry.EventName == "stationary_combat.target.accept_nearby_aggressive_lock" &&
-            Equals(Convert.ToUInt16(entry.Fields["lockedEntityId"]), ordinaryWrongLock.EntityId)),
-            "ordinary aggressive wrong lock should use the normal closer-target acceptance path");
+        AssertFalse(keyboard.Keys.Contains("D1"), "aligned pre-aim must not authorize attacking an unrelated Tab result");
+        AssertFalse(state.Fighting, "ordinary wrong lock must not become the fight target");
+        AssertEqual(committed.ServerObjectId, state.CandidateServerObjectId, "selected target stays authoritative");
+        AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.accept_nearby_aggressive_lock"),
+            "camera pre-aim does not bypass ordinary Tab identity verification");
     }
     finally
     {

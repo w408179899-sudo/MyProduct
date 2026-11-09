@@ -2636,59 +2636,78 @@ public sealed partial class SemiAutoCombatController
         Action<SkillSnapshot>? onSkillPressed = null)
     {
         state.ObserveOpeningSkillTarget(target);
+        if (observedSnapshot is not null) state.OpeningDiagnostics.ObserveSkills(context, target, observedSnapshot);
         if (!plan.HasOpeningSkill || !state.ShouldHandleOpeningSkill(target))
             return false;
 
         while (state.ShouldHandleOpeningSkill(target))
         {
             context.StopToken.ThrowIfCancellationRequested();
-            var now = DateTimeOffset.Now;
+            var now = _timeProvider.GetUtcNow();
             // This also resets the cursor when the target identity changes.
             var confirmationStartedAt = state.GetOrStartOpeningSkillAttemptStartedAt(target, now);
             if (state.OpeningSkillIndex >= plan.OpeningSkills.Count)
             {
+                context.Logger.Info("semi_auto.opening_skill.list_finished", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName, ["targetServerObjectId"] = target.ServerObjectId,
+                    ["targetEntityId"] = target.TargetEntityId, ["entryCount"] = plan.OpeningSkills.Count,
+                    ["reason"] = "entries_exhausted", ["clockCalibrated"] = state.HasCooldownTickCalibration
+                });
                 state.MarkOpeningSkillHandled(target);
                 return false;
             }
 
             var openingSkill = plan.OpeningSkills[state.OpeningSkillIndex];
             var confirmationTimeout = ResolveOpeningSkillConfirmationTimeout();
-            if (now - confirmationStartedAt >= confirmationTimeout)
-            {
-                LogOpeningSkillConfirmTimeout(context, target, openingSkill, now - confirmationStartedAt, confirmationTimeout);
-                FinishOpeningSkillEntry(state, plan, target);
-                continue;
-            }
-
             var skills = observedSnapshot ?? await ReadOpeningSkillAsync(context, openingSkill).ConfigureAwait(false);
+            if (observedSnapshot is null) state.OpeningDiagnostics.ObserveSkills(context, target, skills);
             var skill = openingSkill.ResolveSkill(skills);
             if (skill is null)
             {
+                state.OpeningDiagnostics.Decision(context, state, plan, target, openingSkill, confirmationStartedAt, null, "missing");
                 LogOpeningSkillSkipped(context, target, openingSkill, null, "missing");
-                FinishOpeningSkillEntry(state, plan, target);
+                FinishOpeningSkillEntry(context, state, plan, target, "missing");
                 continue;
             }
 
             var readiness = SemiAutoSkillReleasePriority.GetActionCooldownReadiness(skill, state);
+            state.OpeningDiagnostics.Decision(context, state, plan, target, openingSkill, confirmationStartedAt, skill, readiness.ToString());
             if (readiness != SemiAutoSkillCooldownReadiness.Ready)
             {
                 LogOpeningSkillSkipped(context, target, openingSkill, skill,
                     SemiAutoSkillReleasePriority.FormatCooldownReason(skill, state));
-                FinishOpeningSkillEntry(state, plan, target);
+                FinishOpeningSkillEntry(context, state, plan, target, readiness == SemiAutoSkillCooldownReadiness.Unknown
+                    ? "cooldown_unknown" : "cooldown_not_ready");
+                continue;
+            }
+
+            // Observe the latest cooldown before expiring the attempt: a delayed confirmation
+            // must not become a retry merely because it arrived at the timeout boundary.
+            if (now - confirmationStartedAt >= confirmationTimeout)
+            {
+                if (state.OpeningSkillBaseline is { } baseline)
+                {
+                    var retry = state.OpeningSkillRetries.Defer(state.OpeningSkillIndex, openingSkill, baseline, _timeProvider);
+                    LogOpeningRetry(context, target, retry, "deferred", "confirmation_timeout");
+                }
+                LogOpeningSkillConfirmTimeout(context, target, openingSkill, now - confirmationStartedAt, confirmationTimeout);
+                FinishOpeningSkillEntry(context, state, plan, target, "confirmation_timeout");
                 continue;
             }
 
             if (!await PressNodeKeyAsync(context, openingSkill, settings, "opening_skill").ConfigureAwait(false))
             {
-                FinishOpeningSkillEntry(state, plan, target);
+                FinishOpeningSkillEntry(context, state, plan, target, "input_failed");
                 continue;
             }
 
-            state.MarkOpeningSkillPressed();
+            state.MarkOpeningSkillPressed(skill);
+            state.OpeningDiagnostics.Pressed(context, target, state.OpeningSkillIndex, skill);
             onSkillPressed?.Invoke(skill);
             if (skill.CooldownDuration == 0)
             {
-                FinishOpeningSkillEntry(state, plan, target);
+                FinishOpeningSkillEntry(context, state, plan, target, "zero_duration_no_confirmation");
                 return true;
             }
 
@@ -2704,8 +2723,9 @@ public sealed partial class SemiAutoCombatController
     }
 
     private static void FinishOpeningSkillEntry(
-        SemiAutoCombatState state, SemiAutoSkillPlan plan, LockedTargetSnapshot target)
+        AccountWorkerContext context, SemiAutoCombatState state, SemiAutoSkillPlan plan, LockedTargetSnapshot target, string reason)
     {
+        state.OpeningDiagnostics.Finished(context, state, plan, target, reason);
         var wasPressed = state.OpeningSkillWasPressed;
         if (wasPressed) state.ClearPressedSkillCooldownConfirmation();
         if (wasPressed && !plan.ReleaseAllOpeningSkills)

@@ -34,6 +34,7 @@ public sealed partial class SemiAutoCombatController
         var maintenancePlayer = hasMaintenance ? await ReadPlayerAsync(context).ConfigureAwait(false) : null;
         if (maintenancePlayer?.IsDead == true)
         {
+            state.OpeningSkillRetries.Reset();
             state.ClearSpiritmasterPetHpIncreaseConfirmation();
             state.ClearSpiritmasterPetBuffAttempts();
             state.QuickbarSkills.Reset();
@@ -194,6 +195,9 @@ public sealed partial class SemiAutoCombatController
             return tick;
         }
 
+        if (await TryRetryOpeningSkillAsync(context, state, settings, maintenancePlan, target, skills).ConfigureAwait(false))
+            return tick;
+
         if (!plan.HasCombatActions && !state.QuickbarSkills.AttackWeave.IsWaiting)
             return Ms(settings.TargetIdleDelayMs, 200);
 
@@ -242,7 +246,7 @@ public sealed partial class SemiAutoCombatController
         {
             context.StopToken.ThrowIfCancellationRequested();
             var delay = await quickbarSkillController.TickAsync(plan, state.QuickbarSkills, target,
-                availabilityReader,
+                state.OpeningDiagnostics.ObserveReads(availabilityReader, context, target),
                 ids => ReadQuickbarSkillsAndCalibrateAsync(context, state, ids),
                 settings, context.Logger, context.StopToken,
                 readTargetBeforePress: () => ReadLockedTargetAsync(context),
@@ -254,7 +258,8 @@ public sealed partial class SemiAutoCombatController
                 isCooldownClockCalibrated: () => state.HasCooldownTickCalibration,
                 readSuppressedRootSkillIds: readSuppressedRootSkillIds,
                 onSkillPressed: onSkillPressed,
-                readSuppressedSkillIds: readSuppressedSkillIds)
+                readSuppressedSkillIds: readSuppressedSkillIds,
+                yieldAfterCurrentAction: state.OpeningSkillRetries.IsReady(_timeProvider))
                 .ConfigureAwait(false);
             if (state.QuickbarSkills.YieldToWorker || !state.QuickbarSkills.SupportsCombatState)
                 return delay;

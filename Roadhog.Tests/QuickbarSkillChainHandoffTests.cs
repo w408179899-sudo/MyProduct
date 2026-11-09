@@ -9,6 +9,27 @@ internal static class QuickbarSkillChainHandoffTests
 {
     private static readonly DateTimeOffset Start = DateTimeOffset.Parse("2026-10-03T10:00:00+08:00");
 
+    public static async Task DeferredActionPreservesChainAsync()
+    {
+        var f = new Fixture();
+        await f.TickAt(0);
+        f.YieldAfterCurrentAction = true;
+        f.AdvanceCooldown(11);
+        f.Reader.Value = Bar(last: 11, time: 1100);
+        await f.TickAt(80);
+        Check(f.State.ChainTransition is not null && !f.State.YieldToWorker,
+            "deferred opener must not take a live chain's reserved transition");
+        f.Reader.Value = Bar(effective: 12, canUse: true, last: 11, time: 1100);
+        await f.TickAt(160);
+        Check(f.Keyboard.SkillIds.SequenceEqual(new uint[] { 11, 12 }), "open continuation runs before deferred opener");
+        f.AdvanceCooldown(12); f.Reader.Value = Bar(effective: 12, last: 12, time: 1200);
+        await f.TickAt(240);
+        await f.TickAt(1800);
+        Check(f.State.YieldToWorker && f.State.PendingAction is null && f.State.ChainTransition is null,
+            "only after action confirmation and chain expiry does the executor yield");
+        Check(!f.Keyboard.SkillIds.Contains(31), "next ordinary root waits for the deferred opener's turn");
+    }
+
     public static async Task DelayedReleaseAndIconAsync()
     {
         var fixture = new Fixture();
@@ -525,6 +546,7 @@ internal static class QuickbarSkillChainHandoffTests
         public readonly Keyboard Keyboard = new();
         public readonly List<uint[]> SkillReads = new();
         public bool ReturnEmptySkills;
+        public bool YieldAfterCurrentAction;
         private readonly QuickbarSkillCombatController _controller;
 
         public Fixture(string? childChainTime = null, int? obsoleteConfigDelay = null, string? siblingChainTime = null)
@@ -562,7 +584,7 @@ internal static class QuickbarSkillChainHandoffTests
                 ordinaryReadiness: skills => skills.Select(skill => skill.SkillId).ToHashSet(),
                 cooldownReadiness: skill => skill.CooldownEndTime == 0 ? SemiAutoSkillCooldownReadiness.Ready :
                     SemiAutoSkillCooldownReadiness.CoolingDown,
-                allowCombatSnapshot: allowCombat);
+                allowCombatSnapshot: allowCombat, yieldAfterCurrentAction: YieldAfterCurrentAction);
         }
 
         private Task<IReadOnlyList<SkillSnapshot>> ReadSkills(IReadOnlyCollection<uint> ids)
