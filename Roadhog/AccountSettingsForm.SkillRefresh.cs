@@ -53,7 +53,8 @@ public sealed partial class AccountSettingsForm
         if (previewSkillBindings is null)
             return (0, 0, false, "未能读取技能栏，请重试；配置未修改。");
         var result = RefreshAllConfiguredSkills();
-        var saved = SaveCurrentSettings(out var error);
+        var saved = SaveAdvancedSkillSelection(currentAdvancedSkillSettings, currentAdvancedSkillProfileName,
+            currentAdvancedSkillProfile, out var error);
         return (result.UpdatedCount, result.DeletedCount, saved, saved ? string.Empty : error);
     }
 

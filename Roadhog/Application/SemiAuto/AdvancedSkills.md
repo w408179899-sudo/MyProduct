@@ -40,3 +40,30 @@ Focused coverage: `AdvancedSkillTests`, `AdvancedSkillUiTests`, plus the existin
 quickbar, opening, unified skill, Spiritmaster, configured-skill-refresh and
 responsive-layout tests. Use isolated builds (`RoadhogDesktopScriptRoot`) and
 mock accounts; implementing this feature does not require restarting live workers.
+
+## Shared advanced profiles
+
+The advanced dialog can create, select, save-as and delete independent named
+profiles. The library is `config/advanced-skill-profiles.json` beside accounts.json;
+it has no path or profession binding. Existing inline advanced settings remain
+available as the local, unshared choice. Nothing is automatically migrated.
+
+`AccountConfig.AdvancedSkillProfileName` and `AdvancedSkillProfileEnabled` belong
+to the account, outside the full script profile. Only group switches, manual
+monster lists and complete ordered skill trees are shared. Normal settings saves
+do not write the advanced library. Saving its editor or manually refreshing all
+configured skills writes the selected advanced profile. Skill rank refresh still
+uses the current bar; startup only resolves each account's own key bindings.
+
+The normal worker entry loads the selected profile once, before combat setup.
+The running worker retains its snapshot until its next script start. Missing or
+invalid profiles disable the advanced module for that start and emit one warning,
+so a stale inline copy cannot suppress the normal opening flow. No reference
+retains the old inline behavior. Account shutdown/cancellation remains unchanged.
+
+Atomic replacement plus a cross-process file gate and per-profile revisions
+prevent partial reads and stale-window overwrites. Duplicate names are rejected;
+save-as creates an independent profile. The UI refuses deletion while a saved
+account references the profile. Failed account persistence compensates its own
+library revision without overwriting a newer editor. `AdvancedSkillProfileTests`
+covers these behaviors, including actual worker entry and per-account key binding.

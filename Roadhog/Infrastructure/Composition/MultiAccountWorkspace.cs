@@ -25,6 +25,7 @@ public sealed partial class MultiAccountWorkspace : IAsyncDisposable
     public JsonAccountConfigStore Accounts { get; }
     public JsonSharedPathStore Paths { get; }
     public JsonScriptProfileStore Profiles { get; }
+    public JsonAdvancedSkillProfileStore AdvancedSkillProfiles { get; }
     public JsonRadarMapStore RadarMaps { get; }
     public JsonBagCleanupNameListStore NameLists { get; }
     public WindowsHardwareDeviceResolver Hardware { get; }
@@ -45,6 +46,7 @@ public sealed partial class MultiAccountWorkspace : IAsyncDisposable
         Accounts = new(Options.AccountConfigPath);
         Paths = new(Options.PathLibraryDirectory);
         Profiles = new(Options.ProfileLibraryDirectory);
+        AdvancedSkillProfiles = new(JsonAdvancedSkillProfileStore.PathFor(Options.AccountConfigPath));
         RadarMaps = new(Options.RadarMapDirectory);
         var directory = Path.GetDirectoryName(Path.GetFullPath(Options.AccountConfigPath))!;
         NameLists = new(Options.BagCleanupNameListPath ?? Path.Combine(directory, JsonBagCleanupNameListStore.DefaultFileName),

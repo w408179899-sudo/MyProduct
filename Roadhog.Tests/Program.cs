@@ -208,6 +208,11 @@ if (KmboxKeyPressProbe.ShouldRun(args))
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("advanced profiles atomic library revisions duplicates and corrupt files", AdvancedSkillProfileTests.StoreAsync),
+    ("advanced profiles startup sharing snapshots local enable and missing fallback", AdvancedSkillProfileTests.StartupAsync),
+    ("advanced profiles shared skills bind each account own keys", AdvancedSkillProfileTests.AccountBindingsAsync),
+    ("advanced profiles UI create select save-as cancel and stale editor", AdvancedSkillProfileTests.UiAsync),
+    ("advanced profiles account save rollback and manual rank refresh", AdvancedSkillProfileTests.RollbackAndRefreshAsync),
     ("advanced skills settings persistence manual input and duplicate membership", AdvancedSkillTests.PersistenceAndMembershipAsync),
     ("advanced skills exact matching and original plan isolation", AdvancedSkillTests.MatchingAndIsolationAsync),
     ("advanced skills priority preserves pending actions and complete chains", AdvancedSkillTests.PriorityAndChainsAsync),

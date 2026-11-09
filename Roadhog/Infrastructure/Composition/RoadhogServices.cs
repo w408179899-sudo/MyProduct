@@ -95,6 +95,7 @@ public sealed class RoadhogServices : IDisposable
     public IRadarMapStore RadarMapStore { get; }
 
     public IScriptProfileStore ScriptProfileStore { get; }
+    public Core.Profiles.IAdvancedSkillProfileStore? AdvancedSkillProfiles { get; private init; }
 
     public IFolderLauncher FolderLauncher { get; }
 
@@ -199,6 +200,7 @@ public sealed class RoadhogServices : IDisposable
             new RadarRoutePlanner(),
             radarMapRevisions);
         var scriptProfileStore = new JsonScriptProfileStore(options.ProfileLibraryDirectory);
+        var advancedSkillProfiles = new JsonAdvancedSkillProfileStore(JsonAdvancedSkillProfileStore.PathFor(options.AccountConfigPath));
         var folderLauncher = new WindowsFolderLauncher();
         var licenseCoordinator = CreateLicenseCoordinator(options, logger);
         var keyboardInput = CreateKeyboardInput(options);
@@ -243,7 +245,8 @@ public sealed class RoadhogServices : IDisposable
                     new JsonGroceryShopSuccessStore(Path.Combine(configDirectory, "grocery-shop-success"))),
                 SharedConfiguration,
                 gameApi is AionVmmGameApi exitApi && keyboardInput is KmBoxNetKeyboardInput exitInput
-                    ? account => new Roadhog.Infrastructure.GameSessions.VmmGameExitSession(exitApi, exitInput, account, logger) : null),
+                    ? account => new Roadhog.Infrastructure.GameSessions.VmmGameExitSession(exitApi, exitInput, account, logger) : null,
+                advancedSkillProfiles),
             workerOptions,
             licenseCoordinator,
             sharedPathStore);
@@ -279,7 +282,7 @@ public sealed class RoadhogServices : IDisposable
             options.KmBoxNetInput.DeviceText(),
             options.KmBoxNetConfigPath,
             options.PathLibraryDirectory,
-            effectiveKmBoxConfig) { LoginGameApi = gameApi as AionVmmGameApi };
+            effectiveKmBoxConfig) { LoginGameApi = gameApi as AionVmmGameApi, AdvancedSkillProfiles = advancedSkillProfiles };
     }
 
     public static LicenseCoordinator CreateLicenseCoordinator(RoadhogServiceOptions options, IRoadhogLogger? logger = null)

@@ -1391,7 +1391,7 @@ namespace Roadhog
                     config.ScriptSettings = settings;
                     config.ScriptSettings.Maintenance.CleanupWorkflow.Mode = Core.Accounts.CleanupMode.GroceryShop;
                     return _services.AccountOrchestrator.RequestCleanup(config);
-                });
+                }, _services.AdvancedSkillProfiles);
             settingsForm.ShowDialog(this);
         }
 

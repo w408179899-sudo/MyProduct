@@ -25,14 +25,14 @@ public sealed partial class AccountSettingsForm
             ClientSize = new Size(1000, 700), MinimumSize = new Size(940, 650),
             ShowIcon = false, StartPosition = FormStartPosition.CenterParent
         };
-        var header = new Panel { Name = "advancedHeader", Dock = DockStyle.Top, Size = new Size(1000, 112), BackColor = _pageBackground };
+        var header = new Panel { Name = "advancedHeader", Dock = DockStyle.Top, Size = new Size(1000, 148), BackColor = _pageBackground };
         AddLabel(header, "高级技能设置", 20, 12, 300, 28, _textGreen, FontStyle.Bold);
         var hint = AddLabel(header, "仅手动名单生效；匹配后替代起手技能，当前技能和连续技结束后再检查高级技能。", 20, 43, 950, 25);
         hint.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         var enabled = AddCheckBox(header, "启用高级技能", 816, 15, 170, draft.Enabled);
         enabled.Name = "advancedSkillsEnabled";
         enabled.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        var order = AddLabel(header, "高级技能优先循环  →  无可用高级技能时，普通列表从头检查", 20, 78, 954, 28, _textGreen, FontStyle.Bold);
+        var order = AddLabel(header, "高级技能优先循环  →  无可用高级技能时，普通列表从头检查", 20, 114, 954, 28, _textGreen, FontStyle.Bold);
         order.BackColor = _inputBackground; order.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         var footer = new Panel { Name = "advancedFooter", Dock = DockStyle.Bottom, Size = new Size(1000, 58), BackColor = Color.White };
         var status = AddLabel(footer, "保存后，下次启动该账号脚本生效。", 20, 15, 700, 28);
@@ -118,6 +118,7 @@ public sealed partial class AccountSettingsForm
             }
             add.Click += (_, _) => { AddAdvancedSkillRow(rows, new()); ResizeRows(); };
             rows.SizeChanged += (_, _) => ResizeRows();
+            rows.ControlAdded += (_, _) => ResizeRows();
             foreach (var node in group.Skills) AddAdvancedSkillRow(rows, node);
             card.SizeChanged += (_, _) => { rows.Height = Math.Max(70, card.ClientSize.Height - 125); ResizeRows(); };
         }
@@ -129,16 +130,39 @@ public sealed partial class AccountSettingsForm
         grid.Controls.Add(reserved, 1, 1);
         AddLabel(reserved, "特殊怪物 · 预留", 16, 12, 330, 28, Color.Gray, FontStyle.Bold);
         AddLabel(reserved, "暂时预留，后续再细化配置。", 28, 92, 400, 32, Color.Gray);
-        save.Click += (_, _) =>
+        AdvancedSkillSettings CaptureDraft()
         {
             foreach (var (category, rows) in editors)
+            {
+                draft.Group(category).Enabled = ((RoundedCheckBox)rows.Parent!.Controls["advancedGroupEnabled"]!).Checked;
                 draft.Group(category).Skills = rows.Controls.Cast<Control>().Select(CaptureAdvancedSkillRow)
                     .Where(node => node.SkillId != 0 || !string.IsNullOrWhiteSpace(node.Name)).ToList();
+            }
             draft.Enabled = enabled.Checked;
+            return draft.Clone();
+        }
+        void ShowDraft(AdvancedSkillSettings next)
+        {
+            // Keep group identities used by the monster-editor callbacks; replace their contents only.
+            foreach (var (category, rows) in editors)
+            {
+                var group = draft.Group(category); var source = next.Group(category).Clone();
+                group.Enabled = source.Enabled; group.MonsterNames = source.MonsterNames; group.Skills = source.Skills;
+                ((RoundedCheckBox)rows.Parent!.Controls["advancedGroupEnabled"]!).Checked = group.Enabled;
+                rows.Parent.Controls["advancedManageMonsters"]!.Text = "管理怪物（" + group.MonsterNames.Count + "）";
+                while (rows.Controls.Count > 0) { var row = rows.Controls[0]; rows.Controls.Remove(row); row.Dispose(); }
+                foreach (var skill in group.Skills) AddAdvancedSkillRow(rows, skill);
+                rows.PerformLayout();
+            }
+        }
+        var profileEditor = CreateAdvancedProfileControls(dialog, header, status, CaptureDraft, ShowDraft);
+        save.Click += (_, _) =>
+        {
+            CaptureDraft();
             if (draft.DuplicateMonster() is { } duplicate) { status.Text = "怪物重复归类：" + duplicate + "，请先移除重复项。"; return; }
-            var previous = currentAdvancedSkillSettings;
-            currentAdvancedSkillSettings = draft.Clone();
-            if (!SaveCurrentSettings(out var error)) { currentAdvancedSkillSettings = previous; status.Text = error; return; }
+            if ((profileEditor.RequiresName || profileEditor.Baseline is not null) && profileEditor.Name.Length == 0)
+            { status.Text = "请填写方案名称；使用本账号配置请从下拉框选择。"; return; }
+            if (!SaveAdvancedSkillSelection(draft, profileEditor.Name, profileEditor.Baseline, out var error)) { status.Text = error; return; }
             dialog.DialogResult = DialogResult.OK; dialog.Close();
         };
         dialog.CancelButton = close;

@@ -244,8 +244,10 @@ namespace Roadhog
             IBagCleanupNameListStore? bagCleanupNameListStore = null,
             IRadarMapStore? radarMapStore = null,
             Func<ScriptSettings, Task<Core.Common.OperationResult>>? startStandaloneShop = null,
-            Func<ScriptSettings, Task<Core.Common.OperationResult>>? startGroceryShop = null)
+            Func<ScriptSettings, Task<Core.Common.OperationResult>>? startGroceryShop = null,
+            IAdvancedSkillProfileStore? advancedSkillProfiles = null)
         {
+            _advancedSkillProfiles = advancedSkillProfiles;
             _startStandaloneShop = startStandaloneShop;
             _startGroceryShop = startGroceryShop;
             _account = account;
@@ -335,6 +337,8 @@ namespace Roadhog
         private void LoadSavedSettings()
         {
             var account = LoadAccountConfigOrDefault();
+            currentAdvancedSkillProfileName = account.AdvancedSkillProfileName;
+            currentAdvancedSkillProfileEnabled = account.AdvancedSkillProfileEnabled;
             LoadDailySchedule(account.DailySchedule ?? new());
             LoadRegion(account);
             RefreshProfileLibrary();
@@ -709,6 +713,8 @@ namespace Roadhog
             account.AccountName = _account;
             account.Region = regionCombo?.Text.Trim() ?? account.Region;
             account.ScriptSettings = capturedSettings;
+            account.AdvancedSkillProfileName = currentAdvancedSkillProfileName;
+            account.AdvancedSkillProfileEnabled = currentAdvancedSkillSettings.Enabled;
             ApplyScriptSettingsToLegacyFields(account, account.ScriptSettings);
 
             var result = AccountSettingsPersistence.SaveAsync(_profileStore, _configStore,
@@ -1029,7 +1035,7 @@ namespace Roadhog
                 },
                 SkillTreeReleaseMode = CaptureSkillTreeReleaseMode(),
                 QuickbarSkills = CaptureQuickbarSkillSettings(),
-                AdvancedSkills = currentAdvancedSkillSettings.Clone()
+                AdvancedSkills = CaptureAdvancedSkillSettings()
             };
 
             return settings;

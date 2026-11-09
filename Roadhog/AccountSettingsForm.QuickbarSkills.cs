@@ -71,7 +71,7 @@ public sealed partial class AccountSettingsForm
 
     private void ApplyQuickbarSkillSettings(ScriptSettings settings)
     {
-        currentAdvancedSkillSettings = (settings.AdvancedSkills ?? new()).Clone();
+        ApplyAdvancedSkillSettings(settings.AdvancedSkills ?? new());
         currentQuickbarSkillSettings = (settings.QuickbarSkills ?? new()).Clone();
         SetChecked(triggerConditionSkillsPreemptChainCheckBox, currentQuickbarSkillSettings.TriggerConditionSkillsPreemptChain);
         loadedLegacySkillSettings = settings.Skills.Clone();

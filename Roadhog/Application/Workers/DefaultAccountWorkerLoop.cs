@@ -27,6 +27,7 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
     private readonly CleanupWorkflowRunner? _cleanupWorkflow;
     private readonly Func<AccountConfig, ISharedAccountConfiguration?>? _sharedConfigurationFactory;
     private readonly Func<AccountConfig, GameSessions.IGameExitSession>? _gameExitSessionFactory;
+    private readonly Core.Profiles.IAdvancedSkillProfileStore? _advancedSkillProfiles;
 
     public DefaultAccountWorkerLoop(
         IKeyboardInput keyboard,
@@ -37,7 +38,8 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
         FixedChannelController? fixedChannel = null,
         CleanupWorkflowRunner? cleanupWorkflow = null,
         Func<AccountConfig, ISharedAccountConfiguration?>? sharedConfigurationFactory = null,
-        Func<AccountConfig, GameSessions.IGameExitSession>? gameExitSessionFactory = null)
+        Func<AccountConfig, GameSessions.IGameExitSession>? gameExitSessionFactory = null,
+        Core.Profiles.IAdvancedSkillProfileStore? advancedSkillProfiles = null)
     {
         _keyboard = keyboard;
         _semiAuto = semiAuto;
@@ -48,6 +50,7 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
         _cleanupWorkflow = cleanupWorkflow;
         _sharedConfigurationFactory = sharedConfigurationFactory;
         _gameExitSessionFactory = gameExitSessionFactory;
+        _advancedSkillProfiles = advancedSkillProfiles;
     }
 
     public async Task RunAsync(AccountWorkerContext context)
@@ -94,6 +97,7 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
         // Capture the session boundary before input setup or readiness waits can cross a due time.
         // Recovery uses the same context, so it retains the original boundary and pending task.
         _cleanupWorkflow?.InitializeGrocerySchedule(context);
+        await AdvancedSkillProfileLoader.ApplyAsync(context.Config, _advancedSkillProfiles, context.Logger, context.StopToken).ConfigureAwait(false);
         context.Logger.Info("worker.loop.enter", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
