@@ -17,6 +17,7 @@ internal static class SkillTreeMaintenanceIntegrationTests
             SkillTreeReleaseMode = SkillTreeReleaseMode.QuickbarAvailability
         };
         settings.Skills.SpiritmasterAutoSkillLogicEnabled = true;
+        settings.Skills.Spiritmaster = new() { SummonSkills = new(), OpeningAttackKey = "" };
         settings.SemiAuto.AttackKeyLoopEnabled = false;
         settings.Maintenance.SitMaintenanceEnabled = false;
         settings.Maintenance.StatusMaintenanceRules.Add(new()

@@ -223,6 +223,7 @@ internal static class UnifiedSkillRuntimeTests
     public static Task ArchivedAttackTreeDoesNotExpandSharedReadAsync()
     {
         var settings = new SkillScriptSettings { SpiritmasterAutoSkillLogicEnabled = true };
+        settings.Spiritmaster = new() { SummonSkills = new(), OpeningAttackKey = "" };
         settings.ExecutionTree = new() { Node(CommandId), new SkillConfigNode { Name = "archived unknown skill" } };
         settings.OpeningSkill.Enabled = true;
         settings.OpeningSkill.ReleaseAll = true;
@@ -468,6 +469,7 @@ internal static class UnifiedSkillRuntimeTests
             var settings = new ScriptSettings { SkillTreeReleaseMode = SkillTreeReleaseMode.QuickbarAvailability };
             settings.Skills.Mode = SkillConfigurationMode.Auto;
             settings.Skills.SpiritmasterAutoSkillLogicEnabled = true;
+            settings.Skills.Spiritmaster = new() { SummonSkills = new(), OpeningAttackKey = "" };
             settings.Skills.OpeningSkill.Enabled = false;
             settings.SemiAuto.AttackKeyLoopEnabled = false;
             settings.SemiAuto.AttackWeaveEnabled = false;

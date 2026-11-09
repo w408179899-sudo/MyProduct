@@ -36,6 +36,7 @@ internal sealed class SharedSkillAuditFixture : IDisposable
     {
         var settings = new ScriptSettings { SkillTreeReleaseMode = SkillTreeReleaseMode.QuickbarAvailability };
         settings.Skills.SpiritmasterAutoSkillLogicEnabled = true;
+        settings.Skills.Spiritmaster = new() { SummonSkills = new(), OpeningAttackKey = "" };
         settings.Skills.OpeningSkill.Enabled = false;
         settings.SemiAuto.AttackKeyLoopEnabled = false;
         settings.SemiAuto.AttackWeaveEnabled = false;

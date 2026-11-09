@@ -70,6 +70,7 @@ internal static class SkillBindingTests
         s.Maintenance.MpMaintenanceRules.Add(new() { ActionType = MaintenanceRuleActionType.Potion, Key = "F8" });
         s.Maintenance.StatusMaintenanceRules.Add(new() { SkillId = 102, SkillName = "heal", Key = "D3", AbnormalStatusId = 999 });
         s.Maintenance.DpMaintenanceRules.Add(new() { SkillId = 102, SkillName = "heal", Key = "D4" });
+        s.Skills.Spiritmaster.SummonSkills.Clear();
         s.Skills.Spiritmaster.SummonSkills.Add(new() { SkillId = 103, SkillName = "summon", Key = "D5" });
         s.Skills.Spiritmaster.SummonSkills.Add(new() { Key = "F7" });
         s.Skills.Spiritmaster.OpeningAttackSkillId = 101;
@@ -227,6 +228,7 @@ internal static class SkillBindingTests
 
         settings = new ScriptSettings();
         settings.Skills.SpiritmasterAutoSkillLogicEnabled = true;
+        settings.Skills.Spiritmaster.SummonSkills.Clear();
         settings.Skills.Spiritmaster.SummonSkills.Add(new() { SkillId = 105, SkillName = "unbound", Key = "D1" });
         settings.Skills.Spiritmaster.SummonSkills.Add(new() { SkillId = 103, SkillName = "summon", Key = "D2" });
         api.Player = api.Player with { CharacterClassId = AionClassId.Spiritmaster };

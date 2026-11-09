@@ -268,6 +268,7 @@ internal static class AttackWeaveTests
         {
             using var f = new Fixture(Node(1), Node(2), Node(3));
             f.Settings.Skills.SpiritmasterAutoSkillLogicEnabled = true;
+            f.Settings.Skills.Spiritmaster = new() { SummonSkills = new(), OpeningAttackKey = "" };
             f.RebuildPlan();
             await f.Tick();
             f.Confirm(1);
@@ -612,6 +613,7 @@ internal static class AttackWeaveTests
     {
         using var f = new Fixture(Node(1), Node(2), Node(3));
         f.Settings.Skills.SpiritmasterAutoSkillLogicEnabled = true;
+        f.Settings.Skills.Spiritmaster = new() { SummonSkills = new(), OpeningAttackKey = "" };
         f.RebuildPlan();
         await f.Tick();
         f.State.MarkPressedSkillCooldownRetried(DateTimeOffset.Now.AddSeconds(-1));

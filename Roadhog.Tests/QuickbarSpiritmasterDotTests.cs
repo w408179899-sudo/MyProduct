@@ -424,6 +424,7 @@ internal static class QuickbarSpiritmasterDotTests
             var settings = new ScriptSettings { SkillTreeReleaseMode = SkillTreeReleaseMode.QuickbarAvailability };
             settings.Skills.Mode = SkillConfigurationMode.Auto;
             settings.Skills.SpiritmasterAutoSkillLogicEnabled = true;
+            settings.Skills.Spiritmaster = new() { SummonSkills = new(), OpeningAttackKey = "" };
             settings.Skills.Spiritmaster.DotSkills.Add(new() { SkillId = dotId, SkillName = Name(dotId) });
             settings.Skills.OpeningSkill.Enabled = false;
             settings.SemiAuto.AttackKeyLoopEnabled = false;

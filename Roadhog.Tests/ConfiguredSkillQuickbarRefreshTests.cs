@@ -92,6 +92,7 @@ internal static class ConfiguredSkillQuickbarRefreshTests
         team.PhysicalCleanseKey = "NumPad2";
         team.GroupCleanseKey = "NumPad3";
         var spirit = settings.Skills.Spiritmaster;
+        spirit.SummonSkills.Clear();
         spirit.DotSkills.Add(new() { SkillId = HighId, SkillName = "Configured Strike IV" });
         spirit.SummonSkills.Add(new() { SkillId = HighId, SkillName = "Configured Strike IV", Key = "NumPad4" });
         spirit.SummonSkills.Add(new() { Key = "NumPad5" });

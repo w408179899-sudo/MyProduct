@@ -81,6 +81,7 @@ internal static partial class TownReturnTests
     {
         var skills = h.Context.Config.ScriptSettings!.Skills;
         skills.SpiritmasterAutoSkillLogicEnabled = true;
+        skills.Spiritmaster.SummonSkills.Clear();
         skills.Spiritmaster.SummonSkills.Add(new() { Key = "F7" });
         h.Api.Player = h.Api.Player with { CharacterClassId = AionClassId.Spiritmaster };
         h.Api.SummonedPetRoster = SummonedPetRosterSnapshot.Empty(0, DateTimeOffset.UtcNow);

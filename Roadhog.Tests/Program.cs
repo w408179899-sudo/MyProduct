@@ -593,6 +593,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("skill binding UI automatic skill buttons and manual keyboard coexist", SkillBindingTests.UiAsync),
     ("spirit settings layout resize add remove and save roundtrip", SkillBindingTests.SpiritLayoutAsync),
     ("spirit settings pet hp selection defaults preserve saved and refreshed values", SkillBindingTests.SpiritPetHpDefaultsAsync),
+    ("spirit settings command defaults preserve explicit custom and empty actions", SpiritmasterCommandDefaultsTests.DefaultsAndOverridesAsync),
+    ("spirit settings command defaults handprint follows the actual quickbar", SpiritmasterCommandDefaultsTests.AutomaticBindingAsync),
+    ("spirit settings command defaults UI automatic handprint and two manual buttons", SpiritmasterCommandDefaultsTests.UiAsync),
     ("skill binding combat maintenance and summon controllers send resolved keys", SkillBindingTests.ControllerAsync),
     ("skill tree release mode legacy JSON normalizes to the single engine", SkillTreeReleaseModeTests.CompatibilityAsync),
     ("skill tree release mode account and profile persistence", SkillTreeReleaseModeTests.PersistenceAsync),
@@ -28881,6 +28884,7 @@ static Task TestConfiguredSkillRefreshUpdatesAllReferencesAsync()
         try
         {
             var settings = CreateScriptSettings();
+            settings.Skills.Spiritmaster.SummonSkills.Clear();
             settings.Skills.ExecutionTree = new()
             {
                 new() { SkillId = 1001, Name = "Test Strike V", BaseName = "Test Strike" },
@@ -32852,7 +32856,7 @@ static ScriptSettings CreateSpiritmasterScriptSettings()
         {
             Node(1600, "Normal Skill", "active")
         },
-        Spiritmaster = new SpiritmasterSkillSettings()
+        Spiritmaster = new SpiritmasterSkillSettings { SummonSkills = new(), OpeningAttackKey = "" }
     };
     return settings;
 }

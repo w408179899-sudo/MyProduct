@@ -1106,11 +1106,15 @@ public sealed class SpiritmasterSkillSettings
 {
     public List<SpiritmasterSkillRefConfig> DotSkills { get; set; } = new();
 
-    public List<SpiritmasterSkillKeyRuleConfig> SummonSkills { get; set; } = new();
+    public List<SpiritmasterSkillKeyRuleConfig> SummonSkills { get; set; } = new()
+    {
+        new() { SkillId = 1778, SkillName = "服从的手印 I" },
+        new() { Key = "Alt+OemMinus" }
+    };
 
     public int SummonKeyIntervalMs { get; set; } = 2000;
 
-    public string OpeningAttackKey { get; set; } = string.Empty;
+    public string OpeningAttackKey { get; set; } = "Alt+D2";
 
     public int OpeningAttackDelayMs { get; set; }
 
