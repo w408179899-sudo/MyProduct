@@ -177,7 +177,12 @@ public sealed partial class AccountSettingsForm
                 // Use the full viewport to avoid keeping scrollbars created by an intermediate resize.
                 var viewportWidth = page.ClientSize.Width + (page.VerticalScroll.Visible ? SystemInformation.VerticalScrollBarWidth : 0);
                 var viewportHeight = page.ClientSize.Height + (page.HorizontalScroll.Visible ? SystemInformation.HorizontalScrollBarHeight : 0);
-                var minimumHeight = 116 + 38 + 292 + 16 + opening.Height + 14 + 16;
+                var buttons = skills.Controls.OfType<Button>().ToArray();
+                var order = new[] { "置顶", "上移", "下移", "置底", "移除", "清空" };
+                var actions = order.Select(text => buttons.SingleOrDefault(button => button.Text == text)).OfType<Button>().ToArray();
+                const int actionGap = 6;
+                var minimumTreeHeight = actions.Sum(button => button.Height) + Math.Max(0, actions.Length - 1) * actionGap;
+                var minimumHeight = 116 + 38 + minimumTreeHeight + 16 + opening.Height + 14 + 16;
                 page.AutoScroll = viewportWidth < 852 || viewportHeight < minimumHeight;
                 if (!page.AutoScroll) skills.Top = 116;
                 var width = Math.Max(828, viewportWidth - 24);
@@ -185,13 +190,13 @@ public sealed partial class AccountSettingsForm
                 optionsLayout(width);
                 var treeWidth = (width - 196) / 2;
                 var rightX = treeWidth + 100;
-                var height = Math.Max(292, viewportHeight - 116 - 38 - 16 - opening.Height - 14 - 16);
+                var fullHeight = Math.Max(292, viewportHeight - 116 - 38 - 16 - opening.Height - 14 - 16);
+                var height = Math.Max(minimumTreeHeight, fullHeight / 2);
                 quickbarAvailableSkillTree.SetBounds(0, 38, treeWidth, height);
                 quickbarSelectedSkillTree.SetBounds(rightX, 38, treeWidth, height);
                 quickbarSkillStatusLabel?.SetBounds(0, 38 + height + 1, width, 15);
                 foreach (var label in skills.Controls.OfType<Label>())
                     if (label.Text == "技能执行顺序") label.Left = rightX;
-                var buttons = skills.Controls.OfType<Button>().ToArray();
                 foreach (var button in buttons)
                 {
                     switch (button.Text)
@@ -201,10 +206,12 @@ public sealed partial class AccountSettingsForm
                         case "添加 >": button.Location = new(treeWidth + 12, 38 + (height - button.Height) / 2); break;
                     }
                 }
-                var order = new[] { "置顶", "上移", "下移", "置底", "移除", "清空" };
-                for (var i = 0; i < order.Length; i++)
-                    if (buttons.SingleOrDefault(b => b.Text == order[i]) is { } button)
-                        button.Location = new(width - button.Width, 38 + (height - 230) / 2 + i * 40);
+                var actionTop = 38 + (height - minimumTreeHeight) / 2;
+                foreach (var button in actions)
+                {
+                    button.Location = new(width - button.Width, actionTop);
+                    actionTop += button.Height + actionGap;
+                }
                 opening.SetBounds(0, 38 + height + 16, width, opening.Height);
                 opening.Controls["openingSkillAddButton"]!.Left = width - 112;
                 openingSkillRows.Width = width - 24;

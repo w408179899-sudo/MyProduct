@@ -171,28 +171,43 @@ internal static class SettingsLayoutTests
                 var left = (TreeView)Field("quickbarAvailableSkillTree");
                 var right = (TreeView)Field("quickbarSelectedSkillTree");
                 var opening = form.Controls.Find("openingSkillPanel", true).Single();
-                Check(left.Size == right.Size && left.Width > 316 && left.Height > 292, "both skill trees use added width and height equally");
+                Check(left.Size == right.Size && left.Width > 316 && left.Height is >= 210 and < 292,
+                    "both skill trees retain their width and use the compact half-height area");
                 Check(opening.Top > right.Bottom && opening.Right == right.Parent!.ClientSize.Width, "opening section spans panel under both trees");
                 var oldSize = left.Size;
                 form.ClientSize = new(1200, 900); Application.DoEvents();
                 Check(left.Width > oldSize.Width && left.Height > oldSize.Height, "trees grow with window");
+                Check(left.Height == oldSize.Height + 50, "100px of added window height gives the skill trees half that height");
                 form.ClientSize = new(1000, 800); Application.DoEvents();
                 Check(left.Size == oldSize, $"resize roundtrip cannot accumulate geometry drift: {oldSize} -> {left.Size}");
                 var skillPage = (Panel)right.Parent!.Parent!;
                 Check(!skillPage.HorizontalScroll.Visible && !skillPage.VerticalScroll.Visible, "default size does not retain unnecessary scrollbars");
-                foreach (var button in right.Parent!.Controls.OfType<Button>().Where(b => new[] { "置顶", "上移", "下移", "置底", "移除", "清空" }.Contains(b.Text)))
-                    Check(button.Left > right.Right && button.Top >= right.Top && button.Bottom <= right.Bottom, "right actions stay within tree height");
+                void CheckTreeActions()
+                {
+                    var buttons = right.Parent!.Controls.OfType<Button>().Where(b => new[] { "置顶", "上移", "下移", "置底", "移除", "清空" }.Contains(b.Text)).OrderBy(b => b.Top).ToArray();
+                    foreach (var button in buttons)
+                        Check(button.Left > right.Right && button.Top >= right.Top && button.Bottom <= right.Bottom && button.Height == 30,
+                            "right actions keep their control size and fit inside the reduced tree height");
+                    Check(buttons.Zip(buttons.Skip(1)).All(pair => pair.First.Bottom < pair.Second.Top), "compact action buttons never overlap");
+                }
+                CheckTreeActions();
                 var rows = (FlowLayoutPanel)Field("openingSkillRows");
                 var add = (Button)form.Controls.Find("openingSkillAddButton", true).Single();
-                for (var i = 0; i < 4; i++) add.PerformClick();
+                for (var i = 0; i < 4; i++)
+                {
+                    add.PerformClick();
+                    if (i == 0) { Application.DoEvents(); Capture("技能-两个起手技能"); }
+                }
                 Application.DoEvents();
                 Check(rows.Controls.Count == 5 && opening.Top > right.Bottom, "adding openers keeps sections separated");
+                CheckTreeActions();
                 while (rows.Controls.Count > 1) ((Button)rows.Controls[^1].Controls["openingSkillRemove"]!).PerformClick();
                 Application.DoEvents();
                 Check(left.Size == oldSize, "removing added rows restores list space");
                 form.Size = form.MinimumSize; Application.DoEvents();
                 var page = (Panel)right.Parent.Parent!;
                 Check(page.HorizontalScroll.Visible && page.VerticalScroll.Visible, "small windows retain scroll access");
+                CheckTreeActions();
                 form.ClientSize = new(1000, 800); Application.DoEvents();
                 var saveArgs = new object?[] { null };
                 Check((bool)typeof(AccountSettingsForm).GetMethod("SaveCurrentSettings", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(form, saveArgs)!, "settings remain saveable");
