@@ -1543,11 +1543,21 @@ var tests = new (string Name, Func<Task> Run)[]
     ("spiritmaster trusts published pet without owner revalidation", TestSpiritmasterTrustsPublishedPetWithoutOwnerRevalidationAsync),
     ("spiritmaster trusts returned pet after immediate summon", TestSpiritmasterTrustsReturnedPetAfterImmediateSummonAsync),
     ("spiritmaster tick prioritizes lowest pet hp rule", TestSpiritmasterTickPrioritizesLowestPetHpRuleAsync),
-    ("spiritmaster pet hp local cooldown yields to normal skills", TestSpiritmasterPetHpLocalCooldownYieldsToNormalSkillsAsync),
+    ("spiritmaster pet hp local cooldown yields after confirmation", TestSpiritmasterPetHpLocalCooldownYieldsAfterConfirmationAsync),
     ("spiritmaster elemental replenishment enforces player hp floor", TestSpiritmasterElementalReplenishmentEnforcesPlayerHpFloorAsync),
     ("spiritmaster elemental replenishment hides transient pet read failure", TestSpiritmasterElementalReplenishmentHidesTransientPetReadFailureAsync),
     ("spiritmaster elemental replenishment confirms pet hp increase", TestSpiritmasterElementalReplenishmentConfirmsPetHpIncreaseAsync),
     ("spiritmaster elemental replenishment retries unchanged pet hp", TestSpiritmasterElementalReplenishmentRetriesUnchangedPetHpAsync),
+    ("spiritmaster elemental confirmation reserves attack and maintenance", SpiritmasterElementalConfirmationTests.WaitingReservesAttackAndMaintenanceAsync),
+    ("spiritmaster elemental confirmation stale snapshot and cooldown hold", SpiritmasterElementalConfirmationTests.StaleSnapshotAndCooldownKeepReservationAsync),
+    ("spiritmaster elemental confirmation blocks new target opening", SpiritmasterElementalConfirmationTests.TargetChangeCannotRunOpeningDuringConfirmationAsync),
+    ("spiritmaster elemental confirmation low hp releases before retry", SpiritmasterElementalConfirmationTests.LowPlayerHpReleasesBeforeRetryAndWithStalePetAsync),
+    ("spiritmaster elemental confirmation retry rechecks exact hp floor", SpiritmasterElementalConfirmationTests.RetryRechecksHpAfterPetReadAndAllowsExactFloorAsync),
+    ("spiritmaster elemental confirmation hp increase releases attack", SpiritmasterElementalConfirmationTests.HpIncreaseReleasesAttackAndKeepsLocalCooldownAsync),
+    ("spiritmaster elemental confirmation expiry yields after cooldown", SpiritmasterElementalConfirmationTests.ExpiryYieldsEvenAfterLocalCooldownAsync),
+    ("spiritmaster elemental confirmation lifecycle boundaries", SpiritmasterElementalConfirmationTests.LifecycleChangesReleaseOrStopConfirmationAsync),
+    ("spiritmaster elemental confirmation stop and retry failure", SpiritmasterElementalConfirmationTests.StopAndFailedRetryDoNotReleaseInputsAsync),
+    ("spiritmaster elemental confirmation account isolation", SpiritmasterElementalConfirmationTests.AccountReservationsRemainIndependentAsync),
     ("spiritmaster tick gates pet buff by dp", TestSpiritmasterTickGatesPetBuffByDpAsync),
     ("spiritmaster pet buff rejects unrelated learned abnormal id", TestSpiritmasterPetBuffRejectsUnrelatedLearnedAbnormalIdAsync),
     ("spiritmaster pet buff suppresses repeated unknown cooldown", TestSpiritmasterPetBuffSuppressesRepeatedUnknownCooldownAsync),
@@ -29501,7 +29511,7 @@ static async Task TestSpiritmasterTickPrioritizesLowestPetHpRuleAsync()
     AssertEqual(0, gameApi.SummonedPetReadCount, "non-1678 pet rule should keep using the ordinary combat roster snapshot");
 }
 
-static async Task TestSpiritmasterPetHpLocalCooldownYieldsToNormalSkillsAsync()
+static async Task TestSpiritmasterPetHpLocalCooldownYieldsAfterConfirmationAsync()
 {
     var settings = CreateSpiritmasterScriptSettings();
     settings.Skills.Spiritmaster.PetHpMaintenanceRules = new List<SpiritmasterPetHpRuleConfig>
@@ -29538,7 +29548,14 @@ static async Task TestSpiritmasterPetHpLocalCooldownYieldsToNormalSkillsAsync()
 
     keyboard.Keys.Clear();
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(new[] { "D1" }, keyboard.Keys.ToArray(), "local pet heal cooldown should let normal skill run");
+    AssertEqual(0, keyboard.Keys.Count, "pending elemental confirmation must reserve the next tick");
+
+    var healedPetRoster = CreateLocalPetRoster(isSummoned: true, currentHp: 30);
+    gameApi.SummonedPet = healedPetRoster.LocalPlayerPet.Pet;
+    gameApi.SummonedPetRoster = healedPetRoster;
+    state.DeferSpiritmasterPetHpIncreaseConfirmation(DateTimeOffset.Now.AddSeconds(-1), TimeSpan.Zero);
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+    AssertSequence(new[] { "D1" }, keyboard.Keys.ToArray(), "confirmed pet heal retains local cooldown and lets normal skill run");
 }
 
 static async Task TestSpiritmasterElementalReplenishmentEnforcesPlayerHpFloorAsync()

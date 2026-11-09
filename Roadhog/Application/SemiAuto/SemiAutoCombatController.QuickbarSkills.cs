@@ -34,6 +34,7 @@ public sealed partial class SemiAutoCombatController
         var maintenancePlayer = hasMaintenance ? await ReadPlayerAsync(context).ConfigureAwait(false) : null;
         if (maintenancePlayer?.IsDead == true)
         {
+            state.ClearSpiritmasterPetHpIncreaseConfirmation();
             state.ClearSpiritmasterPetBuffAttempts();
             state.QuickbarSkills.Reset();
             return tick;
@@ -117,6 +118,18 @@ public sealed partial class SemiAutoCombatController
         // cooldown clock. Conditional skills still require the official bar signal.
         UpdateCooldownCalibration(context, state, skills, CurrentOsTick(), DateTimeOffset.Now);
         InvalidateQuickbarCooldownCalibrationIfNeeded(context, state, plan, skills);
+        // Keep the pending HP-cost action ahead of opening/attack/maintenance input,
+        // including after a target change. Completion must get one tick to yield
+        // before the pet HP rules can start another confirmation.
+        var hadElementalConfirmation = maintenancePlan.UsesSpiritmasterAutoLogic &&
+            state.PendingSpiritmasterPetHpIncreaseConfirmation is not null;
+        if (hadElementalConfirmation &&
+            await TryContinueSpiritmasterElementalReplenishmentConfirmationAsync(context, state, settings, skills)
+                .ConfigureAwait(false))
+        {
+            state.QuickbarSkills.SuspendInputAttempts();
+            return tick;
+        }
         // A pet buff has a cast time. Reserve its finite confirmation window
         // before opening/attack input, even when the monster target changed.
         if (maintenancePlan.UsesSpiritmasterAutoLogic && state.HasSpiritmasterPetBuffConfirmation &&
@@ -160,7 +173,8 @@ public sealed partial class SemiAutoCombatController
                 spiritContext = await ReadSpiritmasterCombatContextAsync(context, target).ConfigureAwait(false);
                 if (spiritContext.CanUseSpiritmasterLogic &&
                     await TryHandleSpiritmasterSpecialAsync(context, state, settings, sharedSkillSettings.Spiritmaster,
-                        skills, spiritContext, suppressSpiritmasterPetSummon).ConfigureAwait(false))
+                        skills, spiritContext, suppressSpiritmasterPetSummon,
+                        allowPetHpMaintenance: !hadElementalConfirmation).ConfigureAwait(false))
                 {
                     jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
                     state.QuickbarSkills.SuspendInputAttempts();

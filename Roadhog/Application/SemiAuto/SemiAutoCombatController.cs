@@ -1923,7 +1923,8 @@ public sealed partial class SemiAutoCombatController
         SpiritmasterSkillSettings spiritSettings,
         IReadOnlyList<SkillSnapshot> skills,
         SpiritmasterCombatContext spiritContext,
-        bool suppressPetSummon)
+        bool suppressPetSummon,
+        bool allowPetHpMaintenance)
     {
         if (!spiritContext.CanUseSpiritmasterLogic || spiritContext.Player?.IsDead == true)
         {
@@ -1951,18 +1952,7 @@ public sealed partial class SemiAutoCombatController
 
         var confirmedLocalPet = spiritContext.LocalPet!;
         var pet = confirmedLocalPet.Pet;
-        if (await TryContinueSpiritmasterElementalReplenishmentConfirmationAsync(
-                context,
-                state,
-                settings,
-                skills,
-                pet)
-            .ConfigureAwait(false))
-        {
-            return true;
-        }
-
-        if (await TryPressSpiritmasterPetHpRuleAsync(
+        if (allowPetHpMaintenance && await TryPressSpiritmasterPetHpRuleAsync(
                 context,
                 state,
                 settings,
@@ -3173,9 +3163,9 @@ public sealed partial class SemiAutoCombatController
         AccountWorkerContext context,
         SemiAutoCombatState state,
         SemiAutoScriptSettings settings,
-        IReadOnlyList<SkillSnapshot> skills,
-        SummonedPetSnapshot currentPet)
+        IReadOnlyList<SkillSnapshot> skills)
     {
+        context.StopToken.ThrowIfCancellationRequested();
         var pending = state.PendingSpiritmasterPetHpIncreaseConfirmation;
         if (pending is null)
         {
@@ -3188,20 +3178,14 @@ public sealed partial class SemiAutoCombatController
             return false;
         }
 
-        if (currentPet.ServerObjectId != pending.PetServerObjectId)
+        var retryInterval = ResolveSpiritmasterElementalReplenishmentRetryInterval(settings);
+        var safety = await ReadSpiritmasterElementalReplenishmentSafetyAsync(context)
+            .ConfigureAwait(false);
+        context.StopToken.ThrowIfCancellationRequested();
+        if (safety.Player.IsDead)
         {
             state.ClearSpiritmasterPetHpIncreaseConfirmation();
-            context.Logger.Info(
-                "semi_auto.spiritmaster.elemental_replenishment.confirmation_cancelled",
-                new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["reason"] = "pet_identity_changed",
-                    ["expectedPetServerObjectId"] = pending.PetServerObjectId,
-                    ["currentPetServerObjectId"] = currentPet.ServerObjectId,
-                    ["attemptCount"] = pending.AttemptCount
-                });
-            return false;
+            return true;
         }
 
         var now = DateTimeOffset.Now;
@@ -3220,15 +3204,13 @@ public sealed partial class SemiAutoCombatController
             return false;
         }
 
-        if (now < pending.NextCheckAt)
+        if (safety.Player.CharacterClassId is { } classId && classId != AionClassId.Spiritmaster)
         {
+            state.ClearSpiritmasterPetHpIncreaseConfirmation();
             return false;
         }
 
-        var retryInterval = ResolveSpiritmasterElementalReplenishmentRetryInterval(settings);
-        var safety = await ReadSpiritmasterElementalReplenishmentSafetyAsync(context)
-            .ConfigureAwait(false);
-        if (safety.Pet.ServerObjectId != pending.PetServerObjectId)
+        if (!safety.Pet.IsAlive || safety.Pet.ServerObjectId != pending.PetServerObjectId)
         {
             state.ClearSpiritmasterPetHpIncreaseConfirmation();
             context.Logger.Info(
@@ -3236,7 +3218,7 @@ public sealed partial class SemiAutoCombatController
                 new Dictionary<string, object?>
                 {
                     ["account"] = context.Config.AccountName,
-                    ["reason"] = "pet_identity_changed",
+                    ["reason"] = !safety.Pet.IsAlive ? "pet_unavailable" : "pet_identity_changed",
                     ["expectedPetServerObjectId"] = pending.PetServerObjectId,
                     ["currentPetServerObjectId"] = safety.Pet.ServerObjectId,
                     ["attemptCount"] = pending.AttemptCount
@@ -3244,13 +3226,17 @@ public sealed partial class SemiAutoCombatController
             return false;
         }
 
-        if (safety.Pet.CapturedAt <= pending.BaselineCapturedAt)
+        // Recheck the cost boundary on every reserved tick, even before the retry
+        // deadline or when the provider still publishes the same pet snapshot.
+        if (safety.Player.HpPercent < SpiritmasterElementalReplenishmentMinPlayerHpPercent)
         {
-            state.DeferSpiritmasterPetHpIncreaseConfirmation(DateTimeOffset.Now, retryInterval);
+            state.ClearSpiritmasterPetHpIncreaseConfirmation();
+            LogSpiritmasterElementalReplenishmentPlayerHpBlocked(context, state, safety.Player, "retry", pending.SkillId);
             return false;
         }
 
-        if (safety.Pet.CurrentHp > pending.BaselineCurrentHp)
+        if (safety.Pet.CapturedAt > pending.BaselineCapturedAt &&
+            safety.Pet.CurrentHp > pending.BaselineCurrentHp)
         {
             state.ClearSpiritmasterPetHpIncreaseConfirmation();
             context.Logger.Info(
@@ -3265,13 +3251,6 @@ public sealed partial class SemiAutoCombatController
                     ["petMaxHp"] = safety.Pet.MaxHp,
                     ["attemptCount"] = pending.AttemptCount
                 });
-            return false;
-        }
-
-        if (safety.Player.HpPercent < SpiritmasterElementalReplenishmentMinPlayerHpPercent)
-        {
-            state.ClearSpiritmasterPetHpIncreaseConfirmation();
-            LogSpiritmasterElementalReplenishmentPlayerHpBlocked(context, state, safety.Player, "retry", pending.SkillId);
             return false;
         }
 
@@ -3290,10 +3269,16 @@ public sealed partial class SemiAutoCombatController
             return false;
         }
 
-        if (GetMaintenanceCooldownReadiness(skill, state) != SemiAutoSkillCooldownReadiness.Ready)
+        if (now < pending.NextCheckAt)
+        {
+            return true;
+        }
+
+        if (safety.Pet.CapturedAt <= pending.BaselineCapturedAt ||
+            GetMaintenanceCooldownReadiness(skill, state) != SemiAutoSkillCooldownReadiness.Ready)
         {
             state.DeferSpiritmasterPetHpIncreaseConfirmation(DateTimeOffset.Now, retryInterval);
-            return false;
+            return true;
         }
 
         if (!await PressSpiritmasterRawKeyAsync(context, settings, pending.Key, "pet_hp_retry")
