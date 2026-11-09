@@ -37,7 +37,9 @@ internal static class ConfiguredSkillIdentityRefreshTests
                 ProfileName = "id-only-profile",
                 SkillTreeReleaseMode = legacy ? SkillTreeReleaseMode.Legacy : SkillTreeReleaseMode.QuickbarAvailability,
                 QuickbarSkills = new() { ExecutionTree = legacy ? new() : new() { root.Clone() } },
-                Skills = new() { ExecutionTree = new() { root.Clone() } }
+                // This test counts changes to the attack tree only. The default
+                // obedience seal is deliberately absent from this mock quickbar.
+                Skills = new() { ExecutionTree = new() { root.Clone() }, Spiritmaster = new() { SummonSkills = new() } }
             };
             var sourceBefore = Json(source);
             var accounts = new InMemoryAccountConfigStore(new AccountConfig { AccountName = "id-only-account", ScriptSettings = source });
@@ -57,7 +59,8 @@ internal static class ConfiguredSkillIdentityRefreshTests
             var after = saved.QuickbarSkills.ExecutionTree.Single();
             Check(result.Saved && result.UpdatedCount == 1 && result.DeletedCount == 0 &&
                 after.SkillId == 101 && after.Name == "Identity Strike 1" && after.BaseName == "Identity Strike" && after.ChainTimeMs == 1550,
-                "an explicit or migrated ID-only root keeps its real bar identity and gains genuine metadata: " + result.Error);
+                "an explicit or migrated ID-only root keeps its real bar identity and gains genuine metadata: " +
+                $"legacy={legacy}; updated={result.UpdatedCount}; deleted={result.DeletedCount}; saved={result.Saved}; root={Json(after)}; {result.Error}");
             Check(Json(after.Children) == Json(before.QuickbarSkills.ExecutionTree.Single().Children),
                 "off-bar chain identities, order and windows remain unchanged instead of learned-rank replacement");
             Check(Json(saved.Skills.ExecutionTree) == Json(source.Skills.ExecutionTree) && Json(source) == sourceBefore,
