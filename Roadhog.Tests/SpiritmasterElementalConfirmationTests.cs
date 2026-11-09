@@ -108,21 +108,23 @@ internal static class SpiritmasterElementalConfirmationTests
         }
     }
 
-    public static async Task HpIncreaseReleasesAttackAndKeepsLocalCooldownAsync()
+    public static async Task HpIncreaseReleasesAttackWithRealCooldownAsync()
     {
         using var f = Create();
         await StartAsync(f);
         MakeCheckDue(f);
         f.SetPet(11, 55);
+        f.Confirm(ElementalId);
         await f.TickAsync();
         Check(f.State.PendingSpiritmasterPetHpIncreaseConfirmation is null, "newer HP increase ends confirmation");
-        Check(f.Logged("semi_auto.spiritmaster.elemental_replenishment.pet_hp_confirmed", "skillId", ElementalId),
+        Check(f.Logged("semi_auto.spiritmaster.pet_hp.pet_hp_confirmed", "skillId", ElementalId),
             "release retains real HP evidence");
         Sequence(new[] { "D4", "D1" }, f.Keyboard.Keys, "attack resumes while pet is still below the configured threshold");
-        Check(!f.State.ShouldPressSpiritmasterPetHpSkill(ElementalId, DateTimeOffset.Now), "success preserves local cooldown");
+        await f.TickAsync();
+        Check(f.Keyboard.Keys.Count(key => key == "D4") == 1, "real cooldown prevents another heal after confirmation");
     }
 
-    public static async Task ExpiryYieldsEvenAfterLocalCooldownAsync()
+    public static async Task ExpiryYieldsToNormalWorkAsync()
     {
         using var f = Create();
         await StartAsync(f);
@@ -131,7 +133,7 @@ internal static class SpiritmasterElementalConfirmationTests
         Check(f.State.PendingSpiritmasterPetHpIncreaseConfirmation is null, "expired attempt cannot restart in the same tick");
         Sequence(new[] { "D4", "D1" }, f.Keyboard.Keys, "expiry yields an actual opportunity to resume normal work");
         Check(f.Logger.Entries.Count(entry => entry.EventName ==
-            "semi_auto.spiritmaster.elemental_replenishment.confirmation_expired") == 1, "expiry is logged once");
+            "semi_auto.spiritmaster.pet_hp.confirmation_expired") == 1, "expiry is logged once");
     }
 
     public static async Task LifecycleChangesReleaseOrStopConfirmationAsync()
@@ -228,10 +230,8 @@ internal static class SpiritmasterElementalConfirmationTests
     {
         var pending = f.State.PendingSpiritmasterPetHpIncreaseConfirmation!;
         var pressedAt = DateTimeOffset.Now.AddMinutes(-1);
-        var cooldown = TimeSpan.FromMilliseconds(pending.CooldownMs);
         f.State.BeginSpiritmasterPetHpIncreaseConfirmation(pending.SkillId, pending.Key, pending.PetServerObjectId,
             pending.BaselineCurrentHp, pending.BaselineCapturedAt, pressedAt,
-            TimeSpan.Zero, TimeSpan.FromSeconds(30), cooldown);
-        f.State.MarkSpiritmasterPetHpSkillPressed(ElementalId, pressedAt, cooldown);
+            TimeSpan.Zero, TimeSpan.FromSeconds(30), pending.RuleIndex);
     }
 }

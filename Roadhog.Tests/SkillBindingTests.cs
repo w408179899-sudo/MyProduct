@@ -284,7 +284,7 @@ internal static class SkillBindingTests
                 var source = Settings();
                 source.Skills.Spiritmaster.DotSkills.Add(new() { SkillId = 101, SkillName = "attack" });
                 source.Skills.Spiritmaster.PetHpMaintenanceRules[0].BelowPercent = 57;
-                source.Skills.Spiritmaster.PetHpMaintenanceRules[0].CooldownMs = 12345;
+                source.Skills.Spiritmaster.PetHpMaintenanceRules[0].MinPlayerHpPercent = 23;
                 var store = new InMemoryAccountConfigStore(new AccountConfig { AccountName = "account2", ScriptSettings = source });
                 using var form = new AccountSettingsForm("account2", new RoadhogRuntime(new FakeGameApi(), log, new AccountRuntimeManager(log), null!),
                     store, new InMemorySharedPathStore(), new InMemoryScriptProfileStore(), new RecordingFolderLauncher(), "test-paths");
@@ -334,9 +334,16 @@ internal static class SkillBindingTests
                 }
                 CheckLayout();
                 var hp = (FlowLayoutPanel)Get("spiritmasterPetHpRuleList")!;
+                Check(hp.Controls.Find("spiritmasterPetHpCooldownTextBox", true).Length == 0, "obsolete minimum interval is absent");
+                Check(hp.Controls.Find("spiritmasterPetHpBelowTextBox", true).Single().Text == "57", "pet HP threshold remains editable");
+                var playerHpInput = hp.Controls.Find("spiritmasterPetHpMinPlayerHpTextBox", true).Single();
+                Check(playerHpInput.Text == "23", "configured player HP floor is restored independently");
+                playerHpInput.Text = "65";
                 var initialHeight = hp.Parent!.Height;
                 for (var i = 0; i < 4; i++) ((Button)dialog.Controls.Find("spiritmasterAdd_hp", true).Single()).PerformClick();
                 Check(hp.Controls.Count == 5 && hp.Parent.Height > initialHeight, "add grows rule section");
+                Check(hp.Controls.Cast<Control>().Skip(1).All(row => row.Controls.Find("spiritmasterPetHpMinPlayerHpTextBox", true).Single().Text == "0"),
+                    "new rules default to no player HP restriction");
                 dialog.Size = dialog.MinimumSize;
                 CheckLayout();
                 Check(page.VerticalScroll.Visible, "smaller window scrolls expanded sections");
@@ -348,11 +355,17 @@ internal static class SkillBindingTests
                 var saved = (SpiritmasterSkillSettings)Call("CaptureSpiritmasterSettings")!;
                 Check(saved.OpeningAttackDelayMs == 500 && saved.Clone().OpeningAttackDelayMs == 500, "post-command delay survives capture and clone");
                 Check(saved.SummonSkills[0].SkillId == 103 && saved.SummonSkills[1].Key == "F7" && saved.OpeningAttackSkillId == 101 && saved.OpeningAttackKey == "F6", "all three action identities survive layout editing");
-                Check(saved.PetHpMaintenanceRules.Single().BelowPercent == 57 && saved.PetHpMaintenanceRules.Single().CooldownMs == 12345, "HP threshold and millisecond interval remain unchanged");
+                Check(saved.PetHpMaintenanceRules.Single().BelowPercent == 57 && saved.PetHpMaintenanceRules.Single().MinPlayerHpPercent == 65, "pet threshold and edited player floor survive capture");
                 var saveArgs = new object?[] { null };
                 Check((bool)Call("SaveCurrentSettings", saveArgs)!, "settings save succeeds");
                 var persisted = store.LoadAllAsync().GetAwaiter().GetResult().Value!.Single().ScriptSettings!.Skills.Spiritmaster;
                 Check(JsonSerializer.Serialize(persisted) == JsonSerializer.Serialize(saved), "real save path retains spirit editor data");
+                foreach (var (input, expected) in new[] { ("-1", 0), ("101", 100), ("invalid", 0) })
+                {
+                    playerHpInput.Text = input;
+                    var clamped = (SpiritmasterSkillSettings)Call("CaptureSpiritmasterSettings")!;
+                    Check(clamped.PetHpMaintenanceRules.Single().MinPlayerHpPercent == expected, "player HP input clamps or defaults: " + input);
+                }
                 completion.SetResult();
             }
             catch (Exception ex) { completion.SetException(ex); }

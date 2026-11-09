@@ -390,9 +390,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("skill audit low rank status and trusted abnormal confirmation", LowRankMaintenanceTests.StatusUsesExactRankAndTrustedAbnormalConfirmationAsync),
     ("skill audit low rank name only discovery and missing explicit identity", LowRankMaintenanceTests.NameOnlyFullReadIncludesPlacedRankAndExplicitMissingNeverPromotesAsync),
     ("skill audit elemental all ranks preserve player HP safety", SpiritmasterElementalRankTests.EveryOfficialRankPreservesPlayerHpSafetyAsync),
-    ("skill audit elemental all ranks confirm pet HP and local hold", SpiritmasterElementalRankTests.EveryOfficialRankConfirmsPetHpAndKeepsLocalHoldAsync),
+    ("skill audit elemental all ranks confirm pet HP and actual cooldown", SpiritmasterElementalRankTests.EveryOfficialRankConfirmsPetHpAndUsesRealCooldownAsync),
     ("skill audit elemental all ranks final player HP and death guard", SpiritmasterElementalRankTests.EveryOfficialRankRechecksPlayerHpAfterPetReadAsync),
-    ("skill audit elemental unknown identity cannot inherit special behavior", SpiritmasterElementalRankTests.UnknownIdentityDoesNotBecomeElementalByNameAsync),
+    ("skill audit elemental configured identity uses common pet HP rules", SpiritmasterElementalRankTests.EveryConfiguredIdentityUsesTheSamePetHpRulesAsync),
     ("worker read budget submitted channel transition keeps loading hold", ChannelPeaceTests.ReadBudgetPreservesSubmittedTransitionAsync),
     ("worker read budget independent opening entry", WorkerReadBudgetTests.OpeningEntryUsesBudgetAsync),
     ("worker read budget cleanup failure resumes main loop without replay", CleanupWorkflowTests.WorkerReadBudgetDoesNotReplayCleanupAsync),
@@ -1560,7 +1560,15 @@ var tests = new (string Name, Func<Task> Run)[]
     ("spiritmaster trusts published pet without owner revalidation", TestSpiritmasterTrustsPublishedPetWithoutOwnerRevalidationAsync),
     ("spiritmaster trusts returned pet after immediate summon", TestSpiritmasterTrustsReturnedPetAfterImmediateSummonAsync),
     ("spiritmaster tick prioritizes lowest pet hp rule", TestSpiritmasterTickPrioritizesLowestPetHpRuleAsync),
-    ("spiritmaster pet hp local cooldown yields after confirmation", TestSpiritmasterPetHpLocalCooldownYieldsAfterConfirmationAsync),
+    ("spiritmaster pet hp confirmation yields and follows actual cooldown", TestSpiritmasterPetHpConfirmationYieldsAfterConfirmationAsync),
+    ("spiritmaster pet hp config migration defaults clone and save", SpiritmasterPetHpMaintenanceTests.ConfigurationCompatibilityAsync),
+    ("spiritmaster pet hp all skills honor configured player floor", SpiritmasterPetHpMaintenanceTests.EverySkillUsesConfiguredPlayerFloorAsync),
+    ("spiritmaster pet hp threshold stays active independently", SpiritmasterPetHpMaintenanceTests.PetThresholdRemainsIndependentAsync),
+    ("spiritmaster pet hp all skills confirm retry and use actual cooldown", SpiritmasterPetHpMaintenanceTests.EverySkillConfirmsRetriesAndUsesActualCooldownAsync),
+    ("spiritmaster pet hp generic confirmation reserves maintenance", SpiritmasterPetHpMaintenanceTests.GenericConfirmationReservesMaintenanceAsync),
+    ("spiritmaster pet hp retry rechecks both thresholds and rule changes", SpiritmasterPetHpMaintenanceTests.GenericRetryRechecksBothThresholdsAsync),
+    ("spiritmaster pet hp zero floor preserves life and stop", SpiritmasterPetHpMaintenanceTests.ZeroFloorStillRechecksLifeAndStopAsync),
+    ("spiritmaster pet hp duplicate skill rules keep separate thresholds", SpiritmasterPetHpMaintenanceTests.DuplicateSkillRulesKeepTheirOwnThresholdsAsync),
     ("spiritmaster elemental replenishment enforces player hp floor", TestSpiritmasterElementalReplenishmentEnforcesPlayerHpFloorAsync),
     ("spiritmaster elemental replenishment hides transient pet read failure", TestSpiritmasterElementalReplenishmentHidesTransientPetReadFailureAsync),
     ("spiritmaster elemental replenishment confirms pet hp increase", TestSpiritmasterElementalReplenishmentConfirmsPetHpIncreaseAsync),
@@ -1570,8 +1578,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("spiritmaster elemental confirmation blocks new target opening", SpiritmasterElementalConfirmationTests.TargetChangeCannotRunOpeningDuringConfirmationAsync),
     ("spiritmaster elemental confirmation low hp releases before retry", SpiritmasterElementalConfirmationTests.LowPlayerHpReleasesBeforeRetryAndWithStalePetAsync),
     ("spiritmaster elemental confirmation retry rechecks exact hp floor", SpiritmasterElementalConfirmationTests.RetryRechecksHpAfterPetReadAndAllowsExactFloorAsync),
-    ("spiritmaster elemental confirmation hp increase releases attack", SpiritmasterElementalConfirmationTests.HpIncreaseReleasesAttackAndKeepsLocalCooldownAsync),
-    ("spiritmaster elemental confirmation expiry yields after cooldown", SpiritmasterElementalConfirmationTests.ExpiryYieldsEvenAfterLocalCooldownAsync),
+    ("spiritmaster elemental confirmation hp increase releases attack", SpiritmasterElementalConfirmationTests.HpIncreaseReleasesAttackWithRealCooldownAsync),
+    ("spiritmaster elemental confirmation expiry yields to normal work", SpiritmasterElementalConfirmationTests.ExpiryYieldsToNormalWorkAsync),
     ("spiritmaster elemental confirmation lifecycle boundaries", SpiritmasterElementalConfirmationTests.LifecycleChangesReleaseOrStopConfirmationAsync),
     ("spiritmaster elemental confirmation stop and retry failure", SpiritmasterElementalConfirmationTests.StopAndFailedRetryDoNotReleaseInputsAsync),
     ("spiritmaster elemental confirmation account isolation", SpiritmasterElementalConfirmationTests.AccountReservationsRemainIndependentAsync),
@@ -29531,10 +29539,10 @@ static async Task TestSpiritmasterTickPrioritizesLowestPetHpRuleAsync()
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState()).ConfigureAwait(false);
 
     AssertSequence(new[] { "NumPad3" }, keyboard.Keys.ToArray(), "lowest pet hp threshold should run first");
-    AssertEqual(0, gameApi.SummonedPetReadCount, "non-1678 pet rule should keep using the ordinary combat roster snapshot");
+    AssertFalse(gameApi.SummonedPetReadCount == 0, "every configured pet-heal rule rechecks the pet before pressing");
 }
 
-static async Task TestSpiritmasterPetHpLocalCooldownYieldsAfterConfirmationAsync()
+static async Task TestSpiritmasterPetHpConfirmationYieldsAfterConfirmationAsync()
 {
     var settings = CreateSpiritmasterScriptSettings();
     settings.Skills.Spiritmaster.PetHpMaintenanceRules = new List<SpiritmasterPetHpRuleConfig>
@@ -29544,8 +29552,8 @@ static async Task TestSpiritmasterPetHpLocalCooldownYieldsAfterConfirmationAsync
             BelowPercent = 68,
             SkillId = 1678,
             SkillName = "Pet Heal",
-            Key = "NumPad4",
-            CooldownMs = 10_300
+            Key = "D4",
+            MinPlayerHpPercent = 65
         }
     };
     settings.Skills.ExecutionTree[0] = Node(1600, "Normal Skill", "active");
@@ -29567,7 +29575,7 @@ static async Task TestSpiritmasterPetHpLocalCooldownYieldsAfterConfirmationAsync
     var context = CreateContext(settings, gameApi, logger);
 
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(new[] { "NumPad4" }, keyboard.Keys.ToArray(), "first low pet hp tick should press pet heal");
+    AssertSequence(new[] { "D4" }, keyboard.Keys.ToArray(), "first low pet hp tick should press pet heal");
 
     keyboard.Keys.Clear();
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
@@ -29578,7 +29586,10 @@ static async Task TestSpiritmasterPetHpLocalCooldownYieldsAfterConfirmationAsync
     gameApi.SummonedPetRoster = healedPetRoster;
     state.DeferSpiritmasterPetHpIncreaseConfirmation(DateTimeOffset.Now.AddSeconds(-1), TimeSpan.Zero);
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(new[] { "D1" }, keyboard.Keys.ToArray(), "confirmed pet heal retains local cooldown and lets normal skill run");
+    AssertSequence(new[] { "D1" }, keyboard.Keys.ToArray(), "confirmed pet heal yields a tick for normal skills");
+    keyboard.Keys.Clear();
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+    AssertSequence(new[] { "D4" }, keyboard.Keys.ToArray(), "a ready skill can heal again without the removed local interval");
 }
 
 static async Task TestSpiritmasterElementalReplenishmentEnforcesPlayerHpFloorAsync()
@@ -29606,7 +29617,7 @@ static async Task TestSpiritmasterElementalReplenishmentEnforcesPlayerHpFloorAsy
     AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "64 percent player hp must not send any skill key");
     AssertFalse(
         !logger.Entries.Any(entry =>
-            entry.EventName == "semi_auto.spiritmaster.elemental_replenishment.player_hp_blocked"),
+            entry.EventName == "semi_auto.spiritmaster.pet_hp.player_hp_blocked"),
         "low player hp block should be logged");
 
     keyboard.Keys.Clear();
@@ -29649,7 +29660,7 @@ static async Task TestSpiritmasterElementalReplenishmentHidesTransientPetReadFai
 
     await controller.TickAsync(context, plan, new SemiAutoCombatState()).ConfigureAwait(false);
 
-    AssertSequence(new[] { "NumPad3" }, keyboard.Keys.ToArray(), "business logic should receive the published pet snapshot after a transient read failure");
+    AssertSequence(new[] { "D3" }, keyboard.Keys.ToArray(), "business logic should receive the published pet snapshot after a transient read failure");
     AssertEqual(2, gameApi.SummonedPetReadCount, "snapshot boundary should consume the transient failure and retry below business logic");
     AssertEqual(1, gameApi.SummonedPetRosterReadCount, "combat context should keep its one ordinary roster read");
     AssertFalse(
@@ -29657,7 +29668,7 @@ static async Task TestSpiritmasterElementalReplenishmentHidesTransientPetReadFai
         "transient pet failure must retain stable snapshot semantics");
     AssertFalse(
         logger.Entries.Any(entry =>
-            entry.EventName == "semi_auto.spiritmaster.elemental_replenishment.confirmation_unknown"),
+            entry.EventName == "semi_auto.spiritmaster.pet_hp.confirmation_unknown"),
         "the transient provider fault must not leak into the 1678 business decision");
 }
 
@@ -29681,7 +29692,7 @@ static async Task TestSpiritmasterElementalReplenishmentConfirmsPetHpIncreaseAsy
     var context = CreateContext(settings, gameApi, logger);
 
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad3"), "initial elemental replenishment press count");
+    AssertEqual(1, keyboard.Keys.Count(key => key == "D3"), "initial elemental replenishment press count");
     AssertFalse(state.PendingSpiritmasterPetHpIncreaseConfirmation is null, "initial press should start pet hp confirmation");
 
     await Task.Delay(120).ConfigureAwait(false);
@@ -29690,11 +29701,11 @@ static async Task TestSpiritmasterElementalReplenishmentConfirmsPetHpIncreaseAsy
     gameApi.SummonedPetRoster = healedPetRoster;
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
 
-    AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad3"), "confirmed pet hp increase must not retry elemental replenishment");
+    AssertEqual(1, keyboard.Keys.Count(key => key == "D3"), "confirmed pet hp increase must not retry elemental replenishment");
     AssertFalse(state.PendingSpiritmasterPetHpIncreaseConfirmation is not null, "confirmed pet hp increase should clear confirmation state");
     AssertFalse(
         !logger.Entries.Any(entry =>
-            entry.EventName == "semi_auto.spiritmaster.elemental_replenishment.pet_hp_confirmed"),
+            entry.EventName == "semi_auto.spiritmaster.pet_hp.pet_hp_confirmed"),
         "pet hp increase should be logged as confirmed");
 }
 
@@ -29730,11 +29741,11 @@ static async Task TestSpiritmasterElementalReplenishmentRetriesUnchangedPetHpAsy
     };
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
 
-    AssertEqual(2, keyboard.Keys.Count(key => key == "NumPad3"), "unchanged fresh pet hp should retry elemental replenishment");
+    AssertEqual(2, keyboard.Keys.Count(key => key == "D3"), "unchanged fresh pet hp should retry elemental replenishment");
     AssertEqual(2, state.PendingSpiritmasterPetHpIncreaseConfirmation?.AttemptCount ?? 0, "retry should advance confirmation attempt count");
     AssertFalse(
         !logger.Entries.Any(entry =>
-            entry.EventName == "semi_auto.spiritmaster.elemental_replenishment.pet_hp_retry"),
+            entry.EventName == "semi_auto.spiritmaster.pet_hp.pet_hp_retry"),
         "unchanged pet hp retry should be logged");
 }
 
@@ -32854,8 +32865,8 @@ static ScriptSettings CreateElementalReplenishmentTestSettings()
             BelowPercent = 75,
             SkillId = 1678,
             SkillName = "Elemental Replenishment",
-            Key = "NumPad3",
-            CooldownMs = 10_300
+            Key = "D3",
+            MinPlayerHpPercent = 65
         }
     };
     return settings;

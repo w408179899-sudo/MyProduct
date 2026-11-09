@@ -119,13 +119,13 @@ public sealed partial class SemiAutoCombatController
         // cooldown clock. Conditional skills still require the official bar signal.
         UpdateCooldownCalibration(context, state, skills, CurrentOsTick(), DateTimeOffset.Now);
         InvalidateQuickbarCooldownCalibrationIfNeeded(context, state, plan, skills);
-        // Keep the pending HP-cost action ahead of opening/attack/maintenance input,
+        // Keep every pending pet-heal action ahead of opening/attack/maintenance input,
         // including after a target change. Completion must get one tick to yield
         // before the pet HP rules can start another confirmation.
-        var hadElementalConfirmation = maintenancePlan.UsesSpiritmasterAutoLogic &&
+        var hadPetHpConfirmation = maintenancePlan.UsesSpiritmasterAutoLogic &&
             state.PendingSpiritmasterPetHpIncreaseConfirmation is not null;
-        if (hadElementalConfirmation &&
-            await TryContinueSpiritmasterElementalReplenishmentConfirmationAsync(context, state, settings, skills)
+        if (hadPetHpConfirmation &&
+            await TryContinueSpiritmasterPetHpConfirmationAsync(context, state, settings, skills, sharedSkillSettings.Spiritmaster)
                 .ConfigureAwait(false))
         {
             state.QuickbarSkills.SuspendInputAttempts();
@@ -175,7 +175,7 @@ public sealed partial class SemiAutoCombatController
                 if (spiritContext.CanUseSpiritmasterLogic &&
                     await TryHandleSpiritmasterSpecialAsync(context, state, settings, sharedSkillSettings.Spiritmaster,
                         skills, spiritContext, suppressSpiritmasterPetSummon,
-                        allowPetHpMaintenance: !hadElementalConfirmation).ConfigureAwait(false))
+                        allowPetHpMaintenance: !hadPetHpConfirmation).ConfigureAwait(false))
                 {
                     jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
                     state.QuickbarSkills.SuspendInputAttempts();

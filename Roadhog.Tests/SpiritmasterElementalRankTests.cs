@@ -16,12 +16,12 @@ internal static class SpiritmasterElementalRankTests
             await f.TickAsync();
             Check(f.Keyboard.Keys.IsEmpty, $"elemental rank ID {id} blocks HP-cost input below 65 percent");
             Check(f.State.PendingSpiritmasterPetHpIncreaseConfirmation is null, "blocked input never starts confirmation");
-            Check(f.Logged("semi_auto.spiritmaster.elemental_replenishment.player_hp_blocked", "skillId", id),
+            Check(f.Logged("semi_auto.spiritmaster.pet_hp.player_hp_blocked", "skillId", id),
                 "safety diagnostics retain the actual configured rank identity");
         }
     }
 
-    public static async Task EveryOfficialRankConfirmsPetHpAndKeepsLocalHoldAsync()
+    public static async Task EveryOfficialRankConfirmsPetHpAndUsesRealCooldownAsync()
     {
         foreach (var id in Family)
         {
@@ -39,22 +39,24 @@ internal static class SpiritmasterElementalRankTests
             f.State.DeferSpiritmasterPetHpIncreaseConfirmation(DateTimeOffset.Now.AddSeconds(-1), TimeSpan.Zero);
             await f.TickAsync();
             Check(f.State.PendingSpiritmasterPetHpIncreaseConfirmation is null, "newer trusted pet HP increase confirms every rank");
-            Check(f.Logged("semi_auto.spiritmaster.elemental_replenishment.pet_hp_confirmed", "skillId", id),
+            Check(f.Logged("semi_auto.spiritmaster.pet_hp.pet_hp_confirmed", "skillId", id),
                 "pet HP confirmation reports the actual rank");
-            Check(f.Keyboard.Keys.Count == 1, "real HP confirmation retains the existing local cooldown hold");
+            Check(f.Keyboard.Keys.Count == 1, "confirmation yields the current tick without immediately healing again");
+            await f.TickAsync();
+            Sequence(new[] { "D4", "D4" }, f.Keyboard.Keys, "real CD is ready so every rank can heal again without a local interval");
         }
     }
 
-    public static async Task UnknownIdentityDoesNotBecomeElementalByNameAsync()
+    public static async Task EveryConfiguredIdentityUsesTheSamePetHpRulesAsync()
     {
         using var f = new SharedSkillAuditFixture();
         f.ClearAttackTree();
-        f.AddElementalRule(900009);
+        f.AddPetHpRule(900009);
         f.Api.Player = f.Api.Player with { CurrentHp = 64 };
         await f.PrepareAsync();
         await f.TickAsync();
-        Sequence(new[] { "D4" }, f.Keyboard.Keys, "unknown ID with the same display name retains the ordinary pet HP rule");
-        Check(f.State.PendingSpiritmasterPetHpIncreaseConfirmation is null, "display name never grants an elemental family identity");
+        Sequence(new[] { "D4" }, f.Keyboard.Keys, "any configured pet heal follows the default unrestricted player HP rule");
+        Check(f.State.PendingSpiritmasterPetHpIncreaseConfirmation?.SkillId == 900009, "confirmation depends on configuration, not a hardcoded identity or name");
     }
 
     public static async Task EveryOfficialRankRechecksPlayerHpAfterPetReadAsync()

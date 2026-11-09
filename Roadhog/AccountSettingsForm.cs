@@ -6674,7 +6674,7 @@ namespace Roadhog
                 spiritmasterPetHpRuleList.Controls.Clear();
                 foreach (var rule in spiritmaster.PetHpMaintenanceRules ?? new List<SpiritmasterPetHpRuleConfig>())
                 {
-                    AddSpiritmasterPetHpRuleRow(spiritmasterPetHpRuleList, rule.BelowPercent, rule.SkillId, rule.SkillName, rule.Key, rule.CooldownMs);
+                    AddSpiritmasterPetHpRuleRow(spiritmasterPetHpRuleList, rule.BelowPercent, rule.SkillId, rule.SkillName, rule.Key, rule.MinPlayerHpPercent);
                 }
 
                 if (!spiritmasterPetHpRuleList.Controls.OfType<Panel>().Any())
@@ -6784,10 +6784,7 @@ namespace Roadhog
                     SkillId = selectedSkill.SkillId,
                     SkillName = selectedSkill.SkillName,
                     Key = key,
-                    CooldownMs = Math.Clamp(
-                        ReadRowInt(row, "spiritmasterPetHpCooldownTextBox", SpiritmasterPetHpRuleConfig.DefaultCooldownMs),
-                        SpiritmasterPetHpRuleConfig.MinCooldownMs,
-                        SpiritmasterPetHpRuleConfig.MaxCooldownMs)
+                    MinPlayerHpPercent = ReadRowPercent(row, "spiritmasterPetHpMinPlayerHpTextBox", 0)
                 });
             }
 
@@ -7083,7 +7080,7 @@ namespace Roadhog
             uint skillId = 0,
             string skillName = "",
             string key = "",
-            int cooldownMs = SpiritmasterPetHpRuleConfig.DefaultCooldownMs)
+            int minPlayerHpPercent = 0)
         {
             var row = CreateSpiritmasterRuleRow();
             row.Height = 68;
@@ -7101,13 +7098,11 @@ namespace Roadhog
             var thresholdTextBox = AddTextBox(row, Math.Clamp(belowPercent, 0, 100).ToString(CultureInfo.InvariantCulture), 68, 36, 54, 28);
             thresholdTextBox.Name = "spiritmasterPetHpBelowTextBox";
             AddLabel(row, "% 时使用", 130, 38, 70, 24);
-            AddLabel(row, "最短间隔", 224, 38, 64, 24);
-            var cooldownTextBox = AddTextBox(row,
-                Math.Clamp(cooldownMs <= 0 ? SpiritmasterPetHpRuleConfig.DefaultCooldownMs : cooldownMs,
-                    SpiritmasterPetHpRuleConfig.MinCooldownMs, SpiritmasterPetHpRuleConfig.MaxCooldownMs).ToString(CultureInfo.InvariantCulture),
-                292, 36, 82, 28);
-            cooldownTextBox.Name = "spiritmasterPetHpCooldownTextBox";
-            AddLabel(row, "毫秒", 382, 38, 44, 24);
+            AddLabel(row, "角色血量至少", 224, 38, 90, 24);
+            var playerHpTextBox = AddTextBox(row,
+                Math.Clamp(minPlayerHpPercent, 0, 100).ToString(CultureInfo.InvariantCulture), 318, 36, 54, 28);
+            playerHpTextBox.Name = "spiritmasterPetHpMinPlayerHpTextBox";
+            AddLabel(row, "%（0 不限制）", 380, 38, 128, 24);
             list.Controls.Add(row);
         }
 

@@ -127,12 +127,13 @@ internal sealed class SharedSkillAuditFixture : IDisposable
             LocalPlayerPet = roster.LocalPlayerPet with { Pet = pet, AbnormalStatuses = abnormalIds.Select(Buff).ToArray() }
         };
     }
-    public void AddElementalRule(uint id)
+    public void AddElementalRule(uint id) => AddPetHpRule(id, 65);
+    public void AddPetHpRule(uint id, int minPlayerHpPercent = 0)
     {
         Api.Skills = Api.Skills.Append(Skill(id, "元素补充", 1)).ToArray();
         Api.Quickbar = Api.Quickbar with { Slots = Api.Quickbar.Slots.Append(new(SkillQuickbar.Main, 3, 21, id)).ToArray() };
         Settings.Skills.Spiritmaster.PetHpMaintenanceRules.Add(new()
-            { SkillId = id, SkillName = "元素补充 I", BelowPercent = 75, CooldownMs = 10300 });
+            { SkillId = id, SkillName = "元素补充 I", BelowPercent = 75, MinPlayerHpPercent = minPlayerHpPercent });
     }
     public static SkillSnapshot Skill(uint id, string name, int tier, uint duration = 10000) =>
         new(id, name + (tier == 1 ? " I" : " III"), tier, tier, name, tier, false, duration, 0);

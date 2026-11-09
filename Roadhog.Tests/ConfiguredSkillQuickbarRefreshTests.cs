@@ -100,7 +100,7 @@ internal static class ConfiguredSkillQuickbarRefreshTests
         spirit.OpeningAttackKey = "NumPad6";
         spirit.OpeningAttackDelayMs = 321;
         spirit.PetHpMaintenanceRules.Add(new() { SkillId = HighId, SkillName = "Configured Strike IV", Key = "NumPad7",
-            BelowPercent = 47, CooldownMs = 12345 });
+            BelowPercent = 47, MinPlayerHpPercent = 23 });
         spirit.PetBuffRules.Add(new() { SkillId = HighId, SkillName = "Configured Strike IV", Key = "NumPad8" });
         settings.SemiAuto.AttackWeaveEnabled = true;
         settings.SemiAuto.AttackWeaveDelayMs = 456;

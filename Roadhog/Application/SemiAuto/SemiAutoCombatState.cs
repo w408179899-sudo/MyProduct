@@ -54,7 +54,6 @@ public sealed class SemiAutoCombatState
     private readonly Dictionary<uint, SpiritmasterPetBuffAttempt> spiritmasterPetBuffAttempts = new();
     private bool spiritmasterPetBuffYieldInput;
     private uint spiritmasterPetBuffPetServerObjectId;
-    private readonly Dictionary<uint, DateTimeOffset> spiritmasterPetHpCooldownUntil = new();
     private DateTimeOffset lastAttackKeyPressedAt = DateTimeOffset.MinValue;
     private DateTimeOffset lastSpiritmasterSummonAttemptAt = DateTimeOffset.MinValue;
     private DateTimeOffset spiritmasterSummonVerifyUntil = DateTimeOffset.MinValue;
@@ -658,33 +657,6 @@ public sealed class SemiAutoCombatState
         spiritmasterPetBuffYieldInput = false;
     }
 
-    public bool ShouldPressSpiritmasterPetHpSkill(uint skillId, DateTimeOffset now)
-    {
-        if (skillId == 0 ||
-            !spiritmasterPetHpCooldownUntil.TryGetValue(skillId, out var blockedUntil))
-        {
-            return true;
-        }
-
-        if (now < blockedUntil)
-        {
-            return false;
-        }
-
-        spiritmasterPetHpCooldownUntil.Remove(skillId);
-        return true;
-    }
-
-    public void MarkSpiritmasterPetHpSkillPressed(uint skillId, DateTimeOffset now, TimeSpan cooldown)
-    {
-        if (skillId == 0 || cooldown <= TimeSpan.Zero)
-        {
-            return;
-        }
-
-        spiritmasterPetHpCooldownUntil[skillId] = now + cooldown;
-    }
-
     public void BeginSpiritmasterPetHpIncreaseConfirmation(
         uint skillId,
         string key,
@@ -694,7 +666,7 @@ public sealed class SemiAutoCombatState
         DateTimeOffset pressedAt,
         TimeSpan retryInterval,
         TimeSpan confirmationLifetime,
-        TimeSpan localCooldown)
+        int ruleIndex)
     {
         pendingSpiritmasterPetHpIncreaseConfirmation = new SpiritmasterPetHpIncreaseConfirmation(
             skillId,
@@ -706,7 +678,7 @@ public sealed class SemiAutoCombatState
             pressedAt + retryInterval,
             pressedAt + confirmationLifetime,
             1,
-            (int)Math.Clamp(localCooldown.TotalMilliseconds, 1, int.MaxValue));
+            ruleIndex);
     }
 
     public void DeferSpiritmasterPetHpIncreaseConfirmation(DateTimeOffset now, TimeSpan retryInterval)
@@ -1389,4 +1361,4 @@ public sealed record SpiritmasterPetHpIncreaseConfirmation(
     DateTimeOffset NextCheckAt,
     DateTimeOffset ExpiresAt,
     int AttemptCount,
-    int CooldownMs);
+    int RuleIndex);
