@@ -1,6 +1,7 @@
 using Roadhog.Application.SemiAuto;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
+using Roadhog.Core.Model;
 
 namespace Roadhog.Application.StationaryCombat;
 
@@ -32,13 +33,26 @@ public sealed partial class StationaryCombatController
         }
     }
 
+    internal static bool IsFollowingRevivePath(StationaryCombatState state) =>
+        state.TopLevelState == StationaryCombatTopLevelState.DeathRecovery &&
+        state.DeathRecovery.Step == StationaryCombatDeathRecoveryStep.FollowRevivePath;
+
     public async Task<bool> PrepareCleanupTickAsync(AccountWorkerContext context, SemiAutoSkillPlan plan,
-        SemiAutoCombatState semiAutoState, StationaryCombatState state)
+        SemiAutoCombatState semiAutoState, StationaryCombatState state, bool pauseRevivePath = false)
     {
         state.ClearPostCombatReturn();
         await SetChannelSwitchPendingAsync(context, state, true);
-        if ((await TickPlayerLifeGuardAsync(context, plan, semiAutoState, state, followRevivePath: true)).HasValue) return false;
-        var player = await ReadPlayerAsync(context);
+        // Only a scheduled cleanup may pause travel after the normal revival/pet/rest stages.
+        // Keep death recovery active so a skipped or failed trip can still resume its return.
+        var revivedPlayer = pauseRevivePath && IsFollowingRevivePath(state) ? await ReadPlayerAsync(context) : null;
+        var pausingRevivePath = revivedPlayer?.IsAlive == true;
+        PlayerSnapshot player;
+        if (pausingRevivePath) player = revivedPlayer!;
+        else
+        {
+            if ((await TickPlayerLifeGuardAsync(context, plan, semiAutoState, state, followRevivePath: true)).HasValue) return false;
+            player = await ReadPlayerAsync(context);
+        }
         await RefreshLocalCombatSideAsync(context, plan, state, player);
         if (context.Config.ScriptSettings?.MainMode == AccountMainMode.SemiAuto && !state.Fighting)
         {
@@ -71,6 +85,22 @@ public sealed partial class StationaryCombatController
         await StopSoloJumpAsync(state, "cleanup_workflow");
         await StopMovementAsync(context, state, releaseRightMouse: true);
         StopPathFollowPoller(state);
+        if (pausingRevivePath)
+        {
+            context.Logger.Info("cleanup_workflow.revive_path.paused", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName, ["pathName"] = state.DeathRecovery.RevivePathName,
+                ["pointNumber"] = state.DeathRecovery.RevivePathPointIndex + 1,
+                ["pointCount"] = state.DeathRecovery.RevivePathPoints.Count
+            });
+            // A cleanup trip can change maps/position. Resume from a fresh position rather
+            // than carrying the old point index into the town-return callback or next tick.
+            state.DeathRecovery.RevivePathName = string.Empty;
+            state.DeathRecovery.RevivePathPoints = Array.Empty<Vector3Snapshot>();
+            state.DeathRecovery.RevivePathPointIndex = -1;
+            state.DeathRecovery.ClearRevivePathLeaderSiphon();
+            state.DeathRecovery.ResetRevivePathStuckTracking();
+        }
         state.ClearTarget(); state.ClearLootAfterKill(); state.ClearStartupRecovery(); state.Gather.Reset();
         state.ClearPostCombatReturn();
         semiAutoState.ResetAttackWeaveStates(); semiAutoState.ResetAttackKeyPressThrottle();

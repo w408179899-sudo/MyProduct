@@ -1298,6 +1298,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("path arrival failed release retries without restarting W", PathArrivalTests.ReleaseFailureRetriesAsync),
     ("path arrival cancellation and account isolation", PathArrivalTests.CancellationAndIsolationAsync),
     ("path arrival polling exceptions recover without foreground ticks", PathArrivalTests.PollingExceptionRetriesWithoutForegroundTickAsync),
+    ("scheduled cleanup pauses revive path and resumes after skipped trip", PathArrivalTests.ScheduledCleanupPausesRevivePathAsync),
+    ("scheduled cleanup preserves death maintenance combat and stop guards", PathArrivalTests.ScheduledCleanupPreservesRecoveryGuardsAsync),
     ("manual path retries transient player read failures", TestManualPathRetriesTransientPlayerReadFailuresAsync),
     ("manual path waits through persistent player faults until canceled", TestManualPathFailsAfterPlayerReadRetryTimeoutAsync),
     ("path combat worker follows configured combat path", TestPathCombatWorkerFollowsConfiguredCombatPathAsync),
@@ -1572,6 +1574,7 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("grocery shop schedule late startup skips elapsed slots while live retries remain due", GroceryShopTests.ScheduleLateStartupAsync)
     ,("grocery shop schedule session boundary survives delayed polling recovery and UTC offsets", GroceryShopTests.ScheduleSessionBoundaryAsync)
     ,("grocery shop schedule worker starts at noon skips ten and triggers eighteen", GroceryShopTests.ScheduleLateStartupWorkerAsync)
+    ,("scheduled cleanup actual worker interrupts revive travel and resumes skipped trip", GroceryShopTests.ScheduleInterruptsReviveTravelWorkerAsync)
     ,("grocery shop backpack exhausts discard rechecks capacity and protects scroll", GroceryShopTests.BackpackDiscardGateAsync)
     ,("grocery shop backpack discard failures attack death stop and retry block departure", GroceryShopTests.BackpackDiscardInterruptionAsync)
     ,("grocery shop backpack worker retries local discard failure before rechecking capacity", GroceryShopTests.BackpackDiscardWorkerContinuesAsync)

@@ -14,6 +14,67 @@ using Roadhog.Core.Paths;
 
 internal static class PathArrivalTests
 {
+    public static async Task ScheduledCleanupPausesRevivePathAsync()
+    {
+        using var h = new Harness(death: true);
+        using var neighbor = new Harness(death: true);
+        await h.Tick(); await neighbor.Tick();
+        var poller = h.State.PathFollowPoller!;
+        Check(!await h.PrepareCleanup(), "ordinary/manual cleanup still waits for the revive route");
+        Check(h.State.IsMovingForward && h.PointIndex == 1, "default preparation preserves route progress");
+        Check(await h.PrepareCleanup(scheduled: true), "scheduled cleanup can depart before the revive endpoint");
+        await Property<Task>(poller, "Task").WaitAsync(TimeSpan.FromSeconds(3));
+        Check(!h.State.IsMovingForward && h.Input.Ups == 1 && h.State.PathFollowPoller is null,
+            "scheduled handoff releases W and retires the independent arrival poller");
+        Check(h.State.TopLevelState == StationaryCombatTopLevelState.DeathRecovery &&
+            h.State.DeathRecovery.Step == StationaryCombatDeathRecoveryStep.FollowRevivePath && h.PointIndex == -1,
+            "recovery is suspended, not falsely completed; old route index cannot survive a trip");
+        Check(neighbor.State.IsMovingForward && neighbor.Input.Ups == 0 && neighbor.PointIndex == 1,
+            "one account's scheduled cleanup cannot stop its neighbor");
+        await h.Controller.SetChannelSwitchPendingAsync(h.Context, h.State, false);
+        h.Move(20);
+        await h.Tick();
+        Check(h.State.IsMovingForward && h.PointIndex == 2 && h.Input.Downs == 2,
+            "a skipped trip resumes the original recovery route from the current position");
+    }
+
+    public static async Task ScheduledCleanupPreservesRecoveryGuardsAsync()
+    {
+        using (var dead = new Harness(death: true))
+        {
+            dead.Api.Player = dead.Api.Player with { CurrentHp = 0 };
+            Check(!await dead.PrepareCleanup(scheduled: true), "dead player must revive before scheduled cleanup");
+            Check(dead.State.TopLevelState == StationaryCombatTopLevelState.DeathRecovery &&
+                dead.State.DeathRecovery.Step != StationaryCombatDeathRecoveryStep.FollowRevivePath,
+                "new death re-enters the existing revival stages");
+        }
+        using (var restoring = new Harness(death: true))
+        {
+            restoring.State.EnterDeathRecovery(DateTimeOffset.Now);
+            while (restoring.State.DeathRecovery.Step != StationaryCombatDeathRecoveryStep.PostReviveMaintenance)
+                restoring.State.DeathRecovery.Advance(DateTimeOffset.Now);
+            Check(!await restoring.PrepareCleanup(scheduled: true), "post-revive maintenance still owns preparation");
+            Check(!restoring.Logger.Entries.Any(e => e.EventName == "cleanup_workflow.revive_path.paused"),
+                "only the travel stage may yield to scheduled cleanup");
+        }
+        using (var fighting = new Harness(death: true))
+        {
+            fighting.Api.TargetEntityId = 100; fighting.Api.TargetOwnServerObjectId = 100;
+            fighting.Api.TargetCurrentHp = 100; fighting.Api.TargetPosition = new(1, 0, 0);
+            fighting.State.Fighting = true; fighting.State.CurrentTargetEntityId = 100; fighting.State.CurrentTargetServerObjectId = 100;
+            Check(!await fighting.PrepareCleanup(scheduled: true), "existing fight must finish before scheduled departure");
+            Check(fighting.PointIndex == 1, "combat wait preserves pending recovery progress");
+        }
+        using (var stopped = new Harness(death: true))
+        {
+            await stopped.Tick(); stopped.Stop.Cancel();
+            try { await stopped.PrepareCleanup(scheduled: true); throw new Exception("Stop cannot permit cleanup"); }
+            catch (OperationCanceledException) { }
+            Check(!stopped.Logger.Entries.Any(e => e.EventName == "cleanup_workflow.revive_path.paused"),
+                "manual Stop wins scheduled handoff");
+        }
+    }
+
     public static async Task StopsWithoutForegroundTickAsync()
     {
         foreach (var death in new[] { false, true })
@@ -260,6 +321,8 @@ internal static class PathArrivalTests
             else State.StartStartupRecovery("arrival", points, 1);
         }
         public Task Tick() => Controller.TickAsync(Context, _plan, SemiState, State);
+        public Task<bool> PrepareCleanup(bool scheduled = false) =>
+            Controller.PrepareCleanupTickAsync(Context, _plan, SemiState, State, pauseRevivePath: scheduled);
         public void Move(float x, bool noYaw = false) => Api.Player = Api.Player with
         { Position = new(x, 0, 0), CameraYawDegrees = noYaw ? null : 90, ActorYawDegrees = noYaw ? null : 90, CapturedAt = DateTimeOffset.Now };
         public Task Polls(int count)

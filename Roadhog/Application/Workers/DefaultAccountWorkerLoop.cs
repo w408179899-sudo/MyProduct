@@ -269,13 +269,24 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                     if (_cleanupWorkflow != null && !fixedChannelState.AwaitingConfirmation)
                     {
                         var now = DateTimeOffset.UtcNow;
+                        var maintenance = scriptSettings.Maintenance;
+                        var followingRevivePath = StationaryCombatController.IsFollowingRevivePath(stationaryCombatState);
                         if (context.CleanupRequests.Current == null && now >= nextCleanupCheck && now >= context.CleanupRequests.AutomaticRetryAfter &&
                             !stationaryCombatState.Fighting && !stationaryCombatState.LootAfterKill.Active &&
-                            stationaryCombatState.TopLevelState == StationaryCombatTopLevelState.Normal)
+                            (stationaryCombatState.TopLevelState == StationaryCombatTopLevelState.Normal ||
+                             (followingRevivePath && maintenance.CleanupWorkflow.Mode == CleanupMode.GroceryShop &&
+                              maintenance.CleanupWorkflow.GroceryScheduleEnabled)))
                         {
                             nextCleanupCheck = now.AddSeconds(2);
-                            var maintenance = scriptSettings.Maintenance;
-                            if (await NpcArrowPurchaseSequence.NeededAsync(context, duringCleanup: false))
+                            if (followingRevivePath)
+                            {
+                                // Only the due schedule can interrupt a revive route. Bag capacity,
+                                // arrow restocking and manual/exit preparation retain their admission rules.
+                                if (await _cleanupWorkflow.GroceryScheduleDueAsync(context))
+                                    context.CleanupRequests.Request(scriptSettings, manual: false, resetsCooldown: false, allowNpcSell: false,
+                                        groceryTrigger: GroceryShopTrigger.Scheduled);
+                            }
+                            else if (await NpcArrowPurchaseSequence.NeededAsync(context, duringCleanup: false))
                             {
                                 context.CleanupRequests.Request(scriptSettings, manual: false, arrowRestock: true);
                                 context.Logger.Info("arrow_restock.requested", new Dictionary<string, object?> { ["account"] = context.Config.AccountName });
@@ -319,7 +330,8 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                         {
                             try
                             {
-                                if (await _stationaryCombat.PrepareCleanupTickAsync(context, semiAutoPlan, semiAutoState, stationaryCombatState))
+                                if (await _stationaryCombat.PrepareCleanupTickAsync(context, semiAutoPlan, semiAutoState, stationaryCombatState,
+                                        pauseRevivePath: cleanup.GroceryTrigger == GroceryShopTrigger.Scheduled))
                                 {
                                     if ((cleanup.StandaloneShop || cleanup.GroceryShop) && jumpAssist is not null)
                                         await jumpAssist.StopAsync("standalone_shop").ConfigureAwait(false);
