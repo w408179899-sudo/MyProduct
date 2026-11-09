@@ -1,5 +1,8 @@
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Unicode;
 using Roadhog.Core.Diagnostics;
 
 namespace Roadhog.Infrastructure.Diagnostics;
@@ -7,39 +10,35 @@ namespace Roadhog.Infrastructure.Diagnostics;
 public sealed class FileRoadhogLogger : IRoadhogLogger, IFileLoggingControl
 {
     public const long DefaultMaxLogFileBytes = 1024L * 1024L;
-
-    private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+    public const long DefaultMaxDirectoryBytes = 64L * 1024L * 1024L;
+    private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
+    private static readonly JsonSerializerOptions JsonOptions = new() { Encoder = JavaScriptEncoder.Create(UnicodeRanges.All) };
     private static readonly TimeSpan LogRetention = TimeSpan.FromDays(1);
-    private static readonly TimeSpan NoisyInfoSampleInterval = TimeSpan.FromSeconds(5);
-    private static readonly HashSet<string> NoisyInfoEvents = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "vmm.locked_target.read",
-        "vmm.locked_target_abnormal.read",
-        "vmm.loot_corpses.read",
-        "vmm.player.read",
-        "vmm.player_abnormal.read",
-        "vmm.skills.read",
-        "vmm.summoned_pet.read",
-        "vmm.summoned_pet_roster.read",
-        "semi_auto.key.pressed"
-    };
-
+    private static readonly TimeSpan CleanupInterval = TimeSpan.FromMinutes(5);
     private readonly string _logDirectory;
+    private readonly string _latestPath;
     private readonly long _maxLogFileBytes;
-    private readonly Dictionary<string, DateTimeOffset> _lastNoisyInfoWrites = new(StringComparer.OrdinalIgnoreCase);
+    private readonly long _maxDirectoryBytes;
+    private readonly TimeProvider _timeProvider;
+    private readonly FileLogCompactor _compactor = new();
     private readonly object _syncRoot = new();
-    private string? _currentLogPath;
-    private string? _currentDateStamp;
-    private string? _latestSourceLogPath;
-    private bool _expiredLogCleanupAttempted;
+    // Worker command and runtime loggers can share a directory. Serialize append,
+    // rename and cleanup across both instances and overlapping worker processes.
+    private readonly Mutex _directoryMutex;
+    private DateTimeOffset? _lastCleanupAt;
     private bool _enabled;
 
-    public FileRoadhogLogger(string logDirectory, long maxLogFileBytes = DefaultMaxLogFileBytes, bool enabled = true)
+    public FileRoadhogLogger(string logDirectory, long maxLogFileBytes = DefaultMaxLogFileBytes, bool enabled = true,
+        long maxDirectoryBytes = DefaultMaxDirectoryBytes, TimeProvider? timeProvider = null)
     {
-        _logDirectory = string.IsNullOrWhiteSpace(logDirectory)
-            ? Path.Combine(AppContext.BaseDirectory, "logs")
-            : logDirectory;
+        _logDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(string.IsNullOrWhiteSpace(logDirectory)
+            ? Path.Combine(AppContext.BaseDirectory, "logs") : logDirectory));
+        _latestPath = Path.Combine(_logDirectory, "latest.log");
         _maxLogFileBytes = Math.Max(1L, maxLogFileBytes);
+        _maxDirectoryBytes = Math.Max(_maxLogFileBytes, maxDirectoryBytes);
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        var directoryKey = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(_logDirectory.ToUpperInvariant())));
+        _directoryMutex = new Mutex(false, "Local\\RoadhogLog-" + directoryKey);
         _enabled = enabled;
     }
 
@@ -49,62 +48,49 @@ public sealed class FileRoadhogLogger : IRoadhogLogger, IFileLoggingControl
         {
             if (_enabled == enabled) return;
             _enabled = enabled;
-            _lastNoisyInfoWrites.Clear();
+            _compactor.Clear();
         }
     }
 
-    public void Info(string eventName, IReadOnlyDictionary<string, object?>? fields = null)
-    {
-        Append("info", eventName, fields, null);
-    }
-
-    public void Warn(string eventName, IReadOnlyDictionary<string, object?>? fields = null)
-    {
-        Append("warn", eventName, fields, null);
-    }
+    public void Info(string eventName, IReadOnlyDictionary<string, object?>? fields = null) => Append("info", eventName, fields, null);
+    public void Warn(string eventName, IReadOnlyDictionary<string, object?>? fields = null) => Append("warn", eventName, fields, null);
 
     public void Error(string eventName, Exception exception, IReadOnlyDictionary<string, object?>? fields = null)
     {
-        var merged = fields is null
-            ? new Dictionary<string, object?>()
-            : new Dictionary<string, object?>(fields);
+        var merged = fields is null ? new Dictionary<string, object?>() : new Dictionary<string, object?>(fields);
         merged["exceptionType"] = exception.GetType().FullName;
         merged["exceptionMessage"] = exception.Message;
         merged["stackTrace"] = exception.StackTrace;
         Append("error", eventName, merged, exception.Message);
     }
 
-    private void Append(
-        string level,
-        string eventName,
-        IReadOnlyDictionary<string, object?>? fields,
-        string? error)
+    private void Append(string level, string eventName, IReadOnlyDictionary<string, object?>? fields, string? error)
     {
         try
         {
             lock (_syncRoot)
             {
                 if (!_enabled) return;
-                var now = DateTimeOffset.Now;
-                var normalizedFields = NormalizeFields(fields);
-                if (ShouldSkipNoisyInfo(level, eventName, normalizedFields, now))
+                var now = _timeProvider.GetLocalNow();
+                var entries = _compactor.Accept(new(now, level, eventName, NormalizeFields(fields), error));
+                if (entries.Count == 0) return;
+                var acquired = false;
+                try
                 {
-                    return;
+                    try { acquired = _directoryMutex.WaitOne(TimeSpan.FromSeconds(1)); }
+                    catch (AbandonedMutexException) { acquired = true; }
+                    if (!acquired) return; // A blocked logger must not hang account control.
+                    Directory.CreateDirectory(_logDirectory);
+                    var rotated = false;
+                    foreach (var entry in entries)
+                    {
+                        var line = JsonSerializer.Serialize(entry, JsonOptions) + Environment.NewLine;
+                        rotated |= RotateIfNeeded(now, Utf8NoBom.GetByteCount(line));
+                        File.AppendAllText(_latestPath, line, Utf8NoBom);
+                    }
+                    Cleanup(now, rotated);
                 }
-
-                var entry = new RoadhogLogFileEntry(
-                    now,
-                    level,
-                    eventName,
-                    normalizedFields,
-                    error);
-                var line = JsonSerializer.Serialize(entry) + Environment.NewLine;
-                Directory.CreateDirectory(_logDirectory);
-                DeleteExpiredLogFiles(now);
-                var lineBytes = Utf8NoBom.GetByteCount(line);
-                var logPath = ResolveCurrentLogPath(now, lineBytes);
-                File.AppendAllText(logPath, line, Utf8NoBom);
-                AppendLatest(logPath, line, lineBytes);
+                finally { if (acquired) _directoryMutex.ReleaseMutex(); }
             }
         }
         catch
@@ -113,199 +99,55 @@ public sealed class FileRoadhogLogger : IRoadhogLogger, IFileLoggingControl
         }
     }
 
-    private void DeleteExpiredLogFiles(DateTimeOffset now)
+    private bool RotateIfNeeded(DateTimeOffset now, int lineBytes)
     {
-        if (_expiredLogCleanupAttempted)
-        {
-            return;
-        }
-
-        _expiredLogCleanupAttempted = true;
-        var cutoffUtc = now.UtcDateTime - LogRetention;
-        try
-        {
-            foreach (var path in Directory.EnumerateFiles(_logDirectory, "*.log"))
-            {
-                try
-                {
-                    if (File.GetLastWriteTimeUtc(path) < cutoffUtc)
-                    {
-                        File.Delete(path);
-                    }
-                }
-                catch
-                {
-                    // Log cleanup is best-effort and must not block runtime logging.
-                }
-            }
-        }
-        catch
-        {
-            // Log cleanup is best-effort and must not block runtime logging.
-        }
+        var latest = new FileInfo(_latestPath);
+        if (!latest.Exists || latest.Length == 0) return false;
+        if (latest.Length + lineBytes <= _maxLogFileBytes && latest.LastWriteTime.Date == now.Date) return false;
+        var prefix = "roadhog-" + now.ToString("yyyyMMdd-HHmmss-fff");
+        var archive = Path.Combine(_logDirectory, prefix + ".log");
+        for (var index = 1; File.Exists(archive); index++)
+            archive = Path.Combine(_logDirectory, prefix + "-" + index.ToString("000") + ".log");
+        File.Move(_latestPath, archive);
+        return true;
     }
 
-    private bool ShouldSkipNoisyInfo(
-        string level,
-        string eventName,
-        IReadOnlyDictionary<string, object?> fields,
-        DateTimeOffset now)
+    private void Cleanup(DateTimeOffset now, bool rotated)
     {
-        if (!string.Equals(level, "info", StringComparison.OrdinalIgnoreCase) ||
-            !NoisyInfoEvents.Contains(eventName))
+        if (!rotated && _lastCleanupAt is { } last && now >= last && now - last < CleanupInterval) return;
+        _lastCleanupAt = now;
+        var archives = new DirectoryInfo(_logDirectory).EnumerateFiles("roadhog-*.log")
+            .OrderBy(file => file.LastWriteTimeUtc).ThenBy(file => file.Name, StringComparer.Ordinal).ToArray();
+        // Reserve a complete active segment, so appends between cleanups cannot
+        // grow an ordinary directory beyond the cap. Never delete latest.log or
+        // unrelated files. A single oversized exception is retained intact.
+        var reserved = Math.Max(_maxLogFileBytes, new FileInfo(_latestPath).Length);
+        var total = archives.Sum(file => file.Length) + reserved;
+        foreach (var file in archives)
         {
-            return false;
+            if (file.LastWriteTimeUtc >= now.UtcDateTime - LogRetention && total <= _maxDirectoryBytes) continue;
+            try { var bytes = file.Length; file.Delete(); total -= bytes; }
+            catch { /* Retention is best-effort; locked files can be retried next cleanup. */ }
         }
-
-        var key = BuildNoisyInfoSampleKey(eventName, fields);
-        if (_lastNoisyInfoWrites.TryGetValue(key, out var lastWrite) &&
-            now - lastWrite < NoisyInfoSampleInterval)
-        {
-            return true;
-        }
-
-        _lastNoisyInfoWrites[key] = now;
-        return false;
-    }
-
-    private static string BuildNoisyInfoSampleKey(string eventName, IReadOnlyDictionary<string, object?> fields)
-    {
-        var key = eventName + "|" + ReadFieldText(fields, "account");
-        if (string.Equals(eventName, "semi_auto.key.pressed", StringComparison.OrdinalIgnoreCase))
-        {
-            key += "|" + ReadFieldText(fields, "phase") +
-                   "|" + ReadFieldText(fields, "skill") +
-                   "|" + ReadFieldText(fields, "key");
-        }
-
-        return key;
-    }
-
-    private string ResolveCurrentLogPath(DateTimeOffset timestamp, int lineBytes)
-    {
-        var dateStamp = timestamp.ToString("yyyyMMdd");
-        if (_currentLogPath is not null &&
-            string.Equals(_currentDateStamp, dateStamp, StringComparison.Ordinal) &&
-            CanAppend(_currentLogPath, lineBytes))
-        {
-            return _currentLogPath;
-        }
-
-        _currentDateStamp = dateStamp;
-        _currentLogPath = SelectWritableLogPath(timestamp, dateStamp, lineBytes);
-        return _currentLogPath;
-    }
-
-    private string SelectWritableLogPath(DateTimeOffset timestamp, string dateStamp, int lineBytes)
-    {
-        var dailyPath = Path.Combine(_logDirectory, "roadhog-" + dateStamp + ".log");
-        if (CanAppend(dailyPath, lineBytes))
-        {
-            return dailyPath;
-        }
-
-        foreach (var path in EnumerateExistingSegmentPaths(dateStamp))
-        {
-            if (CanAppend(path, lineBytes))
-            {
-                return path;
-            }
-        }
-
-        return CreateTimestampedLogPath(timestamp);
-    }
-
-    private IEnumerable<string> EnumerateExistingSegmentPaths(string dateStamp)
-    {
-        var pattern = "roadhog-" + dateStamp + "-*.log";
-        return Directory.EnumerateFiles(_logDirectory, pattern)
-            .OrderByDescending(Path.GetFileName, StringComparer.Ordinal);
-    }
-
-    private string CreateTimestampedLogPath(DateTimeOffset timestamp)
-    {
-        var prefix = "roadhog-" + timestamp.ToString("yyyyMMdd-HHmmss-fff");
-        for (var index = 0; index < 1000; index++)
-        {
-            var suffix = index == 0 ? string.Empty : "-" + index.ToString("000");
-            var path = Path.Combine(_logDirectory, prefix + suffix + ".log");
-            if (!File.Exists(path))
-            {
-                return path;
-            }
-        }
-
-        return Path.Combine(_logDirectory, prefix + "-" + Guid.NewGuid().ToString("N") + ".log");
-    }
-
-    private bool CanAppend(string path, int lineBytes)
-    {
-        if (!File.Exists(path))
-        {
-            return true;
-        }
-
-        var length = new FileInfo(path).Length;
-        return length == 0 || length + lineBytes <= _maxLogFileBytes;
-    }
-
-    private void AppendLatest(string sourceLogPath, string line, int lineBytes)
-    {
-        var latestPath = Path.Combine(_logDirectory, "latest.log");
-        var resetLatest = !string.Equals(_latestSourceLogPath, sourceLogPath, StringComparison.OrdinalIgnoreCase) ||
-                          !CanAppend(latestPath, lineBytes);
-        if (resetLatest)
-        {
-            File.WriteAllText(latestPath, line, Utf8NoBom);
-            _latestSourceLogPath = sourceLogPath;
-            return;
-        }
-
-        File.AppendAllText(latestPath, line, Utf8NoBom);
     }
 
     private static IReadOnlyDictionary<string, object?> NormalizeFields(IReadOnlyDictionary<string, object?>? fields)
     {
-        if (fields is null || fields.Count == 0)
-        {
-            return new Dictionary<string, object?>();
-        }
-
         var safe = new Dictionary<string, object?>(StringComparer.Ordinal);
-        foreach (var pair in fields)
-        {
-            safe[pair.Key] = NormalizeValue(pair.Value);
-        }
-
+        if (fields is not null)
+            foreach (var pair in fields) safe[pair.Key] = NormalizeValue(pair.Value);
         return safe;
     }
 
-    private static object? NormalizeValue(object? value)
+    private static object? NormalizeValue(object? value) => value switch
     {
-        return value switch
-        {
-            null => null,
-            string text => text,
-            bool boolean => boolean,
-            byte or sbyte or short or ushort or int or uint or long or ulong or float or double or decimal => value,
-            DateTime dateTime => dateTime.ToString("O"),
-            DateTimeOffset dateTimeOffset => dateTimeOffset.ToString("O"),
-            TimeSpan timeSpan => timeSpan.ToString(),
-            _ => value.ToString()
-        };
-    }
-
-    private static string ReadFieldText(IReadOnlyDictionary<string, object?> fields, string name)
-    {
-        return fields.TryGetValue(name, out var value) && value is not null
-            ? Convert.ToString(value)?.Trim() ?? string.Empty
-            : string.Empty;
-    }
-
-    private sealed record RoadhogLogFileEntry(
-        DateTimeOffset Timestamp,
-        string Level,
-        string EventName,
-        IReadOnlyDictionary<string, object?> Fields,
-        string? Error);
+        null => null,
+        string text => text,
+        bool boolean => boolean,
+        byte or sbyte or short or ushort or int or uint or long or ulong or float or double or decimal => value,
+        DateTime dateTime => dateTime.ToString("O"),
+        DateTimeOffset dateTimeOffset => dateTimeOffset.ToString("O"),
+        TimeSpan timeSpan => timeSpan.ToString(),
+        _ => value.ToString()
+    };
 }

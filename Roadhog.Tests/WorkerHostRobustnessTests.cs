@@ -10,6 +10,7 @@ internal static class WorkerHostRobustnessTests
     public static async Task InitializationExceptionHasDistinctStatusAndStackAsync()
     {
         using var test = new EnvironmentScope();
+        test.Spec.Account.ScriptSettings = new() { GenerateLogFiles = true };
         using var lifetime = new CancellationTokenSource();
         var running = new WorkerProcessHost(_ => throw new IOException("temporary backend construction failure"))
             .RunAsync(test.Spec, lifetime.Token);

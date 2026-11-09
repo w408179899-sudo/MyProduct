@@ -21,20 +21,23 @@ internal static class FileLoggingSettingsTests
             await File.WriteAllTextAsync(accountPath, "{\"Accounts\":[{\"AccountName\":\"account1\",\"ScriptSettings\":{}}]}");
             var accounts = new JsonAccountConfigStore(accountPath);
             var account = (await accounts.LoadAllAsync()).Value!.Single();
-            Require(account.ScriptSettings!.GenerateLogFiles, "old account JSON must default to logging enabled");
+            Require(account.ScriptSettings!.GenerateLogFiles, "account JSON without the setting must default to logging enabled");
             var profiles = new JsonScriptProfileStore(Path.Combine(root, "profiles"));
             Directory.CreateDirectory(Path.Combine(root, "profiles"));
             await File.WriteAllTextAsync(Path.Combine(root, "profiles", "old.json"), "{\"Name\":\"old\",\"Settings\":{}}");
             Require((await profiles.LoadAsync("old")).Value!.Settings.GenerateLogFiles,
-                "old profiles must default to logging enabled");
-            account.ScriptSettings.GenerateLogFiles = false;
-            Require((await accounts.UpsertAsync(account)).Success, "disabled setting saves to account");
-            Require((await profiles.SaveAsync(new ScriptProfileDocument
-                { Name = "disabled", Settings = account.ScriptSettings.Clone() })).Success, "disabled setting saves to profile");
-            Require(!(await accounts.LoadAllAsync()).Value!.Single().ScriptSettings!.GenerateLogFiles,
-                "disabled setting survives account save, load and cloning");
-            Require(!(await profiles.LoadAsync("disabled")).Value!.Settings.GenerateLogFiles,
-                "disabled setting survives profile save, load and cloning");
+                "profiles without the setting must default to logging enabled");
+            foreach (var enabled in new[] { false, true })
+            {
+                account.ScriptSettings.GenerateLogFiles = enabled;
+                Require((await accounts.UpsertAsync(account)).Success, "explicit setting saves to account");
+                Require((await profiles.SaveAsync(new ScriptProfileDocument
+                    { Name = "explicit", Settings = account.ScriptSettings.Clone() })).Success, "explicit setting saves to profile");
+                Require((await accounts.LoadAllAsync()).Value!.Single().ScriptSettings!.GenerateLogFiles == enabled,
+                    "explicit setting survives account save, load and cloning");
+                Require((await profiles.LoadAsync("explicit")).Value!.Settings.GenerateLogFiles == enabled,
+                    "explicit setting survives profile save, load and cloning");
+            }
         }
         finally { Directory.Delete(root, recursive: true); }
     }
@@ -51,7 +54,7 @@ internal static class FileLoggingSettingsTests
             logger.SetFileLoggingEnabled(true);
             logger.Info("vmm.player.read");
             var before = Snapshot(directory);
-            Require(before.Count == 2, "enabled logging must write dated and latest logs");
+            Require(before.Count == 1 && before.ContainsKey("latest.log"), "enabled logging writes only the active file before rotation");
             logger.SetFileLoggingEnabled(false);
             WriteAllLevels(logger);
             Require(before.SequenceEqual(Snapshot(directory)), "disabled logging preserves all existing file contents");
