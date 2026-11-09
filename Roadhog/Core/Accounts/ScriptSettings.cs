@@ -1176,7 +1176,14 @@ public sealed class SpiritmasterSkillKeyRuleConfig
 
 public sealed class SpiritmasterPetHpRuleConfig
 {
-    public int BelowPercent { get; set; } = 68;
+    private int? belowPercent;
+    private int? minPlayerHpPercent;
+
+    public int BelowPercent
+    {
+        get => belowPercent ?? GetDefaultThresholds(SkillId).BelowPercent;
+        set => belowPercent = value;
+    }
 
     public uint SkillId { get; set; }
 
@@ -1184,7 +1191,19 @@ public sealed class SpiritmasterPetHpRuleConfig
 
     public string Key { get; set; } = string.Empty;
 
-    public int MinPlayerHpPercent { get; set; }
+    public int MinPlayerHpPercent
+    {
+        get => minPlayerHpPercent ?? GetDefaultThresholds(SkillId).MinPlayerHpPercent;
+        set => minPlayerHpPercent = value;
+    }
+
+    public static (int BelowPercent, int MinPlayerHpPercent) GetDefaultThresholds(uint skillId) => skillId switch
+    {
+        // client_skills.xml: EL_Pet_RecoverHealth_G1..G4 and EL_EtherCharge_G1.
+        1676 or 1677 or 1678 or 1705 => (30, 80),
+        1785 => (40, 0),
+        _ => (68, 0)
+    };
 
     public SpiritmasterPetHpRuleConfig Clone()
     {

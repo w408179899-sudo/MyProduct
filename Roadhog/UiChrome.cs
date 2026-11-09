@@ -447,6 +447,12 @@ namespace Roadhog
 
         public event EventHandler? SelectedIndexChanged;
 
+        public event EventHandler? SelectionChangeCommitted
+        {
+            add => _comboBox.SelectionChangeCommitted += value;
+            remove => _comboBox.SelectionChangeCommitted -= value;
+        }
+
         public ComboBox.ObjectCollection Items => _comboBox.Items;
 
         public ComboBoxStyle DropDownStyle

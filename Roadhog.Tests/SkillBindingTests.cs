@@ -273,6 +273,59 @@ internal static class SkillBindingTests
         thread.SetApartmentState(ApartmentState.STA); thread.Start(); return completion.Task;
     }
 
+    public static Task SpiritPetHpDefaultsAsync()
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                var log = new InMemoryRoadhogLogger();
+                var source = Settings();
+                source.Skills.Spiritmaster.PetHpMaintenanceRules = new()
+                {
+                    new() { SkillId = 1678, SkillName = "元素补充 III", Key = "D4", BelowPercent = 17, MinPlayerHpPercent = 0 }
+                };
+                using var form = new AccountSettingsForm("account2", new RoadhogRuntime(new FakeGameApi(), log, new AccountRuntimeManager(log), null!),
+                    new InMemoryAccountConfigStore(new AccountConfig { AccountName = "account2", ScriptSettings = source }),
+                    new InMemorySharedPathStore(), new InMemoryScriptProfileStore(), new RecordingFolderLauncher(), "test-paths");
+                object? Call(string name, params object?[] values) => typeof(AccountSettingsForm).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(form, values);
+                typeof(AccountSettingsForm).GetField("currentManualSkills", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(form,
+                    new[] { Skill(1678, "元素补充 III"), Skill(1785, "精灵强化:恢复 I"), Skill(102, "other heal") });
+                using var dialog = (Form)Call("CreateSpiritmasterSettingsDialog")!;
+                var list = (FlowLayoutPanel)typeof(AccountSettingsForm).GetField("spiritmasterPetHpRuleList", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form)!;
+                var row = list.Controls[0];
+                var combo = row.Controls.OfType<RoundedComboBox>().Single();
+                var pet = row.Controls.Find("spiritmasterPetHpBelowTextBox", true).Single();
+                var player = row.Controls.Find("spiritmasterPetHpMinPlayerHpTextBox", true).Single();
+                Check(pet.Text == "17" && player.Text == "0", "loading existing custom thresholds never resets them to defaults");
+                void SelectSkill(uint id)
+                {
+                    combo.SelectedIndex = Enumerable.Range(0, combo.Items.Count).Single(index =>
+                        (uint)combo.Items[index]!.GetType().GetProperty("SkillId")!.GetValue(combo.Items[index])! == id);
+                    typeof(ComboBox).GetMethod("OnSelectionChangeCommitted", BindingFlags.Instance | BindingFlags.NonPublic)!
+                        .Invoke(combo.Controls.OfType<ComboBox>().Single(), new object[] { EventArgs.Empty });
+                }
+                SelectSkill(1785);
+                Check(pet.Text == "40" && player.Text == "0", "choosing enhanced recovery applies pet 40 and unrestricted player HP");
+                SelectSkill(1678);
+                Check(pet.Text == "30" && player.Text == "80", "choosing elemental replenishment applies pet 30 and player 80");
+                pet.Text = "45";
+                player.Text = "12";
+                Call("PopulateMaintenanceSkillCombo", combo, 1678u, "元素补充 III");
+                Check(pet.Text == "45" && player.Text == "12", "automatic candidate refresh preserves edited thresholds");
+                var saved = (SpiritmasterSkillSettings)Call("CaptureSpiritmasterSettings")!;
+                Check(saved.PetHpMaintenanceRules.Single().BelowPercent == 45 && saved.PetHpMaintenanceRules.Single().MinPlayerHpPercent == 12,
+                    "edited thresholds still save independently of skill defaults");
+                SelectSkill(102);
+                Check(pet.Text == "68" && player.Text == "0", "other configured skills retain ordinary defaults");
+                completion.SetResult();
+            }
+            catch (Exception ex) { completion.SetException(ex); }
+        });
+        thread.SetApartmentState(ApartmentState.STA); thread.Start(); return completion.Task;
+    }
+
     public static Task SpiritLayoutAsync()
     {
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

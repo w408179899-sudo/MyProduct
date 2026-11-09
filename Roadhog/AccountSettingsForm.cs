@@ -7103,6 +7103,13 @@ namespace Roadhog
                 Math.Clamp(minPlayerHpPercent, 0, 100).ToString(CultureInfo.InvariantCulture), 318, 36, 54, 28);
             playerHpTextBox.Name = "spiritmasterPetHpMinPlayerHpTextBox";
             AddLabel(row, "%（0 不限制）", 380, 38, 128, 24);
+            // Apply defaults only for a user selection, never during load or skill refresh.
+            skillCombo.SelectionChangeCommitted += (_, _) =>
+            {
+                var defaults = SpiritmasterPetHpRuleConfig.GetDefaultThresholds(GetSelectedMaintenanceSkill(skillCombo).SkillId);
+                thresholdTextBox.Text = defaults.BelowPercent.ToString(CultureInfo.InvariantCulture);
+                playerHpTextBox.Text = defaults.MinPlayerHpPercent.ToString(CultureInfo.InvariantCulture);
+            };
             list.Controls.Add(row);
         }
 

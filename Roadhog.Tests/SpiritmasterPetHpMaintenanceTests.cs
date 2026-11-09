@@ -6,6 +6,23 @@ internal static class SpiritmasterPetHpMaintenanceTests
 {
     private static readonly uint[] Skills = { 1678, 1785, 900009 };
 
+    public static Task SkillSpecificDefaultsAsync()
+    {
+        foreach (var id in new uint[] { 1676, 1677, 1678, 1705, 1785, 900009 })
+        {
+            var expected = id == 1785 ? (40, 0) : id == 900009 ? (68, 0) : (30, 80);
+            var rule = new SpiritmasterPetHpRuleConfig { SkillId = id };
+            Check((rule.BelowPercent, rule.MinPlayerHpPercent) == expected, "skill-specific defaults apply to new rules: " + id);
+            var loaded = JsonSerializer.Deserialize<SpiritmasterPetHpRuleConfig>($"{{\"SkillId\":{id}}}")!;
+            Check((loaded.BelowPercent, loaded.MinPlayerHpPercent) == expected, "missing JSON fields use the skill default: " + id);
+            rule.BelowPercent = 17;
+            rule.MinPlayerHpPercent = 0;
+            var copied = JsonSerializer.Deserialize<SpiritmasterPetHpRuleConfig>(JsonSerializer.Serialize(rule.Clone()))!;
+            Check(copied.BelowPercent == 17 && copied.MinPlayerHpPercent == 0, "explicit overrides including zero survive clone/save/load: " + id);
+        }
+        return Task.CompletedTask;
+    }
+
     public static Task ConfigurationCompatibilityAsync()
     {
         var legacy = JsonSerializer.Deserialize<SpiritmasterPetHpRuleConfig>(
