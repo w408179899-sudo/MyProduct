@@ -12,7 +12,7 @@ namespace Roadhog.Application.Trading;
 public enum GroceryNpcSaleOutcome { AllItemsSold, SaleRejected, ItemsRemain, Failed }
 
 /// <summary>The grocery-only route and NPC stage. Ordinary cleanup owns its existing return policy.</summary>
-public sealed class GroceryNpcSaleSequence(IKeyboardInput input, ISharedPathStore paths,
+public sealed partial class GroceryNpcSaleSequence(IKeyboardInput input, ISharedPathStore paths,
     BagCleanupPathExecutor executePath, Func<int, CancellationToken, Task>? delay = null,
     Func<DateTimeOffset>? clock = null)
 {
@@ -66,8 +66,7 @@ public sealed class GroceryNpcSaleSequence(IKeyboardInput input, ISharedPathStor
                 // Keep the game's initial junk registration/sale even when both configured
                 // sets are empty. Re-read the bag afterwards so overlapping goods are not sold twice.
                 report("先执行杂货全部登录并出售，再处理丢弃集合和出售集合");
-                var junk = await new NpcSaleSequence(input, delay).RunAsync(context, route.CleanupNpcName, state,
-                    selectCandidates: static _ => Array.Empty<InventoryItemSnapshot>(), registerAllJunkFirst: true);
+                var junk = await RunInitialJunkAsync(context, route.CleanupNpcName, state, continuation, report);
                 if (junk == NpcSaleOutcome.NoSale)
                 {
                     Reject("AutomaticJunk");

@@ -153,7 +153,7 @@ internal static partial class GroceryShopTests
             {
                 if (key == "F8") { Api.TargetEntityId = 42; Api.TargetOwnServerObjectId = 42; Api.TargetName = "merchant"; }
                 if (key == "C") npc = npc with { DialogOpen = true };
-                if (key == "Space") npc = npc with { IsOpen = false, DialogOpen = false };
+                if (key == "Space") npc = npc with { IsOpen = false, DialogOpen = false, Basket = Array.Empty<NpcTradeItem>() };
                 if (key == "Escape" && Scenario == "timeout_race") Scenario = "slow_loading";
                 if (key == "Escape") { pendingDiscard = 0; heldDiscard = 0; shop = shop with { Editor = null, OtherModalOpen = false }; }
                 if (key == "I")

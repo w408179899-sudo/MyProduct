@@ -56,8 +56,8 @@ internal static partial class GroceryShopTests
             Check(trip.Events.Count(e => e == "npc_junk_register") == 1 && request.RequestsRestart && trip.ShopStarts == 0,
                 "no configured candidates must not skip the mandatory initial junk registration");
             Check(trip.NpcBatches.Count == (hasJunk ? 1 : 0) &&
-                trip.Events.Count(e => e == "npc_junk_empty_submit") == (hasJunk ? 0 : 1),
-                "submit junk or the empty initial basket once, then finish without a false rejection");
+                trip.Events.Count(e => e == "npc_junk_empty_submit") == 0,
+                "submit confirmed junk only; an unconfirmed empty basket is cancelled without a sale");
         }
     }
 

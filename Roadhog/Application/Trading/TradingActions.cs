@@ -11,6 +11,9 @@ public sealed class TradingActions(IKeyboardInput input, IRoadhogSnapshotReader 
     Func<int, CancellationToken, Task>? delay = null)
 {
     public sealed class ConfirmationTimeoutException() : TimeoutException("游戏未确认操作，已停止；不会重复提交交易。");
+    // Only pre-input guards may use this exception. Input/settlement failures must
+    // remain distinguishable because a sale may already have reached the game.
+    public sealed class ClickNotSentException(string message) : InvalidOperationException(message);
     private string? character;
     public Task Pause(int ms, CancellationToken? cancellation = null) => delay?.Invoke(ms, cancellation ?? token) ?? Task.Delay(ms, cancellation ?? token);
     public async Task Alive()
@@ -49,13 +52,13 @@ public sealed class TradingActions(IKeyboardInput input, IRoadhogSnapshotReader 
     {
         await Alive();
         var state = await read(); var point = locate(state);
-        Require(point != null && guard(state), "交易对象或控件不可操作。");
+        if (point == null || !guard(state)) throw new ClickNotSentException("交易对象或控件不可操作。");
         await new FeedbackMouseMover(input, snapshots, delay).MoveAsync(point!, token);
         await Alive();
         state = await read();
         var cursor = (await snapshots.ReadUiCursorAsync().WaitAsync(token)).Value.Position;
-        Require(guard(state) && locate(state) == point && Math.Abs(cursor.X - point!.X) <= 1 && Math.Abs(cursor.Y - point.Y) <= 1,
-            "点击前交易对象或光标改变。");
+        if (!(guard(state) && locate(state) == point && Math.Abs(cursor.X - point!.X) <= 1 && Math.Abs(cursor.Y - point.Y) <= 1))
+            throw new ClickNotSentException("点击前交易对象或光标改变。");
         try
         {
             if (shift)

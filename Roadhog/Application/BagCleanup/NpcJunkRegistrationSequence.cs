@@ -5,17 +5,30 @@ using Roadhog.Core.Model;
 
 namespace Roadhog.Application.BagCleanup;
 
+internal sealed class NpcJunkRegistrationNotConfirmedException(Exception inner)
+    : TimeoutException("全部杂货登录未确认，尚未提交出售。", inner);
+
 internal static class NpcJunkRegistrationSequence
 {
     public static async Task<InventoryItemSnapshot[]> RunAsync(AccountWorkerContext context, TradingActions actions,
-        Func<Task<NpcTradeSnapshot>> readUi, Func<NpcTradeSnapshot, bool> selling)
+        Func<Task<NpcTradeSnapshot>> readUi, Func<NpcTradeSnapshot, bool> selling, int confirmationTimeoutMs = 8000)
     {
         var inventory = (await context.Snapshots.ReadInventoryAsync().WaitAsync(context.StopToken)).Value;
         await actions.Click(readUi, s => s.RegisterAllJunkButton, s => selling(s) && s.InventoryOpen && s.Basket.Count == 0);
-        // sell_junk fills the local basket in its click handler. Allow the input event to be processed.
-        await actions.Pause(200);
-        var ui = await readUi();
-        TradingActions.Require(selling(ui) && ui.InventoryOpen, "登录全部杂货后商人页面变化。");
+        // Confirm the action from the official basket; an empty publication does
+        // not acknowledge registration. Never submit an empty basket or repeat the click.
+        context.Logger.Info("bag_cleanup.sell.junk_registration.started", new Dictionary<string, object?>
+            { ["account"] = context.Config.AccountName, ["timeoutMs"] = confirmationTimeoutMs });
+        async Task<NpcTradeSnapshot> ReadRegistration()
+        {
+            var observed = await readUi();
+            TradingActions.Require(selling(observed) && observed.InventoryOpen, "登录全部杂货后商人页面变化。");
+            return observed;
+        }
+        NpcTradeSnapshot ui;
+        try { ui = await actions.Wait(ReadRegistration, s => s.Basket.Count > 0, confirmationTimeoutMs); }
+        catch (TradingActions.ConfirmationTimeoutException ex)
+        { throw new NpcJunkRegistrationNotConfirmedException(ex); }
         var settings = context.Config.ScriptSettings!;
         var protectedNames = settings.Maintenance.BagCleanupExcludedItemNames.Concat(new[]
         {

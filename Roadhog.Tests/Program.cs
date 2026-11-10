@@ -750,7 +750,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("npc sale grocery candidate eligibility without item type exclusion", NpcSellEligibilityTests.CandidatePolicyAsync),
     ("npc sale single entries by vendor value with hover identity and submit verification", NpcSaleTests.FlowAsync),
     ("npc sale grocery discard candidates three stacks remainder and unsafe settlement guards", NpcSaleTests.GroceryDiscardBatchesAsync),
-    ("npc sale bulk junk before manual batches with empty rejection and protection guards", NpcJunkSaleTests.FlowAsync),
+    ("npc sale bulk junk confirmation before manual batches with timeout and protection guards", NpcJunkSaleTests.FlowAsync),
     ("shared cleanup sale list executes NPC sale and stops at cap with auction overlap", NpcSaleTests.SharedSellListAsync),
     ("npc sale production decoder basket and controls", PersonalShopDecoderTests.NpcTradeAsync),
     ("inventory discard UI button uses unsaved rules and caps three items", TestInventoryDiscardButtonAsync),
@@ -1662,6 +1662,10 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("grocery NPC junk first rejection stops later NPC sales and enters stall", GroceryShopTests.JunkFirstRejectedAsync)
     ,("grocery NPC junk first always registers even without configured items", GroceryShopTests.JunkFirstWithoutConfiguredItemsAsync)
     ,("grocery NPC junk first protects whitelist scrolls ambiguous sales and stop", GroceryShopTests.JunkFirstFailureAndProtectionAsync)
+    ,("grocery NPC junk first confirms immediate and delayed registration from snapshots", GroceryShopTests.JunkRegistrationConfirmationAsync)
+    ,("grocery NPC junk first registration timeout cancels late basket and continues", GroceryShopTests.JunkRegistrationTimeoutAsync)
+    ,("grocery NPC junk first unsubmitted clicks continue configured sales without return", GroceryShopTests.JunkClickContinuationAsync)
+    ,("grocery NPC junk first recovery preserves stop and closure guards", GroceryShopTests.JunkClickRecoveryGuardsAsync)
     ,("grocery recovery NPC budget editor registered and partial sale close without replay", GroceryShopTests.TradeFailureClosesWindowsAsync)
     ,("grocery recovery UI deadline and explicit user stop", GroceryShopTests.TradeRecoveryDeadlineAndStopAsync)
     ,("grocery recovery input release deadline even after stop", GroceryShopTests.TradeInputReleaseDeadlineAsync)

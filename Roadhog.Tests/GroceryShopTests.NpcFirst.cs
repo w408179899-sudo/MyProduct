@@ -38,10 +38,9 @@ internal static partial class GroceryShopTests
         Check(trip.NpcBatches.SequenceEqual(new[] { 3, 1, 2, 1, 1 }), "discard triples stay within their category; ordinary sell uses single entries");
         Check(trip.NpcSubmittedItems.SelectMany(i => i).SequenceEqual(new ulong[] { 105, 104, 103, 100, 106, 101, 102, 107 }),
             "discard equipment before cheaper other discard goods, then ordinary sales in their normal order");
-        Check(trip.Events.Count(e => e == "npc_junk_register") == 1 && trip.Events.Count(e => e == "npc_junk_empty_submit") == 1 &&
-            trip.Events.IndexOf("npc_junk_register") < trip.Events.IndexOf("npc_junk_empty_submit") &&
-            trip.Events.IndexOf("npc_junk_empty_submit") < trip.Events.IndexOf("npc_submit"),
-            "even an empty junk basket is registered and submitted once before configured sales");
+        Check(trip.Events.Count(e => e == "npc_junk_register") == 1 && !trip.Events.Contains("npc_junk_empty_submit") &&
+            trip.Events.IndexOf("npc_junk_register") < trip.Events.IndexOf("npc_submit"),
+            "unconfirmed initial registration is skipped without empty submission before configured sales");
         Check(trip.ShopStarts == 0 && trip.Follows == 1 && trip.Discards == 0 && request.RequestsRestart && !request.SoldOutConfirmed,
             "NPC sold-out skips stall and discard, then uses existing restart handoff");
         Check(trip.Api.InventoryItems.Select(i => i.InstanceId).Order().SequenceEqual(new ulong[] { 11, 12 }) && trip.Success.Saves == 0,
@@ -62,7 +61,9 @@ internal static partial class GroceryShopTests
                 "existing discount stall completes and restarts without selling or discarding again");
             Check(!trip.Api.InventoryItems.Any(i => i.InstanceId == 12) && trip.Api.InventoryItems.Any(i => i.InstanceId == 102),
                 "stall uses only its existing list; rejected and later non-stall goods remain");
-            Check(trip.Logger.Entries.All(e => e.EventName != "grocery_shop.stage_skipped"), "sale rejection is a normal branch, not an exception");
+            Check(trip.Logger.Entries.Where(e => e.EventName == "grocery_shop.stage_skipped")
+                .All(e => Equals(e.Fields["stage"], "automatic_junk")),
+                "only empty initial registration is skipped; sale rejection remains a normal branch");
         }
     }
 

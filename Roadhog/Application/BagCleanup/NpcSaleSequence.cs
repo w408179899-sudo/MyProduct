@@ -103,20 +103,9 @@ public sealed class NpcSaleSequence(IKeyboardInput input, Func<int, Cancellation
             await actions.BringBagToFront(async () => Selling(await Ui()) && (await Ui()).Basket.Count == 0);
             if (registerAllJunkFirst)
             {
-                var junk = await NpcJunkRegistrationSequence.RunAsync(context, actions, Ui, Selling);
-                if (junk.Length == 0)
-                {
-                    // The requested initial sell click is a no-op when the game's junk selection is empty.
-                    await actions.Click(Ui, s => s.SellButton, s => Selling(s) && s.InventoryOpen && s.Basket.Count == 0);
-                    await actions.Pause(200);
-                    TradingActions.Require(Selling(await Ui()) && (await Ui()).Basket.Count == 0, "空杂货出售后商人列表变化。");
-                    context.Logger.Info("bag_cleanup.sell.junk_empty", new Dictionary<string, object?> { ["account"] = context.Config.AccountName });
-                }
-                else
-                {
-                    state.SetSellCandidates(junk, junk.Length);
-                    if (!await SubmitBatch(junk, junk.Length, "automatic_junk")) return NpcSaleOutcome.NoSale;
-                }
+                var junk = await NpcJunkRegistrationSequence.RunAsync(context, actions, Ui, Selling, confirmationTimeoutMs);
+                state.SetSellCandidates(junk, junk.Length);
+                if (!await SubmitBatch(junk, junk.Length, "automatic_junk")) return NpcSaleOutcome.NoSale;
             }
             while (true)
             {
