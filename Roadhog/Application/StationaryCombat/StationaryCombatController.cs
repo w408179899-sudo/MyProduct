@@ -5381,6 +5381,11 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             return MoveTickDelay;
         }
 
+        if (!await PrepareOrdinaryStationaryAcquireTabAsync(context, state, target).ConfigureAwait(false))
+        {
+            return MoveTickDelay;
+        }
+
         var now = DateTimeOffset.Now;
         state.LastTabAt = now;
         var verifyWindowMs = ReadTabVerifyWindowMs();
