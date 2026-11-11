@@ -9,6 +9,7 @@ public sealed partial class StationaryCombatController
 {
     public async Task SetChannelSwitchPendingAsync(AccountWorkerContext context, StationaryCombatState state, bool pending)
     {
+        if (pending) state.ReturnNavigationFailure.Reset();
         if (state.ChannelSwitchPending == pending) return;
         state.ChannelSwitchPending = pending;
         if (!pending) return;

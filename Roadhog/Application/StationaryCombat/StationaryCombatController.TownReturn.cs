@@ -121,6 +121,7 @@ public sealed partial class StationaryCombatController
 
     private static void AbandonReturnNavigation(AccountWorkerContext context, StationaryCombatState state, string reason)
     {
+        state.ReturnNavigationFailure.Reset();
         state.ReturnNavigationBlocked = false;
         state.CompleteCleanupReturnToCombat();
         state.ClearStartupRecovery();

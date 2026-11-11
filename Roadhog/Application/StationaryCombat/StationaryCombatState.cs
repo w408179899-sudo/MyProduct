@@ -12,6 +12,7 @@ public sealed class StationaryCombatState
 {
     public bool ChannelSwitchPending { get; internal set; }
     public StationaryObstacleNavigationState ObstacleNavigation { get; } = new();
+    public ReturnNavigationFailureState ReturnNavigationFailure { get; } = new();
     public CombatJumpAssistSession? JumpAssist { get; set; }
 
     public StationaryCombatTopLevelState TopLevelState { get; private set; } = StationaryCombatTopLevelState.Normal;
@@ -275,6 +276,7 @@ public sealed class StationaryCombatState
 
     public void EnterDeathRecovery(DateTimeOffset now)
     {
+        ReturnNavigationFailure.Reset();
         ClearPostCombatReturn();
         ReturnNavigationBlocked = false;
         ReturnNavigationRetryAfter = DateTimeOffset.MinValue;

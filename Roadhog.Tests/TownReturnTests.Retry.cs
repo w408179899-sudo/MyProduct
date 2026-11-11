@@ -11,6 +11,8 @@ internal static partial class TownReturnTests
     {
         private DateTimeOffset _now = DateTimeOffset.UtcNow;
         public override DateTimeOffset GetUtcNow() => _now;
+        public override long GetTimestamp() => _now.Ticks;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
         public void Advance(TimeSpan duration) => _now += duration;
     }
 

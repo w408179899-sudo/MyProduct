@@ -97,6 +97,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         StationaryCombatState state,
         string reason = "fixed_channel_attempt")
     {
+        state.ReturnNavigationFailure.Reset();
         semiAutoState.ResetAttackKeyPressThrottle();
         if (state.JumpAssist is not null)
             await state.JumpAssist.StopAsync(reason).ConfigureAwait(false);
@@ -155,6 +156,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state)
     {
+        using var returnFailureTick = state.ReturnNavigationFailure.TrackTick();
+        context.StopToken.ThrowIfCancellationRequested();
         if (await TryTickTownReturnAsync(context, plan, semiAutoState, state).ConfigureAwait(false) is { } returnDelay)
             return returnDelay;
 
@@ -578,8 +581,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                     .ConfigureAwait(false);
                 if (navigation?.Action == RadarNavigationAction.Unreachable)
                 {
-                    await StopMovementAsync(context, state).ConfigureAwait(false);
-                    LogRadarNavigation(context, state, navigation, "outside_radius");
+                    await HandleUnreachableReturnAsync(context, state, navigation, "outside_radius").ConfigureAwait(false);
                     return IdleDelay;
                 }
 
@@ -678,8 +680,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                     .ConfigureAwait(false);
                 if (navigation?.Action == RadarNavigationAction.Unreachable)
                 {
-                    await StopMovementAsync(context, state).ConfigureAwait(false);
-                    LogRadarNavigation(context, state, navigation, "no_target");
+                    await HandleUnreachableReturnAsync(context, state, navigation, "no_target").ConfigureAwait(false);
                     return IdleDelay;
                 }
 

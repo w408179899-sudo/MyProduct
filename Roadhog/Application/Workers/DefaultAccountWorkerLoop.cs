@@ -170,6 +170,7 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
         {
             while (!context.StopToken.IsCancellationRequested)
             {
+                using var returnFailureTick = stationaryCombatState.ReturnNavigationFailure.TrackTick();
                 using var readBudget = SnapshotReadBudget.Enter(TimeSpan.FromSeconds(2));
                 var cleanupOperationActive = false;
                 try

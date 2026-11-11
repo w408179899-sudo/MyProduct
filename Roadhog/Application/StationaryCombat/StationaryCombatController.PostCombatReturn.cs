@@ -111,8 +111,7 @@ public sealed partial class StationaryCombatController
             RadarNavigationPurpose.ReturnHome, 0, radarSettings, ReturnStopDistance).ConfigureAwait(false);
         if (navigation?.Action == RadarNavigationAction.Unreachable)
         {
-            await StopMovementAsync(context, state).ConfigureAwait(false);
-            LogRadarNavigation(context, state, navigation, "post_combat_return");
+            await HandleUnreachableReturnAsync(context, state, navigation, "post_combat_return").ConfigureAwait(false);
             return IdleDelay;
         }
         var destination = navigation is null ? home : ToVector3(navigation.Destination, position.Z);

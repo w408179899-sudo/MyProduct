@@ -8,9 +8,15 @@ public sealed partial class StationaryCombatController
 {
     private static readonly TimeSpan StuckTownReturnTimeout = TimeSpan.FromSeconds(90);
 
-    private async Task RecoverBlockedReturnRouteAsync(AccountWorkerContext context, StationaryCombatState state)
+    private Task RecoverBlockedReturnRouteAsync(AccountWorkerContext context, StationaryCombatState state) =>
+        RecoverBlockedReturnRouteCoreAsync(context, state, expectedMapId: null);
+
+    private async Task RecoverBlockedReturnRouteCoreAsync(AccountWorkerContext context, StationaryCombatState state,
+        uint? expectedMapId)
     {
+        context.StopToken.ThrowIfCancellationRequested();
         if (state.StartupTownReturnPending || DateTimeOffset.UtcNow < state.ReturnNavigationRetryAfter) return;
+        state.ReturnNavigationFailure.Reset();
 
         await StopSoloJumpAsync(state, "return_route_stuck").ConfigureAwait(false);
         StopNextTargetPreAim(context, state, "return_route_stuck", clearCandidate: true);
@@ -44,6 +50,10 @@ public sealed partial class StationaryCombatController
                 AbandonReturnNavigation(context, state, "卡住回城时场景正在切换");
                 return;
             }
+
+            // A return failure observed on the previous map must not recall from a new scene.
+            if (expectedMapId.HasValue && scene.Channel!.MapId != expectedMapId.Value) return;
+            context.StopToken.ThrowIfCancellationRequested();
 
             var transition = new TownReturnTransition();
             transition.Start(scene, route, DateTimeOffset.UtcNow);
