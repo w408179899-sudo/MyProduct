@@ -218,6 +218,14 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                         await Task.Delay(context.Options.TickInterval, context.StopToken).ConfigureAwait(false);
                         continue;
                     }
+                    if (context.GameSessionRequests.Current is null &&
+                        !context.CleanupRequests.StandaloneShopRestartRequestId.HasValue &&
+                        await _stationaryCombat.TryPrepareStartupResourceReturnAsync(
+                            context, semiAutoState, stationaryCombatState).ConfigureAwait(false) is { } startupResourceDelay)
+                    {
+                        await Task.Delay(startupResourceDelay, context.StopToken).ConfigureAwait(false);
+                        continue;
+                    }
                     if (context.CleanupRequests.Current is { Failure: not null } failedShop)
                     {
                         nextCleanupCheck = DateTimeOffset.UtcNow.AddSeconds(30);

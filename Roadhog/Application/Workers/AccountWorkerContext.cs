@@ -41,6 +41,7 @@ public sealed class AccountWorkerContext
 
     public CleanupRequestMailbox CleanupRequests { get; }
     public GameSessions.GameSessionRequestMailbox GameSessionRequests { get; }
+    internal StartupResourceReturnState StartupResourceReturn { get; } = new();
     public bool WorkflowOwnsCleanup { get; set; }
     public double? CleanupPathFinalReachDistance { get; private init; }
 
@@ -57,8 +58,16 @@ public sealed class AccountWorkerContext
     {
         if (SkillBindings is not null) return;
         // Readiness is a gameplay boundary; DMA retries and publication remain below this API.
-        while (!(await Snapshots.ReadChannelTransitionAsync().ConfigureAwait(false)).Value.IsReady)
+        while (true)
+        {
+            var scene = (await Snapshots.ReadChannelTransitionAsync().ConfigureAwait(false)).Value;
+            if (scene.IsReady)
+            {
+                StartupResourceReturn.Observe(scene.Player!);
+                break;
+            }
             await Task.Delay(100, StopToken).ConfigureAwait(false);
+        }
         var quickbar = (await Snapshots.ReadQuickbarAsync().ConfigureAwait(false)).Value;
         var skills = (await Snapshots.ReadSkillsAsync().ConfigureAwait(false)).Value;
         // Full skill lists group ranks for the editor. Include exact lower-rank skills on the bar too.
@@ -87,6 +96,7 @@ public sealed class AccountWorkerContext
         Config = config; Snapshots = source.Snapshots; Logger = source.Logger; RuntimeStates = source.RuntimeStates;
         Options = source.Options; StopToken = source.StopToken; CleanupRequests = source.CleanupRequests;
         GameSessionRequests = source.GameSessionRequests;
+        StartupResourceReturn = source.StartupResourceReturn;
         WorkflowOwnsCleanup = source.WorkflowOwnsCleanup;
         SkillBindings = source.SkillBindings;
     }
