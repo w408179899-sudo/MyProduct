@@ -10,7 +10,7 @@ using Roadhog.Infrastructure.WorkerProcesses;
 using System.Reflection;
 using System.Windows.Forms;
 
-internal static class EquipmentUpgradeTests
+internal static partial class EquipmentUpgradeTests
 {
     public static Task UiAndRpcAsync()
     {

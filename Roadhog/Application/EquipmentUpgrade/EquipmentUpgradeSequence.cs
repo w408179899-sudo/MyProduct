@@ -11,7 +11,7 @@ namespace Roadhog.Application.EquipmentUpgrade;
 public sealed record EquipmentUpgradeResult(int Attempts, int Completed, string Message);
 
 public sealed class EquipmentUpgradeSequence(IKeyboardInput input, IRoadhogLogger logger,
-    Func<int, CancellationToken, Task>? delay = null)
+    Func<int, CancellationToken, Task>? delay = null, TimeSpan? actionConfirmationTimeout = null)
 {
     public const int CastWaitMilliseconds = 6000;
     public const int MaximumEnchantLevel = 10;
@@ -38,7 +38,7 @@ public sealed class EquipmentUpgradeSequence(IKeyboardInput input, IRoadhogLogge
             if (!ui.BagOpen)
             {
                 Check(await input.PressKeyAsync("I", TimeSpan.FromMilliseconds(60), token));
-                await Wait(u => u.BagOpen);
+                await Wait(u => u.BagOpen, "背包打开");
             }
             foreach (var target in targets)
             {
@@ -111,17 +111,26 @@ public sealed class EquipmentUpgradeSequence(IKeyboardInput input, IRoadhogLogge
         { Report($"{message}；已执行 {attempts} 次，完成 {completed} 件。"); return OperationResult<EquipmentUpgradeResult>.Ok(new(attempts, completed, stage)); }
         void Report(string text) { stage = text; progress?.Report(text); }
         async Task<EquipmentUpgradeUi> Ui() => (await snapshots.ReadEquipmentUpgradeUiAsync().WaitAsync(token)).Value;
-        async Task<EquipmentUpgradeUi> Wait(Func<EquipmentUpgradeUi, bool> condition)
+        async Task<EquipmentUpgradeUi> Wait(Func<EquipmentUpgradeUi, bool> condition, string action = "装备操作结果")
         {
             using var limit = CancellationTokenSource.CreateLinkedTokenSource(token);
-            limit.CancelAfter(TimeSpan.FromSeconds(5));
-            while (true)
+            limit.CancelAfter(actionConfirmationTimeout ?? TimeSpan.FromSeconds(5));
+            using var readCancellation = SnapshotReadBudget.EnterCancellation(limit.Token);
+            try
             {
-                var value = (await snapshots.ReadEquipmentUpgradeUiAsync().WaitAsync(limit.Token)).Value;
-                Require(!value.OtherModalOpen, "其他窗口挡住操作。");
-                if (condition(value)) return value;
-                await Pause(100, limit.Token);
+                while (true)
+                {
+                    limit.Token.ThrowIfCancellationRequested();
+                    var value = (await snapshots.ReadEquipmentUpgradeUiAsync().WaitAsync(limit.Token)).Value;
+                    Require(!value.OtherModalOpen, "其他窗口挡住操作。");
+                    if (condition(value)) return value;
+                    await Pause(20, limit.Token);
+                }
             }
+            catch (SnapshotReadBudgetExceededException) { throw; }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested && limit.IsCancellationRequested)
+            { throw new TimeoutException($"等待{action}超时；未重复点击。"); }
+            finally { limit.Cancel(); }
         }
         async Task ClickItem(EquipmentUpgradeItem item, RoadhogMouseButton button)
         {
@@ -132,26 +141,40 @@ public sealed class EquipmentUpgradeSequence(IKeyboardInput input, IRoadhogLogge
                     ?? throw new InvalidOperationException("目标物品不在可见背包内或数量已变化。");
             }
             var point = Locate(await Ui());
-            await mover.MoveAsync(point, token); await Pause(180, token);
-            var value = await Ui();
-            Require(Locate(value) == point && value.HoveredInstanceId == item.InstanceId, "鼠标悬停物品与目标不符。");
+            await mover.MoveAsync(point, token);
+            await Wait(value =>
+            {
+                Require(Locate(value) == point, "目标物品位置已变化，未点击。");
+                return value.HoveredInstanceId == item.InstanceId;
+            }, $"物品 {item.InstanceId} 悬停确认");
             await Click(point, button);
         }
         async Task Confirm(bool final, uint equipment, uint material)
         {
-            var value = await Wait(u => u.Dialog is { } d && d.FinalConfirmation == final);
+            var action = final ? "最终确认按钮就绪" : "强化/镶嵌确认按钮就绪";
+            bool Ready(EquipmentUpgradeUi ui)
+            {
+                if (ui.Dialog is not { } d || d.FinalConfirmation != final) return false;
+                Require(d.Kind == kind && d.EquipmentId == equipment && d.MaterialId == material, "确认窗口的装备或材料不符。");
+                return d.ConfirmButton != null;
+            }
+            var value = await Wait(Ready, action);
             var dialog = value.Dialog!;
-            Require(dialog.Kind == kind && dialog.EquipmentId == equipment && dialog.MaterialId == material, "确认窗口的装备或材料不符。");
-            var point = dialog.ConfirmButton ?? throw new InvalidOperationException("确认按钮不可点击。");
+            var point = dialog.ConfirmButton!;
             await mover.MoveAsync(point, token);
-            value = await Ui();
-            Require(value.Dialog == dialog && !value.OtherModalOpen, "确认窗口已变化。");
+            await Wait(ui =>
+            {
+                if (!Ready(ui)) return false;
+                Require(ui.Dialog == dialog, "确认窗口已变化，未点击。");
+                return true;
+            }, action);
             await Click(point, RoadhogMouseButton.Left);
         }
         async Task Click(GameUiPoint point, RoadhogMouseButton button)
         {
             var cursor = (await snapshots.ReadUiCursorAsync().WaitAsync(token)).Value.Position;
             Require(Math.Abs(cursor.X - point.X) <= 1 && Math.Abs(cursor.Y - point.Y) <= 1, "鼠标位置已变化。");
+            token.ThrowIfCancellationRequested();
             try { Check(await input.MouseDownAsync(button, token)); await Pause(50, token); }
             finally { Check(await input.MouseUpAsync(button, CancellationToken.None)); }
         }

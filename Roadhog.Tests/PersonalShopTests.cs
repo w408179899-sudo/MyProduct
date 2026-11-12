@@ -18,7 +18,8 @@ internal static class PersonalShopTests
         Require(game.Listings[1].Quantity == 26 && game.Listings.All(l => l.UnitPrice == 1), "whole stack at unit price 1");
         Require(game.Input.Keys.Contains("Y") && game.Input.Keys.Count(k => k == "I") == 2, "open shop, open bag, close bag before start");
         Require(game.Input.MouseCommands.Count(c => c == "down:Right") == 6 && game.Confirms == 6, "one registration per item");
-        Require(game.Delays.Contains(70) && game.Delays.Contains(350) && game.Delays.Contains(250) && game.Delays.Contains(300), "validated timing profile retained");
+        Require(game.Delays.Contains(1) && game.Delays.Contains(350) && game.Delays.Contains(250) && game.Delays.Contains(300),
+            "movement uses action confirmation pacing while shop hover and click waits remain unchanged");
     }
 
     public static async Task FilteringAndCapacityAsync()
