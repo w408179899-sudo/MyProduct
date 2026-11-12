@@ -57,7 +57,7 @@ public sealed class FeedbackMouseMover(IKeyboardInput input, IRoadhogSnapshotRea
         {
             while (true)
             {
-                await (delay?.Invoke(1, deadline.Token) ?? Task.Delay(1, deadline.Token)).ConfigureAwait(false);
+                await (delay?.Invoke(10, deadline.Token) ?? Task.Delay(10, deadline.Token)).ConfigureAwait(false);
                 deadline.Token.ThrowIfCancellationRequested();
                 var cursor = await Read(deadline.Token);
                 deadline.Token.ThrowIfCancellationRequested();
