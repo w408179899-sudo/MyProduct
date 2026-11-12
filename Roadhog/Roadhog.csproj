@@ -38,6 +38,7 @@
     <EmbeddedResource Include="Infrastructure\Login\Native\UuTypes\*.json" />
     <EmbeddedResource Include="Infrastructure\Diagnostics\FileLogSymbols.v1.json" />
     <Content Include="Source\Login\*" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Source\NavigationTests\*.astar.json.gz" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Source\client_skills.xml" Condition="Exists('Source\client_skills.xml')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

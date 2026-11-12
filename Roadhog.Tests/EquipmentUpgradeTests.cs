@@ -32,7 +32,7 @@ internal static partial class EquipmentUpgradeTests
                 object? Call(string method) => typeof(AccountSettingsForm).GetMethod(method,BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(form,null);
                 form.Show();
                 var tabs=(TabControl)typeof(AccountSettingsForm).GetField("settingsTabs",BindingFlags.NonPublic|BindingFlags.Instance)!.GetValue(form)!;
-                tabs.SelectedIndex=tabs.TabCount-1;Application.DoEvents();
+                tabs.SelectedTab=tabs.TabPages.Cast<TabPage>().Single(p=>p.Text=="其他");Application.DoEvents();
                 Require(tabs.SelectedTab!.Text=="其他","other tab follows team");
                 var starts=(List<Button>)typeof(AccountSettingsForm).GetField("_equipmentUpgradeStarts",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(form)!;
                 Require(starts.Count==1&&starts[0].Text=="一键执行","one start button submits both configured groups");

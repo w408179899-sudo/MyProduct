@@ -15,6 +15,9 @@ namespace Roadhog.Application;
 /// </summary>
 public interface IRoadhogRuntime
 {
+    Task<OperationResult> RunAStarWalkTestAsync(string accountName,
+        Roadhog.Application.NavigationTests.AStarWalkTestRequest request, IProgress<string>? progress,
+        CancellationToken cancellationToken) => throw new NotSupportedException();
     Task<OperationResult<Roadhog.Application.ManastoneExchange.ManastoneExchangeResult>> RunManastoneExchangeAsync(
         string accountName, IProgress<string>? progress, CancellationToken token) => throw new NotSupportedException();
     Task<EquipmentUpgradeInventory> RefreshEquipmentUpgradeAsync(string accountName, CancellationToken token) => throw new NotSupportedException();
