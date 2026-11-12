@@ -5,6 +5,35 @@ using Roadhog.Core.Model;
 
 internal static class InventoryItemMouseMoverTests
 {
+    public static async Task ResetToleranceKeepsClickPrecisionAsync()
+    {
+        foreach (var offset in new[] { 2, 3, 4 })
+        foreach (var target in new[] { new GameUiPoint(420, 300), new GameUiPoint(714, 468) })
+        {
+            var api = new FakeGameApi { InventoryUiCursor = new(680 + offset, 468) };
+            var input = new RecordingKeyboardInput();
+            var moves = new List<(int X, int Y)>();
+            var visits = new List<GameUiPoint>();
+            input.AfterMove = (x, y) =>
+            {
+                moves.Add((x, y));
+                api.InventoryUiCursor = new(api.InventoryUiCursor.X + x, api.InventoryUiCursor.Y + y);
+                visits.Add(api.InventoryUiCursor);
+            };
+            var snapshots = api.Create(new AccountConfig(), new InMemoryRoadhogLogger(), CancellationToken.None);
+            await new InventoryItemMouseMover(input, snapshots).MoveAsync(target, CancellationToken.None);
+            Check(api.InventoryUiCursor == target, "item target keeps exact positioning after tolerant waypoint");
+            Check((moves[0] == (-offset, 0)) == (offset > 3), "only the reset waypoint accepts two or three pixel residuals");
+            Check(visits.Any(p => Math.Abs(p.X - target.X) > 32 || Math.Abs(p.Y - target.Y) > 32),
+                "tolerant waypoint still leaves the previous hover even near a bag cell boundary");
+            api.InventoryUiCursor = new(target.X + 2, target.Y);
+            var count = moves.Count;
+            await new FeedbackMouseMover(input, snapshots).MoveAsync(target, CancellationToken.None);
+            Check(moves.Count == count + 1 && api.InventoryUiCursor == target, "normal click targets cannot inherit the waypoint tolerance");
+            Check(!input.MouseCommands.Any(c => c.StartsWith("down:")), "waypoint movement never submits a click");
+        }
+    }
+
     public static async Task ResetAndGuardsAsync()
     {
         foreach (var target in new[] { new GameUiPoint(100, 100), new GameUiPoint(680, 468), new GameUiPoint(681, 468) })

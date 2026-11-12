@@ -63,6 +63,7 @@ internal static partial class GroceryShopTests
         public int HoverFailureAfterDiscards;
         public bool AllowPreDiscard;
         public Action? AfterPreDiscardClose;
+        public Func<int, CancellationToken, Task>? DelayOverride;
         public DateTimeOffset? FirstDiscardAt;
         private uint heldDiscard, pendingDiscard;
         private bool down;
@@ -180,7 +181,7 @@ internal static partial class GroceryShopTests
             {
                 if (button == RoadhogMouseButton.Right)
                 {
-                    if (!npc.IsSelling) Check(CursorVisits.Skip(lastRightClickVisit).Contains(new(680, 468)), "every scroll or stall bag click first visits fixed point");
+                    if (!npc.IsSelling) Check(CursorVisits.Skip(lastRightClickVisit).Any(p => Math.Abs(p.X - 680) <= 3 && Math.Abs(p.Y - 468) <= 3), "every scroll or stall bag click first visits fixed point within waypoint tolerance");
                     else Check(!CursorVisits.Skip(lastRightClickVisit).Contains(new(680, 468)), "NPC sale moves directly to each item");
                     lastRightClickVisit = CursorVisits.Count;
                 }
@@ -271,7 +272,7 @@ internal static partial class GroceryShopTests
             Api.InventoryItems = Api.InventoryItems.Concat(Enumerable.Range(0, count)
                 .Select(i => new InventoryItemSnapshot((uint)(100 + i), (uint)(100 + i), "junk" + i, 1, 2 + i, false))).ToArray();
         }
-        public Task Delay(int ms, CancellationToken token) { token.ThrowIfCancellationRequested(); Now = Now.AddMilliseconds(ms); return Task.CompletedTask; }
+        public Task Delay(int ms, CancellationToken token) { token.ThrowIfCancellationRequested(); Now = Now.AddMilliseconds(ms); return DelayOverride?.Invoke(ms, token) ?? Task.CompletedTask; }
         public CleanupWorkflowRunner Runner() => new(Input, new InMemorySharedPathStore(Route, NpcRoute), (_, name, points) =>
         {
             var route = name == NpcRoute.Name ? NpcRoute : Route;

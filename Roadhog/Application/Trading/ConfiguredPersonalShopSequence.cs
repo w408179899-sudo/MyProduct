@@ -14,6 +14,7 @@ public sealed class ConfiguredPersonalShopSequence(IKeyboardInput input, Func<in
         int? advertisementDiscount = null)
     {
         var actions = new TradingActions(input, snapshots, token, delay);
+        var recovery = new PersonalShopRecovery(actions, report, token);
         var expectedAdvertisement = advertisementDiscount is { } d ? PersonalShopAdvertisement.Text(d) : string.Empty;
         async Task<PersonalShopSnapshot> Ui() => (await snapshots.ReadPersonalShopAsync().WaitAsync(token)).Value;
         async Task<IReadOnlyList<InventoryItemSnapshot>> Bag() => (await snapshots.ReadInventoryAsync().WaitAsync(token)).Value;
@@ -25,7 +26,11 @@ public sealed class ConfiguredPersonalShopSequence(IKeyboardInput input, Func<in
             if (!current.IsSelling) return;
             try
             {
-                await actions.Click(Ui, s => s.StopButton, s => s.IsSelling && s.Listings.Count == 0 && s.Editor == null && !s.OtherModalOpen);
+                await recovery.BeforeInputAsync("关闭空摊", async () =>
+                {
+                    if (!(await Ui()).IsSelling) return;
+                    await actions.Click(Ui, s => s.StopButton, s => s.IsSelling && s.Listings.Count == 0 && s.Editor == null && !s.OtherModalOpen);
+                }, async () => (await Ui()) is { Listings.Count: 0, Editor: null, OtherModalOpen: false });
             }
             catch (InvalidOperationException) when (!token.IsCancellationRequested)
             {
@@ -50,7 +55,9 @@ public sealed class ConfiguredPersonalShopSequence(IKeyboardInput input, Func<in
                 ownsShop = true;
                 await PersonalShopStance.EnsureNormalAsync(actions, snapshots, report, token);
                 if (!ui.IsOpen) { await actions.Key("Y"); await actions.Wait(Ui, s => s.IsOpen); }
-                await PersonalShopAdvertisement.EnsureAsync(actions, Ui, advertisementDiscount, report);
+                await recovery.BeforeInputAsync("设置摊位文字",
+                    () => PersonalShopAdvertisement.EnsureAsync(actions, Ui, advertisementDiscount, report),
+                    async () => (await Ui()) is { IsOpen: true, IsSelling: false, Editor: null, Listings.Count: 0, OtherModalOpen: false });
                 ui = await Ui();
                 if (!ui.InventoryOpen) { await actions.Key("I"); await actions.Wait(Ui, s => s.InventoryOpen); }
                 var registered = new List<PersonalShopListing>();
@@ -63,20 +70,33 @@ public sealed class ConfiguredPersonalShopSequence(IKeyboardInput input, Func<in
                     Require(current != null && current.Count >= item.Count, "计划摆摊物品已变化。");
                     report($"摆摊登记：{item.Name}，{item.Count} 个，单价 {price:N0}");
                     GameUiPoint? Locate(PersonalShopSnapshot s) => s.BagItems.SingleOrDefault(i => i.InstanceId == item.InstanceId && i.TemplateId == item.TemplateId && i.Quantity == current!.Count)?.Point;
-                    await new Roadhog.Application.Input.InventoryItemMouseMover(input, snapshots, delay)
-                        .MoveAsync(Locate(await Ui()) ?? throw new InvalidOperationException("摆摊物品不在可见背包中。"), token, actions.Alive);
-                    await actions.Wait(Ui, s => s.HoveredInstanceId == item.InstanceId);
-                    await actions.Click(Ui, Locate, s => s.IsOpen && !s.IsSelling && s.Editor == null && s.InventoryOpen && !s.OtherModalOpen && s.HoveredInstanceId == item.InstanceId, RoadhogMouseButton.Right);
+                    async Task<bool> CanRegister()
+                    {
+                        var state = await Ui();
+                        var stock = (await Bag()).SingleOrDefault(i => i.InstanceId == item.InstanceId && i.TemplateId == item.TemplateId);
+                        return state.IsOpen && !state.IsSelling && state.Editor == null && state.InventoryOpen && !state.OtherModalOpen &&
+                            state.AdvertisementText == expectedAdvertisement && state.Listings.Count == registered.Count &&
+                            registered.All(state.Listings.Contains) && Locate(state) != null && stock?.Count == current!.Count;
+                    }
+                    await recovery.BeforeInputAsync("登记 " + item.Name, async () =>
+                    {
+                        Require(await CanRegister(), "登记前摊位清单或背包物品已变化。");
+                        await new Roadhog.Application.Input.InventoryItemMouseMover(input, snapshots, delay)
+                            .MoveAsync(Locate(await Ui()) ?? throw new InvalidOperationException("摆摊物品不在可见背包中。"), token, actions.Alive);
+                        await actions.Wait(Ui, s => s.HoveredInstanceId == item.InstanceId);
+                        await actions.Click(Ui, Locate, s => s.IsOpen && !s.IsSelling && s.Editor == null && s.InventoryOpen && !s.OtherModalOpen && s.HoveredInstanceId == item.InstanceId, RoadhogMouseButton.Right);
+                    }, CanRegister);
                     bool Editor(PersonalShopSnapshot s) => s.IsOpen && !s.IsSelling && !s.OtherModalOpen && s.Editor?.InstanceId == item.InstanceId;
-                    ui = await actions.Wait(Ui, Editor);
-                    if (ui.Editor!.Quantity != item.Count) await actions.Number(Ui, s => s.Editor?.QuantityInput, Editor, item.Count);
-                    await actions.Number(Ui, s => s.Editor?.PriceInput, Editor, price);
+                    ui = await recovery.ConfirmAsync("物品编辑框", () => actions.Wait(Ui, Editor));
+                    if (ui.Editor!.Quantity != item.Count)
+                        await recovery.BeforeInputAsync("设置数量", () => actions.Number(Ui, s => s.Editor?.QuantityInput, Editor, item.Count), async () => Editor(await Ui()));
+                    await recovery.BeforeInputAsync("设置单价", () => actions.Number(Ui, s => s.Editor?.PriceInput, Editor, price), async () => Editor(await Ui()));
                     bool Ready(PersonalShopSnapshot s) => Editor(s) && s.Editor!.UnitPriceMode && s.Editor.Quantity == item.Count && s.Editor.UnitPrice == price && s.Editor.TotalPrice == checked(price * item.Count);
-                    await actions.Wait(Ui, Ready);
-                    await actions.Click(Ui, s => s.Editor?.ConfirmButton, Ready);
+                    await recovery.ConfirmAsync("数量和单价", () => actions.Wait(Ui, Ready));
+                    await recovery.BeforeInputAsync("确认登记", () => actions.Click(Ui, s => s.Editor?.ConfirmButton, Ready), async () => Ready(await Ui()));
                     var listing = new PersonalShopListing(checked((uint)item.InstanceId), item.TemplateId, item.Count, price);
                     registered.Add(listing);
-                    await actions.Wait(Ui, s => s.Editor == null && s.Listings.Count == registered.Count && registered.All(s.Listings.Contains));
+                    await recovery.ConfirmAsync("登记清单", () => actions.Wait(Ui, s => s.Editor == null && s.Listings.Count == registered.Count && registered.All(s.Listings.Contains)));
                 }
                 ui = await Ui();
                 if (ui.InventoryOpen) { await actions.Key("I"); await actions.Wait(Ui, s => !s.InventoryOpen); }
@@ -88,12 +108,13 @@ public sealed class ConfiguredPersonalShopSequence(IKeyboardInput input, Func<in
                     var now = bag.SingleOrDefault(i => i.InstanceId == p.Item.InstanceId)?.Count ?? 0;
                     return before >= p.Item.Count && now <= before - p.Item.Count;
                 });
-                await actions.Click(Ui, s => s.StartButton, s => s.IsOpen && !s.IsSelling && s.Editor == null && !s.InventoryOpen &&
+                bool CanStart(PersonalShopSnapshot s) => s.IsOpen && !s.IsSelling && s.Editor == null && !s.InventoryOpen &&
                     s.AdvertisementText == expectedAdvertisement &&
-                    s.Listings.Count == registered.Count && registered.All(s.Listings.Contains));
+                    !s.OtherModalOpen && s.Listings.Count == registered.Count && registered.All(s.Listings.Contains);
+                await recovery.BeforeInputAsync("开始出售", () => actions.Click(Ui, s => s.StartButton, CanStart), async () => CanStart(await Ui()));
                 // A buyer may take the entire batch before the first post-click read.
                 // An empty list enters settlement verification; it is not sale success by itself.
-                await actions.Wait(Ui, s => s.IsSelling || s.Listings.Count == 0 && s.Editor == null);
+                await recovery.ConfirmAsync("开始出售", () => actions.Wait(Ui, s => s.IsSelling || s.Listings.Count == 0 && s.Editor == null));
                 var started = DateTimeOffset.UtcNow; var nextReport = DateTimeOffset.MinValue;
                 while (true)
                 {
