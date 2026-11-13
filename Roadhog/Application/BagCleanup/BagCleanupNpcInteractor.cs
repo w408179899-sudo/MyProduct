@@ -9,7 +9,6 @@ public sealed class BagCleanupNpcInteractor
 {
     private static readonly TimeSpan F8HoldDuration = TimeSpan.FromMilliseconds(35);
     private static readonly TimeSpan InteractHoldDuration = TimeSpan.FromMilliseconds(100);
-    private static readonly TimeSpan DialogOpenDelay = TimeSpan.FromSeconds(4);
 
     private readonly IKeyboardInput _input;
 
@@ -74,8 +73,7 @@ public sealed class BagCleanupNpcInteractor
 
     public async Task<OperationResult> OpenDialogAsync(AccountWorkerContext context)
     {
-        var selectedId = context.WorkflowOwnsCleanup
-            ? (await context.Snapshots.ReadLockedTargetAsync().WaitAsync(context.StopToken)).Value.ServerObjectId : 0;
+        var selectedId = (await context.Snapshots.ReadLockedTargetAsync().WaitAsync(context.StopToken)).Value.ServerObjectId;
         var press = await _input
             .PressKeyAsync("C", InteractHoldDuration, context.StopToken)
             .ConfigureAwait(false);
@@ -84,27 +82,23 @@ public sealed class BagCleanupNpcInteractor
             return OperationResult.Fail("NPC interact key press failed: " + press.Error);
         }
 
-        if (context.WorkflowOwnsCleanup)
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(context.StopToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(8));
+        using var readCancellation = SnapshotReadBudget.EnterCancellation(deadline.Token);
+        try
         {
-            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(context.StopToken);
-            deadline.CancelAfter(TimeSpan.FromSeconds(8));
-            using var readCancellation = SnapshotReadBudget.EnterCancellation(deadline.Token);
-            try
+            while (true)
             {
-                while (true)
-                {
-                    var dialog = (await context.Snapshots.ReadAuctionHouseAsync().WaitAsync(deadline.Token)).Value;
-                    var selected = (await context.Snapshots.ReadLockedTargetAsync().WaitAsync(deadline.Token)).Value;
-                    if (selectedId == 0 || selected.ServerObjectId != selectedId) return OperationResult.Fail("NPC 对话对象已改变。");
-                    if (dialog.DialogOpen && !dialog.OtherModalOpen) break;
-                    await Task.Delay(100, deadline.Token);
-                }
+                var dialog = (await context.Snapshots.ReadAuctionHouseAsync().WaitAsync(deadline.Token)).Value;
+                var selected = (await context.Snapshots.ReadLockedTargetAsync().WaitAsync(deadline.Token)).Value;
+                if (selectedId == 0 || selected.ServerObjectId != selectedId) return OperationResult.Fail("NPC 对话对象已改变。");
+                if (dialog.DialogOpen && !dialog.OtherModalOpen) break;
+                await Task.Delay(100, deadline.Token);
             }
-            catch (SnapshotReadBudgetExceededException) { throw; }
-            catch (OperationCanceledException) when (!context.StopToken.IsCancellationRequested)
-            { return OperationResult.Fail("未确认 NPC 对话窗口出现。"); }
         }
-        else await DelayAsync(DialogOpenDelay, context.StopToken).ConfigureAwait(false);
+        catch (SnapshotReadBudgetExceededException) { throw; }
+        catch (OperationCanceledException) when (!context.StopToken.IsCancellationRequested)
+        { return OperationResult.Fail("未确认 NPC 对话窗口出现。"); }
         context.Logger.Info("bag_cleanup.npc.dialog.open", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName

@@ -105,9 +105,8 @@ internal static partial class CleanupWorkflowTests
         var logger = new InMemoryRoadhogLogger();
         using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(90));
         var context = new AccountWorkerContext(config, game.Api, logger, new AccountRuntimeManager(logger), new(), stop.Token);
-        var seller = new BagCleanupSeller(game.Input);
         var controller = new BagCleanupController(game.Input, new InMemorySharedPathStore(), (_, _, _) => throw new Exception("discard cannot travel"),
-            seller: seller, discarder: new BagCleanupDiscarder(game.Input, seller, Fast));
+            discarder: new BagCleanupDiscarder(game.Input, Fast));
         var progress = 0;
         await controller.RunDiscardRequestedAsync(context, _ => progress++);
         Require(addedAfterClose && game.Removed.Count == 21 && game.Removed.Distinct().Count() == 21 && game.Confirms == 42,

@@ -51,9 +51,15 @@ internal static class NpcSaleTests
     public static Task SharedSellListAsync() => FlowCoreAsync(true);
     public static Task GroceryDiscardBatchesAsync() => FlowCoreAsync(false, true);
 
-    private static async Task FlowCoreAsync(bool nameListOnly, bool discardBatches = false)
+    public static async Task ControllerAsync()
     {
-        foreach (var scenario in nameListOnly ? new[] { "complete", "sale_limit" } : new[] { "complete", "delayed_sale", "sale_limit", "partial_sale", "uncleared_basket", "read_failure", "existing_basket", "wrong_npc", "foreign_item", "wrong_quantity", "hover_changed", "money_only", "stop" })
+        await FlowCoreAsync(false, workflowOwner: false);
+        await FlowCoreAsync(false, workflowOwner: true);
+    }
+
+    private static async Task FlowCoreAsync(bool nameListOnly, bool discardBatches = false, bool? workflowOwner = null)
+    {
+        foreach (var scenario in workflowOwner.HasValue ? new[] { "complete" } : nameListOnly ? new[] { "complete", "sale_limit" } : new[] { "complete", "delayed_sale", "sale_limit", "partial_sale", "uncleared_basket", "read_failure", "existing_basket", "wrong_npc", "foreign_item", "wrong_quantity", "hover_changed", "money_only", "stop" })
         {
             var api = new FakeGameApi { TargetName = "merchant", TargetOwnServerObjectId = 42, InventoryMoney = 100 };
             var input = new RecordingKeyboardInput();
@@ -94,7 +100,7 @@ internal static class NpcSaleTests
             var order = new List<uint>();
             NpcTradeItem[]? pending = null;
             var settlementReads = 0;
-            using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(scenario == "money_only" ? 1 : 3));
+            using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(workflowOwner.HasValue ? 60 : scenario == "money_only" ? 1 : 3));
             InventoryUiItem[] Bag() => api.InventoryItems.Select(i => new InventoryUiItem((uint)i.InstanceId, i.TemplateId, i.Count, new(700 + i.Slot * 32, 142))).ToArray();
             api.InventoryInteractionRead = () => new(open, false, false, Bag(), scenario == "hover_changed" ? 99u : Bag().FirstOrDefault(i => i.Point == api.InventoryUiCursor)?.InstanceId ?? 0, 0, null, new(512, 384), false);
             api.NpcTradeRead = () =>
@@ -145,7 +151,19 @@ internal static class NpcSaleTests
             var context = new AccountWorkerContext(new() { ScriptSettings = settings }, api, logger, new AccountRuntimeManager(logger), new(), stop.Token);
             var state = new BagCleanupState(); state.Start(0, 0);
             Exception? failure = null;
-            try { await new NpcSaleSequence(input, Fast, confirmationTimeoutMs: 150).RunAsync(context, "merchant", state,
+            try {
+                if (workflowOwner.HasValue)
+                {
+                    context.WorkflowOwnsCleanup = workflowOwner.Value;
+                    state.SetPath(new Roadhog.Core.Paths.SharedPathDocument { Name = "cleanup", CleanupNpcName = "merchant" });
+                    state.Advance(BagCleanupStep.ClickSellItemEntry);
+                    var controller = new BagCleanupController(input, new InMemorySharedPathStore(),
+                        (_, _, _) => Task.FromResult(OperationResult.Ok()));
+                    var result = await controller.TickAfterLootAsync(context, state);
+                    Require(result.Status == BagCleanupTickStatus.Running && state.Step == BagCleanupStep.PostCleanupJump,
+                        "both controller owners must complete verified UI sale and enter the existing return flow");
+                }
+                else await new NpcSaleSequence(input, Fast, confirmationTimeoutMs: 150).RunAsync(context, "merchant", state,
                 discardBatches ? bag => BagCleanupItemMatcher.SelectDiscardItems(bag, settings.Maintenance) : null,
                 discardBatches ? 3 : 1); }
             catch (Exception ex) { failure = ex; }

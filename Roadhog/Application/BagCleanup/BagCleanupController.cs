@@ -32,7 +32,6 @@ public sealed partial class BagCleanupController
     private readonly BagCleanupPathExecutor _pathExecutor;
     private readonly BagCleanupSafetyChecker _safetyChecker;
     private readonly BagCleanupNpcInteractor _npcInteractor;
-    private readonly BagCleanupSeller _seller;
     private readonly BagCleanupDiscarder _discarder;
 
     public BagCleanupController(
@@ -41,7 +40,6 @@ public sealed partial class BagCleanupController
         BagCleanupPathExecutor pathExecutor,
         BagCleanupSafetyChecker? safetyChecker = null,
         BagCleanupNpcInteractor? npcInteractor = null,
-        BagCleanupSeller? seller = null,
         BagCleanupDiscarder? discarder = null)
     {
         _input = input;
@@ -49,8 +47,7 @@ public sealed partial class BagCleanupController
         _pathExecutor = pathExecutor;
         _safetyChecker = safetyChecker ?? new BagCleanupSafetyChecker();
         _npcInteractor = npcInteractor ?? new BagCleanupNpcInteractor(input);
-        _seller = seller ?? new BagCleanupSeller(input);
-        _discarder = discarder ?? new BagCleanupDiscarder(input, _seller);
+        _discarder = discarder ?? new BagCleanupDiscarder(input);
     }
 
     public async Task<BagCleanupTickResult> TickAfterLootAsync(
@@ -98,12 +95,6 @@ public sealed partial class BagCleanupController
             BagCleanupStep.SelectCleanupNpc => await TickSelectCleanupNpcAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.OpenNpcDialog => await TickOpenNpcDialogAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.ClickSellItemEntry => await TickClickSellItemEntryAsync(context, state).ConfigureAwait(false),
-            BagCleanupStep.OpenInventoryWindow => await TickOpenInventoryWindowAsync(context, state).ConfigureAwait(false),
-            BagCleanupStep.ReadSellCandidates => await TickReadSellCandidatesAsync(context, state).ConfigureAwait(false),
-            BagCleanupStep.RegisterSellItems => await TickRegisterSellItemsAsync(context, state).ConfigureAwait(false),
-            BagCleanupStep.CloseInventoryWindow => await TickCloseInventoryWindowAsync(context, state).ConfigureAwait(false),
-            BagCleanupStep.ClickSellButton => await TickClickSellButtonAsync(context, state).ConfigureAwait(false),
-            BagCleanupStep.VerifyInventory => await TickVerifyInventoryAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.PostCleanupJump => await TickPostCleanupJumpAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.BuyArrows => await TickBuyArrowsAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.PressReturnToRevive => await TickPressReturnToReviveAsync(context, state).ConfigureAwait(false),
@@ -305,10 +296,7 @@ public sealed partial class BagCleanupController
         }
 
         state.Start(freeSlots, threshold);
-        var batch = BagCleanupSellBatchPlanner.SelectNextBatch(candidates);
-        state.SetSellCandidates(
-            batch.Items,
-            candidates.Count);
+        state.SetSellCandidates(candidates, candidates.Count);
         context.Logger.Info("bag_cleanup.start", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
@@ -1218,250 +1206,18 @@ public sealed partial class BagCleanupController
         AccountWorkerContext context,
         BagCleanupState state)
     {
-        if (context.WorkflowOwnsCleanup)
+        try
         {
-            try
-            {
-                var outcome = await new NpcSaleSequence(_input).RunAsync(context, state.CleanupNpcName, state);
-                state.PrepareReturnAfterSuccess();
-                return BagCleanupTickResult.Running(outcome == NpcSaleOutcome.NoSale ? "npc_sale_no_sale" : "npc_sale_verified");
-            }
-            catch (SnapshotReadBudgetExceededException) { throw; }
-            catch (CleanupExecutionFailedException) { throw; }
-            catch (Exception ex) when (!context.StopToken.IsCancellationRequested && ex is not OperationCanceledException)
-            {
-                return ReturnByReversePathAfterFailure(context, state, "npc_sale_unconfirmed", ex.Message);
-            }
-        }
-        var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
-        var point = ResolveBagCleanupSellItemClickPoint(state.CleanupPath, maintenance);
-        var result = await _seller
-            .ClickScreenPointAsync(
-                context,
-                point.X,
-                point.Y,
-                "sell_item_entry")
-            .ConfigureAwait(false);
-        if (!result.Success)
-        {
-            return ReturnByReversePathAfterFailure(
-                context,
-                state,
-                "sell_item_entry_click_failed",
-                result.Error ?? "Sell item entry click failed.");
-        }
-
-        await _seller.WaitAfterSellItemEntryAsync(context).ConfigureAwait(false);
-        state.MarkSellItemEntryClicked();
-        state.Advance(BagCleanupStep.OpenInventoryWindow);
-        return BagCleanupTickResult.Running("sell_item_entry_clicked");
-    }
-
-    private async Task<BagCleanupTickResult> TickOpenInventoryWindowAsync(
-        AccountWorkerContext context,
-        BagCleanupState state)
-    {
-        var result = await _seller.OpenInventoryWindowAsync(context).ConfigureAwait(false);
-        if (!result.Success)
-        {
-            return ReturnByReversePathAfterFailure(
-                context,
-                state,
-                "inventory_window_open_failed",
-                result.Error ?? "Inventory window open failed.");
-        }
-
-        state.Advance(BagCleanupStep.ReadSellCandidates);
-        return BagCleanupTickResult.Running("inventory_window_opened");
-    }
-
-    private async Task<BagCleanupTickResult> TickReadSellCandidatesAsync(
-        AccountWorkerContext context,
-        BagCleanupState state)
-    {
-        var read = await context.Snapshots.ReadInventoryAsync().ConfigureAwait(false);
-
-        var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
-        var candidates = BagCleanupItemMatcher.SelectSellRegistrationItems(read.Value, maintenance);
-        var batch = BagCleanupSellBatchPlanner.SelectNextBatch(candidates);
-        context.Logger.Info("bag_cleanup.sell.candidates", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["count"] = candidates.Count,
-            ["batchCount"] = batch.Items.Count,
-            ["batchKind"] = batch.KindName,
-            ["batchIndex"] = state.SellBatchCount + 1,
-            ["maxBatchCount"] = batch.MaxBatchCount
-        });
-
-        if (candidates.Count == 0)
-        {
+            var outcome = await new NpcSaleSequence(_input).RunAsync(context, state.CleanupNpcName, state);
             state.PrepareReturnAfterSuccess();
-            return BagCleanupTickResult.Running("no_sell_candidates_after_return");
+            return BagCleanupTickResult.Running(outcome == NpcSaleOutcome.NoSale ? "npc_sale_no_sale" : "npc_sale_verified");
         }
-
-        state.SetSellCandidates(batch.Items, candidates.Count);
-        state.Advance(BagCleanupStep.RegisterSellItems);
-        return BagCleanupTickResult.Running("sell_candidates_loaded");
-    }
-
-    private async Task<BagCleanupTickResult> TickRegisterSellItemsAsync(
-        AccountWorkerContext context,
-        BagCleanupState state)
-    {
-        var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
-        var read = await context.Snapshots.ReadInventoryWindowAsync(
-                maintenance.BagCleanupItemCoordinateMode == BagCleanupItemCoordinateMode.WindowRectRelativeExperimental
-                    ? InventoryWindowRectSource.RootWidgetRectExperimental : InventoryWindowRectSource.LegacyDialogRect)
-            .ConfigureAwait(false);
-        var coordinateWindow = read.Value;
-
-        var result = await _seller
-            .RegisterSellItemsAsync(context, maintenance, state.SellCandidates, coordinateWindow)
-            .ConfigureAwait(false);
-        if (!result.Success)
+        catch (SnapshotReadBudgetExceededException) { throw; }
+        catch (CleanupExecutionFailedException) { throw; }
+        catch (Exception ex) when (!context.StopToken.IsCancellationRequested && ex is not OperationCanceledException)
         {
-            return ReturnByReversePathAfterFailure(
-                context,
-                state,
-                "sell_register_failed",
-                result.Error ?? "Sell register failed.");
+            return ReturnByReversePathAfterFailure(context, state, "npc_sale_unconfirmed", ex.Message);
         }
-
-        state.MarkSellItemsRegistered(result.Value?.Count ?? state.SellCandidates.Count);
-        await _seller.WaitAfterSellRegistrationAsync(context).ConfigureAwait(false);
-        state.Advance(BagCleanupStep.CloseInventoryWindow);
-        return BagCleanupTickResult.Running("sell_items_registered");
-    }
-
-    private async Task<BagCleanupTickResult> TickCloseInventoryWindowAsync(
-        AccountWorkerContext context,
-        BagCleanupState state)
-    {
-        var result = await _seller.CloseInventoryWindowAsync(context).ConfigureAwait(false);
-        if (!result.Success)
-        {
-            return ReturnByReversePathAfterFailure(
-                context,
-                state,
-                "inventory_window_close_failed",
-                result.Error ?? "Inventory window close failed.");
-        }
-
-        state.MarkInventoryWindowClosed();
-        state.Advance(BagCleanupStep.ClickSellButton);
-        return BagCleanupTickResult.Running("inventory_window_closed");
-    }
-
-    private async Task<BagCleanupTickResult> TickClickSellButtonAsync(
-        AccountWorkerContext context,
-        BagCleanupState state)
-    {
-        var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
-        var point = ResolveBagCleanupSellButtonClickPoint(state.CleanupPath, maintenance);
-        var moneyBefore = await context.Snapshots.ReadInventoryMoneyAsync().ConfigureAwait(false);
-
-        state.SetInitialMoney(moneyBefore.Value);
-        context.Logger.Info("bag_cleanup.sell.money.before", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["money"] = moneyBefore.Value
-        });
-
-        var result = await _seller
-            .ClickScreenPointAsync(
-                context,
-                point.X,
-                point.Y,
-                "sell_button")
-            .ConfigureAwait(false);
-        if (!result.Success)
-        {
-            return ReturnByReversePathAfterFailure(
-                context,
-                state,
-                "sell_button_click_failed",
-                result.Error ?? "Sell button click failed.");
-        }
-
-        state.MarkSellButtonClicked();
-        state.Advance(BagCleanupStep.VerifyInventory);
-        return BagCleanupTickResult.Running("sell_button_clicked");
-    }
-
-    private async Task<BagCleanupTickResult> TickVerifyInventoryAsync(
-        AccountWorkerContext context,
-        BagCleanupState state)
-    {
-        await DelayAsync(TimeSpan.FromMilliseconds(ReadSellVerifyDelayMs()), context.StopToken).ConfigureAwait(false);
-        var moneyAfter = await context.Snapshots.ReadInventoryMoneyAsync().ConfigureAwait(false);
-
-        if (state.InitialMoney is not { } initialMoney)
-        {
-            return ReturnByReversePathAfterFailure(
-                context,
-                state,
-                "money_baseline_missing",
-                "Money before sell was not recorded.");
-        }
-
-        var inventoryRead = await context.Snapshots.ReadInventoryAsync().ConfigureAwait(false);
-        IReadOnlyList<InventoryItemSnapshot> inventory = inventoryRead.Value;
-        var capacity = await ReadInventoryCapacityAsync(context).ConfigureAwait(false);
-        int? totalSlots = capacity.Value;
-        int? occupiedSlots = CountOccupiedSlots(inventory, capacity.Value);
-        int? freeSlots = CountFreeSlots(inventory, capacity.Value);
-
-        var initialIds = state.SellCandidates.Select(item => item.InstanceId).ToHashSet();
-        var remaining = inventory.Count(item => initialIds.Contains(item.InstanceId));
-        var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
-        var remainingSellCandidateCount = BagCleanupItemMatcher
-            .SelectSellRegistrationItems(inventory, maintenance)
-            .Count;
-
-        if (moneyAfter.Value > initialMoney)
-        {
-            var moneyDelta = moneyAfter.Value - initialMoney;
-            state.MarkSellBatchVerified(moneyDelta);
-            context.Logger.Info("bag_cleanup.verify.ok", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["initialMoney"] = initialMoney,
-                ["money"] = moneyAfter.Value,
-                ["moneyDelta"] = moneyDelta,
-                ["totalMoneyDelta"] = state.TotalMoneyDelta,
-                ["initialFreeSlots"] = state.InitialFreeSlots,
-                ["freeSlots"] = freeSlots,
-                ["totalSlots"] = totalSlots,
-                ["occupiedSlots"] = occupiedSlots,
-                ["initialCandidateCount"] = state.InitialCandidateCount,
-                ["batchIndex"] = state.SellBatchCount,
-                ["batchRegisteredCount"] = state.SellCandidates.Count,
-                ["totalRegisteredCount"] = state.TotalRegisteredSellItemCount,
-                ["remainingCandidateCount"] = remaining,
-                ["remainingSellCandidateCount"] = remainingSellCandidateCount
-            });
-
-            if (remainingSellCandidateCount is > 0)
-            {
-                state.Advance(BagCleanupStep.OpenInventoryWindow);
-                return BagCleanupTickResult.Running("money_verified_more_sell_candidates");
-            }
-
-            state.PrepareReturnAfterSuccess();
-            return BagCleanupTickResult.Running("money_verified");
-        }
-
-        return ReturnByReversePathAfterFailure(
-            context,
-            state,
-            "money_verify_failed",
-            "Money did not increase after selling. before=" +
-            initialMoney.ToString(System.Globalization.CultureInfo.InvariantCulture) +
-            ", after=" +
-            moneyAfter.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) +
-            ", remainingCandidateCount=" +
-            remaining.ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
 
     private static BagCleanupTickResult ReturnByReversePathAfterFailure(
@@ -1667,32 +1423,6 @@ public sealed partial class BagCleanupController
             : paths.BagCleanupTownReturnKey.Trim();
     }
 
-    private static (int X, int Y) ResolveBagCleanupSellItemClickPoint(
-        SharedPathDocument? cleanupPath,
-        MaintenanceScriptSettings maintenance)
-    {
-        return cleanupPath?.TryGetBagCleanupClickPoints(
-                out var sellItemClickX,
-                out var sellItemClickY,
-                out _,
-                out _) == true
-            ? (sellItemClickX, sellItemClickY)
-            : (maintenance.BagCleanupSellItemClickX, maintenance.BagCleanupSellItemClickY);
-    }
-
-    private static (int X, int Y) ResolveBagCleanupSellButtonClickPoint(
-        SharedPathDocument? cleanupPath,
-        MaintenanceScriptSettings maintenance)
-    {
-        return cleanupPath?.TryGetBagCleanupClickPoints(
-                out _,
-                out _,
-                out var sellButtonClickX,
-                out var sellButtonClickY) == true
-            ? (sellButtonClickX, sellButtonClickY)
-            : (maintenance.BagCleanupSellButtonClickX, maintenance.BagCleanupSellButtonClickY);
-    }
-
     private async Task<BagCleanupTickResult> TickReturnByReversePathAsync(
         AccountWorkerContext context,
         BagCleanupState state)
@@ -1832,11 +1562,6 @@ public sealed partial class BagCleanupController
         return TimeSpan.FromMilliseconds(ReadIntFromEnv(
             "ROADHOG_BAG_CLEANUP_SAFE_WAIT_TIMEOUT_MS",
             (int)DefaultSafeWaitTimeout.TotalMilliseconds));
-    }
-
-    private static int ReadSellVerifyDelayMs()
-    {
-        return Math.Clamp(ReadIntFromEnv("ROADHOG_BAG_CLEANUP_SELL_VERIFY_DELAY_MS", 1000), 0, 10000);
     }
 
     private static TimeSpan ReadDiscardConfirmTimeout()

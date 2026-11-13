@@ -90,10 +90,10 @@ internal static class InventoryDiscardTests
             game.Api.InventoryDiscardConfirm = new(true, 999, InventoryDiscardConfirmKind.Special, 356, 0, DateTimeOffset.Now);
             return official.Value!;
         };
-        var seller = new BagCleanupSeller(game.Input);
+
         var controller = new BagCleanupController(game.Input, new InMemorySharedPathStore(),
-            (_, _, _) => throw new Exception("must not start NPC cleanup"), seller: seller,
-            discarder: new BagCleanupDiscarder(game.Input, seller, (_, ct) => Task.Delay(1, ct)));
+            (_, _, _) => throw new Exception("must not start NPC cleanup"),
+            discarder: new BagCleanupDiscarder(game.Input, (_, ct) => Task.Delay(1, ct)));
         var state = new BagCleanupState(); state.StartDiscard(0, 1, 13);
         var waited = 0;
         while (state.Active)
@@ -153,7 +153,7 @@ internal static class InventoryDiscardTests
             .DragAsync(game.Api.InventoryItems.Single(), stop.Token);
         // Legacy channel falsely says closed; cancellation must follow the shared UI channel.
         game.Api.InventoryDiscardConfirm = InventoryDiscardConfirmSnapshot.Closed(DateTimeOffset.Now);
-        var discarded = await new BagCleanupDiscarder(game.Input, new BagCleanupSeller(game.Input)).CancelPendingDiscardAsync(context);
+        var discarded = await new BagCleanupDiscarder(game.Input).CancelPendingDiscardAsync(context);
         Require(discarded.Success && game.Input.Keys.Contains("Escape"), "send Escape and verify pending state cleared");
         Require(game.Snapshot().PendingDiscardInstanceId == 0 && game.Removed.Count == 0, "cancel never deletes the item");
         Require(game.Api.LastInventoryDiscardConfirmContext == null, "cancellation must not use the legacy channel");

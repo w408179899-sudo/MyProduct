@@ -73,12 +73,6 @@ internal static class InventoryItemMouseMoverTests
             catch (InvalidOperationException) when (!stop) { }
             Check(api.InventoryUiCursor == InventoryItemMouseMover.ResetPoint, "stop or changed state prevents approaching item after reset");
         }
-        var legacyInput = new RecordingKeyboardInput(); var position = new GameUiPoint(100, 100); var legacyVisits = new List<GameUiPoint>();
-        legacyInput.AfterMove = (x, y) =>
-        { position = new(Math.Max(0, position.X + x), Math.Max(0, position.Y + y)); legacyVisits.Add(position); };
-        Check((await InventoryItemMouseMover.MoveScreenPointAsync(legacyInput, 140, 240, 1, TimeSpan.Zero, CancellationToken.None)).Success,
-            "legacy screen-point item entry succeeds");
-        Check(legacyVisits.Contains(InventoryItemMouseMover.ResetPoint) && position == new GameUiPoint(140, 240), "legacy entry also visits fixed point first");
     }
 
     private static void Check(bool value, string message) { if (!value) throw new Exception(message); }

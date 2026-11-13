@@ -93,13 +93,6 @@ public interface IRoadhogRuntime
     Task<OperationResult> TestSwitchChannelAsync(
         string accountName, int targetChannelNumber, CancellationToken cancellationToken = default);
 
-    Task<OperationResult<BagCleanupSellRegistrationResult>> TestRegisterBagCleanupSellItemsAsync(
-        string? accountName, MaintenanceScriptSettings settings, CancellationToken cancellationToken = default);
-
-    Task<OperationResult<BagCleanupManualTestResult>> TestBagCleanupFromNpcAsync(
-        string? accountName, string npcName, MaintenanceScriptSettings settings,
-        CancellationToken cancellationToken = default);
-
     Task<OperationResult> ExecutePathAsync(
         string accountName, string pathName, IReadOnlyList<SharedPathPoint> points,
         ScriptSettings? settings = null, CancellationToken cancellationToken = default);

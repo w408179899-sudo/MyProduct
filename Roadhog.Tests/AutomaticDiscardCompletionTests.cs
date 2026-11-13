@@ -138,9 +138,8 @@ internal static partial class CleanupWorkflowTests
         using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         var context = new AccountWorkerContext(new AccountConfig { AccountName = "closed-bag-recheck", ScriptSettings = new() { Maintenance = game.Settings } },
             game.Api, logger, new AccountRuntimeManager(logger), new(), stop.Token);
-        var seller = new BagCleanupSeller(game.Input);
         var controller = new BagCleanupController(game.Input, new InMemorySharedPathStore(), (_, _, _) => throw new Exception("no NPC work expected"),
-            seller: seller, discarder: new BagCleanupDiscarder(game.Input, seller, Fast));
+            discarder: new BagCleanupDiscarder(game.Input, Fast));
         var state = new BagCleanupState();
         var result = await controller.TickAfterLootAsync(context, state);
         while (state.Active)
@@ -165,9 +164,8 @@ internal static partial class CleanupWorkflowTests
             using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(20));
             var context = new AccountWorkerContext(new AccountConfig { AccountName = mode, ScriptSettings = new() { Maintenance = game.Settings } },
                 game.Api, logger, new AccountRuntimeManager(logger), new(), stop.Token);
-            var seller = new BagCleanupSeller(game.Input);
             var controller = new BagCleanupController(game.Input, new InMemorySharedPathStore(), (_, _, _) => throw new Exception("unexpected travel"),
-                seller: seller, discarder: new BagCleanupDiscarder(game.Input, seller, (_, ct) => Task.Delay(1, ct)));
+                discarder: new BagCleanupDiscarder(game.Input, (_, ct) => Task.Delay(1, ct)));
             var state = new BagCleanupState(); state.StartDiscard(0, 1, 1);
             var up = game.Input.AfterMouseUp;
             if (mode == "input-exception")

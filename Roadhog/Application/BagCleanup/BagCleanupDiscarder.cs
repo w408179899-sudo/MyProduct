@@ -8,14 +8,12 @@ namespace Roadhog.Application.BagCleanup;
 public sealed class BagCleanupDiscarder
 {
     private readonly IKeyboardInput _input;
-    private readonly BagCleanupSeller _inventoryWindow;
     private readonly Func<int, CancellationToken, Task>? _actionDelay;
 
-    public BagCleanupDiscarder(IKeyboardInput input, BagCleanupSeller inventoryWindow,
+    public BagCleanupDiscarder(IKeyboardInput input,
         Func<int, CancellationToken, Task>? actionDelay = null)
     {
         _input = input;
-        _inventoryWindow = inventoryWindow;
         _actionDelay = actionDelay;
     }
 
@@ -120,7 +118,7 @@ public sealed class BagCleanupDiscarder
             }
             else
             {
-                var close = await _inventoryWindow.CloseInventoryWindowAsync(context).ConfigureAwait(false);
+                var close = await CloseInventoryWindowAsync(context).ConfigureAwait(false);
                 if (!close.Success)
                 {
                     lastError = close.Error;
@@ -150,6 +148,21 @@ public sealed class BagCleanupDiscarder
         }
 
         return OperationResult.Fail(lastError ?? "Inventory window close failed after discard.");
+    }
+
+    private async Task<OperationResult> CloseInventoryWindowAsync(AccountWorkerContext context)
+    {
+        var close = await _input.PressKeyAsync("I", TimeSpan.FromMilliseconds(35), context.StopToken)
+            .ConfigureAwait(false);
+        if (!close.Success) return OperationResult.Fail("Inventory close toggle failed: " + close.Error);
+        await DelayAsync(TimeSpan.FromMilliseconds(1100), context.StopToken).ConfigureAwait(false);
+        context.Logger.Info("bag_cleanup.inventory.close.requested", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["key"] = "I",
+            ["settleMs"] = 1100
+        });
+        return OperationResult.Ok();
     }
 
     private static TimeSpan ReadDelayMs(string name, int fallback)

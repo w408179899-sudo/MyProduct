@@ -82,8 +82,6 @@ public sealed class BagCleanupState
 
     public bool HasRegisteredSellItems { get; private set; }
 
-    public bool HasClosedInventoryWindow { get; private set; }
-
     public bool HasClickedSellButton { get; private set; }
 
     public bool IsReturningAfterFailure => !string.IsNullOrWhiteSpace(ReturnAfterFailureReason);
@@ -128,7 +126,6 @@ public sealed class BagCleanupState
         HasOpenedNpcDialog = false;
         HasClickedSellItemEntry = false;
         HasRegisteredSellItems = false;
-        HasClosedInventoryWindow = false;
         HasClickedSellButton = false;
         ResetDiscardFields();
     }
@@ -242,11 +239,6 @@ public sealed class BagCleanupState
         TotalRegisteredSellItemCount += Math.Max(0, count);
     }
 
-    public void MarkInventoryWindowClosed()
-    {
-        HasClosedInventoryWindow = true;
-    }
-
     public void MarkSellButtonClicked()
     {
         HasClickedSellButton = true;
@@ -356,7 +348,6 @@ public sealed class BagCleanupState
         HasOpenedNpcDialog = false;
         HasClickedSellItemEntry = false;
         HasRegisteredSellItems = false;
-        HasClosedInventoryWindow = false;
         HasClickedSellButton = false;
         ResetDiscardFields();
     }

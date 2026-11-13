@@ -1,5 +1,4 @@
 using Roadhog.Core.Api;
-using Roadhog.Core.Common;
 using Roadhog.Core.Input;
 using Roadhog.Core.Model;
 
@@ -27,19 +26,5 @@ public sealed class InventoryItemMouseMover(IKeyboardInput input, IRoadhogSnapsh
             if (guard != null) await guard();
         }
         await mover.MoveAsync(point, token);
-    }
-
-    public static async Task<OperationResult> MoveScreenPointAsync(IKeyboardInput input, int x, int y,
-        int resetCount, TimeSpan stepDelay, CancellationToken token)
-    {
-        if (x < 0 || y < 0 || x > short.MaxValue || y > short.MaxValue)
-            return OperationResult.Fail("Absolute mouse target must be between 0 and 32767.");
-        var reset = await ScreenPointMouseMover.MoveToAsync(input, ResetPoint.X, ResetPoint.Y,
-            resetCount, stepDelay, token);
-        if (!reset.Success) return reset;
-        token.ThrowIfCancellationRequested();
-        var result = await input.MoveMouseRelativeAsync(x - ResetPoint.X, y - ResetPoint.Y, token);
-        if (result.Success && stepDelay > TimeSpan.Zero) await Task.Delay(stepDelay, token);
-        return result;
     }
 }

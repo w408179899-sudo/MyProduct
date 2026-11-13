@@ -57,9 +57,8 @@ internal static class AutomaticDiscardLimitTests
             var settings = new ScriptSettings { MainMode = AccountMainMode.SemiAuto, Maintenance = Game.Settings };
             Context = new(new() { AccountName = "discard-limit", MainMode = AccountMainMode.SemiAuto, ScriptSettings = settings },
                 Game.Api, Logger, new AccountRuntimeManager(Logger), new() { TickInterval = TimeSpan.FromMilliseconds(5) }, Stop.Token);
-            var seller = new BagCleanupSeller(Game.Input);
             Controller = new(Game.Input, new InMemorySharedPathStore(), (_, _, _) => throw new Exception("local limit cannot travel"),
-                seller: seller, discarder: new BagCleanupDiscarder(Game.Input, seller, (_, ct) => Task.Delay(1, ct)));
+                discarder: new BagCleanupDiscarder(Game.Input, (_, ct) => Task.Delay(1, ct)));
         }
         public async Task<BagCleanupTickResult> Finish(BagCleanupState state)
         {

@@ -100,10 +100,10 @@ internal static partial class CleanupWorkflowTests
             var context = new AccountWorkerContext(new AccountConfig
             { AccountName = "workflow-retry-" + mode, ScriptSettings = new() { Maintenance = game.Settings } },
                 game.Api, logger, new AccountRuntimeManager(logger), new(), stop.Token) { WorkflowOwnsCleanup = true };
-            var seller = new BagCleanupSeller(game.Input);
+
             var controller = new BagCleanupController(game.Input, new InMemorySharedPathStore(),
-                (_, _, _) => throw new Exception("discard retry must not enter sale or travel"), seller: seller,
-                discarder: new BagCleanupDiscarder(game.Input, seller, (_, ct) => Task.Delay(1, ct)));
+                (_, _, _) => throw new Exception("discard retry must not enter sale or travel"),
+                discarder: new BagCleanupDiscarder(game.Input, (_, ct) => Task.Delay(1, ct)));
             var work = controller.RunDiscardRequestedAsync(context, _ => { });
             try
             {

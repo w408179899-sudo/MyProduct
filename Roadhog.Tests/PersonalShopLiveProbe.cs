@@ -144,7 +144,7 @@ internal static class PersonalShopLiveProbe
                     Print("automatic_test_trigger", new { freeSlots, config.ScriptSettings.Maintenance.BagCleanupThreshold, maxItems = 3 });
                     var controller = new BagCleanupController(productionInput, new InMemorySharedPathStore(),
                         (_, _, _) => throw new InvalidOperationException("Probe must not execute a cleanup path"));
-                    var discarder = new BagCleanupDiscarder(productionInput, new BagCleanupSeller(productionInput));
+                    var discarder = new BagCleanupDiscarder(productionInput);
                     try
                     {
                         await productionInput.ReleaseAllAsync(stop.Token);

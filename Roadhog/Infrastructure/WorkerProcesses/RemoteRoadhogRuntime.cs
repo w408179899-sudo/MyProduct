@@ -138,16 +138,6 @@ public sealed class RemoteRoadhogRuntime : IRoadhogRuntime
     public Task<OperationResult> TestSwitchChannelAsync(string accountName, int targetChannelNumber, CancellationToken cancellationToken = default) =>
         _client.CallAsync<OperationResult>(nameof(TestSwitchChannelAsync), new object?[] { Account(accountName), targetChannelNumber }, cancellationToken);
 
-    public Task<OperationResult<BagCleanupSellRegistrationResult>> TestRegisterBagCleanupSellItemsAsync(string? accountName,
-        MaintenanceScriptSettings settings, CancellationToken cancellationToken = default) =>
-        _client.CallAsync<OperationResult<BagCleanupSellRegistrationResult>>(nameof(TestRegisterBagCleanupSellItemsAsync),
-            new object?[] { Account(accountName), settings }, cancellationToken);
-
-    public Task<OperationResult<BagCleanupManualTestResult>> TestBagCleanupFromNpcAsync(string? accountName, string npcName,
-        MaintenanceScriptSettings settings, CancellationToken cancellationToken = default) =>
-        _client.CallAsync<OperationResult<BagCleanupManualTestResult>>(nameof(TestBagCleanupFromNpcAsync),
-            new object?[] { Account(accountName), npcName, settings }, cancellationToken);
-
     public Task<OperationResult> ExecutePathAsync(string accountName, string pathName, IReadOnlyList<SharedPathPoint> points,
         ScriptSettings? settings = null, CancellationToken cancellationToken = default) =>
         _client.CallAsync<OperationResult>(nameof(ExecutePathAsync), new object?[] { Account(accountName), pathName, points, settings }, cancellationToken);

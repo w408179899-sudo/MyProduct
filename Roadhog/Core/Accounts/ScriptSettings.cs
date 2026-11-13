@@ -714,6 +714,7 @@ public sealed class MaintenanceScriptSettings
 
     public int BagCleanupThreshold { get; set; } = 5;
 
+    // Legacy serialized values only. Current cleanup uses UI snapshots, never these coordinates.
     public int BagCleanupSellItemClickX { get; set; }
 
     public int BagCleanupSellItemClickY { get; set; }
@@ -792,7 +793,7 @@ public sealed class MaintenanceScriptSettings
 
 public enum BagCleanupItemCoordinateMode
 {
-    // Persisted legacy name: selects the dialog rectangle; no window dragging.
+    // Persisted values only; neither mode selects an execution path anymore.
     LegacyNormalizedTopLeft,
     WindowRectRelativeExperimental
 }
