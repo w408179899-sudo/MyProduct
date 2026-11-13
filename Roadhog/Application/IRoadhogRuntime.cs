@@ -93,12 +93,6 @@ public interface IRoadhogRuntime
     Task<OperationResult> TestSwitchChannelAsync(
         string accountName, int targetChannelNumber, CancellationToken cancellationToken = default);
 
-    Task<OperationResult> NormalizeInventoryWindowToTopLeftAndCloseAsync(
-        string? accountName = null, CancellationToken cancellationToken = default);
-
-    Task<OperationResult> NormalizeInventoryWindowToTopLeftAsync(
-        string? accountName = null, CancellationToken cancellationToken = default);
-
     Task<OperationResult<BagCleanupSellRegistrationResult>> TestRegisterBagCleanupSellItemsAsync(
         string? accountName, MaintenanceScriptSettings settings, CancellationToken cancellationToken = default);
 

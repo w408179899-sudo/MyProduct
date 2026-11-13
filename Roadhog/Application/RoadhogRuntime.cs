@@ -41,13 +41,8 @@ public sealed partial class RoadhogRuntime : IRoadhogRuntime
     private const double InventoryScreenTopLeftBrY = 380.0;
     private static readonly TimeSpan InventoryToggleHoldDuration = TimeSpan.FromMilliseconds(35);
     private static readonly TimeSpan InventoryOpenSettleDelay = TimeSpan.FromMilliseconds(700);
-    private static readonly TimeSpan InventoryCloseSettleDelay = TimeSpan.FromMilliseconds(500);
-    private static readonly TimeSpan InventoryDragStartSettleDelay = TimeSpan.FromMilliseconds(200);
-    private static readonly TimeSpan InventoryDragSettleDelay = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan BagCleanupSellRegisterClickHoldDelay = TimeSpan.FromMilliseconds(35);
     private static readonly TimeSpan BagCleanupSellRegisterAfterClickDelay = TimeSpan.FromMilliseconds(80);
-    private static readonly int[] InventoryTitleDragXOffsets = { 160 };
-    private static readonly int[] InventoryTitleDragYOffsets = { 0, -5, -10, -15, -20, -25, -30, -35, -40 };
     private const int BagSlotColumns = 9;
     private const int BagSlotsPerPage = 27;
     private const double DefaultBagSlot0CenterX = 30.0;
@@ -505,28 +500,6 @@ public sealed partial class RoadhogRuntime : IRoadhogRuntime
         return Orchestrator is null ? Execute() : Orchestrator.RunManualInputAsync(Execute);
     }
 
-    public async Task<OperationResult> NormalizeInventoryWindowToTopLeftAndCloseAsync(
-        string? accountName = null,
-        CancellationToken cancellationToken = default)
-    {
-        return await NormalizeInventoryWindowToTopLeftCoreAsync(
-                accountName,
-                closeAfterNormalize: true,
-                cancellationToken)
-            .ConfigureAwait(false);
-    }
-
-    public async Task<OperationResult> NormalizeInventoryWindowToTopLeftAsync(
-        string? accountName = null,
-        CancellationToken cancellationToken = default)
-    {
-        return await NormalizeInventoryWindowToTopLeftCoreAsync(
-                accountName,
-                closeAfterNormalize: false,
-                cancellationToken)
-            .ConfigureAwait(false);
-    }
-
     public async Task<OperationResult<BagCleanupSellRegistrationResult>> TestRegisterBagCleanupSellItemsAsync(
         string? accountName,
         MaintenanceScriptSettings settings,
@@ -538,35 +511,18 @@ public sealed partial class RoadhogRuntime : IRoadhogRuntime
                 "Keyboard input is not available for bag cleanup sell registration.");
         }
 
-        InventoryWindowSnapshot? coordinateWindow = null;
-        if (settings.BagCleanupItemCoordinateMode != BagCleanupItemCoordinateMode.WindowRectRelativeExperimental)
+        var windowRead = await EnsureInventoryWindowOpenAsync(
+                accountName,
+                settings.BagCleanupItemCoordinateMode == BagCleanupItemCoordinateMode.WindowRectRelativeExperimental
+                    ? InventoryWindowRectSource.RootWidgetRectExperimental : InventoryWindowRectSource.LegacyDialogRect,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (!windowRead.Success || windowRead.Value is null)
         {
-            var normalize = await NormalizeInventoryWindowToTopLeftCoreAsync(
-                    accountName,
-                    closeAfterNormalize: false,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            if (!normalize.Success)
-            {
-                return OperationResult<BagCleanupSellRegistrationResult>.Fail(
-                    "Inventory window normalization failed: " + normalize.Error);
-            }
+            return OperationResult<BagCleanupSellRegistrationResult>.Fail(
+                "Inventory window open failed: " + windowRead.Error);
         }
-        else
-        {
-            var windowRead = await EnsureInventoryWindowOpenAsync(
-                    accountName,
-                    InventoryWindowRectSource.RootWidgetRectExperimental,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            if (!windowRead.Success || windowRead.Value is null)
-            {
-                return OperationResult<BagCleanupSellRegistrationResult>.Fail(
-                    "Experimental inventory Rect read failed: " + windowRead.Error);
-            }
-
-            coordinateWindow = windowRead.Value;
-        }
+        var coordinateWindow = windowRead.Value;
 
         var inventory = await ReadInventoryAsync(accountName, cancellationToken).ConfigureAwait(false);
 
@@ -748,21 +704,10 @@ public sealed partial class RoadhogRuntime : IRoadhogRuntime
                 return Fail("sell_batch_limit_exceeded", "Bag cleanup exceeded 40 sell batches.");
             }
 
-            if (batchIndex == 0)
+            var openInventory = await seller.OpenInventoryWindowAsync(context).ConfigureAwait(false);
+            if (!openInventory.Success)
             {
-                var normalize = await seller.NormalizeInventoryWindowToTopLeftAsync(context).ConfigureAwait(false);
-                if (!normalize.Success)
-                {
-                    return Fail("inventory_window_normalize_failed", normalize.Error ?? "Inventory normalize failed.");
-                }
-            }
-            else
-            {
-                var openInventory = await seller.OpenInventoryWindowAsync(context).ConfigureAwait(false);
-                if (!openInventory.Success)
-                {
-                    return Fail("inventory_window_open_failed", openInventory.Error ?? "Inventory window open failed.");
-                }
+                return Fail("inventory_window_open_failed", openInventory.Error ?? "Inventory window open failed.");
             }
 
             var inventoryRead = await context.Snapshots.ReadInventoryAsync().ConfigureAwait(false);
@@ -809,14 +754,11 @@ public sealed partial class RoadhogRuntime : IRoadhogRuntime
                 break;
             }
 
-            InventoryWindowSnapshot? coordinateWindow = null;
-            if (maintenance.BagCleanupItemCoordinateMode == BagCleanupItemCoordinateMode.WindowRectRelativeExperimental)
-            {
-                var windowRead = await context.Snapshots
-                    .ReadInventoryWindowAsync(InventoryWindowRectSource.RootWidgetRectExperimental)
-                    .ConfigureAwait(false);
-                coordinateWindow = windowRead.Value;
-            }
+            var windowRead = await context.Snapshots.ReadInventoryWindowAsync(
+                    maintenance.BagCleanupItemCoordinateMode == BagCleanupItemCoordinateMode.WindowRectRelativeExperimental
+                        ? InventoryWindowRectSource.RootWidgetRectExperimental : InventoryWindowRectSource.LegacyDialogRect)
+                .ConfigureAwait(false);
+            var coordinateWindow = windowRead.Value;
 
             var registered = await seller
                 .RegisterSellItemsAsync(context, maintenance, batch.Items, coordinateWindow)
@@ -940,92 +882,6 @@ public sealed partial class RoadhogRuntime : IRoadhogRuntime
                 "Inventory window did not read as open after blind pressing " + InventoryToggleKey + ".");
     }
 
-    private async Task<OperationResult> NormalizeInventoryWindowToTopLeftCoreAsync(
-        string? accountName,
-        bool closeAfterNormalize,
-        CancellationToken cancellationToken)
-    {
-        if (_keyboardInput is null)
-        {
-            return OperationResult.Fail("Keyboard input is not available for inventory window normalization.");
-        }
-
-        var snapshots = CreateSnapshotReader(accountName, cancellationToken);
-
-        var open = await PressInventoryToggleAsync(cancellationToken).ConfigureAwait(false);
-        if (!open.Success)
-        {
-            return open;
-        }
-
-        await DelayAsync(InventoryOpenSettleDelay, cancellationToken).ConfigureAwait(false);
-        var read = await snapshots.ReadInventoryWindowAsync().ConfigureAwait(false);
-        var snapshot = read.Value;
-        if (!snapshot.IsOpen)
-        {
-            return OperationResult.Fail(
-                "Inventory window did not read as open after blind pressing " + InventoryToggleKey + ".");
-        }
-
-        if (!snapshot.IsAtTopLeft())
-        {
-            var drag = await DragInventoryWindowToTopLeftAsync(
-                    snapshots,
-                    accountName,
-                    read.Version,
-                    snapshot,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            if (!drag.Success || drag.Value is null)
-            {
-                return OperationResult.Fail(drag.Error ?? "Inventory window drag failed.");
-            }
-
-            snapshot = drag.Value;
-        }
-
-        if (!closeAfterNormalize)
-        {
-            _logger.Info("inventory_window.normalize.ok", new Dictionary<string, object?>
-            {
-                ["account"] = accountName,
-                ["x"] = snapshot.X,
-                ["y"] = snapshot.Y,
-                ["width"] = snapshot.Width,
-                ["height"] = snapshot.Height
-            });
-
-            return OperationResult.Ok();
-        }
-
-        var close = await PressInventoryToggleAsync(cancellationToken).ConfigureAwait(false);
-        if (!close.Success)
-        {
-            return close;
-        }
-
-        await DelayAsync(InventoryCloseSettleDelay, cancellationToken).ConfigureAwait(false);
-        var finalRead = await snapshots
-            .ReadInventoryWindowAsync(afterVersion: read.Version)
-            .ConfigureAwait(false);
-
-        if (finalRead.Value.IsOpen)
-        {
-            return OperationResult.Fail("Inventory window is still open after close toggle.");
-        }
-
-        _logger.Info("inventory_window.normalize.ok", new Dictionary<string, object?>
-        {
-            ["account"] = accountName,
-            ["x"] = finalRead.Value.X,
-            ["y"] = finalRead.Value.Y,
-            ["width"] = finalRead.Value.Width,
-            ["height"] = finalRead.Value.Height
-        });
-
-        return OperationResult.Ok();
-    }
-
     public Task<OperationResult> ExecutePathAsync(
         string accountName,
         string pathName,
@@ -1055,128 +911,9 @@ public sealed partial class RoadhogRuntime : IRoadhogRuntime
         return _stationaryCombatController.ExecutePathOnceAsync(context, pathName, vectors);
     }
 
-    private async Task<OperationResult<InventoryWindowSnapshot>> DragInventoryWindowToTopLeftAsync(
-        IRoadhogSnapshotReader snapshots,
-        string? accountName,
-        long initialVersion,
-        InventoryWindowSnapshot initialSnapshot,
-        CancellationToken cancellationToken)
-    {
-        var current = initialSnapshot;
-        var currentVersion = initialVersion;
-        foreach (var xOffset in InventoryTitleDragXOffsets)
-        {
-            foreach (var yOffset in InventoryTitleDragYOffsets)
-            {
-                var start = EstimateInventoryTitleDragPoint(current, xOffset, yOffset);
-                _logger.Info("inventory_window.drag.attempt", new Dictionary<string, object?>
-                {
-                    ["account"] = accountName,
-                    ["rectX"] = current.X,
-                    ["rectY"] = current.Y,
-                    ["startX"] = start.X,
-                    ["startY"] = start.Y,
-                    ["xOffset"] = xOffset,
-                    ["yOffset"] = yOffset
-                });
-
-                var moveToStart = await ScreenPointMouseMover
-                    .MoveToAsync(
-                        _keyboardInput!,
-                        start.X,
-                        start.Y,
-                        ReadDeathReviveMouseResetCount(),
-                        TimeSpan.FromMilliseconds(ReadDeathReviveMouseStepDelayMs()),
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                if (!moveToStart.Success)
-                {
-                    return OperationResult<InventoryWindowSnapshot>.Fail("Inventory drag start move failed: " + moveToStart.Error);
-                }
-
-                await DelayAsync(InventoryDragStartSettleDelay, cancellationToken).ConfigureAwait(false);
-
-                var down = await _keyboardInput!
-                    .MouseDownAsync(RoadhogMouseButton.Left, cancellationToken)
-                    .ConfigureAwait(false);
-                if (!down.Success)
-                {
-                    return OperationResult<InventoryWindowSnapshot>.Fail("Inventory drag mouse down failed: " + down.Error);
-                }
-
-                OperationResult? drag = null;
-                try
-                {
-                    drag = await _keyboardInput
-                        .MoveMouseRelativeAsync(
-                            ScreenPointMouseMover.AbsoluteMouseResetDelta,
-                            ScreenPointMouseMover.AbsoluteMouseResetDelta,
-                            cancellationToken)
-                        .ConfigureAwait(false);
-                }
-                finally
-                {
-                    var up = await _keyboardInput
-                        .MouseUpAsync(RoadhogMouseButton.Left, cancellationToken)
-                        .ConfigureAwait(false);
-                    if (!up.Success)
-                    {
-                        _logger.Warn("inventory_window.drag.mouse_up_failed", new Dictionary<string, object?>
-                        {
-                            ["account"] = accountName,
-                            ["error"] = up.Error
-                        });
-                    }
-                }
-
-                if (drag is null || !drag.Success)
-                {
-                    return OperationResult<InventoryWindowSnapshot>.Fail("Inventory drag move failed: " + drag?.Error);
-                }
-
-                await DelayAsync(InventoryDragSettleDelay, cancellationToken).ConfigureAwait(false);
-                var read = await snapshots
-                    .ReadInventoryWindowAsync(afterVersion: currentVersion)
-                    .ConfigureAwait(false);
-                currentVersion = read.Version;
-                current = read.Value;
-                if (current.IsAtTopLeft())
-                {
-                    _logger.Info("inventory_window.drag.ok", new Dictionary<string, object?>
-                    {
-                        ["account"] = accountName,
-                        ["startX"] = start.X,
-                        ["startY"] = start.Y,
-                        ["xOffset"] = xOffset,
-                        ["yOffset"] = yOffset
-                    });
-                    return OperationResult<InventoryWindowSnapshot>.Ok(current);
-                }
-            }
-        }
-
-        return OperationResult<InventoryWindowSnapshot>.Fail(
-            "Inventory window did not reach top-left. Last rect=(" +
-            current.X.ToString("0.###") +
-            "," +
-            current.Y.ToString("0.###") +
-            ").");
-    }
-
     private Task<OperationResult> PressInventoryToggleAsync(CancellationToken cancellationToken)
     {
         return _keyboardInput!.PressKeyAsync(InventoryToggleKey, InventoryToggleHoldDuration, cancellationToken);
-    }
-
-    private static (int X, int Y) EstimateInventoryTitleDragPoint(
-        InventoryWindowSnapshot snapshot,
-        int xOffset,
-        int yOffset)
-    {
-        var topLeft = EstimateInventoryWindowTopLeftScreen(snapshot.X, snapshot.Y);
-        return (
-            ClampInt((int)Math.Round(topLeft.X + xOffset), 0, short.MaxValue),
-            ClampInt((int)Math.Round(topLeft.Y + yOffset), 0, short.MaxValue));
     }
 
     private static (int X, int Y) EstimateBagItemScreenPoint(
@@ -1195,7 +932,7 @@ public sealed partial class RoadhogRuntime : IRoadhogRuntime
         var y = slotOriginY +
             (rowInPage * ReadRawDoubleFromEnv("ROADHOG_BAG_SLOT_STEP_Y", DefaultBagSlotStepY)) +
             ReadBagPageOffsetY(page);
-        if (coordinateMode == BagCleanupItemCoordinateMode.WindowRectRelativeExperimental && window is not null)
+        if (window is not null)
         {
             var topLeft = EstimateInventoryWindowTopLeftScreen(window.X, window.Y);
             x += topLeft.X;

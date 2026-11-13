@@ -13,13 +13,7 @@ public sealed record InventoryWindowSnapshot(
     ulong RootWidgetAddress = 0,
     ulong RectAddress = 0,
     ulong WidgetFlags = 0,
-    string DialogSource = "")
-{
-    public bool IsAtTopLeft(double tolerance = 1.0)
-    {
-        return Math.Abs(X) <= tolerance && Math.Abs(Y) <= tolerance;
-    }
-}
+    string DialogSource = "");
 
 public enum InventoryWindowRectSource
 {

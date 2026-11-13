@@ -18,7 +18,6 @@ public enum BagCleanupStep
     SelectCleanupNpc,
     OpenNpcDialog,
     ClickSellItemEntry,
-    NormalizeInventoryWindow,
     OpenInventoryWindow,
     ReadSellCandidates,
     RegisterSellItems,

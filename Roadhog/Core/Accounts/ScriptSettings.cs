@@ -792,6 +792,7 @@ public sealed class MaintenanceScriptSettings
 
 public enum BagCleanupItemCoordinateMode
 {
+    // Persisted legacy name: selects the dialog rectangle; no window dragging.
     LegacyNormalizedTopLeft,
     WindowRectRelativeExperimental
 }

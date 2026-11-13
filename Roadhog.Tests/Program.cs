@@ -1,4 +1,4 @@
-using Roadhog;
+﻿using Roadhog;
 using Roadhog.Application;
 using Roadhog.Application.AbnormalStatuses;
 using Roadhog.Application.BagCleanup;
@@ -1172,9 +1172,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("file logger decoder preserves source and reports incomplete records", FileLogCodecTests.DecodeFilesAsync),
     ("input key map preserves Roadhog supported HID codes", TestInputKeyMapAsync),
     ("runtime test move uses configured screen point", TestRuntimeTestMoveUsesScreenPointAsync),
-    ("runtime normalizes inventory window then closes", TestRuntimeNormalizesInventoryWindowThenClosesAsync),
-    ("runtime normalizes inventory window and leaves open", TestRuntimeNormalizesInventoryWindowLeavesOpenAsync),
     ("runtime registers configured bag cleanup sell items", TestRuntimeRegistersConfiguredBagCleanupSellItemsAsync),
+    ("bag cleanup inventory open preserves position and rejects unopened window", TestBagCleanupInventoryOpenWithoutDragAsync),
     ("runtime tests bag cleanup from npc through sell", TestRuntimeTestsBagCleanupFromNpcThroughSellAsync),
     ("bag cleanup controller stays inactive when disabled", TestBagCleanupControllerSkipsWhenDisabledAsync),
     ("bag cleanup return settings default and clone preserve compatibility", TestBagCleanupReturnSettingsDefaultsAndCloneAsync),
@@ -9602,150 +9601,30 @@ static async Task TestRuntimeTestMoveUsesScreenPointAsync()
     AssertFalse(keyboard.MouseCommands.Any(command => command.StartsWith("up:", StringComparison.Ordinal)), "runtime test move should not click mouse up");
 }
 
-static async Task TestRuntimeNormalizesInventoryWindowThenClosesAsync()
+static async Task TestBagCleanupInventoryOpenWithoutDragAsync()
 {
     var logger = new InMemoryRoadhogLogger();
-    var accounts = new AccountRuntimeManager(logger);
-    accounts.MarkStarting(new AccountConfig
-    {
-        AccountName = "account-scope",
-        ProcessId = 712,
-        TargetProcessName = "Aion.bin",
-        VmmDeviceName = "fpga"
-    });
+    var api = new FakeGameApi { InventoryWindow = CreateInventoryWindow(false, 349.6, 162.4) };
+    var input = new RecordingKeyboardInput();
+    var context = CreateContext(CreateScriptSettings(), api, logger);
+    var seller = new BagCleanupSeller(input);
+    var unopened = await seller.OpenInventoryWindowAsync(context);
+    AssertFalse(unopened.Success, "an unresponsive inventory toggle must not start sale registration");
+    AssertEqual(0, input.MouseCommands.Count, "failed open must not try dragging the window");
 
-    var gameApi = new FakeGameApi
+    input.AfterPress = key =>
     {
-        InventoryWindow = CreateInventoryWindow(false, 594.2, 274.0)
+        if (key == "I") api.InventoryWindow = api.InventoryWindow with { IsOpen = !api.InventoryWindow.IsOpen };
     };
-    var keyboard = new RecordingKeyboardInput();
-    var mouseDown = false;
-    var lastTargetX = 0;
-    var lastTargetY = 0;
-
-    keyboard.AfterPress = key =>
-    {
-        if (string.Equals(key, "I", StringComparison.OrdinalIgnoreCase))
-        {
-            gameApi.InventoryWindow = gameApi.InventoryWindow with
-            {
-                IsOpen = !gameApi.InventoryWindow.IsOpen,
-                CapturedAt = DateTimeOffset.Now
-            };
-        }
-    };
-    keyboard.AfterMouseDown = _ => mouseDown = true;
-    keyboard.AfterMouseUp = _ => mouseDown = false;
-    keyboard.AfterMove = (deltaX, deltaY) =>
-    {
-        if (!mouseDown && deltaX >= 0 && deltaY >= 0)
-        {
-            lastTargetX = deltaX;
-            lastTargetY = deltaY;
-            return;
-        }
-
-        if (mouseDown &&
-            deltaX == ScreenPointMouseMover.AbsoluteMouseResetDelta &&
-            deltaY == ScreenPointMouseMover.AbsoluteMouseResetDelta &&
-            lastTargetX > 0 &&
-            lastTargetY > 0)
-        {
-            gameApi.InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0);
-        }
-    };
-
-    var runtime = new RoadhogRuntime(
-        gameApi,
-        logger,
-        accounts,
-        null!,
-        keyboardInput: keyboard);
-
-    var result = await runtime
-        .NormalizeInventoryWindowToTopLeftAndCloseAsync("account-scope")
-        .ConfigureAwait(false);
-
-    AssertFalse(!result.Success, "inventory window normalization should succeed: " + result.Error);
-    AssertFalse(gameApi.InventoryWindow.IsOpen, "inventory window should be closed after normalization");
-    AssertFalse(!gameApi.InventoryWindow.IsAtTopLeft(), "inventory window rect should be normalized to top-left");
-    AssertEqual(712, gameApi.LastInventoryWindowContext?.ProcessId ?? 0, "inventory window read should use scoped process id");
-    AssertSequence(new[] { "I", "I" }, keyboard.Keys.ToArray(), "normalization should open and close the inventory");
-    AssertFalse(!keyboard.MouseCommands.Contains("down:Left"), "normalization should hold left mouse for drag");
-    AssertFalse(!keyboard.MouseCommands.Contains("up:Left"), "normalization should release left mouse after drag");
-}
-
-static async Task TestRuntimeNormalizesInventoryWindowLeavesOpenAsync()
-{
-    var logger = new InMemoryRoadhogLogger();
-    var accounts = new AccountRuntimeManager(logger);
-    accounts.MarkStarting(new AccountConfig
-    {
-        AccountName = "account-scope",
-        ProcessId = 712,
-        TargetProcessName = "Aion.bin",
-        VmmDeviceName = "fpga"
-    });
-
-    var gameApi = new FakeGameApi
-    {
-        InventoryWindow = CreateInventoryWindow(false, 594.2, 274.0)
-    };
-    var keyboard = new RecordingKeyboardInput();
-    var mouseDown = false;
-    var lastTargetX = 0;
-    var lastTargetY = 0;
-
-    keyboard.AfterPress = key =>
-    {
-        if (string.Equals(key, "I", StringComparison.OrdinalIgnoreCase))
-        {
-            gameApi.InventoryWindow = gameApi.InventoryWindow with
-            {
-                IsOpen = !gameApi.InventoryWindow.IsOpen,
-                CapturedAt = DateTimeOffset.Now
-            };
-        }
-    };
-    keyboard.AfterMouseDown = _ => mouseDown = true;
-    keyboard.AfterMouseUp = _ => mouseDown = false;
-    keyboard.AfterMove = (deltaX, deltaY) =>
-    {
-        if (!mouseDown && deltaX >= 0 && deltaY >= 0)
-        {
-            lastTargetX = deltaX;
-            lastTargetY = deltaY;
-            return;
-        }
-
-        if (mouseDown &&
-            deltaX == ScreenPointMouseMover.AbsoluteMouseResetDelta &&
-            deltaY == ScreenPointMouseMover.AbsoluteMouseResetDelta &&
-            lastTargetX > 0 &&
-            lastTargetY > 0)
-        {
-            gameApi.InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0);
-        }
-    };
-
-    var runtime = new RoadhogRuntime(
-        gameApi,
-        logger,
-        accounts,
-        null!,
-        keyboardInput: keyboard);
-
-    var result = await runtime
-        .NormalizeInventoryWindowToTopLeftAsync("account-scope")
-        .ConfigureAwait(false);
-
-    AssertFalse(!result.Success, "inventory window normalization should succeed: " + result.Error);
-    AssertFalse(!gameApi.InventoryWindow.IsOpen, "inventory window should remain open after normalization");
-    AssertFalse(!gameApi.InventoryWindow.IsAtTopLeft(), "inventory window rect should be normalized to top-left");
-    AssertEqual(712, gameApi.LastInventoryWindowContext?.ProcessId ?? 0, "inventory window read should use scoped process id");
-    AssertSequence(new[] { "I" }, keyboard.Keys.ToArray(), "normalization should only open the inventory");
-    AssertFalse(!keyboard.MouseCommands.Contains("down:Left"), "normalization should hold left mouse for drag");
-    AssertFalse(!keyboard.MouseCommands.Contains("up:Left"), "normalization should release left mouse after drag");
+    var opened = await seller.OpenInventoryWindowAsync(context);
+    AssertFalse(!opened.Success || !api.InventoryWindow.IsOpen, "inventory opens at its current position");
+    AssertEqual(349.6, api.InventoryWindow.X, "opening preserves x");
+    AssertEqual(162.4, api.InventoryWindow.Y, "opening preserves y");
+    AssertEqual(0, input.MouseCommands.Count, "opening never moves or holds the mouse");
+    var closed = await seller.CloseInventoryWindowAsync(context);
+    AssertFalse(!closed.Success || api.InventoryWindow.IsOpen, "inventory still closes after cleanup");
+    input.PressResult = _ => OperationResult.Fail("input unavailable");
+    AssertFalse((await seller.OpenInventoryWindowAsync(context)).Success, "input failure propagates without a drag fallback");
 }
 
 static async Task TestRuntimeRegistersConfiguredBagCleanupSellItemsAsync()
@@ -9854,30 +9733,36 @@ static async Task TestRuntimeRegistersConfiguredBagCleanupSellItemsAsync()
             "fixed top-left registration should use the calibrated bag points");
         AssertEqual(712, gameApi.LastInventoryContext?.ProcessId ?? 0, "inventory read should use scoped process id");
 
-        gameApi.InventoryWindow = CreateInventoryWindow(false, 349.6, 162.4);
-        gameApi.InventoryItems = new[]
+        foreach (var mode in Enum.GetValues<BagCleanupItemCoordinateMode>())
         {
-            new InventoryItemSnapshot(167000450, 10, "slot-0", 1, 0, false, 24, 2)
-        };
-        keyboard.MouseCommands.Clear();
-        settings.BagCleanupItemCoordinateMode = BagCleanupItemCoordinateMode.WindowRectRelativeExperimental;
+            gameApi.InventoryWindow = CreateInventoryWindow(false, 349.6, 162.4);
+            gameApi.InventoryItems = new[]
+            {
+                new InventoryItemSnapshot(167000450, 10, "slot-0", 1, 0, false, 24, 2)
+            };
+            keyboard.MouseCommands.Clear();
+            settings.BagCleanupItemCoordinateMode = mode;
 
-        var experimentalResult = await runtime
-            .TestRegisterBagCleanupSellItemsAsync("account-scope", settings)
-            .ConfigureAwait(false);
+            var movedWindowResult = await runtime
+                .TestRegisterBagCleanupSellItemsAsync("account-scope", settings)
+                .ConfigureAwait(false);
 
-        AssertFalse(!experimentalResult.Success, "experimental sell registration should succeed: " + experimentalResult.Error);
-        AssertEqual(1, experimentalResult.Value?.RegisteredCount ?? 0, "experimental registered sell item count");
-        AssertEqual(430, experimentalResult.Value?.Items[0].X ?? 0, "experimental registered sell item x");
-        AssertEqual(276, experimentalResult.Value?.Items[0].Y ?? 0, "experimental registered sell item y");
-        AssertEqual(
-            InventoryWindowRectSource.RootWidgetRectExperimental,
-            gameApi.LastInventoryWindowRectSource ?? InventoryWindowRectSource.LegacyDialogRect,
-            "experimental registration should request root widget Rect");
-        AssertSequence(
-            new[] { "move:-2000,-2000", "move:680,468", "move:-250,-192", "down:Right", "up:Right" },
-            keyboard.MouseCommands.ToArray(),
-            "experimental sell registration should use the window-relative bag point");
+            AssertFalse(!movedWindowResult.Success, "registration preserves moved inventory: " + movedWindowResult.Error);
+            AssertEqual(1, movedWindowResult.Value?.RegisteredCount ?? 0, "moved window registered item count");
+            AssertEqual(430, movedWindowResult.Value?.Items[0].X ?? 0, "moved window registered item x");
+            AssertEqual(276, movedWindowResult.Value?.Items[0].Y ?? 0, "moved window registered item y");
+            AssertEqual(349.6, gameApi.InventoryWindow.X, "registration preserves inventory x");
+            AssertEqual(162.4, gameApi.InventoryWindow.Y, "registration preserves inventory y");
+            AssertEqual(
+                mode == BagCleanupItemCoordinateMode.WindowRectRelativeExperimental
+                    ? InventoryWindowRectSource.RootWidgetRectExperimental : InventoryWindowRectSource.LegacyDialogRect,
+                gameApi.LastInventoryWindowRectSource ?? InventoryWindowRectSource.LegacyDialogRect,
+                "registration retains configured rectangle source");
+            AssertSequence(
+                new[] { "move:-2000,-2000", "move:680,468", "move:-250,-192", "down:Right", "up:Right" },
+                keyboard.MouseCommands.ToArray(),
+                "registration uses the current window position without a left-button drag");
+        }
     }
     finally
     {
@@ -9934,7 +9819,7 @@ static async Task TestRuntimeTestsBagCleanupFromNpcThroughSellAsync()
             TargetCurrentHp = 0,
             TargetMaxHp = 0,
             TargetIsTargetingLocalPlayer = false,
-            InventoryWindow = CreateInventoryWindow(false, 0.0, 0.0),
+            InventoryWindow = CreateInventoryWindow(false, 349.6, 162.4),
             InventoryMoney = 1000,
             InventoryItems = new[]
             {
@@ -9949,7 +9834,7 @@ static async Task TestRuntimeTestsBagCleanupFromNpcThroughSellAsync()
         {
             if (key == "I")
             {
-                gameApi.InventoryWindow = CreateInventoryWindow(!gameApi.InventoryWindow.IsOpen, 0.0, 0.0);
+                gameApi.InventoryWindow = gameApi.InventoryWindow with { IsOpen = !gameApi.InventoryWindow.IsOpen };
                 return;
             }
 
@@ -10014,6 +9899,13 @@ static async Task TestRuntimeTestsBagCleanupFromNpcThroughSellAsync()
         AssertEqual(1200UL, result.Value?.FinalMoney ?? 0UL, "manual cleanup final money");
         AssertEqual(200UL, result.Value?.MoneyDelta ?? 0UL, "manual cleanup money delta");
         AssertFalse(!keyboard.MouseCommands.Contains("down:Right"), "manual cleanup should right click bag items");
+        AssertEqual(349.6, gameApi.InventoryWindow.X, "cleanup preserves inventory x");
+        AssertEqual(162.4, gameApi.InventoryWindow.Y, "cleanup preserves inventory y");
+        AssertEqual(2, keyboard.MouseCommands.Count(command => command == "down:Left"),
+            "only the NPC entry and sale button use left click; inventory is never dragged");
+        var registration = logger.Entries.First(entry => entry.EventName == "bag_cleanup.sell.register.item");
+        AssertEqual(430, Convert.ToInt32(registration.Fields["x"]), "cleanup registers at current inventory x");
+        AssertEqual(276, Convert.ToInt32(registration.Fields["y"]), "cleanup registers at current inventory y");
         AssertFalse(gameApi.InventoryWindow.IsOpen, "manual cleanup should close inventory before sell click");
         AssertEqual(712, gameApi.LastInventoryMoneyContext?.ProcessId ?? 0, "money read should use scoped process id");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.manual_test.ok"), "manual cleanup should log success");
@@ -10134,7 +10026,7 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
             TargetMaxHp = 0,
             TargetName = string.Empty,
             TargetIsTargetingLocalPlayer = false,
-            InventoryWindow = CreateInventoryWindow(false, 0.0, 0.0),
+            InventoryWindow = CreateInventoryWindow(false, 349.6, 162.4),
             InventoryMoney = 1000,
             InventoryCapacity = 10,
             InventoryItems = new[]
@@ -10168,7 +10060,7 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
             }
             else if (key == "I")
             {
-                gameApi.InventoryWindow = CreateInventoryWindow(!gameApi.InventoryWindow.IsOpen, 0.0, 0.0);
+                gameApi.InventoryWindow = gameApi.InventoryWindow with { IsOpen = !gameApi.InventoryWindow.IsOpen };
             }
         };
 
@@ -10249,6 +10141,13 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
         AssertSequence(new[] { "cleanup-path:2", "cleanup-path 返回:2" }, pathCalls.ToArray(), "cleanup should follow path and reverse path");
         AssertFalse(gameApi.InventoryItems.Any(item => item.InstanceId is 10UL or 11UL), "sold items should be removed before verification");
         AssertEqual(1200UL, gameApi.InventoryMoney, "money should increase after sell");
+        AssertEqual(349.6, gameApi.InventoryWindow.X, "cleanup preserves inventory x");
+        AssertEqual(162.4, gameApi.InventoryWindow.Y, "cleanup preserves inventory y");
+        AssertEqual(2, keyboard.MouseCommands.Count(command => command == "down:Left"),
+            "only the NPC entry and sale button use left click; inventory is never dragged");
+        var registration = logger.Entries.First(entry => entry.EventName == "bag_cleanup.sell.register.item");
+        AssertEqual(430, Convert.ToInt32(registration.Fields["x"]), "cleanup registers at current inventory x");
+        AssertEqual(276, Convert.ToInt32(registration.Fields["y"]), "cleanup registers at current inventory y");
         AssertFalse(gameApi.InventoryWindow.IsOpen, "cleanup should close inventory before sell click");
         AssertFalse(!keyboard.MouseCommands.Contains("move:210,310"), "cleanup should use cleanup path sell item entry point");
         AssertFalse(!keyboard.MouseCommands.Contains("move:410,510"), "cleanup should use cleanup path sell button point");

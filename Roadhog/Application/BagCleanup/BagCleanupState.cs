@@ -80,8 +80,6 @@ public sealed class BagCleanupState
 
     public bool HasClickedSellItemEntry { get; private set; }
 
-    public bool HasNormalizedInventoryWindow { get; private set; }
-
     public bool HasRegisteredSellItems { get; private set; }
 
     public bool HasClosedInventoryWindow { get; private set; }
@@ -129,7 +127,6 @@ public sealed class BagCleanupState
         HasPressedTownReturn = false;
         HasOpenedNpcDialog = false;
         HasClickedSellItemEntry = false;
-        HasNormalizedInventoryWindow = false;
         HasRegisteredSellItems = false;
         HasClosedInventoryWindow = false;
         HasClickedSellButton = false;
@@ -237,11 +234,6 @@ public sealed class BagCleanupState
     public void MarkSellItemEntryClicked()
     {
         HasClickedSellItemEntry = true;
-    }
-
-    public void MarkInventoryWindowNormalized()
-    {
-        HasNormalizedInventoryWindow = true;
     }
 
     public void MarkSellItemsRegistered(int count)
@@ -363,7 +355,6 @@ public sealed class BagCleanupState
         HasPressedTownReturn = false;
         HasOpenedNpcDialog = false;
         HasClickedSellItemEntry = false;
-        HasNormalizedInventoryWindow = false;
         HasRegisteredSellItems = false;
         HasClosedInventoryWindow = false;
         HasClickedSellButton = false;

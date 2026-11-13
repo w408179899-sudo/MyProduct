@@ -98,7 +98,6 @@ public sealed partial class BagCleanupController
             BagCleanupStep.SelectCleanupNpc => await TickSelectCleanupNpcAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.OpenNpcDialog => await TickOpenNpcDialogAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.ClickSellItemEntry => await TickClickSellItemEntryAsync(context, state).ConfigureAwait(false),
-            BagCleanupStep.NormalizeInventoryWindow => await TickNormalizeInventoryWindowAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.OpenInventoryWindow => await TickOpenInventoryWindowAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.ReadSellCandidates => await TickReadSellCandidatesAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.RegisterSellItems => await TickRegisterSellItemsAsync(context, state).ConfigureAwait(false),
@@ -1254,27 +1253,8 @@ public sealed partial class BagCleanupController
 
         await _seller.WaitAfterSellItemEntryAsync(context).ConfigureAwait(false);
         state.MarkSellItemEntryClicked();
-        state.Advance(BagCleanupStep.NormalizeInventoryWindow);
+        state.Advance(BagCleanupStep.OpenInventoryWindow);
         return BagCleanupTickResult.Running("sell_item_entry_clicked");
-    }
-
-    private async Task<BagCleanupTickResult> TickNormalizeInventoryWindowAsync(
-        AccountWorkerContext context,
-        BagCleanupState state)
-    {
-        var result = await _seller.NormalizeInventoryWindowToTopLeftAsync(context).ConfigureAwait(false);
-        if (!result.Success)
-        {
-            return ReturnByReversePathAfterFailure(
-                context,
-                state,
-                "inventory_window_normalize_failed",
-                result.Error ?? "Inventory normalize failed.");
-        }
-
-        state.MarkInventoryWindowNormalized();
-        state.Advance(BagCleanupStep.ReadSellCandidates);
-        return BagCleanupTickResult.Running("inventory_window_normalized");
     }
 
     private async Task<BagCleanupTickResult> TickOpenInventoryWindowAsync(
@@ -1330,14 +1310,11 @@ public sealed partial class BagCleanupController
         BagCleanupState state)
     {
         var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
-        InventoryWindowSnapshot? coordinateWindow = null;
-        if (maintenance.BagCleanupItemCoordinateMode == BagCleanupItemCoordinateMode.WindowRectRelativeExperimental)
-        {
-            var read = await context.Snapshots
-                .ReadInventoryWindowAsync(InventoryWindowRectSource.RootWidgetRectExperimental)
-                .ConfigureAwait(false);
-            coordinateWindow = read.Value;
-        }
+        var read = await context.Snapshots.ReadInventoryWindowAsync(
+                maintenance.BagCleanupItemCoordinateMode == BagCleanupItemCoordinateMode.WindowRectRelativeExperimental
+                    ? InventoryWindowRectSource.RootWidgetRectExperimental : InventoryWindowRectSource.LegacyDialogRect)
+            .ConfigureAwait(false);
+        var coordinateWindow = read.Value;
 
         var result = await _seller
             .RegisterSellItemsAsync(context, maintenance, state.SellCandidates, coordinateWindow)

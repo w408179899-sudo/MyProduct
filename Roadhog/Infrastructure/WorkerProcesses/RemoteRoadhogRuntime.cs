@@ -138,12 +138,6 @@ public sealed class RemoteRoadhogRuntime : IRoadhogRuntime
     public Task<OperationResult> TestSwitchChannelAsync(string accountName, int targetChannelNumber, CancellationToken cancellationToken = default) =>
         _client.CallAsync<OperationResult>(nameof(TestSwitchChannelAsync), new object?[] { Account(accountName), targetChannelNumber }, cancellationToken);
 
-    public Task<OperationResult> NormalizeInventoryWindowToTopLeftAndCloseAsync(string? accountName = null, CancellationToken cancellationToken = default) =>
-        _client.CallAsync<OperationResult>(nameof(NormalizeInventoryWindowToTopLeftAndCloseAsync), new object?[] { Account(accountName) }, cancellationToken);
-
-    public Task<OperationResult> NormalizeInventoryWindowToTopLeftAsync(string? accountName = null, CancellationToken cancellationToken = default) =>
-        _client.CallAsync<OperationResult>(nameof(NormalizeInventoryWindowToTopLeftAsync), new object?[] { Account(accountName) }, cancellationToken);
-
     public Task<OperationResult<BagCleanupSellRegistrationResult>> TestRegisterBagCleanupSellItemsAsync(string? accountName,
         MaintenanceScriptSettings settings, CancellationToken cancellationToken = default) =>
         _client.CallAsync<OperationResult<BagCleanupSellRegistrationResult>>(nameof(TestRegisterBagCleanupSellItemsAsync),

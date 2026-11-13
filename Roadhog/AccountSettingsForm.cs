@@ -4376,34 +4376,6 @@ namespace Roadhog
             }
         }
 
-        private async Task TestBagCleanupInventoryWindowNormalizeAsync(Button button)
-        {
-            var originalText = button.Text;
-            button.Enabled = false;
-            button.Text = "测试中...";
-            SetBagCleanupInventoryStatus("正在测试背包拖到左上角...", false);
-
-            try
-            {
-                var result = await _runtime
-                    .NormalizeInventoryWindowToTopLeftAsync(_account)
-                    .ConfigureAwait(true);
-                SetBagCleanupInventoryStatus(
-                    result.Success
-                        ? "背包已拖到左上角"
-                        : "测试背包拖拽失败: " + (result.Error ?? "未知错误"),
-                    !result.Success);
-            }
-            finally
-            {
-                if (!button.IsDisposed)
-                {
-                    button.Text = originalText;
-                    button.Enabled = true;
-                }
-            }
-        }
-
         private async Task TestBagCleanupSellRegisterAsync(Button button)
         {
             var originalText = button.Text;
