@@ -1122,7 +1122,7 @@ public sealed class SpiritmasterSkillSettings
 
     public int SummonKeyIntervalMs { get; set; } = 2000;
 
-    public string OpeningAttackKey { get; set; } = "Alt+D2";
+    public string OpeningAttackKey { get; set; } = "D1";
 
     public int OpeningAttackDelayMs { get; set; }
 

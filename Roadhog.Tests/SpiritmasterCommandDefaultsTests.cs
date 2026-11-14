@@ -18,7 +18,7 @@ internal static class SpiritmasterCommandDefaultsTests
             Check(settings.SummonSkills.Count == 2, "defaults contain two summon slots and a separate attack command");
             Check(settings.SummonSkills[0].SkillId == 1778 && settings.SummonSkills[0].Key == "", "single-rank handprint uses skill identity without a fixed key");
             Check(settings.SummonSkills[1].SkillId == 0 && settings.SummonSkills[1].Key == "Alt+OemMinus", "pet summon defaults to manual Alt-minus");
-            Check(settings.OpeningAttackSkillId == 0 && settings.OpeningAttackKey == "Alt+D2", "pet attack defaults to manual Alt-2");
+            Check(settings.OpeningAttackSkillId == 0 && settings.OpeningAttackKey == "D1", "pet attack defaults to manual main-row 1");
             Check(JsonSerializer.Serialize(settings.Clone()) == JsonSerializer.Serialize(settings), "defaults survive clone and save");
         }
         var custom = JsonSerializer.Deserialize<SpiritmasterSkillSettings>("""{"SummonSkills":[{"Key":"F7"},{"Key":"F8"}],"OpeningAttackKey":"F9"}""")!;
@@ -36,11 +36,11 @@ internal static class SpiritmasterCommandDefaultsTests
             var bindings = new SkillKeyBindings(new(0, new[] { new QuickbarSlotSnapshot(bar, slot, 21, 1778) }), new[] { Skill(1778, "服从的手印", 1) });
             var bound = bindings.ApplyTo(new ScriptSettings()).Skills.Spiritmaster;
             Sequence(new[] { expected, "Alt+OemMinus" }, bound.SummonSkills.Select(rule => rule.Key), "handprint follows actual bar position while manual summon stays fixed");
-            Check(bound.OpeningAttackKey == "Alt+D2", "automatic binding preserves manual pet attack");
+            Check(bound.OpeningAttackKey == "D1", "automatic binding preserves manual pet attack");
         }
         var missing = new SkillKeyBindings(new(0, Array.Empty<QuickbarSlotSnapshot>()), Array.Empty<SkillSnapshot>()).ApplyTo(new ScriptSettings()).Skills.Spiritmaster;
         Check(missing.SummonSkills[0].Key == "", "missing handprint never falls back to a stale fixed key");
-        Check(missing.SummonSkills[1].Key == "Alt+OemMinus" && missing.OpeningAttackKey == "Alt+D2", "missing skill does not remove manual commands");
+        Check(missing.SummonSkills[1].Key == "Alt+OemMinus" && missing.OpeningAttackKey == "D1", "missing skill does not remove manual commands");
         return Task.CompletedTask;
     }
 
@@ -64,10 +64,10 @@ internal static class SpiritmasterCommandDefaultsTests
                 var first = list.Controls[0].Controls.Find("spiritmasterRuleKeyButton", true).Single();
                 Check(!first.Enabled && first.Text.Contains("A+7"), "handprint renders the automatic Alt-7 binding");
                 Check(list.Controls[1].Controls.Find("spiritmasterRuleKeyButton", true).Single().Text == "A+-", "summon button renders manual Alt-minus");
-                Check(list.Controls[2].Controls.Find("spiritmasterRuleKeyButton", true).Single().Text == "A+2", "attack button renders manual Alt-2");
+                Check(list.Controls[2].Controls.Find("spiritmasterRuleKeyButton", true).Single().Text == "1", "attack button renders manual main-row 1");
                 var captured = (SpiritmasterSkillSettings)Call("CaptureSpiritmasterSettings")!;
                 Check(captured.SummonSkills[0].SkillId == 1778 && captured.SummonSkills[0].Key == "" &&
-                    captured.SummonSkills[1].Key == "Alt+OemMinus" && captured.OpeningAttackKey == "Alt+D2", "UI capture preserves automatic/manual ownership");
+                    captured.SummonSkills[1].Key == "Alt+OemMinus" && captured.OpeningAttackKey == "D1", "UI capture preserves automatic/manual ownership");
                 completion.SetResult();
             }
             catch (Exception ex) { completion.SetException(ex); }
