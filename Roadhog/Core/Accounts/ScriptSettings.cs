@@ -333,6 +333,8 @@ public sealed class CombatScriptSettings
 
 public sealed class RadarObstacleScriptSettings
 {
+    public double EndpointExtensionMeters { get; set; } = Radar.RadarNavigationGraphBuilder.ExtensionMeters;
+
     public const double DefaultWaypointReachMeters = 1.5D;
 
     public const double DefaultTargetReplanDistanceMeters = 2.5D;
@@ -357,6 +359,7 @@ public sealed class RadarObstacleScriptSettings
     {
         return new RadarObstacleScriptSettings
         {
+            EndpointExtensionMeters = EndpointExtensionMeters,
             Enabled = Enabled,
             WaypointReachMeters = WaypointReachMeters,
             TargetReplanDistanceMeters = TargetReplanDistanceMeters,

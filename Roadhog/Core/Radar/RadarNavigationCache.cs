@@ -30,7 +30,8 @@ public sealed class RadarNavigationGraph
     internal RadarNavigationGraph(
         IReadOnlyList<RadarObstacleSegment> obstacles,
         RadarNavigationCache cache,
-        bool loadedFromCache)
+        bool loadedFromCache,
+        double extensionMeters)
     {
         _cache = cache.Clone();
         Obstacles = Array.AsReadOnly(obstacles.Select(segment => segment.Clone()).ToArray());
@@ -44,12 +45,14 @@ public sealed class RadarNavigationGraph
         }
         _adjacency = adjacency.Select(edges => (IReadOnlyList<(int Target, double Cost)>)edges.AsReadOnly()).ToArray();
         LoadedFromCache = loadedFromCache;
+        ExtensionMeters = extensionMeters;
     }
 
     public IReadOnlyList<RadarObstacleSegment> Obstacles { get; }
     public IReadOnlyList<RadarPoint> Points { get; }
     public int EdgeCount => _cache.Edges.Count;
     public bool LoadedFromCache { get; }
+    public double ExtensionMeters { get; }
     public RadarNavigationCache ToCache() => _cache.Clone();
     internal IReadOnlyList<(int Target, double Cost)> Neighbors(int node) => _adjacency[node];
 }

@@ -34,6 +34,7 @@ internal sealed class RadarEditorForm : Form
     private readonly NumericUpDown _detourNumeric = new();
     private readonly NumericUpDown _rangeNumeric = new();
     private RadarMapDocument _document = new();
+    private double _endpointExtensionMeters = RadarNavigationGraphBuilder.ExtensionMeters;
     private RadarLiveSnapshot? _snapshot;
     private bool _dirty;
     private bool _refreshInFlight;
@@ -465,7 +466,8 @@ internal sealed class RadarEditorForm : Form
         }
 
         var settings = CaptureSettings();
-        var graph = RadarNavigationGraphBuilder.Prepare(_document.Segments, _document.NavigationCache);
+        var graph = RadarNavigationGraphBuilder.Prepare(_document.Segments, _document.NavigationCache,
+            extensionMeters: settings.EndpointExtensionMeters);
         _document.NavigationCache = graph.ToCache();
         var plan = _planner.Plan(new RadarRouteRequest(
             new RadarPoint(playerPosition.X, playerPosition.Y),
@@ -502,6 +504,7 @@ internal sealed class RadarEditorForm : Form
     {
         return new RadarObstacleScriptSettings
         {
+            EndpointExtensionMeters = _endpointExtensionMeters,
             Enabled = _enabledCheckBox.Checked,
             WaypointReachMeters = (double)_waypointReachNumeric.Value,
             TargetReplanDistanceMeters = (double)_replanNumeric.Value,
@@ -514,6 +517,7 @@ internal sealed class RadarEditorForm : Form
     private void ApplySettingsToControls(RadarObstacleScriptSettings settings)
     {
         var value = settings ?? new RadarObstacleScriptSettings();
+        _endpointExtensionMeters = RadarNavigationGraphBuilder.NormalizeExtensionMeters(value.EndpointExtensionMeters);
         _enabledCheckBox.Checked = value.Enabled;
         SetNumeric(_waypointReachNumeric, value.WaypointReachMeters);
         SetNumeric(_replanNumeric, value.TargetReplanDistanceMeters);

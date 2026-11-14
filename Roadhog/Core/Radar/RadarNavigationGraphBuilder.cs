@@ -5,22 +5,30 @@ namespace Roadhog.Core.Radar;
 public static class RadarNavigationGraphBuilder
 {
     // Bump whenever point generation or path intersection semantics change.
-    public const int CurrentVersion = 2;
-    public const double ExtensionMeters = 3.0D;
+    public const int CurrentVersion = 3;
+    public const double ExtensionMeters = 1.7D;
+    public const double MinimumExtensionMeters = 0.1D;
+    public const double MaximumExtensionMeters = 100.0D;
+
+    public static double NormalizeExtensionMeters(double value) => double.IsFinite(value)
+        ? Math.Clamp(value, MinimumExtensionMeters, MaximumExtensionMeters)
+        : ExtensionMeters;
 
     public static RadarNavigationGraph Prepare(
         IReadOnlyList<RadarObstacleSegment> obstacles,
         RadarNavigationCache? cache = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        double extensionMeters = ExtensionMeters)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var geometryHash = GeometryHash(obstacles);
+        extensionMeters = NormalizeExtensionMeters(extensionMeters);
+        var geometryHash = GeometryHash(obstacles, extensionMeters);
         if (IsReusable(cache, geometryHash, obstacles.Count))
         {
-            return new RadarNavigationGraph(obstacles, cache!, loadedFromCache: true);
+            return new RadarNavigationGraph(obstacles, cache!, loadedFromCache: true, extensionMeters);
         }
 
-        var points = BuildPoints(obstacles, cancellationToken);
+        var points = BuildPoints(obstacles, extensionMeters, cancellationToken);
         var edges = new List<RadarNavigationEdge>();
         for (var from = 0; from < points.Count; from++)
         {
@@ -41,11 +49,12 @@ public static class RadarNavigationGraphBuilder
             Edges = edges
         };
         built.ContentHash = ContentHash(built);
-        return new RadarNavigationGraph(obstacles, built, loadedFromCache: false);
+        return new RadarNavigationGraph(obstacles, built, loadedFromCache: false, extensionMeters);
     }
 
     private static List<RadarPoint> BuildPoints(
         IReadOnlyList<RadarObstacleSegment> obstacles,
+        double extensionMeters,
         CancellationToken cancellationToken)
     {
         var points = new List<RadarPoint>(obstacles.Count * 2);
@@ -74,9 +83,9 @@ public static class RadarNavigationGraphBuilder
             }
             // A shared/intersecting endpoint has no outward gap under the agreed rule.
             if (nearest <= RadarGeometry.CoordinateTolerance) return;
-            var extension = nearest <= ExtensionMeters + RadarGeometry.CoordinateTolerance
+            var extension = nearest <= extensionMeters + RadarGeometry.CoordinateTolerance
                 ? nearest / 2.0D
-                : ExtensionMeters;
+                : extensionMeters;
             var point = new RadarPoint(endpoint.X + direction.X * extension, endpoint.Y + direction.Y * extension);
             if (RadarGeometry.IsPathClear(point, point, obstacles) && unique.Add(point)) points.Add(point);
         }
@@ -100,10 +109,10 @@ public static class RadarNavigationGraphBuilder
         return cache.ContentHash == ContentHash(cache);
     }
 
-    private static string GeometryHash(IReadOnlyList<RadarObstacleSegment> obstacles) => Hash(writer =>
+    private static string GeometryHash(IReadOnlyList<RadarObstacleSegment> obstacles, double extensionMeters) => Hash(writer =>
     {
         writer.Write(CurrentVersion);
-        writer.Write(ExtensionMeters);
+        writer.Write(extensionMeters);
         writer.Write(obstacles.Count);
         foreach (var segment in obstacles)
         {

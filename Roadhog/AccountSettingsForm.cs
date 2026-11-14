@@ -84,6 +84,7 @@ namespace Roadhog
         private Label? returnHomeAfterCombatDistanceUnitLabel;
         private RoundedCheckBox? sitWhenNoTargetAtHomeCheckBox;
         private Button? radarEditorButton;
+        private NumericUpDown? radarEndpointExtensionNumeric;
         private Label? radarStatusLabel;
         private RadarObstacleScriptSettings currentRadarSettings = new();
         private RoundedComboBox? activeMonsterFilterCombo;
@@ -496,6 +497,8 @@ namespace Roadhog
             SetPathFollowReachDistance(settings.Combat);
             SetCameraTurnScales(settings.Combat);
             currentRadarSettings = (settings.Combat.RadarObstacleAvoidance ?? new RadarObstacleScriptSettings()).Clone();
+            if (radarEndpointExtensionNumeric is not null)
+                radarEndpointExtensionNumeric.Value = (decimal)RadarNavigationGraphBuilder.NormalizeExtensionMeters(currentRadarSettings.EndpointExtensionMeters);
             RefreshRadarStatus();
             RefreshCombatModeVisibility();
 
@@ -954,7 +957,7 @@ namespace Roadhog
                     PathFollowReachDistance = ReadDouble(pathFollowReachDistanceTextBox, 5.0D, 0.5D, 50.0D),
                     CameraYawPixelsPerDegree = ReadDouble(cameraYawPixelsPerDegreeTextBox, 11.0D, 0.1D, 100.0D),
                     CameraPitchPixelsPerDegree = ReadDouble(cameraPitchPixelsPerDegreeTextBox, 13.0D, 0.1D, 100.0D),
-                    RadarObstacleAvoidance = currentRadarSettings.Clone()
+                    RadarObstacleAvoidance = CaptureRadarSettings()
                 },
                 Gather = CaptureGatherSettings(),
                 Paths = new PathScriptSettings
@@ -1388,7 +1391,7 @@ namespace Roadhog
             var tab = CreateBaseTab("总览");
             var page = CreatePagePanel();
             page.AutoScroll = true;
-            page.AutoScrollMinSize = new Size(852, 612);
+            page.AutoScrollMinSize = new Size(852, 646);
             tab.Controls.Add(page);
 
             Panel AddSection(string title, int top, int height)
@@ -1415,9 +1418,9 @@ namespace Roadhog
             regionCombo.SelectedIndexChanged += (_, _) => ChangeRegion();
             AddLabel(modePanel, "保存后重启账号生效", 608, 2, 202, 24).BringToFront();
             var behaviorPanel = AddSection("选怪与拾取", 190, 134);
-            var environmentPanel = AddSection("镜头、频道与雷达", 332, 68);
-            BuildDailySchedule(AddSection("定时计划（当前账号）", 408, 156));
-            var loggingPanel = AddSection("日志", 572, 28);
+            var environmentPanel = AddSection("镜头、频道与雷达", 332, 102);
+            BuildDailySchedule(AddSection("定时计划（当前账号）", 442, 156));
+            var loggingPanel = AddSection("日志", 606, 28);
             generateLogFilesCheckBox = AddCheckBox(loggingPanel, "生成日志文件", 184, 1, 180, true);
             generateLogFilesCheckBox.Name = "generateLogFilesCheckBox";
             generateLogFilesCheckBox.BackColor = _inputBackground;
@@ -1437,6 +1440,22 @@ namespace Roadhog
             cameraYawPixelsPerDegreeTextBox = AddTextBox(environmentPanel, "11.0", 64, 34, 80, 28);
             AddLabel(environmentPanel, "俯仰", 164, 36, 48, 24);
             cameraPitchPixelsPerDegreeTextBox = AddTextBox(environmentPanel, "13.0", 220, 34, 80, 28);
+            AddLabel(environmentPanel, "绕障精度", 12, 70, 110, 24);
+            radarEndpointExtensionNumeric = new NumericUpDown
+            {
+                Name = "radarEndpointExtensionNumeric",
+                Location = new Point(128, 68),
+                Size = new Size(100, 28),
+                DecimalPlaces = 2,
+                Increment = 0.1M,
+                Minimum = (decimal)RadarNavigationGraphBuilder.MinimumExtensionMeters,
+                Maximum = (decimal)RadarNavigationGraphBuilder.MaximumExtensionMeters,
+                Value = (decimal)RadarNavigationGraphBuilder.ExtensionMeters,
+                BackColor = _inputBackground,
+                ForeColor = _textGreen
+            };
+            environmentPanel.Controls.Add(radarEndpointExtensionNumeric);
+            AddLabel(environmentPanel, "米（保存后生效）", 240, 70, 180, 24);
 
             mainModeCombo = AddCombo(modePanel, 88, 34, 236, 28, "自定义打怪", "路径采集", "半自动");
             mainModeCombo.SelectedIndexChanged += (_, _) => RefreshCombatModeVisibility();
@@ -1650,7 +1669,7 @@ namespace Roadhog
                 _runtime,
                 _radarMapStore,
                 _folderLauncher,
-                currentRadarSettings,
+                CaptureRadarSettings(),
                 ApplyRadarSettingsFromEditor);
             editor.ShowDialog(this);
             RefreshRadarStatus();
@@ -1668,6 +1687,14 @@ namespace Roadhog
             }
 
             return Core.Common.OperationResult.Ok();
+        }
+
+        private RadarObstacleScriptSettings CaptureRadarSettings()
+        {
+            var settings = currentRadarSettings.Clone();
+            if (radarEndpointExtensionNumeric is not null)
+                settings.EndpointExtensionMeters = (double)radarEndpointExtensionNumeric.Value;
+            return settings;
         }
 
         private void RefreshRadarStatus()

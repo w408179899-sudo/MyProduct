@@ -78,12 +78,20 @@ internal static class RadarTests
     {
         var settings = new RadarObstacleScriptSettings();
         Require(!settings.Enabled, "radar obstacle avoidance must default to disabled");
+        RequireNear(1.7D, settings.EndpointExtensionMeters, "default endpoint extension should be 1.7 meters");
+        var legacy = System.Text.Json.JsonSerializer.Deserialize<RadarObstacleScriptSettings>("{}")!;
+        RequireNear(1.7D, legacy.EndpointExtensionMeters, "legacy settings should default to 1.7 meters");
         settings.Enabled = true;
+        settings.EndpointExtensionMeters = 3.2D;
         settings.WaypointReachMeters = 4.25D;
         settings.DisplayRangeMeters = 180.0D;
 
         var clone = settings.Clone();
         Require(clone.Enabled, "clone should preserve enabled state");
+        RequireNear(3.2D, clone.EndpointExtensionMeters, "clone should preserve endpoint extension");
+        var restored = System.Text.Json.JsonSerializer.Deserialize<RadarObstacleScriptSettings>(
+            System.Text.Json.JsonSerializer.Serialize(clone))!;
+        RequireNear(3.2D, restored.EndpointExtensionMeters, "JSON should preserve endpoint extension");
         RequireNear(4.25D, clone.WaypointReachMeters, "clone should preserve waypoint reach distance");
         RequireNear(180.0D, clone.DisplayRangeMeters, "clone should preserve display range");
         clone.WaypointReachMeters = 1.0D;
@@ -359,7 +367,7 @@ internal static class RadarTests
             var nearestEndpointDistance = Math.Min(
                 waypoint.DistanceTo(obstacles[0].Start),
                 waypoint.DistanceTo(obstacles[0].End));
-            RequireNear(3.0D, nearestEndpointDistance, "wall waypoint should extend three meters beyond the endpoint");
+            RequireNear(1.7D, nearestEndpointDistance, "wall waypoint should extend 1.7 meters beyond the endpoint");
         }
 
         AssertEveryLegClear(plan, obstacles);

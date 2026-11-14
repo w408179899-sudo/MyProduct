@@ -23025,6 +23025,7 @@ static Task TestRadarObstacleSwitchPersistsFromStationaryUiAsync()
             {
                 Enabled = true,
                 WaypointReachMeters = 4.5D,
+                EndpointExtensionMeters = 2.4D,
                 DisplayRangeMeters = 160.0D
             };
             var configStore = new InMemoryAccountConfigStore(new AccountConfig
@@ -23042,6 +23043,9 @@ static Task TestRadarObstacleSwitchPersistsFromStationaryUiAsync()
             AssertFalse(
                 !GetControlVisibleForTest(form, "radarEditorButton"),
                 "radar editor button should show only for custom stationary combat");
+            var extensionNumeric = (System.Windows.Forms.NumericUpDown)GetPrivateFieldForTest(form, "radarEndpointExtensionNumeric");
+            AssertEqual(2.4M, extensionNumeric.Value, "overview should load configured radar extension");
+            extensionNumeric.Value = 3.2M;
 
             var editorOpened = false;
             using (var closeEditorTimer = new System.Windows.Forms.Timer { Interval = 50 })
@@ -23056,6 +23060,10 @@ static Task TestRadarObstacleSwitchPersistsFromStationaryUiAsync()
                         }
 
                         editorOpened = true;
+                        var editorSettings = (RadarObstacleScriptSettings)openForm.GetType()
+                            .GetMethod("CaptureSettings", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                            .Invoke(openForm, null)!;
+                        AssertEqual(3.2D, editorSettings.EndpointExtensionMeters, "radar editor should preserve overview extension");
                         openForm.Close();
                         break;
                     }
@@ -23068,6 +23076,7 @@ static Task TestRadarObstacleSwitchPersistsFromStationaryUiAsync()
             var captured = (ScriptSettings)InvokePrivateMethodForTest(form, "CaptureScriptSettings")!;
             AssertFalse(!captured.Combat.RadarObstacleAvoidance.Enabled, "radar enabled switch should load and capture");
             AssertEqual(4.5D, captured.Combat.RadarObstacleAvoidance.WaypointReachMeters, "radar waypoint reach should load and capture");
+            AssertEqual(3.2D, captured.Combat.RadarObstacleAvoidance.EndpointExtensionMeters, "overview should capture edited extension");
 
             SetComboSelectedIndexForTest(form, "combatModeCombo", 1);
             System.Windows.Forms.Application.DoEvents();
@@ -23090,6 +23099,10 @@ static Task TestRadarObstacleSwitchPersistsFromStationaryUiAsync()
                 .RadarObstacleAvoidance;
             AssertFalse(savedRadar is null || !savedRadar.Enabled, "radar switch should persist in account settings");
             AssertEqual(160.0D, savedRadar!.DisplayRangeMeters, "radar display range should persist");
+            AssertEqual(3.2D, savedRadar.EndpointExtensionMeters, "overview extension should persist");
+            using var reloadedForm = CreateAccountSettingsFormForTestsWithStore(configStore, radarMapStore: mapStore);
+            AssertEqual(3.2M, ((System.Windows.Forms.NumericUpDown)GetPrivateFieldForTest(reloadedForm, "radarEndpointExtensionNumeric")).Value,
+                "reopened overview should retain saved extension");
         }
         catch (Exception ex)
         {

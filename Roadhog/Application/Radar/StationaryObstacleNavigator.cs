@@ -234,7 +234,7 @@ public sealed class StationaryObstacleNavigator
             return CreateDirectScoreBatch(mapId, start, requests, "disabled_or_map_unknown");
         }
 
-        var loaded = await LoadScoringMapAsync(mapId, cancellationToken).ConfigureAwait(false);
+        var loaded = await LoadScoringMapAsync(mapId, settings.EndpointExtensionMeters, cancellationToken).ConfigureAwait(false);
         if (loaded is null)
         {
             return CreateDirectScoreBatch(mapId, start, requests, "map_load_failed");
@@ -284,9 +284,10 @@ public sealed class StationaryObstacleNavigator
             state.MapDocument is null ||
             state.SpatialIndex is null ||
             state.NavigationGraph is null ||
+            state.NavigationGraph.ExtensionMeters != RadarNavigationGraphBuilder.NormalizeExtensionMeters(settings.EndpointExtensionMeters) ||
             state.LoadedRevision != revision)
         {
-            var load = await LoadScoringMapAsync(mapId, cancellationToken).ConfigureAwait(false);
+            var load = await LoadScoringMapAsync(mapId, settings.EndpointExtensionMeters, cancellationToken).ConfigureAwait(false);
             if (load is null)
             {
                 state.ClearLoadedMap();
@@ -457,13 +458,16 @@ public sealed class StationaryObstacleNavigator
 
     private async Task<RadarScoringMap?> LoadScoringMapAsync(
         uint mapId,
+        double extensionMeters,
         CancellationToken cancellationToken)
     {
+        extensionMeters = RadarNavigationGraphBuilder.NormalizeExtensionMeters(extensionMeters);
         var revision = _revisions.Get(mapId);
         lock (_scoreMapSync)
         {
             if (_scoreMapCache is { } cached &&
                 cached.MapId == mapId &&
+                cached.Graph.ExtensionMeters == extensionMeters &&
                 cached.Revision == revision)
             {
                 return cached;
@@ -482,7 +486,7 @@ public sealed class StationaryObstacleNavigator
             load.Value.Found,
             load.Value.Document,
             new RadarObstacleSpatialIndex(load.Value.Document.Segments),
-            RadarNavigationGraphBuilder.Prepare(load.Value.Document.Segments, load.Value.Document.NavigationCache, cancellationToken));
+            RadarNavigationGraphBuilder.Prepare(load.Value.Document.Segments, load.Value.Document.NavigationCache, cancellationToken, extensionMeters));
         lock (_scoreMapSync)
         {
             _scoreMapCache = loaded;
