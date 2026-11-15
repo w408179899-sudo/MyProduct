@@ -118,6 +118,149 @@ internal static class StationaryTabFacingTests
         Check(!h.Input.MouseCommands.Any(c => c.StartsWith("move:")), "the acquisition fix must not reorient an already locked fight");
     }
 
+    public static async Task DefenseInvalidatesOldFacingAsync()
+    {
+        using var h = new Harness();
+        StartPetDefense(h);
+        h.SetPlayer(new(0, 0, 0), 0);
+        await h.Tick();
+        Check(h.Input.MouseCommands.Any(c => c.StartsWith("move:")), "pet defense must recheck a previously faced target after camera movement");
+        Check(!h.Input.Keys.Contains("Tab"), "unconfirmed defense facing must not send Tab");
+        Check(h.State.FacedCandidateEntityId == 0, "failed defense facing must invalidate the old marker");
+        Check(h.State.CurrentTargetServerObjectId == 9000 && h.State.CurrentTargetIsMaintenanceDefense,
+            "failed facing must retain the pet attacker and defense task");
+    }
+
+    public static async Task DefenseRetryTracksMovingAttackerAsync()
+    {
+        using var h = new Harness();
+        StartPetDefense(h);
+        await h.Tick();
+        Check(h.Input.Keys.Count(k => k == "Tab") == 1, "aligned defense must first attempt Tab");
+
+        h.Api.WorldObjects = new[] { h.Candidate with { Position = new(0, 20, 0), TargetServerObjectId = 2000 }, h.WrongMonster };
+        h.State.LastTabAt = DateTimeOffset.MinValue;
+        h.State.StartPendingTabVerification(h.Candidate, DateTimeOffset.Now.AddSeconds(-1), null);
+        await h.Tick();
+        Check(h.Input.Keys.Count(k => k == "Tab") == 1, "wrong-lock retry must wait for the moved pet attacker to be faced");
+        Check(h.Logger.Entries.Any(e => e.EventName == "stationary_combat.face_target" &&
+            Equals(e.Fields["targetEntityId"], (ushort)100) && Convert.ToDouble(e.Fields["targetYaw"]) == 180),
+            "defense retry must face the moved attacker, not the unrelated locked monster");
+        h.SetPlayer(new(0, 0, 0), 180);
+        await h.Tick();
+        Check(h.Input.Keys.Count(k => k == "Tab") == 2, "defense retry resumes after facing is confirmed");
+        Check(h.Input.Keys.All(k => k == "Tab") && h.State.CurrentTargetServerObjectId == 9000,
+            "repeated wrong locks must not attack or adopt an unrelated monster");
+
+        h.State.LastTabAt = DateTimeOffset.MinValue;
+        h.State.StartPendingTabVerification(h.Candidate, DateTimeOffset.Now.AddSeconds(-1), null);
+        h.SetPlayer(new(0, 0, 0), 0);
+        await h.Tick();
+        Check(h.Input.Keys.Count(k => k == "Tab") == 2, "every retry must recheck facing even after a successful previous correction");
+    }
+
+    public static async Task DefenseConfirmsCorrectionBeforeTabAsync()
+    {
+        using var h = new Harness();
+        StartPetDefense(h);
+        h.SetPlayer(new(0, 0, 0), 0);
+        var moved = false;
+        h.Input.AfterMove = (_, _) => { moved = true; h.SetPlayer(new(0, 0, 0), 90); };
+        h.Input.AfterPress = key =>
+        {
+            if (key != "Tab") return;
+            Check(moved && h.Api.Player.CameraYawDegrees == 90, "defense must align before sending Tab");
+            h.Api.TargetEntityId = 100;
+            h.Api.TargetOwnServerObjectId = 9000;
+            h.Api.TargetServerObjectId = 2000;
+            h.Api.TargetPosition = h.Candidate.Position;
+        };
+        await h.Tick();
+        Check(h.Input.Keys.Contains("Tab"), "confirmed defense turn must resume acquisition");
+        Check(h.Logger.Entries.Any(e => e.EventName == "stationary_combat.target.acquired"),
+            "the corrected Tab must still acquire the pet attacker");
+        Check(h.State.CurrentTargetServerObjectId == 9000 && h.State.Fighting, "successful defense acquisition must retain the attacker: " +
+            string.Join(" | ", h.Logger.Entries.Where(e => e.EventName.Contains("target")).Select(e => e.EventName + "=" + System.Text.Json.JsonSerializer.Serialize(e.Fields))));
+    }
+
+    public static async Task DefenseDetourInvalidatesFacingAsync()
+    {
+        using var h = new Harness(radar: true);
+        StartPetDefense(h);
+        var route = await h.Navigator!.ResolveAsync(h.State.ObstacleNavigation, 777,
+            new(0, 0), new(20, 0), RadarNavigationPurpose.ApproachTarget, 9000,
+            h.Settings.Combat.RadarObstacleAvoidance, 34);
+        Check(route.Action == RadarNavigationAction.MoveToWaypoint, "defense fixture must require a detour");
+        h.SetPlayer(new(12, 0, 0), 0);
+        h.State.ObstacleNavigation.CommitDirectApproach(9000);
+        await h.Tick();
+        Check(h.Input.MouseCommands.Any(c => c.StartsWith("move:")), "defense must reface the attacker after a detour");
+        Check(!h.Input.Keys.Contains("Tab"), "defense detour must not reuse its old facing for Tab");
+    }
+
+    public static async Task DefenseAlignedAvoidsExtraTurnAsync()
+    {
+        using var h = new Harness();
+        StartPetDefense(h);
+        await h.Tick();
+        Check(h.Input.Keys.Count(k => k == "Tab") == 1, "aligned pet defense should Tab immediately");
+        Check(!h.Input.MouseCommands.Any(c => c.StartsWith("move:")), "aligned pet defense must not add camera movement");
+    }
+
+    public static async Task DefenseRadarRetainsPriorityAsync()
+    {
+        using var h = new Harness(radar: true);
+        StartPetDefense(h);
+        await h.Navigator!.ResolveAsync(h.State.ObstacleNavigation, 777, new(0, 0), new(20, 0),
+            RadarNavigationPurpose.ApproachTarget, 9000, h.Settings.Combat.RadarObstacleAvoidance, 34);
+        h.State.ObstacleNavigation.CommitDirectApproach(9000);
+        h.SetPlayer(new(0, 0, 0), 0);
+        await h.Tick();
+        Check(h.Logger.Entries.Any(e => e.EventName == "stationary_combat.tab.blocked_by_obstacle"), "defense must retain the final radar check");
+        Check(!h.Input.Keys.Contains("Tab"), "blocked defense line must not Tab");
+        Check(!h.Logger.Entries.Any(e => e.EventName == "stationary_combat.face_target"), "radar detour must take priority over defense Tab facing");
+    }
+
+    public static async Task DefenseMatchingLockKeepsFightAsync()
+    {
+        using var h = new Harness();
+        StartPetDefense(h);
+        h.SetPlayer(new(0, 0, 0), 0);
+        h.Api.TargetEntityId = 100;
+        h.Api.TargetOwnServerObjectId = 9000;
+        h.Api.TargetServerObjectId = 2000;
+        h.Api.TargetPosition = h.Candidate.Position;
+        await h.Tick();
+        Check(h.State.Fighting && h.State.CurrentTargetServerObjectId == 9000, "matching defense lock must keep the current fight");
+        Check(!h.Input.Keys.Contains("Tab"), "matching defense lock must not reacquire");
+        Check(!h.Logger.Entries.Any(e => e.EventName is "stationary_combat.face_target" or "stationary_combat.target.defense_face_wait"),
+            "matching defense lock must not enter Tab facing; background pre-aim may still move the camera");
+        Check(h.Input.Keys.Contains("D1"), "matching pet-defense lock must continue the existing opening attack");
+    }
+
+    private static void StartPetDefense(Harness h)
+    {
+        h.LockWrongMonster();
+        var attacker = h.Candidate with { TargetServerObjectId = 2000 };
+        h.Api.LocalServerObjectId = 1000;
+        h.Api.Player = h.Api.Player with { CharacterClassId = AionClassId.Spiritmaster };
+        h.Settings.Skills.SpiritmasterAutoSkillLogicEnabled = true;
+        var roster = SummonedPetRosterSnapshot.Empty(1000, DateTimeOffset.Now);
+        var pet = SummonedPetSnapshot.NotSummoned(1000, DateTimeOffset.Now) with
+        {
+            IsSummoned = true, EntityId = 2, ServerObjectId = 2000, LocalLinkedPetServerObjectId = 2000,
+            OwnerConfirmed = true, CurrentHp = 100, MaxHp = 100, HpPercent = 100, HealthFields = new(true, true, true)
+        };
+        h.Api.SummonedPetRoster = roster with { LocalLinkedPetServerObjectId = 2000, LocalPlayerPet = roster.LocalPlayerPet with { Pet = pet } };
+        h.Api.SummonedPet = pet;
+        h.Api.WorldObjects = new[] { attacker, h.WrongMonster };
+        h.State.SetCurrentTarget(attacker);
+        h.State.Fighting = true;
+        h.State.CurrentTargetIsMaintenanceDefense = true;
+        h.State.CurrentTargetBypassesHomeLeash = true;
+        h.State.FacedCandidateEntityId = attacker.EntityId;
+    }
+
     private sealed class Harness : IDisposable
     {
         private readonly Dictionary<string, string?> _environment = new();
