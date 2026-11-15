@@ -1738,6 +1738,8 @@ public sealed partial class SemiAutoCombatController
         var deadline = startedAt + MaintenanceConfirmWindow;
         var attempts = 0;
         SkillSnapshot? confirmedSkill = null;
+        var requiresLifeDrainTarget = RequiresLifeDrainTarget(resource, maintenanceSkill, rule.SkillId);
+        LockedTargetSnapshot? lifeDrainTarget = null;
 
         while (DateTimeOffset.Now <= deadline)
         {
@@ -1754,6 +1756,25 @@ public sealed partial class SemiAutoCombatController
                     ["maintenanceSkillName"] = maintenanceSkill?.Name
                 });
                 return true;
+            }
+
+            // Pet selection recovery runs first; then validate the official target
+            // on every attempt, including the first one after baseline reads.
+            if (requiresLifeDrainTarget)
+            {
+                var target = await ReadLockedTargetForConfirmationAsync(context).ConfigureAwait(false);
+                var reason = GetLifeDrainTargetBlockReason(target, lifeDrainTarget);
+                if (reason is not null)
+                {
+                    state.ClearMaintenanceKeyAttempt(rule.Key);
+                    LogLifeDrainTargetBlocked(context, rule, maintenanceSkill, target, lifeDrainTarget,
+                        reason, attempts, startedAt);
+                    // An Always/AfterCombat rule without a live enemy must not
+                    // reserve idle maintenance and prevent acquiring a new target.
+                    return attempts > 0 || rule.RunTiming == MaintenanceRuleRunTiming.InCombat;
+                }
+
+                lifeDrainTarget ??= target;
             }
 
             attempts++;
