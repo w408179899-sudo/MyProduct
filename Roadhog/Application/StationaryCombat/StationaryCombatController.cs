@@ -343,7 +343,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
         WorldObjectSnapshot? noTargetRestWakeTarget = null;
         WorldObjectSnapshot? preMaintenanceDefenseTarget = null;
-        var leaderRestGuardAllowsSit = true;
+        var restGuardAllowsSit = true;
         var skipMaintenanceThisTick = false;
         if (temporaryTargetSwitchGuard)
         {
@@ -440,12 +440,38 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                         state,
                         playerPosition)
                     .ConfigureAwait(false);
-                leaderRestGuardAllowsSit = restDecision.CanSit;
+                restGuardAllowsSit = restDecision.CanSit;
                 preMaintenanceDefenseTarget = restDecision.DefenseTarget;
                 noTargetRestWakeTarget ??= preMaintenanceDefenseTarget;
                 if (preMaintenanceDefenseTarget is not null)
                 {
                     skipMaintenanceThisTick = true;
+                }
+            }
+            else if (!state.Fighting &&
+                     !skipMaintenanceThisTick &&
+                     !semiAutoState.IsMaintenanceResting &&
+                     !temporaryTargetSwitchGuard &&
+                     !IsGatherMaintenanceBlocked(state) &&
+                     mayEnterMaintenanceRest)
+            {
+                // Approaching a defense target is not Fighting yet. Recheck the live threat
+                // before every sit attempt, without suppressing ordinary recovery skills/items.
+                preMaintenanceDefenseTarget = await SelectMaintenanceDefenseTargetAsync(
+                        context, state, playerPosition)
+                    .ConfigureAwait(false);
+                noTargetRestWakeTarget ??= preMaintenanceDefenseTarget;
+                restGuardAllowsSit = preMaintenanceDefenseTarget is null;
+                if (preMaintenanceDefenseTarget is not null)
+                {
+                    LogActionThrottled(context, state, "stationary_combat.maintenance_rest.blocked", "defense", new Dictionary<string, object?>
+                    {
+                        ["account"] = context.Config.AccountName,
+                        ["reason"] = "defense_target_detected",
+                        ["targetEntityId"] = preMaintenanceDefenseTarget.EntityId,
+                        ["targetServerObjectId"] = preMaintenanceDefenseTarget.ServerObjectId,
+                        ["targetName"] = preMaintenanceDefenseTarget.Name
+                    }, TimeSpan.FromSeconds(3));
                 }
             }
 
@@ -458,7 +484,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                     semiAutoState,
                     state,
                     player,
-                    allowSitMaintenance: !temporaryTargetSwitchGuard && leaderRestGuardAllowsSit,
+                    allowSitMaintenance: !temporaryTargetSwitchGuard && restGuardAllowsSit,
                     clearSitWhenDisallowed: temporaryTargetSwitchGuard)
                 .ConfigureAwait(false))
             {
@@ -469,7 +495,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             if (!state.Fighting &&
                 !temporaryTargetSwitchGuard &&
                 !stationaryGatherWorkAvailable &&
-                leaderRestGuardAllowsSit &&
+                restGuardAllowsSit &&
                 CanUseNoTargetRestAtHome(combat) &&
                 playerDistanceFromHome <= ReturnStopDistance &&
                 !ShouldDelayNoTargetActionAfterLoot(state, DateTimeOffset.Now))
@@ -705,7 +731,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             }
 
             var canEnterNoTargetRestAtHome = !temporaryTargetSwitchGuard &&
-                                             leaderRestGuardAllowsSit &&
+                                             restGuardAllowsSit &&
                                              CanUseNoTargetRestAtHome(combat) &&
                                              playerDistanceFromHome <= ReturnStopDistance;
             if (!canEnterNoTargetRestAtHome &&
@@ -716,7 +742,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                         semiAutoState,
                         state,
                         player,
-                        allowSitMaintenance: !temporaryTargetSwitchGuard && leaderRestGuardAllowsSit,
+                        allowSitMaintenance: !temporaryTargetSwitchGuard && restGuardAllowsSit,
                         clearSitWhenDisallowed: temporaryTargetSwitchGuard)
                     .ConfigureAwait(false))
             {
