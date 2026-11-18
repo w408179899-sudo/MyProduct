@@ -341,6 +341,9 @@ public sealed class StationaryObstacleNavigator
         var waypointReachDistance = ResolveWaypointReachDistance(settings);
         var waypointPrecisionDistance = ResolveWaypointPrecisionDistance(waypointReachDistance);
         var waypointAdvanceDistance = ResolveWaypointAdvanceDistance(waypointReachDistance);
+        var finalWaypointReachDistance = purpose == RadarNavigationPurpose.ApproachTarget
+            ? Math.Min(finalReachDistanceMeters, waypointPrecisionDistance)
+            : finalReachDistanceMeters;
         var goalMoved = state.PlannedGoal.DistanceTo(goal) > Math.Max(0.1D, settings.TargetReplanDistanceMeters);
         var hasCurrentWaypoint = state.WaypointIndex >= 0 && state.WaypointIndex < state.Route.Count;
         var routeIdentityMatches = state.Route.Count > 0 &&
@@ -361,8 +364,14 @@ public sealed class StationaryObstacleNavigator
             state.LooseAdvanceWaypointIndex = -1;
         }
 
+        // The target can move behind cover without exceeding the usual replan distance.
+        var reachedCachedTargetWaypoint = purpose == RadarNavigationPurpose.ApproachTarget &&
+                                          hasCurrentWaypoint &&
+                                          state.WaypointIndex == state.Route.Count - 1 &&
+                                          start.DistanceTo(state.Route[state.WaypointIndex]) <= finalWaypointReachDistance;
         var routeMatches = routeIdentityMatches &&
                            hasCurrentWaypoint &&
+                           !reachedCachedTargetWaypoint &&
                            (routeLegClear || state.LooseAdvanceWaypointIndex == state.WaypointIndex);
         if (state.LastPlan is { Success: false } failedPlan &&
             state.Purpose == purpose &&
@@ -424,7 +433,7 @@ public sealed class StationaryObstacleNavigator
             RadarNavigationAction.MoveToWaypoint,
             destination,
             isFinal
-                ? finalReachDistanceMeters
+                ? finalWaypointReachDistance
                 : nextLegBlockedInsideReach
                     ? 0.0D
                     : waypointPrecisionDistance,
@@ -640,13 +649,16 @@ public sealed class StationaryObstacleNavigator
                state.WaypointIndex >= 0 &&
                state.WaypointIndex < state.Route.Count - 1)
         {
-            var nextLegClear = IsRouteLegClear(index, start, state.Route[state.WaypointIndex + 1]);
-            if (state.CurrentWaypointReachedPrecisely && !nextLegClear)
+            var nextWaypointIndex = state.WaypointIndex + 1;
+            var nextLegClear = IsRouteLegClear(index, start, state.Route[nextWaypointIndex]);
+            var nextIsFinalTargetWaypoint = state.Purpose == RadarNavigationPurpose.ApproachTarget &&
+                                            nextWaypointIndex == state.Route.Count - 1;
+            if (!nextLegClear && (state.CurrentWaypointReachedPrecisely || nextIsFinalTargetWaypoint))
             {
                 break;
             }
 
-            state.WaypointIndex++;
+            state.WaypointIndex = nextWaypointIndex;
             state.LooseAdvanceWaypointIndex = nextLegClear ? -1 : state.WaypointIndex;
             ResetWaypointMovementObservation(state, start);
             ObserveWaypointMovement(state, start, waypointPrecisionDistance, waypointAdvanceDistance);

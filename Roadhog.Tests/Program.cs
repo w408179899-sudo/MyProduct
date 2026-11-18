@@ -981,6 +981,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("radar navigator allows script 4 near wall route", RadarTests.NavigatorAllowsScript4NearWallRouteAsync),
     ("radar navigator uses loose waypoint advance after hard reach", RadarTests.NavigatorUsesLooseWaypointAdvanceAfterHardReachAsync),
     ("radar navigator advances waypoint crossed between samples", RadarTests.NavigatorAdvancesWaypointCrossedBetweenSamplesAsync),
+    ("radar target approach keeps Script 6 on the clear waypoint after crossing", RadarTests.NavigatorKeepsScript6OnClearWaypointAfterCrossingAsync),
+    ("radar target approach replans at a reached cached target waypoint", RadarTests.NavigatorReplansAtReachedCachedTargetWaypointAsync),
     ("radar navigator direct commitment stays on same target", RadarTests.NavigatorDirectCommitmentStaysOnSameTargetAsync),
     ("radar navigator strict direct check ignores commitment", RadarTests.NavigatorStrictDirectCheckIgnoresCommitmentAsync),
     ("radar obstacle switch persists from stationary ui", TestRadarObstacleSwitchPersistsFromStationaryUiAsync),

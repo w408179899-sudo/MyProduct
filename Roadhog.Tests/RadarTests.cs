@@ -637,21 +637,22 @@ internal static class RadarTests
                 "retained waypoint leg must not intersect the wall");
 
             settings.WaypointReachMeters = 1.5D;
-            var guardedGoal = new RadarPoint(20.0D, -10.0D);
+            var guardedWaypoint = new RadarPoint(20.0D, -10.0D);
+            var guardedGoal = new RadarPoint(22.0D, -10.0D);
             var crossedFrom = new RadarPoint(12.0D, 3.5D);
             var crossedTo = new RadarPoint(8.0D, 7.5D);
             Require(
                 RadarGeometry.PointToSegmentDistance(waypoint, crossedFrom, crossedTo) <= 0.0001D,
                 "safety scenario movement segment should cross the current waypoint");
             Require(
-                !RadarGeometry.IsPathClear(crossedTo, guardedGoal, new[] { wall }),
+                !RadarGeometry.IsPathClear(crossedTo, guardedWaypoint, new[] { wall }),
                 "safety scenario next leg should remain blocked by the wall");
 
             state.ClearRoute();
             state.Purpose = RadarNavigationPurpose.ApproachTarget;
             state.TargetServerObjectId = 99;
             state.PlannedGoal = guardedGoal;
-            state.Route = new[] { waypoint, guardedGoal };
+            state.Route = new[] { waypoint, guardedWaypoint, guardedGoal };
             state.WaypointIndex = 0;
             state.HasWaypointMovementSample = true;
             state.LastWaypointMovementSample = crossedFrom;
@@ -669,10 +670,10 @@ internal static class RadarTests
                 .ConfigureAwait(false);
 
             Require(state.WaypointIndex == 1, "loose waypoint advance should move past the current waypoint once inside 5 meters");
-            RequireNear(guardedGoal.X, looseAdvance.Destination.X, "loose advance next waypoint X");
-            RequireNear(guardedGoal.Y, looseAdvance.Destination.Y, "loose advance next waypoint Y");
-            RequireNear(1.0D, looseAdvance.ReachDistanceMeters, "loose advance should use the final reach distance");
-            Require(looseAdvance.Reason == "move_final", "loose advance should continue to the next point instead of precise correction");
+            RequireNear(guardedWaypoint.X, looseAdvance.Destination.X, "loose advance next waypoint X");
+            RequireNear(guardedWaypoint.Y, looseAdvance.Destination.Y, "loose advance next waypoint Y");
+            RequireNear(1.5D, looseAdvance.ReachDistanceMeters, "loose advance should use intermediate waypoint precision");
+            Require(looseAdvance.Reason == "move_waypoint", "loose advance should continue to the next intermediate point");
         }
         finally
         {
@@ -773,6 +774,90 @@ internal static class RadarTests
         {
             DeleteVerifiedTemporaryDirectory(directory);
         }
+    }
+
+    public static async Task NavigatorKeepsScript6OnClearWaypointAfterCrossingAsync()
+    {
+        const uint mapId = 220050000;
+        const uint targetId = 2154640149;
+        const double acquireDistance = 29.0D;
+        var wall = Segment(114.038D, 2766.718D, 103.488D, 2766.405D);
+        var navigator = new StationaryObstacleNavigator(
+            new StaticRadarMapStore(new RadarMapDocument { MapId = mapId, Segments = new() { wall } }),
+            new RadarRoutePlanner(),
+            new RadarMapRevisionRegistry());
+        var state = new StationaryObstacleNavigationState();
+        var settings = new RadarObstacleScriptSettings { Enabled = true, WaypointReachMeters = 1.5D };
+        var previousPosition = new RadarPoint(117.65931D, 2761.8413D);
+        var position = new RadarPoint(113.584274D, 2766.4958D);
+        var waypoint = new RadarPoint(115.74D, 2766.77D);
+        var goal = new RadarPoint(105.11D, 2770.97D);
+
+        var initial = await navigator.ResolveAsync(state, mapId, previousPosition, goal,
+            RadarNavigationPurpose.ApproachTarget, targetId, settings, acquireDistance).ConfigureAwait(false);
+        Require(initial.Action == RadarNavigationAction.MoveToWaypoint, "the logged approach starts on a detour");
+        state.Route = new[] { waypoint, goal };
+        state.WaypointIndex = 0;
+        state.HasWaypointMovementSample = true;
+        state.LastWaypointMovementSample = previousPosition;
+        state.LastWaypointMovementSampleIndex = 0;
+
+        Require(position.DistanceTo(goal) < acquireDistance, "the blocked target is already inside acquire range");
+        Require(!RadarGeometry.IsPathClear(position, goal, new[] { wall }), "the last leg still crosses the wall");
+        Require(RadarGeometry.IsPathClear(position, waypoint, new[] { wall }), "the previous waypoint is reachable");
+        for (var tick = 0; tick < 3; tick++)
+        {
+            var next = await navigator.ResolveAsync(state, mapId, position, goal,
+                RadarNavigationPurpose.ApproachTarget, targetId, settings, acquireDistance).ConfigureAwait(false);
+            Require(next.Action == RadarNavigationAction.MoveToWaypoint && next.Destination == waypoint,
+                "crossing the waypoint loosely must not start a blocked final leg");
+            RequireNear(1.5D, next.ReachDistanceMeters, "the clear waypoint uses waypoint precision");
+            Require(position.DistanceTo(waypoint) > next.ReachDistanceMeters,
+                "movement must continue from the position where Script 6 stalled");
+        }
+
+        var ready = await navigator.ResolveAsync(state, mapId, waypoint, goal,
+            RadarNavigationPurpose.ApproachTarget, targetId, settings, acquireDistance).ConfigureAwait(false);
+        Require(ready.Action == RadarNavigationAction.Ready, "clearing the obstacle should allow acquisition from the waypoint");
+        RequireNear(acquireDistance, ready.ReachDistanceMeters, "straight-line acquisition keeps the configured range");
+        Require(state.Route.Count == 0, "a clear line within range ends the detour");
+    }
+
+    public static async Task NavigatorReplansAtReachedCachedTargetWaypointAsync()
+    {
+        const uint mapId = 128;
+        const uint targetId = 99;
+        const double acquireDistance = 29.0D;
+        var wall = Segment(10.0D, -5.0D, 10.0D, 5.0D);
+        var navigator = new StationaryObstacleNavigator(
+            new StaticRadarMapStore(new RadarMapDocument { MapId = mapId, Segments = new() { wall } }),
+            new RadarRoutePlanner(),
+            new RadarMapRevisionRegistry());
+        var state = new StationaryObstacleNavigationState();
+        var settings = new RadarObstacleScriptSettings { Enabled = true, TargetReplanDistanceMeters = 2.5D };
+        var start = new RadarPoint(0.0D, 0.0D);
+        var cachedGoal = new RadarPoint(9.0D, 0.0D);
+        var goal = new RadarPoint(11.0D, 0.0D);
+
+        await navigator.ResolveAsync(state, mapId, start, goal,
+            RadarNavigationPurpose.ApproachTarget, targetId, settings, acquireDistance).ConfigureAwait(false);
+        state.PlannedGoal = cachedGoal;
+        state.Route = new[] { cachedGoal };
+        state.WaypointIndex = 0;
+
+        var approach = await navigator.ResolveAsync(state, mapId, start, goal,
+            RadarNavigationPurpose.ApproachTarget, targetId, settings, acquireDistance).ConfigureAwait(false);
+        var positionAtCachedWaypoint = new RadarPoint(8.0D, 0.0D);
+        var replanned = await navigator.ResolveAsync(state, mapId, positionAtCachedWaypoint, goal,
+            RadarNavigationPurpose.ApproachTarget, targetId, settings, acquireDistance).ConfigureAwait(false);
+        Require(approach.Action == RadarNavigationAction.MoveToWaypoint && approach.Destination == cachedGoal,
+            "the still-clear last waypoint can be followed while it is ahead");
+        RequireNear(1.5D, approach.ReachDistanceMeters, "a last waypoint must use waypoint precision before the direct line clears");
+        Require(replanned.Action == RadarNavigationAction.MoveToWaypoint && replanned.Destination != cachedGoal,
+            "reaching the cached endpoint with the live target still blocked must refresh the route");
+        Require(state.PlannedGoal == goal, "the refreshed route must use the live target position");
+        Require(RadarGeometry.IsPathClear(positionAtCachedWaypoint, replanned.Destination, new[] { wall }),
+            "the refreshed movement step must avoid the wall");
     }
 
     public static async Task NavigatorDirectCommitmentStaysOnSameTargetAsync()
