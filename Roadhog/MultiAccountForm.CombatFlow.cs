@@ -6,7 +6,7 @@ namespace Roadhog;
 public sealed partial class MultiAccountForm
 {
     private static string CombatFlowName(CombatFlowVersion version) => version == CombatFlowVersion.CoordinatedV2
-        ? "新版（试用）" : "稳定版";
+        ? "新版" : "稳定版";
 
     private static string CombatFlowDescription(AccountProcessView view) =>
         view.Worker?.ActiveCombatFlowVersion is { } active

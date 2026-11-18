@@ -1841,6 +1841,7 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("combat flow coordinator defense preserves resource maintenance", CoordinatorContractTests.DefenseDeniesSitButPreservesResourceMaintenanceAsync)
     ,("combat flow coordinator guard and gather preserve ownership", CoordinatorContractTests.GuardAndGatherPreserveOwnershipAsync)
     ,("combat flow policy defaults and unknown versions", CombatFlowPolicyTests.DefaultsAndUnknownVersionsAsync)
+    ,("combat flow policy old accounts adopt v2 and allow resaving legacy", CombatFlowPolicyTests.OldAccountsAdoptV2AndAllowResavingLegacyAsync)
     ,("combat flow policy persistence and malformed fallback", CombatFlowPolicyTests.PolicyPersistenceAndMalformedFallbackAsync)
     ,("combat flow policy account selection survives profiles and serialization", CombatFlowPolicyTests.AccountSelectionSurvivesProfileAndSerializationAsync)
     ,("combat flow policy direct startup preserves active version", CombatFlowPolicyTests.DirectStartupUsesPolicyAndKeepsRunningVersionAsync)

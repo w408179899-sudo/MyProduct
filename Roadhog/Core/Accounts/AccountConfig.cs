@@ -67,8 +67,8 @@ public sealed class AccountConfig
     public string AdvancedSkillProfileName { get; set; } = string.Empty;
     public bool AdvancedSkillProfileEnabled { get; set; }
 
-    // Account-local rollout choice. Shared skill profiles never enable the new flow.
-    public CombatFlowVersion CombatFlowVersion { get; set; } = CombatFlowVersion.Legacy;
+    // Shared profiles do not override the account's combat version.
+    public CombatFlowVersion CombatFlowVersion { get; set; } = CombatFlowVersion.CoordinatedV2;
 
     public ScriptSettings? ScriptSettings { get; set; }
 

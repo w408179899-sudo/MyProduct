@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Roadhog.Application;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
@@ -11,13 +12,54 @@ internal static class CombatFlowPolicyTests
 {
     public static Task DefaultsAndUnknownVersionsAsync()
     {
-        Require(new AccountConfig().CombatFlowVersion == CombatFlowVersion.Legacy, "old configurations default to legacy");
+        Require(new AccountConfig().CombatFlowVersion == CombatFlowVersion.CoordinatedV2, "new accounts default to v2");
         var policy = new CombatFlowPolicy();
-        Require(policy.Resolve(CombatFlowVersion.CoordinatedV2) == CombatFlowVersion.CoordinatedV2, "explicit opt-in selects new flow");
+        Require(policy.Resolve(CombatFlowVersion.CoordinatedV2) == CombatFlowVersion.CoordinatedV2, "default selects v2");
+        Require(policy.Resolve(CombatFlowVersion.Legacy) == CombatFlowVersion.Legacy, "manual rollback selects legacy");
         Require(policy.Resolve((CombatFlowVersion)999) == CombatFlowVersion.Legacy, "unknown versions select legacy");
         policy.ForceLegacy = true;
         Require(policy.Resolve(CombatFlowVersion.CoordinatedV2) == CombatFlowVersion.Legacy, "global rollback overrides account opt-in");
         return Task.CompletedTask;
+    }
+
+    public static async Task OldAccountsAdoptV2AndAllowResavingLegacyAsync()
+    {
+        using var temp = new TemporaryDirectory();
+        foreach (var versionProperty in new[] { "", "\"Version\": 1," })
+        {
+            var path = Path.Combine(temp.Path, "accounts.json");
+            var json = $$"""
+                {
+                  {{versionProperty}}
+                  "Accounts": [
+                    { "AccountName": "unset", "CombatPathName": "original-route" },
+                    { "AccountName": "legacy-name", "CombatFlowVersion": "Legacy" },
+                    { "AccountName": "legacy-number", "CombatFlowVersion": 0 },
+                    { "AccountName": "v2", "CombatFlowVersion": "CoordinatedV2" }
+                  ]
+                }
+                """;
+            await File.WriteAllTextAsync(path, json);
+            var store = new JsonAccountConfigStore(path);
+            var loaded = await store.LoadAllAsync();
+            Require(loaded.Success && loaded.Value!.Count == 4 &&
+                loaded.Value.All(account => account.CombatFlowVersion == CombatFlowVersion.CoordinatedV2),
+                "old accounts use v2 whether the previous choice was missing, legacy or v2");
+            Require(await File.ReadAllTextAsync(path) == json, "reading leaves the legacy file intact");
+
+            var rollback = loaded.Value!.Single(account => account.AccountName == "unset");
+            rollback.CombatFlowVersion = CombatFlowVersion.Legacy;
+            Require((await store.UpsertAsync(rollback)).Success, "the first account save can explicitly request rollback");
+            using var saved = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+            Require(saved.RootElement.GetProperty("Version").GetInt32() == 2, "the first save persists the new format");
+            var reloaded = await new JsonAccountConfigStore(path).LoadAllAsync();
+            Require(reloaded.Success && reloaded.Value!.Count == 4 &&
+                reloaded.Value.Single(account => account.AccountName == "unset") is
+                    { CombatFlowVersion: CombatFlowVersion.Legacy, CombatPathName: "original-route" } &&
+                reloaded.Value.Where(account => account.AccountName != "unset")
+                    .All(account => account.CombatFlowVersion == CombatFlowVersion.CoordinatedV2),
+                "manual rollback and unrelated settings survive, and the other accounts keep their migration");
+        }
     }
 
     public static async Task PolicyPersistenceAndMalformedFallbackAsync()
@@ -56,8 +98,8 @@ internal static class CombatFlowPolicyTests
         var profiles = new JsonScriptProfileStore(Path.Combine(temp.Path, "profiles"));
         Require((await profiles.SaveAsync(new ScriptProfileDocument { Name = "shared", Settings = new() { ProfileName = "shared" } })).Success,
             "shared profile saves");
-        var selected = new AccountConfig { AccountName = "new", ProfileName = "shared", CombatFlowVersion = CombatFlowVersion.CoordinatedV2 };
-        var stable = new AccountConfig { AccountName = "old", ProfileName = "shared" };
+        var selected = new AccountConfig { AccountName = "new", ProfileName = "shared" };
+        var stable = new AccountConfig { AccountName = "old", ProfileName = "shared", CombatFlowVersion = CombatFlowVersion.Legacy };
         Require((await accounts.SaveAllAsync([selected, stable])).Success, "version selections serialize");
         var loaded = (await accounts.LoadAllAsync()).Value!;
         var builder = new AccountStartConfigBuilder(profiles, new JsonBagCleanupNameListStore(Path.Combine(temp.Path, "lists.json")),
@@ -65,9 +107,9 @@ internal static class CombatFlowPolicyTests
         var newStart = await builder.BuildAsync(loaded.Single(account => account.AccountName == "new"));
         var oldStart = await builder.BuildAsync(loaded.Single(account => account.AccountName == "old"));
         Require(newStart.Success && newStart.Value!.CombatFlowVersion == CombatFlowVersion.CoordinatedV2,
-            "shared profile load retains account opt-in");
+            "shared profile load retains the new account default");
         Require(oldStart.Success && oldStart.Value!.CombatFlowVersion == CombatFlowVersion.Legacy,
-            "same shared profile does not enable another account");
+            "same shared profile preserves another account's explicit rollback");
         newStart.Value!.CombatFlowVersion = CombatFlowVersion.Legacy;
         Require(loaded.Single(account => account.AccountName == "new").CombatFlowVersion == CombatFlowVersion.CoordinatedV2,
             "effective startup changes cannot rewrite saved account selection");

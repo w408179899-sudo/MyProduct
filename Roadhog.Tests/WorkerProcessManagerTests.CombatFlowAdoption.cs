@@ -9,6 +9,7 @@ internal static partial class WorkerProcessManagerTests
     {
         await using var test = new TestEnvironment();
         var account = test.Account(1);
+        account.CombatFlowVersion = CombatFlowVersion.Legacy;
         var previous = await test.ManagerAsync([account]);
         Require((await previous.StartAsync(account.InstanceId)).Success, "legacy worker starts");
         var pid = (await test.RunningAsync(previous, account)).WorkerProcessId!.Value;

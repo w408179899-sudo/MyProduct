@@ -7,15 +7,15 @@ internal static partial class WorkerProcessManagerTests
     {
         await using var test = new TestEnvironment();
         var candidate = test.Account(1);
-        candidate.CombatFlowVersion = CombatFlowVersion.CoordinatedV2;
         var stable = test.Account(2);
+        stable.CombatFlowVersion = CombatFlowVersion.Legacy;
         var manager = await test.ManagerAsync([candidate, stable]);
         RequireAll(await Task.WhenAll(manager.StartAsync(candidate.InstanceId), manager.StartAsync(stable.InstanceId)), "both versions start");
         var candidatePid = (await test.RunningAsync(manager, candidate)).WorkerProcessId!.Value;
         var stablePid = (await test.RunningAsync(manager, stable)).WorkerProcessId!.Value;
         var startPath = Path.Combine(manager.PathsFor(candidate).LogDirectory, "normal-start.json");
         var started = JsonSerializer.Deserialize<AccountConfig>(await File.ReadAllTextAsync(startPath))!;
-        Require(started.CombatFlowVersion == CombatFlowVersion.CoordinatedV2, "account opt-in reaches worker start");
+        Require(started.CombatFlowVersion == CombatFlowVersion.CoordinatedV2, "default v2 reaches worker start");
 
         var stopped = await manager.SetForceLegacyCombatFlowAsync(true);
         Require(stopped.Count == 1 && stopped[candidate.AccountName].Success, "only new-flow account is stopped");
@@ -66,6 +66,7 @@ internal static partial class WorkerProcessManagerTests
         var candidate = test.Account(1);
         candidate.CombatFlowVersion = CombatFlowVersion.CoordinatedV2;
         var stable = test.Account(2);
+        stable.CombatFlowVersion = CombatFlowVersion.Legacy;
         var previous = await test.ManagerAsync([candidate, stable], scenario: "combat-flow-versioned");
         RequireAll(await Task.WhenAll(previous.StartAsync(candidate.InstanceId), previous.StartAsync(stable.InstanceId)), "both workers start");
         var candidatePid = (await test.RunningAsync(previous, candidate)).WorkerProcessId!.Value;

@@ -32,16 +32,7 @@ public sealed class JsonAccountConfigStore : IAccountConfigStore
         await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!AtomicJsonFile.Exists(_path))
-            {
-                return OperationResult<IReadOnlyList<AccountConfig>>.Ok(Array.Empty<AccountConfig>());
-            }
-
-            await using var stream = AtomicJsonFile.OpenRead(_path);
-            var document = await JsonSerializer.DeserializeAsync<AccountConfigDocument>(stream, _jsonOptions, cancellationToken)
-                .ConfigureAwait(false);
-
-            var accounts = document?.Accounts ?? new List<AccountConfig>();
+            var accounts = await ReadAccountsAsync(cancellationToken).ConfigureAwait(false);
             var validation = Validate(accounts);
             return validation.Success
                 ? OperationResult<IReadOnlyList<AccountConfig>>.Ok(accounts.Select(account => account.Clone()).ToArray())
@@ -68,19 +59,8 @@ public sealed class JsonAccountConfigStore : IAccountConfigStore
                 return validation;
             }
 
-            var directory = Path.GetDirectoryName(_path);
-            if (!string.IsNullOrWhiteSpace(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-
-            var document = new AccountConfigDocument
-            {
-                Version = 1,
-                Accounts = accounts.Select(account => account.Clone()).ToList()
-            };
-
-            await AtomicJsonFile.WriteAsync(_path, document, _jsonOptions, cancellationToken).ConfigureAwait(false);
+            await WriteAccountsAsync(accounts.Select(account => account.Clone()).ToList(), cancellationToken)
+                .ConfigureAwait(false);
             return OperationResult.Ok();
         }
         catch (Exception ex)
@@ -103,17 +83,7 @@ public sealed class JsonAccountConfigStore : IAccountConfigStore
         await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var accounts = new List<AccountConfig>();
-            if (File.Exists(_path))
-            {
-                await using var readStream = AtomicJsonFile.OpenRead(_path);
-                var document = await JsonSerializer.DeserializeAsync<AccountConfigDocument>(readStream, _jsonOptions, cancellationToken)
-                    .ConfigureAwait(false);
-                if (document?.Accounts is not null)
-                {
-                    accounts.AddRange(document.Accounts);
-                }
-            }
+            var accounts = await ReadAccountsAsync(cancellationToken).ConfigureAwait(false);
 
             var index = accounts.FindIndex(item => string.Equals(item.AccountName, account.AccountName, StringComparison.OrdinalIgnoreCase));
             if (index >= 0)
@@ -131,14 +101,7 @@ public sealed class JsonAccountConfigStore : IAccountConfigStore
                 return validation;
             }
 
-            var directory = Path.GetDirectoryName(_path);
-            if (!string.IsNullOrWhiteSpace(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-
-            await AtomicJsonFile.WriteAsync(_path, new AccountConfigDocument { Version = 1, Accounts = accounts }, _jsonOptions, cancellationToken)
-                .ConfigureAwait(false);
+            await WriteAccountsAsync(accounts, cancellationToken).ConfigureAwait(false);
             return OperationResult.Ok();
         }
         catch (Exception ex)
@@ -150,6 +113,31 @@ public sealed class JsonAccountConfigStore : IAccountConfigStore
             _sync.Release();
         }
     }
+
+    private async Task<List<AccountConfig>> ReadAccountsAsync(CancellationToken cancellationToken)
+    {
+        if (!AtomicJsonFile.Exists(_path)) return [];
+
+        await using var stream = AtomicJsonFile.OpenRead(_path);
+        var document = await JsonSerializer.DeserializeAsync<AccountConfigDocument>(stream, _jsonOptions, cancellationToken)
+            .ConfigureAwait(false);
+        if (document?.Accounts is not { } accounts) return [];
+
+        if (document.Version < AccountConfigDocument.V2CombatDefaultVersion)
+        {
+            foreach (var account in accounts.Where(account => account.CombatFlowVersion == CombatFlowVersion.Legacy))
+                account.CombatFlowVersion = CombatFlowVersion.CoordinatedV2;
+        }
+
+        return accounts;
+    }
+
+    private Task WriteAccountsAsync(List<AccountConfig> accounts, CancellationToken cancellationToken) =>
+        AtomicJsonFile.WriteAsync(_path, new AccountConfigDocument
+        {
+            Version = AccountConfigDocument.V2CombatDefaultVersion,
+            Accounts = accounts
+        }, _jsonOptions, cancellationToken);
 
     private static OperationResult Validate(IReadOnlyList<AccountConfig> accounts)
     {
