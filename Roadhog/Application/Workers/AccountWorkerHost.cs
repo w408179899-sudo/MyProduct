@@ -43,13 +43,15 @@ public sealed class AccountWorkerHost
 
     public string? AccountName { get; private set; }
 
-    public Guid? ScriptRestartRequestId
+    public Guid? ScriptRestartRequestId => ScriptRestart?.Id;
+
+    internal GameSessions.ScriptRestartRequest? ScriptRestart
     {
         get
         {
             lock (_syncRoot)
                 return _task is { IsCompleted: false } && _stopSource?.IsCancellationRequested == false
-                    ? _gameSessionRequests.ScriptRestartRequestId : null;
+                    ? _gameSessionRequests.ScriptRestart : null;
         }
     }
 

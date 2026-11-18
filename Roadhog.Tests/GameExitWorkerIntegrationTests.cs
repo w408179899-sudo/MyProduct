@@ -4,8 +4,10 @@ using Roadhog.Application.SemiAuto;
 using Roadhog.Application.StationaryCombat;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
+using Roadhog.Core.Common;
 using Roadhog.Core.Diagnostics;
 using Roadhog.Core.Input;
+using Roadhog.Core.Model;
 
 internal static class GameExitWorkerIntegrationTests
 {
@@ -37,9 +39,9 @@ internal static class GameExitWorkerIntegrationTests
     private static (DefaultAccountWorkerLoop Loop, AccountWorkerContext Context) Create(
         FakeGameApi api, RecordingKeyboardInput input, InMemoryRoadhogLogger logger,
         ExitSession session, CancellationToken token, GameSessionRequestMailbox mailbox,
-        Func<IGameExitSession>? exitFactory = null)
+        Func<IGameExitSession>? exitFactory = null, ScriptSettings? settings = null)
     {
-        var settings = new ScriptSettings { MainMode = AccountMainMode.Gather };
+        settings ??= new ScriptSettings { MainMode = AccountMainMode.Gather };
         var config = new AccountConfig { AccountName = "exit-worker-test", MainMode = settings.MainMode, ScriptSettings = settings };
         var states = new AccountRuntimeManager(logger);
         states.MarkStarting(config);
@@ -70,6 +72,63 @@ internal static class GameExitWorkerIntegrationTests
         stop.Cancel();
         try { await work.WaitAsync(TimeSpan.FromSeconds(3)); }
         catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
+    }
+
+    internal static async Task ColdWorldSnapshotCanRestartAndExitAsync()
+    {
+        foreach (var hadPublication in new[] { false, true })
+        {
+            var api = new FakeGameApi
+            {
+                WorldObjectReadFallback = OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail("world_static_metadata_missing")
+            };
+            var input = new RecordingKeyboardInput();
+            var logger = new InMemoryRoadhogLogger();
+            var session = new ExitSession();
+            var mailbox = new GameSessionRequestMailbox();
+            var settings = new ScriptSettings { MainMode = AccountMainMode.CustomCombat, CombatMode = AccountCombatMode.Stationary };
+            settings.Combat.HasStationaryCombatPosition = true;
+            settings.Combat.StationaryCombatX = 1;
+            using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(12));
+            var (loop, context) = Create(api, input, logger, session, stop.Token, mailbox, settings: settings);
+            if (hadPublication)
+            {
+                var failure = api.WorldObjectReadFallback;
+                api.WorldObjectReadFallback = null;
+                await context.Snapshots.ReadWorldObjectsAsync();
+                api.WorldObjectReadFallback = failure;
+            }
+            session.OnAction = action =>
+            {
+                if (action == GameExitAction.OpenMenu)
+                    session.Scene = session.Scene with { MenuOpen = true, CanQuit = true };
+                if (action == GameExitAction.Quit)
+                    session.Scene = session.Scene with { ProcessPresent = false };
+            };
+            var work = loop.RunAsync(context);
+            try
+            {
+                await UntilAsync(() => logger.Entries.Any(e => e.EventName == "worker.read_budget.yield"), work, stop.Token);
+                if (hadPublication)
+                {
+                    Require(mailbox.ScriptRestartRequestId is null && session.Reads == 0,
+                        "A timeout after a valid publication keeps the ordinary yield path.");
+                    continue;
+                }
+
+                Require(mailbox.ScriptRestart?.WorldSnapshotStalled == true, "Cold snapshot timeout requests a worker restart.");
+                await UntilAsync(() => logger.Entries.Any(e => e.EventName == "account.restart.requested"), work, stop.Token);
+                var worldReads = api.WorldObjectReadCount;
+                Require(mailbox.Request(GameSessionOperation.Relogin).Success, "accept relogin while parked at the restart");
+                await UntilAsync(() => mailbox.Completed is not null, work, stop.Token);
+                Require(mailbox.ScriptRestartRequestId is null && mailbox.Completed!.Operation == GameSessionOperation.Relogin &&
+                    session.Actions.SequenceEqual(new[] { GameExitAction.OpenMenu, GameExitAction.Quit }),
+                    "Escalation replaces the restart and uses the normal exit actions before confirming completion.");
+                Require(api.WorldObjectReadCount == worldReads,
+                    "The exit path cannot wait for another world snapshot once this recovery owns the worker.");
+            }
+            finally { await StopAsync(stop, work); }
+        }
     }
 
     internal static async Task NoRequestLeavesNormalWorkUntouchedAsync()

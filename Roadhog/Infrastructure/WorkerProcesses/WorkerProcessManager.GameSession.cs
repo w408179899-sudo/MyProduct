@@ -1,10 +1,52 @@
 using Roadhog.Application.GameSessions;
+using Roadhog.Core.Accounts;
 using Roadhog.Core.Common;
 
 namespace Roadhog.Infrastructure.WorkerProcesses;
 
 public sealed partial class WorkerProcessManager
 {
+    private const int MaximumWorldSnapshotRestarts = 3;
+
+    // The worker is already parked at its restart request. Use the normal relogin RPC
+    // so the backend validates the saved login before asking the game to exit.
+    private async Task RequestWorldSnapshotReloginAsync(Entry entry, Guid requestId, CancellationToken operation)
+    {
+        AccountConfig account;
+        int restarts;
+        lock (entry.Sync)
+        {
+            if (!entry.Desired || entry.StartingRequest || operation.IsCancellationRequested ||
+                entry.StopTask is { IsCompleted: false } || !ScheduleAllowsStart(entry) ||
+                entry.Status?.ScriptRestartRequestId != requestId ||
+                DateTimeOffset.UtcNow < entry.WorldSnapshotReloginRetryAt) return;
+            entry.WorldSnapshotReloginRetryAt = DateTimeOffset.UtcNow.AddSeconds(30);
+            account = entry.Config.Clone();
+            restarts = entry.WorldSnapshotRestarts;
+        }
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token, operation);
+        deadline.CancelAfter(TimeSpan.FromSeconds(3));
+        var fields = new Dictionary<string, object?>
+            { ["account"] = account.AccountName, ["requestId"] = requestId, ["scriptRestarts"] = restarts };
+        try
+        {
+            var result = await Client(entry).CallAsync<OperationResult>(
+                WorkerCommands.Relogin, [account], deadline.Token).ConfigureAwait(false);
+            if (result.Success)
+            {
+                _logger.Info("game_session.world_snapshot_relogin_requested", fields);
+                return;
+            }
+            fields["error"] = result.Error;
+        }
+        catch (Exception error)
+        {
+            if (operation.IsCancellationRequested || _lifetime.IsCancellationRequested) return;
+            fields["error"] = error.Message;
+        }
+        _logger.Warn("game_session.world_snapshot_relogin_retry", fields);
+    }
+
     private async Task CompleteGameSessionAsync(Entry entry, Guid requestId)
     {
         Task<OperationResult> stopping;
@@ -17,12 +59,15 @@ public sealed partial class WorkerProcessManager
                 entry.Status?.GameSessionCompletedRequestId != requestId || entry.Descriptor is null ||
                 Volatile.Read(ref _shuttingDown) != 0 || Volatile.Read(ref _disposed) != 0) return;
             requested = entry.Status.CompletedGameSessionOperation;
+            entry.WorldSnapshotRestarts = 0;
+            entry.WorldSnapshotReloginRetryAt = default;
             if (requested == GameSessionOperation.Relogin)
             {
                 // Exit has already completed. Retry only the stop/start continuation;
                 // never replay the game-exit request after a cleanup or login fault.
                 entry.PendingShopRestartId = requestId;
                 entry.PendingScriptRestart = true;
+                entry.PendingWorldSnapshotRestart = false;
             }
             stopping = BeginStop(entry, forShopRestart: requested == GameSessionOperation.Relogin);
             generation = entry.StopGeneration;

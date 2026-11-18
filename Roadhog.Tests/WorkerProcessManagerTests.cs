@@ -730,6 +730,7 @@ internal static partial class WorkerProcessManagerTests
         private volatile bool _loggedIn;
         private Guid? _shopRestartRequestId;
         private Guid? _scriptRestartRequestId;
+        private bool _worldSnapshotRestartRequested;
         private Guid? _gameSessionRequestId;
         private Roadhog.Application.GameSessions.GameSessionOperation? _gameSessionOperation;
         private string? _cleanupFailure;
@@ -763,9 +764,11 @@ internal static partial class WorkerProcessManagerTests
                 IsRunning = _running, LoginCompleted = _loggedIn, Snapshot = _states.Snapshot().SingleOrDefault(), StandaloneShopRestartRequestId = _shopRestartRequestId,
                 CleanupFailure = _cleanupFailure,
                 ScriptRestartRequestId = _scriptRestartRequestId,
+                WorldSnapshotRestartRequested = _worldSnapshotRestartRequested,
                 GameDisconnectRequestId = _disconnectRequestId,
                 LoginRetryPending = _loginRetryPending,
                 GameSessionCompletedRequestId = _gameSessionRequestId,
+                PendingGameSessionOperation = _gameSessionRequestId is null ? _gameSessionOperation : null,
                 CompletedGameSessionOperation = _gameSessionOperation
             };
         }
@@ -783,7 +786,16 @@ internal static partial class WorkerProcessManagerTests
                 JsonSerializer.Serialize(new { Operation = operation, Account = account }), token);
             _states.MarkStarting(account);
             _states.MarkRunning(account.AccountName, Environment.CurrentManagedThreadId);
-            lock (_shopSync) { _gameSessionRequestId = null; _gameSessionOperation = operation; }
+            lock (_shopSync)
+            {
+                _gameSessionRequestId = null;
+                _gameSessionOperation = operation;
+                if (_worldSnapshotRestartRequested)
+                {
+                    _scriptRestartRequestId = null;
+                    _worldSnapshotRestartRequested = false;
+                }
+            }
             _running = true;
             return OperationResult.Ok();
         }
@@ -828,7 +840,7 @@ internal static partial class WorkerProcessManagerTests
             await File.WriteAllTextAsync(Path.Combine(spec.Paths.LogDirectory, "started"), _starts.ToString(), cancellationToken);
             _states.MarkStarting(account);
             _states.MarkRunning(account.AccountName, Environment.CurrentManagedThreadId);
-            lock (_shopSync) { _shopRestartRequestId = null; _scriptRestartRequestId = null; _cleanupFailure = null; _gameSessionRequestId = null; _gameSessionOperation = null; }
+            lock (_shopSync) { _shopRestartRequestId = null; _scriptRestartRequestId = null; _worldSnapshotRestartRequested = false; _cleanupFailure = null; _gameSessionRequestId = null; _gameSessionOperation = null; }
             if (!cleanupFirst)
                 await File.WriteAllTextAsync(Path.Combine(spec.Paths.LogDirectory, "normal-start.json"), JsonSerializer.Serialize(account), cancellationToken);
             if (cleanupFirst && account.ScriptSettings?.Maintenance.CleanupWorkflow.Mode == CleanupMode.GroceryShop)
@@ -890,7 +902,11 @@ internal static partial class WorkerProcessManagerTests
             }
             if (method == "mock.script.restart")
             {
-                lock (_shopSync) _scriptRestartRequestId = arguments[0].GetGuid();
+                lock (_shopSync)
+                {
+                    _scriptRestartRequestId = arguments[0].GetGuid();
+                    _worldSnapshotRestartRequested = arguments.Length > 1 && arguments[1].GetBoolean();
+                }
                 return OperationResult.Ok();
             }
             if (method == "mock.shop.sold-out")

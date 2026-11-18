@@ -7,7 +7,10 @@ public sealed record GameSessionRequest(GameSessionOperation Operation)
 {
     public Guid Id { get; } = Guid.NewGuid();
     public GameExitController Exit { get; } = new();
+    internal bool AfterWorldSnapshotStall { get; init; }
 }
+
+internal sealed record ScriptRestartRequest(Guid Id, bool WorldSnapshotStalled);
 
 /// <summary>Transient account command, discarded by Stop; suitable for UI or a future scheduler.</summary>
 public sealed class GameSessionRequestMailbox
@@ -15,12 +18,21 @@ public sealed class GameSessionRequestMailbox
     private readonly object _sync = new();
     private GameSessionRequest? _current;
     private GameSessionRequest? _completed;
-    private Guid? _scriptRestartRequestId;
-    public Guid? ScriptRestartRequestId { get { lock (_sync) return _scriptRestartRequestId; } }
+    private ScriptRestartRequest? _scriptRestart;
+    internal ScriptRestartRequest? ScriptRestart { get { lock (_sync) return _scriptRestart; } }
+    public Guid? ScriptRestartRequestId => ScriptRestart?.Id;
     // Restart the worker only; do not send game exit input or manufacture a shop completion.
     public Guid RequestScriptRestart()
     {
-        lock (_sync) return _scriptRestartRequestId ??= Guid.NewGuid();
+        lock (_sync) return (_scriptRestart ??= new(Guid.NewGuid(), false)).Id;
+    }
+    internal Guid? RequestWorldSnapshotRestart()
+    {
+        lock (_sync)
+        {
+            if (_current is not null || _completed is not null) return null;
+            return (_scriptRestart ??= new(Guid.NewGuid(), true)).Id;
+        }
     }
     public GameSessionRequest? Current { get { lock (_sync) return _current; } }
     public GameSessionRequest? Completed { get { lock (_sync) return _completed; } }
@@ -29,7 +41,9 @@ public sealed class GameSessionRequestMailbox
         lock (_sync)
         {
             if (_current is not null || _completed is not null) return OperationResult.Fail("退出 / 重登任务已在等待或执行。");
-            _current = new(operation);
+            var stalled = _scriptRestart?.WorldSnapshotStalled == true;
+            _current = new(operation) { AfterWorldSnapshotStall = stalled };
+            if (stalled) _scriptRestart = null;
             return OperationResult.Ok();
         }
     }

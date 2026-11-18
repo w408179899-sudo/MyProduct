@@ -21,7 +21,11 @@ public sealed partial class WorkerProcessManager
                 return;
             previousProcessId = entry.Descriptor?.ProcessId;
             if (entry.PendingShopRestartId != requestId)
+            {
                 entry.PendingScriptRestart = entry.Status?.ScriptRestartRequestId == requestId;
+                entry.PendingWorldSnapshotRestart = entry.PendingScriptRestart && entry.Status?.WorldSnapshotRestartRequested == true;
+                if (!entry.PendingWorldSnapshotRestart) entry.WorldSnapshotRestarts = 0;
+            }
             eventPrefix = entry.PendingScriptRestart ? "account.restart" : "standalone_shop.restart";
             entry.PendingShopRestartId = requestId;
             // Reap and reconcile the old worker before every attempt; keep the user's run intent.
@@ -51,7 +55,11 @@ public sealed partial class WorkerProcessManager
         }
         lock (entry.Sync)
             if (entry.StopGeneration == generation && entry.PendingShopRestartId == requestId)
+            {
+                if (entry.PendingWorldSnapshotRestart) entry.WorldSnapshotRestarts++;
                 entry.PendingShopRestartId = null;
+                entry.PendingWorldSnapshotRestart = false;
+            }
         fields["processId"] = entry.Descriptor?.ProcessId;
         _logger.Info(eventPrefix + ".complete", fields);
     }

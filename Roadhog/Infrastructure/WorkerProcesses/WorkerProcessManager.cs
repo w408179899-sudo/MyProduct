@@ -42,6 +42,9 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
         public long StopGeneration;
         public Guid? PendingShopRestartId;
         public bool PendingScriptRestart;
+        public bool PendingWorldSnapshotRestart;
+        public int WorldSnapshotRestarts;
+        public DateTimeOffset WorldSnapshotReloginRetryAt;
         public string State = "stopped";
         public string? Error;
         public CancellationTokenSource Operation = new();
@@ -450,6 +453,12 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
             return OperationResult.Fail("当前为计划下线时段。");
         // Recovery may have acquired the gate while a manual start persisted its intent.
         if (!cleanup && Alive(entry) && entry.Status?.IsRunning == true && !gameSessionOperation.HasValue) return OperationResult.Ok();
+        lock (entry.Sync)
+            if (entry.PendingShopRestartId is null)
+            {
+                entry.WorldSnapshotRestarts = 0;
+                entry.WorldSnapshotReloginRetryAt = default;
+            }
         var paths = PathsFor(entry.Config);
         var sharedPath = Roadhog.Infrastructure.Config.SharedAccountConfigurationStore.PathFor(_paths.AccountConfigPath);
         var builder = new AccountStartConfigBuilder(new Roadhog.Infrastructure.Profiles.JsonScriptProfileStore(paths.ProfileLibraryDirectory),
@@ -559,7 +568,15 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
             entry.StopGeneration++;
             entry.RecoveringGameDisconnect = false;
             // A user Stop must also cancel a planned restart while shutdown is already running.
-            if (!forShopRestart) { entry.PendingShopRestartId = null; entry.PendingScriptRestart = false; entry.Desired = false; }
+            if (!forShopRestart)
+            {
+                entry.PendingShopRestartId = null;
+                entry.PendingScriptRestart = false;
+                entry.PendingWorldSnapshotRestart = false;
+                entry.WorldSnapshotRestarts = 0;
+                entry.WorldSnapshotReloginRetryAt = default;
+                entry.Desired = false;
+            }
             if (entry.StopTask is { IsCompleted: false }) return entry.StopTask;
             entry.Operation.Cancel();
             entry.State = "stopping";
@@ -965,8 +982,15 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                         shopRestart = CompleteGameSessionAsync(entry, exitId);
                         return;
                     }
-                    if ((status.ScriptRestartRequestId ?? status.StandaloneShopRestartRequestId) is { } requestId && requestId != Guid.Empty && status.IsRunning && status.Authorized)
+                    if ((status.ScriptRestartRequestId ?? status.StandaloneShopRestartRequestId) is { } requestId &&
+                        requestId != Guid.Empty && status.IsRunning && status.Authorized &&
+                        status.PendingGameSessionOperation is null)
                     {
+                        if (status.WorldSnapshotRestartRequested && entry.WorldSnapshotRestarts >= MaximumWorldSnapshotRestarts)
+                        {
+                            await RequestWorldSnapshotReloginAsync(entry, requestId, pollOperation).ConfigureAwait(false);
+                            return;
+                        }
                         shopRestart = RestartRequestedWorkerAsync(entry, requestId);
                         return;
                     }

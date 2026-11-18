@@ -44,8 +44,9 @@ public static class SnapshotReadBudget
     }
 }
 
-public sealed class SnapshotReadBudgetExceededException(string? channel = null)
+public sealed class SnapshotReadBudgetExceededException(string? channel = null, bool awaitingFirstPublication = false)
     : OperationCanceledException("Snapshot read scheduling budget expired." + (channel is null ? "" : " Channel: " + channel))
 {
     public string? Channel { get; } = channel;
+    internal bool AwaitingFirstPublication { get; } = awaitingFirstPublication;
 }

@@ -186,8 +186,16 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                         if (exitSession is null) throw new InvalidOperationException("未配置退出游戏适配器。");
                         var exitTick = await exitRequest.Exit.TickAsync(exitSession, async () =>
                         {
-                            if (fixedChannelState.AwaitingConfirmation) return false;
-                            if (!await _stationaryCombat.PrepareCleanupTickAsync(context, semiAutoPlan, semiAutoState, stationaryCombatState)) return false;
+                            if (exitRequest.AfterWorldSnapshotStall)
+                            {
+                                _stationaryCombat.StopWorkerBackgroundWork(context, stationaryCombatState);
+                                await ReleaseActiveInputAsync(context, stationaryCombatState).ConfigureAwait(false);
+                            }
+                            else
+                            {
+                                if (fixedChannelState.AwaitingConfirmation) return false;
+                                if (!await _stationaryCombat.PrepareCleanupTickAsync(context, semiAutoPlan, semiAutoState, stationaryCombatState)) return false;
+                            }
                             if (jumpAssist is not null) await jumpAssist.StopAsync("game_exit");
                             return true;
                         }, context.StopToken);
@@ -199,7 +207,7 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                                 { ["account"] = context.Config.AccountName, ["requestId"] = exitRequest.Id,
                                     ["operation"] = exitRequest.Operation.ToString() });
                         }
-                        if (!exitTick.YieldToCombat || !fixedChannelState.AwaitingConfirmation)
+                        if (exitRequest.AfterWorldSnapshotStall || !exitTick.YieldToCombat || !fixedChannelState.AwaitingConfirmation)
                         {
                             await Task.Delay(250, context.StopToken);
                             continue;
@@ -527,6 +535,19 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                         cleanupProgress.NextCheck = DateTimeOffset.UtcNow.AddSeconds(30);
                         cleanupProgress.LastCleanup = DateTimeOffset.UtcNow;
                         await AbandonCleanupAsync(context, stationaryCombatState, interrupted, ex);
+                    }
+                    else if (ex.Channel == "world_objects" && ex.AwaitingFirstPublication &&
+                             !fixedChannelState.AwaitingConfirmation &&
+                             context.CleanupRequests.Current is null &&
+                             !context.CleanupRequests.StandaloneShopRestartRequestId.HasValue)
+                    {
+                        context.StopToken.ThrowIfCancellationRequested();
+                        if (context.GameSessionRequests.RequestWorldSnapshotRestart() is { } requestId)
+                        {
+                            context.RuntimeStates.MarkWarning(context.Config.AccountName, "周围对象数据尚未就绪，等待自动恢复。");
+                            context.Logger.Warn("worker.world_snapshot.restart_requested", new Dictionary<string, object?>
+                                { ["account"] = context.Config.AccountName, ["requestId"] = requestId });
+                        }
                     }
                     context.Logger.Info("worker.read_budget.yield", new Dictionary<string, object?>
                         { ["account"] = context.Config.AccountName, ["waitMs"] = 2000 });

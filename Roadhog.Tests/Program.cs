@@ -276,6 +276,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("game-session worker no request leaves normal work untouched", GameExitWorkerIntegrationTests.NoRequestLeavesNormalWorkUntouchedAsync),
     ("game-session worker offline and completed skip game startup", GameExitWorkerIntegrationTests.OfflineAndCompletedRequestsSkipGameplayStartupAsync),
     ("game-session worker exit prevents old world reads", GameExitWorkerIntegrationTests.ProcessDisappearanceStopsOldWorldReadsAsync),
+    ("game-session worker cold world snapshot requests restart and allows exit", GameExitWorkerIntegrationTests.ColdWorldSnapshotCanRestartAndExitAsync),
     ("game-session worker death cancels revives and retries", GameExitWorkerIntegrationTests.DeathDuringCountdownCancelsThenRevivesAndRetriesAsync),
     ("game-session worker stop cancels across startup and exit", GameExitWorkerIntegrationTests.StopCancelsCountdownAcrossWorkerPhasesAsync),
     ("auto-login full sequence and resume at every stage", AutoLoginTests.FullAndResumeAsync),
@@ -1774,6 +1775,7 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("standalone shop real worker waits for stop and fresh startup F1", CleanupWorkflowTests.StandaloneShopWorkerCompletionAsync)
     ,("standalone shop restart fresh IPC worker config leases and account isolation", WorkerProcessManagerTests.StandaloneShopRestartsFreshWorkerAsync)
     ,("script restart fresh IPC worker and account isolation", WorkerProcessManagerTests.ScriptRestartFreshWorkerAsync)
+    ,("script restart cold world snapshot escalates after three replacements", WorkerProcessManagerTests.ColdWorldSnapshotEscalatesAfterThreeRestartsAsync)
     ,("script restart later manual stop wins", WorkerProcessManagerTests.ScriptRestartManualStopWinsAsync)
     ,("script restart failed reconciliation retries without overlapping workers", WorkerProcessManagerTests.ScriptRestartStopFailureAsync)
     ,("standalone shop restart later manual stop wins admission race", WorkerProcessManagerTests.StandaloneShopManualStopWinsAsync)

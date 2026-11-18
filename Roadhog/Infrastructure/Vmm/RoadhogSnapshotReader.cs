@@ -370,7 +370,8 @@ internal sealed partial class RoadhogSnapshotReader : IRoadhogSnapshotReader
         }
         catch (OperationCanceledException) when (budget.IsCancellationRequested && !_stopToken.IsCancellationRequested && !SnapshotReadBudget.OperationCancelled)
         {
-            throw new SnapshotReadBudgetExceededException(channel);
+            lock (_versionSync)
+                throw new SnapshotReadBudgetExceededException(channel, !_versions.ContainsKey(channel));
         }
     }
 

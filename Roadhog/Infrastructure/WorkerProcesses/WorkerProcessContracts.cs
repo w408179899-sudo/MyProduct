@@ -68,6 +68,7 @@ public sealed record WorkerStatus
     public bool LoginRetryPending { get; init; }
     public Guid? StandaloneShopRestartRequestId { get; init; }
     public Guid? ScriptRestartRequestId { get; init; }
+    public bool WorldSnapshotRestartRequested { get; init; }
     public Guid? GameSessionCompletedRequestId { get; init; }
     public Roadhog.Application.GameSessions.GameSessionOperation? PendingGameSessionOperation { get; init; }
     public Roadhog.Application.GameSessions.GameSessionOperation? CompletedGameSessionOperation { get; init; }
