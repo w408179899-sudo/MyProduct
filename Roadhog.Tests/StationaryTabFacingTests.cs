@@ -4,6 +4,7 @@ using Roadhog.Application.SemiAuto;
 using Roadhog.Application.StationaryCombat;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
+using Roadhog.Core.Common;
 using Roadhog.Core.Diagnostics;
 using Roadhog.Core.Model;
 using Roadhog.Core.Radar;
@@ -116,6 +117,134 @@ internal static class StationaryTabFacingTests
         Check(h.State.Fighting, "matching lock should enter the existing combat flow");
         Check(!h.Input.Keys.Contains("Tab"), "matching lock needs no Tab");
         Check(!h.Input.MouseCommands.Any(c => c.StartsWith("move:")), "the acquisition fix must not reorient an already locked fight");
+    }
+
+    public static async Task TabVerifiesFirstSnapshotWithoutWaitingAsync()
+    {
+        using var h = new Harness();
+        h.SetEnvironment("ROADHOG_STATIONARY_TAB_VERIFY_POLL_MS", "500");
+        h.SetEnvironment("ROADHOG_STATIONARY_TAB_VERIFY_WINDOW_MS", "300");
+        h.Input.AfterPress = key =>
+        {
+            if (key == "Tab") h.SetLockedMonster(h.Candidate);
+        };
+
+        await h.Tick();
+
+        Check(h.State.Fighting && h.State.CurrentTargetServerObjectId == h.Candidate.ServerObjectId,
+            "the first post-Tab publication should acquire the intended monster before the next polling interval");
+        Check(h.Input.Keys.Count(key => key == "Tab") == 1, "matching the candidate must stop tabbing");
+    }
+
+    public static async Task OldLockWaitsForTargetChangeAsync()
+    {
+        using var h = new Harness();
+        h.SetEnvironment("ROADHOG_STATIONARY_TAB_VERIFY_POLL_MS", "1");
+        h.SetLockedMonster(h.WrongMonster);
+        h.Api.WorldObjects = new[] { h.Candidate, h.WrongMonster };
+        int worldReadsWhenTabSent = 0;
+        h.Input.AfterPress = key =>
+        {
+            if (key != "Tab") return;
+            worldReadsWhenTabSent = h.Api.WorldObjectReadCount;
+            // This publication still shows the pre-Tab target. The next publication shows the new lock.
+            h.Api.LockedTargetReadResults.Enqueue(OperationResult<LockedTargetSnapshot>.Ok(
+                new(h.WrongMonster.EntityId, h.WrongMonster.ServerObjectId, 0, LockedTargetSnapshot.MonsterObjectType,
+                    h.WrongMonster.Name, 100, 100, h.WrongMonster.Position, 10, DateTimeOffset.Now)));
+            h.SetLockedMonster(h.Candidate);
+        };
+
+        await h.Tick();
+
+        Check(h.State.CurrentTargetServerObjectId == h.Candidate.ServerObjectId,
+            "an unchanged pre-Tab lock must give the game time to publish the intended monster");
+        Check(h.Api.WorldObjectReadCount == worldReadsWhenTabSent,
+            "the held pre-Tab lock must not start defense lookups");
+    }
+
+    public static async Task WrongLockEndsVerificationAndKeepsTabThrottleAsync()
+    {
+        using var h = new Harness();
+        h.SetEnvironment("ROADHOG_STATIONARY_TAB_VERIFY_WINDOW_MS", "2000");
+        h.Api.WorldObjects = new[] { h.Candidate, h.WrongMonster };
+        int worldReadsWhenTabSent = 0;
+        h.Input.AfterPress = key =>
+        {
+            if (key != "Tab") return;
+            worldReadsWhenTabSent = h.Api.WorldObjectReadCount;
+            h.SetLockedMonster(h.WrongMonster);
+        };
+
+        await h.Tick();
+
+        Check(h.State.CanRetryPendingTab(DateTimeOffset.Now), "a confirmed wrong lock must end the wait");
+        Check(DateTimeOffset.Now < h.State.PendingTabVerifyUntil, "a confirmed wrong lock should finish before the deadline");
+        Check(h.Api.WorldObjectReadCount == worldReadsWhenTabSent + 1, "check the new wrong lock for defense only once");
+        Check(!h.State.Fighting && h.Input.Keys.SequenceEqual(new[] { "Tab" }),
+            "rejecting a wrong lock must leave the candidate intact and send no combat input");
+        h.State.LastTabAt = DateTimeOffset.Now.AddSeconds(1);
+        await h.Tick();
+        Check(h.Input.Keys.Count(key => key == "Tab") == 1, "an early miss cannot bypass the Tab throttle");
+
+        h.State.LastTabAt = DateTimeOffset.MinValue;
+        h.Input.AfterPress = key =>
+        {
+            if (key == "Tab") h.SetLockedMonster(h.Candidate);
+        };
+        await h.Tick();
+        Check(h.State.Fighting && h.Input.Keys.Count(key => key == "Tab") == 2,
+            "after the throttle the next Tab should be able to acquire the original candidate");
+    }
+
+    public static async Task SlowTabVerificationReadReleasesTheTickAsync(bool checkingDefense)
+    {
+        using var h = new Harness();
+        h.SetEnvironment("ROADHOG_STATIONARY_TAB_VERIFY_WINDOW_MS", "150");
+        var providerStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var providerCancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.Api.WorldObjects = new[] { h.Candidate, h.WrongMonster };
+        h.Input.AfterPress = key =>
+        {
+            if (key != "Tab") return;
+            if (checkingDefense)
+            {
+                h.SetLockedMonster(h.WrongMonster);
+                h.Api.WorldObjectReadOverride = token => WaitForDeadlineAsync<IReadOnlyList<WorldObjectSnapshot>>(token);
+            }
+            else
+            {
+                h.Api.LockedTargetReadOverride = WaitForDeadlineAsync<LockedTargetSnapshot>;
+            }
+        };
+
+        await h.Tick().WaitAsync(TimeSpan.FromSeconds(1));
+        await providerStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await providerCancelled.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        Check(h.Logger.Entries.Any(e => e.EventName == "stationary_combat.tab.verify_timeout"),
+            "the same action deadline must apply while the snapshot provider is waiting");
+        Check(!h.State.Fighting && h.Input.Keys.SequenceEqual(new[] { "Tab" }),
+            "a timeout must return to the worker without inventing a lock or replaying Tab");
+
+        h.Api.LockedTargetReadOverride = null;
+        h.Api.WorldObjectReadOverride = null;
+        h.SetLockedMonster(h.Candidate);
+        await h.Tick();
+        Check(h.State.Fighting && h.Input.Keys.Count(key => key == "Tab") == 1,
+            "the next tick must still be able to accept the late lock without another Tab");
+
+        async Task<OperationResult<T>> WaitForDeadlineAsync<T>(CancellationToken token)
+        {
+            providerStarted.TrySetResult();
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, token);
+                throw new InvalidOperationException("The read should only exit by cancellation.");
+            }
+            finally
+            {
+                providerCancelled.TrySetResult();
+            }
+        }
     }
 
     public static async Task DefenseInvalidatesOldFacingAsync()
@@ -313,15 +442,22 @@ internal static class StationaryTabFacingTests
         { Position = position, CameraYawDegrees = yaw, ActorYawDegrees = yaw, CapturedAt = DateTimeOffset.Now };
         public void LockWrongMonster()
         {
-            Api.TargetEntityId = WrongMonster.EntityId;
-            Api.TargetOwnServerObjectId = WrongMonster.ServerObjectId;
-            Api.TargetCurrentHp = Api.TargetMaxHp = 100;
-            Api.TargetPosition = WrongMonster.Position;
+            SetLockedMonster(WrongMonster);
             Api.WorldObjects = new[] { Candidate, WrongMonster };
             State.SetCurrentTarget(Candidate);
         }
+
+        public void SetLockedMonster(WorldObjectSnapshot target)
+        {
+            Api.TargetEntityId = target.EntityId;
+            Api.TargetOwnServerObjectId = target.ServerObjectId;
+            Api.TargetName = target.Name;
+            Api.TargetCurrentHp = Api.TargetMaxHp = 100;
+            Api.TargetPosition = target.Position;
+        }
+
         public Task Tick() => Controller.TickAsync(Context, SemiAutoSkillPlan.FromSettings(Settings.Skills), SemiState, State);
-        private void SetEnvironment(string name, string value)
+        public void SetEnvironment(string name, string value)
         {
             _environment[name] = Environment.GetEnvironmentVariable(name);
             Environment.SetEnvironmentVariable(name, value);

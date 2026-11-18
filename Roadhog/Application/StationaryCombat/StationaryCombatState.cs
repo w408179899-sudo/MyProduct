@@ -165,6 +165,8 @@ public sealed partial class StationaryCombatState
 
     public bool PendingTabCorpseNudged { get; private set; }
 
+    private bool PendingTabVerificationComplete { get; set; }
+
     public DateTimeOffset LastTabAt { get; set; }
 
     public DateTimeOffset LastWorldScanAt { get; set; }
@@ -1165,11 +1167,13 @@ public sealed partial class StationaryCombatState
                    serverObjectId);
     }
 
-    public bool IsPendingTabVerifyExpired(DateTimeOffset now)
+    internal bool CanRetryPendingTab(DateTimeOffset now)
     {
         return PendingTabCandidateEntityId != 0 &&
-               now >= PendingTabVerifyUntil;
+               (PendingTabVerificationComplete || now >= PendingTabVerifyUntil);
     }
+
+    internal void CompletePendingTabVerification() => PendingTabVerificationComplete = true;
 
     public void StartPendingTabVerification(
         ushort entityId,
@@ -1205,6 +1209,7 @@ public sealed partial class StationaryCombatState
         PendingTabPreviousLockedEntityId = previousLockedEntityId;
         PendingTabPreviousLockedServerObjectId = previousLockedServerObjectId;
         PendingTabCorpseNudged = false;
+        PendingTabVerificationComplete = false;
     }
 
     public void ClearPendingTabVerification()
@@ -1215,6 +1220,7 @@ public sealed partial class StationaryCombatState
         PendingTabPreviousLockedEntityId = 0;
         PendingTabPreviousLockedServerObjectId = 0;
         PendingTabCorpseNudged = false;
+        PendingTabVerificationComplete = false;
     }
 
     public bool TryMarkPendingTabCorpseNudged()

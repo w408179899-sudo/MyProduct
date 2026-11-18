@@ -991,6 +991,11 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat tab facing aligned candidate avoids extra turn", StationaryTabFacingTests.AlignedDoesNotTurnAsync),
     ("stationary combat tab facing blocked radar retains priority", StationaryTabFacingTests.BlockedRadarDoesNotFaceOrTabAsync),
     ("stationary combat tab facing matching lock keeps combat flow", StationaryTabFacingTests.MatchingLockSkipsTabFacingAsync),
+    ("stationary combat tab verification reads the first snapshot without waiting", StationaryTabFacingTests.TabVerifiesFirstSnapshotWithoutWaitingAsync),
+    ("stationary combat tab verification waits for the previous lock to change", StationaryTabFacingTests.OldLockWaitsForTargetChangeAsync),
+    ("stationary combat tab verification stops after a wrong lock and keeps key throttle", StationaryTabFacingTests.WrongLockEndsVerificationAndKeepsTabThrottleAsync),
+    ("stationary combat tab verification deadline cancels a slow locked target read", () => StationaryTabFacingTests.SlowTabVerificationReadReleasesTheTickAsync(checkingDefense: false)),
+    ("stationary combat tab verification deadline cancels a slow defense read", () => StationaryTabFacingTests.SlowTabVerificationReadReleasesTheTickAsync(checkingDefense: true)),
     ("stationary defense tab facing invalidates old marker", StationaryTabFacingTests.DefenseInvalidatesOldFacingAsync),
     ("stationary defense tab facing retry follows moving pet attacker", StationaryTabFacingTests.DefenseRetryTracksMovingAttackerAsync),
     ("stationary defense tab facing confirms correction before tab", StationaryTabFacingTests.DefenseConfirmsCorrectionBeforeTabAsync),
@@ -21046,9 +21051,7 @@ static async Task TestStationaryCombatVerifiesAfterEachTabAsync()
 static async Task TestStationaryCombatLeavesUnrelatedUnchangedWrongLockAloneAsync()
 {
     var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
-    var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
     Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
-    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", "0");
     try
     {
         var settings = CreateScriptSettings();
@@ -21110,22 +21113,22 @@ static async Task TestStationaryCombatLeavesUnrelatedUnchangedWrongLockAloneAsyn
         await controller
             .TickAsync(context, plan, semiAutoState, state)
             .ConfigureAwait(false);
-        await controller
-            .TickAsync(context, plan, semiAutoState, state)
-            .ConfigureAwait(false);
 
-        AssertSequence(new[] { "Tab" }, keyboard.Keys, "unchanged unrelated wrong lock should only retry Tab");
+        AssertSequence(new[] { "Tab" }, keyboard.Keys, "unchanged unrelated wrong lock should wait for the first verification deadline");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.tab.verify_timeout"),
+            "an unchanged lock must stay pending until the verification deadline");
         AssertFalse(keyboard.Keys.Contains("D2"), "first unchanged wrong lock must not enter skill release");
         AssertFalse(state.Fighting, "first unchanged wrong lock must not enter fight state");
         AssertEqual((ushort)100, state.CandidateEntityId, "first unchanged wrong lock should keep original candidate");
         AssertFalse(keyboard.Keys.Contains("W"), "ordinary wrong lock must not nudge forward");
         AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.switched_to_locked"), "first unchanged wrong lock must not accept locked target");
 
+        state.LastTabAt = DateTimeOffset.MinValue;
         await controller
-            .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
+            .TickAsync(context, plan, semiAutoState, state)
             .ConfigureAwait(false);
 
-        AssertEqual(1, keyboard.Keys.Count(key => string.Equals(key, "Tab", StringComparison.OrdinalIgnoreCase)), "second tick should remain in the pending Tab verification window");
+        AssertSequence(new[] { "Tab", "Tab" }, keyboard.Keys, "the worker should retry Tab after the first verification deadline");
         AssertFalse(keyboard.Keys.Contains("D2"), "unchanged unrelated wrong lock must not enter skill release");
         AssertFalse(state.Fighting, "unchanged unrelated wrong lock must not enter fight state");
         AssertEqual((ushort)0, state.CurrentTargetEntityId, "current target must remain unset");
@@ -21136,7 +21139,6 @@ static async Task TestStationaryCombatLeavesUnrelatedUnchangedWrongLockAloneAsyn
     finally
     {
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
-        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
     }
 }
 
@@ -21651,7 +21653,8 @@ static async Task TestStationaryCombatAcceptsProtectedSideWrongLockDuringSmartPr
             lockedTarget,
             new Vector3Snapshot(0, 0, 0),
             30.0D,
-            0
+            0,
+            context.StopToken
         }) as Task<TimeSpan?>;
         AssertFalse(task is null, "protected-side lock acceptance should return a delay task");
         var delay = await task!.ConfigureAwait(false);
@@ -21874,9 +21877,7 @@ static async Task TestStationaryCombatRejectsCloserPassiveWrongLockAfterTabAsync
 static async Task TestStationaryCombatNudgesForwardWhenTabLocksCorpseAsync()
 {
     var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
-    var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
     Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
-    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", "0");
     try
     {
         var settings = CreateScriptSettings();
@@ -21928,25 +21929,23 @@ static async Task TestStationaryCombatNudgesForwardWhenTabLocksCorpseAsync()
         AssertFalse(keyboard.Keys.Contains("D2"), "corpse lock must not release skills");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.tab.corpse_nudge_pressed"), "corpse nudge should be logged");
 
+        state.LastTabAt = DateTimeOffset.MinValue;
         await controller
             .TickAsync(context, plan, new SemiAutoCombatState(), state)
             .ConfigureAwait(false);
 
-        AssertEqual(1, keyboard.Keys.Count(key => string.Equals(key, "W", StringComparison.OrdinalIgnoreCase)), "same pending tab verify should nudge only once");
+        AssertSequence(new[] { "Tab", "W", "Tab", "W" }, keyboard.Keys, "each Tab verification must nudge the corpse only once");
     }
     finally
     {
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
-        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
     }
 }
 
 static async Task TestStationaryCombatNudgesForwardWhenTabStaysOnAttemptedCorpseAsync()
 {
     var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
-    var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
     Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
-    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", "0");
     try
     {
         var settings = CreateScriptSettings();
@@ -22003,25 +22002,23 @@ static async Task TestStationaryCombatNudgesForwardWhenTabStaysOnAttemptedCorpse
             string.Equals(Convert.ToString(entry.Fields["reason"]), "already_touched", StringComparison.Ordinal)),
             "attempted corpse nudge should be logged with reason");
 
+        state.LastTabAt = DateTimeOffset.MinValue;
         await controller
             .TickAsync(context, plan, new SemiAutoCombatState(), state)
             .ConfigureAwait(false);
 
-        AssertEqual(1, keyboard.Keys.Count(key => string.Equals(key, "W", StringComparison.OrdinalIgnoreCase)), "attempted corpse should nudge only once per pending tab verify");
+        AssertSequence(new[] { "Tab", "W", "Tab", "W" }, keyboard.Keys, "each Tab verification must nudge the already-touched corpse only once");
     }
     finally
     {
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
-        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
     }
 }
 
 static async Task TestStationaryCombatNudgesForwardWhenTabLockIsEmptyAsync()
 {
     var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
-    var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
     Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
-    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", "0");
     try
     {
         var settings = CreateScriptSettings();
@@ -22075,16 +22072,16 @@ static async Task TestStationaryCombatNudgesForwardWhenTabLockIsEmptyAsync()
             string.Equals(Convert.ToString(entry.Fields["reason"]), "empty_lock", StringComparison.Ordinal)),
             "empty lock nudge should be logged");
 
+        state.LastTabAt = DateTimeOffset.MinValue;
         await controller
             .TickAsync(context, plan, new SemiAutoCombatState(), state)
             .ConfigureAwait(false);
 
-        AssertEqual(1, keyboard.Keys.Count(key => string.Equals(key, "W", StringComparison.OrdinalIgnoreCase)), "empty lock should nudge only once per pending tab verify");
+        AssertSequence(new[] { "Tab", "W", "Tab", "W" }, keyboard.Keys, "each Tab verification must nudge an empty lock only once");
     }
     finally
     {
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
-        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
     }
 }
 
@@ -34746,6 +34743,10 @@ sealed partial class FakeGameApi : ILootInteractionGameApi, IRoadhogScopedGameAp
 
     public Queue<OperationResult<LockedTargetSnapshot>> LockedTargetReadResults { get; } = new();
 
+    public Func<CancellationToken, Task<OperationResult<LockedTargetSnapshot>>>? LockedTargetReadOverride { get; set; }
+
+    public Func<CancellationToken, Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>>>? WorldObjectReadOverride { get; set; }
+
     public LockedTargetAbnormalStatusSnapshot? LockedTargetAbnormalStatuses { get; set; }
 
     public IReadOnlyList<WorldObjectSnapshot> WorldObjects { get; set; } = Array.Empty<WorldObjectSnapshot>();
@@ -34887,6 +34888,11 @@ sealed partial class FakeGameApi : ILootInteractionGameApi, IRoadhogScopedGameAp
 
     public Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(CancellationToken cancellationToken = default)
     {
+        if (LockedTargetReadOverride is { } read)
+        {
+            return read(cancellationToken);
+        }
+
         if (LockedTargetReadResults.Count > 0)
         {
             return Task.FromResult(LockedTargetReadResults.Dequeue());
@@ -35051,6 +35057,11 @@ sealed partial class FakeGameApi : ILootInteractionGameApi, IRoadhogScopedGameAp
     public Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(CancellationToken cancellationToken = default)
     {
         WorldObjectReadCount++;
+        if (WorldObjectReadOverride is { } read)
+        {
+            return read(cancellationToken);
+        }
+
         return Task.FromResult(WorldObjectReadResults.Count > 0
             ? WorldObjectReadResults.Dequeue()
             : WorldObjectReadFallback ?? OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(WorldObjects));

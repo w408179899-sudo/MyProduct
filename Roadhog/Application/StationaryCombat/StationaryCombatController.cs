@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Roadhog.Application.Travel;
 using Roadhog.Application.Input;
 using Roadhog.Application.BagCleanup;
@@ -4503,7 +4504,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         Vector3Snapshot home,
         double radius)
     {
-        var acquiredDelay = await VerifyPendingTabTargetAsync(
+        LogTabVerify(context, state, target, lockedResult, delayMs: 0);
+        var acquiredDelay = await TryAcquireLockedTargetAsync(
                 context,
                 plan,
                 semiAutoState,
@@ -4512,7 +4514,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 lockedResult,
                 home,
                 radius,
-                delayMs: 0)
+                allowLockedFallback: false,
+                phase: "after_tab")
             .ConfigureAwait(false);
         if (acquiredDelay is not null)
         {
@@ -4520,17 +4523,18 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         }
 
         var now = DateTimeOffset.Now;
-        if (!state.IsPendingTabVerifyExpired(now))
+        if (!state.CanRetryPendingTab(now))
         {
             return MoveTickDelay;
         }
 
-        if (now - state.LastTabAt >= TabInterval)
+        var untilNextTab = TabInterval - (now - state.LastTabAt);
+        if (untilNextTab <= TimeSpan.Zero)
         {
             return await PressTabAndVerifyAsync(context, plan, semiAutoState, state, target, lockedResult, home, radius).ConfigureAwait(false);
         }
 
-        return MoveTickDelay;
+        return untilNextTab;
     }
 
     private async Task<TimeSpan> PressTabAndVerifyAsync(
@@ -4565,7 +4569,6 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
         var now = DateTimeOffset.Now;
         state.LastTabAt = now;
-        var verifyWindowMs = ReadTabVerifyWindowMs();
 
         var tabResult = await _input
             .PressKeyAsync("Tab", TimeSpan.FromMilliseconds(25), context.StopToken)
@@ -4581,31 +4584,13 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             return MoveTickDelay;
         }
 
-        state.StartPendingTabVerification(
-            target,
-            DateTimeOffset.Now + TimeSpan.FromMilliseconds(verifyWindowMs),
-            lockedBeforeResult);
-        context.Logger.Info("stationary_combat.tab.pressed", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["candidateEntityId"] = target.EntityId,
-            ["candidateServerObjectId"] = target.ServerObjectId,
-            ["candidateTargetServerObjectId"] = target.ServerObjectId,
-            ["candidateTargetingServerObjectId"] = target.TargetServerObjectId,
-            ["candidateName"] = target.Name,
-            ["previousLockedEntityId"] = lockedBeforeResult.TargetEntityId,
-            ["previousLockedServerObjectId"] = lockedBeforeResult.ServerObjectId,
-            ["previousLockedTargetServerObjectId"] = lockedBeforeResult.ServerObjectId,
-            ["previousLockedTargetingServerObjectId"] = lockedBeforeResult.TargetServerObjectId,
-            ["verifyWindowMs"] = verifyWindowMs
-        });
-
         return await PollTabVerifyAsync(
                 context,
                 plan,
                 semiAutoState,
                 state,
                 target,
+                lockedBeforeResult,
                 home,
                 radius)
             .ConfigureAwait(false);
@@ -4752,109 +4737,107 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state,
         WorldObjectSnapshot target,
+        LockedTargetSnapshot lockedBeforeResult,
         Vector3Snapshot home,
         double radius)
     {
-        var verifyDelayMs = ReadTabVerifyDelayMs();
-        var pollMs = ReadTabVerifyPollMs();
-        if (verifyDelayMs <= 0)
+        var verifyWindowMs = ReadTabVerifyWindowMs();
+        var verifyUntil = DateTimeOffset.Now.AddMilliseconds(verifyWindowMs);
+        var verificationStarted = Stopwatch.GetTimestamp();
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(context.StopToken);
+        deadline.CancelAfter(verifyWindowMs);
+        var token = deadline.Token;
+        var pollInterval = TimeSpan.FromMilliseconds(ReadTabVerifyPollMs());
+        state.StartPendingTabVerification(target, verifyUntil, lockedBeforeResult);
+        context.Logger.Info("stationary_combat.tab.pressed", new Dictionary<string, object?>
         {
-            var lockedResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
-            var acquiredDelay = await VerifyPendingTabTargetAsync(
-                    context,
-                    plan,
-                    semiAutoState,
-                    state,
-                    target,
-                    lockedResult,
-                    home,
-                    radius,
-                    delayMs: 0)
-                .ConfigureAwait(false);
-            return acquiredDelay ?? MoveTickDelay;
-        }
+            ["account"] = context.Config.AccountName,
+            ["candidateEntityId"] = target.EntityId,
+            ["candidateServerObjectId"] = target.ServerObjectId,
+            ["candidateTargetServerObjectId"] = target.ServerObjectId,
+            ["candidateTargetingServerObjectId"] = target.TargetServerObjectId,
+            ["candidateName"] = target.Name,
+            ["previousLockedEntityId"] = lockedBeforeResult.TargetEntityId,
+            ["previousLockedServerObjectId"] = lockedBeforeResult.ServerObjectId,
+            ["previousLockedTargetServerObjectId"] = lockedBeforeResult.ServerObjectId,
+            ["previousLockedTargetingServerObjectId"] = lockedBeforeResult.TargetServerObjectId,
+            ["verifyWindowMs"] = verifyWindowMs
+        });
 
-        var elapsedMs = 0;
-        while (elapsedMs < verifyDelayMs)
+        long version = 0;
+        try
         {
-            var waitMs = Math.Min(pollMs, verifyDelayMs - elapsedMs);
-            await DelayAsync(TimeSpan.FromMilliseconds(waitMs), context).ConfigureAwait(false);
-            elapsedMs += waitMs;
-
-            var lockedResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
-            var acquiredDelay = await VerifyPendingTabTargetAsync(
-                    context,
-                    plan,
-                    semiAutoState,
-                    state,
-                    target,
-                    lockedResult,
-                    home,
-                    radius,
-                    elapsedMs)
-                .ConfigureAwait(false);
-            if (acquiredDelay is not null)
+            while (true)
             {
-                return acquiredDelay.Value;
+                token.ThrowIfCancellationRequested();
+                var sampleStarted = Stopwatch.GetTimestamp();
+                PublishedGameSnapshot<LockedTargetSnapshot> snapshot;
+                using (SnapshotReadBudget.EnterCancellation(token))
+                {
+                    snapshot = await context.Snapshots.ReadLockedTargetAsync(version)
+                        .WaitAsync(token).ConfigureAwait(false);
+                }
+
+                token.ThrowIfCancellationRequested();
+                version = snapshot.Version;
+                var locked = snapshot.Value;
+                var elapsedMs = (int)Stopwatch.GetElapsedTime(verificationStarted).TotalMilliseconds;
+                LogTabVerify(context, state, target, locked, elapsedMs);
+                var acquiredDelay = await TryAcquireLockedTargetAsync(
+                        context, plan, semiAutoState, state, target, locked, home, radius,
+                        allowLockedFallback: false, phase: "after_tab")
+                    .ConfigureAwait(false);
+                if (acquiredDelay is not null)
+                {
+                    return acquiredDelay.Value;
+                }
+
+                if (locked.IsMonsterAlive && !StationaryCombatState.IsSameTarget(
+                        state.PendingTabPreviousLockedEntityId, state.PendingTabPreviousLockedServerObjectId,
+                        locked.TargetEntityId, locked.ServerObjectId))
+                {
+                    var defenseDelay = await TryAcceptNearbyAggressiveLockedTargetAsync(
+                            context, plan, semiAutoState, state, target, locked, home, radius, elapsedMs, token)
+                        .ConfigureAwait(false);
+                    if (defenseDelay is not null)
+                    {
+                        return defenseDelay.Value;
+                    }
+
+                    break;
+                }
+
+                token.ThrowIfCancellationRequested();
+                await PressForwardIfTabLockMissAsync(context, state, target, locked, elapsedMs, token)
+                    .ConfigureAwait(false);
+                var remainingPollInterval = pollInterval - Stopwatch.GetElapsedTime(sampleStarted);
+                if (remainingPollInterval > TimeSpan.Zero)
+                {
+                    await Task.Delay(remainingPollInterval, token).ConfigureAwait(false);
+                }
             }
         }
-
-        return MoveTickDelay;
-    }
-
-    private async Task<TimeSpan?> VerifyPendingTabTargetAsync(
-        AccountWorkerContext context,
-        SemiAutoSkillPlan plan,
-        SemiAutoCombatState semiAutoState,
-        StationaryCombatState state,
-        WorldObjectSnapshot target,
-        LockedTargetSnapshot lockedResult,
-        Vector3Snapshot home,
-        double radius,
-        int delayMs)
-    {
-        LogTabVerify(context, state, target, lockedResult, delayMs);
-        var acquiredDelay = await TryAcquireLockedTargetAsync(
-                context,
-                plan,
-                semiAutoState,
-                state,
-                target,
-                lockedResult,
-                home,
-                radius,
-                allowLockedFallback: false,
-                phase: "after_tab")
-            .ConfigureAwait(false);
-        if (acquiredDelay is not null)
+        catch (OperationCanceledException ex) when (ex is not SnapshotReadBudgetExceededException &&
+                                                    token.IsCancellationRequested &&
+                                                    !context.StopToken.IsCancellationRequested &&
+                                                    state.IsPendingTabCandidate(target))
         {
-            return acquiredDelay.Value;
+            LogActionThrottled(context, state, "stationary_combat.tab.verify_timeout",
+                TargetActionKey(target.EntityId, target.ServerObjectId), new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["candidateServerObjectId"] = target.ServerObjectId,
+                    ["candidateName"] = target.Name,
+                    ["verifyWindowMs"] = verifyWindowMs,
+                    ["elapsedMs"] = (int)Stopwatch.GetElapsedTime(verificationStarted).TotalMilliseconds
+                }, TimeSpan.FromSeconds(1));
         }
 
-        var nearbyAggressiveDelay = await TryAcceptNearbyAggressiveLockedTargetAsync(
-                context,
-                plan,
-                semiAutoState,
-                state,
-                target,
-                lockedResult,
-                home,
-                radius,
-                delayMs)
-            .ConfigureAwait(false);
-        if (nearbyAggressiveDelay is not null)
-        {
-            return nearbyAggressiveDelay.Value;
-        }
-
-        await PressForwardIfTabLockMissAsync(
-                context,
-                state,
-                target,
-                lockedResult,
-                delayMs)
-            .ConfigureAwait(false);
-        return null;
+        context.StopToken.ThrowIfCancellationRequested();
+        // Keep the pending candidate through the next tick to catch a late match before sending more input.
+        state.CompletePendingTabVerification();
+        var untilNextTab = TabInterval - (DateTimeOffset.Now - state.LastTabAt);
+        return untilNextTab > TimeSpan.Zero ? untilNextTab : TimeSpan.Zero;
     }
 
     private async Task<TimeSpan?> TryAcceptNearbyAggressiveLockedTargetAsync(
@@ -4866,7 +4849,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         LockedTargetSnapshot lockedResult,
         Vector3Snapshot home,
         double radius,
-        int delayMs)
+        int delayMs,
+        CancellationToken verificationToken)
     {
         if (lockedResult is not { IsMonsterAlive: true } lockedTarget ||
             StationaryCombatState.IsSameTarget(
@@ -4878,7 +4862,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             return null;
         }
 
-        var objects = await RefreshWorldObjectsAsync(context, state).ConfigureAwait(false);
+        var objects = await RefreshWorldObjectsAsync(context, state, verificationToken).ConfigureAwait(false);
+        verificationToken.ThrowIfCancellationRequested();
         var lockedWorldTarget = objects.FirstOrDefault(candidate =>
             StationaryCombatState.IsSameTarget(
                 candidate.EntityId,
@@ -4902,7 +4887,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 lockedTarget,
                 lockedWorldTarget,
                 home,
-                radius)
+                radius,
+                verificationToken)
             .ConfigureAwait(false);
         if (protectedSideDelay is not null)
         {
@@ -5001,7 +4987,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 home,
                 radius,
                 allowLockedFallback: true,
-                phase: "after_tab_aggressive")
+                phase: "after_tab_aggressive",
+                lockSelectionToken: verificationToken)
             .ConfigureAwait(false);
     }
 
@@ -5014,7 +5001,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         LockedTargetSnapshot lockedTarget,
         WorldObjectSnapshot lockedWorldTarget,
         Vector3Snapshot home,
-        double radius)
+        double radius,
+        CancellationToken verificationToken)
     {
         if (!state.IsSmartPreAimHandoffTarget(candidate.EntityId, candidate.ServerObjectId) ||
             lockedTarget.ServerObjectId == 0 ||
@@ -5034,14 +5022,14 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         var targetingTeamSide = false;
         if (!targetingLocalSide && !targetingRecordedTeamProtection && lockedTarget.TargetServerObjectId != 0)
         {
+            using var reads = SnapshotReadBudget.EnterCancellation(verificationToken);
             var teamSideServerObjectIds = await ResolveSmartPreAimTeamSideServerObjectIdsAsync(
-                    context,
-                    state,
-                    DateTimeOffset.Now)
+                    context, state, DateTimeOffset.Now, verificationToken)
                 .ConfigureAwait(false);
             targetingTeamSide = teamSideServerObjectIds.Contains(lockedTarget.TargetServerObjectId);
         }
 
+        verificationToken.ThrowIfCancellationRequested();
         if (!targetingLocalSide && !targetingTeamSide && !targetingRecordedTeamProtection)
         {
             return null;
@@ -5217,7 +5205,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         StationaryCombatState state,
         WorldObjectSnapshot target,
         LockedTargetSnapshot lockedResult,
-        int delayMs)
+        int delayMs,
+        CancellationToken verificationToken)
     {
         if (lockedResult is { IsMonsterAlive: true })
         {
@@ -5227,7 +5216,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         if (lockedResult is { IsLockedMonster: true, HasKnownHealth: true, CurrentHp: 0 } lockedTarget)
         {
             var reason = ResolveTabCorpseNudgeReason(state, lockedTarget);
-            await PressForwardForTabCorpseAsync(context, state, target, lockedTarget, delayMs, reason)
+            await PressForwardForTabCorpseAsync(context, state, target, lockedTarget, delayMs, reason, verificationToken)
                 .ConfigureAwait(false);
             return;
         }
@@ -5241,7 +5230,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 context,
                 state,
                 target,
-                delayMs)
+                delayMs,
+                verificationToken)
             .ConfigureAwait(false);
     }
 
@@ -5269,7 +5259,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         WorldObjectSnapshot target,
         LockedTargetSnapshot lockedTarget,
         int delayMs,
-        string reason)
+        string reason,
+        CancellationToken verificationToken)
     {
         if (!state.TryMarkPendingTabCorpseNudged())
         {
@@ -5278,7 +5269,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
         var holdMs = ReadTabCorpseNudgeKeyHoldMs();
         var result = await _input
-            .PressKeyAsync("W", TimeSpan.FromMilliseconds(holdMs), context.StopToken)
+            .PressKeyAsync("W", TimeSpan.FromMilliseconds(holdMs), verificationToken)
             .ConfigureAwait(false);
         if (!result.Success)
         {
@@ -5318,7 +5309,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         AccountWorkerContext context,
         StationaryCombatState state,
         WorldObjectSnapshot target,
-        int delayMs)
+        int delayMs,
+        CancellationToken verificationToken)
     {
         if (!state.TryMarkPendingTabCorpseNudged())
         {
@@ -5327,7 +5319,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
         var holdMs = ReadTabCorpseNudgeKeyHoldMs();
         var result = await _input
-            .PressKeyAsync("W", TimeSpan.FromMilliseconds(holdMs), context.StopToken)
+            .PressKeyAsync("W", TimeSpan.FromMilliseconds(holdMs), verificationToken)
             .ConfigureAwait(false);
         if (!result.Success)
         {
@@ -5455,7 +5447,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         Vector3Snapshot home,
         double radius,
         bool allowLockedFallback,
-        string phase)
+        string phase,
+        CancellationToken lockSelectionToken = default)
     {
         if (lockedResult is not { IsMonsterAlive: true } lockedTarget)
         {
@@ -5486,7 +5479,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                     lockedTarget,
                     home,
                     radius,
-                    phase)
+                    phase,
+                    lockSelectionToken)
                 .ConfigureAwait(false);
             if (switchedTarget is null)
             {
@@ -5631,15 +5625,13 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         LockedTargetSnapshot lockedTarget,
         Vector3Snapshot home,
         double radius,
-        string phase)
+        string phase,
+        CancellationToken lockSelectionToken)
     {
         var lockedWorldTarget = await FindSelectableLockedWorldTargetAsync(
-                context,
-                state,
-                lockedTarget,
-                home,
-                radius)
+                context, state, lockedTarget, home, radius, lockSelectionToken)
             .ConfigureAwait(false);
+        lockSelectionToken.ThrowIfCancellationRequested();
         if (lockedWorldTarget is null)
         {
             LogActionThrottled(context, state, "stationary_combat.target.locked_switch_rejected", "locked_switch:" + candidate.EntityId + ":" + lockedTarget.TargetEntityId, new Dictionary<string, object?>
@@ -5696,9 +5688,10 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         StationaryCombatState state,
         LockedTargetSnapshot lockedTarget,
         Vector3Snapshot home,
-        double radius)
+        double radius,
+        CancellationToken lockSelectionToken = default)
     {
-        var objects = await RefreshWorldObjectsAsync(context, state).ConfigureAwait(false);
+        var objects = await RefreshWorldObjectsAsync(context, state, lockSelectionToken).ConfigureAwait(false);
         var lockedWorldTarget = objects.FirstOrDefault(target =>
             StationaryCombatState.IsSameTarget(
                 target.EntityId,
@@ -7720,10 +7713,11 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
     private async Task<GatherSnapshot> RefreshGatherSnapshotAsync(
         AccountWorkerContext context,
-        StationaryCombatState state)
+        StationaryCombatState state,
+        CancellationToken cancellationToken = default)
     {
         var now = DateTimeOffset.Now;
-        var snapshot = await ReadGatherSnapshotAsync(context).ConfigureAwait(false);
+        var snapshot = await ReadGatherSnapshotAsync(context).WaitAsync(cancellationToken).ConfigureAwait(false);
         state.CachedGatherSnapshot = snapshot;
         state.CachedWorldObjects = snapshot.NearbyMonsters;
         _radarSnapshots?.PublishWorldObjects(
@@ -7735,19 +7729,23 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
     private async Task<IReadOnlyList<WorldObjectSnapshot>> RefreshWorldObjectsAsync(
         AccountWorkerContext context,
-        StationaryCombatState state)
+        StationaryCombatState state,
+        CancellationToken cancellationToken = default)
     {
+        using var reads = cancellationToken.CanBeCanceled
+            ? SnapshotReadBudget.EnterCancellation(cancellationToken)
+            : null;
         var gather = context.Config.ScriptSettings?.Gather;
         if (gather?.StationaryPriorityEnabled == true)
         {
-            await RefreshGatherSnapshotAsync(context, state).ConfigureAwait(false);
+            await RefreshGatherSnapshotAsync(context, state, cancellationToken).ConfigureAwait(false);
             state.PruneIgnoredTargets(state.CachedWorldObjects);
             state.PruneTemporaryTargetExclusions(state.CachedWorldObjects, DateTimeOffset.Now);
             return state.CachedWorldObjects;
         }
 
         var now = DateTimeOffset.Now;
-        state.CachedWorldObjects = await ReadWorldObjectsAsync(context).ConfigureAwait(false);
+        state.CachedWorldObjects = await ReadWorldObjectsAsync(context).WaitAsync(cancellationToken).ConfigureAwait(false);
         _radarSnapshots?.PublishWorldObjects(
             context.Config.AccountName,
             state.CachedWorldObjects,
@@ -9370,7 +9368,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
     private static async Task<IReadOnlySet<uint>> ResolveSmartPreAimTeamSideServerObjectIdsAsync(
         AccountWorkerContext context,
         StationaryCombatState state,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
     {
         var preAim = state.NextTargetPreAim;
         lock (preAim.SyncRoot)
@@ -9385,7 +9384,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         }
 
         var monitor = new TeamMonitor(context.Snapshots);
-        var snapshot = await monitor.ReadSnapshotAsync().ConfigureAwait(false);
+        var snapshot = await monitor.ReadSnapshotAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
         lock (preAim.SyncRoot)
         {
             var team = context.Config.ScriptSettings?.Team ?? new TeamScriptSettings();
