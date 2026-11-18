@@ -200,6 +200,7 @@ internal static class SpiritmasterElementalConfirmationTests
         await StartAsync(first);
         await StartAsync(second);
         first.SetPet(11, 55);
+        first.Confirm(ElementalId);
         MakeCheckDue(first);
         second.State.DeferSpiritmasterPetHpIncreaseConfirmation(DateTimeOffset.Now, TimeSpan.FromMinutes(1));
         await first.TickAsync();

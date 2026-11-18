@@ -28641,10 +28641,15 @@ static async Task TestSpiritmasterPetHpConfirmationYieldsAfterConfirmationAsync(
     var healedPetRoster = CreateLocalPetRoster(isSummoned: true, currentHp: 30);
     gameApi.SummonedPet = healedPetRoster.LocalPlayerPet.Pet;
     gameApi.SummonedPetRoster = healedPetRoster;
+    var readySkills = gameApi.Skills;
+    gameApi.Skills = readySkills.Select(skill => skill.SkillId == 1678
+        ? skill with { CooldownEndTime = CooldownEndIn(10_300) }
+        : skill).ToArray();
     state.DeferSpiritmasterPetHpIncreaseConfirmation(DateTimeOffset.Now.AddSeconds(-1), TimeSpan.Zero);
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
     AssertSequence(new[] { "D1" }, keyboard.Keys.ToArray(), "confirmed pet heal yields a tick for normal skills");
     keyboard.Keys.Clear();
+    gameApi.Skills = readySkills;
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
     AssertSequence(new[] { "D4" }, keyboard.Keys.ToArray(), "a ready skill can heal again without the removed local interval");
 }
@@ -28756,6 +28761,9 @@ static async Task TestSpiritmasterElementalReplenishmentConfirmsPetHpIncreaseAsy
     var healedPetRoster = CreateLocalPetRoster(isSummoned: true, currentHp: 30);
     gameApi.SummonedPet = healedPetRoster.LocalPlayerPet.Pet;
     gameApi.SummonedPetRoster = healedPetRoster;
+    gameApi.Skills = gameApi.Skills.Select(skill => skill.SkillId == 1678
+        ? skill with { CooldownEndTime = CooldownEndIn(10_300) }
+        : skill).ToArray();
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
 
     AssertEqual(1, keyboard.Keys.Count(key => key == "D3"), "confirmed pet hp increase must not retry elemental replenishment");

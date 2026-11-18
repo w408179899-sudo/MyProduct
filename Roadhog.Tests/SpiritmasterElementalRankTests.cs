@@ -28,6 +28,9 @@ internal static class SpiritmasterElementalRankTests
             using var f = new SharedSkillAuditFixture();
             f.ClearAttackTree();
             f.AddElementalRule(id);
+            f.Api.Skills = f.Api.Skills.Select(skill => skill.SkillId == id
+                ? skill with { CooldownDuration = 500 }
+                : skill).ToArray();
             f.Api.Player = f.Api.Player with { CurrentHp = 65 };
             await f.PrepareAsync();
             await f.TickAsync();
@@ -36,12 +39,14 @@ internal static class SpiritmasterElementalRankTests
             await f.TickAsync();
             Check(f.Keyboard.Keys.Count == 1, "pending window holds another elemental release");
             f.SetPet(11, 55);
+            f.Confirm(id);
             f.State.DeferSpiritmasterPetHpIncreaseConfirmation(DateTimeOffset.Now.AddSeconds(-1), TimeSpan.Zero);
             await f.TickAsync();
             Check(f.State.PendingSpiritmasterPetHpIncreaseConfirmation is null, "newer trusted pet HP increase confirms every rank");
             Check(f.Logged("semi_auto.spiritmaster.pet_hp.pet_hp_confirmed", "skillId", id),
                 "pet HP confirmation reports the actual rank");
             Check(f.Keyboard.Keys.Count == 1, "confirmation yields the current tick without immediately healing again");
+            await Task.Delay(550);
             await f.TickAsync();
             Sequence(new[] { "D4", "D4" }, f.Keyboard.Keys, "real CD is ready so every rank can heal again without a local interval");
         }
