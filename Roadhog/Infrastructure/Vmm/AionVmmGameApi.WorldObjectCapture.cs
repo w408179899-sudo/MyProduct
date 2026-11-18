@@ -35,6 +35,7 @@ internal sealed partial class AionVmmGameApi
             (gameBase + LocalEntityIdRva, BitConverter.GetBytes(localEntityId))
         };
         var observations = new List<(ulong Address, WorldObjectObservation Observation)>();
+        var outsideRange = new List<(ulong Address, uint ServerObjectId)>();
         var duplicateIds = capture.Nodes.Where(node => node.ServerObjectId != 0)
             .GroupBy(node => node.ServerObjectId).Where(group => group.Count() > 1)
             .Select(group => group.Key).ToHashSet();
@@ -52,9 +53,10 @@ internal sealed partial class AionVmmGameApi
             if (!TryReadWorldObjectObservation(process, entityTreeHeader,
                     node.ServerObjectId, node.EntityId, localEntityId, localX, localY, localZ,
                     localServerObjectId, localServerObjectIdAvailable, npcCatalog.Details,
-                    bypassMemoryCache, out var observation, ref counters, ref firstIssue))
+                    bypassMemoryCache, out var observation, out var excludedByRange, ref counters, ref firstIssue))
                 structuralPartial = true;
             if (observation is not null) observations.Add((node.Address, observation));
+            if (excludedByRange) outsideRange.Add((node.Address, node.ServerObjectId));
         }
 
         var requests = anchors.Select(anchor => (anchor.Address, anchor.Bytes.Length))
@@ -95,11 +97,14 @@ internal sealed partial class AionVmmGameApi
         var proof = new WorldObjectTreeProof(capture.Header, capture.Root, capture.FirstNode, capture.LastNode,
             capture.Nodes.Count, capture.HeaderVerified, capture.StructureComplete,
             verification.StructureUnchanged, capture.Issue ?? verification.Issue);
+        var range = new WorldObjectRange(new(localX, localY, localZ), outsideRange
+            .Where(item => !verification.InvalidIdentityNodeAddresses.Contains(item.Address))
+            .Select(item => item.ServerObjectId).ToHashSet());
         return new WorldObjectReadAttempt(
-            structuralPartial
-                ? trustedObservations.Count == 0 ? WorldObjectReadCompleteness.Failed : WorldObjectReadCompleteness.Partial
-                : WorldObjectReadCompleteness.Complete,
+            // Verified local position is independently useful even when this traversal
+            // found no publishable objects. It establishes the range of the retained view.
+            structuralPartial ? WorldObjectReadCompleteness.Partial : WorldObjectReadCompleteness.Complete,
             trustedObservations, counters, capture.Termination, localServerObjectIdAvailable,
-            firstIssue, structuralPartial ? firstIssue : null, proof);
+            firstIssue, structuralPartial ? firstIssue : null, proof, range);
     }
 }

@@ -239,6 +239,51 @@ internal static class WorldObjectPublicationTests
         return Task.CompletedTask;
     }
 
+    public static Task PartialCapturePrunesOnlyProvenOutOfRangeObjectsAsync()
+    {
+        var near = Monster(10, 1000) with { Position = new(41, 54, 300), DistanceToLocalPlayer = 64 };
+        var boundary = Monster(11, 1001) with { Position = new(50, 64, 0) };
+        var movedOut = Monster(12, 1002) with { Position = new(3, 0, 0) };
+        var api = Provider();
+        api.StabilizeWorldObjectRead(Context, WithRange(Complete(near, boundary, movedOut), new(3, 0, 0)), Start);
+
+        var emptyPartial = Capture(WorldObjectReadCompleteness.Partial, []);
+        var next = WithRange(emptyPartial, new(2, 0, 0), movedOut.ServerObjectId);
+        var updated = api.StabilizeWorldObjectRead(Context, next, Start.AddSeconds(1));
+        Require(updated.Success && updated.Value!.Count == 1, "80 m and a verified out-of-range identity must both be removed");
+        var retained = updated.Value!.Single();
+        Require(retained.ServerObjectId == near.ServerObjectId && retained.CurrentHp == near.CurrentHp &&
+            retained.DistanceToLocalPlayer == Math.Sqrt(39 * 39 + 54 * 54 + 300 * 300),
+            "an omitted nearby object survives the partial read with distance recalculated from the current player position");
+
+        var held = api.StabilizeWorldObjectRead(Context, Capture(WorldObjectReadCompleteness.Failed, []), Start.AddSeconds(2));
+        Require(ReferenceEquals(updated.Value, held.Value), "a capture without a verified origin cannot remove retained objects");
+        return Task.CompletedTask;
+    }
+
+    public static Task ReviveOriginDropsDistantCachedThreatAndAllowsValidEmptyAsync()
+    {
+        var api = Provider();
+        var distantThreat = Monster(10, 1000) with { Position = new(910, 0, 0), IsTargetingLocalPlayer = true };
+        var beforeRevive = WithRange(Complete(distantThreat), new(900, 0, 0));
+        Require(api.StabilizeWorldObjectRead(Context, beforeRevive, Start).Value!.Single() == distantThreat,
+            "the old fight legitimately had a nearby defense target");
+
+        var afterRevive = WithRange(Capture(WorldObjectReadCompleteness.Partial, []), new(10, 0, 0));
+        var recovered = api.StabilizeWorldObjectRead(Context, afterRevive, Start.AddSeconds(1));
+        Require(recovered.Success && recovered.Value!.Count == 0,
+            "even an empty partial capture can prove the old fight is outside the current visible area");
+
+        Require(AionVmmGameApi.IsOutsideWorldObjectRange(new(48, 64, 0), default) &&
+            !AionVmmGameApi.IsOutsideWorldObjectRange(new(48, 63.99f, 300), default),
+            "capture uses horizontal distance with an inclusive 80 m exclusion boundary");
+        var allOutside = WithRange(Capture(WorldObjectReadCompleteness.Complete, [], treeNodeCount: 1), default, 1000);
+        var cold = Provider().StabilizeWorldObjectRead(Context, allOutside, Start);
+        Require(cold.Success && cold.Value!.Count == 0,
+            "excluding a distant object from a verified traversal does not make the first publication incomplete");
+        return Task.CompletedTask;
+    }
+
     public static async Task ColdStartRetriesUntilTrustedCompleteAsync()
     {
         foreach (var actualEmpty in new[] { true, false })
@@ -492,7 +537,9 @@ internal static class WorldObjectPublicationTests
     private static WorldObjectReadResult WithProof(WorldObjectReadResult read, WorldObjectTreeProof? proof) =>
         WithDiagnostics(read, read.Diagnostics with { TreeProof = proof });
     private static WorldObjectReadResult WithDiagnostics(WorldObjectReadResult read, WorldObjectReadDiagnostics diagnostics) =>
-        new(read.Completeness, read.Observations, diagnostics, read.Error);
+        new(read.Completeness, read.Observations, diagnostics, read.Error, read.Range);
+    private static WorldObjectReadResult WithRange(WorldObjectReadResult read, Vector3Snapshot origin, params uint[] excludedIds) =>
+        new(read.Completeness, read.Observations, read.Diagnostics, read.Error, new(origin, excludedIds.ToHashSet()));
     private static void SameObjects(IReadOnlyList<WorldObjectSnapshot> expected, IReadOnlyList<WorldObjectSnapshot> actual, string message) =>
         Require(expected.OrderBy(item => item.ServerObjectId).SequenceEqual(actual.OrderBy(item => item.ServerObjectId)), message);
     private static void Require(bool condition, string message)

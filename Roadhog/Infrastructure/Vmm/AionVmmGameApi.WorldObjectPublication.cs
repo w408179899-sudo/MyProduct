@@ -5,6 +5,30 @@ namespace Roadhog.Infrastructure.Vmm;
 
 internal sealed partial class AionVmmGameApi
 {
+    private const double WorldObjectVisibilityRangeMeters = 80;
+
+    internal static bool IsOutsideWorldObjectRange(Vector3Snapshot position, Vector3Snapshot origin)
+    {
+        var dx = (double)position.X - origin.X;
+        var dy = (double)position.Y - origin.Y;
+        return dx * dx + dy * dy >= WorldObjectVisibilityRangeMeters * WorldObjectVisibilityRangeMeters;
+    }
+
+    private static bool IsWorldObjectExcludedByRange(WorldObjectSnapshot item, WorldObjectRange? range) =>
+        range is not null &&
+        (range.ExcludedServerObjectIds.Contains(item.ServerObjectId) ||
+         item.Position is { } position && IsOutsideWorldObjectRange(position, range.Origin));
+
+    private static WorldObjectSnapshot UpdateRetainedWorldObjectDistance(WorldObjectSnapshot item, WorldObjectRange? range)
+    {
+        if (range is null || item.Position is not { } position) return item;
+        var deltaX = (double)position.X - range.Origin.X;
+        var deltaY = (double)position.Y - range.Origin.Y;
+        var deltaZ = (double)position.Z - range.Origin.Z;
+        var distance = Math.Sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ);
+        return item.DistanceToLocalPlayer == distance ? item : item with { DistanceToLocalPlayer = distance };
+    }
+
     // Apply this before both replacement and field-aware merging: an unverified
     // Complete label must never authorize pruning through either path.
     internal static WorldObjectReadResult NormalizeWorldObjectRead(WorldObjectReadResult read)
@@ -12,10 +36,11 @@ internal sealed partial class AionVmmGameApi
         if (read.Completeness != WorldObjectReadCompleteness.Complete) return read;
         if (HasVerifiedWorldObjectCoverage(read, out var issue)) return read;
         return new WorldObjectReadResult(
-            read.Observations.Count == 0 ? WorldObjectReadCompleteness.Failed : WorldObjectReadCompleteness.Partial,
+            read.Observations.Count == 0 && read.Range is null ? WorldObjectReadCompleteness.Failed : WorldObjectReadCompleteness.Partial,
             read.Observations,
             read.Diagnostics with { FirstIssue = issue },
-            issue);
+            issue,
+            read.Range);
     }
 
     private static bool HasVerifiedWorldObjectCoverage(WorldObjectReadResult read, out string issue)
@@ -109,6 +134,8 @@ internal sealed partial class AionVmmGameApi
             ["publishedCount"] = published?.Count ?? 0,
             ["prunedCount"] = pruned.Length,
             ["prunedIdentities"] = string.Join(",", pruned.Take(8)),
+            ["visibilityRangePrunedCount"] = previous?.Count(item =>
+                !publishedIds.Contains(WorldObjectIdentityKey(item)) && IsWorldObjectExcludedByRange(item, effective.Range)) ?? 0,
             ["coverageRejected"] = coverageRejected,
             ["issue"] = effective.Error ?? effective.Diagnostics.FirstIssue ?? string.Empty
         };

@@ -1006,7 +1006,10 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
             .ToDictionary(static group => group.Key, static group => group.First(), StringComparer.Ordinal);
         var merged = read.Completeness == WorldObjectReadCompleteness.Complete
             ? new Dictionary<string, WorldObjectSnapshot>(StringComparer.Ordinal)
-            : previousByIdentity.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal);
+            : previousByIdentity
+                .Where(pair => !IsWorldObjectExcludedByRange(pair.Value, read.Range))
+                .ToDictionary(static pair => pair.Key, pair => UpdateRetainedWorldObjectDistance(pair.Value, read.Range),
+                    StringComparer.Ordinal);
 
         foreach (var observation in read.Observations)
         {
@@ -2832,7 +2835,8 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
             attempt.Completeness,
             attempt.Observations,
             diagnostics,
-            attempt.Error);
+            attempt.Error,
+            attempt.Range);
 
         if (result.Completeness != WorldObjectReadCompleteness.Complete &&
             ShouldLogWorldObjectQualityIssue(context, result, completedAt))
@@ -8009,7 +8013,8 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                 out var localX,
                 out var localY,
                 out var localZ,
-                bypassMemoryCache))
+                bypassMemoryCache) ||
+            !IsReasonablePosition(localX, localY, localZ))
         {
             return WorldObjectReadAttempt.Failed("failed to read local entity position", counters);
         }
@@ -8051,10 +8056,12 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         IReadOnlyDictionary<uint, NpcStaticDetail> npcStaticDetails,
         bool bypassMemoryCache,
         out WorldObjectObservation? observation,
+        out bool excludedByRange,
         ref WorldObjectReadCounters counters,
         ref string firstIssue)
     {
         observation = null;
+        excludedByRange = false;
         if (entityId == 0 || entityId == localEntityId)
         {
             return true;
@@ -8126,6 +8133,12 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
             counters.ActorIdentityMismatches++;
             SetFirstWorldObjectReadIssue(ref firstIssue, "world_actor_identity_mismatch");
             return false;
+        }
+
+        if (IsOutsideWorldObjectRange(new(x, y, z), new(localX, localY, localZ)))
+        {
+            excludedByRange = true;
+            return true;
         }
 
         if (!actor.NpcTemplateIdAvailable || actor.NpcTemplateId == 0)
@@ -10940,7 +10953,8 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         bool LocalServerObjectIdAvailable,
         string FirstIssue,
         string? Error,
-        WorldObjectTreeProof? TreeProof = null)
+        WorldObjectTreeProof? TreeProof = null,
+        WorldObjectRange? Range = null)
     {
         public static WorldObjectReadAttempt Failed(
             string error,

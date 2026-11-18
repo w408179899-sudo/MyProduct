@@ -938,6 +938,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("world publication trusted complete field merge prunes only absent objects", WorldObjectPublicationTests.TrustedCompleteFieldMergePrunesOnlyAbsentObjectsAsync),
     ("world publication partial updates and retains omissions", WorldObjectPublicationTests.PartialUpdatesAndRetainsOmissionsAsync),
     ("world publication failed capture holds all fields", WorldObjectPublicationTests.FailedCaptureHoldsAllFieldsAsync),
+    ("world publication excludes objects at eighty metres on a partial capture", WorldObjectPublicationTests.PartialCapturePrunesOnlyProvenOutOfRangeObjectsAsync),
+    ("world publication drops distant cached defense target after revive", WorldObjectPublicationTests.ReviveOriginDropsDistantCachedThreatAndAllowsValidEmptyAsync),
     ("world publication cold start retries until trusted complete", WorldObjectPublicationTests.ColdStartRetriesUntilTrustedCompleteAsync),
     ("world publication identity and session isolation", WorldObjectPublicationTests.IdentityAndSessionIsolationAsync),
     ("world publication controller return home uses only trusted absence", WorldObjectPublicationTests.ControllerReturnHomeUsesOnlyTrustedAbsenceAsync),

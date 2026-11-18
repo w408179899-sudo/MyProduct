@@ -42,6 +42,8 @@ internal sealed record WorldObjectObservation(
     WorldObjectSnapshot Snapshot,
     WorldObjectFieldValidity Fields);
 
+internal sealed record WorldObjectRange(Vector3Snapshot Origin, IReadOnlySet<uint> ExcludedServerObjectIds);
+
 /// <summary>
 /// Capture-local structural evidence. Only a verified traversal may prove that
 /// objects omitted by a capture are absent. This never crosses the provider API.
@@ -92,12 +94,14 @@ internal sealed record WorldObjectReadResult
         WorldObjectReadCompleteness completeness,
         IReadOnlyList<WorldObjectObservation>? observations,
         WorldObjectReadDiagnostics diagnostics,
-        string? error = null)
+        string? error = null,
+        WorldObjectRange? range = null)
     {
         Completeness = completeness;
         Observations = observations?.ToArray() ?? Array.Empty<WorldObjectObservation>();
         Diagnostics = diagnostics;
         Error = error;
+        Range = range;
         Objects = Observations.Select(static observation => observation.Snapshot).ToArray();
     }
 
@@ -110,4 +114,5 @@ internal sealed record WorldObjectReadResult
     public WorldObjectReadDiagnostics Diagnostics { get; }
 
     public string? Error { get; }
+    public WorldObjectRange? Range { get; }
 }
