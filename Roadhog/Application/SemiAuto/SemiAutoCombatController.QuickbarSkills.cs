@@ -46,7 +46,7 @@ public sealed partial class SemiAutoCombatController
                     plan: maintenancePlan, requireCooldownCalibrationForMaintenance: requireCooldownCalibrationForMaintenance,
                     includeStatusMaintenance: includeAlwaysStatusMaintenance)).ConfigureAwait(false))
         {
-            state.QuickbarSkills.SuspendInputAttempts();
+            state.QuickbarSkills.CancelInputAttemptsForHandoff();
             return tick;
         }
 
@@ -135,7 +135,7 @@ public sealed partial class SemiAutoCombatController
             await TryContinueSpiritmasterPetHpConfirmationAsync(context, state, settings, skills, sharedSkillSettings.Spiritmaster)
                 .ConfigureAwait(false))
         {
-            state.QuickbarSkills.SuspendInputAttempts();
+            state.QuickbarSkills.CancelInputAttemptsForHandoff();
             return tick;
         }
         // A pet buff has a cast time. Reserve its finite confirmation window
@@ -145,7 +145,7 @@ public sealed partial class SemiAutoCombatController
                 skills, maintenance, maintenancePlan, jumpAssist, requireCooldownCalibrationForMaintenance,
                 ensureHpMaintenanceTargetBeforeKeyPress).ConfigureAwait(false))
         {
-            state.QuickbarSkills.SuspendInputAttempts();
+            state.QuickbarSkills.CancelInputAttemptsForHandoff();
             return tick;
         }
         if (settings.AttackWeaveEnabled &&
@@ -160,19 +160,19 @@ public sealed partial class SemiAutoCombatController
                     sharedSkillSettings.Spiritmaster, target).ConfigureAwait(false))
             {
                 jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
-                state.QuickbarSkills.SuspendInputAttempts(preserveAttackWeave: settings.AttackWeaveEnabled);
+                state.QuickbarSkills.CancelInputAttemptsForHandoff(preserveAttackWeave: settings.AttackWeaveEnabled);
                 return tick;
             }
             if (!plan.IsAdvancedMode && await PressQuickbarOpeningSkillIfNeededAsync(context, state, settings, maintenancePlan, target, skills).ConfigureAwait(false))
             {
                 jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
-                state.QuickbarSkills.SuspendInputAttempts(preserveAttackWeave: settings.AttackWeaveEnabled);
+                state.QuickbarSkills.CancelInputAttemptsForHandoff(preserveAttackWeave: settings.AttackWeaveEnabled);
                 return tick;
             }
             if (await PressOpeningAttackKeyIfNeededAsync(context, state, settings, target).ConfigureAwait(false))
             {
                 jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
-                state.QuickbarSkills.SuspendInputAttempts(preserveAttackWeave: settings.AttackWeaveEnabled);
+                state.QuickbarSkills.CancelInputAttemptsForHandoff(preserveAttackWeave: settings.AttackWeaveEnabled);
                 return tick;
             }
 
@@ -185,7 +185,7 @@ public sealed partial class SemiAutoCombatController
                         allowPetHpMaintenance: !hadPetHpConfirmation).ConfigureAwait(false))
                 {
                     jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
-                    state.QuickbarSkills.SuspendInputAttempts();
+                    state.QuickbarSkills.CancelInputAttemptsForHandoff();
                     return tick;
                 }
             }
@@ -198,7 +198,7 @@ public sealed partial class SemiAutoCombatController
                     includeAlwaysRules: maintenancePlan.UsesSpiritmasterAutoLogic,
                     ensureHpMaintenanceTargetBeforeKeyPress: ensureHpMaintenanceTargetBeforeKeyPress)).ConfigureAwait(false))
         {
-            state.QuickbarSkills.SuspendInputAttempts();
+            state.QuickbarSkills.CancelInputAttemptsForHandoff();
             return tick;
         }
 
@@ -240,14 +240,15 @@ public sealed partial class SemiAutoCombatController
         QuickbarSpiritmasterPetPolicy? petPolicy = null;
         if (maintenancePlan.UsesSpiritmasterAutoLogic)
         {
-            var candidate = new QuickbarSpiritmasterPetPolicy(plan, skills, () => ReadSummonedPetRosterAsync(context));
-            if (candidate.HasCommands)
+            var candidate = new QuickbarSpiritmasterPetPolicy(plan, skills, () => ReadSummonedPetRosterAsync(context),
+                includePetPrerequisites: UsesCoordinatedPetEligibility(context));
+            if (candidate.HasPetRules)
             {
                 spiritContext ??= await ReadSpiritmasterCombatContextAsync(context, target).ConfigureAwait(false);
                 if (spiritContext.CanUseSpiritmasterLogic) petPolicy = candidate;
             }
         }
-        Func<Task<IReadOnlySet<uint>>>? readSuppressedSkillIds = petPolicy is { HasCommands: true }
+        Func<Task<IReadOnlySet<uint>>>? readSuppressedSkillIds = petPolicy is { HasPetRules: true }
             ? petPolicy.ReadSuppressedSkillIdsAsync : null;
         while (true)
         {
@@ -261,7 +262,12 @@ public sealed partial class SemiAutoCombatController
                 allowCombatSnapshot: combat => !DueQuickbarMaintenanceKeys(maintenance, state, combat.MaxHp,
                     combat.HpPercent, combat.MaxMp, combat.MpPercent, combat.CurrentDp)
                     .Any(key => !checkedMaintenanceCandidates.Contains(key)),
-                availabilityCooldownReadiness: (skill, bar) => GetQuickbarCooldownReadiness(skill, state, bar, _timeProvider),
+                availabilityCooldownReadiness: (skill, bar) => UsesCoordinatedPetEligibility(context) &&
+                    spiritContext?.CanUseSpiritmasterLogic == true &&
+                    SpiritmasterSkillEligibility.Classify(skill) == SpiritmasterPetRequirement.MissingPet
+                        ? GetSummonCooldownReadiness(skill, state, CurrentOsTick()) == SemiAutoSkillCooldownReadiness.Ready
+                            ? SemiAutoSkillCooldownReadiness.Ready : SemiAutoSkillCooldownReadiness.CoolingDown
+                        : GetQuickbarCooldownReadiness(skill, state, bar, _timeProvider),
                 isCooldownClockCalibrated: () => state.HasCooldownTickCalibration,
                 readSuppressedRootSkillIds: readSuppressedRootSkillIds,
                 onSkillPressed: onSkillPressed,

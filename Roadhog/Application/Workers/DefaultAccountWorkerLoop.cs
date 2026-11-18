@@ -102,6 +102,7 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
         {
             ["account"] = context.Config.AccountName,
             ["mode"] = context.Config.MainMode.ToString(),
+            ["combatFlowVersion"] = context.Config.CombatFlowVersion.ToString(),
             ["hardwareKey"] = context.Config.HardwareKey,
             ["vmmDevice"] = context.Config.VmmDeviceName
         });
@@ -137,11 +138,9 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
         var fixedChannelState = new FixedChannelState();
         var foodMaintenance = new FoodMaintenanceController(_keyboard);
         context.WorkflowOwnsCleanup = _cleanupWorkflow != null;
-        var nextCleanupCheck = DateTimeOffset.MinValue;
+        var cleanupProgress = new CleanupLoopProgress();
         var nextSharedRefresh = DateTimeOffset.MinValue;
         var sharedConfiguration = _sharedConfigurationFactory?.Invoke(context.Config);
-        var lastCleanup = DateTimeOffset.MinValue;
-        var checkLifeAfterYield = false;
         CombatJumpAssistSession? jumpAssist = null;
         if (scriptSettings.Combat.JumpAssistEnabled)
         {
@@ -172,7 +171,7 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
             {
                 using var returnFailureTick = stationaryCombatState.ReturnNavigationFailure.TrackTick();
                 using var readBudget = SnapshotReadBudget.Enter(TimeSpan.FromSeconds(2));
-                var cleanupOperationActive = false;
+                cleanupProgress.OperationActive = false;
                 try
                 {
                     context.RuntimeStates.MarkHeartbeat(context.Config.AccountName);
@@ -228,12 +227,12 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                     }
                     if (context.CleanupRequests.Current is { Failure: not null } failedShop)
                     {
-                        nextCleanupCheck = DateTimeOffset.UtcNow.AddSeconds(30);
+                        cleanupProgress.NextCheck = DateTimeOffset.UtcNow.AddSeconds(30);
                         await AbandonCleanupAsync(context, stationaryCombatState, failedShop,
                             new InvalidOperationException(failedShop.Failure));
-                        checkLifeAfterYield = true;
+                        cleanupProgress.CheckLifeAfterYield = true;
                     }
-                    if (checkLifeAfterYield)
+                    if (cleanupProgress.CheckLifeAfterYield)
                     {
                         var recoveryDelay = await _stationaryCombat.TickPlayerLifeGuardAsync(
                             context, semiAutoPlan, semiAutoState, stationaryCombatState,
@@ -243,7 +242,7 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                             await Task.Delay(recoveryDelay.Value, context.StopToken);
                             continue;
                         }
-                        checkLifeAfterYield = false;
+                        cleanupProgress.CheckLifeAfterYield = false;
                     }
 
                     var foodCombatActive = FoodMaintenanceController.HasWork(stationaryCombatState);
@@ -284,13 +283,13 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                         var now = DateTimeOffset.UtcNow;
                         var maintenance = scriptSettings.Maintenance;
                         var followingRevivePath = StationaryCombatController.IsFollowingRevivePath(stationaryCombatState);
-                        if (context.CleanupRequests.Current == null && now >= nextCleanupCheck && now >= context.CleanupRequests.AutomaticRetryAfter &&
+                        if (context.CleanupRequests.Current == null && now >= cleanupProgress.NextCheck && now >= context.CleanupRequests.AutomaticRetryAfter &&
                             !stationaryCombatState.Fighting && !stationaryCombatState.LootAfterKill.Active &&
                             (stationaryCombatState.TopLevelState == StationaryCombatTopLevelState.Normal ||
                              (followingRevivePath && maintenance.CleanupWorkflow.Mode == CleanupMode.GroceryShop &&
                               maintenance.CleanupWorkflow.GroceryScheduleEnabled)))
                         {
-                            nextCleanupCheck = now.AddSeconds(2);
+                            cleanupProgress.NextCheck = now.AddSeconds(2);
                             if (followingRevivePath)
                             {
                                 // Only the due schedule can interrupt a revive route. Bag capacity,
@@ -327,7 +326,7 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                                 if (BagCleanupController.CountFreeSlots(bag, capacity) < maintenance.BagCleanupThreshold)
                                 {
                                     var automatic = scriptSettings.Clone();
-                                    var fullCleanupAllowed = now - lastCleanup >= BagCleanupController.FullCleanupCooldown;
+                                    var fullCleanupAllowed = now - cleanupProgress.LastCleanup >= BagCleanupController.FullCleanupCooldown;
                                     if (!fullCleanupAllowed)
                                     {
                                         // Existing discard rules remain eligible during the full-cleanup cooldown.
@@ -341,105 +340,12 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                         }
                         if (context.CleanupRequests.Current is { } cleanup)
                         {
-                            try
-                            {
-                                if (await _stationaryCombat.PrepareCleanupTickAsync(context, semiAutoPlan, semiAutoState, stationaryCombatState,
-                                        pauseRevivePath: cleanup.GroceryTrigger == GroceryShopTrigger.Scheduled))
-                                {
-                                    if ((cleanup.StandaloneShop || cleanup.GroceryShop) && jumpAssist is not null)
-                                        await jumpAssist.StopAsync("standalone_shop").ConfigureAwait(false);
-                                    try
-                                    {
-                                        cleanupOperationActive = true;
-                                        await _cleanupWorkflow.RunAsync(context, cleanup, c => _stationaryCombat.ReturnAfterCleanupAsync(
-                                            c, semiAutoPlan, semiAutoState, stationaryCombatState));
-                                    }
-                                    catch (SnapshotReadBudgetExceededException) { throw; }
-                                    catch (CleanupExecutionFailedException) { throw; }
-                                    catch (CleanupSessionInterruptionException) { throw; }
-                                    catch (Exception ex) when (!context.StopToken.IsCancellationRequested && cleanup.GroceryShop &&
-                                        cleanup.Settings.Maintenance.CleanupWorkflow.GroceryPostSaleAction == GroceryPostSaleAction.NpcSell &&
-                                        (cleanup.SoldOutConfirmed || cleanup.GroceryProcessingCompleted))
-                                    {
-                                        await _cleanupWorkflow.FinishGroceryAfterFailureAsync(context, cleanup, ex);
-                                    }
-                                    cleanupOperationActive = false;
-                                    context.StopToken.ThrowIfCancellationRequested();
-                                    if (cleanup.RequestsRestart)
-                                    {
-                                        context.CleanupRequests.CompleteStandaloneShopForRestart(cleanup);
-                                        context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, cleanup.GroceryShop
-                                            ? "杂货清包处理完成，等待停止并重新启动脚本" : "全部售罄，等待停止并重新启动脚本");
-                                        context.Logger.Info("standalone_shop.restart.requested", new Dictionary<string, object?>
-                                            { ["account"] = context.Config.AccountName, ["requestId"] = cleanup.RequestId });
-                                        continue;
-                                    }
-                                    context.CleanupRequests.Complete();
-                                    if (cleanup.GroceryShop) nextCleanupCheck = DateTimeOffset.UtcNow.AddSeconds(30);
-                                    context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, string.Empty);
-                                    if (cleanup.ResetsCooldown && cleanup.FullCleanupStarted) lastCleanup = DateTimeOffset.UtcNow;
-                                    stationaryCombatState.PathCombat.Reset();
-                                    await _stationaryCombat.SetChannelSwitchPendingAsync(context, stationaryCombatState, false);
-                                }
-                                else context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, "清包已排队，先处理当前战斗 / 复活");
-                            }
-                            catch (SnapshotReadBudgetExceededException) { throw; }
-                            catch (CleanupSessionInterruptionException) when (!context.StopToken.IsCancellationRequested)
-                            {
-                                cleanupOperationActive = false;
-                                context.CleanupRequests.Complete();
-                                context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, string.Empty);
-                                stationaryCombatState.PathCombat.Reset();
-                                await _stationaryCombat.SetChannelSwitchPendingAsync(context, stationaryCombatState, false);
-                                context.Logger.Info("cleanup_workflow.discard.session_interrupted", new Dictionary<string, object?>
-                                    { ["account"] = context.Config.AccountName, ["requestId"] = cleanup.RequestId });
-                            }
-                            catch (Exception ex) when (!context.StopToken.IsCancellationRequested && cleanup.GroceryShop && !cleanup.GroceryNpcStageStarted &&
-                                ex is GroceryTripInterruptedException or GroceryTripDepartureFailedException or CleanupCombatInterruptionException or CleanupDeathInterruptionException)
-                            {
-                                context.CleanupRequests.Complete();
-                                context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, string.Empty);
-                                context.RuntimeStates.MarkWarning(context.Config.AccountName, ex.Message);
-                                nextCleanupCheck = DateTimeOffset.UtcNow.AddSeconds(2);
-                                stationaryCombatState.PathCombat.Reset();
-                                await _stationaryCombat.SetChannelSwitchPendingAsync(context, stationaryCombatState, false);
-                                context.Logger.Info("grocery_shop.attempt_ended", new Dictionary<string, object?>
-                                    { ["account"] = context.Config.AccountName, ["reason"] = ex.Message });
-                            }
-                            catch (Exception ex) when (!context.StopToken.IsCancellationRequested &&
-                                !cleanup.StandaloneShop && !cleanup.GroceryShop && (ex is CleanupCombatInterruptionException or CleanupDeathInterruptionException))
-                            {
-                                if (ex is CleanupDeathInterruptionException) cleanup.TownReturnCompleted = false;
-                                context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, ex.Message);
-                            }
-                            catch (Exception ex) when (!context.StopToken.IsCancellationRequested && !cleanup.StandaloneShop &&
-                                cleanup.PreparationStage == CleanupPreparationStage.Discarding)
-                            {
-                                // Ordinary action failures stay inside the discard state machine.
-                                // Keep this boundary for exceptions that cannot resume that state;
-                                // never replay the full workflow or stop the account.
-                                cleanupOperationActive = false;
-                                context.CleanupRequests.Complete();
-                                nextCleanupCheck = DateTimeOffset.UtcNow.AddSeconds(30);
-                                context.Logger.Warn("cleanup_workflow.discard_abandoned", new Dictionary<string, object?>
-                                {
-                                    ["account"] = context.Config.AccountName, ["error"] = ex.Message,
-                                    ["manual"] = cleanup.Manual, ["groceryTrigger"] = cleanup.GroceryTrigger.ToString(),
-                                    ["automaticRetryAfterMs"] = 30000
-                                });
-                                context.RuntimeStates.MarkWarning(context.Config.AccountName, "本次丢弃失败，已放弃并继续挂机：" + ex.Message);
-                                context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, string.Empty);
-                                stationaryCombatState.PathCombat.Reset();
-                                await _stationaryCombat.SetChannelSwitchPendingAsync(context, stationaryCombatState, false);
-                            }
-                            catch (Exception ex) when (!context.StopToken.IsCancellationRequested)
-                            {
-                                cleanupOperationActive = false;
-                                nextCleanupCheck = DateTimeOffset.UtcNow.AddSeconds(30);
-                                lastCleanup = DateTimeOffset.UtcNow;
-                                await AbandonCleanupAsync(context, stationaryCombatState, cleanup, ex);
-                                checkLifeAfterYield = true;
-                            }
+                            var cleanupResult = context.Config.CombatFlowVersion == CombatFlowVersion.CoordinatedV2
+                                ? await CleanupRequestRunner.RunAsync(context, stationaryCombatState, cleanup, cleanupProgress,
+                                    new CleanupRequestActions(this, context, semiAutoPlan, semiAutoState, stationaryCombatState, jumpAssist))
+                                : await RunLegacyCleanupRequestAsync(context, semiAutoPlan, semiAutoState,
+                                    stationaryCombatState, jumpAssist, cleanup, cleanupProgress);
+                            if (cleanupResult == CleanupRequestTickResult.RestartPending) continue;
                             await Task.Delay(context.Options.TickInterval, context.StopToken);
                             continue;
                         }
@@ -568,7 +474,9 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                                      context,
                                      semiAutoPlan,
                                      semiAutoState,
-                                     beforeSummonKeyPress: () => ReleaseActiveInputAsync(context, stationaryCombatState))
+                                     beforeSummonKeyPress: () => ReleaseActiveInputAsync(context, stationaryCombatState),
+                                     handleSummonRetryDefense: () => _stationaryCombat.TryHandleCoordinatedSummonRetryDefenseAsync(
+                                         context, semiAutoPlan, semiAutoState, stationaryCombatState))
                                      .ConfigureAwait(false))
                         {
                             delay = context.Options.TickInterval;
@@ -609,15 +517,15 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                 }
                 catch (SnapshotReadBudgetExceededException ex) when (!context.StopToken.IsCancellationRequested)
                 {
-                    checkLifeAfterYield = true;
+                    cleanupProgress.CheckLifeAfterYield = true;
                     // A transaction may already have been submitted: never replay the workflow.
                     await ReleaseActiveInputAsync(context, stationaryCombatState).ConfigureAwait(false);
-                    if (cleanupOperationActive && context.CleanupRequests.Current is { } interrupted)
+                    if (cleanupProgress.OperationActive && context.CleanupRequests.Current is { } interrupted)
                     {
                         context.Logger.Warn("cleanup_workflow.operation_timeout", new Dictionary<string, object?>
                             { ["account"] = context.Config.AccountName, ["channel"] = ex.Channel });
-                        nextCleanupCheck = DateTimeOffset.UtcNow.AddSeconds(30);
-                        lastCleanup = DateTimeOffset.UtcNow;
+                        cleanupProgress.NextCheck = DateTimeOffset.UtcNow.AddSeconds(30);
+                        cleanupProgress.LastCleanup = DateTimeOffset.UtcNow;
                         await AbandonCleanupAsync(context, stationaryCombatState, interrupted, ex);
                     }
                     context.Logger.Info("worker.read_budget.yield", new Dictionary<string, object?>
@@ -627,10 +535,10 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                 catch (Exception ex) when (!context.StopToken.IsCancellationRequested)
                 {
                     // A failed tick must return to this loop, never terminate the account.
-                    checkLifeAfterYield = true;
+                    cleanupProgress.CheckLifeAfterYield = true;
                     if (context.CleanupRequests.Current is { } interrupted)
                     {
-                        nextCleanupCheck = DateTimeOffset.UtcNow.AddSeconds(30);
+                        cleanupProgress.NextCheck = DateTimeOffset.UtcNow.AddSeconds(30);
                         await AbandonCleanupAsync(context, stationaryCombatState, interrupted, ex);
                     }
                     else

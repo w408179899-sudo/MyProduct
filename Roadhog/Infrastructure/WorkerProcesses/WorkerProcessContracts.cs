@@ -61,6 +61,7 @@ public sealed record WorkerStatus
     public bool Authorized { get; init; }
     public string? AuthorizationError { get; init; }
     public bool IsRunning { get; init; }
+    public CombatFlowVersion? ActiveCombatFlowVersion { get; init; }
     public bool LoginCompleted { get; init; }
     public Guid? GameDisconnectRequestId { get; init; }
     // An attempted login did not complete. Distinct from hardware/configuration/authorization rejection.

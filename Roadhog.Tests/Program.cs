@@ -95,6 +95,12 @@ if (args.Contains("--host-robustness-worker"))
     return;
 }
 
+if (args.Contains("--account-worker") && args.Contains("--worker-scenario=combat-flow-versioned"))
+{
+    Environment.ExitCode = await WorkerProcessManagerTests.RunVersionedCombatFlowChildAsync(args);
+    return;
+}
+
 if (args.Contains("--account-worker"))
 {
     Environment.ExitCode = await WorkerProcessManagerTests.RunChildAsync(args);
@@ -1807,7 +1813,48 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("automatic discard retry survives input failure and allows combat and stop", CleanupWorkflowTests.AutomaticDiscardRetrySafetyAsync)
     ,("cleanup workflow discard retry preserves attack death stop session commands and closure recovery", CleanupWorkflowTests.WorkflowDiscardRetrySafetyAsync)
     ,("cleanup workflow discard retry yields exit and relogin commands to worker", CleanupWorkflowTests.WorkflowDiscardYieldsSessionCommandAsync)
-}).ToArray();
+    ,("combat flow v2 threat prevents rest throughout approach", CoordinatedStationaryRecoveryTests.ThreatPreventsRestThroughoutApproachAsync)
+    ,("combat flow v2 interrupted rest does not restart", CoordinatedStationaryRecoveryTests.InterruptedRestDoesNotRestartAsync)
+    ,("combat flow v2 ended threat allows recovery", CoordinatedStationaryRecoveryTests.EndedThreatAllowsRecoveryAsync)
+    ,("combat flow v2 ordinary monsters allow rest", CoordinatedStationaryRecoveryTests.OrdinaryMonstersStillAllowRestAsync)
+    ,("combat flow v2 recovery precedes defense", CoordinatedStationaryRecoveryTests.RecoveryStillPrecedesDefenseAsync)
+    ,("combat flow v2 defense enters combat", CoordinatedStationaryRecoveryTests.DefenseStillEntersCombatAsync)
+    ,("combat flow legacy and v2 recovery traces match", CoordinatedStationaryRecoveryTests.LegacyAndV2RecoveryTraceMatchesAsync)
+    ,("combat flow v2 no target rest awaits standing", CoordinatedStationaryRecoveryTests.NoTargetRestWaitsForStandingAsync)
+    ,("combat flow v2 temporary switch guard prevents rest", CoordinatedStationaryRecoveryTests.TemporarySwitchGuardPreventsBothRestKindsAsync)
+    ,("combat flow v2 gather wakes rest before interaction", CoordinatedStationaryRecoveryTests.GatherWakesRestBeforeInteractionAsync)
+    ,("combat flow v2 stop during interruption prevents input", CoordinatedStationaryRecoveryTests.StopDuringRestInterruptionPreventsFurtherInputAsync)
+    ,("combat flow coordinator cancellation after every action", CoordinatorContractTests.CancellationAfterEveryActionStopsHandoffAsync)
+    ,("combat flow coordinator leader threat owns handoff", CoordinatorContractTests.LeaderThreatHandsOffWithoutMaintenanceAsync)
+    ,("combat flow coordinator observes post action state", CoordinatorContractTests.StandingConfirmationUsesPostActionStateAsync)
+    ,("combat flow coordinator defense preserves resource maintenance", CoordinatorContractTests.DefenseDeniesSitButPreservesResourceMaintenanceAsync)
+    ,("combat flow coordinator guard and gather preserve ownership", CoordinatorContractTests.GuardAndGatherPreserveOwnershipAsync)
+    ,("combat flow policy defaults and unknown versions", CombatFlowPolicyTests.DefaultsAndUnknownVersionsAsync)
+    ,("combat flow policy persistence and malformed fallback", CombatFlowPolicyTests.PolicyPersistenceAndMalformedFallbackAsync)
+    ,("combat flow policy account selection survives profiles and serialization", CombatFlowPolicyTests.AccountSelectionSurvivesProfileAndSerializationAsync)
+    ,("combat flow policy direct startup preserves active version", CombatFlowPolicyTests.DirectStartupUsesPolicyAndKeepsRunningVersionAsync)
+    ,("combat flow rollback stops only new accounts", WorkerProcessManagerTests.CombatFlowRollbackStopsOnlyNewAccountsAsync)
+    ,("combat flow rollback cancels pending start", WorkerProcessManagerTests.CombatFlowRollbackCancelsPendingStartAsync)
+    ,("combat flow rollback completes after manager reopen", WorkerProcessManagerTests.CombatFlowRollbackCompletesAfterManagerReopenAsync)
+    ,("combat flow rollback preserves adopted legacy worker", WorkerProcessManagerTests.CombatFlowRollbackPreservesAdoptedLegacyWorkerAsync)
+    ,("combat flow toolbar fits minimum width", MultiAccountUiTests.CombatFlowToolbarFitsMinimumWidthAsync)
+    ,("combat flow v2 summon gives low HP recovery an input turn", CoordinatedSummonRecoveryTests.LowHpPrecedesSummonAsync)
+    ,("combat flow v2 summon preserves legacy order", CoordinatedSummonRecoveryTests.LegacyKeepsSummonFirstAsync)
+    ,("combat flow v2 summon confirmation reserves input", CoordinatedSummonRecoveryTests.ConfirmationReservesInputAsync)
+    ,("combat flow v2 summon timeout yields HP", CoordinatedSummonRecoveryTests.ExpiredConfirmationYieldsHpAsync)
+    ,("combat flow v2 summon survives unconfirmed HP recovery", CoordinatedSummonRecoveryTests.HpFailureCannotStarveSummonAsync)
+    ,("combat flow v2 summon healthy player", () => CoordinatedSummonRecoveryTests.NoHpWorkStillSummonsAsync("healthy"))
+    ,("combat flow v2 summon cooling HP rule", () => CoordinatedSummonRecoveryTests.NoHpWorkStillSummonsAsync("cooling"))
+    ,("combat flow v2 summon missing HP rule", () => CoordinatedSummonRecoveryTests.NoHpWorkStillSummonsAsync("missing"))
+    ,("combat flow v2 summon respects HP timing", () => CoordinatedSummonRecoveryTests.NoHpWorkStillSummonsAsync("after_combat"))
+    ,("combat flow v2 summon only HP takes priority", CoordinatedSummonRecoveryTests.OnlyHpGetsPriorityAsync)
+    ,("combat flow v2 summon stop before HP input", () => CoordinatedSummonRecoveryTests.StopDuringPreparationSendsNoInputAsync(true))
+    ,("combat flow v2 summon stop before summon input", () => CoordinatedSummonRecoveryTests.StopDuringPreparationSendsNoInputAsync(false))
+    ,("combat flow v2 summon living pet resets handoff", CoordinatedSummonRecoveryTests.LivingPetResetsHandoffAsync)
+    ,("combat flow v2 summon preserves drain target guard", CoordinatedSummonRecoveryTests.DrainTargetGuardSurvivesHandoffAsync)
+    ,("combat flow v2 health diagnostics are passive", () => CoordinatedHealthDiagnosticsTests.LifeGuardObservationIsPassiveAsync(CombatFlowVersion.CoordinatedV2))
+    ,("combat flow legacy excludes health diagnostics", () => CoordinatedHealthDiagnosticsTests.LifeGuardObservationIsPassiveAsync(CombatFlowVersion.Legacy))
+}).Concat(CombatFlowRefactorTests.Cases).Concat(CoordinatedPetHpHandoffTests.Cases).Concat(CoordinatedSummonDefenseTests.Cases).Concat(CoordinatedSummonCooldownTests.Cases).Concat(CoordinatedPetSkillEligibilityTests.Cases).Concat(CoordinatedPetRecoveryEvidenceTests.Cases).ToArray();
 
 var testFilter = args
     .FirstOrDefault(static argument => argument.StartsWith("--test-filter=", StringComparison.OrdinalIgnoreCase))?
@@ -1821,6 +1868,12 @@ if (!string.IsNullOrWhiteSpace(testFilter))
 }
 
 var failures = 0;
+if (tests.Length == 0)
+{
+    Console.WriteLine("FAILED no tests matched the requested filter.");
+    Environment.ExitCode = 2;
+    return;
+}
 foreach (var test in tests)
 {
     try

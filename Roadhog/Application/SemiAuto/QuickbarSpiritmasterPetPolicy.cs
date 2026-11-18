@@ -6,10 +6,11 @@ namespace Roadhog.Application.SemiAuto;
 internal sealed class QuickbarSpiritmasterPetPolicy
 {
     private readonly IReadOnlySet<uint> commandSkillIds;
+    private readonly IReadOnlyDictionary<uint, SpiritmasterPetRequirement> requirements;
     private readonly Func<Task<SummonedPetRosterSnapshot>> readPetRoster;
 
     public QuickbarSpiritmasterPetPolicy(QuickbarSkillPlan plan, IReadOnlyList<SkillSnapshot> skills,
-        Func<Task<SummonedPetRosterSnapshot>> readPetRoster)
+        Func<Task<SummonedPetRosterSnapshot>> readPetRoster, bool includePetPrerequisites = false)
     {
         this.readPetRoster = readPetRoster;
         commandSkillIds = Flatten(plan.Roots).Where(node =>
@@ -17,25 +18,24 @@ internal sealed class QuickbarSpiritmasterPetPolicy
             var skill = skills.FirstOrDefault(value => value.SkillId == node.SkillId);
             return IsCommand(node.Name) || IsCommand(skill?.Name) || IsCommand(skill?.DisplayBaseName);
         }).Select(node => node.SkillId).ToHashSet();
+        requirements = Flatten(plan.Roots).DistinctBy(node => node.SkillId).ToDictionary(node => node.SkillId,
+            node => includePetPrerequisites
+                ? SpiritmasterSkillEligibility.Classify(skills.FirstOrDefault(skill => skill.SkillId == node.SkillId), node.SkillId, node.Name)
+                : commandSkillIds.Contains(node.SkillId) ? SpiritmasterPetRequirement.LivingPet : SpiritmasterPetRequirement.None);
     }
 
     public bool HasCommands => commandSkillIds.Count > 0;
+    public bool HasPetRules => requirements.Values.Any(value => value != SpiritmasterPetRequirement.None);
 
     public async Task<IReadOnlySet<uint>> ReadSuppressedSkillIdsAsync()
     {
-        if (!HasCommands) return new HashSet<uint>();
+        if (!HasPetRules) return new HashSet<uint>();
         var roster = await readPetRoster().ConfigureAwait(false);
-        return roster.LocalPlayerPet.Pet is { IsSummoned: true, IsAlive: true }
-            ? new HashSet<uint>() : commandSkillIds;
+        return requirements.Where(pair => SpiritmasterSkillEligibility.BlockReason(pair.Value, roster.LocalPlayerPet.Pet) is not null)
+            .Select(pair => pair.Key).ToHashSet();
     }
 
-    private static bool IsCommand(string? value)
-    {
-        var name = value?.TrimStart() ?? string.Empty;
-        return name.StartsWith("命令:", StringComparison.Ordinal) ||
-            name.StartsWith("命令：", StringComparison.Ordinal) ||
-            name.StartsWith("Command:", StringComparison.OrdinalIgnoreCase);
-    }
+    private static bool IsCommand(string? value) => SpiritmasterSkillEligibility.IsCommand(value);
 
     private static IEnumerable<QuickbarSkillNode> Flatten(IEnumerable<QuickbarSkillNode> nodes)
     {

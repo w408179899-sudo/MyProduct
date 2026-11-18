@@ -8,8 +8,9 @@ using Roadhog.Application.Radar;
 
 namespace Roadhog.Application.StationaryCombat;
 
-public sealed class StationaryCombatState
+public sealed partial class StationaryCombatState
 {
+    internal bool CoordinatedSummonDefenseTick { get; set; }
     public bool ChannelSwitchPending { get; internal set; }
     public StationaryObstacleNavigationState ObstacleNavigation { get; } = new();
     public ReturnNavigationFailureState ReturnNavigationFailure { get; } = new();
@@ -253,14 +254,7 @@ public sealed class StationaryCombatState
 
         ClearSmartPreAimHandoff(clearDisplacedTargetGuard);
         ObstacleNavigation.ClearRoute();
-        Fighting = false;
-        CurrentTargetEntityId = 0;
-        CurrentTargetServerObjectId = 0;
-        CurrentTargetIsMaintenanceDefense = false;
-        CurrentTargetIsRevivePathClear = false;
-        CurrentTargetIsGatherSafetyClear = false;
-        CurrentTargetBypassesHomeLeash = false;
-        CurrentTargetIsTacticalMark = false;
+        ClearTargetIdentityAndRoles();
         ClearTeamLeaderProtectionTarget();
         CandidateEntityId = 0;
         CandidateServerObjectId = 0;

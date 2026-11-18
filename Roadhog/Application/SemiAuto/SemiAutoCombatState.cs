@@ -9,6 +9,12 @@ public sealed class SemiAutoCombatState
     internal AdvancedSkillCombatPlans? AdvancedSkillPlans { get; set; }
     public QuickbarSkillCombatState QuickbarSkills => quickbarSkills ??= new();
     internal OpeningSkillDiagnostics OpeningDiagnostics { get; } = new();
+    internal bool CoordinatedSummonHpTurnUsed { get; set; }
+    internal bool CoordinatedSummonDefenseAllowed { get; set; }
+    internal string? CoordinatedSummonDefenseReason { get; set; }
+    internal SummonCooldownObservation? CoordinatedSummonUnknownCooldown { get; set; }
+    internal DateTimeOffset LastCoordinatedSummonCooldownLogAt { get; set; } = DateTimeOffset.MinValue;
+    internal DateTimeOffset LastCoordinatedPetSkillBlockLogAt { get; set; } = DateTimeOffset.MinValue;
 
     public AttackWeaveState AttackWeave { get; } = new();
 
@@ -721,6 +727,23 @@ public sealed class SemiAutoCombatState
         pendingSpiritmasterPetHpIncreaseConfirmation = null;
     }
 
+    internal void ObserveSpiritmasterPetHpInput(TimeProvider timeProvider, SkillSnapshot? baselineSkill = null)
+    {
+        if (pendingSpiritmasterPetHpIncreaseConfirmation is { } pending)
+            pendingSpiritmasterPetHpIncreaseConfirmation = pending with
+            {
+                InputTimeProvider = timeProvider,
+                InputStartedTimestamp = timeProvider.GetTimestamp(),
+                BaselineCooldownEndTime = baselineSkill?.CooldownEndTime ?? pending.BaselineCooldownEndTime
+            };
+    }
+
+    internal void ObserveSpiritmasterPetHpRelease(uint cooldownEndTime)
+    {
+        if (pendingSpiritmasterPetHpIncreaseConfirmation is { } pending)
+            pendingSpiritmasterPetHpIncreaseConfirmation = pending with { ReleasedCooldownEndTime = cooldownEndTime };
+    }
+
     public void StartMaintenanceRest(bool forHp, bool forMp)
     {
         IsMaintenanceResting = true;
@@ -1362,4 +1385,10 @@ public sealed record SpiritmasterPetHpIncreaseConfirmation(
     DateTimeOffset NextCheckAt,
     DateTimeOffset ExpiresAt,
     int AttemptCount,
-    int RuleIndex);
+    int RuleIndex)
+{
+    internal TimeProvider? InputTimeProvider { get; init; }
+    internal long InputStartedTimestamp { get; init; }
+    internal uint? BaselineCooldownEndTime { get; init; }
+    internal uint? ReleasedCooldownEndTime { get; init; }
+}

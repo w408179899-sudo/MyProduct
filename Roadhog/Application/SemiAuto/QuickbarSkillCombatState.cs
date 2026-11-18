@@ -316,7 +316,11 @@ public sealed class QuickbarSkillCombatState
         _pendingConfirmationTimeout = TimeSpan.Zero;
     }
 
-    public void SuspendInputAttempts(bool preserveAttackWeave = false)
+    // Compatibility entry point: this cancels pending attempts; it does not pause/resume them.
+    public void SuspendInputAttempts(bool preserveAttackWeave = false) =>
+        CancelInputAttemptsForHandoff(preserveAttackWeave);
+
+    public void CancelInputAttemptsForHandoff(bool preserveAttackWeave = false)
     {
         if (!preserveAttackWeave) AttackWeave.Reset();
         if (PendingAction is { } pending) _transitionProcessedAttemptId = Math.Max(_transitionProcessedAttemptId, pending.AttemptId);

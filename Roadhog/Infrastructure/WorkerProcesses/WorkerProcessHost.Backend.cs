@@ -130,6 +130,7 @@ internal sealed partial class RoadhogWorkerProcessBackend : IWorkerProcessBacken
             Authorized = license.IsAuthorized,
             AuthorizationError = license.ErrorCode ?? (license.IsAuthorized ? null : license.Kind.ToString()),
             IsRunning = state?.Status is "starting" or "running" or "stopping",
+            ActiveCombatFlowVersion = _services.AccountOrchestrator.GetActiveCombatFlowVersion(_spec.Account.AccountName),
             LoginCompleted = _loginCompleted,
             GameDisconnectRequestId = DisconnectRequestId,
             LoginRetryPending = _loginRetryPending,
@@ -157,23 +158,29 @@ internal sealed partial class RoadhogWorkerProcessBackend : IWorkerProcessBacken
         return await EnsureLoginAsync(account, progress, token).ConfigureAwait(false);
     }
 
-    public Task<OperationResult> RequestGameSessionAsync(AccountConfig account, Application.GameSessions.GameSessionOperation operation, CancellationToken token)
+    public async Task<OperationResult> RequestGameSessionAsync(AccountConfig account, Application.GameSessions.GameSessionOperation operation, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
         var binding = ValidatePhysicalBinding();
-        if (!binding.Success) return Task.FromResult(binding);
+        if (!binding.Success) return binding;
         if (operation == Application.GameSessions.GameSessionOperation.Relogin)
         {
             if (string.IsNullOrWhiteSpace(account.GameLoginAccount) || string.IsNullOrWhiteSpace(account.ProtectedGameLoginPassword))
-                return Task.FromResult(OperationResult.Fail("请先保存游戏账号和密码，再重新登录。"));
+                return OperationResult.Fail("请先保存游戏账号和密码，再重新登录。");
             try
             {
                 var password = Login.LoginPasswordProtector.Unprotect(account.ProtectedGameLoginPassword);
                 if (password.Length == 0 || !account.GameLoginAccount.All(c => c >= 32 && c <= 126) || !password.All(c => c >= 32 && c <= 126))
-                    return Task.FromResult(OperationResult.Fail("游戏账号或密码无法通过当前输入设备输入。"));
+                    return OperationResult.Fail("游戏账号或密码无法通过当前输入设备输入。");
             }
-            catch (Exception) { return Task.FromResult(OperationResult.Fail("无法读取已保存的登录密码，请重新保存。")); }
+            catch (Exception) { return OperationResult.Fail("无法读取已保存的登录密码，请重新保存。"); }
         }
+        account = account.Clone();
+        var alreadyRunning = GetStatus().IsRunning;
+        if (!alreadyRunning)
+            account.CombatFlowVersion = await new Config.JsonCombatFlowPolicyStore(
+                    Config.JsonCombatFlowPolicyStore.PathFor(_spec.Paths.AccountConfigPath))
+                .ResolveAsync(account.CombatFlowVersion, _services.Logger, token).ConfigureAwait(false);
         if (_services.AccountConfigStore is WorkerAccountConfigStore store) store.Update(account);
         lock (_disconnectSync)
         {
@@ -184,7 +191,7 @@ internal sealed partial class RoadhogWorkerProcessBackend : IWorkerProcessBacken
                 _disconnectRequestId = null;
                 _loginCompleted = false;
             }
-            return Task.FromResult(requested);
+            return requested;
         }
     }
 
@@ -221,6 +228,11 @@ internal sealed partial class RoadhogWorkerProcessBackend : IWorkerProcessBacken
     private async Task<OperationResult> StartBusinessAsync(AccountConfig account, bool cleanupFirst, bool standaloneShop, CancellationToken cancellationToken, IProgress<string>? progress = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        account = account.Clone();
+        if (!GetStatus().IsRunning)
+            account.CombatFlowVersion = await new Config.JsonCombatFlowPolicyStore(
+                    Config.JsonCombatFlowPolicyStore.PathFor(_spec.Paths.AccountConfigPath))
+                .ResolveAsync(account.CombatFlowVersion, _services.Logger, cancellationToken).ConfigureAwait(false);
         _services.Runtime.ApplyFileLoggingSettings(account.AccountName, account.ScriptSettings?.GenerateLogFiles ?? true);
         var hardware = ValidatePhysicalBinding();
         if (!hardware.Success) return hardware;

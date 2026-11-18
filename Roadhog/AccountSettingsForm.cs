@@ -340,6 +340,7 @@ namespace Roadhog
         private void LoadSavedSettings()
         {
             var account = LoadAccountConfigOrDefault();
+            LoadCombatFlowSelection(account);
             currentAdvancedSkillProfileName = account.AdvancedSkillProfileName;
             currentAdvancedSkillProfileEnabled = account.AdvancedSkillProfileEnabled;
             LoadDailySchedule(account.DailySchedule ?? new());
@@ -720,6 +721,7 @@ namespace Roadhog
             account.ScriptSettings = capturedSettings;
             account.AdvancedSkillProfileName = currentAdvancedSkillProfileName;
             account.AdvancedSkillProfileEnabled = currentAdvancedSkillSettings.Enabled;
+            account.CombatFlowVersion = CaptureCombatFlowVersion();
             ApplyScriptSettingsToLegacyFields(account, account.ScriptSettings);
 
             var result = AccountSettingsPersistence.SaveAsync(_profileStore, _configStore,
@@ -1425,6 +1427,7 @@ namespace Roadhog
             generateLogFilesCheckBox.Name = "generateLogFilesCheckBox";
             generateLogFilesCheckBox.BackColor = _inputBackground;
             generateLogFilesCheckBox.BringToFront();
+            BuildCombatFlowSelection(loggingPanel);
 
             currentProfileLabel = AddLabel(profilePanel, "当前方案: default_profile", 124, 2, 304, 24, _textGreen, FontStyle.Bold);
             currentProfileLabel.BackColor = _inputBackground;

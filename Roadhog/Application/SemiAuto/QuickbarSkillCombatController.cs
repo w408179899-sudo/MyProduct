@@ -158,7 +158,7 @@ public sealed partial class QuickbarSkillCombatController
                     var previous = state.ChainTransition;
                     // Maintenance owns input but does not make an already accepted,
                     // still-lit chain opportunity a new opportunity.
-                    state.SuspendInputAttempts();
+                    state.CancelInputAttemptsForHandoff();
                     LogTransitionChange(previous);
                     state.YieldToWorker = true;
                     logger?.Info("quickbar_skill.combat.yield");

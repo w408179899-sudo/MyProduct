@@ -41,6 +41,14 @@ public sealed partial class SemiAutoCombatController
                 continue;
             }
 
+            var petGuard = await CreatePetSkillGuardAsync(context, state, skill, node!.SkillId, node.Name, node.Key).ConfigureAwait(false);
+            if (petGuard is not null && !await petGuard.CheckAsync().ConfigureAwait(false))
+            {
+                LogOpeningRetry(context, target, attempt, "finished", "pet_prerequisite");
+                retries.Finish();
+                continue;
+            }
+
             // Never take input from a pending ordinary action, chain continuation or attack weave.
             if (state.QuickbarSkills.PendingAction is not null || state.QuickbarSkills.ChainTransition is not null ||
                 state.QuickbarSkills.AttackWeave.IsWaiting) return false;
@@ -57,6 +65,12 @@ public sealed partial class SemiAutoCombatController
 
             // Exactly one extra key press. Reserve its confirmation window, then discard it;
             // a failed retry must never enqueue itself again or restart the opening list.
+            if (petGuard is not null && !await petGuard.CheckAsync().ConfigureAwait(false))
+            {
+                LogOpeningRetry(context, target, attempt, "finished", "pet_prerequisite");
+                retries.Finish();
+                return false;
+            }
             if (!await PressNodeKeyAsync(context, node!, settings, "opening_skill_retry").ConfigureAwait(false))
             {
                 LogOpeningRetry(context, target, attempt, "finished", "input_failed");

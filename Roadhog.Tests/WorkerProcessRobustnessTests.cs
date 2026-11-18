@@ -552,7 +552,32 @@ internal static class WorkerProcessRobustnessTests
         using var process = Process.GetCurrentProcess();
         WriteMarker(Path.Combine(spec.Paths.ClientRoot, "observed-workers", Environment.ProcessId + ".json"), JsonSerializer.Serialize(new OwnedProcess(Environment.ProcessId, process.StartTime.ToUniversalTime())));
     }
-    private static void WriteMarker(string path, string text) { var temporary = path + ".tmp"; File.WriteAllText(temporary, text); File.Move(temporary, path, true); }
+    private static void WriteMarker(string path, string text)
+    {
+        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            File.WriteAllText(temporary, text);
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    Roadhog.Infrastructure.Config.AtomicJsonFile.Commit(temporary, path);
+                    break;
+                }
+                catch (Exception error) when (attempt < 8 && error is IOException or UnauthorizedAccessException)
+                {
+                    Thread.Sleep(5 << Math.Min(attempt, 4));
+                }
+            }
+        }
+        finally
+        {
+            try { File.Delete(temporary); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
     private sealed record ControllerSpec(string Root, AccountConfig[] Accounts, string Scenario);
     private sealed record OwnedProcess(int ProcessId, DateTime StartedAtUtc);
     private sealed record BackendInfo(int Starts, bool Running);

@@ -7,7 +7,7 @@ using Roadhog.Infrastructure.WorkerProcesses;
 
 namespace Roadhog;
 
-public sealed class MultiAccountForm : Form
+public sealed partial class MultiAccountForm : Form
 {
     private readonly MultiAccountWorkspace _workspace;
     private readonly MainWindowOperations _operations = new();
@@ -58,7 +58,8 @@ public sealed class MultiAccountForm : Form
         root.RowStyles.Add(new(SizeType.Absolute, 48)); root.RowStyles.Add(new(SizeType.Absolute, 42));
         root.RowStyles.Add(new(SizeType.Percent, 100)); root.RowStyles.Add(new(SizeType.Absolute, 64)); root.RowStyles.Add(new(SizeType.Absolute, 30));
         Controls.Add(root);
-        var tools = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false };
+        var tools = new FlowLayoutPanel { Name = "accountToolbar", Dock = DockStyle.Fill, WrapContents = true };
+        tools.Layout += (_, _) => FitToolbarRows(tools);
         tools.Controls.Add(new Label { Text = "账号列表", AutoSize = true, Font = new Font(Font.FontFamily, 14, FontStyle.Bold), Margin = new Padding(0, 5, 18, 0) });
         tools.Controls.Add(Button("添加账号", () => RunConfigurationActionAsync(() => EditHardwareAsync(null))));
         tools.Controls.Add(Button("导入旧配置", () => RunConfigurationActionAsync(ImportAsync)));
@@ -66,6 +67,7 @@ public sealed class MultiAccountForm : Form
         tools.Controls.Add(Button("停止所选", () => BatchAsync(false)));
         tools.Controls.Add(Button("删除所选", () => RunConfigurationActionAsync(() => DeleteSelectedAsync())));
         tools.Controls.Add(Button("重新登录", () => ReloginSelectedAsync()));
+        tools.Controls.Add(Button("战斗版本", () => RunConfigurationActionAsync(ShowCombatFlowPolicyAsync)));
         tools.Controls.Add(Button("退出程序", () => ExitAsync(), exitAction: true));
         root.Controls.Add(tools, 0, 0);
         var filters = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false };
@@ -326,7 +328,7 @@ public sealed class MultiAccountForm : Form
     {
         var id = SelectedId(); var view = _workspace.Processes.Snapshot().FirstOrDefault(v => v.Config.InstanceId == id);
         _detail.Text = view is null ? "选择账号查看状态；勾选后可批量操作。" :
-            $"{view.Config.AccountName} · {StateText(view)} · 自动恢复：{(view.Config.AutoRecover ? "开启" : "关闭")}\n" +
+            $"{view.Config.AccountName} · {StateText(view)} · 自动恢复：{(view.Config.AutoRecover ? "开启" : "关闭")} · {CombatFlowDescription(view)}\n" +
             ((view.Error != Infrastructure.Hardware.HardwareVerificationSession.RequiredMessage ? view.Error : null)
                 ?? DiscoveryMessage(view) ?? view.Error
                 ?? view.Worker?.Snapshot?.LastWarning ?? view.Worker?.Snapshot?.CleanupProgress ?? "");

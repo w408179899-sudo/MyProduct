@@ -41,7 +41,7 @@ public sealed partial class SemiAutoCombatController
     private static readonly TimeSpan SpiritmasterSummonKeyInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan SpiritmasterSummonAttemptInterval = TimeSpan.FromSeconds(6);
     private static readonly TimeSpan SpiritmasterSummonVerifyWindow = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan SpiritmasterOpeningAttackKeyInterval = TimeSpan.FromMilliseconds(50);
+    private static readonly TimeSpan SpiritmasterOpeningAttackKeyInterval = TimeSpan.FromMilliseconds(10);
     private static readonly TimeSpan OpeningSkillConfirmationTimeout = TimeSpan.FromMilliseconds(2300);
     private static readonly string AttackKey = "C";
     private static readonly string SupportSelfSelectKey = "F1";
@@ -158,9 +158,13 @@ public sealed partial class SemiAutoCombatController
         AccountWorkerContext context,
         SemiAutoSkillPlan plan,
         SemiAutoCombatState state,
-        Func<Task>? beforeSummonKeyPress = null)
+        Func<Task>? beforeSummonKeyPress = null,
+        Func<Task<bool>>? handleSummonRetryDefense = null)
     {
         plan = plan.ToSharedPlan(context.Config.ScriptSettings?.Skills ?? new SkillScriptSettings());
+        if (context.Config.CombatFlowVersion == CombatFlowVersion.CoordinatedV2)
+            return await EnsureCoordinatedSpiritmasterPetAsync(context, plan, state, beforeSummonKeyPress, handleSummonRetryDefense)
+                .ConfigureAwait(false);
         if (!plan.UsesSpiritmasterAutoLogic)
         {
             return false;
@@ -833,6 +837,9 @@ public sealed partial class SemiAutoCombatController
                 continue;
             }
 
+            var petGuard = await CreatePetSkillGuardAsync(context, state, maintenanceSkill, rule.SkillId, rule.SkillName, rule.Key).ConfigureAwait(false);
+            if (petGuard is not null && !await petGuard.CheckAsync().ConfigureAwait(false)) continue;
+
             return await ExecuteMaintenanceKeyRuleAsync(
                     context,
                     state,
@@ -1187,6 +1194,9 @@ public sealed partial class SemiAutoCombatController
                 continue;
             }
 
+            var petGuard = await CreatePetSkillGuardAsync(context, state, maintenanceSkill, rule.SkillId, rule.SkillName, rule.Key).ConfigureAwait(false);
+            if (petGuard is not null && !await petGuard.CheckAsync().ConfigureAwait(false)) continue;
+
             return await ExecuteStatusMaintenanceKeyRuleAsync(
                     context,
                     state,
@@ -1271,6 +1281,9 @@ public sealed partial class SemiAutoCombatController
                 continue;
             }
 
+            var petGuard = await CreatePetSkillGuardAsync(context, state, maintenanceSkill, rule.SkillId, rule.SkillName, rule.Key).ConfigureAwait(false);
+            if (petGuard is not null && !await petGuard.CheckAsync().ConfigureAwait(false)) continue;
+
             return await ExecuteDpMaintenanceKeyRuleAsync(
                     context,
                     state,
@@ -1287,117 +1300,6 @@ public sealed partial class SemiAutoCombatController
         return false;
     }
 
-    private async Task<bool> ExecuteDpMaintenanceKeyRuleAsync(
-        AccountWorkerContext context,
-        SemiAutoCombatState state,
-        SemiAutoScriptSettings settings,
-        DpMaintenanceRuleConfig rule,
-        string resource,
-        PlayerSnapshot player,
-        int requiredDp,
-        Func<Task>? beforeMaintenanceKeyPress,
-        SkillSnapshot? maintenanceSkill)
-    {
-        if (beforeMaintenanceKeyPress is not null)
-        {
-            await beforeMaintenanceKeyPress().ConfigureAwait(false);
-        }
-
-        if (!await EnsureStandingBeforeMaintenanceKeyAsync(
-                    context,
-                    state,
-                    settings,
-                    player,
-                    resource,
-                    rule.Key)
-                .ConfigureAwait(false))
-        {
-            return false;
-        }
-
-        var selectedSkill = (maintenanceSkill?.SkillId ?? rule.SkillId, maintenanceSkill?.Name ?? rule.SkillName);
-        var baselineSkills = await ReadMaintenanceSkillsAsync(context, new[] { selectedSkill }).ConfigureAwait(false);
-        var baselineCooldowns = SnapshotCooldownEndTimes(baselineSkills);
-        var startedAt = DateTimeOffset.Now;
-        var deadline = startedAt + MaintenanceConfirmWindow;
-        var attempts = 0;
-        SkillSnapshot? confirmedSkill = null;
-
-        while (DateTimeOffset.Now <= deadline)
-        {
-            attempts++;
-            var result = await _keyboard
-                .PressKeyAsync(rule.Key, Ms(settings.KeyHoldMs, 25), context.StopToken)
-                .ConfigureAwait(false);
-            if (!result.Success)
-            {
-                LogMaintenanceKeyFailure(context, state, rule.Key, resource, result.Error);
-                return false;
-            }
-
-            state.MarkMaintenanceKeyAttempted(rule.Key, DateTimeOffset.Now);
-            if (baselineCooldowns.Count > 0)
-            {
-                var skills = await ReadMaintenanceSkillsAsync(context, new[] { selectedSkill }).ConfigureAwait(false);
-                if (TryFindAdvancedCooldown(baselineCooldowns, skills, maintenanceSkill, out confirmedSkill))
-                {
-                    TryUpdateMaintenanceCooldownCalibration(context, state, confirmedSkill);
-                    break;
-                }
-            }
-
-            var remaining = deadline - DateTimeOffset.Now;
-            if (remaining <= TimeSpan.Zero)
-            {
-                break;
-            }
-
-            var delay = remaining < MaintenanceConfirmPollInterval
-                ? remaining
-                : MaintenanceConfirmPollInterval;
-            await Task.Delay(delay, context.StopToken).ConfigureAwait(false);
-        }
-
-        var completedAt = DateTimeOffset.Now;
-        if (confirmedSkill is null)
-        {
-            context.Logger.Warn("semi_auto.maintenance.dp_unconfirmed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["resource"] = resource,
-                ["key"] = rule.Key,
-                ["currentDp"] = player.CurrentDp,
-                ["requiredDp"] = requiredDp,
-                ["attempts"] = attempts,
-                ["confirmWindowMs"] = (long)MaintenanceConfirmWindow.TotalMilliseconds,
-                ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAt - startedAt).TotalMilliseconds),
-                ["baselineReadSuccess"] = true,
-                ["baselineError"] = null,
-                ["maintenanceSkillId"] = maintenanceSkill?.SkillId,
-                ["maintenanceSkillName"] = maintenanceSkill?.Name
-            });
-            return true;
-        }
-
-        state.MarkMaintenanceKeyAttempted(rule.Key, completedAt);
-        context.Logger.Info("semi_auto.maintenance.dp_key_pressed", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["resource"] = resource,
-            ["key"] = rule.Key,
-            ["currentDp"] = player.CurrentDp,
-            ["requiredDp"] = requiredDp,
-            ["attempts"] = attempts,
-            ["confirmWindowMs"] = (long)MaintenanceConfirmWindow.TotalMilliseconds,
-            ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAt - startedAt).TotalMilliseconds),
-            ["confirmed"] = true,
-            ["confirmedSkillId"] = confirmedSkill.SkillId,
-            ["confirmedSkillName"] = confirmedSkill.Name,
-            ["confirmedCooldownEndTime"] = confirmedSkill.CooldownEndTime
-        });
-        return true;
-    }
-
     private async Task<bool> ExecuteStatusMaintenanceKeyRuleAsync(
         AccountWorkerContext context,
         SemiAutoCombatState state,
@@ -1410,6 +1312,8 @@ public sealed partial class SemiAutoCombatController
         SkillSnapshot? maintenanceSkill,
         bool isChantStatusMaintenance)
     {
+        var petGuard = await CreatePetSkillGuardAsync(context, state, maintenanceSkill, rule.SkillId, rule.SkillName, rule.Key).ConfigureAwait(false);
+        if (petGuard is not null && !await petGuard.CheckAsync().ConfigureAwait(false)) return false;
         if (beforeMaintenanceKeyPress is not null)
         {
             await beforeMaintenanceKeyPress().ConfigureAwait(false);
@@ -1443,7 +1347,7 @@ public sealed partial class SemiAutoCombatController
             .Where(id => id != 0)
             .ToHashSet();
         var startedAt = DateTimeOffset.Now;
-        if (!await PressStatusMaintenanceKeyBurstAsync(context, state, settings, rule, resource).ConfigureAwait(false))
+        if (!await PressStatusMaintenanceKeyBurstAsync(context, state, settings, rule, resource, petGuard).ConfigureAwait(false))
         {
             return false;
         }
@@ -1539,10 +1443,16 @@ public sealed partial class SemiAutoCombatController
         SemiAutoCombatState state,
         SemiAutoScriptSettings settings,
         StatusMaintenanceRuleConfig rule,
-        string resource)
+        string resource,
+        PetSkillGuard? petGuard)
     {
         for (var pressIndex = 0; pressIndex < StatusMaintenancePressBurstCount; pressIndex++)
         {
+            if (petGuard is not null && !await petGuard.CheckAsync().ConfigureAwait(false))
+            {
+                return false;
+            }
+
             var result = await _keyboard
                 .PressKeyAsync(rule.Key, Ms(settings.KeyHoldMs, 25), context.StopToken)
                 .ConfigureAwait(false);
@@ -1699,161 +1609,6 @@ public sealed partial class SemiAutoCombatController
                 name.Contains("秘药", StringComparison.Ordinal));
     }
 
-    private async Task<bool> ExecuteMaintenanceKeyRuleAsync(
-        AccountWorkerContext context,
-        SemiAutoCombatState state,
-        SemiAutoScriptSettings settings,
-        MaintenanceKeyRuleConfig rule,
-        string resource,
-        uint current,
-        uint max,
-        double percent,
-        int threshold,
-        PlayerSnapshot player,
-        Func<Task>? beforeMaintenanceKeyPress,
-        SkillSnapshot? maintenanceSkill,
-        Func<Task<bool>>? ensureTargetBeforeKeyPress)
-    {
-        if (beforeMaintenanceKeyPress is not null)
-        {
-            await beforeMaintenanceKeyPress().ConfigureAwait(false);
-        }
-
-        if (!await EnsureStandingBeforeMaintenanceKeyAsync(
-                    context,
-                    state,
-                    settings,
-                    player,
-                    resource,
-                    rule.Key)
-                .ConfigureAwait(false))
-        {
-            return false;
-        }
-
-        var selectedSkill = (maintenanceSkill?.SkillId ?? rule.SkillId, maintenanceSkill?.Name ?? rule.SkillName);
-        var baselineSkills = await ReadMaintenanceSkillsAsync(context, new[] { selectedSkill }).ConfigureAwait(false);
-        var baselineCooldowns = SnapshotCooldownEndTimes(baselineSkills);
-        var startedAt = DateTimeOffset.Now;
-        var deadline = startedAt + MaintenanceConfirmWindow;
-        var attempts = 0;
-        SkillSnapshot? confirmedSkill = null;
-        var requiresLifeDrainTarget = RequiresLifeDrainTarget(resource, maintenanceSkill, rule.SkillId);
-        LockedTargetSnapshot? lifeDrainTarget = null;
-
-        while (DateTimeOffset.Now <= deadline)
-        {
-            if (ensureTargetBeforeKeyPress is not null &&
-                !await ensureTargetBeforeKeyPress().ConfigureAwait(false))
-            {
-                state.ClearMaintenanceKeyAttempt(rule.Key);
-                context.Logger.Info("semi_auto.maintenance.target_guard_blocked", new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["resource"] = resource,
-                    ["key"] = rule.Key,
-                    ["maintenanceSkillId"] = maintenanceSkill?.SkillId,
-                    ["maintenanceSkillName"] = maintenanceSkill?.Name
-                });
-                return true;
-            }
-
-            // Pet selection recovery runs first; then validate the official target
-            // on every attempt, including the first one after baseline reads.
-            if (requiresLifeDrainTarget)
-            {
-                var target = await ReadLockedTargetForConfirmationAsync(context).ConfigureAwait(false);
-                var reason = GetLifeDrainTargetBlockReason(target, lifeDrainTarget);
-                if (reason is not null)
-                {
-                    state.ClearMaintenanceKeyAttempt(rule.Key);
-                    LogLifeDrainTargetBlocked(context, rule, maintenanceSkill, target, lifeDrainTarget,
-                        reason, attempts, startedAt);
-                    // An Always/AfterCombat rule without a live enemy must not
-                    // reserve idle maintenance and prevent acquiring a new target.
-                    return attempts > 0 || rule.RunTiming == MaintenanceRuleRunTiming.InCombat;
-                }
-
-                lifeDrainTarget ??= target;
-            }
-
-            attempts++;
-            var result = await _keyboard
-                .PressKeyAsync(rule.Key, Ms(settings.KeyHoldMs, 25), context.StopToken)
-                .ConfigureAwait(false);
-            if (!result.Success)
-            {
-                LogMaintenanceKeyFailure(context, state, rule.Key, resource, result.Error);
-                return false;
-            }
-
-            state.MarkMaintenanceKeyAttempted(rule.Key, DateTimeOffset.Now);
-            if (baselineCooldowns.Count > 0)
-            {
-                var skills = await ReadMaintenanceSkillsAsync(context, new[] { selectedSkill }).ConfigureAwait(false);
-                if (TryFindAdvancedCooldown(baselineCooldowns, skills, maintenanceSkill, out confirmedSkill))
-                {
-                    TryUpdateMaintenanceCooldownCalibration(context, state, confirmedSkill);
-                    break;
-                }
-            }
-
-            var remaining = deadline - DateTimeOffset.Now;
-            if (remaining <= TimeSpan.Zero)
-            {
-                break;
-            }
-
-            var delay = remaining < MaintenanceConfirmPollInterval
-                ? remaining
-                : MaintenanceConfirmPollInterval;
-            await Task.Delay(delay, context.StopToken).ConfigureAwait(false);
-        }
-
-        var completedAt = DateTimeOffset.Now;
-        if (confirmedSkill is null)
-        {
-            context.Logger.Warn("semi_auto.maintenance.unconfirmed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName,
-                ["resource"] = resource,
-                ["key"] = rule.Key,
-                ["current"] = current,
-                ["max"] = max,
-                ["percent"] = Math.Round(percent, 1),
-                ["belowPercent"] = threshold,
-                ["attempts"] = attempts,
-                ["confirmWindowMs"] = (long)MaintenanceConfirmWindow.TotalMilliseconds,
-                ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAt - startedAt).TotalMilliseconds),
-                ["baselineReadSuccess"] = true,
-                ["baselineError"] = null,
-                ["maintenanceSkillId"] = maintenanceSkill?.SkillId,
-                ["maintenanceSkillName"] = maintenanceSkill?.Name
-            });
-            return true;
-        }
-
-        state.MarkMaintenanceKeyAttempted(rule.Key, completedAt);
-        context.Logger.Info("semi_auto.maintenance.key_pressed", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["resource"] = resource,
-            ["key"] = rule.Key,
-            ["current"] = current,
-            ["max"] = max,
-            ["percent"] = Math.Round(percent, 1),
-            ["belowPercent"] = threshold,
-            ["attempts"] = attempts,
-            ["confirmWindowMs"] = (long)MaintenanceConfirmWindow.TotalMilliseconds,
-            ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAt - startedAt).TotalMilliseconds),
-            ["confirmed"] = true,
-            ["confirmedSkillId"] = confirmedSkill.SkillId,
-            ["confirmedSkillName"] = confirmedSkill.Name,
-            ["confirmedCooldownEndTime"] = confirmedSkill.CooldownEndTime
-        });
-        return true;
-    }
-
     private async Task<bool> EnsureStandingBeforeMaintenanceKeyAsync(
         AccountWorkerContext context,
         SemiAutoCombatState state,
@@ -2007,7 +1762,16 @@ public sealed partial class SemiAutoCombatController
             return true;
         }
 
+        var coordinated = context.Config.CombatFlowVersion == CombatFlowVersion.CoordinatedV2;
+        if (coordinated && await HasLivingPetBeforeCoordinatedSummonAsync(context, state).ConfigureAwait(false)) return false;
+        if (coordinated && await ShouldWaitForCoordinatedSummonCooldownAsync(context, state, spiritSettings).ConfigureAwait(false))
+            return true;
         var player = await ReadPlayerAsync(context).ConfigureAwait(false);
+        if (coordinated)
+        {
+            context.StopToken.ThrowIfCancellationRequested();
+            if (player.IsDead) return true;
+        }
         if (!await EnsureStandingBeforeMaintenanceKeyAsync(
                     context,
                     state,
@@ -2020,17 +1784,48 @@ public sealed partial class SemiAutoCombatController
             return true;
         }
 
-        state.MarkSpiritmasterSummonAttempted(now);
-        if (!string.IsNullOrWhiteSpace(keys[0]) && !await PressSpiritmasterRawKeyAsync(context, settings, keys[0], "summon_speed").ConfigureAwait(false))
+        if (coordinated && await ShouldWaitForCoordinatedSummonCooldownAsync(context, state, spiritSettings).ConfigureAwait(false))
+            return true;
+        var pressFirst = !string.IsNullOrWhiteSpace(keys[0]) &&
+            (!coordinated || keys.Length < 2 || string.IsNullOrWhiteSpace(keys[1]) ||
+             await ShouldPressCoordinatedSummonSpeedAsync(context, state, spiritSettings).ConfigureAwait(false));
+        if (coordinated)
         {
-            state.BeginSpiritmasterSummonVerification(DateTimeOffset.Now, SpiritmasterSummonVerifyWindow);
+            var beforeInput = await ReadPlayerAsync(context).ConfigureAwait(false);
+            context.StopToken.ThrowIfCancellationRequested();
+            if (beforeInput.IsDead) return true;
+            if (await HasLivingPetBeforeCoordinatedSummonAsync(context, state).ConfigureAwait(false)) return false;
+        }
+        state.MarkSpiritmasterSummonAttempted(now);
+        if (pressFirst && !await PressSpiritmasterRawKeyAsync(context, settings, keys[0], "summon_speed").ConfigureAwait(false))
+        {
+            if (!coordinated) state.BeginSpiritmasterSummonVerification(DateTimeOffset.Now, SpiritmasterSummonVerifyWindow);
+            else
+            {
+                state.CoordinatedSummonDefenseAllowed = true;
+                state.CoordinatedSummonDefenseReason = "summon_input_rejected";
+            }
             return true;
         }
 
         if (keys.Length > 1 && !string.IsNullOrWhiteSpace(keys[1]))
         {
-            if (!string.IsNullOrWhiteSpace(keys[0])) await Task.Delay(SpiritmasterSummonKeyInterval, context.StopToken).ConfigureAwait(false);
-            await PressSpiritmasterRawKeyAsync(context, settings, keys[1], "summon_pet").ConfigureAwait(false);
+            if (pressFirst) await Task.Delay(SpiritmasterSummonKeyInterval, context.StopToken).ConfigureAwait(false);
+            if (coordinated)
+            {
+                if (await ShouldWaitForCoordinatedSummonCooldownAsync(context, state, spiritSettings).ConfigureAwait(false)) return true;
+                var freshPlayer = await ReadPlayerAsync(context).ConfigureAwait(false);
+                context.StopToken.ThrowIfCancellationRequested();
+                if (freshPlayer.IsDead) return true;
+                if (await HasLivingPetBeforeCoordinatedSummonAsync(context, state).ConfigureAwait(false)) return false;
+            }
+            var sent = await PressSpiritmasterRawKeyAsync(context, settings, keys[1], "summon_pet").ConfigureAwait(false);
+            if (coordinated && !sent)
+            {
+                state.CoordinatedSummonDefenseAllowed = true;
+                state.CoordinatedSummonDefenseReason = "summon_input_rejected";
+                return true;
+            }
         }
 
         state.BeginSpiritmasterSummonVerification(DateTimeOffset.Now, SpiritmasterSummonVerifyWindow);
@@ -2396,38 +2191,6 @@ public sealed partial class SemiAutoCombatController
         return skills.FirstOrDefault(skill => MatchesMaintenanceSkill(skill, skillId, skillName));
     }
 
-    private static IReadOnlyList<SkillSnapshot> ResolveSpiritmasterConfiguredSkills(
-        SpiritmasterSkillSettings spiritSettings,
-        IReadOnlyList<SkillSnapshot> skills)
-    {
-        var result = new List<SkillSnapshot>();
-        foreach (var rule in spiritSettings.DotSkills)
-        {
-            AddResolved(rule.SkillId, rule.SkillName);
-        }
-
-        foreach (var rule in spiritSettings.PetHpMaintenanceRules)
-        {
-            AddResolved(rule.SkillId, rule.SkillName);
-        }
-
-        foreach (var rule in spiritSettings.PetBuffRules)
-        {
-            AddResolved(rule.SkillId, rule.SkillName);
-        }
-
-        return result;
-
-        void AddResolved(uint skillId, string skillName)
-        {
-            var skill = ResolveSpiritmasterConfiguredSkill(skillId, skillName, skills);
-            if (skill is not null && result.All(item => item.SkillId != skill.SkillId))
-            {
-                result.Add(skill);
-            }
-        }
-    }
-
     private static IReadOnlyList<SkillSnapshot> MergeSkillSnapshots(
         IReadOnlyList<SkillSnapshot> first,
         IReadOnlyList<SkillSnapshot> second)
@@ -2537,6 +2300,14 @@ public sealed partial class SemiAutoCombatController
                     SemiAutoSkillReleasePriority.FormatCooldownReason(skill, state));
                 FinishOpeningSkillEntry(context, state, plan, target, readiness == SemiAutoSkillCooldownReadiness.Unknown
                     ? "cooldown_unknown" : "cooldown_not_ready");
+                continue;
+            }
+
+            var petGuard = await CreatePetSkillGuardAsync(context, state, skill, skill.SkillId, openingSkill.Name, openingSkill.Key).ConfigureAwait(false);
+            if (petGuard is not null && !await petGuard.CheckAsync().ConfigureAwait(false))
+            {
+                LogOpeningSkillSkipped(context, target, openingSkill, skill, "pet_prerequisite");
+                FinishOpeningSkillEntry(context, state, plan, target, "pet_prerequisite");
                 continue;
             }
 

@@ -69,10 +69,19 @@ public sealed partial class WorkerProcessManager
             }
             Fail(entry, (entry.PendingScriptRestart ? "脚本重启" : "售罄后重启") + "暂未完成，将延迟重试：" + error);
             entry.State = "recovering";
-            _logger.Warn((entry.PendingScriptRestart ? "account.restart" : "standalone_shop.restart") + ".retry_scheduled", new Dictionary<string, object?>
-            { ["account"] = entry.Config.AccountName, ["requestId"] = requestId, ["retryAt"] = entry.RetryAt, ["error"] = error });
         }
-        try { await SaveIntentAsync().ConfigureAwait(false); }
+        var intentPersisted = false;
+        try { await SaveIntentAsync().ConfigureAwait(false); intentPersisted = true; }
         catch (Exception ex) { _logger.Error("standalone_shop.restart.intent_failed", ex); }
+        // Publish the handoff after the persistence attempt has finished. Observers
+        // must not see "scheduled" and race the subsequent run-intent replacement.
+        lock (entry.Sync)
+        {
+            if (!entry.Desired || entry.PendingShopRestartId != requestId || entry.StopGeneration != generation ||
+                Volatile.Read(ref _shuttingDown) != 0 || Volatile.Read(ref _disposed) != 0) return;
+            _logger.Warn((entry.PendingScriptRestart ? "account.restart" : "standalone_shop.restart") + ".retry_scheduled", new Dictionary<string, object?>
+            { ["account"] = entry.Config.AccountName, ["requestId"] = requestId, ["retryAt"] = entry.RetryAt,
+                ["error"] = error, ["intentPersisted"] = intentPersisted });
+        }
     }
 }

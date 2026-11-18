@@ -16,7 +16,7 @@ internal static partial class WorkerProcessManagerTests
         await File.WriteAllTextAsync(failure, "temporary IO failure");
         Require(!(await manager.StartAsync(account.InstanceId)).Success, "initial fault is reported to caller");
         await UntilAsync(() => File.Exists(Path.Combine(log, "initialization-attempts")) &&
-            File.ReadAllLines(Path.Combine(log, "initialization-attempts")).Length >= 3,
+            TestMarkerReader.ReadAllLines(Path.Combine(log, "initialization-attempts")).Length >= 3,
             "initialization exceptions retry across fresh worker processes");
         Require(View(manager, account).DesiredRunning, "initialization exception is not a permanent authorization rejection");
         Require(File.ReadAllText(Path.Combine(test.Root, "config", "workers", "run-intent.json")).Contains(account.InstanceId),
