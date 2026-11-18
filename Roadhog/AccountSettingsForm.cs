@@ -85,6 +85,8 @@ namespace Roadhog
         private RoundedCheckBox? sitWhenNoTargetAtHomeCheckBox;
         private Button? radarEditorButton;
         private NumericUpDown? radarEndpointExtensionNumeric;
+        private NumericUpDown statusMaintenancePressCountNumeric = null!;
+        private NumericUpDown statusMaintenancePressIntervalNumeric = null!;
         private Label? radarStatusLabel;
         private RadarObstacleScriptSettings currentRadarSettings = new();
         private RoundedComboBox? activeMonsterFilterCombo;
@@ -562,6 +564,8 @@ namespace Roadhog
             PopulateMaintenanceKeyRules(hpMaintenanceRuleList, hpMaintenanceEmptyLabel, settings.Maintenance.HpMaintenanceRules);
             PopulateMaintenanceKeyRules(mpMaintenanceRuleList, mpMaintenanceEmptyLabel, settings.Maintenance.MpMaintenanceRules);
             PopulateStatusMaintenanceRules(statusMaintenanceRuleList, statusMaintenanceEmptyLabel, settings.Maintenance.StatusMaintenanceRules);
+            statusMaintenancePressCountNumeric.Value = settings.Maintenance.StatusMaintenancePressCount;
+            statusMaintenancePressIntervalNumeric.Value = settings.Maintenance.StatusMaintenancePressIntervalMs;
             PopulateDpMaintenanceRules(dpMaintenanceRuleList, dpMaintenanceEmptyLabel, settings.Maintenance.DpMaintenanceRules);
             SetChecked(bagCleanupEnabledCheckBox, settings.Maintenance.BagCleanupEnabled);
             SetChecked(bagCleanupReturnWhenFullCheckBox, settings.Maintenance.BagCleanupReturnWhenFull);
@@ -1008,6 +1012,8 @@ namespace Roadhog
                     HpMaintenanceRules = CaptureMaintenanceKeyRules(hpMaintenanceRuleList),
                     MpMaintenanceRules = CaptureMaintenanceKeyRules(mpMaintenanceRuleList),
                     StatusMaintenanceRules = CaptureStatusMaintenanceRules(statusMaintenanceRuleList),
+                    StatusMaintenancePressCount = (int)statusMaintenancePressCountNumeric.Value,
+                    StatusMaintenancePressIntervalMs = (int)statusMaintenancePressIntervalNumeric.Value,
                     DpMaintenanceRules = CaptureDpMaintenanceRules(dpMaintenanceRuleList),
                     BagCleanupEnabled = bagCleanupEnabledCheckBox?.Checked ?? false,
                     BagCleanupReturnWhenFull = bagCleanupReturnWhenFullCheckBox?.Checked ?? false,
@@ -1393,7 +1399,7 @@ namespace Roadhog
             var tab = CreateBaseTab("总览");
             var page = CreatePagePanel();
             page.AutoScroll = true;
-            page.AutoScrollMinSize = new Size(852, 646);
+            page.AutoScrollMinSize = new Size(852, 682);
             tab.Controls.Add(page);
 
             Panel AddSection(string title, int top, int height)
@@ -1421,8 +1427,34 @@ namespace Roadhog
             AddLabel(modePanel, "保存后重启账号生效", 608, 2, 202, 24).BringToFront();
             var behaviorPanel = AddSection("选怪与拾取", 190, 134);
             var environmentPanel = AddSection("镜头、频道与雷达", 332, 102);
-            BuildDailySchedule(AddSection("定时计划（当前账号）", 442, 156));
-            var loggingPanel = AddSection("日志", 606, 28);
+            var statusMaintenancePanel = AddSection("人物状态维护", 442, 28);
+            AddLabel(statusMaintenancePanel, "每轮按键次数", 184, 2, 96, 24).BringToFront();
+            statusMaintenancePressCountNumeric = AddStatusMaintenanceNumber(
+                nameof(statusMaintenancePressCountNumeric), 284, 1, MaintenanceScriptSettings.MaximumStatusMaintenancePressCount);
+            AddLabel(statusMaintenancePanel, "间隔（ms）", 380, 2, 80, 24).BringToFront();
+            statusMaintenancePressIntervalNumeric = AddStatusMaintenanceNumber(
+                nameof(statusMaintenancePressIntervalNumeric), 464, 0, MaintenanceScriptSettings.MaximumStatusMaintenancePressIntervalMs);
+
+            NumericUpDown AddStatusMaintenanceNumber(string name, int left, int minimum, int maximum)
+            {
+                var editor = new NumericUpDown
+                {
+                    Name = name,
+                    Location = new Point(left, 0),
+                    Size = new Size(80, 28),
+                    Minimum = minimum,
+                    Maximum = maximum,
+                    Value = minimum,
+                    BackColor = _inputBackground,
+                    ForeColor = _textGreen
+                };
+                statusMaintenancePanel.Controls.Add(editor);
+                editor.BringToFront();
+                return editor;
+            }
+
+            BuildDailySchedule(AddSection("定时计划（当前账号）", 478, 156));
+            var loggingPanel = AddSection("日志", 642, 28);
             generateLogFilesCheckBox = AddCheckBox(loggingPanel, "生成日志文件", 184, 1, 180, true);
             generateLogFilesCheckBox.Name = "generateLogFilesCheckBox";
             generateLogFilesCheckBox.BackColor = _inputBackground;

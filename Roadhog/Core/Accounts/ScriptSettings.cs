@@ -680,6 +680,12 @@ public sealed class MaintenanceScriptSettings
 
     public const int DefaultBagCleanupDiscardConfirmClickY = 470;
 
+    public const int MaximumStatusMaintenancePressCount = 10;
+    public const int MaximumStatusMaintenancePressIntervalMs = 1000;
+
+    private int _statusMaintenancePressCount = 1;
+    private int _statusMaintenancePressIntervalMs;
+
     public bool BagCleanupEnabled { get; set; }
 
     public bool BagCleanupReturnWhenFull { get; set; }
@@ -708,6 +714,18 @@ public sealed class MaintenanceScriptSettings
     public List<MaintenanceKeyRuleConfig> MpMaintenanceRules { get; set; } = new();
 
     public List<StatusMaintenanceRuleConfig> StatusMaintenanceRules { get; set; } = new();
+
+    public int StatusMaintenancePressCount
+    {
+        get => _statusMaintenancePressCount;
+        set => _statusMaintenancePressCount = Math.Clamp(value, 1, MaximumStatusMaintenancePressCount);
+    }
+
+    public int StatusMaintenancePressIntervalMs
+    {
+        get => _statusMaintenancePressIntervalMs;
+        set => _statusMaintenancePressIntervalMs = Math.Clamp(value, 0, MaximumStatusMaintenancePressIntervalMs);
+    }
 
     public List<DpMaintenanceRuleConfig> DpMaintenanceRules { get; set; } = new();
 
@@ -762,6 +780,8 @@ public sealed class MaintenanceScriptSettings
             HpMaintenanceRules = HpMaintenanceRules?.Select(rule => rule.Clone()).ToList() ?? new List<MaintenanceKeyRuleConfig>(),
             MpMaintenanceRules = MpMaintenanceRules?.Select(rule => rule.Clone()).ToList() ?? new List<MaintenanceKeyRuleConfig>(),
             StatusMaintenanceRules = StatusMaintenanceRules?.Select(rule => rule.Clone()).ToList() ?? new List<StatusMaintenanceRuleConfig>(),
+            StatusMaintenancePressCount = StatusMaintenancePressCount,
+            StatusMaintenancePressIntervalMs = StatusMaintenancePressIntervalMs,
             DpMaintenanceRules = DpMaintenanceRules?.Select(rule => rule.Clone()).ToList() ?? new List<DpMaintenanceRuleConfig>(),
             BagCleanupEnabled = BagCleanupEnabled,
             BagCleanupReturnWhenFull = BagCleanupReturnWhenFull,

@@ -411,7 +411,7 @@ public sealed partial class SemiAutoCombatController
                 context,
                 state,
                 settings,
-                maintenance.StatusMaintenanceRules,
+                maintenance,
                 "status",
                 player,
                 beforeMaintenanceKeyPress,
@@ -641,7 +641,7 @@ public sealed partial class SemiAutoCombatController
                 context,
                 state,
                 settings,
-                maintenance.StatusMaintenanceRules,
+                maintenance,
                 "status",
                 player,
                 beforeMaintenanceKeyPress,
@@ -1085,7 +1085,7 @@ public sealed partial class SemiAutoCombatController
         AccountWorkerContext context,
         SemiAutoCombatState state,
         SemiAutoScriptSettings settings,
-        IEnumerable<StatusMaintenanceRuleConfig>? rules,
+        MaintenanceScriptSettings maintenance,
         string resource,
         PlayerSnapshot player,
         Func<Task>? beforeMaintenanceKeyPress = null,
@@ -1095,7 +1095,7 @@ public sealed partial class SemiAutoCombatController
         bool includeAlwaysRules = true)
     {
         _ = plan;
-        var configuredRules = (rules ?? Array.Empty<StatusMaintenanceRuleConfig>())
+        var configuredRules = (maintenance.StatusMaintenanceRules ?? [])
             .Where(rule => !string.IsNullOrWhiteSpace(rule.Key) &&
                            HasStatusMaintenanceRuleSelection(rule) &&
                            IsMaintenanceRuleAllowed(rule, runTiming, includeAlwaysRules))
@@ -1201,6 +1201,7 @@ public sealed partial class SemiAutoCombatController
                     context,
                     state,
                     settings,
+                    maintenance,
                     rule,
                     resource,
                     player,
@@ -1304,6 +1305,7 @@ public sealed partial class SemiAutoCombatController
         AccountWorkerContext context,
         SemiAutoCombatState state,
         SemiAutoScriptSettings settings,
+        MaintenanceScriptSettings maintenance,
         StatusMaintenanceRuleConfig rule,
         string resource,
         PlayerSnapshot player,
@@ -1347,12 +1349,34 @@ public sealed partial class SemiAutoCombatController
             .Where(id => id != 0)
             .ToHashSet();
         var startedAt = DateTimeOffset.Now;
-        if (!await PressStatusMaintenanceKeyBurstAsync(context, state, settings, rule, resource, petGuard).ConfigureAwait(false))
+        var pressCount = maintenance.StatusMaintenancePressCount;
+        var intervalMs = pressCount > 1 ? maintenance.StatusMaintenancePressIntervalMs : 0;
+        for (var pressIndex = 0; pressIndex < pressCount; pressIndex++)
         {
-            return false;
+            if (pressIndex > 0 && intervalMs > 0)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(intervalMs), _timeProvider, context.StopToken).ConfigureAwait(false);
+            }
+
+            context.StopToken.ThrowIfCancellationRequested();
+            if (petGuard is not null && !await petGuard.CheckAsync().ConfigureAwait(false))
+            {
+                return false;
+            }
+
+            var pressedAt = DateTimeOffset.Now;
+            var press = await _keyboard
+                .PressKeyAsync(rule.Key, Ms(settings.KeyHoldMs, 25), context.StopToken)
+                .ConfigureAwait(false);
+            if (!press.Success)
+            {
+                LogMaintenanceKeyFailure(context, state, rule.Key, resource, press.Error);
+                return false;
+            }
+
+            state.MarkMaintenanceKeyAttempted(rule.Key, pressedAt);
         }
 
-        state.MarkMaintenanceKeyAttempted(rule.Key, startedAt);
         var skillId = ResolveStatusMaintenanceSkillId(rule, maintenanceSkill);
         var skillName = maintenanceSkill?.Name ?? maintenanceSkill?.DisplayBaseName ?? rule.SkillName;
 
@@ -1395,8 +1419,8 @@ public sealed partial class SemiAutoCombatController
                     ["abnormalStatusSource"] = confirmedAbnormal.Source,
                     ["oneShot"] = isChantStatusMaintenance,
                     ["chant"] = isChantStatusMaintenance,
-                    ["pressCount"] = StatusMaintenancePressBurstCount,
-                    ["pressIntervalMs"] = (long)StatusMaintenancePressBurstInterval.TotalMilliseconds,
+                    ["pressCount"] = pressCount,
+                    ["pressIntervalMs"] = (long)intervalMs,
                     ["polls"] = polls,
                     ["confirmWindowMs"] = (long)confirmWindow.TotalMilliseconds,
                     ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAt - startedAt).TotalMilliseconds)
@@ -1427,47 +1451,14 @@ public sealed partial class SemiAutoCombatController
             ["configuredAbnormalStatusId"] = rule.AbnormalStatusId,
             ["oneShot"] = isChantStatusMaintenance,
             ["chant"] = isChantStatusMaintenance,
-            ["pressCount"] = StatusMaintenancePressBurstCount,
-            ["pressIntervalMs"] = (long)StatusMaintenancePressBurstInterval.TotalMilliseconds,
+            ["pressCount"] = pressCount,
+            ["pressIntervalMs"] = (long)intervalMs,
             ["rejectedCandidateAbnormalIds"] = FormatAbnormalIdList(rejectedCandidateAbnormalIds),
             ["rejectedCandidateCount"] = rejectedCandidateAbnormalIds.Count,
             ["polls"] = polls,
             ["confirmWindowMs"] = (long)confirmWindow.TotalMilliseconds,
             ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAtUnconfirmed - startedAt).TotalMilliseconds)
         });
-        return true;
-    }
-
-    private async Task<bool> PressStatusMaintenanceKeyBurstAsync(
-        AccountWorkerContext context,
-        SemiAutoCombatState state,
-        SemiAutoScriptSettings settings,
-        StatusMaintenanceRuleConfig rule,
-        string resource,
-        PetSkillGuard? petGuard)
-    {
-        for (var pressIndex = 0; pressIndex < StatusMaintenancePressBurstCount; pressIndex++)
-        {
-            if (petGuard is not null && !await petGuard.CheckAsync().ConfigureAwait(false))
-            {
-                return false;
-            }
-
-            var result = await _keyboard
-                .PressKeyAsync(rule.Key, Ms(settings.KeyHoldMs, 25), context.StopToken)
-                .ConfigureAwait(false);
-            if (!result.Success)
-            {
-                LogMaintenanceKeyFailure(context, state, rule.Key, resource, result.Error);
-                return false;
-            }
-
-            if (pressIndex < StatusMaintenancePressBurstCount - 1)
-            {
-                await Task.Delay(StatusMaintenancePressBurstInterval, context.StopToken).ConfigureAwait(false);
-            }
-        }
-
         return true;
     }
 

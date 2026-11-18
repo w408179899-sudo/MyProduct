@@ -59,8 +59,8 @@ internal static class SkillTreeMaintenanceIntegrationTests
 
         await controller.TickAsync(context, maintenancePlan, state).ConfigureAwait(false);
 
-        Check(keyboard.Keys.Count == 3 && keyboard.Keys.All(key => key == "D3"),
-            "empty new attack tree still executes the existing status maintenance burst and no attack keys");
+        Check(keyboard.Keys.SequenceEqual(new[] { "D3" }),
+            "empty new attack tree still presses the status maintenance key once");
         Check(logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.status_key_pressed"),
             "status maintenance reaches the existing confirmation boundary");
         Check(api.SkillAvailabilityReadCount == 0,
@@ -71,7 +71,7 @@ internal static class SkillTreeMaintenanceIntegrationTests
 
         await controller.TickAsync(context, maintenancePlan, state).ConfigureAwait(false);
 
-        Check(keyboard.Keys.Count == 3 && api.SkillAvailabilityReadCount == 0,
+        Check(keyboard.Keys.Count == 1 && api.SkillAvailabilityReadCount == 0,
             "the active confirmed status prevents repeated maintenance while the empty attack tree remains idle");
     }
 

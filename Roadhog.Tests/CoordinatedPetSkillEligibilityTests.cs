@@ -135,8 +135,10 @@ internal static class CoordinatedPetSkillEligibilityTests
     private static async Task StatusAsync()
     {
         using var f = await CreateAsync(true); f.Keyboard.AfterPress = _ => f.SetPet(11, 0);
+        f.Settings.Maintenance.StatusMaintenancePressCount = 3;
         var method = typeof(SemiAutoCombatController).GetMethod("ExecuteStatusMaintenanceKeyRuleAsync", BindingFlags.NonPublic | BindingFlags.Instance)!;
         await (Task<bool>)method.Invoke(f.Controller, new object?[] { f.Context, f.State, f.Settings.SemiAuto,
+            f.Settings.Maintenance,
             new StatusMaintenanceRuleConfig { SkillId = Absorb, SkillName = "精灵吸收", Key = "D4" }, "status", f.Api.Player,
             f.Api.PlayerAbnormalStatuses, null, f.Api.Skills.Single(s => s.SkillId == Absorb), false })!;
         Sequence(new[] { "D4" }, f.Keyboard.Keys, "status burst stops immediately after pet loss");

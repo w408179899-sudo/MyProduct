@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.Reflection;
+using System.Text.Json;
 using System.Windows.Forms;
 using Roadhog;
 using Roadhog.Application;
@@ -18,19 +19,24 @@ internal static class SettingsLayoutTests
             try
             {
                 var logger = new InMemoryRoadhogLogger();
-                var settings = new ScriptSettings();
+                var settings = JsonSerializer.Deserialize<ScriptSettings>("""{"Maintenance":{}}""")!;
                 settings.SemiAuto.AttackWeaveDelayMs = 530;
                 settings.Skills.OpeningSkill = new() { Enabled = true, SkillId = 101, SkillName = "起手技能", Key = "F1" };
                 var store = new InMemoryAccountConfigStore(new AccountConfig { AccountName = "layout", ScriptSettings = settings });
-                using var form = new AccountSettingsForm("layout", new RoadhogRuntime(new FakeGameApi(), logger, new AccountRuntimeManager(logger), null!),
-                    store, new InMemorySharedPathStore(), new InMemoryScriptProfileStore(), new RecordingFolderLauncher(), "test-paths",
+                var profiles = new InMemoryScriptProfileStore();
+                AccountSettingsForm CreateForm() => new("layout", new RoadhogRuntime(new FakeGameApi(), logger, new AccountRuntimeManager(logger), null!),
+                    store, new InMemorySharedPathStore(), profiles, new RecordingFolderLauncher(), "test-paths",
                     radarMapStore: new StaticRadarMapStore(new RadarMapDocument { MapId = 777 }));
+                using var form = CreateForm();
                 object Field(string name) => typeof(AccountSettingsForm).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form)!;
                 void Check(bool valid, string message) { if (!valid) throw new InvalidOperationException(message); }
                 Check(form.ClientSize == new Size(1000, 800), "default settings content is 1000 by 800");
                 form.ShowInTaskbar = false; form.StartPosition = FormStartPosition.Manual; form.Location = new(-32000, -32000);
                 form.Show(); Application.DoEvents();
                 var tabs = (TabControl)Field("settingsTabs");
+                var pressCount = (NumericUpDown)Field("statusMaintenancePressCountNumeric");
+                var pressInterval = (NumericUpDown)Field("statusMaintenancePressIntervalNumeric");
+                Check(pressCount.Value == 1 && pressInterval.Value == 0, "legacy settings default to one press without an interval");
                 var preview = Environment.GetEnvironmentVariable("ROADHOG_SETTINGS_LAYOUT_PREVIEW");
                 void Capture(string name)
                 {
@@ -65,6 +71,12 @@ internal static class SettingsLayoutTests
                             var loggingBounds = summaryPage.RectangleToClient(logging.RectangleToScreen(logging.ClientRectangle));
                             Check(summaryPage.ClientRectangle.Contains(loggingBounds),
                                 "logging option remains fully accessible without scrolling");
+                            foreach (var editor in new[] { pressCount, pressInterval })
+                            {
+                                var bounds = summaryPage.RectangleToClient(editor.RectangleToScreen(editor.ClientRectangle));
+                                Check(editor.Visible && summaryPage.ClientRectangle.Contains(bounds),
+                                    "status maintenance editor remains accessible from the overview");
+                            }
                             var channel = (Control)Field("fixedChannelCombo");
                             var radar = (Control)Field("radarEditorButton");
                             Check(radar.Visible && channel.Right < radar.Left && radar.Bottom <= radar.Parent!.ClientSize.Height,
@@ -209,10 +221,22 @@ internal static class SettingsLayoutTests
                 Check(page.HorizontalScroll.Visible && page.VerticalScroll.Visible, "small windows retain scroll access");
                 CheckTreeActions();
                 form.ClientSize = new(1000, 800); Application.DoEvents();
+                pressCount.Value = 3;
+                pressInterval.Value = 80;
                 var saveArgs = new object?[] { null };
                 Check((bool)typeof(AccountSettingsForm).GetMethod("SaveCurrentSettings", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(form, saveArgs)!, "settings remain saveable");
                 var saved = store.LoadAllAsync().GetAwaiter().GetResult().Value!.Single().ScriptSettings!;
                 Check(saved.SemiAuto.AttackWeaveDelayMs == 530 && saved.Skills.OpeningSkill.GetEffectiveSkills().Single().SkillId == 101, "layout changes preserve settings");
+                Check(saved.Maintenance.StatusMaintenancePressCount == 3 && saved.Maintenance.StatusMaintenancePressIntervalMs == 80,
+                    "overview saves status maintenance timing to the account");
+                var profile = profiles.LoadAsync(saved.ProfileName).GetAwaiter().GetResult().Value!;
+                var restored = JsonSerializer.Deserialize<ScriptSettings>(JsonSerializer.Serialize(profile.Settings))!;
+                Check(restored.Maintenance.StatusMaintenancePressCount == 3 && restored.Maintenance.StatusMaintenancePressIntervalMs == 80,
+                    "status maintenance timing survives profile cloning and JSON");
+                using var reopened = CreateForm();
+                Check(((NumericUpDown)reopened.Controls.Find(pressCount.Name, true).Single()).Value == 3 &&
+                    ((NumericUpDown)reopened.Controls.Find(pressInterval.Name, true).Single()).Value == 80,
+                    "reopening the overview shows the saved timing");
                 completion.SetResult();
             }
             catch (Exception ex) { completion.SetException(ex); }

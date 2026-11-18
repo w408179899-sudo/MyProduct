@@ -40,13 +40,13 @@ internal static class LowRankMaintenanceTests
             if (key == "D2") f.Api.PlayerAbnormalStatuses = new(1, DateTimeOffset.Now, 0, new[] { Buff(7777) });
         };
         Check(await f.MaintainAsync(), "lower-rank status maintenance executes");
-        Sequence(new[] { "D2", "D2", "D2" }, f.Keyboard.Keys, "existing status burst count is unchanged");
+        Sequence(new[] { "D2" }, f.Keyboard.Keys, "default status maintenance presses the lower-rank skill once");
         Check(f.Logged("semi_auto.maintenance.status_key_pressed", "skillId", LowHpId),
             "trusted abnormal status confirms the actual lower-rank skill");
         Check(f.Observer.Requests.All(ids => ids is not null && ids.SequenceEqual(new[] { LowHpId })),
             "status selection never switches to the highest editor rank");
         await f.MaintainAsync();
-        Check(f.Keyboard.Keys.Count == 3, "existing trusted status prevents another maintenance burst");
+        Check(f.Keyboard.Keys.Count == 1, "confirmed trusted status prevents another maintenance key press");
     }
 
     public static async Task NameOnlyFullReadIncludesPlacedRankAndExplicitMissingNeverPromotesAsync()
