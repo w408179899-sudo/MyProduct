@@ -10,7 +10,7 @@ using Roadhog.Core.Diagnostics;
 using Roadhog.Core.Model;
 using Roadhog.Infrastructure.Vmm;
 
-internal static class LootTouchTests
+internal static partial class LootTouchTests
 {
     internal static void Check(bool value, string message) { if (!value) throw new InvalidOperationException(message); }
 

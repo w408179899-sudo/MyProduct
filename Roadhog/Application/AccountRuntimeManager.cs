@@ -65,6 +65,8 @@ public sealed class AccountRuntimeManager
                     state.CharacterLevel = player.Level;
                     state.CharacterClass = player.CharacterClass;
                     state.PlayerInfoCapturedAt = player.CapturedAt;
+                    // Repeated dead frames are one death; unknown health cannot rearm it.
+                    if (player.IsDead || player.IsAlive) state.ObservePlayerLife(player.IsDead);
                 }
             };
         }
@@ -131,6 +133,15 @@ public sealed class AccountRuntimeManager
         {
             var state = GetOrCreate(accountName);
             return state.MarkKill(targetEntityId, targetServerObjectId, killedAt);
+        }
+    }
+
+    public void MarkLoot(string accountName)
+    {
+        lock (_syncRoot)
+        {
+            if (_accounts.TryGetValue(accountName, out var state) && state.Status is "starting" or "running")
+                state.MarkLoot();
         }
     }
 
@@ -224,6 +235,8 @@ public sealed class AccountRuntimeManager
             state.LastKillAt)
         {
             CleanupProgress = state.CleanupProgress,
+            DeathCount = state.DeathCount,
+            LootCount = state.LootCount,
             CharacterLevel = state.CharacterLevel,
             CharacterClass = state.CharacterClass
         };

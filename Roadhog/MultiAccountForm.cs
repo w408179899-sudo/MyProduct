@@ -101,7 +101,7 @@ public sealed partial class MultiAccountForm : Form
         _grid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
         _grid.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(247, 251, 247);
         _grid.Columns.Add(new DataGridViewCheckBoxColumn { HeaderText = "", Width = 32, AutoSizeMode = DataGridViewAutoSizeColumnMode.None });
-        AddTextColumn("账号 / 角色", 24);
+        AddTextColumn("账号 / 角色", 20);
         _grid.Columns.Add(new DataGridViewTextBoxColumn
         {
             Name = "WorkerProcessId",
@@ -112,7 +112,10 @@ public sealed partial class MultiAccountForm : Form
             SortMode = DataGridViewColumnSortMode.NotSortable,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         });
-        AddTextColumn("设备", 15); AddTextColumn("状态", 20); AddTextColumn("杀怪/h", 8); AddTextColumn("时长", 9);
+        AddTextColumn("设备", 20); AddTextColumn("状态", 10);
+        AddSessionCountColumn("DeathCount", "死亡次数", 76, "本次脚本启动以来的死亡次数；复活后再次死亡才增加。重新启动清零。");
+        AddSessionCountColumn("LootCount", "累计拾取次数", 100, "本次脚本启动以来已确认的拾取动作次数；重复按键不重复计数，不代表物品件数。重新启动清零。");
+        AddTextColumn("杀怪/h", 8); AddTextColumn("时长", 11);
         _grid.Columns[1].DefaultCellStyle.WrapMode = DataGridViewTriState.True;
         foreach (var action in new[] { "清包", "设置", "硬件", "启动", "停止" })
             _grid.Columns.Add(new DataGridViewButtonColumn { CellTemplate = new SettingsActionCell(), HeaderText = "", Name = action, Text = action == "硬件" ? "设备/角色" : action,
@@ -186,6 +189,15 @@ public sealed partial class MultiAccountForm : Form
     }
 
     private void AddTextColumn(string title, float weight) => _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = title, ReadOnly = true, FillWeight = weight, SortMode = DataGridViewColumnSortMode.NotSortable });
+
+    private void AddSessionCountColumn(string name, string title, int width, string description) =>
+        _grid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = name, HeaderText = title, ToolTipText = description, ReadOnly = true,
+            Width = width, AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
+            SortMode = DataGridViewColumnSortMode.NotSortable,
+            DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
+        });
 
     private async Task InitializeAsync()
     {
@@ -300,8 +312,10 @@ public sealed partial class MultiAccountForm : Form
             row.Cells[4].Value = StateText(view);
             row.Cells[4].ToolTipText = DiscoveryMessage(view);
             var elapsed = snapshot?.StartedAt is { } started ? (snapshot.StoppedAt ?? DateTimeOffset.Now) - started : TimeSpan.Zero;
-            row.Cells[5].Value = elapsed.TotalHours > 0 ? (snapshot!.KillCount / elapsed.TotalHours).ToString("0") : "—";
-            row.Cells[6].Value = elapsed > TimeSpan.Zero ? $"{(int)elapsed.TotalHours:00}:{elapsed.Minutes:00}:{elapsed.Seconds:00}" : "—";
+            row.Cells["DeathCount"].Value = snapshot?.DeathCount?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "—";
+            row.Cells["LootCount"].Value = snapshot?.LootCount?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "—";
+            row.Cells[7].Value = elapsed.TotalHours > 0 ? (snapshot!.KillCount / elapsed.TotalHours).ToString("0") : "—";
+            row.Cells[8].Value = elapsed > TimeSpan.Zero ? $"{(int)elapsed.TotalHours:00}:{elapsed.Minutes:00}:{elapsed.Seconds:00}" : "—";
             row.DefaultCellStyle.ForeColor = view.State is "failed" or "recovering" or "verification_required" ? Color.DarkOrange : Color.FromArgb(30, 65, 43);
             if (view.Config.InstanceId == selected) row.Selected = true;
         }
@@ -338,7 +352,7 @@ public sealed partial class MultiAccountForm : Form
     {
         await RunUiActionAsync(async () =>
         {
-        if (e.RowIndex < 0 || e.ColumnIndex < 7) return;
+        if (e.RowIndex < 0 || e.ColumnIndex < 0 || _grid.Columns[e.ColumnIndex] is not DataGridViewButtonColumn) return;
         var id = (string)_grid.Rows[e.RowIndex].Tag!;
         var action = _grid.Columns[e.ColumnIndex].Name;
         if (action == "停止")

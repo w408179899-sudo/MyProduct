@@ -28,6 +28,9 @@ public sealed record AccountRuntimeSnapshot(
     DateTimeOffset? LastKillAt)
 {
     public string CleanupProgress { get; init; } = string.Empty;
+    // Missing fields from an older worker mean unavailable, rather than zero events.
+    public int? DeathCount { get; init; }
+    public int? LootCount { get; init; }
     public ushort CharacterLevel { get; init; }
     public string CharacterClass { get; init; } = string.Empty;
 }

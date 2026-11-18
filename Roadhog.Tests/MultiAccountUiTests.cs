@@ -145,7 +145,7 @@ internal static partial class MultiAccountUiTests
         Require(grid.Rows[0].Cells[1].Value?.ToString() == "账号 1 / 守望者\n50级 · 精灵星", "first account shows localized level and class");
         Require(grid.Rows[1].Cells[1].Value?.ToString() == "账号 2 / 晨光\n32级 · 守护星", "second account owns its metadata");
         Require(grid.Rows[2].Cells[1].Value?.ToString() == "账号 3 / 青岚", "unread account invents no level or class");
-        Require(grid.Rows[0].Cells[0].Value is true && grid.Columns.Count == 12 &&
+        Require(grid.Rows[0].Cells[0].Value is true && grid.Columns.Count == 14 &&
             grid.Columns[1].DefaultCellStyle.WrapMode == DataGridViewTriState.True, "metadata refresh preserves selection and existing action layout");
         Require(grid.Columns[2].HeaderText == "进程 PID" &&
             grid.Rows[0].Cells[2].Value?.ToString() == test.View(accounts[0]).WorkerProcessId?.ToString() &&
@@ -175,8 +175,8 @@ internal static partial class MultiAccountUiTests
         test.Initialize(accounts);
         using var form = test.Console(accounts, renderWindow: true);
         var grid = Field<DataGridView>(form, "_grid");
-        Require(grid.Rows.Count == 3 && grid.Columns.Count == 12, "console has account rows and five action columns");
-        Require(new[] { "清包", "设置", "硬件", "启动", "停止" }.SequenceEqual(grid.Columns.Cast<DataGridViewColumn>().Skip(7).Select(c => c.Name)), "console actions are available per account");
+        Require(grid.Rows.Count == 3 && grid.Columns.Count == 14, "console has account rows and five action columns");
+        Require(new[] { "清包", "设置", "硬件", "启动", "停止" }.SequenceEqual(grid.Columns.Cast<DataGridViewColumn>().Skip(9).Select(c => c.Name)), "console actions are available per account");
         grid.Rows[0].Cells[0].Value = true;
         grid.ClearSelection(); grid.Rows[1].Selected = true;
         Pump((Task)Invoke(form, "BatchAsync", true)!);
@@ -272,10 +272,11 @@ internal static partial class MultiAccountUiTests
         using var test = new UiEnvironment("slow-start");
         var account = test.Account(1); test.Initialize(new[] { account });
         using var form = test.Console(new[] { account });
-        Invoke(form, "GridAction", null, new DataGridViewCellEventArgs(10, 0));
+        var grid = Field<DataGridView>(form, "_grid");
+        Invoke(form, "GridAction", null, new DataGridViewCellEventArgs(grid.Columns["启动"].Index, 0));
         var entered = Path.Combine(test.Workspace.Processes.PathsFor(account).LogDirectory, "start-entered");
         Until(() => File.Exists(entered), "slow account start entered backend");
-        Invoke(form, "GridAction", null, new DataGridViewCellEventArgs(11, 0));
+        Invoke(form, "GridAction", null, new DataGridViewCellEventArgs(grid.Columns["停止"].Index, 0));
         Until(() => test.View(account) is { DesiredRunning: false, WorkerProcessId: null, State: "stopped" }, "same-row stop cancels pending start", 6000);
         Until(() => Field<HashSet<string>>(form, "_busy").Count == 0, "start handler completes after cancellation");
         System.Windows.Forms.Application.DoEvents();

@@ -62,6 +62,12 @@ public sealed class AccountRuntimeState
 
     public int KillCount { get; private set; }
 
+    public int DeathCount { get; private set; }
+
+    public int LootCount { get; private set; }
+
+    private bool _deathObserved;
+
     public DateTimeOffset? FirstKillAt { get; private set; }
 
     public DateTimeOffset? LastKillAt { get; private set; }
@@ -111,6 +117,9 @@ public sealed class AccountRuntimeState
         StoppedAt = null;
         LastHeartbeatAt = null;
         KillCount = 0;
+        DeathCount = 0;
+        LootCount = 0;
+        _deathObserved = false;
         FirstKillAt = null;
         LastKillAt = null;
         LastKillTargetEntityId = 0;
@@ -213,6 +222,18 @@ public sealed class AccountRuntimeState
         LastKillTargetServerObjectId = targetServerObjectId;
         Touch();
         return true;
+    }
+
+    internal void ObservePlayerLife(bool isDead)
+    {
+        if (isDead && !_deathObserved) DeathCount++;
+        _deathObserved = isDead;
+    }
+
+    internal void MarkLoot()
+    {
+        LootCount++;
+        Touch();
     }
 
     private bool IsDuplicateKill(ushort targetEntityId, uint targetServerObjectId, DateTimeOffset now)

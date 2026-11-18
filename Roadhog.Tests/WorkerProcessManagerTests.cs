@@ -854,6 +854,11 @@ internal static partial class WorkerProcessManagerTests
                 var readers = new Roadhog.Infrastructure.Vmm.RoadhogSnapshotReaderFactory(provider, _states.CreatePlayerInfoObserver);
                 await readers.Create(account, NoOpRoadhogLogger.Instance, cancellationToken).ReadPlayerAsync();
             }
+            if (scenario == "session-statistics" && !File.Exists(Path.Combine(spec.Paths.LogDirectory, "skip-session-statistics")))
+            {
+                var first = account.AccountName.EndsWith("1", StringComparison.Ordinal);
+                AccountSessionStatisticsTests.Populate(_states, account, first ? 1 : 2, first ? 3 : 7);
+            }
             _running = true;
             return OperationResult.Ok();
         }

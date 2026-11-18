@@ -1868,7 +1868,7 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("combat flow v2 summon preserves drain target guard", CoordinatedSummonRecoveryTests.DrainTargetGuardSurvivesHandoffAsync)
     ,("combat flow v2 health diagnostics are passive", () => CoordinatedHealthDiagnosticsTests.LifeGuardObservationIsPassiveAsync(CombatFlowVersion.CoordinatedV2))
     ,("combat flow legacy excludes health diagnostics", () => CoordinatedHealthDiagnosticsTests.LifeGuardObservationIsPassiveAsync(CombatFlowVersion.Legacy))
-}).Concat(CombatFlowRefactorTests.Cases).Concat(CoordinatedPetHpHandoffTests.Cases).Concat(CoordinatedSummonDefenseTests.Cases).Concat(CoordinatedSummonCooldownTests.Cases).Concat(CoordinatedPetSkillEligibilityTests.Cases).Concat(CoordinatedPetRecoveryEvidenceTests.Cases).ToArray();
+}).Concat(CombatFlowRefactorTests.Cases).Concat(CoordinatedPetHpHandoffTests.Cases).Concat(CoordinatedSummonDefenseTests.Cases).Concat(CoordinatedSummonCooldownTests.Cases).Concat(CoordinatedPetSkillEligibilityTests.Cases).Concat(CoordinatedPetRecoveryEvidenceTests.Cases).Concat(AccountSessionStatisticsTests.Cases).ToArray();
 
 var testFilter = args
     .FirstOrDefault(static argument => argument.StartsWith("--test-filter=", StringComparison.OrdinalIgnoreCase))?

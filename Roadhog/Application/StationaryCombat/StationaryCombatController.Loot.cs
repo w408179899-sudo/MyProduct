@@ -81,6 +81,7 @@ public sealed partial class StationaryCombatController
         {
             var now = DateTimeOffset.Now;
             state.MarkLootCorpseTouched(loot.KilledTargetEntityId, loot.KilledTargetServerObjectId, now);
+            if (!loot.TouchConfirmed) context.RuntimeStates.MarkLoot(context.Config.AccountName);
             loot.ConfirmTouch(now);
             context.Logger.Info("stationary_combat.loot.touch_confirmed", new Dictionary<string, object?>
             {
