@@ -51,8 +51,7 @@ public sealed partial class SemiAutoCombatController
             var retryInterval = ResolveSpiritmasterPetHpRetryInterval(settings);
             state.BeginSpiritmasterPetHpIncreaseConfirmation(skill.SkillId, rule.Key, pet.ServerObjectId,
                 pet.CurrentHp, pet.CapturedAt, DateTimeOffset.Now, retryInterval, SpiritmasterPetHpConfirmationLifetime, ruleIndex);
-            if (context.Config.CombatFlowVersion == CombatFlowVersion.CoordinatedV2)
-                state.ObserveSpiritmasterPetHpInput(_timeProvider, skill);
+            state.ObserveSpiritmasterPetHpInput(_timeProvider, skill);
             context.Logger.Info("semi_auto.spiritmaster.pet_hp.confirmation_started", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName, ["skillId"] = skill.SkillId, ["skillName"] = skill.Name,
@@ -161,8 +160,7 @@ public sealed partial class SemiAutoCombatController
         }
 
         var skill = skills.FirstOrDefault(item => item.SkillId == pending.SkillId);
-        var coordinated = context.Config.CombatFlowVersion == CombatFlowVersion.CoordinatedV2;
-        var releaseObserved = !coordinated || ObserveCoordinatedPetHpRelease(context, state, pending, skill, safety.Pet);
+        var releaseObserved = ObserveCoordinatedPetHpRelease(context, state, pending, skill, safety.Pet);
         pending = state.PendingSpiritmasterPetHpIncreaseConfirmation!;
         var hpIncreased = safety.Pet.CapturedAt > pending.BaselineCapturedAt &&
             safety.Pet.CurrentHp > pending.BaselineCurrentHp;
@@ -186,7 +184,7 @@ public sealed partial class SemiAutoCombatController
             return false;
         }
 
-        if (coordinated && hpIncreased && !releaseObserved && ShouldLog(state.LastSpiritmasterPetHpConfirmationLogAt, now))
+        if (hpIncreased && !releaseObserved && ShouldLog(state.LastSpiritmasterPetHpConfirmationLogAt, now))
         {
             state.LastSpiritmasterPetHpConfirmationLogAt = now;
             context.Logger.Info("combat_flow.pet_hp.hp_rise_without_release", new Dictionary<string, object?>
@@ -230,8 +228,7 @@ public sealed partial class SemiAutoCombatController
             return true;
         }
 
-        if (context.Config.CombatFlowVersion == CombatFlowVersion.CoordinatedV2 &&
-            await TryHandoffCoordinatedPetHpAsync(context, state, settings, spiritSettings, skills,
+        if (await TryHandoffCoordinatedPetHpAsync(context, state, settings, spiritSettings, skills,
                 pending, rule, safety, retryInterval).ConfigureAwait(false))
             return true;
 
@@ -255,8 +252,7 @@ public sealed partial class SemiAutoCombatController
             safety.Pet.CapturedAt,
             pressedAt,
             retryInterval);
-        if (context.Config.CombatFlowVersion == CombatFlowVersion.CoordinatedV2)
-            state.ObserveSpiritmasterPetHpInput(_timeProvider);
+        state.ObserveSpiritmasterPetHpInput(_timeProvider);
         context.Logger.Warn(
             "semi_auto.spiritmaster.pet_hp.pet_hp_retry",
             new Dictionary<string, object?>

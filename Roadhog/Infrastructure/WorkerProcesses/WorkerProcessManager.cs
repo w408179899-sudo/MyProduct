@@ -37,7 +37,6 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
         public WorkerDescriptor? Descriptor;
         public Process? Process;
         public WorkerStatus? Status;
-        public CombatFlowVersion? DispatchedCombatFlowVersion;
         public bool Desired;
         public long StopGeneration;
         public Guid? PendingShopRestartId;
@@ -151,7 +150,6 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
             catch (Exception ex) { Fail(entry, ex.Message); }
             finally { entry.Gate.Release(); }
         })).ConfigureAwait(false);
-        await EnforcePersistedCombatFlowPolicyAsync(cancellationToken).ConfigureAwait(false);
         if (desired.Any(id => !Entries().Any(entry => entry.Config.InstanceId.Equals(id, StringComparison.OrdinalIgnoreCase) && entry.Desired)))
         {
             try { await SaveIntentAsync().ConfigureAwait(false); }
@@ -474,9 +472,6 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
             Fail(entry, built.Error ?? "无法生成账号运行配置。");
             return OperationResult.Fail(entry.Error!);
         }
-        built.Value.CombatFlowVersion = await CombatFlowPolicy.ResolveAsync(
-            built.Value.CombatFlowVersion, _logger, cancellationToken).ConfigureAwait(false);
-        lock (entry.Sync) entry.DispatchedCombatFlowVersion = built.Value.CombatFlowVersion;
         WorkerRpcClient client;
         try { client = await EnsureWorkerAsync(entry, cancellationToken).ConfigureAwait(false); }
         catch (AccountResourceConflictException ex)
@@ -1142,10 +1137,6 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                     {
                         entry.Process?.Dispose(); entry.Process = process; process = null;
                         entry.Descriptor = verified; entry.Status = status;
-                        // Older workers cannot report a version and only run Legacy.
-                        // Account preferences may have changed while they stayed alive.
-                        if (status.IsRunning)
-                            entry.DispatchedCombatFlowVersion = status.ActiveCombatFlowVersion ?? CombatFlowVersion.Legacy;
                         // A legacy cleanup failure is diagnostic only; it must not
                         // revoke the user's durable intent to keep this account running.
                         entry.State = status.IsRunning ? "running" : entry.Desired ? "starting" : "idle";

@@ -1,12 +1,10 @@
-using Roadhog.Core.Accounts;
 using Roadhog.Core.Model;
 
 internal static partial class LootTouchTests
 {
-    public static async Task SessionStatisticsAsync(CombatFlowVersion version)
+    public static async Task SessionStatisticsAsync()
     {
         using var f = new Fixture();
-        f.Context.Config.CombatFlowVersion = version;
         f.Context.RuntimeStates.MarkStarting(f.Context.Config);
         f.Context.RuntimeStates.MarkRunning(f.Context.Config.AccountName, 1);
         int? Count() => f.Context.RuntimeStates.Snapshot().Single().LootCount;
@@ -31,7 +29,6 @@ internal static partial class LootTouchTests
         Check(f.Presses == 2 && Count() == 1, "revisiting a touched corpse does not count again");
 
         using var failed = new Fixture();
-        failed.Context.Config.CombatFlowVersion = version;
         failed.Context.RuntimeStates.MarkStarting(failed.Context.Config);
         await failed.Tick();
         failed.Api.TargetOwnServerObjectId = 9002;

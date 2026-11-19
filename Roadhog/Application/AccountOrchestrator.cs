@@ -22,8 +22,6 @@ public sealed class AccountOrchestrator
     private readonly AccountWorkerOptions _workerOptions;
     private readonly ILicenseRuntimeGate? _licenseRuntimeGate;
     private readonly ISharedPathStore? _pathStore;
-    private readonly Func<CombatFlowVersion, CombatFlowVersion>? _resolveCombatFlowVersion;
-    private readonly Dictionary<string, CombatFlowVersion> _activeCombatFlowVersions = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _hardwareOwners = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _syncRoot = new();
     private bool _manualInputActive;
@@ -37,8 +35,7 @@ public sealed class AccountOrchestrator
         IAccountWorkerLoop workerLoop,
         AccountWorkerOptions workerOptions,
         ILicenseRuntimeGate? licenseRuntimeGate = null,
-        ISharedPathStore? pathStore = null,
-        Func<CombatFlowVersion, CombatFlowVersion>? resolveCombatFlowVersion = null)
+        ISharedPathStore? pathStore = null)
     {
         _snapshotReaders = snapshotReaders;
         _logger = logger;
@@ -49,7 +46,6 @@ public sealed class AccountOrchestrator
         _workerOptions = workerOptions;
         _licenseRuntimeGate = licenseRuntimeGate;
         _pathStore = pathStore;
-        _resolveCombatFlowVersion = resolveCombatFlowVersion;
     }
 
     public OperationResult Start(AccountConfig config)
@@ -125,13 +121,6 @@ public sealed class AccountOrchestrator
             return _workers.TryGetValue(accountName, out var worker) ? worker.CleanupFailure : null;
     }
 
-    public CombatFlowVersion? GetActiveCombatFlowVersion(string accountName)
-    {
-        lock (_syncRoot)
-            return _workers.TryGetValue(accountName, out var worker) && worker.IsRunning &&
-                   _activeCombatFlowVersions.TryGetValue(accountName, out var version) ? version : null;
-    }
-
     private OperationResult StartCore(AccountConfig config, bool cleanupFirst = false, bool standaloneShop = false,
         GameSessions.GameSessionOperation? gameSessionOperation = null)
     {
@@ -151,8 +140,6 @@ public sealed class AccountOrchestrator
         {
             return OperationResult.Fail("Account worker is already running: " + startConfig.AccountName);
         }
-        if (_resolveCombatFlowVersion is not null)
-            startConfig.CombatFlowVersion = _resolveCombatFlowVersion(startConfig.CombatFlowVersion);
 
         var hardwareResult = BindHardware(startConfig);
         if (!hardwareResult.Success || hardwareResult.Value is null)
@@ -176,7 +163,6 @@ public sealed class AccountOrchestrator
         {
             ReleaseHardware(startConfig.AccountName);
         }
-        else _activeCombatFlowVersions[startConfig.AccountName] = startConfig.CombatFlowVersion;
 
         return startResult;
     }

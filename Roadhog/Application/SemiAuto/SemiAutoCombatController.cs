@@ -154,100 +154,15 @@ public sealed partial class SemiAutoCombatController
         }
     }
 
-    public async Task<bool> EnsureSpiritmasterPetAsync(
+    public Task<bool> EnsureSpiritmasterPetAsync(
         AccountWorkerContext context,
         SemiAutoSkillPlan plan,
         SemiAutoCombatState state,
         Func<Task>? beforeSummonKeyPress = null,
-        Func<Task<bool>>? handleSummonRetryDefense = null)
-    {
-        plan = plan.ToSharedPlan(context.Config.ScriptSettings?.Skills ?? new SkillScriptSettings());
-        if (context.Config.CombatFlowVersion == CombatFlowVersion.CoordinatedV2)
-            return await EnsureCoordinatedSpiritmasterPetAsync(context, plan, state, beforeSummonKeyPress, handleSummonRetryDefense)
-                .ConfigureAwait(false);
-        if (!plan.UsesSpiritmasterAutoLogic)
-        {
-            return false;
-        }
-
-        var skillSettings = context.Config.ScriptSettings?.Skills ?? new SkillScriptSettings();
-        var spiritSettings = skillSettings.Spiritmaster ?? new SpiritmasterSkillSettings();
-        if (!spiritSettings.SummonSkills.Any(rule => !string.IsNullOrWhiteSpace(rule.Key)))
-        {
-            return false;
-        }
-
-        var now = DateTimeOffset.Now;
-        var player = await ReadPlayerAsync(context).ConfigureAwait(false);
-        if (player.IsDead)
-        {
-            state.ClearSpiritmasterSummonVerification();
-            return false;
-        }
-
-        if (player.CharacterClassId is { } classId && classId != AionClassId.Spiritmaster)
-        {
-            state.ClearSpiritmasterSummonVerification();
-            return false;
-        }
-
-        var roster = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
-        var localPet = roster.LocalPlayerPet;
-        var pet = localPet.Pet;
-        if (pet is { IsSummoned: true, IsAlive: true })
-        {
-            if (state.HasPendingSpiritmasterSummonVerification)
-            {
-                context.Logger.Info("semi_auto.spiritmaster.summon_verified", new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["petServerObjectId"] = pet.ServerObjectId,
-                    ["petEntityId"] = pet.EntityId,
-                    ["petName"] = pet.Name,
-                    ["petHpPercent"] = pet.HpPercent
-                });
-            }
-
-            state.ClearSpiritmasterSummonVerification();
-            return false;
-        }
-
-        if (state.IsAwaitingSpiritmasterSummonVerification(now))
-        {
-            if (ShouldLog(state.LastSpiritmasterSummonVerifyLogAt, now))
-            {
-                state.LastSpiritmasterSummonVerifyLogAt = now;
-                context.Logger.Info("semi_auto.spiritmaster.summon_waiting", new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName
-                });
-            }
-
-            return true;
-        }
-
-        if (state.IsSpiritmasterSummonVerificationExpired(now))
-        {
-            context.Logger.Warn("semi_auto.spiritmaster.summon_verify_timeout", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName
-            });
-            state.ClearSpiritmasterSummonVerification();
-        }
-
-        if (!state.ShouldAttemptSpiritmasterSummon(now, SpiritmasterSummonAttemptInterval))
-        {
-            return true;
-        }
-
-        if (beforeSummonKeyPress is not null)
-        {
-            await beforeSummonKeyPress().ConfigureAwait(false);
-        }
-
-        var settings = context.Config.ScriptSettings?.SemiAuto ?? new SemiAutoScriptSettings();
-        return await TryPressSpiritmasterSummonAsync(context, state, settings, spiritSettings).ConfigureAwait(false);
-    }
+        Func<Task<bool>>? handleSummonRetryDefense = null) =>
+        EnsureCoordinatedSpiritmasterPetAsync(context,
+            plan.ToSharedPlan(context.Config.ScriptSettings?.Skills ?? new SkillScriptSettings()),
+            state, beforeSummonKeyPress, handleSummonRetryDefense);
 
     public async Task<TimeSpan> TickOpeningAttackKeyLoopAsync(
         AccountWorkerContext context,
@@ -1753,16 +1668,12 @@ public sealed partial class SemiAutoCombatController
             return true;
         }
 
-        var coordinated = context.Config.CombatFlowVersion == CombatFlowVersion.CoordinatedV2;
-        if (coordinated && await HasLivingPetBeforeCoordinatedSummonAsync(context, state).ConfigureAwait(false)) return false;
-        if (coordinated && await ShouldWaitForCoordinatedSummonCooldownAsync(context, state, spiritSettings).ConfigureAwait(false))
+        if (await HasLivingPetBeforeCoordinatedSummonAsync(context, state).ConfigureAwait(false)) return false;
+        if (await ShouldWaitForCoordinatedSummonCooldownAsync(context, state, spiritSettings).ConfigureAwait(false))
             return true;
         var player = await ReadPlayerAsync(context).ConfigureAwait(false);
-        if (coordinated)
-        {
-            context.StopToken.ThrowIfCancellationRequested();
-            if (player.IsDead) return true;
-        }
+        context.StopToken.ThrowIfCancellationRequested();
+        if (player.IsDead) return true;
         if (!await EnsureStandingBeforeMaintenanceKeyAsync(
                     context,
                     state,
@@ -1775,43 +1686,33 @@ public sealed partial class SemiAutoCombatController
             return true;
         }
 
-        if (coordinated && await ShouldWaitForCoordinatedSummonCooldownAsync(context, state, spiritSettings).ConfigureAwait(false))
+        if (await ShouldWaitForCoordinatedSummonCooldownAsync(context, state, spiritSettings).ConfigureAwait(false))
             return true;
         var pressFirst = !string.IsNullOrWhiteSpace(keys[0]) &&
-            (!coordinated || keys.Length < 2 || string.IsNullOrWhiteSpace(keys[1]) ||
+            (keys.Length < 2 || string.IsNullOrWhiteSpace(keys[1]) ||
              await ShouldPressCoordinatedSummonSpeedAsync(context, state, spiritSettings).ConfigureAwait(false));
-        if (coordinated)
-        {
-            var beforeInput = await ReadPlayerAsync(context).ConfigureAwait(false);
-            context.StopToken.ThrowIfCancellationRequested();
-            if (beforeInput.IsDead) return true;
-            if (await HasLivingPetBeforeCoordinatedSummonAsync(context, state).ConfigureAwait(false)) return false;
-        }
+        var beforeInput = await ReadPlayerAsync(context).ConfigureAwait(false);
+        context.StopToken.ThrowIfCancellationRequested();
+        if (beforeInput.IsDead) return true;
+        if (await HasLivingPetBeforeCoordinatedSummonAsync(context, state).ConfigureAwait(false)) return false;
         state.MarkSpiritmasterSummonAttempted(now);
         if (pressFirst && !await PressSpiritmasterRawKeyAsync(context, settings, keys[0], "summon_speed").ConfigureAwait(false))
         {
-            if (!coordinated) state.BeginSpiritmasterSummonVerification(DateTimeOffset.Now, SpiritmasterSummonVerifyWindow);
-            else
-            {
-                state.CoordinatedSummonDefenseAllowed = true;
-                state.CoordinatedSummonDefenseReason = "summon_input_rejected";
-            }
+            state.CoordinatedSummonDefenseAllowed = true;
+            state.CoordinatedSummonDefenseReason = "summon_input_rejected";
             return true;
         }
 
         if (keys.Length > 1 && !string.IsNullOrWhiteSpace(keys[1]))
         {
             if (pressFirst) await Task.Delay(SpiritmasterSummonKeyInterval, context.StopToken).ConfigureAwait(false);
-            if (coordinated)
-            {
-                if (await ShouldWaitForCoordinatedSummonCooldownAsync(context, state, spiritSettings).ConfigureAwait(false)) return true;
-                var freshPlayer = await ReadPlayerAsync(context).ConfigureAwait(false);
-                context.StopToken.ThrowIfCancellationRequested();
-                if (freshPlayer.IsDead) return true;
-                if (await HasLivingPetBeforeCoordinatedSummonAsync(context, state).ConfigureAwait(false)) return false;
-            }
+            if (await ShouldWaitForCoordinatedSummonCooldownAsync(context, state, spiritSettings).ConfigureAwait(false)) return true;
+            var freshPlayer = await ReadPlayerAsync(context).ConfigureAwait(false);
+            context.StopToken.ThrowIfCancellationRequested();
+            if (freshPlayer.IsDead) return true;
+            if (await HasLivingPetBeforeCoordinatedSummonAsync(context, state).ConfigureAwait(false)) return false;
             var sent = await PressSpiritmasterRawKeyAsync(context, settings, keys[1], "summon_pet").ConfigureAwait(false);
-            if (coordinated && !sent)
+            if (!sent)
             {
                 state.CoordinatedSummonDefenseAllowed = true;
                 state.CoordinatedSummonDefenseReason = "summon_input_rejected";

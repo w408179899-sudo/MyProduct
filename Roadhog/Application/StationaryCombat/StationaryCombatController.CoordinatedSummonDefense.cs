@@ -11,8 +11,7 @@ public sealed partial class StationaryCombatController
         StationaryCombatState state)
     {
         context.StopToken.ThrowIfCancellationRequested();
-        if (context.Config.CombatFlowVersion != CombatFlowVersion.CoordinatedV2 ||
-            !semiAutoState.CoordinatedSummonDefenseAllowed ||
+        if (!semiAutoState.CoordinatedSummonDefenseAllowed ||
             semiAutoState.IsAwaitingSpiritmasterSummonVerification(DateTimeOffset.Now) ||
             context.Config.ScriptSettings is not { MainMode: AccountMainMode.CustomCombat, CombatMode: AccountCombatMode.Stationary } ||
             state.TopLevelState != StationaryCombatTopLevelState.Normal || state.BagCleanup.Active ||

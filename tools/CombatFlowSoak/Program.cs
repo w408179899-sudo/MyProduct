@@ -29,7 +29,7 @@ internal static class SoakProgram
         {
             if (args.Length == 0 || args.Contains("--help"))
             {
-                Console.WriteLine("CombatFlowSoak --root <isolated client root> --account <UUID> [--status | --stop | --run --version Legacy|CoordinatedV2 (--minutes N | --continuous)] [--rollback-on-completion] [--poll-seconds 5] [--startup-seconds 120] [--stop-seconds 60]");
+                Console.WriteLine("CombatFlowSoak --root <isolated client root> --account <UUID> [--status | --stop | --run (--minutes N | --continuous)] [--poll-seconds 5] [--startup-seconds 120] [--stop-seconds 60]");
                 Console.WriteLine($"Requires {MarkerName}: {{\"Purpose\":\"CombatFlowSoak\",\"InstanceId\":\"UUID\"}}. No command defaults to read-only --status.");
                 return 0;
             }
@@ -51,7 +51,8 @@ internal static class SoakProgram
                 Emit("stop_requested", new { report.SessionId, account = options.AccountId });
                 return 0;
             }
-            return await RunSessionAsync(options, await ValidateRootAsync(options));
+            await ValidateRootAsync(options);
+            return await RunSessionAsync(options);
         }
         catch (Exception error)
         {
@@ -61,23 +62,13 @@ internal static class SoakProgram
         }
     }
 
-    private static async Task<int> RunSessionAsync(Options options, AccountConfig account)
+    private static async Task<int> RunSessionAsync(Options options)
     {
         var configPath = Path.Combine(options.Root, "config", "accounts.json");
         using var ownership = new ManagerOwnership(configPath);
         var oldReport = await ReadReportAsync(options.Root);
         if (oldReport is not null && IsHarnessAlive(oldReport))
             throw new HarnessException("Another harness session is already running.");
-
-        // Save the requested version before manager initialization can recover persisted intent.
-        var policy = await new JsonCombatFlowPolicyStore(JsonCombatFlowPolicyStore.PathFor(configPath)).LoadAsync();
-        if (!policy.Success || policy.Value is null)
-            throw new HarnessException("Cannot read the isolated rollback policy; no worker was started.");
-        if (policy.Value.Resolve(options.Version!.Value) != options.Version.Value)
-            throw new HarnessException("ForceLegacy is active in this isolated root. Explicitly change that isolated policy before requesting V2.");
-        account.CombatFlowVersion = options.Version.Value;
-        var save = await new JsonAccountConfigStore(configPath).SaveAllAsync([account]);
-        if (!save.Success) throw new HarnessException("Cannot save the isolated account version; no worker was started.");
 
         using var process = Process.GetCurrentProcess();
         using var cancel = new CancellationTokenSource();
@@ -88,11 +79,10 @@ internal static class SoakProgram
         {
             SessionId = Guid.NewGuid().ToString("N"), InstanceId = options.AccountId,
             HarnessPid = process.Id, HarnessStartedAtUtc = new DateTimeOffset(process.StartTime.ToUniversalTime()),
-            StartedAtUtc = DateTimeOffset.UtcNow, RequestedVersion = options.Version.Value.ToString(),
+            StartedAtUtc = DateTimeOffset.UtcNow, RequestedVersion = nameof(CombatFlowVersion.CoordinatedV2),
             RequestedDurationSeconds = options.Continuous ? null : options.Duration.TotalSeconds,
             Continuous = options.Continuous,
-            ReportPublishing = reportPublisher.Status,
-            RollbackRequested = options.RollbackOnCompletion
+            ReportPublishing = reportPublisher.Status
         };
         var service = new RoadhogServiceOptions
         {
@@ -140,7 +130,7 @@ internal static class SoakProgram
                 Observe(view, report, workerPids, previousKills);
                 await PublishReportAsync(options.Root, report, reportPublisher);
                 Emit("sample", report.Sample);
-                if (view.Worker?.IsRunning == true && view.Worker.ActiveCombatFlowVersion is { } active && active != options.Version)
+                if (view.Worker?.IsRunning == true && view.Worker.ActiveCombatFlowVersion is { } active && active != CombatFlowVersion.CoordinatedV2)
                     throw new HarnessException("Actual worker version differs from the requested version; stopping the isolated run.");
                 var remaining = options.Continuous ? options.PollInterval : options.Duration - observation.Elapsed;
                 if (remaining > TimeSpan.Zero)
@@ -176,46 +166,6 @@ internal static class SoakProgram
             }
             if (workspace is not null)
             {
-                if (options.RollbackOnCompletion && report.Outcome == "duration_completed" && exitCode == 0 && !cancel.IsCancellationRequested)
-                {
-                    // Give rollback and fallback Stop separate budgets. A failed rollback must never skip cleanup.
-                    using var rollbackDeadline = new CancellationTokenSource(options.StopTimeout);
-                    Task? rollbackTask = null;
-                    report.RollbackAttempted = true;
-                    try
-                    {
-                        var views = workspace.Processes.Snapshot();
-                        if (views.Count != 1 || !SameId(views[0].Config.InstanceId, options.AccountId))
-                            throw new HarnessException("Rollback requires exactly the isolated account in the manager.");
-                        foreach (var view in views)
-                            if (view.WorkerProcessId is { } pid) workerPids.Add(pid);
-                        var rollback = workspace.Processes.SetForceLegacyCombatFlowAsync(true, rollbackDeadline.Token);
-                        rollbackTask = rollback;
-                        var results = await rollback.WaitAsync(rollbackDeadline.Token);
-                        report.RollbackStopResultCount = results.Count;
-                        report.RollbackAccepted = results.Count == 1 && results.TryGetValue(account.AccountName, out var result) && result.Success;
-                        var persisted = await workspace.Processes.CombatFlowPolicy.LoadAsync(rollbackDeadline.Token).WaitAsync(rollbackDeadline.Token);
-                        report.RollbackPolicyPersisted = persisted.Success && persisted.Value is { ForceLegacy: true };
-                        while (workerPids.Any(pid => IsWorkerAlive(pid, launch.ExecutablePath)))
-                            await Task.Delay(100, rollbackDeadline.Token);
-                        report.RollbackWorkersExited = workspace.Processes.Snapshot().All(v => !v.DesiredRunning && v.WorkerProcessId is null);
-                        if (!report.RollbackAccepted || !report.RollbackPolicyPersisted || !report.RollbackWorkersExited)
-                            throw new HarnessException("Rollback did not confirm the isolated account stop and durable ForceLegacy policy.");
-                    }
-                    catch (Exception error)
-                    {
-                        report.Outcome = "rollback_failed";
-                        report.RollbackFailureType = error.GetType().Name;
-                        exitCode = 3;
-                    }
-                    finally
-                    {
-                        // WaitAsync bounds observation; a backend stop may still finish during fallback Stop.
-                        if (rollbackTask is not null)
-                            _ = rollbackTask.ContinueWith(t => { _ = t.Exception; }, CancellationToken.None,
-                                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-                    }
-                }
                 using var stopDeadline = new CancellationTokenSource(options.StopTimeout);
                 try
                 {
@@ -242,8 +192,6 @@ internal static class SoakProgram
                 }
                 try { await workspace.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10)); }
                 catch (Exception error) { report.DisposeFailureType = error.GetType().Name; exitCode = 4; }
-                report.RollbackVerified = report.RollbackAttempted && report.RollbackAccepted && report.RollbackPolicyPersisted &&
-                    report.RollbackWorkersExited && report.StopAccepted && report.WorkersExited && report.DisposeFailureType is null;
             }
             else report.WorkersExited = true;
             report.CompletedAtUtc = DateTimeOffset.UtcNow;
@@ -323,7 +271,7 @@ internal static class SoakProgram
             throw new HarnessException("The isolated-root marker does not match the requested account.");
     }
 
-    private static async Task<AccountConfig> ValidateRootAsync(Options options)
+    private static async Task ValidateRootAsync(Options options)
     {
         var configPath = Path.Combine(options.Root, "config", "accounts.json");
         var loaded = await new JsonAccountConfigStore(configPath).LoadAllAsync();
@@ -335,7 +283,6 @@ internal static class SoakProgram
                 throw new HarnessException("An account resource points outside the isolated root. Rebase copied resource paths before running.");
         if (options.Command == Command.Run && !File.Exists(Path.Combine(options.Root, "Roadhog.exe")))
             throw new HarnessException("The isolated root must contain its own Roadhog.exe.");
-        return account;
     }
 
     private static bool IsInside(string root, string path) => Path.GetFullPath(path).StartsWith(
@@ -399,14 +346,6 @@ internal static class SoakProgram
         public bool SawRequestedVersion { get; set; }
         public bool LastSampleRunningAndFresh { get; set; }
         public int UnhealthySamples { get; set; }
-        public bool RollbackRequested { get; set; }
-        public bool RollbackAttempted { get; set; }
-        public int? RollbackStopResultCount { get; set; }
-        public bool RollbackAccepted { get; set; }
-        public bool RollbackPolicyPersisted { get; set; }
-        public bool RollbackWorkersExited { get; set; }
-        public bool RollbackVerified { get; set; }
-        public string? RollbackFailureType { get; set; }
         public bool StopAccepted { get; set; }
         public bool WorkersExited { get; set; }
         public string Outcome { get; set; } = "starting";
@@ -419,15 +358,14 @@ internal static class SoakProgram
         public object? Sample { get; set; }
     }
 
-    private sealed record Options(string Root, string AccountId, Command Command, CombatFlowVersion? Version,
-        TimeSpan Duration, TimeSpan PollInterval, TimeSpan StartupTimeout, TimeSpan StopTimeout, bool RollbackOnCompletion,
+    private sealed record Options(string Root, string AccountId, Command Command,
+        TimeSpan Duration, TimeSpan PollInterval, TimeSpan StartupTimeout, TimeSpan StopTimeout,
         bool Continuous)
     {
         public static Options Parse(string[] args)
         {
             var values = new Dictionary<string, string>(StringComparer.Ordinal);
             Command? command = null;
-            var rollbackOnCompletion = false;
             var continuous = false;
             for (var i = 0; i < args.Length; i++)
             {
@@ -436,11 +374,6 @@ internal static class SoakProgram
                     if (command is not null) throw new ArgumentException("Specify exactly one command.");
                     command = args[i] == "--run" ? Command.Run : args[i] == "--stop" ? Command.Stop : Command.Status;
                 }
-                else if (args[i] == "--rollback-on-completion")
-                {
-                    if (rollbackOnCompletion) throw new ArgumentException("Duplicate option.");
-                    rollbackOnCompletion = true;
-                }
                 else if (args[i] == "--continuous")
                 {
                     if (continuous) throw new ArgumentException("Duplicate option.");
@@ -448,7 +381,7 @@ internal static class SoakProgram
                 }
                 else
                 {
-                    if (args[i] is not ("--root" or "--account" or "--version" or "--minutes" or "--poll-seconds" or "--startup-seconds" or "--stop-seconds") || i + 1 == args.Length)
+                    if (args[i] is not ("--root" or "--account" or "--minutes" or "--poll-seconds" or "--startup-seconds" or "--stop-seconds") || i + 1 == args.Length)
                         throw new ArgumentException("Unknown option or missing value.");
                     if (!values.TryAdd(args[i], args[++i])) throw new ArgumentException("Duplicate option.");
                 }
@@ -456,22 +389,12 @@ internal static class SoakProgram
             if (!values.TryGetValue("--root", out var root) || !Path.IsPathFullyQualified(root)) throw new ArgumentException("--root must be an absolute isolated client directory.");
             if (!values.TryGetValue("--account", out var id) || !Guid.TryParse(id, out var uuid)) throw new ArgumentException("--account must be a UUID.");
             var selected = command ?? Command.Status;
-            CombatFlowVersion? version = null;
-            if (values.TryGetValue("--version", out var text))
-            {
-                if (text is not ("Legacy" or "CoordinatedV2")) throw new ArgumentException("--version must be Legacy or CoordinatedV2.");
-                version = Enum.Parse<CombatFlowVersion>(text);
-            }
-            if (selected == Command.Run && (version is null || (!continuous && !values.ContainsKey("--minutes"))))
-                throw new ArgumentException("--run requires explicit --version and either --minutes or --continuous.");
+            if (selected == Command.Run && !continuous && !values.ContainsKey("--minutes"))
+                throw new ArgumentException("--run requires either --minutes or --continuous.");
             if (continuous && values.ContainsKey("--minutes"))
                 throw new ArgumentException("--continuous and --minutes cannot be combined.");
-            if (selected != Command.Run && (version is not null || values.ContainsKey("--minutes") || continuous))
-                throw new ArgumentException("Version and duration are valid only with --run.");
-            if (continuous && rollbackOnCompletion)
-                throw new ArgumentException("Continuous runs do not complete automatically; --rollback-on-completion is invalid.");
-            if (rollbackOnCompletion && (selected != Command.Run || version != CombatFlowVersion.CoordinatedV2))
-                throw new ArgumentException("--rollback-on-completion requires --run --version CoordinatedV2.");
+            if (selected != Command.Run && (values.ContainsKey("--minutes") || continuous))
+                throw new ArgumentException("Duration is valid only with --run.");
             double Number(string key, double fallback, double minimum, double maximum)
             {
                 if (!values.TryGetValue(key, out var raw)) return fallback;
@@ -479,9 +402,9 @@ internal static class SoakProgram
                     throw new ArgumentException(key + " is outside its allowed range.");
                 return result;
             }
-            return new(Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)), uuid.ToString("D"), selected, version,
+            return new(Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)), uuid.ToString("D"), selected,
                 TimeSpan.FromMinutes(Number("--minutes", 0, .01, 1440)), TimeSpan.FromSeconds(Number("--poll-seconds", 5, .25, 60)),
-                TimeSpan.FromSeconds(Number("--startup-seconds", 120, 5, 900)), TimeSpan.FromSeconds(Number("--stop-seconds", 60, 5, 180)), rollbackOnCompletion, continuous);
+                TimeSpan.FromSeconds(Number("--startup-seconds", 120, 5, 900)), TimeSpan.FromSeconds(Number("--stop-seconds", 60, 5, 180)), continuous);
         }
     }
 

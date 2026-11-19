@@ -1,6 +1,5 @@
 using Roadhog.Application.SemiAuto;
 using Roadhog.Application.Workers;
-using Roadhog.Core.Accounts;
 using Roadhog.Core.Model;
 
 namespace Roadhog.Application.StationaryCombat;
@@ -13,9 +12,6 @@ public sealed partial class StationaryCombatController
         AccountWorkerContext context, SemiAutoCombatState semiAutoState,
         StationaryCombatState state, PlayerSnapshot player, string boundary)
     {
-        if (context.Config.CombatFlowVersion != CombatFlowVersion.CoordinatedV2)
-            return;
-
         // Boundary keys are fixed call sites / enum values, never entity IDs or health values.
         LogActionThrottled(context, state, "combat_flow.health.observed", boundary,
             new Dictionary<string, object?>

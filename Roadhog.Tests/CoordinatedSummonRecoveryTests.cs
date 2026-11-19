@@ -12,14 +12,6 @@ internal static class CoordinatedSummonRecoveryTests
         Check(!f.State.HasPendingSpiritmasterSummonVerification, "HP recovery does not claim a summon was sent");
     }
 
-    public static async Task LegacyKeepsSummonFirstAsync()
-    {
-        using var f = await CreateAsync(CombatFlowVersion.Legacy);
-        await EnsureAsync(f);
-        Sequence(new[] { "NumPad8" }, f.Keyboard.Keys, "Legacy retains its original order at low HP");
-        Check(f.State.HasPendingSpiritmasterSummonVerification, "Legacy still confirms the summon");
-    }
-
     public static async Task ConfirmationReservesInputAsync()
     {
         using var f = await CreateAsync();
@@ -132,10 +124,9 @@ internal static class CoordinatedSummonRecoveryTests
     private static async Task EnsureAsync(SharedSkillAuditFixture f) =>
         Check(await f.Controller.EnsureSpiritmasterPetAsync(f.Context, f.Plan, f.State), "missing pet owns the tick");
 
-    private static async Task<SharedSkillAuditFixture> CreateAsync(CombatFlowVersion version = CombatFlowVersion.CoordinatedV2)
+    private static async Task<SharedSkillAuditFixture> CreateAsync()
     {
         var f = new SharedSkillAuditFixture();
-        f.Context.Config.CombatFlowVersion = version;
         f.Settings.Skills.Spiritmaster.SummonSkills = new() { new() { Key = "NumPad8" } };
         f.ConfigureResource("hp");
         f.SetPet(11, 0);

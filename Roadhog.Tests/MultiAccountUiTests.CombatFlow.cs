@@ -15,8 +15,8 @@ internal static partial class MultiAccountUiTests
             form.Width = width;
             form.PerformLayout(); toolbar.PerformLayout(); Application.DoEvents();
             var buttons = toolbar.Controls.OfType<Button>().ToArray();
-            Require(buttons.Any(button => button.Text == "战斗版本") && buttons.Any(button => button.Text == "退出程序"),
-                "version and exit controls remain available");
+            Require(buttons.All(button => button.Text != "战斗版本") && buttons.Any(button => button.Text == "退出程序"),
+                "the retired version control is gone and exit remains available");
             Require(buttons.All(button => button.Left >= 0 && button.Right <= toolbar.ClientSize.Width &&
                 button.Top >= 0 && button.Bottom <= toolbar.ClientSize.Height), "all toolbar actions fit at width " + width);
             Require(root.GetRowHeights()[0] >= toolbar.Controls.Cast<Control>().Max(control => control.Bottom),

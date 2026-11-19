@@ -249,9 +249,7 @@ public sealed class RoadhogServices : IDisposable
                 advancedSkillProfiles),
             workerOptions,
             licenseCoordinator,
-            sharedPathStore,
-            version => new JsonCombatFlowPolicyStore(JsonCombatFlowPolicyStore.PathFor(options.AccountConfigPath))
-                .ResolveAsync(version, logger).GetAwaiter().GetResult());
+            sharedPathStore);
         var runtime = new RoadhogRuntime(
             snapshotReaders,
             logger,

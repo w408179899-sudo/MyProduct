@@ -67,9 +67,6 @@ public sealed class AccountConfig
     public string AdvancedSkillProfileName { get; set; } = string.Empty;
     public bool AdvancedSkillProfileEnabled { get; set; }
 
-    // Shared profiles do not override the account's combat version.
-    public CombatFlowVersion CombatFlowVersion { get; set; } = CombatFlowVersion.CoordinatedV2;
-
     public ScriptSettings? ScriptSettings { get; set; }
 
     public bool Validate(out string error)
@@ -130,7 +127,6 @@ public sealed class AccountConfig
             SkillProfileName = SkillProfileName,
             AdvancedSkillProfileName = AdvancedSkillProfileName,
             AdvancedSkillProfileEnabled = AdvancedSkillProfileEnabled,
-            CombatFlowVersion = CombatFlowVersion,
             ScriptSettings = ScriptSettings?.Clone()
         };
     }

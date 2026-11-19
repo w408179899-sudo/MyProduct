@@ -12,10 +12,6 @@ public sealed partial class SemiAutoCombatController
         string resource, PlayerSnapshot player, int requiredDp, Func<Task>? beforeMaintenanceKeyPress,
         SkillSnapshot? maintenanceSkill)
     {
-        if (context.Config.CombatFlowVersion != CombatFlowVersion.CoordinatedV2)
-            return await ExecuteLegacyDpMaintenanceKeyRuleAsync(context, state, settings, rule, resource,
-                player, requiredDp, beforeMaintenanceKeyPress, maintenanceSkill).ConfigureAwait(false);
-
         var petGuard = await CreatePetSkillGuardAsync(context, state, maintenanceSkill, rule.SkillId, rule.SkillName, rule.Key).ConfigureAwait(false);
         if (petGuard is not null && !await petGuard.CheckAsync().ConfigureAwait(false)) return false;
         async Task<MaintenanceAttemptPermission> Guard(int attempts, DateTimeOffset _) =>
@@ -34,11 +30,6 @@ public sealed partial class SemiAutoCombatController
         Func<Task>? beforeMaintenanceKeyPress, SkillSnapshot? maintenanceSkill,
         Func<Task<bool>>? ensureTargetBeforeKeyPress)
     {
-        if (context.Config.CombatFlowVersion != CombatFlowVersion.CoordinatedV2)
-            return await ExecuteLegacyMaintenanceKeyRuleAsync(context, state, settings, rule, resource,
-                current, max, percent, threshold, player, beforeMaintenanceKeyPress, maintenanceSkill,
-                ensureTargetBeforeKeyPress).ConfigureAwait(false);
-
         var requiresTarget = RequiresLifeDrainTarget(resource, maintenanceSkill, rule.SkillId);
         var petGuard = await CreatePetSkillGuardAsync(context, state, maintenanceSkill, rule.SkillId, rule.SkillName, rule.Key).ConfigureAwait(false);
         if (petGuard is not null && !await petGuard.CheckAsync().ConfigureAwait(false)) return false;

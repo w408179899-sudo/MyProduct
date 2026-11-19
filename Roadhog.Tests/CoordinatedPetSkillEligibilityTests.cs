@@ -16,7 +16,6 @@ internal static class CoordinatedPetSkillEligibilityTests
         ("combat flow v2 pet prerequisites stop MP retries when pet changes", RetryChangeAsync),
         ("combat flow v2 pet prerequisites recheck pet after maintenance preparation", PreparationAsync),
         ("combat flow v2 pet prerequisites resolve manual maintenance key without rewriting it", ManualAsync),
-        ("combat flow v2 pet prerequisites leave legacy maintenance unchanged", LegacyAsync),
         ("combat flow v2 pet prerequisites respect disabled and other class scope", ScopeAsync),
         ("combat flow v2 pet prerequisites guard DP maintenance retries", DpAsync),
         ("combat flow v2 pet prerequisites guard status burst before every key", StatusAsync),
@@ -37,7 +36,6 @@ internal static class CoordinatedPetSkillEligibilityTests
     private static async Task<SharedSkillAuditFixture> CreateAsync(bool alive = false, bool manual = false)
     {
         var f = new SharedSkillAuditFixture();
-        f.Context.Config.CombatFlowVersion = CombatFlowVersion.CoordinatedV2;
         f.SetPet(11, alive ? 80u : 0u);
         f.Api.Player = f.Api.Player with { CurrentMp = 50 };
         f.Api.Skills = f.Api.Skills.Append(Skill(Absorb, "精灵吸收", 1, 120000) with { XmlFirstTarget = "MyPet" })
@@ -109,12 +107,6 @@ internal static class CoordinatedPetSkillEligibilityTests
         using var f = await CreateAsync(manual: true); await f.MaintainAsync();
         Sequence(Array.Empty<string>(), f.Keyboard.Keys, "manual D4 resolves to the pet-dependent skill");
         Check(f.Settings.Maintenance.MpMaintenanceRules[0].SkillId == 0, "manual configuration stays manual");
-    }
-    private static async Task LegacyAsync()
-    {
-        using var f = await CreateAsync(); f.Context.Config.CombatFlowVersion = CombatFlowVersion.Legacy;
-        f.Keyboard.AfterPress = _ => f.Confirm(Absorb); await f.MaintainAsync();
-        Sequence(new[] { "D4" }, f.Keyboard.Keys, "rollback retains original behavior");
     }
     private static async Task ScopeAsync()
     {

@@ -13,8 +13,7 @@ internal static class AccountSessionStatisticsTests
     [
         ("session statistics lifecycle death deduplication and account isolation", LifecycleAsync),
         ("session statistics trusted observations and old worker wire compatibility", TrustedReaderAndWireAsync),
-        ("session statistics legacy confirmed loot excludes retries and failed attempts", () => LootTouchTests.SessionStatisticsAsync(CombatFlowVersion.Legacy)),
-        ("session statistics v2 confirmed loot excludes retries and failed attempts", () => LootTouchTests.SessionStatisticsAsync(CombatFlowVersion.CoordinatedV2)),
+        ("session statistics confirmed loot excludes retries and failed attempts", LootTouchTests.SessionStatisticsAsync),
         ("session statistics UI counts arrive over IPC and reset on restart", RoadhogTestRunner.RunSerially(MultiAccountUiTests.SessionStatisticsAsync))
     ];
 

@@ -10,7 +10,6 @@ internal static class CoordinatedPetHpHandoffTests
     public static IReadOnlyList<(string Name, Func<Task> Run)> Cases => new (string, Func<Task>)[]
     {
         ("combat flow v2 pet heal emergency handoff", EmergencyTakesOverAsync),
-        ("combat flow v2 pet heal preserves legacy reservation", LegacyReservesAsync),
         ("combat flow v2 pet heal protects recent input", RecentInputReservesAsync),
         ("combat flow v2 pet heal honors configured input window", ConfiguredWindowAsync),
         ("combat flow v2 pet heal stale initial observation cannot hand off", StaleInitialObservationAsync),
@@ -29,10 +28,9 @@ internal static class CoordinatedPetHpHandoffTests
         ("combat flow v2 pet heal handoff isolates accounts", AccountIsolationAsync)
     };
 
-    private static async Task<SharedSkillAuditFixture> StartAsync(CombatFlowVersion version = CombatFlowVersion.CoordinatedV2)
+    private static async Task<SharedSkillAuditFixture> StartAsync()
     {
         var f = new SharedSkillAuditFixture();
-        f.Context.Config.CombatFlowVersion = version;
         f.AddPetHpRule(Routine);
         f.AddPetHpRule(Emergency, 80);
         f.Settings.Skills.Spiritmaster.PetHpMaintenanceRules[0].BelowPercent = 40;
@@ -64,13 +62,6 @@ internal static class CoordinatedPetHpHandoffTests
         Check(pending.SkillId == Emergency && pending.RuleIndex == 1 && pending.AttemptCount == 1 && pending.BaselineCurrentHp == 26,
             "new confirmation belongs to the new skill and fresh pet baseline");
         Check(f.Logged("semi_auto.spiritmaster.pet_hp.handoff", "toSkillId", Emergency), "handoff is explicit, never logged as success");
-    }
-
-    public static async Task LegacyReservesAsync()
-    {
-        using var f = await StartAsync(CombatFlowVersion.Legacy);
-        EndProtection(f); Due(f); await f.TickAsync();
-        Sequence(new[] { "D4", "D4" }, f.Keyboard.Keys, "legacy keeps its original reservation and retry");
     }
 
     public static async Task RecentInputReservesAsync()

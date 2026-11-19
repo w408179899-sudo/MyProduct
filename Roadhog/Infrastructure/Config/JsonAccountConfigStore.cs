@@ -121,21 +121,12 @@ public sealed class JsonAccountConfigStore : IAccountConfigStore
         await using var stream = AtomicJsonFile.OpenRead(_path);
         var document = await JsonSerializer.DeserializeAsync<AccountConfigDocument>(stream, _jsonOptions, cancellationToken)
             .ConfigureAwait(false);
-        if (document?.Accounts is not { } accounts) return [];
-
-        if (document.Version < AccountConfigDocument.V2CombatDefaultVersion)
-        {
-            foreach (var account in accounts.Where(account => account.CombatFlowVersion == CombatFlowVersion.Legacy))
-                account.CombatFlowVersion = CombatFlowVersion.CoordinatedV2;
-        }
-
-        return accounts;
+        return document?.Accounts ?? [];
     }
 
     private Task WriteAccountsAsync(List<AccountConfig> accounts, CancellationToken cancellationToken) =>
         AtomicJsonFile.WriteAsync(_path, new AccountConfigDocument
         {
-            Version = AccountConfigDocument.V2CombatDefaultVersion,
             Accounts = accounts
         }, _jsonOptions, cancellationToken);
 

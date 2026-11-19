@@ -8,7 +8,7 @@ using Roadhog.Core.Model;
 
 internal static class CoordinatedHealthDiagnosticsTests
 {
-    public static async Task LifeGuardObservationIsPassiveAsync(CombatFlowVersion version)
+    public static async Task LifeGuardObservationIsPassiveAsync()
     {
         var capturedAt = DateTimeOffset.Now.AddSeconds(-2);
         var api = new FakeGameApi
@@ -19,7 +19,7 @@ internal static class CoordinatedHealthDiagnosticsTests
         var logger = new InMemoryRoadhogLogger();
         var settings = new ScriptSettings();
         var context = new AccountWorkerContext(
-            new AccountConfig { AccountName = "test", CombatFlowVersion = version, ScriptSettings = settings }, api, logger,
+            new AccountConfig { AccountName = "test", ScriptSettings = settings }, api, logger,
             new AccountRuntimeManager(logger), new AccountWorkerOptions(), CancellationToken.None);
         var state = new StationaryCombatState
         {
@@ -41,12 +41,6 @@ internal static class CoordinatedHealthDiagnosticsTests
               semiAuto.HasPendingSpiritmasterSummonVerification,
             "Observation must not change combat or summon state.");
         var entries = logger.Entries.Where(e => e.EventName == "combat_flow.health.observed").ToArray();
-        if (version == CombatFlowVersion.Legacy)
-        {
-            Check(entries.Length == 0, "Legacy must not enable V2 diagnostics.");
-            return;
-        }
-
         Check(entries.Length == 1, "V2 must provide one health observation at the life guard.");
         var fields = entries[0].Fields;
         Check(Equals(fields["hp"], 42u) && Equals(fields["maxHp"], 100u) &&

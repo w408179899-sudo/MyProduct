@@ -11,7 +11,6 @@ internal static class CoordinatedSummonDefenseTests
         ("combat flow v2 summon defense begins after timeout", TimeoutYieldsDefenseAsync),
         ("combat flow v2 summon defense preserves active confirmation", PendingDoesNotYieldAsync),
         ("combat flow v2 summon defense preserves first attempt", FirstAttemptAsync),
-        ("combat flow v2 summon defense leaves legacy unchanged", LegacyAsync),
         ("combat flow v2 summon defense resumes summon without threat", NoThreatAsync),
         ("combat flow v2 summon defense resets after pet returns", PetResetsAsync),
         ("combat flow v2 summon defense honors cancellation", CancelAsync),
@@ -22,10 +21,9 @@ internal static class CoordinatedSummonDefenseTests
         ("combat flow v2 summon defense stops input on newly observed death", PlayerDiesAsync),
     };
 
-    private static async Task<SharedSkillAuditFixture> CreateAsync(CombatFlowVersion version = CombatFlowVersion.CoordinatedV2)
+    private static async Task<SharedSkillAuditFixture> CreateAsync()
     {
         var f = new SharedSkillAuditFixture();
-        f.Context.Config.CombatFlowVersion = version;
         f.Settings.Skills.Spiritmaster.SummonSkills = new() { new() { Key = "NumPad8" } };
         f.SetPet(11, 0);
         await f.PrepareAsync();
@@ -69,16 +67,6 @@ internal static class CoordinatedSummonDefenseTests
         await EnsureAsync(f, () => { called = true; return Task.FromResult(true); });
         Check(!called, "the first summon keeps the established priority");
         Sequence(new[] { "NumPad8" }, f.Keyboard.Keys, "first attempt still summons");
-    }
-
-    public static async Task LegacyAsync()
-    {
-        using var f = await CreateAsync(CombatFlowVersion.Legacy);
-        Expire(f);
-        var called = false;
-        await EnsureAsync(f, () => { called = true; return Task.FromResult(true); });
-        Check(!called, "legacy never enters V2 defense handoff");
-        Sequence(new[] { "NumPad8" }, f.Keyboard.Keys, "legacy retry is unchanged");
     }
 
     public static async Task NoThreatAsync()

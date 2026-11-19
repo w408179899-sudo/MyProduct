@@ -102,7 +102,7 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
         {
             ["account"] = context.Config.AccountName,
             ["mode"] = context.Config.MainMode.ToString(),
-            ["combatFlowVersion"] = context.Config.CombatFlowVersion.ToString(),
+            ["combatFlowVersion"] = nameof(CombatFlowVersion.CoordinatedV2),
             ["hardwareKey"] = context.Config.HardwareKey,
             ["vmmDevice"] = context.Config.VmmDeviceName
         });
@@ -348,11 +348,8 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                         }
                         if (context.CleanupRequests.Current is { } cleanup)
                         {
-                            var cleanupResult = context.Config.CombatFlowVersion == CombatFlowVersion.CoordinatedV2
-                                ? await CleanupRequestRunner.RunAsync(context, stationaryCombatState, cleanup, cleanupProgress,
-                                    new CleanupRequestActions(this, context, semiAutoPlan, semiAutoState, stationaryCombatState, jumpAssist))
-                                : await RunLegacyCleanupRequestAsync(context, semiAutoPlan, semiAutoState,
-                                    stationaryCombatState, jumpAssist, cleanup, cleanupProgress);
+                            var cleanupResult = await CleanupRequestRunner.RunAsync(context, stationaryCombatState, cleanup, cleanupProgress,
+                                new CleanupRequestActions(this, context, semiAutoPlan, semiAutoState, stationaryCombatState, jumpAssist));
                             if (cleanupResult == CleanupRequestTickResult.RestartPending) continue;
                             await Task.Delay(context.Options.TickInterval, context.StopToken);
                             continue;

@@ -67,7 +67,6 @@ public sealed partial class MultiAccountForm : Form
         tools.Controls.Add(Button("停止所选", () => BatchAsync(false)));
         tools.Controls.Add(Button("删除所选", () => RunConfigurationActionAsync(() => DeleteSelectedAsync())));
         tools.Controls.Add(Button("重新登录", () => ReloginSelectedAsync()));
-        tools.Controls.Add(Button("战斗版本", () => RunConfigurationActionAsync(ShowCombatFlowPolicyAsync)));
         tools.Controls.Add(Button("退出程序", () => ExitAsync(), exitAction: true));
         root.Controls.Add(tools, 0, 0);
         var filters = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false };
@@ -342,7 +341,7 @@ public sealed partial class MultiAccountForm : Form
     {
         var id = SelectedId(); var view = _workspace.Processes.Snapshot().FirstOrDefault(v => v.Config.InstanceId == id);
         _detail.Text = view is null ? "选择账号查看状态；勾选后可批量操作。" :
-            $"{view.Config.AccountName} · {StateText(view)} · 自动恢复：{(view.Config.AutoRecover ? "开启" : "关闭")} · {CombatFlowDescription(view)}\n" +
+            $"{view.Config.AccountName} · {StateText(view)} · 自动恢复：{(view.Config.AutoRecover ? "开启" : "关闭")}\n" +
             ((view.Error != Infrastructure.Hardware.HardwareVerificationSession.RequiredMessage ? view.Error : null)
                 ?? DiscoveryMessage(view) ?? view.Error
                 ?? view.Worker?.Snapshot?.LastWarning ?? view.Worker?.Snapshot?.CleanupProgress ?? "");

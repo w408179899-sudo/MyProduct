@@ -21,7 +21,6 @@ internal static class CoordinatedPetRecoveryEvidenceTests
         ("combat flow v2 pet recovery recovered threshold cancels without claiming success", ThresholdAsync),
         ("combat flow v2 pet recovery pet replacement clears release evidence", ReplacementAsync),
         ("combat flow v2 pet recovery evidence is account local", IsolationAsync),
-        ("combat flow v2 pet recovery leaves legacy HP confirmation unchanged", LegacyAsync),
         ("combat flow v2 pet recovery no evidence still expires", ExpiryAsync),
         ("combat flow v2 pet recovery rejected key records no evidence", RejectedAsync),
         ("combat flow v2 pet recovery MP initial attempt yields to eligible heal", MpInitialAsync),
@@ -30,15 +29,14 @@ internal static class CoordinatedPetRecoveryEvidenceTests
         ("combat flow v2 pet recovery MP handoff rechecks fresh player safety", MpFreshSafetyAsync),
         ("combat flow v2 pet recovery MP resumes after confirmed pet recovery", MpResumesAsync),
         ("combat flow v2 pet recovery MP handoff does not interrupt HP maintenance", HpPriorityAsync),
-        ("combat flow v2 pet recovery MP handoff preserves legacy retries", MpLegacyAsync),
         ("combat flow v2 pet recovery MP handoff cancellation sends no further input", MpCancelAsync),
         ("combat flow v2 pet recovery MP handoff rejected heal never resumes MP inline", MpRejectedAsync),
         ("combat flow v2 pet recovery confirmed routine heal can hand off without HP gain", EmergencyAsync),
     };
 
-    private static async Task<SharedSkillAuditFixture> CreateAsync(uint petHp = 20, CombatFlowVersion version = CombatFlowVersion.CoordinatedV2)
+    private static async Task<SharedSkillAuditFixture> CreateAsync(uint petHp = 20)
     {
-        var f = new SharedSkillAuditFixture(); f.Context.Config.CombatFlowVersion = version;
+        var f = new SharedSkillAuditFixture();
         f.AddPetHpRule(Heal, 80);
         f.Settings.Skills.Spiritmaster.PetHpMaintenanceRules[0].BelowPercent = 30;
         f.SetPet(11, petHp); await f.PrepareAsync(); return f;
@@ -121,11 +119,6 @@ internal static class CoordinatedPetRecoveryEvidenceTests
         a.Confirm(Heal); a.SetPet(11, 25); b.SetPet(11, 25); await a.TickAsync(); await b.TickAsync();
         Check(Confirmed(a) && !Confirmed(b) && b.State.PendingSpiritmasterPetHpIncreaseConfirmation is not null, "release evidence is not shared");
     }
-    private static async Task LegacyAsync()
-    {
-        using var f = await CreateAsync(version: CombatFlowVersion.Legacy); await f.TickAsync(); f.SetPet(11, 21); await f.TickAsync();
-        Check(Confirmed(f) && f.State.PendingSpiritmasterPetHpIncreaseConfirmation is null, "legacy retains its HP-only contract");
-    }
     private static async Task ExpiryAsync()
     {
         using var f = await CreateAsync(); await f.TickAsync();
@@ -188,12 +181,6 @@ internal static class CoordinatedPetRecoveryEvidenceTests
         f.Keyboard.AfterPress = _ => f.Confirm(LowHpId); await f.MaintainAsync();
         Sequence(new[] { "D2" }, f.Keyboard.Keys, "this MP-only handoff never steals human HP maintenance");
     }
-    private static async Task MpLegacyAsync()
-    {
-        using var f = await CreateAsync(version: CombatFlowVersion.Legacy); f.ConfigureResource("mp"); await f.PrepareAsync();
-        f.Keyboard.AfterPress = _ => f.Confirm(LowMpId); await f.MaintainAsync();
-        Sequence(new[] { "D3" }, f.Keyboard.Keys, "rollback retains original MP execution");
-    }
     private static async Task MpCancelAsync()
     {
         using var f = await CreateAsync(80); f.ConfigureResource("mp"); await f.PrepareAsync();
@@ -210,7 +197,7 @@ internal static class CoordinatedPetRecoveryEvidenceTests
     }
     private static async Task EmergencyAsync()
     {
-        using var f = new SharedSkillAuditFixture(); f.Context.Config.CombatFlowVersion = CombatFlowVersion.CoordinatedV2;
+        using var f = new SharedSkillAuditFixture();
         f.AddPetHpRule(Heal, 80); f.Settings.Skills.Spiritmaster.PetHpMaintenanceRules[0].BelowPercent = 30;
         f.AddPetHpRule(1785); f.SetPet(11, 31);
         f.Settings.Skills.Spiritmaster.PetHpMaintenanceRules[1].BelowPercent = 40;

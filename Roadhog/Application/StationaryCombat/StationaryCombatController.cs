@@ -153,9 +153,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
     public Task<TimeSpan> TickAsync(AccountWorkerContext context, SemiAutoSkillPlan plan,
         SemiAutoCombatState semiAutoState, StationaryCombatState state) =>
-        context.Config.CombatFlowVersion == CombatFlowVersion.CoordinatedV2
-            ? TickCoordinatedAsync(context, plan, semiAutoState, state)
-            : TickLegacyAsync(context, plan, semiAutoState, state);
+        TickCoordinatedAsync(context, plan, semiAutoState, state);
 
     public async Task<TimeSpan> TickPathAsync(
         AccountWorkerContext context,

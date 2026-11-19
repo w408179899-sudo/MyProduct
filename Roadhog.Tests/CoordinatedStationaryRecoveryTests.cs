@@ -8,10 +8,6 @@ using Roadhog.Core.Model;
 
 internal static class CoordinatedStationaryRecoveryTests
 {
-    // Separate V2 acceptance cases deliberately keep the established legacy tests unchanged.
-    private static readonly CombatFlowVersion[] Versions =
-        { CombatFlowVersion.Legacy, CombatFlowVersion.CoordinatedV2 };
-
     public static async Task ThreatPreventsRestThroughoutApproachAsync()
     {
         foreach (var lowMp in new[] { false, true })
@@ -145,145 +141,125 @@ internal static class CoordinatedStationaryRecoveryTests
         Check(!f.Input.Keys.Contains("OemComma"), "acquisition must not be preempted by another sit");
     }
 
-    public static async Task LegacyAndV2RecoveryTraceMatchesAsync()
+    public static async Task RestResumesAfterDefenseAsync()
     {
-        var traces = new List<string[]>();
-        foreach (var version in Versions)
+        using var f = new Fixture();
+        f.Api.WorldObjects = Array.Empty<WorldObjectSnapshot>();
+        await f.TickAsync();
+        Check(f.SemiAuto.IsMaintenanceResting && f.Input.Keys.SequenceEqual(new[] { "OemComma" }),
+            "low resources enter maintenance rest");
+
+        f.Api.Player = f.Api.Player with { StanceFlags = 5, MotionMode = 1 };
+        f.Api.WorldObjects = new[] { f.Attacker };
+        f.Input.AfterPress = key =>
         {
-            using var f = new Fixture(version: version);
-            var trace = new List<string>();
-            f.Api.WorldObjects = Array.Empty<WorldObjectSnapshot>();
+            if (key == "X") f.Api.Player = f.Api.Player with { StanceFlags = 1, MotionMode = 0 };
+        };
+        for (var tick = 0; tick < 3; tick++)
+        {
             await f.TickAsync();
-            Check(f.SemiAuto.IsMaintenanceResting, version + ": low resources enter maintenance rest");
-            trace.Add(f.Trace());
-
-            f.Api.Player = f.Api.Player with { StanceFlags = 5, MotionMode = 1 };
-            f.Api.WorldObjects = new[] { f.Attacker };
-            f.Input.AfterPress = key =>
-            {
-                if (key == "X") f.Api.Player = f.Api.Player with { StanceFlags = 1, MotionMode = 0 };
-            };
-            for (var tick = 0; tick < 3; tick++)
-            {
-                await f.TickAsync();
-                Check(!f.SemiAuto.IsMaintenanceResting && f.State.CurrentTargetIsMaintenanceDefense,
-                    version + ": the interrupted rest yields to defense approach");
-                trace.Add(f.Trace());
-            }
-
-            f.Api.WorldObjects = Array.Empty<WorldObjectSnapshot>();
-            await f.TickAsync();
-            Check(f.SemiAuto.IsMaintenanceResting, version + ": ended threat permits resource recovery");
-            trace.Add(f.Trace());
-            var coordinated = f.Logger.Entries.Any(e => e.EventName == "combat_flow.recovery.decision");
-            Check(coordinated == (version == CombatFlowVersion.CoordinatedV2),
-                version + ": the selected path must be observable and Legacy must not enter the new coordinator");
-            traces.Add(trace.ToArray());
+            Check(!f.SemiAuto.IsMaintenanceResting && f.State.CurrentTargetIsMaintenanceDefense,
+                "the interrupted rest yields to defense approach");
         }
-        Check(traces[0].SequenceEqual(traces[1]),
-            "old/new command and state traces must match through rest, interruption, approach and recovery" +
-            "\nLegacy: " + string.Join("\n", traces[0]) + "\nV2: " + string.Join("\n", traces[1]));
+        Check(f.Input.Keys.Count(key => key == "OemComma") == 1 && f.Input.Keys.Count(key => key == "X") == 1,
+            "a sustained threat never repeats the sit and wake loop");
+
+        f.Api.WorldObjects = Array.Empty<WorldObjectSnapshot>();
+        await f.TickAsync();
+        Check(f.SemiAuto.IsMaintenanceResting, "ended threat permits resource recovery");
+        Check(f.Logger.Entries.Any(e => e.EventName == "combat_flow.recovery.decision"),
+            "the recovery coordinator exposes its decision");
     }
 
     public static async Task NoTargetRestWaitsForStandingAsync()
     {
-        foreach (var version in Versions)
-        {
-            using var f = new Fixture(version: version);
-            f.Settings.Maintenance.SitMaintenanceEnabled = false;
-            f.Settings.Combat.ReturnHomeWhenNoTarget = true;
-            f.Settings.Combat.SitWhenNoTargetAtHome = true;
-            f.Api.Player = f.Api.Player with { CurrentHp = 99 };
-            f.Api.WorldObjects = Array.Empty<WorldObjectSnapshot>();
-            await f.TickAsync();
-            Check(f.State.NoTargetRestActive && f.Input.Keys.SequenceEqual(new[] { "OemComma" }),
-                version + ": no-target rest begins at home with non-full resources");
+        using var f = new Fixture();
+        f.Settings.Maintenance.SitMaintenanceEnabled = false;
+        f.Settings.Combat.ReturnHomeWhenNoTarget = true;
+        f.Settings.Combat.SitWhenNoTargetAtHome = true;
+        f.Api.Player = f.Api.Player with { CurrentHp = 99 };
+        f.Api.WorldObjects = Array.Empty<WorldObjectSnapshot>();
+        await f.TickAsync();
+        Check(f.State.NoTargetRestActive && f.Input.Keys.SequenceEqual(new[] { "OemComma" }),
+            "no-target rest begins at home with non-full resources");
 
-            f.Api.Player = f.Api.Player with { CurrentHp = 100, StanceFlags = 5, MotionMode = 1 };
-            await f.TickAsync();
-            Check(f.State.NoTargetRestActive && f.State.NoTargetRestExitPending &&
-                  f.Input.Keys.SequenceEqual(new[] { "OemComma", "X" }),
-                version + ": full resources start standing confirmation without treating key submission as completion");
+        f.Api.Player = f.Api.Player with { CurrentHp = 100, StanceFlags = 5, MotionMode = 1 };
+        await f.TickAsync();
+        Check(f.State.NoTargetRestActive && f.State.NoTargetRestExitPending &&
+              f.Input.Keys.SequenceEqual(new[] { "OemComma", "X" }),
+            "full resources start standing confirmation without treating key submission as completion");
 
-            f.Api.Player = f.Api.Player with { StanceFlags = 1, MotionMode = 0 };
-            await f.TickAsync();
-            await f.TickAsync();
-            Check(!f.State.NoTargetRestActive && !f.State.NoTargetRestExitPending &&
-                  f.Input.Keys.SequenceEqual(new[] { "OemComma", "X" }),
-                version + ": confirmed standing clears rest and full resources do not sit again");
-        }
+        f.Api.Player = f.Api.Player with { StanceFlags = 1, MotionMode = 0 };
+        await f.TickAsync();
+        await f.TickAsync();
+        Check(!f.State.NoTargetRestActive && !f.State.NoTargetRestExitPending &&
+              f.Input.Keys.SequenceEqual(new[] { "OemComma", "X" }),
+            "confirmed standing clears rest and full resources do not sit again");
     }
 
     public static async Task TemporarySwitchGuardPreventsBothRestKindsAsync()
     {
-        foreach (var version in Versions)
-        {
-            using var f = new Fixture(version: version);
-            f.Settings.Combat.ReturnHomeWhenNoTarget = true;
-            f.Settings.Combat.SitWhenNoTargetAtHome = true;
-            f.Api.WorldObjects = Array.Empty<WorldObjectSnapshot>();
-            f.SemiAuto.StartMaintenanceRest(forHp: true, forMp: false);
-            var until = DateTimeOffset.Now.AddMinutes(1);
-            f.State.TemporarilyExcludeTarget(f.Attacker.EntityId, f.Attacker.ServerObjectId, until, until);
-            await f.TickAsync();
-            Check(f.State.ShouldGuardTemporaryTargetSwitch(DateTimeOffset.Now), "fixture keeps the guard active");
-            Check(!f.SemiAuto.IsMaintenanceResting && !f.State.NoTargetRestActive &&
-                  !f.Input.Keys.Contains("OemComma"),
-                version + ": pending target handoff clears maintenance rest and blocks no-target rest");
-        }
+        using var f = new Fixture();
+        f.Settings.Combat.ReturnHomeWhenNoTarget = true;
+        f.Settings.Combat.SitWhenNoTargetAtHome = true;
+        f.Api.WorldObjects = Array.Empty<WorldObjectSnapshot>();
+        f.SemiAuto.StartMaintenanceRest(forHp: true, forMp: false);
+        var until = DateTimeOffset.Now.AddMinutes(1);
+        f.State.TemporarilyExcludeTarget(f.Attacker.EntityId, f.Attacker.ServerObjectId, until, until);
+        await f.TickAsync();
+        Check(f.State.ShouldGuardTemporaryTargetSwitch(DateTimeOffset.Now), "fixture keeps the guard active");
+        Check(!f.SemiAuto.IsMaintenanceResting && !f.State.NoTargetRestActive &&
+              !f.Input.Keys.Contains("OemComma"),
+            "pending target handoff clears maintenance rest and blocks no-target rest");
     }
 
     public static async Task GatherWakesRestBeforeInteractionAsync()
     {
-        foreach (var version in Versions)
+        using var f = new Fixture();
+        f.Settings.Maintenance.SitMaintenanceEnabled = false;
+        f.Settings.Combat.ReturnHomeWhenNoTarget = true;
+        f.Settings.Combat.SitWhenNoTargetAtHome = true;
+        f.Settings.Gather = new()
         {
-            using var f = new Fixture(version: version);
-            f.Settings.Maintenance.SitMaintenanceEnabled = false;
-            f.Settings.Combat.ReturnHomeWhenNoTarget = true;
-            f.Settings.Combat.SitWhenNoTargetAtHome = true;
-            f.Settings.Gather = new()
-            {
-                StationaryPriorityEnabled = true, StationarySearchRadiusMeters = 10,
-                ThreatClearRadiusMeters = 7, OccupiedCheckRadiusMeters = 5,
-                Rules = new() { new() { Enabled = true, GatherSourceId = 400951, Name = "shell", GatherKey = "NumPad1" } }
-            };
-            f.Api.Player = f.Api.Player with { CurrentHp = 99 };
-            f.Api.WorldObjects = Array.Empty<WorldObjectSnapshot>();
-            var now = DateTimeOffset.Now;
-            f.Api.Gather = new(1, 100, new(0, 0, 0), Array.Empty<GatherObjectSnapshot>(),
-                Array.Empty<GatherCompetitionPlayerSnapshot>(), Array.Empty<WorldObjectSnapshot>(), true, true,
-                new(true, false, 0, false, 0, null, null), now);
-            await f.TickAsync();
-            Check(f.State.NoTargetRestActive && f.Input.Keys.SequenceEqual(new[] { "OemComma" }),
-                version + ": empty gather field permits no-target rest");
+            StationaryPriorityEnabled = true, StationarySearchRadiusMeters = 10,
+            ThreatClearRadiusMeters = 7, OccupiedCheckRadiusMeters = 5,
+            Rules = new() { new() { Enabled = true, GatherSourceId = 400951, Name = "shell", GatherKey = "NumPad1" } }
+        };
+        f.Api.Player = f.Api.Player with { CurrentHp = 99 };
+        f.Api.WorldObjects = Array.Empty<WorldObjectSnapshot>();
+        var now = DateTimeOffset.Now;
+        f.Api.Gather = new(1, 100, new(0, 0, 0), Array.Empty<GatherObjectSnapshot>(),
+            Array.Empty<GatherCompetitionPlayerSnapshot>(), Array.Empty<WorldObjectSnapshot>(), true, true,
+            new(true, false, 0, false, 0, null, null), now);
+        await f.TickAsync();
+        Check(f.State.NoTargetRestActive && f.Input.Keys.SequenceEqual(new[] { "OemComma" }),
+            "empty gather field permits no-target rest");
 
-            f.Api.Player = f.Api.Player with { StanceFlags = 5, MotionMode = 1 };
-            f.Api.Gather = f.Api.Gather with
-            {
-                Objects = new[] { new GatherObjectSnapshot(10, 10010, 400951, "shell", 1, 1, 2, 19,
-                    new(1, 0, 0), new(1, 0, 0), 1, false, null, now.AddSeconds(1)) },
-                CapturedAt = now.AddSeconds(1)
-            };
-            f.State.LastGatherScanAt = DateTimeOffset.MinValue;
-            await f.TickAsync();
-            Check(f.State.NoTargetRestExitPending && f.Input.Keys.SequenceEqual(new[] { "OemComma", "X" }),
-                version + ": available gather work must first wake the player without interacting while seated");
+        f.Api.Player = f.Api.Player with { StanceFlags = 5, MotionMode = 1 };
+        f.Api.Gather = f.Api.Gather with
+        {
+            Objects = new[] { new GatherObjectSnapshot(10, 10010, 400951, "shell", 1, 1, 2, 19,
+                new(1, 0, 0), new(1, 0, 0), 1, false, null, now.AddSeconds(1)) },
+            CapturedAt = now.AddSeconds(1)
+        };
+        f.State.LastGatherScanAt = DateTimeOffset.MinValue;
+        await f.TickAsync();
+        Check(f.State.NoTargetRestExitPending && f.Input.Keys.SequenceEqual(new[] { "OemComma", "X" }),
+            "available gather work must first wake the player without interacting while seated");
 
-            f.Api.Player = f.Api.Player with { StanceFlags = 1, MotionMode = 0 };
-            f.State.LastGatherScanAt = DateTimeOffset.MinValue;
-            await f.TickAsync();
-            Check(!f.State.NoTargetRestActive && f.Input.Keys.Contains("NumPad1") &&
-                  f.Input.Keys.Count(key => key == "OemComma") == 1,
-                version + ": confirmed standing transfers input to gathering without reentering rest");
-        }
+        f.Api.Player = f.Api.Player with { StanceFlags = 1, MotionMode = 0 };
+        f.State.LastGatherScanAt = DateTimeOffset.MinValue;
+        await f.TickAsync();
+        Check(!f.State.NoTargetRestActive && f.Input.Keys.Contains("NumPad1") &&
+              f.Input.Keys.Count(key => key == "OemComma") == 1,
+            "confirmed standing transfers input to gathering without reentering rest");
     }
 
     public static async Task StopDuringRestInterruptionPreventsFurtherInputAsync()
     {
-        foreach (var version in Versions)
         foreach (var cancelBeforeTick in new[] { true, false })
         {
-            using var f = new Fixture(version: version);
+            using var f = new Fixture();
             f.SemiAuto.StartMaintenanceRest(forHp: true, forMp: false);
             f.Api.Player = f.Api.Player with { StanceFlags = 5, MotionMode = 1 };
             if (cancelBeforeTick) f.Cancel();
@@ -291,12 +267,12 @@ internal static class CoordinatedStationaryRecoveryTests
             try
             {
                 await f.TickAsync();
-                throw new InvalidOperationException(version + ": canceled tick must propagate cancellation");
+                throw new InvalidOperationException("canceled tick must propagate cancellation");
             }
             catch (OperationCanceledException) { }
             var expected = cancelBeforeTick ? Array.Empty<string>() : new[] { "X" };
             Check(f.Input.Keys.SequenceEqual(expected) && f.Input.KeyDowns.Count == 0,
-                version + ": Stop cannot leak a sit, acquire or movement input after the cancellation boundary");
+                "Stop cannot leak a sit, acquire or movement input after the cancellation boundary");
         }
     }
 
@@ -329,7 +305,7 @@ internal static class CoordinatedStationaryRecoveryTests
         public AccountWorkerContext Context { get; }
         public SemiAutoSkillPlan Plan { get; }
 
-        public Fixture(bool lowMp = false, bool targetsPet = false, CombatFlowVersion version = CombatFlowVersion.CoordinatedV2)
+        public Fixture(bool lowMp = false, bool targetsPet = false)
         {
             Settings.Skills.SpiritmasterAutoSkillLogicEnabled = targetsPet;
             Api.Player = new(1, 0, "test", lowMp ? 100u : 20u, 100, lowMp ? 10u : 100u, 100,
@@ -344,7 +320,7 @@ internal static class CoordinatedStationaryRecoveryTests
             Api.WorldObjects = new[] { Attacker };
             State.MarkStartupRecoveryChecked();
             Controller = new(Input, new SemiAutoCombatController(Input));
-            Context = new(new AccountConfig { AccountName = "test", ScriptSettings = Settings, CombatFlowVersion = version }, Api, Logger,
+            Context = new(new AccountConfig { AccountName = "test", ScriptSettings = Settings }, Api, Logger,
                 new AccountRuntimeManager(Logger), new AccountWorkerOptions(), _stop.Token);
             Plan = SemiAutoSkillPlan.FromSettings(Settings.Skills);
         }
@@ -352,14 +328,6 @@ internal static class CoordinatedStationaryRecoveryTests
         public Task<TimeSpan> TickAsync() => Controller.TickAsync(Context, Plan, SemiAuto, State);
 
         public void Cancel() => _stop.Cancel();
-
-        public string Trace() => string.Join("|", new object[]
-        {
-            string.Join(",", Input.Keys), string.Join(",", Input.KeyDowns), string.Join(",", Input.KeyUps),
-            State.Fighting, State.CandidateEntityId, State.CandidateServerObjectId,
-            State.CurrentTargetIsMaintenanceDefense, State.IsMovingForward,
-            State.NoTargetRestActive, State.NoTargetRestExitPending, SemiAuto.IsMaintenanceResting
-        });
 
         public void Dispose()
         {

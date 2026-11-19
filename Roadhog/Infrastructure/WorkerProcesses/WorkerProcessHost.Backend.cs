@@ -124,14 +124,15 @@ internal sealed partial class RoadhogWorkerProcessBackend : IWorkerProcessBacken
             string.Equals(s.AccountName, _spec.Account.AccountName, StringComparison.OrdinalIgnoreCase));
         var license = _services.LicenseCoordinator.State;
         var restart = _services.AccountOrchestrator.GetScriptRestartRequest(_spec.Account.AccountName);
+        var isRunning = state?.Status is "starting" or "running" or "stopping";
         return new WorkerStatus
         {
             InstanceId = _spec.Account.InstanceId,
             ProcessId = Environment.ProcessId,
             Authorized = license.IsAuthorized,
             AuthorizationError = license.ErrorCode ?? (license.IsAuthorized ? null : license.Kind.ToString()),
-            IsRunning = state?.Status is "starting" or "running" or "stopping",
-            ActiveCombatFlowVersion = _services.AccountOrchestrator.GetActiveCombatFlowVersion(_spec.Account.AccountName),
+            IsRunning = isRunning,
+            ActiveCombatFlowVersion = isRunning ? CombatFlowVersion.CoordinatedV2 : null,
             LoginCompleted = _loginCompleted,
             GameDisconnectRequestId = DisconnectRequestId,
             LoginRetryPending = _loginRetryPending,
@@ -178,11 +179,6 @@ internal sealed partial class RoadhogWorkerProcessBackend : IWorkerProcessBacken
             catch (Exception) { return OperationResult.Fail("无法读取已保存的登录密码，请重新保存。"); }
         }
         account = account.Clone();
-        var alreadyRunning = GetStatus().IsRunning;
-        if (!alreadyRunning)
-            account.CombatFlowVersion = await new Config.JsonCombatFlowPolicyStore(
-                    Config.JsonCombatFlowPolicyStore.PathFor(_spec.Paths.AccountConfigPath))
-                .ResolveAsync(account.CombatFlowVersion, _services.Logger, token).ConfigureAwait(false);
         if (_services.AccountConfigStore is WorkerAccountConfigStore store) store.Update(account);
         lock (_disconnectSync)
         {
@@ -231,10 +227,6 @@ internal sealed partial class RoadhogWorkerProcessBackend : IWorkerProcessBacken
     {
         cancellationToken.ThrowIfCancellationRequested();
         account = account.Clone();
-        if (!GetStatus().IsRunning)
-            account.CombatFlowVersion = await new Config.JsonCombatFlowPolicyStore(
-                    Config.JsonCombatFlowPolicyStore.PathFor(_spec.Paths.AccountConfigPath))
-                .ResolveAsync(account.CombatFlowVersion, _services.Logger, cancellationToken).ConfigureAwait(false);
         _services.Runtime.ApplyFileLoggingSettings(account.AccountName, account.ScriptSettings?.GenerateLogFiles ?? true);
         var hardware = ValidatePhysicalBinding();
         if (!hardware.Success) return hardware;

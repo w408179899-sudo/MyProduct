@@ -25,7 +25,7 @@ internal static class CombatFlowRefactorTests
             foreach (var scenario in new[] { "queued", "success", "restart", "combat", "death", "session", "trip", "discard", "failure", "budget", "post_sale", "execution_failure", "stop_prepare", "stop_jump" })
                 yield return ("refactor cleanup ownership " + scenario, () => CleanupOwnershipAsync(scenario));
             foreach (var scenario in new[] { "none", "low_hp", "ordinary_approach", "defense_approach", "dead", "outside_home", "postcombat_return" })
-                yield return ("refactor stationary legacy v2 phase parity " + scenario, () => PhaseParityAsync(scenario));
+                yield return ("refactor stationary phase " + scenario, () => StationaryPhaseAsync(scenario));
             foreach (var test in CombatFlowMaintenanceAdapterTests.Cases) yield return test;
         }
     }
@@ -284,51 +284,57 @@ internal static class CombatFlowRefactorTests
         }
     }
 
-    private static async Task PhaseParityAsync(string scenario)
+    private static async Task StationaryPhaseAsync(string scenario)
     {
-        var traces = new List<string>();
-        foreach (var version in new[] { CombatFlowVersion.Legacy, CombatFlowVersion.CoordinatedV2 })
+        using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var settings = new ScriptSettings
         {
-            using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-            var settings = new ScriptSettings
+            MainMode = AccountMainMode.CustomCombat, CombatMode = AccountCombatMode.Stationary,
+            Combat = new() { HasStationaryCombatPosition = true, StationaryCombatRadius = 60,
+                TargetAcquireDistance = 29, ReturnHomeWhenNoTarget = false, EnableLoot = false },
+            Maintenance = new() { SitMaintenanceEnabled = true, SitHpBelowPercent = 50, SitHpRecoverToPercent = 60 },
+            SemiAuto = new() { KeyHoldMs = 1, KeyGapMs = 1 }
+        };
+        var api = new FakeGameApi
+        {
+            Player = new(1, 0, "test", scenario == "dead" ? 0u : scenario == "low_hp" ? 20u : 100u, 100,
+                100, 100, 0, new(scenario == "outside_home" ? 100 : 0, 0, 0), DateTimeOffset.Now, StanceFlags: 1),
+            TargetEntityId = 0, TargetCurrentHp = 0, TargetPosition = null,
+            WorldObjects = scenario.EndsWith("approach") ? new[]
             {
-                MainMode = AccountMainMode.CustomCombat, CombatMode = AccountCombatMode.Stationary,
-                Combat = new() { HasStationaryCombatPosition = true, StationaryCombatRadius = 60,
-                    TargetAcquireDistance = 29, ReturnHomeWhenNoTarget = false, EnableLoot = false },
-                Maintenance = new() { SitMaintenanceEnabled = true, SitHpBelowPercent = 50, SitHpRecoverToPercent = 60 },
-                SemiAuto = new() { KeyHoldMs = 1, KeyGapMs = 1 }
-            };
-            var api = new FakeGameApi
+                new WorldObjectSnapshot(200, 2000, "monster", "monster", new(50, 0, 0), 50, 1000, 1000,
+                    TargetServerObjectId: scenario == "defense_approach" ? 100u : 0u,
+                    IsTargetingLocalPlayer: scenario == "defense_approach")
+            } : Array.Empty<WorldObjectSnapshot>()
+        };
+        var input = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var state = new StationaryCombatState { PostCombatReturnPending = scenario == "postcombat_return" };
+        state.MarkStartupRecoveryChecked();
+        var semiAuto = new SemiAutoCombatState();
+        var context = new AccountWorkerContext(new AccountConfig { AccountName = "test", ScriptSettings = settings },
+            api, logger, new AccountRuntimeManager(logger), new AccountWorkerOptions(), stop.Token);
+        var controller = new StationaryCombatController(input, new SemiAutoCombatController(input));
+        try
+        {
+            await controller.TickAsync(context, SemiAutoSkillPlan.FromSettings(settings.Skills), semiAuto, state);
+            Check(!state.Fighting && state.CurrentTargetEntityId == 0, "no scenario has a confirmed target lock");
+            Check(semiAuto.IsMaintenanceResting == (scenario == "low_hp"), "only low HP enters maintenance rest");
+            Check((state.TopLevelState == StationaryCombatTopLevelState.DeathRecovery) == (scenario == "dead"),
+                "death takes priority over other stationary phases");
+            if (scenario is "ordinary_approach" or "defense_approach")
             {
-                Player = new(1, 0, "test", scenario == "dead" ? 0u : scenario == "low_hp" ? 20u : 100u, 100,
-                    100, 100, 0, new(scenario == "outside_home" ? 100 : 0, 0, 0), DateTimeOffset.Now, StanceFlags: 1),
-                TargetEntityId = 0, TargetCurrentHp = 0, TargetPosition = null,
-                WorldObjects = scenario.EndsWith("approach") ? new[]
-                {
-                    new WorldObjectSnapshot(200, 2000, "monster", "monster", new(50, 0, 0), 50, 1000, 1000,
-                        TargetServerObjectId: scenario == "defense_approach" ? 100u : 0u,
-                        IsTargetingLocalPlayer: scenario == "defense_approach")
-                } : Array.Empty<WorldObjectSnapshot>()
-            };
-            var input = new RecordingKeyboardInput();
-            var logger = new InMemoryRoadhogLogger();
-            var state = new StationaryCombatState { PostCombatReturnPending = scenario == "postcombat_return" };
-            state.MarkStartupRecoveryChecked();
-            var semiAuto = new SemiAutoCombatState();
-            var context = new AccountWorkerContext(new AccountConfig { AccountName = "test", ScriptSettings = settings, CombatFlowVersion = version },
-                api, logger, new AccountRuntimeManager(logger), new AccountWorkerOptions(), stop.Token);
-            var controller = new StationaryCombatController(input, new SemiAutoCombatController(input));
-            try
-            {
-                var delay = await controller.TickAsync(context, SemiAutoSkillPlan.FromSettings(settings.Skills), semiAuto, state);
-                traces.Add(string.Join("|", new object[] { string.Join(",", input.Keys), string.Join(",", input.KeyDowns),
-                    string.Join(",", input.KeyUps), state.TopLevelState, state.Fighting, state.CurrentTargetEntityId,
-                    state.CandidateEntityId, state.CurrentTargetIsMaintenanceDefense, state.ReturningHome,
-                    state.PostCombatReturnPending, state.NoTargetRestActive, semiAuto.IsMaintenanceResting, delay }));
+                Check(state.CandidateEntityId == 200 &&
+                      state.CurrentTargetIsMaintenanceDefense == (scenario == "defense_approach"),
+                    "the approach preserves the selected candidate and its defense role");
             }
-            finally { controller.StopWorkerBackgroundWork(context, state); stop.Cancel(); }
+            else
+            {
+                Check(state.CandidateEntityId == 0, "no candidate is acquired without a target");
+            }
+            if (scenario != "low_hp") Check(!input.Keys.Contains("OemComma"), "non-maintenance phases must not sit");
         }
-        Check(traces[0] == traces[1], scenario + ": phase extraction changed observable behavior\nLegacy: " + traces[0] + "\nV2: " + traces[1]);
+        finally { controller.StopWorkerBackgroundWork(context, state); stop.Cancel(); }
     }
 
     private static SkillSnapshot Skill() => new(11, "test", 1, 1, "test", 1, false, 1000, 0);

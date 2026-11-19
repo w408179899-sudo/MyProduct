@@ -96,12 +96,6 @@ if (args.Contains("--host-robustness-worker"))
     return;
 }
 
-if (args.Contains("--account-worker") && args.Contains("--worker-scenario=combat-flow-versioned"))
-{
-    Environment.ExitCode = await WorkerProcessManagerTests.RunVersionedCombatFlowChildAsync(args);
-    return;
-}
-
 if (args.Contains("--account-worker"))
 {
     Environment.ExitCode = await WorkerProcessManagerTests.RunChildAsync(args);
@@ -1833,7 +1827,7 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("combat flow v2 ordinary monsters allow rest", CoordinatedStationaryRecoveryTests.OrdinaryMonstersStillAllowRestAsync)
     ,("combat flow v2 recovery precedes defense", CoordinatedStationaryRecoveryTests.RecoveryStillPrecedesDefenseAsync)
     ,("combat flow v2 defense enters combat", CoordinatedStationaryRecoveryTests.DefenseStillEntersCombatAsync)
-    ,("combat flow legacy and v2 recovery traces match", CoordinatedStationaryRecoveryTests.LegacyAndV2RecoveryTraceMatchesAsync)
+    ,("combat flow rest resumes after sustained defense approach", CoordinatedStationaryRecoveryTests.RestResumesAfterDefenseAsync)
     ,("combat flow v2 no target rest awaits standing", CoordinatedStationaryRecoveryTests.NoTargetRestWaitsForStandingAsync)
     ,("combat flow v2 temporary switch guard prevents rest", CoordinatedStationaryRecoveryTests.TemporarySwitchGuardPreventsBothRestKindsAsync)
     ,("combat flow v2 gather wakes rest before interaction", CoordinatedStationaryRecoveryTests.GatherWakesRestBeforeInteractionAsync)
@@ -1843,18 +1837,10 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("combat flow coordinator observes post action state", CoordinatorContractTests.StandingConfirmationUsesPostActionStateAsync)
     ,("combat flow coordinator defense preserves resource maintenance", CoordinatorContractTests.DefenseDeniesSitButPreservesResourceMaintenanceAsync)
     ,("combat flow coordinator guard and gather preserve ownership", CoordinatorContractTests.GuardAndGatherPreserveOwnershipAsync)
-    ,("combat flow policy defaults and unknown versions", CombatFlowPolicyTests.DefaultsAndUnknownVersionsAsync)
-    ,("combat flow policy old accounts adopt v2 and allow resaving legacy", CombatFlowPolicyTests.OldAccountsAdoptV2AndAllowResavingLegacyAsync)
-    ,("combat flow policy persistence and malformed fallback", CombatFlowPolicyTests.PolicyPersistenceAndMalformedFallbackAsync)
-    ,("combat flow policy account selection survives profiles and serialization", CombatFlowPolicyTests.AccountSelectionSurvivesProfileAndSerializationAsync)
-    ,("combat flow policy direct startup preserves active version", CombatFlowPolicyTests.DirectStartupUsesPolicyAndKeepsRunningVersionAsync)
-    ,("combat flow rollback stops only new accounts", RunSerially(WorkerProcessManagerTests.CombatFlowRollbackStopsOnlyNewAccountsAsync))
-    ,("combat flow rollback cancels pending start", RunSerially(WorkerProcessManagerTests.CombatFlowRollbackCancelsPendingStartAsync))
-    ,("combat flow rollback completes after manager reopen", RunSerially(WorkerProcessManagerTests.CombatFlowRollbackCompletesAfterManagerReopenAsync))
-    ,("combat flow rollback preserves adopted legacy worker", RunSerially(WorkerProcessManagerTests.CombatFlowRollbackPreservesAdoptedLegacyWorkerAsync))
+    ,("combat flow retired account fields load and save without changing gameplay settings", CombatFlowRetirementTests.OldAccountConfigsRoundTripAsync)
+    ,("combat flow retired policy never interrupts adopted workers", RunSerially(WorkerProcessManagerTests.RetiredCombatPolicyDoesNotInterruptWorkersAsync))
     ,("combat flow toolbar fits minimum width", RunSerially(MultiAccountUiTests.CombatFlowToolbarFitsMinimumWidthAsync))
     ,("combat flow v2 summon gives low HP recovery an input turn", CoordinatedSummonRecoveryTests.LowHpPrecedesSummonAsync)
-    ,("combat flow v2 summon preserves legacy order", CoordinatedSummonRecoveryTests.LegacyKeepsSummonFirstAsync)
     ,("combat flow v2 summon confirmation reserves input", CoordinatedSummonRecoveryTests.ConfirmationReservesInputAsync)
     ,("combat flow v2 summon timeout yields HP", CoordinatedSummonRecoveryTests.ExpiredConfirmationYieldsHpAsync)
     ,("combat flow v2 summon survives unconfirmed HP recovery", CoordinatedSummonRecoveryTests.HpFailureCannotStarveSummonAsync)
@@ -1867,8 +1853,7 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("combat flow v2 summon stop before summon input", () => CoordinatedSummonRecoveryTests.StopDuringPreparationSendsNoInputAsync(false))
     ,("combat flow v2 summon living pet resets handoff", CoordinatedSummonRecoveryTests.LivingPetResetsHandoffAsync)
     ,("combat flow v2 summon preserves drain target guard", CoordinatedSummonRecoveryTests.DrainTargetGuardSurvivesHandoffAsync)
-    ,("combat flow v2 health diagnostics are passive", () => CoordinatedHealthDiagnosticsTests.LifeGuardObservationIsPassiveAsync(CombatFlowVersion.CoordinatedV2))
-    ,("combat flow legacy excludes health diagnostics", () => CoordinatedHealthDiagnosticsTests.LifeGuardObservationIsPassiveAsync(CombatFlowVersion.Legacy))
+    ,("combat flow v2 health diagnostics are passive", CoordinatedHealthDiagnosticsTests.LifeGuardObservationIsPassiveAsync)
 }).Concat(CombatFlowRefactorTests.Cases).Concat(CoordinatedPetHpHandoffTests.Cases).Concat(CoordinatedSummonDefenseTests.Cases).Concat(CoordinatedSummonCooldownTests.Cases).Concat(CoordinatedPetSkillEligibilityTests.Cases).Concat(CoordinatedPetRecoveryEvidenceTests.Cases).Concat(AccountSessionStatisticsTests.Cases).ToArray();
 
 Environment.ExitCode = await RoadhogTestRunner.RunAsync(tests, args);

@@ -15,7 +15,6 @@ internal static class CoordinatedSummonCooldownTests
         ("combat flow v2 summon cooldown expiry resumes input", ExpiryAsync),
         ("combat flow v2 summon cooldown waits through final eighty milliseconds", ExactBoundaryAsync),
         ("combat flow v2 summon cooldown ready skill has no artificial wait", ReadyAsync),
-        ("combat flow v2 summon cooldown leaves legacy unchanged", LegacyAsync),
         ("combat flow v2 summon cooldown guards combat maintenance entry", CombatEntryAsync),
         ("combat flow v2 summon cooldown allows actual defense before any cast", DefenseAsync),
         ("combat flow v2 summon cooldown preserves HP priority", HpAsync),
@@ -32,11 +31,9 @@ internal static class CoordinatedSummonCooldownTests
         ("combat flow v2 summon cooldown is isolated between accounts", IsolationAsync),
     };
 
-    private static async Task<SharedSkillAuditFixture> CreateAsync(bool manual = false, bool speed = false,
-        CombatFlowVersion version = CombatFlowVersion.CoordinatedV2)
+    private static async Task<SharedSkillAuditFixture> CreateAsync(bool manual = false, bool speed = false)
     {
         var f = new SharedSkillAuditFixture();
-        f.Context.Config.CombatFlowVersion = version;
         f.SetPet(11, 0);
         f.Api.Skills = f.Api.Skills.Append(Skill(PetId, "pet summon", 1, 5000))
             .Append(Skill(SpeedId, "summon speed", 1, 60000)).ToArray();
@@ -99,11 +96,6 @@ internal static class CoordinatedSummonCooldownTests
             }
         }
         return Task.CompletedTask;
-    }
-    private static async Task LegacyAsync()
-    {
-        using var f = await CreateAsync(version: CombatFlowVersion.Legacy); f.Confirm(PetId);
-        await Ensure(f); Sequence(new[] { PetKey }, f.Keyboard.Keys, "legacy keeps its original input contract");
     }
     private static async Task CombatEntryAsync()
     {

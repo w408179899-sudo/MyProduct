@@ -7,7 +7,6 @@ namespace Roadhog.Application.SemiAuto;
 public sealed partial class SemiAutoCombatController
 {
     private static bool UsesCoordinatedPetEligibility(AccountWorkerContext context) =>
-        context.Config.CombatFlowVersion == CombatFlowVersion.CoordinatedV2 &&
         context.Config.ScriptSettings?.Skills?.SpiritmasterAutoSkillLogicEnabled == true;
 
     private async Task<PetSkillGuard?> CreatePetSkillGuardAsync(AccountWorkerContext context,
