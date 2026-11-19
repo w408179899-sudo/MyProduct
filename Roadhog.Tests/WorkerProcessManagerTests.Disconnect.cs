@@ -68,8 +68,13 @@ internal static partial class WorkerProcessManagerTests
         var offline = Path.Combine(log, "network-offline");
         await File.WriteAllTextAsync(offline, "offline");
         await test.Client(account).CallAsync<OperationResult>("mock.game-disconnected", [Guid.NewGuid()]);
-        await UntilAsync(() => File.Exists(Path.Combine(log, "login-retries")) && File.ReadAllLines(Path.Combine(log, "login-retries")).Length >= 3,
-            "long outage retries existing login across fresh workers");
+        var retryLog = Path.Combine(log, "login-retries");
+        await UntilAsync(() =>
+        {
+            if (!File.Exists(retryLog)) return false;
+            using var reader = new StreamReader(File.Open(retryLog, FileMode.Open, FileAccess.Read, FileShare.ReadWrite));
+            return reader.ReadToEnd().Count(character => character == '\n') >= 3;
+        }, "long outage retries existing login across fresh workers");
         Require(View(manager, account).DesiredRunning && !IsAlive(old!.Value), "outage preserves intent and reaps old session");
         Require(File.ReadAllText(Path.Combine(test.Root, "config", "workers", "run-intent.json")).Contains(account.InstanceId), "intent remains durable");
         File.Delete(offline);

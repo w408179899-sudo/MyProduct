@@ -32,6 +32,7 @@ using Roadhog.Infrastructure.Gathering;
 using Roadhog.Infrastructure.Paths;
 using Roadhog.Infrastructure.Profiles;
 using Roadhog.Infrastructure.Vmm;
+using static RoadhogTestRunner;
 
 if (args.Contains("--file-log-replay"))
 {
@@ -217,14 +218,14 @@ var tests = new (string Name, Func<Task> Run)[]
     ("advanced profiles atomic library revisions duplicates and corrupt files", AdvancedSkillProfileTests.StoreAsync),
     ("advanced profiles startup sharing snapshots local enable and missing fallback", AdvancedSkillProfileTests.StartupAsync),
     ("advanced profiles shared skills bind each account own keys", AdvancedSkillProfileTests.AccountBindingsAsync),
-    ("advanced profiles UI create select save-as cancel and stale editor", AdvancedSkillProfileTests.UiAsync),
-    ("advanced profiles account save rollback and manual rank refresh", AdvancedSkillProfileTests.RollbackAndRefreshAsync),
+    ("advanced profiles UI create select save-as cancel and stale editor", RunSerially(AdvancedSkillProfileTests.UiAsync)),
+    ("advanced profiles account save rollback and manual rank refresh", RunSerially(AdvancedSkillProfileTests.RollbackAndRefreshAsync)),
     ("advanced skills settings persistence manual input and duplicate membership", AdvancedSkillTests.PersistenceAndMembershipAsync),
     ("advanced skills exact matching and original plan isolation", AdvancedSkillTests.MatchingAndIsolationAsync),
     ("advanced skills priority preserves pending actions and complete chains", AdvancedSkillTests.PriorityAndChainsAsync),
     ("advanced skills runtime excludes opening and loops without interruption", AdvancedSkillTests.RuntimeLoopAsync),
     ("advanced skills runtime disabled empty cooling and stop boundaries", AdvancedSkillTests.RuntimeFallbacksAsync),
-    ("advanced skills UI manual names scanning layout save and cancellation", AdvancedSkillUiTests.EditorAsync),
+    ("advanced skills UI manual names scanning layout save and cancellation", RunSerially(AdvancedSkillUiTests.EditorAsync)),
     ("advanced skills executor finishes three-link chain and retains target guard", AdvancedSkillTests.ExecutorChainAsync),
     ("game-disconnect cold read retries and held publication", GameDisconnectTests.ColdStartAndFailureAsync),
     ("game-disconnect complete absence and lifecycle isolation", GameDisconnectTests.PublicationAndLifecycleAsync),
@@ -232,12 +233,12 @@ var tests = new (string Name, Func<Task> Run)[]
     ("game-disconnect monitor tracks process replacement independently", GameDisconnectTests.MonitorProcessReplacementAsync),
     ("game-disconnect reconnect preserves game and still detects exit", GameDisconnectReconnectTests.ReconnectThenExitAsync),
     ("game-disconnect reconnect pending read respects manual stop", GameDisconnectReconnectTests.StopWhileReconnectingAsync),
-    ("game-disconnect retries login and isolates neighbor", WorkerProcessManagerTests.DisconnectRecoveryRetriesAndIsolatesAsync),
-    ("game-disconnect manual stop and disabled recovery", WorkerProcessManagerTests.DisconnectStopAndDisabledAsync),
-    ("game-disconnect scheduled offline supersedes retries", WorkerProcessManagerTests.DisconnectScheduleOfflineWinsAsync),
-    ("game-disconnect scheduled offline cancels long login", WorkerProcessManagerTests.DisconnectScheduleCancelsLongLoginAsync),
-    ("game-disconnect stop wins old worker reconciliation gap", WorkerProcessManagerTests.DisconnectStopDuringReconciliationAsync),
-    ("game-disconnect startup rejection preserves recovery", WorkerProcessManagerTests.DisconnectStartFailureKeepsRetryingAsync),
+    ("game-disconnect retries login and isolates neighbor", RunSerially(WorkerProcessManagerTests.DisconnectRecoveryRetriesAndIsolatesAsync)),
+    ("game-disconnect manual stop and disabled recovery", RunSerially(WorkerProcessManagerTests.DisconnectStopAndDisabledAsync)),
+    ("game-disconnect scheduled offline supersedes retries", RunSerially(WorkerProcessManagerTests.DisconnectScheduleOfflineWinsAsync)),
+    ("game-disconnect scheduled offline cancels long login", RunSerially(WorkerProcessManagerTests.DisconnectScheduleCancelsLongLoginAsync)),
+    ("game-disconnect stop wins old worker reconciliation gap", RunSerially(WorkerProcessManagerTests.DisconnectStopDuringReconciliationAsync)),
+    ("game-disconnect startup rejection preserves recovery", RunSerially(WorkerProcessManagerTests.DisconnectStartFailureKeepsRetryingAsync)),
     ("game-disconnect monitor exceptions retry without false exit and respect Stop", DisconnectWatchRecoveryTests.FaultsNeverConfirmExitAndStopCancelsRetryAsync),
     ("game-disconnect cancellation does not wait for native capture", GameDisconnectTests.NativeWaitCancellationAsync),
     ("game-disconnect business cannot inspect raw read quality", GameDisconnectTests.BusinessBoundaryAsync),
@@ -245,14 +246,14 @@ var tests = new (string Name, Func<Task> Run)[]
     ("daily-schedule fixed slots offline priority and no replay", DailyGameScheduleTests.FixedSlotsAndOfflinePriorityAsync),
     ("daily-schedule manual stop until next planned online", DailyGameScheduleTests.ManualStopAndNextDayAsync),
     ("daily-schedule validation clone and legacy defaults", DailyGameScheduleTests.ValidationAndCloneAsync),
-    ("daily-schedule manual stop survives manager reopen", WorkerProcessManagerTests.DailyScheduleManualStopSurvivesReopenAsync),
-    ("daily-schedule offline beats fixed relogin", WorkerProcessManagerTests.DailyScheduleOfflineWinsAsync),
-    ("daily-schedule fixed relogin once across reopening", WorkerProcessManagerTests.DailyScheduleFixedReloginOnceAsync),
-    ("daily-schedule deadline cancels pending startup", WorkerProcessManagerTests.DailyScheduleDeadlineCancelsPendingStartAsync),
-    ("daily-schedule Stop wins queued admission", WorkerProcessManagerTests.DailyScheduleStopWinsQueuedAdmissionAsync),
-    ("daily-schedule changed config cancels queued admission", WorkerProcessManagerTests.DailyScheduleChangedBeforeDispatchAsync),
-    ("daily-schedule busy hardware defers without disturbing owner", WorkerProcessManagerTests.DailyScheduleBusyDeviceRetriesWithoutReplayAsync),
-    ("daily-schedule Overview UI validation and persistence", MultiAccountUiTests.DailyScheduleOverviewSaveAsync),
+    ("daily-schedule manual stop survives manager reopen", RunSerially(WorkerProcessManagerTests.DailyScheduleManualStopSurvivesReopenAsync)),
+    ("daily-schedule offline beats fixed relogin", RunSerially(WorkerProcessManagerTests.DailyScheduleOfflineWinsAsync)),
+    ("daily-schedule fixed relogin once across reopening", InIsolation(WorkerProcessManagerTests.DailyScheduleFixedReloginOnceAsync)),
+    ("daily-schedule deadline cancels pending startup", RunSerially(WorkerProcessManagerTests.DailyScheduleDeadlineCancelsPendingStartAsync)),
+    ("daily-schedule Stop wins queued admission", RunSerially(WorkerProcessManagerTests.DailyScheduleStopWinsQueuedAdmissionAsync)),
+    ("daily-schedule changed config cancels queued admission", RunSerially(WorkerProcessManagerTests.DailyScheduleChangedBeforeDispatchAsync)),
+    ("daily-schedule busy hardware defers without disturbing owner", RunSerially(WorkerProcessManagerTests.DailyScheduleBusyDeviceRetriesWithoutReplayAsync)),
+    ("daily-schedule Overview UI validation and persistence", RunSerially(MultiAccountUiTests.DailyScheduleOverviewSaveAsync)),
     ("game-session exit twelve seconds do not prove process exit", GameExitControllerTests.TwelveSecondsCannotProveExitAsync),
     ("game-session damage cancels before combat then retries", GameExitControllerTests.DamageCancelsBeforeCombatAndRetriesAsync),
     ("game-session existing countdown cancelled before preparation", GameExitControllerTests.ExistingCountdownMustBeCancelledAsync),
@@ -261,10 +262,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("game-session closed countdown waits for process teardown", GameExitControllerTests.ClosedCountdownWaitsForProcessTeardownAsync),
     ("game-session stop at awaits prevents continuation", GameExitControllerTests.StopAtAwaitBoundariesPreventsContinuationAsync),
     ("game-session mailbox isolates requests and completion", GameExitControllerTests.MailboxIsolationAndCompletionAsync),
-    ("game-session exit-only does not login", WorkerProcessManagerTests.GameSessionExitOnlyDoesNotLoginAsync),
-    ("game-session relogin restarts normal work and isolates neighbors", WorkerProcessManagerTests.GameSessionReloginRestartsNormallyAsync),
-    ("game-session stop wins completed exit handoff", WorkerProcessManagerTests.GameSessionStopWinsHandoffAsync),
-    ("game-session failed cleanup retries before login", WorkerProcessManagerTests.GameSessionStopFailureRetriesBeforeLoginAsync),
+    ("game-session exit-only does not login", RunSerially(WorkerProcessManagerTests.GameSessionExitOnlyDoesNotLoginAsync)),
+    ("game-session relogin restarts normal work and isolates neighbors", RunSerially(WorkerProcessManagerTests.GameSessionReloginRestartsNormallyAsync)),
+    ("game-session stop wins completed exit handoff", RunSerially(WorkerProcessManagerTests.GameSessionStopWinsHandoffAsync)),
+    ("game-session failed cleanup retries before login", RunSerially(WorkerProcessManagerTests.GameSessionStopFailureRetriesBeforeLoginAsync)),
     ("game-session provider geometry and cancel", GameExitProviderTests.GeometryAndCancelAsync),
     ("game-session provider wrong class and modal", GameExitProviderTests.WrongClassAndModalAsync),
     ("game-session provider publication lifecycle and binding", GameExitProviderTests.PublicationLifecycleAndBindingAsync),
@@ -372,10 +373,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("auto-login windows reject cold threads and ambiguous desktop mappings", LoginWindowInventoryTests.ColdThreadsAndAmbiguityAsync),
     ("auto-login protected credentials and image binding", AutoLoginTests.CredentialsAndImageBindingAsync),
     ("auto-login model and Pillow parity on 100 images", AutoLoginTests.ModelParityAsync),
-    ("auto-login IPC login only and sibling isolation", WorkerProcessManagerTests.LoginOnlyDoesNotStartAsync),
-    ("auto-login IPC duplicate and stop cancellation", WorkerProcessManagerTests.LoginStopAndDuplicateAsync),
-    ("auto-login IPC rejection stops recovery", WorkerProcessManagerTests.RejectedLoginDoesNotRecoverAsync),
-    ("auto-login UI checked selection and encrypted password", MultiAccountUiTests.LoginSelectionAndCredentialFieldsAsync),
+    ("auto-login IPC login only and sibling isolation", RunSerially(WorkerProcessManagerTests.LoginOnlyDoesNotStartAsync)),
+    ("auto-login IPC duplicate and stop cancellation", RunSerially(WorkerProcessManagerTests.LoginStopAndDuplicateAsync)),
+    ("auto-login IPC rejection stops recovery", RunSerially(WorkerProcessManagerTests.RejectedLoginDoesNotRecoverAsync)),
+    ("auto-login UI checked selection and encrypted password", RunSerially(MultiAccountUiTests.LoginSelectionAndCredentialFieldsAsync)),
     ("skill audit maintenance global wait boundary and key retry", MaintenanceGlobalIntervalWaitTests.RemainingIntervalAndKeyRetryAsync),
     ("skill audit maintenance global wait early timer wake", MaintenanceGlobalIntervalWaitTests.EarlyWakeWaitsUntilReadyAsync),
     ("skill audit maintenance global wait wall clock changes", MaintenanceGlobalIntervalWaitTests.WallClockChangesPreserveGateAsync),
@@ -465,7 +466,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("skill audit real profile stores and filename alias rollback", AccountSettingsPersistenceTests.RealStoresAndFilenameAliasAsync),
     ("skill audit profile physical key mismatch leaves files intact", AccountSettingsPersistenceTests.StoredNameMismatchLeavesFilesIntactAsync),
     ("skill audit unrelated invalid profile does not block valid save", AccountSettingsPersistenceTests.UnrelatedInvalidProfileDoesNotBlockSaveAsync),
-    ("skill audit global refresh save failure preserves profile and draft", AccountSettingsPersistenceTests.RealStoreUiRefreshRollbackAsync),
+    ("skill audit global refresh save failure preserves profile and draft", RunSerially(AccountSettingsPersistenceTests.RealStoreUiRefreshRollbackAsync)),
     ("skill audit ID only tree refresh preserves configured branches", ConfiguredSkillIdentityRefreshTests.IdOnlyRootRefreshAsync),
     ("skill audit ID only tree multi rank and missing identity rules", ConfiguredSkillIdentityRefreshTests.IdOnlyMultiRankAndMissingIdentityAsync),
     ("skill audit candidate tree shared children and predecessor tokens", SkillCandidateTreeTests.SharedChildrenAndPredecessorTokensAsync),
@@ -506,7 +507,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("legacy import preservation external resources and duplicate device rejection", LegacyImportPreservationTests.ExternalResourcesAndDeviceRejectionRemainExplicitAsync),
     ("legacy import preservation sequential same named customer accounts", LegacyImportPreservationTests.SequentialSameNamedCustomerAccountsImportAsync),
     ("account resource isolation host rejects launch and runtime source changes", AccountResourceIsolationTests.HostRejectsResourceSourceChangesAsync),
-    ("account resource isolation settings and hardware preserve selected sources", AccountResourceIsolationTests.SettingsAndHardwarePreserveAccountSourcesAsync),
+    ("account resource isolation settings and hardware preserve selected sources", RunSerially(AccountResourceIsolationTests.SettingsAndHardwarePreserveAccountSourcesAsync)),
     ("migration snapshot clone and JSON retain per-account resource references", MigrationSnapshotTests.CloneAndJsonPreserveOverridesAsync),
     ("migration snapshot resource selection resolves overrides and shared fallbacks", MigrationSnapshotTests.AccountResourcesResolveWithoutChangingSharedLibrariesAsync),
     ("migration snapshot six preserved profiles paths and resources remain effective", MigrationSnapshotTests.SixAccountSnapshotsKeepEffectiveProfilesAndPathsAsync),
@@ -514,35 +515,35 @@ var tests = new (string Name, Func<Task> Run)[]
     ("kmbox cold reset handshake failure can retry", KmBoxColdResetTests.HandshakeFailureCanRetryAsync),
     ("kmbox cold reset cancellation cannot report success", KmBoxColdResetTests.CancellationDoesNotReportSuccessAsync),
     ("kmbox cold reset release failure reconnects", KmBoxColdResetTests.ReleaseFailureReconnectsAsync),
-    ("worker robustness repeated starts concurrent stops and generation isolation", WorkerProcessRobustnessTests.RepeatedStartStopAndConcurrentStopAsync),
-    ("worker robustness manual start reservation wins in flight exit poll", WorkerProcessRobustnessTests.ManualStartReservationWinsInFlightExitPollAsync),
-    ("worker robustness cancelled shutdown resumes healthy status polling", WorkerProcessRobustnessTests.CancelledShutdownResumesHealthyStatusPollingAsync),
-    ("worker robustness stale exit poll exception preserves manual start reservation", WorkerProcessRobustnessTests.StaleExitPollExceptionPreservesManualStartReservationAsync),
-    ("worker robustness deterministic repeated crashes isolate three accounts", WorkerProcessRobustnessTests.RepeatedRandomCrashesRemainIsolatedAsync),
-    ("worker robustness residual healthy polling never reconciles process exit", WorkerProcessRobustnessTests.HealthyPollingNeverReconcilesProcessExitAsync),
-    ("worker robustness residual exit blocks replacement until cleanup succeeds", WorkerProcessRobustnessTests.ResidualExitBlocksReplacementUntilReconciledAsync),
-    ("worker robustness residual stop failure retains ownership for retry", WorkerProcessRobustnessTests.ResidualStopFailureRetainsIdentityForRetryAsync),
-    ("worker robustness forged stale and malformed manifests cannot stop another account", WorkerProcessRobustnessTests.ForgedAndStaleManifestsNeverStopAnotherAccountAsync),
-    ("worker robustness responsive uninitialized workers have bounded lifetime", WorkerProcessRobustnessTests.ResponsiveButUninitializedWorkersHaveBoundedLifetimeAsync),
-    ("worker robustness missing manifest retains running process and launch identity", WorkerProcessRobustnessTests.MissingManifestReattachesWithoutReplacingLaunchIdentityAsync),
-    ("worker robustness recorded residual identity blocks replacement", WorkerProcessRobustnessTests.RecordedResidualIdentityBlocksReplacementAsync),
-    ("worker robustness abrupt controller crash before manifest preserves child ownership", WorkerProcessRobustnessTests.ControllerCrashBeforeManifestStillReattachesAsync),
-    ("worker robustness disposed manager cannot spawn through retained runtime", WorkerProcessRobustnessTests.DisposedManagerCannotSpawnThroughOldRuntimeAsync),
-    ("worker exit reconciler matching identity terminates and confirms CIM absence", WorkerProcessExitReconcilerTests.MatchingIdentityTerminatesAndConfirmsAbsenceAsync),
-    ("worker exit reconciler mismatched start time or executable cannot terminate", WorkerProcessExitReconcilerTests.IdentityMismatchNeverTerminatesProcessAsync),
-    ("worker exit reconciler absent process succeeds idempotently", WorkerProcessExitReconcilerTests.AlreadyExitedProcessSucceedsAsync),
-    ("worker exit reconciler helper deadline allows retry with same identity", WorkerProcessExitReconcilerTests.HelperDeadlineAllowsRetryWithSameIdentityAsync),
-    ("worker host robustness authorization loss releases input before native completion", WorkerHostRobustnessTests.AuthorizationLossReleasesBeforeNativeCompletesAsync),
-    ("worker host robustness initialization exception status and stack", WorkerHostRobustnessTests.InitializationExceptionHasDistinctStatusAndStackAsync),
-    ("worker host robustness authorization monitor survives status exception", WorkerHostRobustnessTests.AuthorizationMonitorSurvivesStatusExceptionAsync),
-    ("worker host robustness accepted shutdown survives disconnected caller", WorkerHostRobustnessTests.ShutdownSurvivesDisconnectedCallerAsync),
-    ("worker host robustness shutdown deadline terminates stuck child", WorkerHostRobustnessTests.ShutdownDeadlineTerminatesStuckWorkerAsync),
+    ("worker robustness repeated starts concurrent stops and generation isolation", InIsolation(WorkerProcessRobustnessTests.RepeatedStartStopAndConcurrentStopAsync)),
+    ("worker robustness manual start reservation wins in flight exit poll", RunSerially(WorkerProcessRobustnessTests.ManualStartReservationWinsInFlightExitPollAsync)),
+    ("worker robustness cancelled shutdown resumes healthy status polling", RunSerially(WorkerProcessRobustnessTests.CancelledShutdownResumesHealthyStatusPollingAsync)),
+    ("worker robustness stale exit poll exception preserves manual start reservation", RunSerially(WorkerProcessRobustnessTests.StaleExitPollExceptionPreservesManualStartReservationAsync)),
+    ("worker robustness deterministic repeated crashes isolate three accounts", RunSerially(WorkerProcessRobustnessTests.RepeatedRandomCrashesRemainIsolatedAsync)),
+    ("worker robustness residual healthy polling never reconciles process exit", RunSerially(WorkerProcessRobustnessTests.HealthyPollingNeverReconcilesProcessExitAsync)),
+    ("worker robustness residual exit blocks replacement until cleanup succeeds", RunSerially(WorkerProcessRobustnessTests.ResidualExitBlocksReplacementUntilReconciledAsync)),
+    ("worker robustness residual stop failure retains ownership for retry", RunSerially(WorkerProcessRobustnessTests.ResidualStopFailureRetainsIdentityForRetryAsync)),
+    ("worker robustness forged stale and malformed manifests cannot stop another account", RunSerially(WorkerProcessRobustnessTests.ForgedAndStaleManifestsNeverStopAnotherAccountAsync)),
+    ("worker robustness responsive uninitialized workers have bounded lifetime", RunSerially(WorkerProcessRobustnessTests.ResponsiveButUninitializedWorkersHaveBoundedLifetimeAsync)),
+    ("worker robustness missing manifest retains running process and launch identity", RunSerially(WorkerProcessRobustnessTests.MissingManifestReattachesWithoutReplacingLaunchIdentityAsync)),
+    ("worker robustness recorded residual identity blocks replacement", RunSerially(WorkerProcessRobustnessTests.RecordedResidualIdentityBlocksReplacementAsync)),
+    ("worker robustness abrupt controller crash before manifest preserves child ownership", RunSerially(WorkerProcessRobustnessTests.ControllerCrashBeforeManifestStillReattachesAsync)),
+    ("worker robustness disposed manager cannot spawn through retained runtime", RunSerially(WorkerProcessRobustnessTests.DisposedManagerCannotSpawnThroughOldRuntimeAsync)),
+    ("worker exit reconciler matching identity terminates and confirms CIM absence", RunSerially(WorkerProcessExitReconcilerTests.MatchingIdentityTerminatesAndConfirmsAbsenceAsync)),
+    ("worker exit reconciler mismatched start time or executable cannot terminate", RunSerially(WorkerProcessExitReconcilerTests.IdentityMismatchNeverTerminatesProcessAsync)),
+    ("worker exit reconciler absent process succeeds idempotently", RunSerially(WorkerProcessExitReconcilerTests.AlreadyExitedProcessSucceedsAsync)),
+    ("worker exit reconciler helper deadline allows retry with same identity", RunSerially(WorkerProcessExitReconcilerTests.HelperDeadlineAllowsRetryWithSameIdentityAsync)),
+    ("worker host robustness authorization loss releases input before native completion", RunSerially(WorkerHostRobustnessTests.AuthorizationLossReleasesBeforeNativeCompletesAsync)),
+    ("worker host robustness initialization exception status and stack", RunSerially(WorkerHostRobustnessTests.InitializationExceptionHasDistinctStatusAndStackAsync)),
+    ("worker host robustness authorization monitor survives status exception", RunSerially(WorkerHostRobustnessTests.AuthorizationMonitorSurvivesStatusExceptionAsync)),
+    ("worker host robustness accepted shutdown survives disconnected caller", RunSerially(WorkerHostRobustnessTests.ShutdownSurvivesDisconnectedCallerAsync)),
+    ("worker host robustness shutdown deadline terminates stuck child", RunSerially(WorkerHostRobustnessTests.ShutdownDeadlineTerminatesStuckWorkerAsync)),
     ("main window robustness shutdown cancels and drains initialization", MainWindowRobustnessTests.ShutdownCancelsAndDrainsInitializationAsync),
     ("main window robustness failed exit resumes with a fresh cancellation scope", MainWindowRobustnessTests.FailedExitCanResumeWithNewCancellationScopeAsync),
     ("main window robustness operation failure is observed during shutdown", MainWindowRobustnessTests.OperationFailureIsObservedDuringShutdownAsync),
     ("main window robustness nonfinite authorization timeouts use defaults", MainWindowRobustnessTests.NonFiniteLicenseTimeoutsUseDefaultsAsync),
-    ("main window robustness configuration dialogs and import cannot overlap", MainWindowRobustnessTests.ConfigurationDialogsAndImportCannotOverlapAsync),
-    ("main window robustness exit waits for tracked startup", MainWindowRobustnessTests.MainWindowExitWaitsForTrackedStartupAsync),
+    ("main window robustness configuration dialogs and import cannot overlap", RunSerially(MainWindowRobustnessTests.ConfigurationDialogsAndImportCannotOverlapAsync)),
+    ("main window robustness exit waits for tracked startup", RunSerially(MainWindowRobustnessTests.MainWindowExitWaitsForTrackedStartupAsync)),
     ("shared config atomic concurrent account readers see complete documents", SharedConfigAtomicWriteTests.ConcurrentReadersAsync),
     ("shared config atomic replacement keeps open readers and UTF8 contracts", SharedConfigAtomicWriteTests.OpenReadersAndEncodingAsync),
     ("shared config atomic serialization cancellation and replacement failures preserve previous", SharedConfigAtomicWriteTests.FailedWritesKeepPreviousAsync),
@@ -561,79 +562,79 @@ var tests = new (string Name, Func<Task> Run)[]
     ("legacy account import requires physical resolution for generic fpga", LegacyAccountImporterTests.GenericFpgaNeedsPhysicalResolutionAsync),
     ("legacy account import invalid later account prevents partial import", LegacyAccountImporterTests.InvalidLaterAccountPreventsImportAsync),
     ("legacy account import shares name lists and rejects differing existing lists", LegacyAccountImporterTests.NameListsCopiedAndConflictPreflightedAsync),
-    ("account process independent PIDs duplicate start config and shared libraries", WorkerProcessManagerTests.IsolationAndDuplicateStartAsync),
-    ("account process crash recovery preserves other account and respects disable", WorkerProcessManagerTests.CrashRecoveryAndDisableAsync),
-    ("account process manager reconnect adopts same PID without duplicate start", WorkerProcessManagerTests.DetachAndAdoptAsync),
-    ("account process stop timeout kills and stop cancels startup", WorkerProcessManagerTests.StopTimeoutAndStartupCancelAsync),
-    ("account process authorization identity and hardware verification guards", WorkerProcessManagerTests.AuthorizationAndIdentityGuardsAsync),
-    ("account process delayed initialization remains readable and cancellable", WorkerProcessManagerTests.SlowInitializationAsync),
-    ("account process slow recovery never blocks another account monitoring or commands", WorkerProcessManagerTests.SlowRecoveryDoesNotBlockOtherAccountsAsync),
-    ("account process intent persistence failure prevents start but cannot prevent stop", WorkerProcessManagerTests.IntentPersistenceFailuresAsync),
-    ("account process instance ownership and hardware leases reject duplicate hosts", WorkerProcessManagerTests.HardwareLeaseAndDuplicateHostAsync),
-    ("account process concurrent shared hardware starts keep one owner", WorkerProcessManagerTests.ConcurrentSharedHardwareStartsKeepOneOwnerAsync),
-    ("account process queued start cannot undo later stop", WorkerProcessManagerTests.QueuedStartCannotUndoLaterStopAsync),
-    ("account process lazy client waits for start admission", WorkerProcessManagerTests.LazyClientWaitsForStartAdmissionAsync),
-    ("account process verification cannot replace pending start config", WorkerProcessManagerTests.VerificationCannotReplaceConfigDuringPendingStartAsync),
-    ("account process child resource conflict clears recovery intent", WorkerProcessManagerTests.ResourceConflictAfterSpawnClearsIntentAsync),
-    ("account process external DMA lease blocks start until released", WorkerProcessManagerTests.ExistingExternalLeaseBlocksStartUntilReleasedAsync),
-    ("account process running physical binding identity cannot change", WorkerProcessManagerTests.RunningPhysicalBindingIdentityCannotChangeAsync),
-    ("account process long manual command permits status and stop cancellation", WorkerProcessManagerTests.ManualCancellationAsync),
-    ("account process rejected startup retries and preserves neighbors", WorkerProcessManagerTests.RejectedStartRetriesWithoutAffectingNeighborsAsync),
-    ("account process initialization exceptions preserve run intent", WorkerProcessManagerTests.InitializationFaultKeepsRunIntentAsync),
-    ("account process crash recovery startup rejection and manual stop", WorkerProcessManagerTests.CrashRecoveryStartFailureAndStopAsync),
+    ("account process independent PIDs duplicate start config and shared libraries", RunSerially(WorkerProcessManagerTests.IsolationAndDuplicateStartAsync)),
+    ("account process crash recovery preserves other account and respects disable", RunSerially(WorkerProcessManagerTests.CrashRecoveryAndDisableAsync)),
+    ("account process manager reconnect adopts same PID without duplicate start", RunSerially(WorkerProcessManagerTests.DetachAndAdoptAsync)),
+    ("account process stop timeout kills and stop cancels startup", RunSerially(WorkerProcessManagerTests.StopTimeoutAndStartupCancelAsync)),
+    ("account process authorization identity and hardware verification guards", RunSerially(WorkerProcessManagerTests.AuthorizationAndIdentityGuardsAsync)),
+    ("account process delayed initialization remains readable and cancellable", RunSerially(WorkerProcessManagerTests.SlowInitializationAsync)),
+    ("account process slow recovery never blocks another account monitoring or commands", RunSerially(WorkerProcessManagerTests.SlowRecoveryDoesNotBlockOtherAccountsAsync)),
+    ("account process intent persistence failure prevents start but cannot prevent stop", RunSerially(WorkerProcessManagerTests.IntentPersistenceFailuresAsync)),
+    ("account process instance ownership and hardware leases reject duplicate hosts", RunSerially(WorkerProcessManagerTests.HardwareLeaseAndDuplicateHostAsync)),
+    ("account process concurrent shared hardware starts keep one owner", RunSerially(WorkerProcessManagerTests.ConcurrentSharedHardwareStartsKeepOneOwnerAsync)),
+    ("account process queued start cannot undo later stop", RunSerially(WorkerProcessManagerTests.QueuedStartCannotUndoLaterStopAsync)),
+    ("account process lazy client waits for start admission", RunSerially(WorkerProcessManagerTests.LazyClientWaitsForStartAdmissionAsync)),
+    ("account process verification cannot replace pending start config", RunSerially(WorkerProcessManagerTests.VerificationCannotReplaceConfigDuringPendingStartAsync)),
+    ("account process child resource conflict clears recovery intent", RunSerially(WorkerProcessManagerTests.ResourceConflictAfterSpawnClearsIntentAsync)),
+    ("account process external DMA lease blocks start until released", RunSerially(WorkerProcessManagerTests.ExistingExternalLeaseBlocksStartUntilReleasedAsync)),
+    ("account process running physical binding identity cannot change", RunSerially(WorkerProcessManagerTests.RunningPhysicalBindingIdentityCannotChangeAsync)),
+    ("account process long manual command permits status and stop cancellation", RunSerially(WorkerProcessManagerTests.ManualCancellationAsync)),
+    ("account process rejected startup retries and preserves neighbors", RunSerially(WorkerProcessManagerTests.RejectedStartRetriesWithoutAffectingNeighborsAsync)),
+    ("account process initialization exceptions preserve run intent", RunSerially(WorkerProcessManagerTests.InitializationFaultKeepsRunIntentAsync)),
+    ("account process crash recovery startup rejection and manual stop", RunSerially(WorkerProcessManagerTests.CrashRecoveryStartFailureAndStopAsync)),
     ("saved hardware binding worker carries explicit mapping", SavedHardwareBindingTests.WorkerOptionsPreserveMappingAsync),
     ("saved hardware binding boot session storage invalidates old confirmations", SavedHardwareBindingTests.BootSessionStorageAsync),
-    ("account process reboot clears all six intents and requires individual confirmation", WorkerProcessManagerTests.PreviousBootRequiresEachAccountConfirmationAsync),
-    ("account process concurrent self exit and stop completes idempotently", WorkerProcessManagerTests.ConcurrentSelfExitAndStopAsync),
-    ("multi-account ui reboot requires read confirm and explicit hardware save", MultiAccountUiTests.HardwareRebootRequiresReadConfirmSaveAsync),
+    ("account process reboot clears all six intents and requires individual confirmation", RunSerially(WorkerProcessManagerTests.PreviousBootRequiresEachAccountConfirmationAsync)),
+    ("account process concurrent self exit and stop completes idempotently", RunSerially(WorkerProcessManagerTests.ConcurrentSelfExitAndStopAsync)),
+    ("multi-account ui reboot requires read confirm and explicit hardware save", RunSerially(MultiAccountUiTests.HardwareRebootRequiresReadConfirmSaveAsync)),
     ("saved hardware binding changed role blocks startup until explicitly corrected", SavedHardwareBindingTests.StartupRejectsChangedRoleAsync),
     ("saved hardware binding cancelled identity read cannot start input", SavedHardwareBindingTests.StartupCancellationNeverStartsAsync),
     ("saved hardware binding rejects offline or changed physical identity", SavedHardwareBindingTests.PhysicalIdentityGuardsAsync),
-    ("multi-account ui hardware editing releases idle worker and preserves sibling", MultiAccountUiTests.HardwareEditingReleasesIdleWorkerAsync),
-    ("multi-account ui stopped hardware index swaps save and active collisions fail", MultiAccountUiTests.HardwareIndexSwapSaveAsync),
-    ("multi-account ui hardware combinations swap verify save and enforce live ownership", MultiAccountUiTests.HardwareDeviceCombinationSwapAsync),
-    ("multi-account ui hardware save serializes start admission", MultiAccountUiTests.HardwareSaveAndStartAdmissionAsync),
-    ("multi-account ui hardware save blocks verification worker", MultiAccountUiTests.HardwareSaveBlocksVerificationWorkerAsync),
-    ("multi-account ui hardware save completes before workspace dispose", MultiAccountUiTests.HardwareSaveCompletesBeforeWorkspaceDisposeAsync),
-    ("multi-account ui hardware editor preserves mapping and refreshes verified role", MultiAccountUiTests.HardwareEditorMappingAndRefreshAsync),
-    ("multi-account ui hardware customer refresh rebind and confirm save", MultiAccountUiTests.HardwareCustomerRebindingAsync),
-    ("multi-account ui hardware occupied choices filter and recheck", MultiAccountUiTests.HardwareOccupiedChoicesAsync),
+    ("multi-account ui hardware editing releases idle worker and preserves sibling", RunSerially(MultiAccountUiTests.HardwareEditingReleasesIdleWorkerAsync)),
+    ("multi-account ui stopped hardware index swaps save and active collisions fail", RunSerially(MultiAccountUiTests.HardwareIndexSwapSaveAsync)),
+    ("multi-account ui hardware combinations swap verify save and enforce live ownership", RunSerially(MultiAccountUiTests.HardwareDeviceCombinationSwapAsync)),
+    ("multi-account ui hardware save serializes start admission", RunSerially(MultiAccountUiTests.HardwareSaveAndStartAdmissionAsync)),
+    ("multi-account ui hardware save blocks verification worker", RunSerially(MultiAccountUiTests.HardwareSaveBlocksVerificationWorkerAsync)),
+    ("multi-account ui hardware save completes before workspace dispose", RunSerially(MultiAccountUiTests.HardwareSaveCompletesBeforeWorkspaceDisposeAsync)),
+    ("multi-account ui hardware editor preserves mapping and refreshes verified role", RunSerially(MultiAccountUiTests.HardwareEditorMappingAndRefreshAsync)),
+    ("multi-account ui hardware customer refresh rebind and confirm save", RunSerially(MultiAccountUiTests.HardwareCustomerRebindingAsync)),
+    ("multi-account ui hardware occupied choices filter and recheck", RunSerially(MultiAccountUiTests.HardwareOccupiedChoicesAsync)),
     ("account player info lifecycle and isolation", AccountPlayerInfoTests.LifecycleAndIsolationAsync),
     ("account player info trusted reader and wire compatibility", AccountPlayerInfoTests.TrustedReaderAndWireAsync),
-    ("multi-account ui player level and class over worker IPC", MultiAccountUiTests.ConsolePlayerInfoAsync),
-    ("multi-account ui console rows selection and independent actions", MultiAccountUiTests.ConsoleRowsAndSelectionAsync),
-    ("multi-account ui console manual grocery confirmation and dispatch", MultiAccountUiTests.ConsoleManualGroceryShopAsync),
-    ("multi-account ui select all header state filtering and refresh", MultiAccountUiTests.ConsoleSelectAllHeaderAsync),
-    ("multi-account ui delete selected confirmation active guards and persistence", MultiAccountUiTests.DeleteSelectedAccountsAsync),
-    ("multi-account ui stop remains available while startup is pending", MultiAccountUiTests.ConsoleStopDuringStartAsync),
-    ("multi-account ui hardware requires current verified identity", MultiAccountUiTests.HardwareVerificationAsync),
-    ("multi-account ui hardware verification cancellation closes pending worker", MultiAccountUiTests.HardwareVerificationCancellationAsync),
-    ("multi-account ui stopped settings save without authorization", MultiAccountUiTests.SettingsSaveWithoutAuthorizationAsync),
+    ("multi-account ui player level and class over worker IPC", RunSerially(MultiAccountUiTests.ConsolePlayerInfoAsync)),
+    ("multi-account ui console rows selection and independent actions", RunSerially(MultiAccountUiTests.ConsoleRowsAndSelectionAsync)),
+    ("multi-account ui console manual grocery confirmation and dispatch", RunSerially(MultiAccountUiTests.ConsoleManualGroceryShopAsync)),
+    ("multi-account ui select all header state filtering and refresh", RunSerially(MultiAccountUiTests.ConsoleSelectAllHeaderAsync)),
+    ("multi-account ui delete selected confirmation active guards and persistence", RunSerially(MultiAccountUiTests.DeleteSelectedAccountsAsync)),
+    ("multi-account ui stop remains available while startup is pending", RunSerially(MultiAccountUiTests.ConsoleStopDuringStartAsync)),
+    ("multi-account ui hardware requires current verified identity", RunSerially(MultiAccountUiTests.HardwareVerificationAsync)),
+    ("multi-account ui hardware verification cancellation closes pending worker", RunSerially(MultiAccountUiTests.HardwareVerificationCancellationAsync)),
+    ("multi-account ui stopped settings save without authorization", RunSerially(MultiAccountUiTests.SettingsSaveWithoutAuthorizationAsync)),
     ("skill binding fixed bars order duplicate missing and chain rules", SkillBindingTests.MappingAsync),
     ("quickbar default keys legacy configuration and three-row mapping", QuickbarKeyModeTests.MappingAsync),
     ("quickbar default keys decoder faults and isolated publications", QuickbarKeyModeTests.DecoderAsync),
     ("quickbar key mode availability third row and torn captures", SkillOpportunityTests.ThirdRowAsync),
     ("quickbar default keys worker startup", QuickbarKeyModeTests.StartupAsync),
-    ("quickbar default keys settings and profile refresh", QuickbarKeyModeTests.UiAsync),
+    ("quickbar default keys settings and profile refresh", RunSerially(QuickbarKeyModeTests.UiAsync)),
     ("quickbar chord sequence and legacy input", QuickbarChordTests.SequenceAsync),
     ("quickbar chord cancellation and failure release both keys", QuickbarChordTests.CleanupAsync),
     ("quickbar chord serializes ordinary input and reset", QuickbarChordTests.SerializationAsync),
-    ("keyboard picker chords select persist reload and execute with legacy mode", KeyboardPickerChordTests.SelectionPersistenceAndInputAsync),
+    ("keyboard picker chords select persist reload and execute with legacy mode", RunSerially(KeyboardPickerChordTests.SelectionPersistenceAndInputAsync)),
     ("skill binding maintenance spirit team and manual action isolation", SkillBindingTests.ConsumersAsync),
     ("skill binding decoder rejects partial and changed captures", SkillBindingTests.DecoderAsync),
     ("skill binding official snapshot hold cold retry and session isolation", SkillBindingTests.LifecycleAsync),
     ("skill binding startup rebinds new sessions and preserves configured keys", SkillBindingTests.StartupAsync),
-    ("skill binding UI automatic skill buttons and manual keyboard coexist", SkillBindingTests.UiAsync),
-    ("spirit settings layout resize add remove and save roundtrip", SkillBindingTests.SpiritLayoutAsync),
-    ("spirit settings pet hp selection defaults preserve saved and refreshed values", SkillBindingTests.SpiritPetHpDefaultsAsync),
+    ("skill binding UI automatic skill buttons and manual keyboard coexist", RunSerially(SkillBindingTests.UiAsync)),
+    ("spirit settings layout resize add remove and save roundtrip", RunSerially(SkillBindingTests.SpiritLayoutAsync)),
+    ("spirit settings pet hp selection defaults preserve saved and refreshed values", RunSerially(SkillBindingTests.SpiritPetHpDefaultsAsync)),
     ("spirit settings command defaults preserve explicit custom and empty actions", SpiritmasterCommandDefaultsTests.DefaultsAndOverridesAsync),
     ("spirit settings command defaults handprint follows the actual quickbar", SpiritmasterCommandDefaultsTests.AutomaticBindingAsync),
-    ("spirit settings command defaults UI automatic handprint and two manual buttons", SpiritmasterCommandDefaultsTests.UiAsync),
+    ("spirit settings command defaults UI automatic handprint and two manual buttons", RunSerially(SpiritmasterCommandDefaultsTests.UiAsync)),
     ("skill binding combat maintenance and summon controllers send resolved keys", SkillBindingTests.ControllerAsync),
     ("skill tree release mode legacy JSON normalizes to the single engine", SkillTreeReleaseModeTests.CompatibilityAsync),
     ("skill tree release mode account and profile persistence", SkillTreeReleaseModeTests.PersistenceAsync),
-    ("skill tree release mode single editor refresh and layout", SkillTreeReleaseModeTests.UiAsync),
-    ("skill tree release mode archived manual and system fields survive UI save", SkillTreeReleaseModeTests.ArchivedModesUiAsync),
+    ("skill tree release mode single editor refresh and layout", RunSerially(SkillTreeReleaseModeTests.UiAsync)),
+    ("skill tree release mode archived manual and system fields survive UI save", RunSerially(SkillTreeReleaseModeTests.ArchivedModesUiAsync)),
     ("quickbar attack weave pair delay ordinary and conditional skills", QuickbarAttackWeaveTests.PairDelayAndMixedSkillsAsync),
     ("quickbar attack weave post C 30ms delay", QuickbarAttackWeaveTests.PostAttackDelayAsync),
     ("quickbar attack weave CD counts independently of actor release", QuickbarAttackWeaveTests.CooldownEvidenceIndependentOfReleaseAsync),
@@ -768,7 +769,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("npc sale bulk junk confirmation before manual batches with timeout and protection guards", NpcJunkSaleTests.FlowAsync),
     ("shared cleanup sale list executes NPC sale and stops at cap with auction overlap", NpcSaleTests.SharedSellListAsync),
     ("npc sale production decoder basket and controls", PersonalShopDecoderTests.NpcTradeAsync),
-    ("inventory discard UI button uses unsaved rules and caps three items", TestInventoryDiscardButtonAsync),
+    ("inventory discard UI button uses unsaved rules and caps three items", RunSerially(TestInventoryDiscardButtonAsync)),
     ("inventory discard three-item limit and configured rules", InventoryDiscardTests.LimitAndRulesAsync),
     ("inventory discard drag skips fixed click reset point and refreshes hover", InventoryDiscardTests.DragSkipsFixedPointAsync),
     ("food maintenance catalog categories and lowest usable rank", FoodMaintenanceTests.CatalogAsync),
@@ -783,7 +784,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("feedback mouse unconfirmed input timeout pending read and stop never replay", FeedbackMouseMoverTests.NoResponseAndCancellationAsync),
     ("feedback mouse pointer gain arrival tolerance and window bounds", FeedbackMouseMoverTests.GainAndBoundsAsync),
     ("food maintenance post-combat scheduling and persistence", FoodMaintenanceTests.ControllerAsync),
-    ("food maintenance editor checkboxes round trip", FoodMaintenanceTests.UiAsync),
+    ("food maintenance editor checkboxes round trip", RunSerially(FoodMaintenanceTests.UiAsync)),
     ("food maintenance actual worker waits for combat to end", FoodMaintenanceTests.WorkerAsync),
     ("food maintenance selected quickbar priority guards and bag fallback", FoodMaintenanceTests.QuickbarAsync),
     ("equipment upgrade loops failures full sockets and level ten", EquipmentUpgradeTests.LoopsAsync),
@@ -795,7 +796,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("equipment upgrade batch RPC stop and real interval", EquipmentUpgradeTests.BatchRpcStopAsync),
     ("equipment upgrade live equipment level and enchant priority", EquipmentUpgradeTests.PriorityAsync),
     ("equipment upgrade guards cancellation and persistence", EquipmentUpgradeTests.GuardsAsync),
-    ("equipment upgrade UI persistence and RPC account isolation", EquipmentUpgradeTests.UiAndRpcAsync),
+    ("equipment upgrade UI persistence and RPC account isolation", RunSerially(EquipmentUpgradeTests.UiAndRpcAsync)),
     ("manastone exchange decoder identities geometry and malformed pages", ManastoneExchangeDecoderTests.DecodeAndGuardsAsync),
     ("manastone exchange provider publication and lifecycle", ManastoneExchangeDecoderTests.PublicationAsync),
     ("manastone exchange loops both quests until materials exhausted", ManastoneExchangeTests.LoopAsync),
@@ -811,7 +812,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("inventory discard waits for delayed dialog and bounds missing dialog", InventoryDiscardTests.DialogReadinessAsync),
     ("inventory discard cancellation uses shared UI source and Escape", InventoryDiscardTests.CancellationUsesUiAsync),
     ("inventory discard production decoder geometry and read faults", PersonalShopDecoderTests.InventoryDiscardGeometryAndFaultsAsync),
-    ("personal shop UI button uses unsaved rules and blocks double click", TestPersonalShopButtonAsync),
+    ("personal shop UI button uses unsaved rules and blocks double click", RunSerially(TestPersonalShopButtonAsync)),
     ("personal shop production decoder field faults", PersonalShopDecoderTests.DecodeAndFaultsAsync),
     ("personal shop advertisement geometry text and read faults", PersonalShopDecoderTests.AdvertisementAndFaultsAsync),
     ("personal shop advertisement mouse focus discount and confirmation", PersonalShopAdvertisementTests.FocusAndConfirmationAsync),
@@ -840,7 +841,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("town return destination and missing loading frame matrix", TownReturnTests.DestinationMatrixAsync),
     ("target acquire distance legacy defaults account and profile persistence", TargetAcquireDistanceTests.PersistenceAsync),
     ("target acquire distance approach and tab boundaries", TargetAcquireDistanceTests.AcquisitionBoundaryAsync),
-    ("target acquire distance overview editor save validation and reload", TargetAcquireDistanceTests.OverviewUiAsync),
+    ("target acquire distance overview editor save validation and reload", RunSerially(TargetAcquireDistanceTests.OverviewUiAsync)),
     ("town return delayed landing remains exclusive and reconnects route", TownReturnTests.StartupDelayedLandingAsync),
     ("town return retries only after one minute and accepts late landing", TownReturnTests.RetryMinuteBoundaryAsync),
     ("town return startup and no kill stop after twenty total attempts", TownReturnTests.RetryTwentyAttemptLimitAsync),
@@ -891,10 +892,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("fixed channel map change and input failure remain retryable", FixedChannelSchedulingTests.MapAndFailureAsync),
     ("channel ui sequence selects and verifies using cursor feedback", ChannelSwitchTests.SequenceAsync),
     ("channel ui menu straight corridor corrects drift and bounds hover recovery", ChannelSwitchTests.MenuCorridorRecoveryAsync),
-    ("vmm lifetime failed initialization disposes without null reference", VmmConnectionLifetimeTests.PartialDisposeAsync),
-    ("vmm lifetime failed initialization survives finalizer in child process", VmmConnectionLifetimeTests.FinalizerProcessAsync),
-    ("vmm lifetime retirement waits for reads and rejects queued readers", VmmConnectionLifetimeTests.RetirementAsync),
-    ("vmm lifetime all channels honor reconnect and retirement", VmmConnectionLifetimeTests.AllChannelsRespectReconnectAsync),
+    ("vmm lifetime failed initialization disposes without null reference", RunSerially(VmmConnectionLifetimeTests.PartialDisposeAsync)),
+    ("vmm lifetime failed initialization survives finalizer in child process", RunSerially(VmmConnectionLifetimeTests.FinalizerProcessAsync)),
+    ("vmm lifetime retirement waits for reads and rejects queued readers", RunSerially(VmmConnectionLifetimeTests.RetirementAsync)),
+    ("vmm lifetime all channels honor reconnect and retirement", RunSerially(VmmConnectionLifetimeTests.AllChannelsRespectReconnectAsync)),
     ("channel ui slow automatic attempt reaches move beyond fifteen seconds", ChannelSwitchTests.SlowAutomaticAttemptAsync),
     ("channel ui sequence resumes open dropdown", ChannelSwitchTests.OpenDropdownAsync),
     ("channel ui automatic retries reuse selected dialog without waiting", ChannelSwitchTests.AutomaticReusesDialogAsync),
@@ -957,7 +958,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("astar test walk guards cancellation and release", AStarTestModuleTests.WalkingAsync),
     ("astar test RPC account isolation and stop", AStarTestModuleTests.RpcAsync),
     ("astar test actual movement adapter stop and exclusion", AStarTestModuleTests.MovementAdapterAsync),
-    ("astar test UI destination current start replan and stop", AStarTestModuleTests.UiAsync),
+    ("astar test UI destination current start replan and stop", RunSerially(AStarTestModuleTests.UiAsync)),
     ("radar canvas projection is north up", RadarTests.CanvasProjectionIsNorthUpAsync),
     ("radar canvas marker colors match disposition", RadarTests.CanvasMarkerColorsMatchDispositionAsync),
     ("radar canvas draws continuous obstacles until cancelled", RadarTests.CanvasDrawsContinuousObstaclesUntilCancelledAsync),
@@ -988,7 +989,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("radar target approach replans at a reached cached target waypoint", RadarTests.NavigatorReplansAtReachedCachedTargetWaypointAsync),
     ("radar navigator direct commitment stays on same target", RadarTests.NavigatorDirectCommitmentStaysOnSameTargetAsync),
     ("radar navigator strict direct check ignores commitment", RadarTests.NavigatorStrictDirectCheckIgnoresCommitmentAsync),
-    ("radar obstacle switch persists from stationary ui", TestRadarObstacleSwitchPersistsFromStationaryUiAsync),
+    ("radar obstacle switch persists from stationary ui", RunSerially(TestRadarObstacleSwitchPersistsFromStationaryUiAsync)),
     ("stationary combat locked target waits for clear radar route", TestStationaryCombatLockedTargetWaitsForClearRadarRouteAsync),
     ("stationary combat tab facing invalidates preaim after detour", StationaryTabFacingTests.DetourInvalidatesPreAimAsync),
     ("stationary combat tab facing confirms correction before tab", StationaryTabFacingTests.TurnsBeforeTabAsync),
@@ -1012,26 +1013,26 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat blocks tab when radar line intersects obstacle", TestStationaryCombatBlocksTabWhenRadarLineIntersectsObstacleAsync),
     ("stationary combat consumes waypoint arrival and commits clear target", TestStationaryCombatConsumesWaypointArrivalAndCommitsClearTargetAsync),
     ("path recorder enforces five meter minimum", TestPathRecorderMinimumDistanceAsync),
-    ("path editing boundaries distances actions and undo", PathEditingTests.BufferEditsAsync),
-    ("path editing all seven tabs selection and undo", PathEditingTests.AllTabsAsync),
-    ("path editing JSON save reload preserves metadata", PathEditingTests.SaveReloadAsync),
-    ("path editing invalid input and busy guards", PathEditingTests.ValidationAndBusyAsync),
-    ("path editing failed delayed saves and navigation choices", PathEditingTests.SaveFailureAndChoicesAsync),
-    ("path editing current position map and loading guards", PathEditingTests.ReadPositionAsync),
-    ("path editing missing configured files are not unsaved changes", PathEditingTests.MissingConfiguredPathsAsync),
-    ("path editing metadata save retains coordinate drafts", PathEditingTests.MetadataSaveAsync),
+    ("path editing boundaries distances actions and undo", RunSerially(PathEditingTests.BufferEditsAsync)),
+    ("path editing all seven tabs selection and undo", RunSerially(PathEditingTests.AllTabsAsync)),
+    ("path editing JSON save reload preserves metadata", RunSerially(PathEditingTests.SaveReloadAsync)),
+    ("path editing invalid input and busy guards", RunSerially(PathEditingTests.ValidationAndBusyAsync)),
+    ("path editing failed delayed saves and navigation choices", RunSerially(PathEditingTests.SaveFailureAndChoicesAsync)),
+    ("path editing current position map and loading guards", RunSerially(PathEditingTests.ReadPositionAsync)),
+    ("path editing missing configured files are not unsaved changes", RunSerially(PathEditingTests.MissingConfiguredPathsAsync)),
+    ("path editing metadata save retains coordinate drafts", RunSerially(PathEditingTests.MetadataSaveAsync)),
     ("shared path store saves loads and deletes path files", TestSharedPathStoreRoundTripAsync),
     ("path radius binding JSON remains compatible", CombatPathRadiusBindingTests.JsonCompatibilityAsync),
     ("path radius binding runtime fallback and mode boundaries", CombatPathRadiusBindingTests.RuntimeFallbacksAndModesAsync),
     ("path radius binding revive priority and compatible fallback", CombatPathRadiusBindingTests.RevivePriorityAndFallbackAsync),
     ("path radius binding worker startup preserves profile and session isolation", CombatPathRadiusBindingTests.WorkerStartupIsolationAsync),
     ("path radius binding isolates multiple running accounts", CombatPathRadiusBindingTests.MultipleAccountIsolationAsync),
-    ("path radius binding UI saves switches disables and rejects invalid input", CombatPathRadiusBindingTests.UiSaveSwitchAndValidationAsync),
-    ("path radius binding revive UI saves switches disables and rejects invalid input", CombatPathRadiusBindingTests.UiReviveSaveSwitchAndValidationAsync),
-    ("path radius binding UI preserves shared metadata across path tabs", CombatPathRadiusBindingTests.UiPreservesSharedMetadataAsync),
-    ("path radius binding save configuration persists reloads and applies bindings", CombatPathRadiusBindingTests.SaveConfigurationPersistsBindingsAsync),
-    ("path radius binding save configuration validates and reports failures", CombatPathRadiusBindingTests.SaveConfigurationValidatesBindingsAsync),
-    ("path radius binding save configuration preserves shared paths", CombatPathRadiusBindingTests.SaveConfigurationPreservesSharedPathsAsync),
+    ("path radius binding UI saves switches disables and rejects invalid input", RunSerially(CombatPathRadiusBindingTests.UiSaveSwitchAndValidationAsync)),
+    ("path radius binding revive UI saves switches disables and rejects invalid input", RunSerially(CombatPathRadiusBindingTests.UiReviveSaveSwitchAndValidationAsync)),
+    ("path radius binding UI preserves shared metadata across path tabs", RunSerially(CombatPathRadiusBindingTests.UiPreservesSharedMetadataAsync)),
+    ("path radius binding save configuration persists reloads and applies bindings", RunSerially(CombatPathRadiusBindingTests.SaveConfigurationPersistsBindingsAsync)),
+    ("path radius binding save configuration validates and reports failures", RunSerially(CombatPathRadiusBindingTests.SaveConfigurationValidatesBindingsAsync)),
+    ("path radius binding save configuration preserves shared paths", RunSerially(CombatPathRadiusBindingTests.SaveConfigurationPreservesSharedPathsAsync)),
     ("path tab opens configured path folder", TestPathTabOpensConfiguredPathFolderAsync),
     ("main mode options expose path gather without craft", TestMainModeOptionsExposePathGatherWithoutCraftAsync),
     ("script profile store saves loads and deletes profile files", TestScriptProfileStoreRoundTripAsync),
@@ -1047,7 +1048,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("runtime gather read uses account scoped context", TestRuntimeGatherReadUsesAccountScopeAsync),
     ("gather source catalog loads static metadata", TestGatherSourceCatalogLoadsStaticMetadataAsync),
     ("gather snapshot evaluates practical competition rule", TestGatherSnapshotEvaluatesCompetitionRuleAsync),
-    ("gather filter tab reads and adds nearby sources", TestGatherFilterTabReadsAndAddsNearbySourcesAsync),
+    ("gather filter tab reads and adds nearby sources", RunSerially(TestGatherFilterTabReadsAndAddsNearbySourcesAsync)),
     ("gather priority settings load capture and clone", TestGatherPrioritySettingsLoadCaptureAndCloneAsync),
     ("gather priority settings persist in account json", TestGatherPrioritySettingsPersistInAccountJsonAsync),
     ("stationary gather selector enforces eligibility", TestStationaryGatherSelectorEnforcesEligibilityAsync),
@@ -1067,7 +1068,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("runtime summoned pet read uses account scoped context", TestRuntimeSummonedPetReadUsesAccountScopeAsync),
     ("runtime summoned pet roster read uses account scoped context", TestRuntimeSummonedPetRosterReadUsesAccountScopeAsync),
     ("runtime team snapshot uses account scoped context", TestRuntimeTeamSnapshotUsesAccountScopeAsync),
-    ("fixed channel defaults disabled and persists from ui", TestFixedChannelDefaultsCloneJsonAndUiAsync),
+    ("fixed channel defaults disabled and persists from ui", RunSerially(TestFixedChannelDefaultsCloneJsonAndUiAsync)),
     ("vmm channel reader implements scoped production offsets", TestVmmChannelReaderImplementsScopedProductionOffsetsAsync),
     ("fixed channel mouse executor clicks exactly six points in order", TestFixedChannelMouseExecutorClicksExactlySixPointsInOrderAsync),
     ("fixed channel mouse executor rejects incomplete points before input", TestFixedChannelMouseExecutorRejectsIncompletePointsBeforeInputAsync),
@@ -1176,7 +1177,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team leader protection only includes spiritmaster pets", TestTeamLeaderProtectionOnlyIncludesSpiritmasterPetsAsync),
     ("team leader protection ignores members outside group distance", TestTeamLeaderProtectionIgnoresMembersOutsideGroupDistanceAsync),
     ("team leader protection drives stationary defense selection", TestTeamLeaderProtectionDrivesStationaryDefenseSelectionAsync),
-    ("team group distance persists from ui", TestTeamGroupDistancePersistsFromUiAsync),
+    ("team group distance persists from ui", RunSerially(TestTeamGroupDistancePersistsFromUiAsync)),
     ("runtime locked target abnormal read uses account scoped context", TestRuntimeLockedTargetAbnormalReadUsesAccountScopeAsync),
 #if DEBUG
     ("runtime api probe covers vmm read paths", TestRuntimeApiProbeCoversVmmReadPathsAsync),
@@ -1190,7 +1191,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("file logging settings preserve defaults and persisted state", FileLoggingSettingsTests.DefaultsAndPersistenceAsync),
     ("file logging settings stop resume and isolate file writes", FileLoggingSettingsTests.FileWritesAndIsolationAsync),
     ("file logging settings apply before startup logs and through runtime", FileLoggingSettingsTests.StartupAndRuntimeAsync),
-    ("file logging settings summary checkbox saves and applies", FileLoggingSettingsTests.SummaryUiAsync),
+    ("file logging settings summary checkbox saves and applies", RunSerially(FileLoggingSettingsTests.SummaryUiAsync)),
     ("file logger rotates when max size is reached", TestFileLoggerRotatesWhenMaxSizeIsReachedAsync),
     ("file logger deletes expired log files", TestFileLoggerDeletesExpiredLogFilesAsync),
     ("file logger samples noisy vmm reads", TestFileLoggerSamplesNoisyVmmReadsAsync),
@@ -1219,7 +1220,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("shared cleanup running worker reloads monster filters", SharedCleanupConfigurationTests.WorkerRefreshAsync),
     ("shared cleanup priority discard sale auction stall", SharedCleanupConfigurationTests.PriorityAsync),
     ("shared cleanup failed migration preserves original configuration", SharedCleanupConfigurationTests.FailedMigrationAsync),
-    ("shared cleanup overview region and sale editor persist and rollback", TestSharedCleanupEditorAsync),
+    ("shared cleanup overview region and sale editor persist and rollback", RunSerially(TestSharedCleanupEditorAsync)),
     ("bag cleanup matcher separates discard and resolves sell conflicts", TestBagCleanupMatcherSeparatesDiscardAndResolvesConflictsAsync),
     ("bag cleanup matcher applies whitelist then blacklist precedence", TestBagCleanupMatcherAppliesWhitelistThenBlacklistPrecedenceAsync),
     ("bag cleanup blacklist starts discard during full cleanup cooldown", TestBagCleanupBlacklistStartsDiscardDuringFullCleanupCooldownAsync),
@@ -1250,23 +1251,23 @@ var tests = new (string Name, Func<Task> Run)[]
     ("kmbox net config store saves and loads endpoint", TestKmBoxNetConfigStoreRoundTripAsync),
     ("legacy hardware save rolls back KMBox when FPGA save fails", LegacyHardwareSaveTests.KmBoxSaveRollsBackWhenFpgaSaveFailsAsync),
     ("legacy device read requires lease and committed save survives UI refresh failure", LegacyHardwareSaveTests.DeviceReadRequiresLeaseAndCommittedSaveSurvivesUiRefreshFailureAsync),
-    ("device discovery Swap", DeviceDiscoveryTests.SwapAsync),
-    ("device discovery Ambiguity", DeviceDiscoveryTests.AmbiguityAsync),
-    ("device discovery Partial", DeviceDiscoveryTests.PartialAsync),
-    ("device discovery Occupied", DeviceDiscoveryTests.OccupiedAsync),
-    ("device discovery Eligibility", DeviceDiscoveryTests.EligibilityAsync),
-    ("device discovery Cancellation", DeviceDiscoveryTests.CancellationAsync),
-    ("device discovery HandshakeFailure", DeviceDiscoveryTests.HandshakeFailureAsync),
-    ("device discovery CleanupFailure", DeviceDiscoveryTests.CleanupFailureAsync),
-    ("device discovery Persist", DeviceDiscoveryTests.PersistAsync),
-    ("device discovery WorkspaceCancellation", DeviceDiscoveryTests.WorkspaceCancellationAsync),
-    ("device discovery TopologyChanged", DeviceDiscoveryTests.TopologyChangedAsync),
-    ("device discovery UnsupportedMode", DeviceDiscoveryTests.UnsupportedModeAsync),
-    ("device discovery Admission", DeviceDiscoveryTests.AdmissionAsync),
-    ("device discovery ProductionHandshake", DeviceDiscoveryTests.ProductionHandshakeAsync),
-    ("device discovery UiTiming", DeviceDiscoveryTests.UiTimingAsync),
-    ("device discovery UiCancelRetry", DeviceDiscoveryTests.UiCancelRetryAsync),
-    ("device discovery ProcessBoundary", DeviceDiscoveryTests.ProcessBoundaryAsync),
+    ("device discovery Swap", RunSerially(DeviceDiscoveryTests.SwapAsync)),
+    ("device discovery Ambiguity", RunSerially(DeviceDiscoveryTests.AmbiguityAsync)),
+    ("device discovery Partial", RunSerially(DeviceDiscoveryTests.PartialAsync)),
+    ("device discovery Occupied", RunSerially(DeviceDiscoveryTests.OccupiedAsync)),
+    ("device discovery Eligibility", RunSerially(DeviceDiscoveryTests.EligibilityAsync)),
+    ("device discovery Cancellation", RunSerially(DeviceDiscoveryTests.CancellationAsync)),
+    ("device discovery HandshakeFailure", RunSerially(DeviceDiscoveryTests.HandshakeFailureAsync)),
+    ("device discovery CleanupFailure", RunSerially(DeviceDiscoveryTests.CleanupFailureAsync)),
+    ("device discovery Persist", RunSerially(DeviceDiscoveryTests.PersistAsync)),
+    ("device discovery WorkspaceCancellation", RunSerially(DeviceDiscoveryTests.WorkspaceCancellationAsync)),
+    ("device discovery TopologyChanged", RunSerially(DeviceDiscoveryTests.TopologyChangedAsync)),
+    ("device discovery UnsupportedMode", RunSerially(DeviceDiscoveryTests.UnsupportedModeAsync)),
+    ("device discovery Admission", RunSerially(DeviceDiscoveryTests.AdmissionAsync)),
+    ("device discovery ProductionHandshake", RunSerially(DeviceDiscoveryTests.ProductionHandshakeAsync)),
+    ("device discovery UiTiming", RunSerially(DeviceDiscoveryTests.UiTimingAsync)),
+    ("device discovery UiCancelRetry", RunSerially(DeviceDiscoveryTests.UiCancelRetryAsync)),
+    ("device discovery ProcessBoundary", RunSerially(DeviceDiscoveryTests.ProcessBoundaryAsync)),
     ("device lease store prevents cross process device reuse", TestDeviceLeaseStorePreventsCrossProcessReuseAsync),
     ("device lease store explains corrupted registry recovery", TestDeviceLeaseStoreExplainsCorruptedRegistryRecoveryAsync),
     ("device lease uncertain process identity preserves owner and blocks takeover", DeviceLeasePresenceTests.UnknownOwnerPreservesLeaseAndBlocksTakeoverAsync),
@@ -1287,15 +1288,15 @@ var tests = new (string Name, Func<Task> Run)[]
     ("services load kmbox net config before input creation", TestRoadhogServicesLoadsKmBoxNetConfigAsync),
     ("account config stores shared path names only", TestAccountConfigStoresSharedPathNamesOnlyAsync),
     ("account config persists bag cleanup rules", TestAccountConfigPersistsBagCleanupRulesAsync),
-    ("bag cleanup removes obsolete discard coordinates and preserves saved values", TestBagCleanupDiscardConfirmPointUiAsync),
-    ("maintenance foldouts show all rows and preserve settings", TestMaintenanceFoldoutsAsync),
-    ("bag cleanup name-list ui auto saves both lists and rolls back failures", TestBagCleanupNameListUiAutoSavesAndRollsBackAsync),
+    ("bag cleanup removes obsolete discard coordinates and preserves saved values", RunSerially(TestBagCleanupDiscardConfirmPointUiAsync)),
+    ("maintenance foldouts show all rows and preserve settings", RunSerially(TestMaintenanceFoldoutsAsync)),
+    ("bag cleanup name-list ui auto saves both lists and rolls back failures", RunSerially(TestBagCleanupNameListUiAutoSavesAndRollsBackAsync)),
     ("bag cleanup name-list stall and auction configuration stays independent and persists", TestBagCleanupTradingNameListsAsync),
     ("bag cleanup all five name lists batch remove selected entries and roll back failures", TestBagCleanupBatchRemoveNameListsAsync),
-    ("bag cleanup name-list prices validate auto save and roll back in the grid", TestBagCleanupTradePricesAsync),
+    ("bag cleanup name-list prices validate auto save and roll back in the grid", RunSerially(TestBagCleanupTradePricesAsync)),
     ("account config persists stationary combat position", TestAccountConfigPersistsStationaryCombatPositionAsync),
-    ("revive path aggressive clear radius defaults persists and saves from ui", TestRevivePathAggressiveClearRadiusDefaultsCloneJsonAndUiAsync),
-    ("stalled target exclusion defaults persists and saves from ui", TestStalledTargetExclusionSecondsDefaultsCloneJsonAndUiAsync),
+    ("revive path aggressive clear radius defaults persists and saves from ui", RunSerially(TestRevivePathAggressiveClearRadiusDefaultsCloneJsonAndUiAsync)),
+    ("stalled target exclusion defaults persists and saves from ui", RunSerially(TestStalledTargetExclusionSecondsDefaultsCloneJsonAndUiAsync)),
     ("stationary combat target selector keeps monsters inside radius", TestStationaryTargetSelectorAsync),
     ("stationary combat smart pre-aim selector scores threats and aggressive setting", TestSmartPreAimSelectorScoresThreatsAndAggressiveSettingAsync),
     ("stationary combat smart pre-aim supports fight-target distance origin", TestSmartPreAimSupportsFightTargetDistanceOriginAsync),
@@ -1337,7 +1338,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary post-combat return overrides preaim gather and ordinary wrong locks", PostCombatReturnTests.PriorityAsync),
     ("stationary post-combat return lifecycle and live RPC settings", PostCombatReturnTests.LifecycleAndRuntimeAsync),
     ("stationary post-combat return account profile defaults and persistence", PostCombatReturnTests.PersistenceAsync),
-    ("stationary post-combat return summary UI saves custom distance", PostCombatReturnTests.SummaryUiAsync),
+    ("stationary post-combat return summary UI saves custom distance", RunSerially(PostCombatReturnTests.SummaryUiAsync)),
     ("stationary combat jumps when stuck returning home with no target", TestStationaryCombatJumpsWhenStuckReturningHomeWithNoTargetAsync),
     ("stationary combat sits at home when no target rest is enabled", TestStationaryCombatSitsAtHomeWhenNoTargetRestEnabledAsync),
     ("stationary combat wakes full no target rest without resitting", TestStationaryCombatWakesFullNoTargetRestAsync),
@@ -1532,36 +1533,36 @@ var tests = new (string Name, Func<Task> Run)[]
     ("smart pre-aim fixed policy ignores legacy switches and follows loot", TestSmartPreAimDependentSwitchesFollowEnabledStateFromSummaryUiAsync),
     ("selected skill refresh removes unavailable current skills", TestSelectedSkillRefreshRemovesUnavailableCurrentSkillsAsync),
     ("configured skill refresh updates all references and retains keys", TestConfiguredSkillRefreshUpdatesAllReferencesAsync),
-    ("configured skill refresh exact bar ranks covers all references with spirit unopened", () => ConfiguredSkillQuickbarRefreshTests.AllReferencesAsync("unopened")),
-    ("configured skill refresh exact bar ranks covers all references with spirit open", () => ConfiguredSkillQuickbarRefreshTests.AllReferencesAsync("open")),
-    ("configured skill refresh exact bar ranks covers all references with spirit closed", () => ConfiguredSkillQuickbarRefreshTests.AllReferencesAsync("closed")),
-    ("configured skill refresh legacy button saves both independent bar-rank trees and restores controls", () => ConfiguredSkillQuickbarRefreshTests.ButtonAsync("legacy")),
-    ("configured skill refresh quickbar button saves both independent bar-rank trees and restores controls", () => ConfiguredSkillQuickbarRefreshTests.ButtonAsync("quickbar")),
-    ("configured skill refresh new root cleanup preserves valid off-bar chains", ConfiguredSkillQuickbarRefreshTests.NewRootCleanupAsync),
-    ("configured skill refresh empty new tree never copies legacy priorities", ConfiguredSkillQuickbarRefreshTests.EmptyNewTreeAsync),
-    ("configured skill refresh shared buttons prevent cross-mode reentry and release the gate", ConfiguredSkillQuickbarRefreshTests.ReentryAsync),
-    ("configured skill refresh missing bar metadata leaves all drafts unchanged", () => ConfiguredSkillQuickbarRefreshTests.FailureAsync("missing")),
-    ("configured skill refresh partial bar metadata leaves all drafts unchanged", () => ConfiguredSkillQuickbarRefreshTests.FailureAsync("partial")),
-    ("configured skill refresh learned snapshot exception leaves all drafts unchanged", () => ConfiguredSkillQuickbarRefreshTests.FailureAsync("learned")),
-    ("configured skill refresh bar snapshot exception leaves all drafts unchanged", () => ConfiguredSkillQuickbarRefreshTests.FailureAsync("bar")),
-    ("configured skill refresh exact snapshot exception leaves all drafts unchanged", () => ConfiguredSkillQuickbarRefreshTests.FailureAsync("exact")),
-    ("configured skill refresh cancellation leaves all drafts unchanged", () => ConfiguredSkillQuickbarRefreshTests.FailureAsync("cancelled")),
-    ("configured skill refresh successful empty bar after real timeout leaves all drafts unchanged", () => ConfiguredSkillQuickbarRefreshTests.FailureAsync("late-bar")),
-    ("configured skill refresh bar ranks upgrade duplicate and empty compatibility", ConfiguredSkillQuickbarRefreshTests.BarSelectionAsync),
-    ("configured skill refresh ordinary candidate refresh compatibility", ConfiguredSkillQuickbarRefreshTests.CandidateCompatibilityAsync),
-    ("configured skill refresh utility slot does not block or add configured skills", ConfiguredSkillQuickbarRefreshTests.UtilityBarAsync),
-    ("configured skill refresh provider exact IDs retain utility metadata while full filters stay compatible", ConfiguredSkillQuickbarRefreshTests.ProviderFiltersAsync),
+    ("configured skill refresh exact bar ranks covers all references with spirit unopened", RunSerially(() => ConfiguredSkillQuickbarRefreshTests.AllReferencesAsync("unopened"))),
+    ("configured skill refresh exact bar ranks covers all references with spirit open", RunSerially(() => ConfiguredSkillQuickbarRefreshTests.AllReferencesAsync("open"))),
+    ("configured skill refresh exact bar ranks covers all references with spirit closed", RunSerially(() => ConfiguredSkillQuickbarRefreshTests.AllReferencesAsync("closed"))),
+    ("configured skill refresh legacy button saves both independent bar-rank trees and restores controls", RunSerially(() => ConfiguredSkillQuickbarRefreshTests.ButtonAsync("legacy"))),
+    ("configured skill refresh quickbar button saves both independent bar-rank trees and restores controls", RunSerially(() => ConfiguredSkillQuickbarRefreshTests.ButtonAsync("quickbar"))),
+    ("configured skill refresh new root cleanup preserves valid off-bar chains", RunSerially(ConfiguredSkillQuickbarRefreshTests.NewRootCleanupAsync)),
+    ("configured skill refresh empty new tree never copies legacy priorities", RunSerially(ConfiguredSkillQuickbarRefreshTests.EmptyNewTreeAsync)),
+    ("configured skill refresh shared buttons prevent cross-mode reentry and release the gate", RunSerially(ConfiguredSkillQuickbarRefreshTests.ReentryAsync)),
+    ("configured skill refresh missing bar metadata leaves all drafts unchanged", RunSerially(() => ConfiguredSkillQuickbarRefreshTests.FailureAsync("missing"))),
+    ("configured skill refresh partial bar metadata leaves all drafts unchanged", RunSerially(() => ConfiguredSkillQuickbarRefreshTests.FailureAsync("partial"))),
+    ("configured skill refresh learned snapshot exception leaves all drafts unchanged", RunSerially(() => ConfiguredSkillQuickbarRefreshTests.FailureAsync("learned"))),
+    ("configured skill refresh bar snapshot exception leaves all drafts unchanged", RunSerially(() => ConfiguredSkillQuickbarRefreshTests.FailureAsync("bar"))),
+    ("configured skill refresh exact snapshot exception leaves all drafts unchanged", RunSerially(() => ConfiguredSkillQuickbarRefreshTests.FailureAsync("exact"))),
+    ("configured skill refresh cancellation leaves all drafts unchanged", RunSerially(() => ConfiguredSkillQuickbarRefreshTests.FailureAsync("cancelled"))),
+    ("configured skill refresh successful empty bar after real timeout leaves all drafts unchanged", RunSerially(() => ConfiguredSkillQuickbarRefreshTests.FailureAsync("late-bar"))),
+    ("configured skill refresh bar ranks upgrade duplicate and empty compatibility", RunSerially(ConfiguredSkillQuickbarRefreshTests.BarSelectionAsync)),
+    ("configured skill refresh ordinary candidate refresh compatibility", RunSerially(ConfiguredSkillQuickbarRefreshTests.CandidateCompatibilityAsync)),
+    ("configured skill refresh utility slot does not block or add configured skills", RunSerially(ConfiguredSkillQuickbarRefreshTests.UtilityBarAsync)),
+    ("configured skill refresh provider exact IDs retain utility metadata while full filters stay compatible", RunSerially(ConfiguredSkillQuickbarRefreshTests.ProviderFiltersAsync)),
     ("skill tree maps at most configured roots across the 24 supported keys", TestConfiguredRootKeyBoundaryAsync),
     ("ankle strike legacy trigger is treated as condition", TestAnkleStrikeLegacyTriggerIsTreatedAsConditionAsync),
     ("observed configured cooldown advance calibrates clock", TestObservedConfiguredCooldownAdvanceCalibratesClockAsync),
     ("large cooldown offset jump is rejected", TestLargeCooldownOffsetJumpIsRejectedAsync),
     ("attack weave confirmation accounting", AttackWeaveTests.ConfirmationAccountingAsync),
-    ("attack weave settings persistence and visual layout", AttackWeaveTests.SettingsAndLayoutAsync),
-    ("settings window large responsive layout and persistence", SettingsLayoutTests.ResponsiveAsync),
+    ("attack weave settings persistence and visual layout", RunSerially(AttackWeaveTests.SettingsAndLayoutAsync)),
+    ("settings window large responsive layout and persistence", RunSerially(SettingsLayoutTests.ResponsiveAsync)),
     ("opening attack key switch presses C once", TestOpeningAttackKeySwitchPressesCOnceAsync),
     ("opening skill presses before C once", TestOpeningSkillPressesBeforeCOnceAsync),
     ("opening skill list legacy JSON clone and binding compatibility", OpeningSkillListTests.CompatibilityAsync),
-    ("opening skill list UI order modes save and empty reload", OpeningSkillListTests.UiAsync),
+    ("opening skill list UI order modes save and empty reload", RunSerially(OpeningSkillListTests.UiAsync)),
     ("opening skill retry succeeds after later skills and ordinary confirmation", OpeningSkillRetryTests.SuccessAsync),
     ("opening skill retry failure is bounded without repeated input", OpeningSkillRetryTests.FailureBoundedAsync),
     ("opening skill retry late cooldown and timeout boundary prevent duplicates", OpeningSkillRetryTests.LateConfirmationAsync),
@@ -1715,8 +1716,8 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("grocery shop missing scroll empty plan and invalid route guards", GroceryShopTests.FlowGuardsAsync)
     ,("grocery shop actual discounted sellout protects scroll and persists before restart", GroceryShopTests.SaleCompletionAsync)
     ,("grocery shop worker returns to combat retries bag and schedule then signals restart", GroceryShopTests.WorkerRetryAndCompletionAsync)
-    ,("grocery shop UI multiple times route scroll and temporary manual action", GroceryShopTests.UiConfigurationAndManualAsync)
-    ,("grocery shop UI scroll refresh uses return group and excludes speed buffs", GroceryShopTests.UiScrollRefreshByItemTypeAsync)
+    ,("grocery shop UI multiple times route scroll and temporary manual action", RunSerially(GroceryShopTests.UiConfigurationAndManualAsync))
+    ,("grocery shop UI scroll refresh uses return group and excludes speed buffs", RunSerially(GroceryShopTests.UiScrollRefreshByItemTypeAsync))
     ,("grocery shop provider return use group identity and trusted merge", GroceryShopTests.ReturnUseGroupProviderAsync)
     ,("grocery shop final discard follows full sellout before restart", GroceryShopTests.DiscardAfterSelloutAsync)
     ,("grocery shop NPC first equipment other discard then ordinary sale and soldout restart", GroceryShopTests.NpcFirstOrderAndCompletionAsync)
@@ -1765,37 +1766,37 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("grocery shop final discard retries hover failure without repeating discarded items or sale", GroceryShopTests.PostSaleDiscardRetriesRemainingAsync)
     ,("grocery shop worker retries final discard before requesting restart", GroceryShopTests.PostSaleDiscardWorkerContinuesAsync)
     ,("grocery shop interrupted return cannot execute discard", GroceryShopTests.InterruptedBeforeDiscardAsync)
-    ,("grocery shop stopped and running manual command worker IPC", WorkerProcessManagerTests.GroceryShopDispatchAsync)
+    ,("grocery shop stopped and running manual command worker IPC", RunSerially(WorkerProcessManagerTests.GroceryShopDispatchAsync))
     ,("standalone shop price filtering request and persistence", StandaloneShopTests.PriceAndRequestAsync)
     ,("standalone shop batches confirmed prices sale proof and resume", CleanupWorkflowTests.DiscountedStallAsync)
     ,("standalone shop empty and stop never resume", StandaloneShopTests.EmptyAndCancelAsync)
-    ,("standalone shop UI discount and button layout", StandaloneShopTests.UiAsync)
+    ,("standalone shop UI discount and button layout", RunSerially(StandaloneShopTests.UiAsync))
     ,("standalone shop worker failure resumes main loop without replay", CleanupWorkflowTests.StandaloneShopWorkerFailureAsync)
-    ,("standalone shop cleanup failure IPC preserves running intent", WorkerProcessManagerTests.CleanupFailurePreservesRecoveryAsync)
-    ,("standalone shop worker IPC stopped and running dispatch", WorkerProcessManagerTests.StandaloneShopDispatchAsync)
+    ,("standalone shop cleanup failure IPC preserves running intent", RunSerially(WorkerProcessManagerTests.CleanupFailurePreservesRecoveryAsync))
+    ,("standalone shop worker IPC stopped and running dispatch", RunSerially(WorkerProcessManagerTests.StandaloneShopDispatchAsync))
     ,("standalone shop workflow settles and closes without old worker return", CleanupWorkflowTests.StandaloneShopCompletionAsync)
     ,("standalone shop real worker waits for stop and fresh startup F1", CleanupWorkflowTests.StandaloneShopWorkerCompletionAsync)
-    ,("standalone shop restart fresh IPC worker config leases and account isolation", WorkerProcessManagerTests.StandaloneShopRestartsFreshWorkerAsync)
-    ,("script restart fresh IPC worker and account isolation", WorkerProcessManagerTests.ScriptRestartFreshWorkerAsync)
-    ,("script restart cold world snapshot escalates after three replacements", WorkerProcessManagerTests.ColdWorldSnapshotEscalatesAfterThreeRestartsAsync)
-    ,("script restart later manual stop wins", WorkerProcessManagerTests.ScriptRestartManualStopWinsAsync)
-    ,("script restart failed reconciliation retries without overlapping workers", WorkerProcessManagerTests.ScriptRestartStopFailureAsync)
-    ,("standalone shop restart later manual stop wins admission race", WorkerProcessManagerTests.StandaloneShopManualStopWinsAsync)
-    ,("standalone shop restart manual stop during old worker shutdown wins", WorkerProcessManagerTests.StandaloneShopManualStopDuringShutdownWinsAsync)
-    ,("standalone shop restart completion survives manager reconnect", WorkerProcessManagerTests.StandaloneShopCompletionSurvivesManagerReconnectAsync)
-    ,("standalone shop restart stop failure retries without overlapping workers", WorkerProcessManagerTests.StandaloneShopStopFailureRetriesSafelyAsync)
-    ,("standalone shop restart start rejection preserves intent and retries", WorkerProcessManagerTests.StandaloneShopStartFailureRetriesAsync)
-    ,("standalone shop restart manual stop cancels deferred retry", WorkerProcessManagerTests.StandaloneShopManualStopCancelsRetryAsync)
-    ,("standalone shop restart application shutdown wins", WorkerProcessManagerTests.StandaloneShopShutdownWinsAsync)
+    ,("standalone shop restart fresh IPC worker config leases and account isolation", RunSerially(WorkerProcessManagerTests.StandaloneShopRestartsFreshWorkerAsync))
+    ,("script restart fresh IPC worker and account isolation", RunSerially(WorkerProcessManagerTests.ScriptRestartFreshWorkerAsync))
+    ,("script restart cold world snapshot escalates after three replacements", RunSerially(WorkerProcessManagerTests.ColdWorldSnapshotEscalatesAfterThreeRestartsAsync))
+    ,("script restart later manual stop wins", RunSerially(WorkerProcessManagerTests.ScriptRestartManualStopWinsAsync))
+    ,("script restart failed reconciliation retries without overlapping workers", RunSerially(WorkerProcessManagerTests.ScriptRestartStopFailureAsync))
+    ,("standalone shop restart later manual stop wins admission race", RunSerially(WorkerProcessManagerTests.StandaloneShopManualStopWinsAsync))
+    ,("standalone shop restart manual stop during old worker shutdown wins", RunSerially(WorkerProcessManagerTests.StandaloneShopManualStopDuringShutdownWinsAsync))
+    ,("standalone shop restart completion survives manager reconnect", RunSerially(WorkerProcessManagerTests.StandaloneShopCompletionSurvivesManagerReconnectAsync))
+    ,("standalone shop restart stop failure retries without overlapping workers", RunSerially(WorkerProcessManagerTests.StandaloneShopStopFailureRetriesSafelyAsync))
+    ,("standalone shop restart start rejection preserves intent and retries", RunSerially(WorkerProcessManagerTests.StandaloneShopStartFailureRetriesAsync))
+    ,("standalone shop restart manual stop cancels deferred retry", RunSerially(WorkerProcessManagerTests.StandaloneShopManualStopCancelsRetryAsync))
+    ,("standalone shop restart application shutdown wins", RunSerially(WorkerProcessManagerTests.StandaloneShopShutdownWinsAsync))
     ,("cleanup workflow purchase decoder guards", PersonalShopDecoderTests.TradingPurchaseDecodeAsync)
     ,("cleanup workflow auction listing and modal decoder guards", PersonalShopDecoderTests.AuctionListingsDecodeAsync)
     ,("auction inventory foreground reopening guards and cancellation", CleanupWorkflowTests.AuctionInventoryForegroundAsync)
     ,("cleanup workflow hub routes return order and preflight", CleanupWorkflowTests.PathsAndPreflightAsync)
     ,("cleanup workflow warehouse scroll interruption guards and automatic protection", GroceryShopTests.WarehouseReturnGuardsAsync)
     ,("cleanup workflow worker insertion stop and session isolation", CleanupWorkflowTests.WorkerSessionAsync)
-    ,("cleanup workflow settings UI persistence and path editors", CleanupWorkflowTests.SettingsUiAsync)
+    ,("cleanup workflow settings UI persistence and path editors", RunSerially(CleanupWorkflowTests.SettingsUiAsync))
     ,("cleanup workflow actual combat drain worker resume and stop", CleanupWorkflowTests.ActualWorkerAndCombatAsync)
-    ,("auction path NPC selection save reload and shared metadata", CleanupWorkflowTests.AuctionNpcSettingsAsync)
+    ,("auction path NPC selection save reload and shared metadata", RunSerially(CleanupWorkflowTests.AuctionNpcSettingsAsync))
     ,("auction path NPC identity selection retry and cancellation", CleanupWorkflowTests.AuctionNpcSelectionAsync)
     ,("auction path NPC flows use saved name and diagnostic remains noncommitting", CleanupWorkflowTests.AuctionNpcFlowsAsync)
     ,("worker recovery initialization exceptions cancellation return and manual stop", WorkerRecoveryTests.HostRecoveryAsync)
@@ -1818,7 +1819,7 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("automatic discard limit stops at thirteen entries and honors priority", AutomaticDiscardLimitTests.LimitAndPriorityAsync)
     ,("automatic discard limit preserves confirmed count through hover close and confirm retry", AutomaticDiscardLimitTests.RetryPreservesLimitAsync)
     ,("automatic discard limit includes late candidates in the same budget", AutomaticDiscardLimitTests.LateCandidatesRespectLimitAsync)
-    ,("automatic discard limit applies to normal and both grocery workflows", AutomaticDiscardLimitTests.WorkflowLimitAsync)
+    ,("automatic discard limit applies to normal and both grocery workflows", StartEarly(AutomaticDiscardLimitTests.WorkflowLimitAsync))
     ,("automatic discard limit worker resumes grinding without immediate retrigger", AutomaticDiscardLimitTests.WorkerResumesGrindingAsync)
     ,("grocery backpack discard failure retries in same host with backoff", CleanupWorkflowTests.BackpackDiscardFailureRetriesInSameHostAsync)
     ,("automatic discard post-loot retry keeps maintenance ownership", CleanupWorkflowTests.PostLootDiscardKeepsOwnershipAsync)
@@ -1847,11 +1848,11 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("combat flow policy persistence and malformed fallback", CombatFlowPolicyTests.PolicyPersistenceAndMalformedFallbackAsync)
     ,("combat flow policy account selection survives profiles and serialization", CombatFlowPolicyTests.AccountSelectionSurvivesProfileAndSerializationAsync)
     ,("combat flow policy direct startup preserves active version", CombatFlowPolicyTests.DirectStartupUsesPolicyAndKeepsRunningVersionAsync)
-    ,("combat flow rollback stops only new accounts", WorkerProcessManagerTests.CombatFlowRollbackStopsOnlyNewAccountsAsync)
-    ,("combat flow rollback cancels pending start", WorkerProcessManagerTests.CombatFlowRollbackCancelsPendingStartAsync)
-    ,("combat flow rollback completes after manager reopen", WorkerProcessManagerTests.CombatFlowRollbackCompletesAfterManagerReopenAsync)
-    ,("combat flow rollback preserves adopted legacy worker", WorkerProcessManagerTests.CombatFlowRollbackPreservesAdoptedLegacyWorkerAsync)
-    ,("combat flow toolbar fits minimum width", MultiAccountUiTests.CombatFlowToolbarFitsMinimumWidthAsync)
+    ,("combat flow rollback stops only new accounts", RunSerially(WorkerProcessManagerTests.CombatFlowRollbackStopsOnlyNewAccountsAsync))
+    ,("combat flow rollback cancels pending start", RunSerially(WorkerProcessManagerTests.CombatFlowRollbackCancelsPendingStartAsync))
+    ,("combat flow rollback completes after manager reopen", RunSerially(WorkerProcessManagerTests.CombatFlowRollbackCompletesAfterManagerReopenAsync))
+    ,("combat flow rollback preserves adopted legacy worker", RunSerially(WorkerProcessManagerTests.CombatFlowRollbackPreservesAdoptedLegacyWorkerAsync))
+    ,("combat flow toolbar fits minimum width", RunSerially(MultiAccountUiTests.CombatFlowToolbarFitsMinimumWidthAsync))
     ,("combat flow v2 summon gives low HP recovery an input turn", CoordinatedSummonRecoveryTests.LowHpPrecedesSummonAsync)
     ,("combat flow v2 summon preserves legacy order", CoordinatedSummonRecoveryTests.LegacyKeepsSummonFirstAsync)
     ,("combat flow v2 summon confirmation reserves input", CoordinatedSummonRecoveryTests.ConfirmationReservesInputAsync)
@@ -1870,48 +1871,7 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("combat flow legacy excludes health diagnostics", () => CoordinatedHealthDiagnosticsTests.LifeGuardObservationIsPassiveAsync(CombatFlowVersion.Legacy))
 }).Concat(CombatFlowRefactorTests.Cases).Concat(CoordinatedPetHpHandoffTests.Cases).Concat(CoordinatedSummonDefenseTests.Cases).Concat(CoordinatedSummonCooldownTests.Cases).Concat(CoordinatedPetSkillEligibilityTests.Cases).Concat(CoordinatedPetRecoveryEvidenceTests.Cases).Concat(AccountSessionStatisticsTests.Cases).ToArray();
 
-var testFilter = args
-    .FirstOrDefault(static argument => argument.StartsWith("--test-filter=", StringComparison.OrdinalIgnoreCase))?
-    .Split('=', 2)[1]
-    .Trim();
-if (!string.IsNullOrWhiteSpace(testFilter))
-{
-    tests = tests
-        .Where(test => test.Name.Contains(testFilter, StringComparison.OrdinalIgnoreCase))
-        .ToArray();
-}
-
-var failures = 0;
-if (tests.Length == 0)
-{
-    Console.WriteLine("FAILED no tests matched the requested filter.");
-    Environment.ExitCode = 2;
-    return;
-}
-foreach (var test in tests)
-{
-    try
-    {
-        await test.Run().ConfigureAwait(false);
-        Console.WriteLine("PASS " + test.Name);
-    }
-    catch (Exception ex)
-    {
-        failures++;
-        Console.WriteLine("FAIL " + test.Name);
-        Console.WriteLine("     " + ex.Message);
-    }
-}
-
-if (failures > 0)
-{
-    Environment.ExitCode = 1;
-    Console.WriteLine("FAILED " + failures + " test(s).");
-}
-else
-{
-    Console.WriteLine("All Roadhog tests passed.");
-}
+Environment.ExitCode = await RoadhogTestRunner.RunAsync(tests, args);
 
 static Task TestPathRecorderMinimumDistanceAsync()
 {

@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using System.Reflection;
 using System.Text.Json;
 using Roadhog;
@@ -15,6 +17,9 @@ internal static class AccountResourceIsolationTests
     {
         await using var files = new ResourceEnvironment();
         var account = files.Account();
+        // The mock host still takes the same endpoint mutex as a production worker.
+        using var endpoint = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        account.KmBox!.Port = ((IPEndPoint)endpoint.Client.LocalEndPoint!).Port;
         var key = Guid.NewGuid().ToString("N");
         var spec = new WorkerLaunchSpec
         {
