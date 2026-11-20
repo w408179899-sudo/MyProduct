@@ -1689,7 +1689,7 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("grocery shop schedule late startup skips elapsed slots while live retries remain due", GroceryShopTests.ScheduleLateStartupAsync)
     ,("grocery shop schedule session boundary survives delayed polling recovery and UTC offsets", GroceryShopTests.ScheduleSessionBoundaryAsync)
     ,("grocery shop schedule worker starts at noon skips ten and triggers eighteen", GroceryShopTests.ScheduleLateStartupWorkerAsync)
-    ,("scheduled cleanup actual worker interrupts revive travel and resumes skipped trip", GroceryShopTests.ScheduleInterruptsReviveTravelWorkerAsync)
+    ,("scheduled cleanup actual worker discards revive travel on sellout and resumes skipped trip", GroceryShopTests.ScheduleInterruptsReviveTravelWorkerAsync)
     ,("grocery shop backpack exhausts discard rechecks capacity and protects scroll", GroceryShopTests.BackpackDiscardGateAsync)
     ,("grocery shop backpack discard failures attack death stop and retry block departure", GroceryShopTests.BackpackDiscardInterruptionAsync)
     ,("grocery shop backpack worker retries local discard failure before rechecking capacity", GroceryShopTests.BackpackDiscardWorkerContinuesAsync)

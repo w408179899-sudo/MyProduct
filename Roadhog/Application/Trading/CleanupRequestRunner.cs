@@ -61,6 +61,17 @@ internal static class CleanupRequestRunner
                 context.StopToken.ThrowIfCancellationRequested();
                 if (cleanup.RequestsRestart)
                 {
+                    if (cleanup.GroceryTrigger == GroceryShopTrigger.Scheduled &&
+                        StationaryCombatController.IsFollowingRevivePath(stationaryCombatState))
+                    {
+                        stationaryCombatState.ExitDeathRecovery();
+                        stationaryCombatState.RetryStartupRecovery();
+                        context.Logger.Info("grocery_shop.revive_path.discarded", new Dictionary<string, object?>
+                        {
+                            ["account"] = context.Config.AccountName, ["requestId"] = cleanup.RequestId,
+                            ["pathName"] = cleanup.Settings.Paths.RevivePathName
+                        });
+                    }
                     context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, cleanup.GroceryShop
                         ? "杂货清包处理完成，等待后续操作" : "全部售罄，等待停止并重新启动脚本");
                     context.CleanupRequests.CompleteStandaloneShopForRestart(cleanup);

@@ -11,7 +11,7 @@ using Roadhog.Core.Model;
 
 internal static class GameExitWorkerIntegrationTests
 {
-    private sealed class ExitSession : IGameExitSession
+    internal sealed class ExitSession : IGameExitSession
     {
         internal GameExitSnapshot Scene = new("worker-test/game-123", 123, true, false, false, false, false, 100, false);
         internal int Reads;

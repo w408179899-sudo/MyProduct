@@ -1,4 +1,5 @@
 using Roadhog.Application;
+using Roadhog.Application.GameSessions;
 using Roadhog.Application.SemiAuto;
 using Roadhog.Application.StationaryCombat;
 using Roadhog.Application.Workers;
@@ -11,8 +12,9 @@ internal static partial class GroceryShopTests
 {
     public static async Task ScheduleInterruptsReviveTravelWorkerAsync()
     {
-        foreach (var skipTrip in new[] { false, true })
+        foreach (var scenario in new[] { "relogin", "rejected_relogin", "skip" })
         {
+            var skipTrip = scenario == "skip";
             using var trip = new Trip { Now = At(11, 59) };
             trip.Stop.CancelAfter(TimeSpan.FromSeconds(40));
             var settings = trip.Config.ScriptSettings!;
@@ -23,6 +25,7 @@ internal static partial class GroceryShopTests
             settings.Maintenance.CleanupWorkflow.GroceryScheduleEnabled = true;
             settings.Maintenance.CleanupWorkflow.GroceryScheduleTimes = new() { "12:00" };
             settings.Paths.RevivePathName = "revive";
+            settings.Paths.TownReturnKey = "OemPlus";
             settings.Combat.PathFollowReachDistance = 1;
             settings.Combat.StationaryCombatRadius = 5;
             settings.Combat.ReturnHomeWhenNoTarget = false;
@@ -50,8 +53,23 @@ internal static partial class GroceryShopTests
                 { new() { X = 0 }, new() { X = 20 }, new() { X = 40 } } };
             var paths = new InMemorySharedPathStore(revive, trip.Route);
             var semi = new SemiAutoCombatController(trip.Input);
+            var exitSession = new GameExitWorkerIntegrationTests.ExitSession();
+            exitSession.OnAction = action =>
+            {
+                if (action == GameExitAction.OpenMenu)
+                    exitSession.Scene = exitSession.Scene with { MenuOpen = true, CanQuit = true };
+                if (action == GameExitAction.Quit)
+                    exitSession.Scene = exitSession.Scene with { ProcessPresent = false };
+            };
+            trip.Input.AfterPress += key =>
+            {
+                if (key != "OemPlus") return;
+                trip.Api.Channel = trip.Api.Channel with { MapId = 1 };
+                trip.Api.Player = trip.Api.Player with { Position = new(0, 0, 0) };
+            };
             var loop = new DefaultAccountWorkerLoop(trip.Input, semi,
-                new StationaryCombatController(trip.Input, semi, paths), cleanupWorkflow: trip.Runner());
+                new StationaryCombatController(trip.Input, semi, paths), cleanupWorkflow: trip.Runner(),
+                gameExitSessionFactory: _ => exitSession);
             var host = new AccountWorkerHost(trip.Api, trip.Logger, new AccountRuntimeManager(trip.Logger), loop,
                 new() { TickInterval = TimeSpan.FromMilliseconds(5) });
             async Task Until(Func<bool> ready, string stage)
@@ -99,6 +117,29 @@ internal static partial class GroceryShopTests
                         "scheduled recall and sellout run exactly once before the revive route endpoint");
                     Check(trip.Logger.Entries.Count(e => e.EventName == "grocery_shop.schedule.due") == 1,
                         "due slot is not duplicated during recovery handoff");
+                    var followsAtSellout = Follows();
+                    Check(trip.Api.Channel.MapId == trip.Route.MapId && !trip.Input.Keys.Contains("OemPlus"),
+                        "sellout finishes on the stall map, away from the original revive route");
+                    if (scenario == "relogin")
+                    {
+                        Check(host.RequestGameSession(GameSessionOperation.Relogin, allowScheduledGroceryHandoff: true).Success,
+                            "the manager can request relogin after scheduled sellout");
+                        await Until(() => host.CompletedGameSession is not null, "exit completion after scheduled sellout");
+                        Check(exitSession.Actions.SequenceEqual(new[] { GameExitAction.OpenMenu, GameExitAction.Quit }) &&
+                              !trip.Input.Keys.Contains("OemPlus"), "relogin reaches normal exit without recalling or following the old route");
+                    }
+                    else
+                    {
+                        host.ResumeAfterRejectedGroceryRelogin(host.StandaloneShopRestartRequestId!.Value, "missing credentials");
+                        await Until(() => trip.Logger.Entries.Any(e => e.EventName == "stationary_combat.startup_recovery.return.verify.ok"),
+                            "fresh return after relogin is rejected");
+                        Check(exitSession.Actions.Count == 0 && trip.Input.Keys.Count(key => key == "OemPlus") == 1 &&
+                            trip.Api.Channel.MapId == 1, "a refused relogin recovers from the stall map without exiting");
+                    }
+                    Check(Follows() == followsAtSellout &&
+                          trip.Logger.Entries.Count(e => e.EventName == "grocery_shop.revive_path.discarded") == 1 &&
+                          trip.Logger.Entries.Count(e => e.EventName == "grocery_shop.schedule.due") == 1 && trip.ShopStarts == 1,
+                        "the cancelled revive leg and the completed sale must not resume or replay");
                 }
                 Check((await host.StopAsync()).Success, "Stop still drains the scheduled worker");
             }
