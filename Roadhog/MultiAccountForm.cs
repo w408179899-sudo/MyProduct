@@ -24,6 +24,7 @@ public sealed partial class MultiAccountForm : Form
     private readonly RoundedComboBox _filter = new();
     private readonly NotifyIcon _tray = new();
     private readonly HashSet<string> _busy = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, AccountSettingsForm> _settingsWindows = new(StringComparer.OrdinalIgnoreCase);
     private readonly TableLayoutPanel _layout = new();
     private List<AccountConfig> _accounts = [];
     private int _fittedRowCount = -1;
@@ -275,6 +276,15 @@ public sealed partial class MultiAccountForm : Form
         finally { _configurationGate.Release(); }
     }
 
+    private IDisposable? BeginSettingsSave() =>
+        !_operations.IsClosing && !IsDisposed && _configurationGate.Wait(0)
+            ? new ConfigurationSaveLease(_configurationGate) : null;
+
+    private sealed class ConfigurationSaveLease(SemaphoreSlim gate) : IDisposable
+    {
+        public void Dispose() => gate.Release();
+    }
+
     private void RefreshRows()
     {
         if (!_initialized || _exiting || IsDisposed) return;
@@ -355,11 +365,22 @@ public sealed partial class MultiAccountForm : Form
         if (e.RowIndex < 0 || e.ColumnIndex < 0 || _grid.Columns[e.ColumnIndex] is not DataGridViewButtonColumn) return;
         var id = (string)_grid.Rows[e.RowIndex].Tag!;
         var action = _grid.Columns[e.ColumnIndex].Name;
+        if (action == "设置" && _settingsWindows.TryGetValue(id, out var settings))
+        {
+            if (settings.WindowState == FormWindowState.Minimized) settings.WindowState = FormWindowState.Normal;
+            settings.Activate();
+            return;
+        }
         if (action == "停止")
         {
             try { Check(await _workspace.Processes.StopAsync(id)); }
             catch (Exception ex) { Report(ex.Message); }
             finally { RefreshRows(); }
+            return;
+        }
+        if (action == "硬件" && _settingsWindows.ContainsKey(id))
+        {
+            Report("请先关闭该账号的设置窗口，再修改设备与角色。");
             return;
         }
         if (!_busy.Add(id)) return;
@@ -368,7 +389,7 @@ public sealed partial class MultiAccountForm : Form
             if (action == "启动") await RunAsync(id, false);
             else if (action == "停止") Check(await _workspace.Processes.StopAsync(id));
             else if (action == "硬件") await RunConfigurationActionAsync(() => EditHardwareAsync(id));
-            else if (action == "设置") await RunConfigurationActionAsync(() => OpenSettingsAsync(id));
+            else if (action == "设置") await OpenSettingsAsync(id);
         }
         catch (Exception ex)
         {
@@ -469,7 +490,8 @@ public sealed partial class MultiAccountForm : Form
             .Select(row => (string)row.Tag!).ToHashSet(StringComparer.OrdinalIgnoreCase);
         if (ids.Count == 0) { Report("请先勾选要删除的账号。"); return; }
         var blocked = _workspace.Processes.Snapshot().Where(view => ids.Contains(view.Config.InstanceId) &&
-            (view.DesiredRunning || view.WorkerProcessId.HasValue)).Select(view => view.Config.AccountName).ToArray();
+            (view.DesiredRunning || view.WorkerProcessId.HasValue || _settingsWindows.ContainsKey(view.Config.InstanceId)))
+            .Select(view => view.Config.AccountName).ToArray();
         if (blocked.Length > 0)
         {
             Report("请先停止以下账号并关闭其设置窗口，等待后台进程退出后再删除：" + string.Join("、", blocked));
@@ -495,18 +517,35 @@ public sealed partial class MultiAccountForm : Form
 
     private async Task OpenSettingsAsync(string id)
     {
+        if (_configurationGate.CurrentCount == 0) throw new InvalidOperationException("正在修改账号配置，请完成当前操作后再试。");
         var account = _accounts.Single(a => a.InstanceId == id);
         using var form = CreateAccountSettingsForm(account);
+        form.StartPosition = FormStartPosition.CenterScreen;
+        form.BeginAccountSettingsSave = BeginSettingsSave;
         form.AccountConfigurationSaved += saved =>
         {
             _accounts = _workspace.Processes.Snapshot().Select(v => v.Config.InstanceId == saved.InstanceId ? saved : v.Config).ToList();
             _workspace.Processes.UpdateAccounts(_accounts);
             RefreshRows();
         };
-        form.ShowDialog(this);
-        await ReloadAccountsAsync();
-        if (!_workspace.Processes.Snapshot().Single(v => v.Config.InstanceId == id).DesiredRunning)
-            await _workspace.Processes.ReleaseIdleWorkerAsync(id);
+        var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnClosed()
+        {
+            if (closed.TrySetResult()) _settingsWindows.Remove(id);
+        }
+        form.FormClosed += (_, _) => OnClosed();
+        form.Disposed += (_, _) => OnClosed();
+        _settingsWindows.Add(id, form);
+        form.Show();
+        await closed.Task;
+        if (_operations.IsClosing || IsDisposed) return;
+        try { await ReloadAccountsAsync(); }
+        finally
+        {
+            if (!_operations.IsClosing && !IsDisposed &&
+                _workspace.Processes.Snapshot().Any(view => view.Config.InstanceId == id && !view.DesiredRunning))
+                Check(await _workspace.Processes.ReleaseIdleWorkerAsync(id));
+        }
     }
 
     private AccountSettingsForm CreateAccountSettingsForm(AccountConfig account) =>
@@ -528,11 +567,16 @@ public sealed partial class MultiAccountForm : Form
 
     private async Task ReloadAccountsAsync()
     {
-        var loaded = await _workspace.Accounts.LoadAllAsync(_operations.Token);
-        if (!loaded.Success || loaded.Value is null) throw new InvalidOperationException(loaded.Error);
-        _accounts = loaded.Value.ToList();
-        await _workspace.MigrateSharedConfigurationAsync(_accounts, _operations.Token);
-        _workspace.Processes.UpdateAccounts(_accounts); RefreshRows();
+        var token = _operations.Token;
+        await _configurationGate.WaitAsync(token);
+        try
+        {
+            var accounts = await _workspace.LoadConfiguredAccountsAsync(token);
+            token.ThrowIfCancellationRequested();
+            _workspace.Processes.UpdateAccounts(accounts);
+            _accounts = accounts.ToList(); RefreshRows();
+        }
+        finally { _configurationGate.Release(); }
     }
 
     private async Task EditHardwareAsync(string? id)
@@ -636,6 +680,19 @@ public sealed partial class MultiAccountForm : Form
         {
             if (_workspaceDisposeTask is null)
             {
+                foreach (var settings in _settingsWindows.Values.ToArray())
+                {
+                    CloseOwnedForms(settings);
+                    if (!settings.IsDisposed) settings.Close();
+                }
+                if (_settingsWindows.Count > 0)
+                {
+                    Report("请先完成设置窗口中的操作或关闭设置窗口，再退出程序。");
+                    _exiting = false; Enabled = true;
+                    if (_initialized) _timer.Start();
+                    _exitTask = null;
+                    return;
+                }
                 _workspace.Processes.BeginShutdown();
                 _operations.BeginShutdown();
                 CloseOwnedForms(this);
@@ -723,7 +780,11 @@ public sealed partial class MultiAccountForm : Form
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { _timer.Dispose(); _tray.Dispose(); _operations.Dispose(); }
+        if (disposing)
+        {
+            _timer.Dispose(); _tray.Dispose(); _operations.Dispose();
+            foreach (var settings in _settingsWindows.Values.ToArray()) settings.Dispose();
+        }
         base.Dispose(disposing);
     }
 }

@@ -59,6 +59,13 @@ public sealed partial class MultiAccountWorkspace : IAsyncDisposable
 
     public async Task<IReadOnlyList<AccountConfig>> InitializeAsync(CancellationToken cancellationToken)
     {
+        var accounts = await LoadConfiguredAccountsAsync(cancellationToken).ConfigureAwait(false);
+        await Processes.InitializeAsync(accounts, cancellationToken).ConfigureAwait(false);
+        return accounts;
+    }
+
+    internal async Task<IReadOnlyList<AccountConfig>> LoadConfiguredAccountsAsync(CancellationToken cancellationToken)
+    {
         var result = await Accounts.LoadAllAsync(cancellationToken).ConfigureAwait(false);
         if (!result.Success || result.Value is null) throw new InvalidOperationException(result.Error);
         var accounts = result.Value.Where(account => Guid.TryParse(account.InstanceId, out _)).ToArray();
@@ -73,7 +80,6 @@ public sealed partial class MultiAccountWorkspace : IAsyncDisposable
                 if (!saved.Success) throw new InvalidOperationException(saved.Error);
             }
         }
-        await Processes.InitializeAsync(accounts, cancellationToken).ConfigureAwait(false);
         return accounts;
     }
 
@@ -134,18 +140,6 @@ public sealed partial class MultiAccountWorkspace : IAsyncDisposable
 
     public IBagCleanupNameListStore NameListsFor(AccountConfig account) =>
         new SharedAccountConfigurationStore(SharedAccountConfigurationStore.PathFor(Options.AccountConfigPath), account.Region);
-
-    public async Task MigrateSharedConfigurationAsync(IReadOnlyList<AccountConfig> accounts, CancellationToken token = default)
-    {
-        var before = accounts.Select(a => a.Region).ToArray();
-        await SharedCleanupMigration.MigrateAsync(Options.AccountConfigPath, accounts, Options.ProfileLibraryDirectory,
-            Options.BagCleanupNameListPath, token).ConfigureAwait(false);
-        if (!before.SequenceEqual(accounts.Select(a => a.Region)))
-        {
-            var result = await Accounts.SaveAllAsync(accounts, token).ConfigureAwait(false);
-            if (!result.Success) throw new InvalidOperationException(result.Error);
-        }
-    }
 
     public JsonRadarMapStore RadarMapsFor(AccountConfig account) =>
         new(Processes.PathsFor(account).RadarMapDirectory);

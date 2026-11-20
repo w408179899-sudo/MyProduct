@@ -896,6 +896,12 @@ internal static partial class WorkerProcessManagerTests
 
         public async Task<object?> InvokeAsync(string method, JsonElement[] arguments, IProgress<string> progress, CancellationToken cancellationToken)
         {
+            if (scenario == "settings-maintenance" && method is
+                nameof(Roadhog.Application.IRoadhogRuntime.RunEquipmentUpgradeBatchAsync) or nameof(Roadhog.Application.IRoadhogRuntime.RunManastoneExchangeAsync))
+            {
+                await File.WriteAllTextAsync(Path.Combine(spec.Paths.LogDirectory, "settings-operation"), method, cancellationToken);
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
             if (method == "mock.game-disconnected")
             {
                 lock (_shopSync) { _disconnectRequestId = arguments[0].GetGuid(); _running = false; }

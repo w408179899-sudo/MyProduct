@@ -272,18 +272,21 @@ namespace Roadhog
         private CancellationTokenSource? _personalShopTestCts;
         private CancellationTokenSource? _auctionTestCts;
         private CancellationTokenSource? _inventoryDiscardTestCts;
+        internal Func<IDisposable?>? BeginAccountSettingsSave { get; set; }
 
-        protected override void OnFormClosed(FormClosedEventArgs e)
+        protected override void Dispose(bool disposing)
         {
-            _aStarTestCts?.Cancel();
-            _personalShopTestCts?.Cancel();
-            _auctionTestCts?.Cancel();
-            _inventoryDiscardTestCts?.Cancel();
-            _equipmentUpgradeCts?.Cancel();
-            _manastoneExchangeCts?.Cancel();
-            pathRecordTimer.Stop();
-            pathRecordTimer.Dispose();
-            base.OnFormClosed(e);
+            if (disposing && !IsDisposed)
+            {
+                _aStarTestCts?.Cancel();
+                _personalShopTestCts?.Cancel();
+                _auctionTestCts?.Cancel();
+                _inventoryDiscardTestCts?.Cancel();
+                _equipmentUpgradeCts?.Cancel();
+                _manastoneExchangeCts?.Cancel();
+                pathRecordTimer.Dispose();
+            }
+            base.Dispose(disposing);
         }
 
         private void InitializeSettingsForm()
@@ -629,6 +632,12 @@ namespace Roadhog
 
         private bool SaveCurrentSettings(out string error)
         {
+            using var saveLease = BeginAccountSettingsSave?.Invoke();
+            if (BeginAccountSettingsSave is not null && saveLease is null)
+            {
+                error = "正在更新账号配置，请稍后重试。";
+                return false;
+            }
             if (pathEditors.Values.Any(IsPathEditorBusy))
             {
                 error = "路径正在操作中，请完成操作或停止路径后再保存配置。";

@@ -592,6 +592,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("multi-account ui hardware requires current verified identity", RunSerially(MultiAccountUiTests.HardwareVerificationAsync)),
     ("multi-account ui hardware verification cancellation closes pending worker", RunSerially(MultiAccountUiTests.HardwareVerificationCancellationAsync)),
     ("multi-account ui stopped settings save without authorization", RunSerially(MultiAccountUiTests.SettingsSaveWithoutAuthorizationAsync)),
+    ("multi-account ui independent settings windows allow simultaneous maintenance", RunSerially(MultiAccountUiTests.SettingsWindowsAllowIndependentMaintenanceAsync)),
+    ("multi-account ui independent settings windows close safely on exit", RunSerially(MultiAccountUiTests.SettingsWindowsRespectExitCancellationAsync)),
     ("multi-account ui startup does not migrate legacy accounts", RunSerially(MultiAccountUiTests.ConsoleDoesNotMigrateLegacyAccountsAsync)),
     ("skill binding fixed bars order duplicate missing and chain rules", SkillBindingTests.MappingAsync),
     ("quickbar default keys legacy configuration and three-row mapping", QuickbarKeyModeTests.MappingAsync),
