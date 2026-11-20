@@ -1334,6 +1334,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat selects target during post-loot no-target delay", TestStationaryCombatSelectsTargetDuringPostLootNoTargetDelayAsync),
     ("stationary combat does not return home when no target switch is disabled", TestStationaryCombatDoesNotReturnHomeWhenNoTargetSwitchDisabledAsync),
     ("stationary combat skips active filtered monsters", TestStationaryCombatSkipsActiveFilteredMonstersAsync),
+    ("stationary combat monster kill priority exhausts ordered names before ordinary targets", TestStationaryCombatMonsterKillPriorityAsync),
+    ("smart pre-aim monster kill priority bypasses distance hold and yields to defense", TestSmartPreAimMonsterKillPriorityAsync),
+    ("revive path monster kill priority persists separately and refreshes a running worker", TestRevivePathMonsterKillPriorityAsync),
     ("stationary combat state uses server object id identity", TestStationaryCombatStateUsesServerObjectIdIdentityAsync),
     ("tool bridge inventory parser reads bag items", TestToolBridgeInventoryParserReadsBagItemsAsync),
     ("tool bridge world parser reads aggressive monster flags", TestToolBridgeWorldParserReadsAggressiveFlagsAsync),
@@ -12378,9 +12381,14 @@ static Task TestSharedCleanupEditorAsync()
             var six = new SharedAccountConfigurationStore(store.FilePath, "六区");
             store.SaveAsync(new() { AuctionHouse = new() { new() { Name = "region-one", UnitPrice = 100 } } }).GetAwaiter().GetResult();
             six.SaveAsync(new() { Sell = new() { "legacy-npc" }, AuctionHouse = new() { new() { Name = "region-six", UnitPrice = 600 } } }).GetAwaiter().GetResult();
-            var config = new InMemoryAccountConfigStore(new AccountConfig { AccountName = "account1", Region = "一区", ScriptSettings = CreateScriptSettings() });
+            var pathStore = new JsonSharedPathStore(Path.Combine(directory, "paths"));
+            AssertFalse(!(pathStore.SaveAsync(new SharedPathDocument { Name = "复活甲" }).GetAwaiter().GetResult().Success), "first path saved");
+            AssertFalse(!(pathStore.SaveAsync(new SharedPathDocument { Name = "复活乙", MonsterKillPriorities = new() { "乙路怪" } }).GetAwaiter().GetResult().Success), "second path saved");
+            var settings = CreateScriptSettings();
+            settings.Paths.RevivePathName = "复活甲";
+            var config = new InMemoryAccountConfigStore(new AccountConfig { AccountName = "account1", Region = "一区", ScriptSettings = settings });
             var gameApi = new FakeGameApi { InventoryItems = [new(10, 42, "transfer-item", 3, 0, false)] };
-            using var form = CreateAccountSettingsFormForTestsWithStore(config, bagCleanupNameListStore: store, gameApi: gameApi);
+            using var form = CreateAccountSettingsFormForTestsWithStore(config, bagCleanupNameListStore: store, gameApi: gameApi, sharedPathStore: pathStore);
             var region = (System.Windows.Forms.Control)GetPrivateFieldForTest(form, "regionCombo");
             var parent = region.Parent;
             while (parent is not null && parent is not System.Windows.Forms.TabPage) parent = parent.Parent;
@@ -12433,10 +12441,48 @@ static Task TestSharedCleanupEditorAsync()
             AssertSequence(new[] { "transfer-item" }, lists.ItemTransfer.ToArray(), "region switch keeps common transfer list");
             InvokePrivateMethodForTest(form, "AddActiveMonsterFilterName", "shared-filter");
             AssertSequence(new[] { "shared-filter" }, six.LoadMonsterFiltersAsync().GetAwaiter().GetResult().Value!.ToArray(), "monster edits auto-save shared list");
+            tabsForRoute.SelectedTab = tabsForRoute.TabPages.Cast<System.Windows.Forms.TabPage>().Single(tab => tab.Text == "过滤");
+            var filterTabs = (System.Windows.Forms.TabControl)form.Controls.Find("filterTabs", true).Single();
+            filterTabs.SelectedIndex = 0;
+            var monsters = (System.Windows.Forms.Control)GetPrivateFieldForTest(form, "activeMonsterFilterCombo");
+            var addPriority = monsters.Parent!.Controls.OfType<System.Windows.Forms.Button>().Single(b => b.Text == "加入击杀优先级");
+            var priorityList = (System.Windows.Forms.ListBox)form.Controls.Find("monsterKillPriorityListBox", true).Single();
+            InvokePrivateMethodForTest(form, "PopulateActiveMonsterFilterCombo", new List<WorldObjectSnapshot>
+            {
+                RouteDistanceMonster(10, 10010, "先打", 0, 5), RouteDistanceMonster(11, 10011, "后打", 0, 6)
+            });
+            addPriority.PerformClick();
+            addPriority.PerformClick();
+            AssertEqual(1, priorityList.Items.Count, "duplicate monster names only appear once");
+            var firstPriority = (string)priorityList.Items[0]!;
+            monsters.GetType().GetProperty("SelectedIndex")!.SetValue(monsters, 1);
+            addPriority.PerformClick();
+            var secondPriority = (string)priorityList.Items[1]!;
+            var priorityButtons = priorityList.Parent!.Controls.OfType<System.Windows.Forms.Button>().ToArray();
+            priorityButtons.Single(b => b.Text == "上移").PerformClick();
+            AssertEqual(0, priorityList.SelectedIndex, "moved monster remains selected");
+            AssertSequence(new[] { secondPriority, firstPriority }, pathStore.LoadMonsterKillPrioritiesAsync("复活甲").GetAwaiter().GetResult().Value!.ToArray(),
+                "reordering auto-saves on the current revive path");
+            priorityButtons.Single(b => b.Text == "下移").PerformClick();
+            AssertSequence(new[] { firstPriority, secondPriority }, priorityList.Items.Cast<string>().ToArray(), "move down changes the order");
+            priorityButtons.Where(b => b.Text == "移除").MaxBy(b => b.Left)!.PerformClick();
+            AssertSequence(new[] { firstPriority }, pathStore.LoadMonsterKillPrioritiesAsync("复活甲").GetAwaiter().GetResult().Value!.ToArray(),
+                "remove saves only the remaining priority");
             AssertFalse(!InvokeSaveCurrentSettingsForTest(form, out var error), "region save succeeds: " + error);
             AssertEqual("六区", config.LoadAllAsync().GetAwaiter().GetResult().Value!.Single().Region, "region persists outside profile");
-            using var reopened = CreateAccountSettingsFormForTestsWithStore(config, bagCleanupNameListStore: six);
+            using var reopened = CreateAccountSettingsFormForTestsWithStore(config, bagCleanupNameListStore: six, sharedPathStore: pathStore);
             AssertEqual("六区", ((System.Windows.Forms.Control)GetPrivateFieldForTest(reopened, "regionCombo")).Text, "region survives reopening");
+            var reopenedPriorities = (System.Windows.Forms.ListBox)reopened.Controls.Find("monsterKillPriorityListBox", true).Single();
+            AssertSequence(new[] { firstPriority }, reopenedPriorities.Items.Cast<string>().ToArray(), "path priority survives reopening");
+            tabsForRoute.SelectedTab = tabsForRoute.TabPages.Cast<System.Windows.Forms.TabPage>().Single(tab => tab.Text == "路径");
+            InvokePrivateMethodForTest(form, "SelectConfiguredPath", SharedPathKind.Revive, "复活乙");
+            tabsForRoute.SelectedTab = tabsForRoute.TabPages.Cast<System.Windows.Forms.TabPage>().Single(tab => tab.Text == "过滤");
+            System.Windows.Forms.Application.DoEvents();
+            AssertSequence(new[] { "乙路怪" }, priorityList.Items.Cast<string>().ToArray(), "switching revive path displays its own list");
+            priorityButtons.Where(b => b.Text == "清空").MaxBy(b => b.Left)!.PerformClick();
+            AssertEqual(0, pathStore.LoadMonsterKillPrioritiesAsync("复活乙").GetAwaiter().GetResult().Value!.Count, "clear applies only to selected path");
+            AssertSequence(new[] { firstPriority }, pathStore.LoadMonsterKillPrioritiesAsync("复活甲").GetAwaiter().GetResult().Value!.ToArray(),
+                "clearing a different path preserves the original priority list");
             var preview = Environment.GetEnvironmentVariable("ROADHOG_SHARED_PREVIEW_DIRECTORY");
             if (!string.IsNullOrWhiteSpace(preview))
             {
@@ -13592,6 +13638,12 @@ static async Task TestStationaryCombatRouteDistanceSkipsUnreachableTargetAsync()
         .ConfigureAwait(false);
 
     AssertEqual(directFarther.EntityId, state.CandidateEntityId, "unreachable route-scored target should sort after reachable targets");
+
+    settings.Combat.MonsterKillPriorities.Add(nearUnreachable.Name);
+    state = new StationaryCombatState();
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), SemiAutoSkillPlan.FromSettings(settings.Skills),
+        new SemiAutoCombatState(), state);
+    AssertEqual(directFarther.EntityId, state.CandidateEntityId, "unreachable priority monster cannot block a reachable fallback");
 }
 
 static async Task TestStationaryCombatRouteDistanceScoringDoesNotMutateNavigationStateAsync()
@@ -16346,6 +16398,135 @@ static async Task TestStationaryCombatSkipsActiveFilteredMonstersAsync()
     await controller.TickAsync(context, plan, semiAutoState, defenseState).ConfigureAwait(false);
 
     AssertEqual((ushort)100, defenseState.CandidateEntityId, "filtered monster targeting player should still be defended");
+}
+
+static async Task TestStationaryCombatMonsterKillPriorityAsync()
+{
+    var settings = CreateRouteDistanceStationarySettings(100, true);
+    settings.Combat.RadarObstacleAvoidance.Enabled = false;
+    settings.Combat.PreferAggressiveMonsters = true;
+    settings.Combat.MonsterKillPriorities = new() { "filtered", " first ", "second" };
+    settings.Combat.ActiveMonsterNameFilters.Add("filtered");
+    var normal = RouteDistanceMonster(90, 6090, "ordinary", 0, 7) with { IsAggressiveToPlayer = true };
+    var second = RouteDistanceMonster(91, 6091, "second", 0, 9) with { IsAggressiveToPlayer = true };
+    var first = RouteDistanceMonster(92, 6092, "FIRST", 0, 18);
+    var otherFirst = RouteDistanceMonster(93, 6093, "first", 0, 22);
+    var filtered = RouteDistanceMonster(94, 6094, "filtered", 0, 5);
+    var claimed = RouteDistanceMonster(95, 6095, "first", 0, 6) with { TargetServerObjectId = 99999 };
+    var outside = RouteDistanceMonster(96, 6096, "first", 0, 100);
+    var api = CreateRouteDistanceGameApi(0, normal, second, first, otherFirst, filtered, claimed, outside);
+    var keyboard = new RecordingKeyboardInput();
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    var context = CreateContext(settings, api, new InMemoryRoadhogLogger());
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState();
+    var semi = new SemiAutoCombatState();
+    state.MarkCandidate(second, DateTimeOffset.Now);
+    SeedAlignedSmartPreAimCandidate(state, normal);
+    state.MarkLootAfterKillFinished(DateTimeOffset.Now, true);
+
+    async Task ExpectAsync(WorldObjectSnapshot expected)
+    {
+        await controller.TickAsync(context, plan, semi, state);
+        AssertEqual(expected.ServerObjectId, state.CandidateServerObjectId, "current automatic target");
+    }
+
+    await ExpectAsync(first);
+    api.WorldObjects = new[] { normal, second, first with { CurrentHp = 0 }, otherFirst, filtered, claimed, outside };
+    await ExpectAsync(otherFirst);
+    api.WorldObjects = new[] { normal, second, first with { CurrentHp = 0 }, otherFirst with { CurrentHp = 0 }, filtered, claimed, outside };
+    await ExpectAsync(second);
+    api.WorldObjects = new[] { normal, second with { CurrentHp = 0 }, filtered, claimed, outside };
+    await ExpectAsync(normal);
+}
+
+static Task TestSmartPreAimMonsterKillPriorityAsync()
+{
+    var origin = new Vector3Snapshot(0, 0, 0);
+    var first = RouteDistanceMonster(61, 6061, "first", 0, 20);
+    var second = RouteDistanceMonster(62, 6062, "second", 0, 8) with { IsAggressiveToPlayer = true };
+    var defense = RouteDistanceMonster(63, 6063, "defense", 0, 50) with { IsTargetingLocalPlayer = true };
+    var killPriority = MonsterKillPriority.CreateRanker(new[] { "first", "second" });
+    var now = DateTimeOffset.Now;
+    NextTargetPreAimSelection? Select(WorldObjectSnapshot[] objects, NextTargetPreAimSelection? current = null) =>
+        NextTargetPreAimSelector.Select(objects, origin, origin, 30, 99, 9999, 0, 0, false, true,
+            currentSelection: current, now: now, minimumHold: TimeSpan.FromMinutes(1), killPriority: killPriority);
+
+    var held = Select(new[] { second });
+    var selected = Select(new[] { second, first }, held);
+    AssertEqual(first.ServerObjectId, selected!.Target.ServerObjectId, "priority wins against existing hold, distance and aggressive setting");
+    AssertEqual("higher_kill_priority", selected.DecisionReason, "prioritized switch reason");
+    AssertEqual(defense.ServerObjectId, Select(new[] { second, first, defense }, selected)!.Target.ServerObjectId,
+        "local defense can still interrupt priority selection");
+    return Task.CompletedTask;
+}
+
+static async Task TestRevivePathMonsterKillPriorityAsync()
+{
+    var directory = Path.Combine(Path.GetTempPath(), "Roadhog-revive-priority-" + Guid.NewGuid().ToString("N"));
+    try
+    {
+        var store = new JsonSharedPathStore(directory);
+        var otherWindow = new JsonSharedPathStore(directory);
+        var revive = new SharedPathDocument { Name = "revive", MapId = 10, BoundStationaryCombatRadius = 27 };
+        AssertEqual(true, (await store.SaveAsync(revive)).Success, "save old-format revive path");
+        var file = Path.Combine(directory, "revive.json");
+        var pathJson = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(file))!.AsObject();
+        pathJson["CustomMetadata"] = "preserve";
+        await File.WriteAllTextAsync(file, pathJson.ToJsonString());
+        AssertEqual(0, (await store.LoadMonsterKillPrioritiesAsync("revive")).Value!.Count, "older route has no priorities");
+        var first = new[] { "top", "next" };
+        AssertEqual(true, (await store.SaveMonsterKillPrioritiesAsync("revive", Array.Empty<string>(), first)).Success, "save ordered list");
+        AssertEqual("preserve", System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(file))!["CustomMetadata"]!.GetValue<string>(),
+            "updating the priority list preserves unrelated route metadata");
+        AssertEqual(false, (await otherWindow.SaveMonsterKillPrioritiesAsync("revive", Array.Empty<string>(), new[] { "stale" })).Success,
+            "another window cannot save over a changed order");
+        revive.CleanupNpcName = "new metadata";
+        AssertEqual(true, (await otherWindow.SaveAsync(revive)).Success, "save path from an editor opened before priority change");
+        var updated = (await store.LoadAsync("revive")).Value!;
+        AssertEqual(27D, updated.BoundStationaryCombatRadius!.Value, "priority edit preserves path radius");
+        AssertSequence(first, updated.MonsterKillPriorities!.ToArray(), "ordinary path saves preserve the current list");
+        AssertEqual(true, (await store.SaveAsync(new SharedPathDocument { Name = "combat", MonsterKillPriorities = new() { "patrol" } })).Success,
+            "save unrelated path priorities");
+
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.Combat.HasStationaryCombatPosition = true;
+        settings.Paths.RevivePathName = "revive";
+        settings.Paths.CombatPathName = "combat";
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var context = CreateContext(settings, new FakeGameApi(), logger, stopToken: stop.Token);
+        var semi = new SemiAutoCombatController(keyboard);
+        var loop = new DefaultAccountWorkerLoop(keyboard, semi, new StationaryCombatController(keyboard, semi), pathStore: store);
+        var work = loop.RunAsync(context);
+        async Task WaitFor(string[] order)
+        {
+            while (!context.Config.ScriptSettings!.Combat.MonsterKillPriorities.SequenceEqual(order))
+            {
+                if (work.IsCompleted) await work;
+                await Task.Delay(10, stop.Token);
+            }
+        }
+
+        try
+        {
+            await WaitFor(first);
+            var reordered = new[] { "next", "top" };
+            AssertEqual(true, (await otherWindow.SaveMonsterKillPrioritiesAsync("revive", first, reordered)).Success, "reorder revive path");
+            await WaitFor(reordered);
+            AssertEqual(true, (await otherWindow.DeleteAsync("revive")).Success, "remove revive path");
+            await WaitFor(Array.Empty<string>());
+        }
+        finally
+        {
+            stop.Cancel();
+            try { await work; }
+            catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
+        }
+    }
+    finally { DeleteDirectoryIfExists(directory); }
 }
 
 static Task TestStationaryCombatStateUsesServerObjectIdIdentityAsync()
@@ -32262,7 +32443,8 @@ static AccountSettingsForm CreateAccountSettingsFormForTestsWithStore(
     string pathLibraryDirectory = "test-paths",
     IBagCleanupNameListStore? bagCleanupNameListStore = null,
     IRadarMapStore? radarMapStore = null,
-    FakeGameApi? gameApi = null)
+    FakeGameApi? gameApi = null,
+    ISharedPathStore? sharedPathStore = null)
 {
     var logger = new InMemoryRoadhogLogger();
     var accounts = new AccountRuntimeManager(logger);
@@ -32271,7 +32453,7 @@ static AccountSettingsForm CreateAccountSettingsFormForTestsWithStore(
         "account1",
         runtime,
         configStore,
-        new InMemorySharedPathStore(),
+        sharedPathStore ?? new InMemorySharedPathStore(),
         new InMemoryScriptProfileStore(),
         folderLauncher ?? new RecordingFolderLauncher(),
         pathLibraryDirectory,

@@ -10,7 +10,8 @@ public static class StationaryCombatTargetSelector
         Vector3Snapshot stationaryPosition,
         double stationaryRadius,
         bool preferAggressiveMonsters = false,
-        Func<WorldObjectSnapshot, double>? distanceResolver = null)
+        Func<WorldObjectSnapshot, double>? distanceResolver = null,
+        Func<WorldObjectSnapshot, int>? killPriority = null)
     {
         var radius = Math.Max(0.0D, stationaryRadius);
         var resolveDistance = distanceResolver ??
@@ -20,22 +21,19 @@ public static class StationaryCombatTargetSelector
             .Where(target => target.Position is not null)
             .Where(target => HorizontalDistance(target.Position!.Value, stationaryPosition) <= radius);
 
-        if (preferAggressiveMonsters)
-        {
-            return candidates
-                .OrderByDescending(target => target.IsAggressiveToPlayer)
-                .ThenBy(resolveDistance)
-                .ThenBy(target => target.ServerObjectId)
-                .ThenBy(target => target.EntityId)
-                .FirstOrDefault();
-        }
-
         return candidates
-            .OrderBy(resolveDistance)
-            .ThenBy(target => target.ServerObjectId)
-            .ThenBy(target => target.EntityId)
+            .OrderBy(target =>
+            {
+                var distance = resolveDistance(target);
+                return (killPriority is not null && !IsReachableDistance(distance),
+                    killPriority?.Invoke(target) ?? int.MaxValue,
+                    !(preferAggressiveMonsters && target.IsAggressiveToPlayer),
+                    distance, target.ServerObjectId, target.EntityId);
+            })
             .FirstOrDefault();
     }
+
+    internal static bool IsReachableDistance(double distance) => double.IsFinite(distance) && distance < double.MaxValue;
 
     public static bool IsSelectableMonster(WorldObjectSnapshot target)
     {

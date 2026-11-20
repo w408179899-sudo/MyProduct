@@ -69,6 +69,12 @@ public sealed class AccountConfig
 
     public ScriptSettings? ScriptSettings { get; set; }
 
+    public string ResolveRevivePathName()
+    {
+        var configured = ScriptSettings?.Paths?.RevivePathName;
+        return (string.IsNullOrWhiteSpace(configured) ? RevivePathName : configured)?.Trim() ?? string.Empty;
+    }
+
     public bool Validate(out string error)
     {
         if (string.IsNullOrWhiteSpace(AccountName))

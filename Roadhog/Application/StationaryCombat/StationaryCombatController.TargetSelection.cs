@@ -40,7 +40,8 @@ public sealed partial class StationaryCombatController
 
     private async Task<WorldObjectSnapshot?> TryReusePostLootCandidateAsync(
         AccountWorkerContext context, StationaryCombatState state, Vector3Snapshot origin,
-        Vector3Snapshot home, double radius, WorldObjectSnapshot[] eligible, bool preferAggressive)
+        Vector3Snapshot home, double radius, WorldObjectSnapshot[] eligible, bool preferAggressive,
+        Func<WorldObjectSnapshot, int>? killPriority)
     {
         var now = DateTimeOffset.Now;
         if (!IsSmartPreAimEnabled(context) || state.Fighting ||
@@ -66,13 +67,13 @@ public sealed partial class StationaryCombatController
             .ConfigureAwait(false);
         context.StopToken.ThrowIfCancellationRequested();
         var candidateDistance = ResolveTargetDistance(candidate, origin, scores);
-        if (!double.IsFinite(candidateDistance) || candidateDistance == double.MaxValue) return null;
+        if (!StationaryCombatTargetSelector.IsReachableDistance(candidateDistance)) return null;
         // Straight-line distance is a lower bound on every competitor's route distance.
         // If the candidate wins even against these bounds, full scoring cannot change the winner.
         // Use the existing selector for aggressive priority and deterministic tie breaking.
         var winner = StationaryCombatTargetSelector.SelectNearest(eligible, origin, home, radius,
             preferAggressive, t => ReferenceEquals(t, candidate) ? candidateDistance :
-                StationaryCombatTargetSelector.HorizontalDistance(t.Position!.Value, origin));
+                StationaryCombatTargetSelector.HorizontalDistance(t.Position!.Value, origin), killPriority);
         if (!ReferenceEquals(winner, candidate)) return null;
         context.Logger.Info("stationary_combat.smart_preaim.post_loot_reused", new Dictionary<string, object?>()
         {

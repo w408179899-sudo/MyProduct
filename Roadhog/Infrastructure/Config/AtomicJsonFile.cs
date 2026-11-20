@@ -6,6 +6,18 @@ namespace Roadhog.Infrastructure.Config;
 // either the previous complete document or the next complete document.
 internal static class AtomicJsonFile
 {
+    public static async Task<FileStream> AcquireWriteLockAsync(string path, CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try { return new FileStream(path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
+            catch (IOException exception) when ((exception.HResult & 0xffff) is 32 or 33 && DateTime.UtcNow < deadline)
+            { await Task.Delay(25, cancellationToken).ConfigureAwait(false); }
+        }
+    }
+
     public static bool Exists(string path)
     {
         if (File.Exists(path)) return true;

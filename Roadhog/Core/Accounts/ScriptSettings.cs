@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Roadhog.Core.Accounts;
 
 public sealed class ScriptSettings
@@ -275,6 +277,8 @@ public sealed class CombatScriptSettings
     public bool SitWhenNoTargetAtHome { get; set; }
 
     public List<string> ActiveMonsterNameFilters { get; set; } = new();
+    [JsonIgnore]
+    public List<string> MonsterKillPriorities { get; set; } = new();
 
     public bool HasStationaryCombatPosition { get; set; }
 
@@ -316,6 +320,7 @@ public sealed class CombatScriptSettings
             ReturnHomeAfterCombatDistance = ReturnHomeAfterCombatDistance,
             SitWhenNoTargetAtHome = SitWhenNoTargetAtHome,
             ActiveMonsterNameFilters = ActiveMonsterNameFilters?.ToList() ?? new List<string>(),
+            MonsterKillPriorities = BagCleanupNameListsDocument.NormalizeKeywords(MonsterKillPriorities),
             HasStationaryCombatPosition = HasStationaryCombatPosition,
             StationaryCombatX = StationaryCombatX,
             StationaryCombatY = StationaryCombatY,

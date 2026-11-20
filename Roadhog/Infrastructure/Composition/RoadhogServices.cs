@@ -246,7 +246,8 @@ public sealed class RoadhogServices : IDisposable
                 SharedConfiguration,
                 gameApi is AionVmmGameApi exitApi && keyboardInput is KmBoxNetKeyboardInput exitInput
                     ? account => new Roadhog.Infrastructure.GameSessions.VmmGameExitSession(exitApi, exitInput, account, logger) : null,
-                advancedSkillProfiles),
+                advancedSkillProfiles,
+                sharedPathStore),
             workerOptions,
             licenseCoordinator,
             sharedPathStore);

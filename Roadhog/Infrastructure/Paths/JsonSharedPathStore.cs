@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using Roadhog.Core.Accounts;
 using Roadhog.Core.Common;
 using Roadhog.Core.Paths;
 using Roadhog.Infrastructure.Config;
@@ -117,15 +119,18 @@ public sealed class JsonSharedPathStore : ISharedPathStore
         {
             EnsureDirectory();
             var filePath = ResolvePath(normalizedName);
+            await using var writeLock = await AtomicJsonFile.AcquireWriteLockAsync(filePath, cancellationToken).ConfigureAwait(false);
             var document = path.Clone();
             NormalizeDocument(document, normalizedName);
 
             if (File.Exists(filePath))
             {
                 var existing = await ReadDocumentAsync(filePath, cancellationToken).ConfigureAwait(false);
-                if (existing is not null && existing.CreatedAt != default)
+                if (existing is not null)
                 {
-                    document.CreatedAt = existing.CreatedAt;
+                    if (existing.CreatedAt != default) document.CreatedAt = existing.CreatedAt;
+                    // Existing priority metadata is owned by the priority editor, including clears.
+                    document.MonsterKillPriorities = existing.MonsterKillPriorities;
                 }
             }
 
@@ -143,6 +148,69 @@ public sealed class JsonSharedPathStore : ISharedPathStore
         }
     }
 
+    public async Task<OperationResult> SaveMonsterKillPrioritiesAsync(
+        string name, IReadOnlyList<string> before, IReadOnlyList<string> after,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedName = NormalizeName(name);
+        if (normalizedName.Length == 0) return OperationResult.Fail("请先选择已保存的复活路径。");
+
+        try
+        {
+            EnsureDirectory();
+            var filePath = ResolvePath(normalizedName);
+            await using var writeLock = await AtomicJsonFile.AcquireWriteLockAsync(filePath, cancellationToken).ConfigureAwait(false);
+            if (!File.Exists(filePath)) return OperationResult.Fail("复活路径未保存或已删除。");
+            JsonObject? document;
+            await using (var stream = AtomicJsonFile.OpenRead(filePath))
+                document = await JsonSerializer.DeserializeAsync<JsonObject>(stream, _jsonOptions, cancellationToken).ConfigureAwait(false);
+            if (document is null) return OperationResult.Fail("复活路径文件无法读取。");
+            var current = BagCleanupNameListsDocument.NormalizeKeywords(document.Deserialize<PathPriorities>(_jsonOptions)?.MonsterKillPriorities);
+            if (!current.SequenceEqual(before, StringComparer.OrdinalIgnoreCase))
+                return OperationResult.Fail("击杀优先级已被修改，请核对当前顺序后重试。");
+
+            var next = BagCleanupNameListsDocument.NormalizeKeywords(after);
+            if (current.SequenceEqual(next, StringComparer.OrdinalIgnoreCase)) return OperationResult.Ok();
+            SetPathMetadata(document, nameof(SharedPathDocument.MonsterKillPriorities),
+                next.Count == 0 ? null : JsonSerializer.SerializeToNode(next));
+            SetPathMetadata(document, nameof(SharedPathDocument.UpdatedAt), JsonValue.Create(DateTimeOffset.Now));
+            await AtomicJsonFile.WriteAsync(filePath, document, _jsonOptions, cancellationToken).ConfigureAwait(false);
+            return OperationResult.Ok();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return OperationResult.Fail(ex.Message);
+        }
+    }
+
+    public async Task<OperationResult<List<string>>> LoadMonsterKillPrioritiesAsync(string name, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return OperationResult<List<string>>.Fail("请先选择已保存的复活路径。");
+        var filePath = ResolvePath(name);
+        try
+        {
+            if (!AtomicJsonFile.Exists(filePath)) return OperationResult<List<string>>.Fail("复活路径未保存或已删除。");
+            await using var stream = AtomicJsonFile.OpenRead(filePath);
+            var data = await JsonSerializer.DeserializeAsync<PathPriorities>(stream, _jsonOptions, cancellationToken).ConfigureAwait(false);
+            return data is null
+                ? OperationResult<List<string>>.Fail("复活路径文件无法读取。")
+                : OperationResult<List<string>>.Ok(BagCleanupNameListsDocument.NormalizeKeywords(data.MonsterKillPriorities));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return OperationResult<List<string>>.Fail(ex.Message);
+        }
+    }
+
+    private static void SetPathMetadata(JsonObject document, string name, JsonNode? value)
+    {
+        var key = document.Select(entry => entry.Key).FirstOrDefault(key => string.Equals(key, name, StringComparison.OrdinalIgnoreCase)) ?? name;
+        if (value is null) document.Remove(key);
+        else document[key] = value;
+    }
+
+    private sealed record PathPriorities(List<string>? MonsterKillPriorities);
+
     public async Task<OperationResult> DeleteAsync(
         string name,
         CancellationToken cancellationToken = default)
@@ -158,6 +226,7 @@ public sealed class JsonSharedPathStore : ISharedPathStore
         {
             EnsureDirectory();
             var path = ResolvePath(normalizedName);
+            await using var writeLock = await AtomicJsonFile.AcquireWriteLockAsync(path, cancellationToken).ConfigureAwait(false);
             if (File.Exists(path))
             {
                 File.Delete(path);

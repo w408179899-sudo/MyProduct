@@ -23,7 +23,8 @@ public static class NextTargetPreAimSelector
         NextTargetPreAimExclusionSnapshot? exclusions = null,
         IReadOnlySet<uint>? teamSideServerObjectIds = null,
         Func<WorldObjectSnapshot, double>? distanceResolver = null,
-        bool responsiveSwitching = false)
+        bool responsiveSwitching = false,
+        Func<WorldObjectSnapshot, int>? killPriority = null)
     {
         var effectiveNow = now ?? DateTimeOffset.Now;
         var effectiveExclusions = exclusions ?? NextTargetPreAimExclusionSnapshot.Empty;
@@ -44,10 +45,13 @@ public static class NextTargetPreAimSelector
                 teamSideServerObjectIds,
                 preferAggressiveMonsters,
                 effectiveNow,
-                resolveDistance))
+                resolveDistance,
+                killPriority))
             .Where(selection => selection is not null)
             .Cast<NextTargetPreAimSelection>()
-            .OrderByDescending(selection => selection.PriorityTier)
+            .OrderByDescending(selection => selection.IsTargetingProtectedSide)
+            .ThenBy(selection => selection.KillPriorityRank)
+            .ThenByDescending(selection => selection.PriorityTier)
             .ThenBy(selection => selection.DistanceToOrigin)
             .ThenBy(selection => selection.Target.ServerObjectId)
             .ThenBy(selection => selection.Target.EntityId)
@@ -86,6 +90,12 @@ public static class NextTargetPreAimSelector
                 SelectedAt = currentSelection.SelectedAt,
                 DecisionReason = "kept_best"
             };
+        }
+
+        if (!best.IsTargetingProtectedSide && !current.IsTargetingProtectedSide &&
+            best.KillPriorityRank < current.KillPriorityRank)
+        {
+            return best with { DecisionReason = "higher_kill_priority" };
         }
 
         if (best.PriorityTier > current.PriorityTier)
@@ -179,7 +189,8 @@ public static class NextTargetPreAimSelector
         IReadOnlySet<uint>? teamSideServerObjectIds,
         bool preferAggressiveMonsters,
         DateTimeOffset selectedAt,
-        Func<WorldObjectSnapshot, double> distanceResolver)
+        Func<WorldObjectSnapshot, double> distanceResolver,
+        Func<WorldObjectSnapshot, int>? killPriority)
     {
         if (target.Position is null)
         {
@@ -192,10 +203,11 @@ public static class NextTargetPreAimSelector
             localSidePetServerObjectId);
         var targetingTeamSide = !targetingLocalSide &&
                                 IsTargetingTeamSide(target, teamSideServerObjectIds);
+        var protectedSide = targetingLocalSide || targetingTeamSide;
         var homeDistance = StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, home);
-        if (!targetingLocalSide &&
-            !targetingTeamSide &&
-            homeDistance > Math.Max(0.0D, radius))
+        var distance = distanceResolver(target);
+        if (!protectedSide && (homeDistance > Math.Max(0.0D, radius) ||
+            (killPriority is not null && !StationaryCombatTargetSelector.IsReachableDistance(distance))))
         {
             return null;
         }
@@ -211,12 +223,15 @@ public static class NextTargetPreAimSelector
         return new NextTargetPreAimSelection(
             target,
             priorityTier,
-            distanceResolver(target),
+            distance,
             targetingLocalSide,
             targetingTeamSide,
             aggressivePriority,
             selectedAt,
-            "selected");
+            "selected")
+        {
+            KillPriorityRank = protectedSide ? int.MaxValue : killPriority?.Invoke(target) ?? int.MaxValue
+        };
     }
 
     private static bool IsActiveMonsterFiltered(
@@ -300,6 +315,8 @@ public sealed record NextTargetPreAimSelection(
     DateTimeOffset SelectedAt,
     string DecisionReason)
 {
+    public int KillPriorityRank { get; init; } = int.MaxValue;
+
     public bool IsTargetingProtectedSide =>
         IsTargetingLocalSide || IsTargetingTeamSide;
 }

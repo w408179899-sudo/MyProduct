@@ -549,6 +549,7 @@ namespace Roadhog
             SetRevivePathAggressiveClearRadius(paths);
             RefreshPathLibrary();
             SelectConfiguredPath(SharedPathKind.Revive, paths.RevivePathName);
+            RefreshMonsterKillPriorities();
             SelectConfiguredPath(SharedPathKind.Combat, paths.CombatPathName);
             SelectConfiguredPath(SharedPathKind.Maintenance, paths.MaintenancePathName);
             SelectConfiguredPath(SharedPathKind.Gather, paths.GatherPathName);
@@ -5821,21 +5822,24 @@ namespace Roadhog
 
             var selectionPanel = CreateFilterSelectionPanel(page, 8);
             AddLabel(selectionPanel, "当前怪物", 12, 8, 100, 24, _textGreen, FontStyle.Bold);
-            var refreshMonstersButton = AddButton(selectionPanel, "刷新当前怪物", 528, 6, 128, 30);
+            var refreshMonstersButton = AddButton(selectionPanel, "刷新当前怪物", 366, 6, 128, 30);
             refreshMonstersButton.Click += async (_, _) =>
                 await RefreshCurrentMonstersAsync(refreshMonstersButton).ConfigureAwait(true);
 
-            activeMonsterFilterCombo = AddCombo(selectionPanel, 116, 6, 400, 30);
+            activeMonsterFilterCombo = AddCombo(selectionPanel, 116, 6, 238, 30);
             activeMonsterFilterCombo.Name = "activeMonsterFilterCombo";
-            AddButton(selectionPanel, "添加到过滤", 668, 6, 132, 30, (_, _) => AddSelectedActiveMonsterFilter());
+            AddButton(selectionPanel, "添加到过滤", 506, 6, 128, 30, (_, _) => AddSelectedActiveMonsterFilter());
+            var addPriority = AddButton(selectionPanel, "加入击杀优先级", 646, 6, 154, 30,
+                (_, _) => AddMonsterKillPriority(GetSelectedActiveMonsterFilterName()));
 
             activeMonsterFilterStatusLabel = AddLabel(selectionPanel, "等待刷新", 12, 40, 788, 24);
 
             AddLabel(page, _bagCleanupNameListStore is ISharedAccountConfiguration ? "已过滤怪物（全账号共享）" : "已过滤怪物", 12, 90, 240, 24, _textGreen, FontStyle.Bold);
-            activeMonsterFilterListBox = CreateFilterListBox(page, 12, 122, 812, 318);
+            activeMonsterFilterListBox = CreateFilterListBox(page, 12, 166, 400, 274);
             activeMonsterFilterListBox.BackColor = Color.White;
-            AddButton(page, "移除", 632, 86, 88, 30, (_, _) => RemoveSelectedActiveMonsterFilter());
-            AddButton(page, "清空", 736, 86, 88, 30, (_, _) => ClearActiveMonsterFilterList());
+            AddButton(page, "移除", 240, 86, 78, 30, (_, _) => RemoveSelectedActiveMonsterFilter());
+            AddButton(page, "清空", 334, 86, 78, 30, (_, _) => ClearActiveMonsterFilterList());
+            BuildMonsterKillPriorityEditor(page, addPriority);
 
             ConfigureWideSettingsPage(page, 836);
             return tab;

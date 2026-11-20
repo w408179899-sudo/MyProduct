@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Roadhog.Core.Accounts;
 
 namespace Roadhog.Core.Paths;
 
@@ -22,6 +23,9 @@ public sealed class SharedPathDocument
     // Null means this path does not override the account/profile radius.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public double? BoundStationaryCombatRadius { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? MonsterKillPriorities { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? BagCleanupSellItemClickX { get; set; }
@@ -55,6 +59,7 @@ public sealed class SharedPathDocument
             CleanupNpcName = CleanupNpcName,
             AuctionNpcName = AuctionNpcName,
             BoundStationaryCombatRadius = BoundStationaryCombatRadius,
+            MonsterKillPriorities = MonsterKillPriorities?.ToList(),
             BagCleanupSellItemClickX = BagCleanupSellItemClickX,
             BagCleanupSellItemClickY = BagCleanupSellItemClickY,
             BagCleanupSellButtonClickX = BagCleanupSellButtonClickX,
@@ -62,6 +67,8 @@ public sealed class SharedPathDocument
             Points = Points?.Select(point => point.Clone()).ToList() ?? new List<SharedPathPoint>()
         };
     }
+
+    public List<string> ReadMonsterKillPriorities() => BagCleanupNameListsDocument.NormalizeKeywords(MonsterKillPriorities);
 
     public bool TryGetBoundStationaryCombatRadius(out double radius)
     {

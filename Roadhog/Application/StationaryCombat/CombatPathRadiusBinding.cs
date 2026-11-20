@@ -20,7 +20,7 @@ public static class CombatPathRadiusBinding
             return;
         }
 
-        var revivePathName = ResolveName(settings.Paths?.RevivePathName, workerConfig.RevivePathName);
+        var revivePathName = workerConfig.ResolveRevivePathName();
         if (!string.IsNullOrWhiteSpace(revivePathName) &&
             await TryApplyAsync(workerConfig, pathStore, logger, revivePathName, "revive", cancellationToken).ConfigureAwait(false))
         {

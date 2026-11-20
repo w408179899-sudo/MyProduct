@@ -6,6 +6,7 @@ using Roadhog.Application.StationaryCombat;
 using Roadhog.Application.Team;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Input;
+using Roadhog.Core.Paths;
 using Roadhog.Application.Trading;
 using Roadhog.Application.BagCleanup;
 using Roadhog.Application.Food;
@@ -28,6 +29,7 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
     private readonly Func<AccountConfig, ISharedAccountConfiguration?>? _sharedConfigurationFactory;
     private readonly Func<AccountConfig, GameSessions.IGameExitSession>? _gameExitSessionFactory;
     private readonly Core.Profiles.IAdvancedSkillProfileStore? _advancedSkillProfiles;
+    private readonly ISharedPathStore? _pathStore;
 
     public DefaultAccountWorkerLoop(
         IKeyboardInput keyboard,
@@ -39,7 +41,8 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
         CleanupWorkflowRunner? cleanupWorkflow = null,
         Func<AccountConfig, ISharedAccountConfiguration?>? sharedConfigurationFactory = null,
         Func<AccountConfig, GameSessions.IGameExitSession>? gameExitSessionFactory = null,
-        Core.Profiles.IAdvancedSkillProfileStore? advancedSkillProfiles = null)
+        Core.Profiles.IAdvancedSkillProfileStore? advancedSkillProfiles = null,
+        ISharedPathStore? pathStore = null)
     {
         _keyboard = keyboard;
         _semiAuto = semiAuto;
@@ -51,6 +54,7 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
         _sharedConfigurationFactory = sharedConfigurationFactory;
         _gameExitSessionFactory = gameExitSessionFactory;
         _advancedSkillProfiles = advancedSkillProfiles;
+        _pathStore = pathStore;
     }
 
     public async Task RunAsync(AccountWorkerContext context)
@@ -264,13 +268,14 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                         await Task.Delay(context.Options.TickInterval, context.StopToken).ConfigureAwait(false);
                         continue;
                     }
-                    if (sharedConfiguration is not null && DateTimeOffset.UtcNow >= nextSharedRefresh)
+                    if ((sharedConfiguration is not null || _pathStore is not null) && DateTimeOffset.UtcNow >= nextSharedRefresh)
                     {
                         nextSharedRefresh = DateTimeOffset.UtcNow.AddSeconds(2);
                         try
                         {
-                            await SharedConfigurationRefresh.RefreshAsync(sharedConfiguration, scriptSettings,
-                                includeCleanup: context.CleanupRequests.Current is null, context.StopToken).ConfigureAwait(false);
+                            if (sharedConfiguration is not null)
+                                await SharedConfigurationRefresh.RefreshAsync(sharedConfiguration, scriptSettings,
+                                    includeCleanup: context.CleanupRequests.Current is null, context.StopToken).ConfigureAwait(false);
                         }
                         catch (Exception ex) when (ex is not OperationCanceledException)
                         {
@@ -278,6 +283,7 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                                 { ["account"] = context.Config.AccountName, ["error"] = ex.Message });
                             context.RuntimeStates.MarkWarning(context.Config.AccountName, "共享配置刷新失败：" + ex.Message);
                         }
+                        await RefreshRevivePathMonsterKillPrioritiesAsync(context, scriptSettings).ConfigureAwait(false);
                     }
                     if (await _stationaryCombat.TryTickTownReturnAsync(
                             context, semiAutoPlan, semiAutoState, stationaryCombatState).ConfigureAwait(false) is { } townReturnDelay)

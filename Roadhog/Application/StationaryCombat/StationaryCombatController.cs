@@ -6223,16 +6223,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             : "entity:" + entityId.ToString();
     }
 
-    private static string GetRevivePathName(AccountWorkerContext context)
-    {
-        var pathName = context.Config.ScriptSettings?.Paths?.RevivePathName;
-        if (!string.IsNullOrWhiteSpace(pathName))
-        {
-            return pathName.Trim();
-        }
-
-        return context.Config.RevivePathName?.Trim() ?? string.Empty;
-    }
+    private static string GetRevivePathName(AccountWorkerContext context) => context.Config.ResolveRevivePathName();
 
     private static string GetCombatPathName(AccountWorkerContext context)
     {
@@ -6703,6 +6694,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         var now = DateTimeOffset.Now;
         var preferAggressiveMonsters = PrefersAggressiveMonsters(context);
         var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
+        var killPriority = MonsterKillPriority.CreateRanker(context.Config.ScriptSettings?.Combat.MonsterKillPriorities);
         var selectionOrigin = ResolvePendingNextTargetSelectionOrigin(context, state, playerPosition);
 
         if (state.HasSmartPreAimHandoff)
@@ -6747,14 +6739,17 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 !state.IsTargetTemporarilyExcluded(candidate, now) &&
                 IsCandidateStillSelectable(candidate, home, radius, allowClaimedByOther, state))
             {
-                if (!ShouldReplaceCandidateWithAggressiveTarget(
+                if (!ShouldReplaceApproachCandidate(
                     preferAggressiveMonsters,
                     candidate,
                     objects,
                     state,
                     home,
                     radius,
-                    allowClaimedByOther))
+                    allowClaimedByOther,
+                    activeMonsterNameFilters,
+                    killPriority,
+                    now))
                 {
                     return candidate;
                 }
@@ -6775,7 +6770,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             .Where(target => StationaryCombatTargetSelector.HorizontalDistance(target.Position!.Value, home) <= Math.Max(0, radius))
             .ToArray();
         if (allowPreAimReuse && await TryReusePostLootCandidateAsync(
-                context, state, selectionOrigin, home, radius, candidateArray, preferAggressiveMonsters)
+                context, state, selectionOrigin, home, radius, candidateArray, preferAggressiveMonsters, killPriority)
                 .ConfigureAwait(false) is { } reused)
             return reused;
         // A fallback is one complete scoring batch: never mix map revisions across awaits.
@@ -6791,7 +6786,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             home,
             radius,
             preferAggressiveMonsters,
-            target => ResolveTargetDistance(target, selectionOrigin, routeDistances));
+            target => ResolveTargetDistance(target, selectionOrigin, routeDistances),
+            killPriority);
         if (selected is null)
         {
             LogNoTargetScan(
@@ -8287,30 +8283,33 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         return filters.Any(filter => string.Equals(targetName, filter, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static bool ShouldReplaceCandidateWithAggressiveTarget(
+    private static bool ShouldReplaceApproachCandidate(
         bool preferAggressiveMonsters,
-        WorldObjectSnapshot? candidate,
+        WorldObjectSnapshot candidate,
         IEnumerable<WorldObjectSnapshot> objects,
         StationaryCombatState state,
         Vector3Snapshot home,
         double radius,
-        bool allowClaimedByOther)
+        bool allowClaimedByOther,
+        IReadOnlyList<string> activeMonsterNameFilters,
+        Func<WorldObjectSnapshot, int>? killPriority,
+        DateTimeOffset now)
     {
-        if (!preferAggressiveMonsters || candidate is null || candidate.IsAggressiveToPlayer)
-        {
-            return false;
-        }
+        var canPreferAggressive = preferAggressiveMonsters && !candidate.IsAggressiveToPlayer;
+        if (killPriority is null && !canPreferAggressive) return false;
 
-        return objects.Any(target =>
-            target.IsAggressiveToPlayer &&
-            !state.IsTargetIgnored(target) &&
-            !state.IsTargetTemporarilyExcluded(target, DateTimeOffset.Now) &&
-            !StationaryCombatState.IsSameTarget(
-                target.EntityId,
-                target.ServerObjectId,
-                candidate.EntityId,
-                candidate.ServerObjectId) &&
-            IsCandidateStillSelectable(target, home, radius, allowClaimedByOther, state));
+        var candidateRank = killPriority?.Invoke(candidate) ?? int.MaxValue;
+
+        return objects.Where(StationaryCombatTargetSelector.IsSelectableMonster).Any(target =>
+        {
+            var rank = killPriority?.Invoke(target) ?? int.MaxValue;
+            return (rank < candidateRank || (rank == candidateRank && canPreferAggressive && target.IsAggressiveToPlayer)) &&
+                   !state.IsTargetIgnored(target) &&
+                   !state.IsTargetTemporarilyExcluded(target, now) &&
+                   !IsActiveMonsterFiltered(target, activeMonsterNameFilters) &&
+                   StationaryCombatTargetSelector.HorizontalDistance(target.Position!.Value, home) <= Math.Max(0, radius) &&
+                   (allowClaimedByOther || !IsClaimedByOther(target, state));
+        });
     }
 
     private static bool IsAttackKeyLoopEnabled(AccountWorkerContext context)
@@ -9107,6 +9106,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         var allowClaimedByOther = AllowsClaimedTargets(context);
         var preferAggressiveMonsters = PrefersAggressiveMonsters(context);
         var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
+        var killPriority = MonsterKillPriority.CreateRanker(context.Config.ScriptSettings?.Combat.MonsterKillPriorities);
         var scoringCandidates = NextTargetPreAimSelector.EligibleTargets(
             objects, home, radius, fightTargetEntityId, fightTargetServerObjectId,
             state.LocalCombatSideServerObjectId, state.LocalCombatSidePetServerObjectId,
@@ -9138,7 +9138,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             exclusions,
             teamSideServerObjectIds,
             distanceResolver,
-            responsiveSwitching);
+            responsiveSwitching,
+            killPriority);
         if (!responsiveSwitching)
         {
             selection = KeepCommittedNextTargetPreAimSelectionStable(
@@ -9181,6 +9182,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             allowClaimedByOther,
             preferAggressiveMonsters,
             activeMonsterNameFilters,
+            killPriority,
             exclusions,
             teamSideServerObjectIds,
             routeDistances,
@@ -9235,9 +9237,9 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             }
 
             if (proposedSelection is not null &&
-                proposedSelection.IsTargetingProtectedSide &&
-                (string.Equals(proposedSelection.DecisionReason, "higher_priority", StringComparison.Ordinal) ||
-                 string.Equals(proposedSelection.DecisionReason, "current_invalid", StringComparison.Ordinal)))
+                (proposedSelection.DecisionReason == "higher_kill_priority" ||
+                 (proposedSelection.IsTargetingProtectedSide &&
+                  proposedSelection.DecisionReason is "higher_priority" or "current_invalid")))
             {
                 preAim.ResetPendingSwitchConfirmation();
                 return proposedSelection;
@@ -9577,6 +9579,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 ["previousTargetServerObjectId"] = previousServerObjectId,
                 ["previousTargetName"] = previousName,
                 ["priorityTier"] = selection.PriorityTier,
+                ["killPriority"] = selection.KillPriorityRank == int.MaxValue ? null : selection.KillPriorityRank + 1,
                 ["targetingLocalSide"] = selection.IsTargetingLocalSide,
                 ["targetingTeamSide"] = selection.IsTargetingTeamSide,
                 ["aggressivePriority"] = selection.IsAggressivePriority,
@@ -9612,6 +9615,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         bool allowClaimedByOther,
         bool preferAggressiveMonsters,
         IReadOnlyList<string> activeMonsterNameFilters,
+        Func<WorldObjectSnapshot, int>? killPriority,
         NextTargetPreAimExclusionSnapshot exclusions,
         IReadOnlySet<uint> teamSideServerObjectIds,
         IReadOnlyDictionary<string, TargetRouteDistanceSnapshot> routeDistances,
@@ -9633,13 +9637,16 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 allowClaimedByOther,
                 preferAggressiveMonsters,
                 activeMonsterNameFilters,
+                killPriority,
                 exclusions,
                 teamSideServerObjectIds,
                 routeDistances))
             .ToArray();
         var eligible = diagnostics
             .Where(candidate => candidate.Eligible)
-            .OrderByDescending(candidate => candidate.PriorityTier)
+            .OrderByDescending(candidate => candidate.TargetingLocalSide || candidate.TargetingTeamSide)
+            .ThenBy(candidate => candidate.KillPriorityRank)
+            .ThenByDescending(candidate => candidate.PriorityTier)
             .ThenBy(candidate => candidate.DistanceToOrigin)
             .ThenBy(candidate => candidate.Target.ServerObjectId)
             .ThenBy(candidate => candidate.Target.EntityId)
@@ -9720,6 +9727,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         bool allowClaimedByOther,
         bool preferAggressiveMonsters,
         IReadOnlyList<string> activeMonsterNameFilters,
+        Func<WorldObjectSnapshot, int>? killPriority,
         NextTargetPreAimExclusionSnapshot exclusions,
         IReadOnlySet<uint> teamSideServerObjectIds,
         IReadOnlyDictionary<string, TargetRouteDistanceSnapshot> routeDistances)
@@ -9758,6 +9766,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         var originDistance = hasPosition
             ? ResolveTargetDistance(target, distanceOrigin, routeDistances)
             : double.NaN;
+        var ordinaryUnreachable = killPriority is not null && hasPosition &&
+                                  !StationaryCombatTargetSelector.IsReachableDistance(originDistance);
         var ordinaryOutsideHome = !targetingLocalSide &&
                                   !targetingTeamSide &&
                                   hasPosition &&
@@ -9817,6 +9827,10 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             {
                 reasons.Add("outside_home");
             }
+            if (ordinaryUnreachable)
+            {
+                reasons.Add("route_unreachable");
+            }
         }
 
         var eligible = selectableMonster &&
@@ -9827,7 +9841,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                         (!ignored &&
                          !nameFiltered &&
                          (allowClaimedByOther || !claimedByOther) &&
-                         !ordinaryOutsideHome));
+                         !ordinaryOutsideHome &&
+                         !ordinaryUnreachable));
         if (eligible)
         {
             reasons.Add("eligible");
@@ -9839,6 +9854,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             hasPosition,
             eligible,
             priorityTier,
+            targetingLocalSide || targetingTeamSide ? int.MaxValue : killPriority?.Invoke(target) ?? int.MaxValue,
             playerDistance,
             originDistance,
             homeDistance,
@@ -9906,6 +9922,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             "entity=" + target.EntityId,
             "server=" + target.ServerObjectId,
             "tier=" + diagnostic.PriorityTier,
+            "killPriority=" + (diagnostic.KillPriorityRank == int.MaxValue ? "" : (diagnostic.KillPriorityRank + 1).ToString()),
             "originDist=" + FormatSmartPreAimDistance(diagnostic.DistanceToOrigin),
             "playerDist=" + FormatSmartPreAimDistance(diagnostic.DistanceToPlayer),
             "homeDist=" + FormatSmartPreAimDistance(diagnostic.DistanceToHome),
@@ -9972,6 +9989,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         bool HasPosition,
         bool Eligible,
         int PriorityTier,
+        int KillPriorityRank,
         double DistanceToPlayer,
         double DistanceToOrigin,
         double DistanceToHome,
