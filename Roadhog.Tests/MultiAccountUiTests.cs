@@ -708,7 +708,6 @@ internal static partial class MultiAccountUiTests
 
     public static Task SettingsSaveWithoutAuthorizationAsync() => Sta(() =>
     {
-        VerifyLegacyMigrationIsolation();
         using var test = new UiEnvironment("unauthorized");
         var account = test.Account(1); account.ScriptSettings = new(); test.Initialize(new[] { account });
         using var form = new AccountSettingsForm(account.AccountName, test.Workspace.Processes.RuntimeFor(account.InstanceId),
@@ -722,38 +721,48 @@ internal static partial class MultiAccountUiTests
         Require(loaded.Success && loaded.Value!.Single().ScriptSettings is not null, "saved script configuration remains on disk");
     });
 
-    private static void VerifyLegacyMigrationIsolation()
+    public static Task ConsoleDoesNotMigrateLegacyAccountsAsync() => Sta(() =>
     {
-        using var test = new UiEnvironment();
-        var accounts = new[]
+        foreach (var includeCurrentAccount in new[] { false, true })
         {
-            new AccountConfig { AccountName = "旧占位零", HardwareKey = "0", VmmDeviceName = "fpga" },
-            new AccountConfig { AccountName = "旧实际账号", HardwareKey = "mock-legacy-physical", VmmDeviceName = "fpga://devindex=7" },
-            new AccountConfig { AccountName = "旧自动占位", HardwareKey = "auto", VmmDeviceName = "fpga" },
-            new AccountConfig { AccountName = "旧空占位甲", VmmDeviceName = "fpga" },
-            new AccountConfig { AccountName = "旧空占位乙" }
-        };
-        Require(Pump(test.Workspace.Accounts.SaveAllAsync(accounts)).Success, "legacy accounts can be seeded without instance IDs");
-        var kmBoxStore = new Roadhog.Infrastructure.Config.JsonKmBoxNetDeviceConfigStore(test.Workspace.Options.KmBoxNetConfigPath);
-        Require(Pump(kmBoxStore.SaveAsync(new Roadhog.Infrastructure.Input.KmBoxNetDeviceConfig
-        { IpAddress = "127.0.0.21", Port = 1000, Mac = "A1B2C3D4" })).Success, "legacy KMBox settings are seeded locally");
-        var migrated = Pump(test.Workspace.InitializeAsync(CancellationToken.None));
-        var primary = migrated.Single(a => a.AccountName == "旧实际账号");
-        Require(primary.KmBox?.Mac == "A1B2C3D4" && primary.LicenseCredentialPath == test.Workspace.Options.LicenseCredentialPath,
-            "only the primary legacy physical account inherits the existing KMBox and authorization credential");
-        Require(primary.VmmDeviceName == "fpga://devindex=7", "explicit legacy VMM mapping is preserved");
-        foreach (var placeholder in migrated.Where(a => a.AccountName != primary.AccountName))
-        {
-            Require(placeholder.KmBox is null && placeholder.LicenseCredentialPath.Length == 0,
-                "unconfigured legacy rows do not copy another account's KMBox or credential");
-            Require(placeholder.VmmDeviceName.Length == 0, "empty, auto, and zero hardware keys never guess device zero");
+            using var test = new UiEnvironment();
+            var legacyAccount = new AccountConfig { AccountName = "旧设备账号", HardwareKey = "mock-legacy-physical", VmmDeviceName = "fpga://devindex=7" };
+            var invalidAccount = new AccountConfig { AccountName = "旧占位账号", InstanceId = "legacy-id", HardwareKey = "auto", VmmDeviceName = "fpga" };
+            var currentAccount = test.Account(1);
+            currentAccount.AccountName = "账号1";
+            var seed = new List<AccountConfig> { legacyAccount, invalidAccount };
+            if (includeCurrentAccount) seed.Add(currentAccount);
+            Require(Pump(test.Workspace.Accounts.SaveAllAsync(seed)).Success, "old and current account records are seeded locally");
+            var configPath = test.Workspace.Options.AccountConfigPath;
+            var original = File.ReadAllText(configPath);
+
+            var loaded = Pump(test.Workspace.InitializeAsync(CancellationToken.None));
+
+            Require(loaded.Count == (includeCurrentAccount ? 1 : 0), "startup loads only accounts with instance IDs");
+            Require(!File.Exists(configPath + ".before-multi-account.bak"), "startup does not run the legacy account conversion");
+            if (includeCurrentAccount)
+            {
+                var current = loaded.Single();
+                Require(current.InstanceId == currentAccount.InstanceId && current.KmBox?.Mac == currentAccount.KmBox?.Mac &&
+                    current.VmmDeviceName == currentAccount.VmmDeviceName && current.LicenseCredentialPath.Length == 0,
+                    "an existing account keeps its own identity, devices and authorization location");
+                var saved = Pump(test.Workspace.Accounts.LoadAllAsync()).Value!;
+                Require(saved.Single(account => account.InstanceId == currentAccount.InstanceId).Region == "一区",
+                    "shared cleanup still persists the region for current accounts");
+                Require(saved.Single(account => account.AccountName == legacyAccount.AccountName).InstanceId.Length == 0 &&
+                    saved.Single(account => account.AccountName == invalidAccount.AccountName).InstanceId == invalidAccount.InstanceId,
+                    "saving the current account's region does not convert or drop old records");
+            }
+            else Require(File.ReadAllText(configPath) == original, "startup leaves an old-only configuration untouched");
+
+            var newAccount = test.Account(2);
+            var updated = loaded.Append(newAccount).ToArray();
+            Pump(test.Workspace.SaveAccountsAsync(updated));
+            Require(Pump(test.Workspace.Accounts.LoadAllAsync()).Value!.Select(account => account.InstanceId)
+                .SequenceEqual(updated.Select(account => account.InstanceId)), "new accounts can be saved without adopting old records");
+            Require(test.Workspace.Processes.Snapshot().All(view => view.WorkerProcessId is null), "loading and saving do not launch workers");
         }
-        Require(migrated.Select(a => a.InstanceId).Distinct().Count() == accounts.Length && migrated.All(a => Guid.TryParse(a.InstanceId, out _)),
-            "migration assigns stable distinct instance IDs to every saved row");
-        Pump(test.Workspace.SaveAccountsAsync(migrated));
-        Require(Pump(test.Workspace.Accounts.LoadAllAsync()).Value!.Count == accounts.Length, "multiple unconfigured legacy rows remain saveable");
-        Require(test.Workspace.Processes.Snapshot().All(v => v.WorkerProcessId is null), "configuration migration never launches a hardware worker");
-    }
+    });
 
     private static HardwareDeviceFeature Device(AccountConfig account) => new(account.HardwareKey, "port", "physical", "mock-device-instance", "mock-parent", "mock-container",
         "mock-hardware-id", "mock-location", "测试 DMA 设备", "Mock", account.VmmDeviceName, new[] { account.HardwareKey });

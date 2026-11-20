@@ -62,7 +62,6 @@ public sealed partial class MultiAccountForm : Form
         tools.Layout += (_, _) => FitToolbarRows(tools);
         tools.Controls.Add(new Label { Text = "账号列表", AutoSize = true, Font = new Font(Font.FontFamily, 14, FontStyle.Bold), Margin = new Padding(0, 5, 18, 0) });
         tools.Controls.Add(Button("添加账号", () => RunConfigurationActionAsync(() => EditHardwareAsync(null))));
-        tools.Controls.Add(Button("导入旧配置", () => RunConfigurationActionAsync(ImportAsync)));
         tools.Controls.Add(Button("启动所选", () => BatchAsync(true)));
         tools.Controls.Add(Button("停止所选", () => BatchAsync(false)));
         tools.Controls.Add(Button("删除所选", () => RunConfigurationActionAsync(() => DeleteSelectedAsync())));
@@ -583,18 +582,6 @@ public sealed partial class MultiAccountForm : Form
         var view = _workspace.Processes.Snapshot().FirstOrDefault(v => v.Config.InstanceId == SelectedId());
         if (view is not null) { Directory.CreateDirectory(view.LogDirectory); System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(view.LogDirectory) { UseShellExecute = true }); }
         return Task.CompletedTask;
-    }
-
-    private async Task ImportAsync()
-    {
-        using var picker = new OpenFileDialog { Title = "选择旧客户端的 config/accounts.json", Filter = "账号配置 (accounts.json)|accounts.json" };
-        if (picker.ShowDialog(this) != DialogResult.OK) return;
-        var importer = new Infrastructure.Config.LegacyAccountImporter(_workspace.Options);
-        var imported = await importer.ImportPreservingConflictsAsync(picker.FileName, _accounts, _operations.Token);
-        var current = await _workspace.Accounts.LoadAllAsync(_operations.Token);
-        if (!current.Success || current.Value is null) throw new InvalidOperationException(current.Error);
-        var merged = current.Value.Concat(imported).ToList();
-        await _workspace.SaveAccountsAsync(merged, _operations.Token); _accounts = merged; RefreshRows(); Report("旧账号已导入；同名冲突资料分别保留。请核对设置并验证设备。");
     }
 
     private void Report(string text) { if (!IsDisposed) _message.Text = text; }

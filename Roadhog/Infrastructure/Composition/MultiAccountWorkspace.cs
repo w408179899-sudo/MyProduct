@@ -4,7 +4,6 @@ using Roadhog.Core.Diagnostics;
 using Roadhog.Infrastructure.Config;
 using Roadhog.Infrastructure.Diagnostics;
 using Roadhog.Infrastructure.Hardware;
-using Roadhog.Infrastructure.Input;
 using Roadhog.Infrastructure.Licensing;
 using Roadhog.Infrastructure.Paths;
 using Roadhog.Infrastructure.Profiles;
@@ -62,38 +61,17 @@ public sealed partial class MultiAccountWorkspace : IAsyncDisposable
     {
         var result = await Accounts.LoadAllAsync(cancellationToken).ConfigureAwait(false);
         if (!result.Success || result.Value is null) throw new InvalidOperationException(result.Error);
-        var accounts = result.Value.Select(a => a.Clone()).ToArray();
-        var legacyKmBox = new JsonKmBoxNetDeviceConfigStore(Options.KmBoxNetConfigPath).Load().Value;
-        var legacyPrimary = accounts.FirstOrDefault(a => HasPhysicalKey(a.HardwareKey)) ?? accounts.FirstOrDefault();
-        var regionsBefore = accounts.Select(a => a.Region).ToArray();
-        var changed = false;
-        foreach (var account in accounts)
+        var accounts = result.Value.Where(account => Guid.TryParse(account.InstanceId, out _)).ToArray();
+        if (accounts.Length > 0)
         {
-            if (Guid.TryParse(account.InstanceId, out _)) continue;
-            account.InstanceId = Guid.NewGuid().ToString("D");
-            if (ReferenceEquals(account, legacyPrimary) && account.KmBox is null && legacyKmBox?.IsConfigured == true)
-                account.KmBox = new AccountKmBoxSettings { IpAddress = legacyKmBox.IpAddress, Port = legacyKmBox.Port, Mac = legacyKmBox.Mac };
-            if (ReferenceEquals(account, legacyPrimary) && string.IsNullOrWhiteSpace(account.LicenseCredentialPath)) account.LicenseCredentialPath = Options.LicenseCredentialPath;
-            if (string.IsNullOrWhiteSpace(account.VmmDeviceName) || account.VmmDeviceName.Equals("fpga", StringComparison.OrdinalIgnoreCase))
+            var regionsBefore = accounts.Select(account => account.Region).ToArray();
+            await SharedCleanupMigration.MigrateAsync(Options.AccountConfigPath, accounts, Options.ProfileLibraryDirectory,
+                Options.BagCleanupNameListPath, cancellationToken).ConfigureAwait(false);
+            if (!regionsBefore.SequenceEqual(accounts.Select(account => account.Region)))
             {
-                var binding = HasPhysicalKey(account.HardwareKey) ? Hardware.BindByKey(account.AccountName, account.HardwareKey) : null;
-                // Leave an offline/ambiguous binding unconfigured instead of guessing another device.
-                account.VmmDeviceName = binding?.Success == true && binding.Value is not null &&
-                    !binding.Value.VmmDeviceName.Equals("fpga", StringComparison.OrdinalIgnoreCase)
-                    ? binding.Value.VmmDeviceName : string.Empty;
+                var saved = await Accounts.SaveAllAsync(result.Value, cancellationToken).ConfigureAwait(false);
+                if (!saved.Success) throw new InvalidOperationException(saved.Error);
             }
-            changed = true;
-        }
-        await SharedCleanupMigration.MigrateAsync(Options.AccountConfigPath, accounts, Options.ProfileLibraryDirectory,
-            Options.BagCleanupNameListPath, cancellationToken).ConfigureAwait(false);
-        changed |= !regionsBefore.SequenceEqual(accounts.Select(a => a.Region));
-        if (changed)
-        {
-            // Keep a readable legacy backup before the first conversion.
-            var backup = Options.AccountConfigPath + ".before-multi-account.bak";
-            if (File.Exists(Options.AccountConfigPath) && !File.Exists(backup)) File.Copy(Options.AccountConfigPath, backup);
-            var saved = await Accounts.SaveAllAsync(accounts, cancellationToken).ConfigureAwait(false);
-            if (!saved.Success) throw new InvalidOperationException(saved.Error);
         }
         await Processes.InitializeAsync(accounts, cancellationToken).ConfigureAwait(false);
         return accounts;
@@ -191,7 +169,4 @@ public sealed partial class MultiAccountWorkspace : IAsyncDisposable
         try { await Processes.DisposeAsync().ConfigureAwait(false); }
         finally { _saveDisposeGate.Release(); }
     }
-
-    private static bool HasPhysicalKey(string key) => !string.IsNullOrWhiteSpace(key) &&
-        !key.Trim().StartsWith("auto", StringComparison.OrdinalIgnoreCase) && key.Trim() != "0";
 }
