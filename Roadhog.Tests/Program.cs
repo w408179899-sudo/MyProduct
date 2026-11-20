@@ -1836,7 +1836,7 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("combat flow coordinator guard and gather preserve ownership", CoordinatorContractTests.GuardAndGatherPreserveOwnershipAsync)
     ,("combat flow retired account fields load and save without changing gameplay settings", CombatFlowRetirementTests.OldAccountConfigsRoundTripAsync)
     ,("combat flow retired policy never interrupts adopted workers", RunSerially(WorkerProcessManagerTests.RetiredCombatPolicyDoesNotInterruptWorkersAsync))
-    ,("combat flow toolbar fits minimum width", RunSerially(MultiAccountUiTests.CombatFlowToolbarFitsMinimumWidthAsync))
+    ,("multi-account ui console toolbar fits fixed width", RunSerially(MultiAccountUiTests.ConsoleToolbarFitsFixedWidthAsync))
     ,("combat flow v2 summon gives low HP recovery an input turn", CoordinatedSummonRecoveryTests.LowHpPrecedesSummonAsync)
     ,("combat flow v2 summon confirmation reserves input", CoordinatedSummonRecoveryTests.ConfirmationReservesInputAsync)
     ,("combat flow v2 summon timeout yields HP", CoordinatedSummonRecoveryTests.ExpiredConfirmationYieldsHpAsync)

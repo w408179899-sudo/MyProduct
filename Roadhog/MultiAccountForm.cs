@@ -41,7 +41,10 @@ public sealed partial class MultiAccountForm : Form
         _workspace = workspace ?? new();
         Text = "Roadhog · 多账号管理";
         Font = new Font("Microsoft YaHei UI", 9F);
-        Width = 1120; MinimumSize = new Size(920, 260);
+        Width = 1120;
+        MinimumSize = new Size(Width, 260);
+        MaximumSize = new Size(Width, SystemInformation.MaxWindowTrackSize.Height);
+        MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = SettingsPalette.Page;
         ForeColor = SettingsPalette.Text;
