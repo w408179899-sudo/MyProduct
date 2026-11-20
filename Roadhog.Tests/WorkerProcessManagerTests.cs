@@ -858,6 +858,9 @@ internal static partial class WorkerProcessManagerTests
             {
                 var first = account.AccountName.EndsWith("1", StringComparison.Ordinal);
                 AccountSessionStatisticsTests.Populate(_states, account, first ? 1 : 2, first ? 3 : 7);
+                var kills = first ? 4 : 9;
+                for (var i = 1; i <= kills; i++)
+                    _states.MarkKill(account.AccountName, (ushort)i);
             }
             _running = true;
             return OperationResult.Ok();

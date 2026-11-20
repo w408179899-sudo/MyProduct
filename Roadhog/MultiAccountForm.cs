@@ -113,7 +113,7 @@ public sealed partial class MultiAccountForm : Form
         });
         AddTextColumn("设备", 20); AddTextColumn("状态", 10);
         AddSessionCountColumn("DeathCount", "死亡次数", 76, "本次脚本启动以来的死亡次数；复活后再次死亡才增加。重新启动清零。");
-        AddSessionCountColumn("LootCount", "累计拾取次数", 100, "本次脚本启动以来已确认的拾取动作次数；重复按键不重复计数，不代表物品件数。重新启动清零。");
+        AddSessionCountColumn("KillCount", "累计击杀", 100, "本次脚本启动以来记录的击杀总数。重新启动清零。");
         AddTextColumn("杀怪/h", 8); AddTextColumn("时长", 11);
         _grid.Columns[1].DefaultCellStyle.WrapMode = DataGridViewTriState.True;
         foreach (var action in new[] { "清包", "设置", "硬件", "启动", "停止" })
@@ -312,7 +312,7 @@ public sealed partial class MultiAccountForm : Form
             row.Cells[4].ToolTipText = DiscoveryMessage(view);
             var elapsed = snapshot?.StartedAt is { } started ? (snapshot.StoppedAt ?? DateTimeOffset.Now) - started : TimeSpan.Zero;
             row.Cells["DeathCount"].Value = snapshot?.DeathCount?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "—";
-            row.Cells["LootCount"].Value = snapshot?.LootCount?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "—";
+            row.Cells["KillCount"].Value = snapshot?.KillCount.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "—";
             row.Cells[7].Value = elapsed.TotalHours > 0 ? (snapshot!.KillCount / elapsed.TotalHours).ToString("0") : "—";
             row.Cells[8].Value = elapsed > TimeSpan.Zero ? $"{(int)elapsed.TotalHours:00}:{elapsed.Minutes:00}:{elapsed.Seconds:00}" : "—";
             row.DefaultCellStyle.ForeColor = view.State is "failed" or "recovering" or "verification_required" ? Color.DarkOrange : Color.FromArgb(30, 65, 43);
