@@ -91,6 +91,7 @@ public sealed class SharedAccountConfigurationStore : ISharedAccountConfiguratio
                 data.Common.Whitelist = SharedCleanupConfiguration.PatchNames(data.Common.Whitelist, before.Whitelist, after.Whitelist);
                 data.Common.Blacklist = SharedCleanupConfiguration.PatchNames(data.Common.Blacklist, before.Blacklist, after.Blacklist);
                 data.Common.Sell = SharedCleanupConfiguration.PatchNames(data.Common.Sell, before.Sell, after.Sell);
+                data.Common.ItemTransfer = SharedCleanupConfiguration.PatchNames(data.Common.ItemTransfer, before.ItemTransfer, after.ItemTransfer);
                 data.Common.Stall = SharedCleanupConfiguration.PatchPrices(data.Common.Stall, before.Stall, after.Stall);
                 data.Auctions[region] = SharedCleanupConfiguration.PatchPrices(data.Auctions.GetValueOrDefault(region) ?? new(), before.AuctionHouse, after.AuctionHouse);
                 return Task.FromResult(true);

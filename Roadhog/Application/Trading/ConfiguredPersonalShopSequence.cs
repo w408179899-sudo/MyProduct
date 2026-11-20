@@ -1,3 +1,4 @@
+using Roadhog.Application.Input;
 using Roadhog.Core.Api;
 using Roadhog.Core.Input;
 using Roadhog.Core.Model;
@@ -11,7 +12,7 @@ public sealed class ConfiguredPersonalShopSequence(IKeyboardInput input, Func<in
     int settlementTimeoutMs = 30000)
 {
     public async Task RunAsync(IRoadhogSnapshotReader snapshots, IReadOnlyList<PlannedShopItem> plan, Action<string> report, CancellationToken token,
-        int? advertisementDiscount = null)
+        int? advertisementDiscount = null, bool viaResetPoint = true)
     {
         var actions = new TradingActions(input, snapshots, token, delay);
         var recovery = new PersonalShopRecovery(actions, report, token);
@@ -81,8 +82,11 @@ public sealed class ConfiguredPersonalShopSequence(IKeyboardInput input, Func<in
                     await recovery.BeforeInputAsync("登记 " + item.Name, async () =>
                     {
                         Require(await CanRegister(), "登记前摊位清单或背包物品已变化。");
-                        await new Roadhog.Application.Input.InventoryItemMouseMover(input, snapshots, delay)
-                            .MoveAsync(Locate(await Ui()) ?? throw new InvalidOperationException("摆摊物品不在可见背包中。"), token, actions.Alive);
+                        var point = Locate(await Ui()) ?? throw new InvalidOperationException("摆摊物品不在可见背包中。");
+                        if (viaResetPoint)
+                            await new InventoryItemMouseMover(input, snapshots, delay).MoveAsync(point, token, actions.Alive);
+                        else
+                            await actions.Move(point);
                         await actions.Wait(Ui, s => s.HoveredInstanceId == item.InstanceId);
                         await actions.Click(Ui, Locate, s => s.IsOpen && !s.IsSelling && s.Editor == null && s.InventoryOpen && !s.OtherModalOpen && s.HoveredInstanceId == item.InstanceId, RoadhogMouseButton.Right);
                     }, CanRegister);

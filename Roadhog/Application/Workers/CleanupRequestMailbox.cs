@@ -1,3 +1,4 @@
+using Roadhog.Application.Trading;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Common;
 
@@ -5,19 +6,22 @@ namespace Roadhog.Application.Workers;
 
 internal enum CleanupPreparationStage { None, ReturningToTown, Discarding }
 public enum GroceryShopTrigger { None, Backpack, Scheduled, Manual }
+internal sealed record ShopRestartRequest(Guid Id, bool ScheduledGrocerySellout);
 
 public sealed record CleanupRequest(ScriptSettings Settings, bool Manual, bool ResetsCooldown = true, bool AllowNpcSell = true)
 {
     public Guid RequestId { get; } = Guid.NewGuid();
     // Execution progress belongs to this worker request, never to persisted settings.
     public bool StandaloneShop { get; init; }
+    public bool ItemTransfer { get; init; }
     public bool ArrowRestock { get; init; }
     public GroceryShopTrigger GroceryTrigger { get; init; }
     public bool GroceryShop => GroceryTrigger != GroceryShopTrigger.None;
     public bool SoldOutConfirmed { get; internal set; }
     public bool GroceryProcessingCompleted { get; internal set; }
     internal bool GroceryNpcStageStarted { get; set; }
-    public bool RequestsRestart => StandaloneShop || GroceryShop && (SoldOutConfirmed || GroceryProcessingCompleted);
+    internal GroceryReturnSequence.CombatResume? ItemTransferReturn { get; set; }
+    public bool RequestsRestart => StandaloneShop || ItemTransfer && SoldOutConfirmed || GroceryShop && (SoldOutConfirmed || GroceryProcessingCompleted);
     public string? Failure { get; set; }
     internal CleanupPreparationStage PreparationStage { get; set; }
     internal bool TownReturnCompleted { get; set; }
@@ -30,11 +34,12 @@ public sealed class CleanupRequestMailbox
 {
     private readonly object sync = new();
     private CleanupRequest? request;
-    private Guid? standaloneShopRestartRequestId;
+    private ShopRestartRequest? shopRestart;
     private DateTimeOffset automaticRetryAfter;
     private DateTimeOffset backpackRetryAfter;
     public CleanupRequest? Current { get { lock (sync) return request; } }
-    public Guid? StandaloneShopRestartRequestId { get { lock (sync) return standaloneShopRestartRequestId; } }
+    internal ShopRestartRequest? ShopRestart { get { lock (sync) return shopRestart; } }
+    public Guid? StandaloneShopRestartRequestId => ShopRestart?.Id;
     public DateTimeOffset AutomaticRetryAfter { get { lock (sync) return automaticRetryAfter; } }
     public DateTimeOffset BackpackRetryAfter { get { lock (sync) return backpackRetryAfter; } }
 
@@ -47,12 +52,21 @@ public sealed class CleanupRequestMailbox
         }
     }
     public OperationResult Request(ScriptSettings settings, bool manual, bool resetsCooldown = true, bool allowNpcSell = true, bool standaloneShop = false,
-        GroceryShopTrigger groceryTrigger = GroceryShopTrigger.None, bool arrowRestock = false)
+        GroceryShopTrigger groceryTrigger = GroceryShopTrigger.None, bool arrowRestock = false, bool itemTransfer = false)
     {
         lock (sync)
         {
-            if (standaloneShopRestartRequestId.HasValue) return OperationResult.Fail("摆摊已售罄，正在等待脚本停止并重新启动。");
+            if (shopRestart is not null) return OperationResult.Fail("摆摊已售罄，正在等待后续操作。");
             if (request != null) return OperationResult.Fail("清包流程已在等待或执行，请勿重复启动。");
+            if (itemTransfer)
+            {
+                if (!manual || standaloneShop || groceryTrigger != GroceryShopTrigger.None || arrowRestock)
+                    return OperationResult.Fail("倒货只能作为独立的手动任务提交。");
+                if (string.IsNullOrWhiteSpace(settings.Paths.StallPathName) || string.IsNullOrWhiteSpace(settings.Paths.StallReturnItemName))
+                    return OperationResult.Fail("请配置倒货路线（转移到仓库号路径）和回程卷轴。");
+                request = new(settings.Clone(), true, ResetsCooldown: false, AllowNpcSell: false) { ItemTransfer = true };
+                return OperationResult.Ok();
+            }
             if (standaloneShop && groceryTrigger != GroceryShopTrigger.None || arrowRestock && (standaloneShop || groceryTrigger != GroceryShopTrigger.None))
                 return OperationResult.Fail("不能同时提交两种摆摊任务。");
             var copy = settings.Clone();
@@ -93,7 +107,7 @@ public sealed class CleanupRequestMailbox
         lock (sync)
         {
             request = null;
-            standaloneShopRestartRequestId = null;
+            shopRestart = null;
             automaticRetryAfter = DateTimeOffset.UtcNow.AddSeconds(30);
         }
     }
@@ -104,8 +118,18 @@ public sealed class CleanupRequestMailbox
         {
             if (!ReferenceEquals(request, completed) || !completed.RequestsRestart || completed.Failure != null)
                 throw new InvalidOperationException("自动摆摊完成请求与当前任务不一致。");
-            standaloneShopRestartRequestId = completed.RequestId;
+            shopRestart = new(completed.RequestId, completed.GroceryTrigger == GroceryShopTrigger.Scheduled);
             request = null;
+        }
+    }
+
+    internal bool ReleaseScheduledGrocerySellout(Guid requestId)
+    {
+        lock (sync)
+        {
+            if (shopRestart is not { ScheduledGrocerySellout: true } completion || completion.Id != requestId) return false;
+            shopRestart = null;
+            return true;
         }
     }
 }

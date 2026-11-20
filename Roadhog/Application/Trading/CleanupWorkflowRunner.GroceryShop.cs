@@ -16,6 +16,7 @@ public sealed partial class CleanupWorkflowRunner
     {
         public DateTimeOffset StartedAt { get; } = startedAt;
         public DateTimeOffset? PendingDue;
+        public DateTimeOffset? CompletedDue;
     }
     private readonly ConditionalWeakTable<AccountWorkerContext, GroceryScheduleState> groceryScheduleStates = new();
 
@@ -34,6 +35,7 @@ public sealed partial class CleanupWorkflowRunner
         Require(grocerySuccessStore != null, "杂货摆摊成功记录存储未配置。");
         var last = await grocerySuccessStore!.LoadAsync(context.Config.InstanceId, context.StopToken);
         context.StopToken.ThrowIfCancellationRequested();
+        if (state.CompletedDue is { } completed && (last is null || completed > last)) last = completed;
         var due = GroceryShopSchedule.LatestDue(settings, now, last, state.PendingDue, state.StartedAt);
         if (due.HasValue && due != state.PendingDue)
             context.Logger.Info("grocery_shop.schedule.due", new Dictionary<string, object?>
@@ -126,7 +128,7 @@ public sealed partial class CleanupWorkflowRunner
             token.ThrowIfCancellationRequested();
             request.SoldOutConfirmed = soldOutAt.HasValue;
             request.GroceryProcessingCompleted = true;
-            report("本次清包流程结束，准备停止并重新启动脚本");
+            report("本次清包流程结束，等待售罄后的后续操作");
             context.Logger.Info(soldOutAt.HasValue ? "grocery_shop.sold_out" : "grocery_shop.npc_only.complete", new Dictionary<string, object?>
                 { ["account"] = context.Config.AccountName, ["soldOutAt"] = soldOutAt });
         }

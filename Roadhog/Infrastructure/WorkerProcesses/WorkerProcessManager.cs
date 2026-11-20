@@ -43,7 +43,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
         public bool PendingScriptRestart;
         public bool PendingWorldSnapshotRestart;
         public int WorldSnapshotRestarts;
-        public DateTimeOffset WorldSnapshotReloginRetryAt;
+        public (Guid Id, DateTimeOffset At)? ParkedReloginRetry;
         public string State = "stopped";
         public string? Error;
         public CancellationTokenSource Operation = new();
@@ -282,6 +282,9 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
     public Task<OperationResult> LoginAsync(string instanceId, CancellationToken cancellationToken = default) =>
         StartAccountAsync(instanceId, false, cancellationToken, null, loginOnly: true);
 
+    public Task<OperationResult> RequestItemTransferAsync(string instanceId, CancellationToken cancellationToken = default) =>
+        ManualScheduleCommandAsync(Get(instanceId), () => StartAccountAsync(instanceId, true, cancellationToken, null, itemTransfer: true));
+
     public Task<OperationResult> RequestGameSessionAsync(string instanceId, Application.GameSessions.GameSessionOperation operation,
         CancellationToken cancellationToken = default) =>
         ManualScheduleCommandAsync(Get(instanceId), () => StartAccountAsync(instanceId, false, cancellationToken, null,
@@ -290,7 +293,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
     private async Task<OperationResult> StartAccountAsync(string instanceId, bool cleanup, CancellationToken cancellationToken,
         ScriptSettings? standaloneShopSettings, long? expectedStopGeneration = null, CancellationTokenSource? expectedOperation = null,
         ScriptSettings? groceryShopSettings = null, bool loginOnly = false,
-        Application.GameSessions.GameSessionOperation? gameSessionOperation = null, string? expectedScheduleSignature = null)
+        Application.GameSessions.GameSessionOperation? gameSessionOperation = null, string? expectedScheduleSignature = null, bool itemTransfer = false)
     {
         if (Volatile.Read(ref _shuttingDown) != 0 || Volatile.Read(ref _disposed) != 0) return OperationResult.Fail("主界面正在退出，不能启动账号。");
         standaloneShopSettings = standaloneShopSettings?.Clone();
@@ -341,7 +344,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 if (entry.Desired && entry.StartingRequest && entry.LoginOnly != loginOnly)
                     return OperationResult.Fail("账号正在执行登录或启动，请等待完成后再切换操作。");
                 if (entry.Desired && (entry.StartingRequest || entry.State == "starting"))
-                    return standaloneShopSettings != null || groceryShopSettings != null ? OperationResult.Fail("账号正在启动，请稍后再提交摆摊任务。") : OperationResult.Ok();
+                    return standaloneShopSettings != null || groceryShopSettings != null || itemTransfer ? OperationResult.Fail("账号正在启动，请稍后再提交交易任务。") : OperationResult.Ok();
                 if (entry.Desired && Alive(entry) && entry.Status?.IsRunning == true && !cleanup && !gameSessionOperation.HasValue) return OperationResult.Ok();
                 resourceConflict = FindResourceConflict(entry);
                 if (resourceConflict is not null)
@@ -398,7 +401,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(linked.Token);
                 deadline.CancelAfter(_launch.StartupTimeout + _launch.StopTimeout + TimeSpan.FromSeconds(5)
                     + (entry.LoginOnly || !string.IsNullOrWhiteSpace(entry.Config.GameLoginAccount) ? _launch.LoginTimeout : TimeSpan.Zero));
-                var result = await StartCoreAsync(entry, cleanup, deadline.Token, standaloneShopSettings, groceryShopSettings, gameSessionOperation).ConfigureAwait(false);
+                var result = await StartCoreAsync(entry, cleanup, deadline.Token, standaloneShopSettings, groceryShopSettings, gameSessionOperation, itemTransfer).ConfigureAwait(false);
                 return result;
             }
             finally { entry.Gate.Release(); }
@@ -437,7 +440,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
 
     private async Task<OperationResult> StartCoreAsync(Entry entry, bool cleanup, CancellationToken cancellationToken,
         ScriptSettings? standaloneShopSettings = null, ScriptSettings? groceryShopSettings = null,
-        Application.GameSessions.GameSessionOperation? gameSessionOperation = null)
+        Application.GameSessions.GameSessionOperation? gameSessionOperation = null, bool itemTransfer = false)
     {
         ThrowIfUnavailable();
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -455,7 +458,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
             if (entry.PendingShopRestartId is null)
             {
                 entry.WorldSnapshotRestarts = 0;
-                entry.WorldSnapshotReloginRetryAt = default;
+                entry.ParkedReloginRetry = null;
             }
         var paths = PathsFor(entry.Config);
         var sharedPath = Roadhog.Infrastructure.Config.SharedAccountConfigurationStore.PathFor(_paths.AccountConfigPath);
@@ -506,7 +509,8 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
             if (groceryShopSettings != null) built.Value.ScriptSettings = groceryShopSettings.Clone();
             var command = gameSessionOperation.HasValue ? gameSessionOperation == Application.GameSessions.GameSessionOperation.Relogin
                 ? WorkerCommands.Relogin : WorkerCommands.ExitGame
-                : entry.LoginOnly ? WorkerCommands.Login : standaloneShopSettings != null ? WorkerCommands.StandaloneShop : cleanup ? WorkerCommands.Cleanup : WorkerCommands.Start;
+                : entry.LoginOnly ? WorkerCommands.Login : itemTransfer ? WorkerCommands.ItemTransfer
+                : standaloneShopSettings != null ? WorkerCommands.StandaloneShop : cleanup ? WorkerCommands.Cleanup : WorkerCommands.Start;
             var result = await client.CallAsync<OperationResult>(command,
                 [built.Value], cancellationToken, new Progress<string>(message =>
                 {
@@ -569,7 +573,7 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                 entry.PendingScriptRestart = false;
                 entry.PendingWorldSnapshotRestart = false;
                 entry.WorldSnapshotRestarts = 0;
-                entry.WorldSnapshotReloginRetryAt = default;
+                entry.ParkedReloginRetry = null;
                 entry.Desired = false;
             }
             if (entry.StopTask is { IsCompleted: false }) return entry.StopTask;
@@ -983,10 +987,19 @@ public sealed partial class WorkerProcessManager : IAsyncDisposable
                     {
                         if (status.WorldSnapshotRestartRequested && entry.WorldSnapshotRestarts >= MaximumWorldSnapshotRestarts)
                         {
-                            await RequestWorldSnapshotReloginAsync(entry, requestId, pollOperation).ConfigureAwait(false);
+                            await RequestParkedWorkerReloginAsync(entry, requestId, pollOperation).ConfigureAwait(false);
                             return;
                         }
-                        shopRestart = RestartRequestedWorkerAsync(entry, requestId);
+                        lock (entry.Sync)
+                        {
+                            if (Superseded()) return;
+                            if (status.ScriptRestartRequestId.HasValue || !status.ScheduledGrocerySellout || entry.Config.DailySchedule.ReloginEnabled)
+                            {
+                                shopRestart = RestartRequestedWorkerAsync(entry, requestId);
+                                return;
+                            }
+                        }
+                        await RequestParkedWorkerReloginAsync(entry, requestId, pollOperation, scheduledGrocerySellout: true).ConfigureAwait(false);
                         return;
                     }
                     if (status.GameDisconnectRequestId is { } disconnectId && disconnectId != Guid.Empty && status.Authorized

@@ -729,6 +729,7 @@ internal static partial class WorkerProcessManagerTests
         private volatile bool _initialized;
         private volatile bool _loggedIn;
         private Guid? _shopRestartRequestId;
+        private bool _scheduledGrocerySellout;
         private Guid? _scriptRestartRequestId;
         private bool _worldSnapshotRestartRequested;
         private Guid? _gameSessionRequestId;
@@ -762,6 +763,7 @@ internal static partial class WorkerProcessManagerTests
             {
                 Authorized = scenario != "unauthorized", AuthorizationError = scenario == "unauthorized" ? "mock authorization denied" : null,
                 IsRunning = _running, LoginCompleted = _loggedIn, Snapshot = _states.Snapshot().SingleOrDefault(), StandaloneShopRestartRequestId = _shopRestartRequestId,
+                ScheduledGrocerySellout = _scheduledGrocerySellout,
                 CleanupFailure = _cleanupFailure,
                 ScriptRestartRequestId = _scriptRestartRequestId,
                 WorldSnapshotRestartRequested = _worldSnapshotRestartRequested,
@@ -779,6 +781,12 @@ internal static partial class WorkerProcessManagerTests
             return await StartAsync(account, true, cancellationToken);
         }
 
+        public async Task<OperationResult> StartItemTransferAsync(AccountConfig account, IProgress<string> progress, CancellationToken token)
+        {
+            await File.WriteAllTextAsync(Path.Combine(spec.Paths.LogDirectory, "item-transfer.json"), JsonSerializer.Serialize(account), token);
+            return await StartAsync(account, cleanupFirst: false, token);
+        }
+
         public async Task<OperationResult> RequestGameSessionAsync(AccountConfig account,
             Roadhog.Application.GameSessions.GameSessionOperation operation, CancellationToken token)
         {
@@ -790,6 +798,8 @@ internal static partial class WorkerProcessManagerTests
             {
                 _gameSessionRequestId = null;
                 _gameSessionOperation = operation;
+                _scheduledGrocerySellout = false;
+                _shopRestartRequestId = null;
                 if (_worldSnapshotRestartRequested)
                 {
                     _scriptRestartRequestId = null;
@@ -840,7 +850,7 @@ internal static partial class WorkerProcessManagerTests
             await File.WriteAllTextAsync(Path.Combine(spec.Paths.LogDirectory, "started"), _starts.ToString(), cancellationToken);
             _states.MarkStarting(account);
             _states.MarkRunning(account.AccountName, Environment.CurrentManagedThreadId);
-            lock (_shopSync) { _shopRestartRequestId = null; _scriptRestartRequestId = null; _worldSnapshotRestartRequested = false; _cleanupFailure = null; _gameSessionRequestId = null; _gameSessionOperation = null; }
+            lock (_shopSync) { _shopRestartRequestId = null; _scheduledGrocerySellout = false; _scriptRestartRequestId = null; _worldSnapshotRestartRequested = false; _cleanupFailure = null; _gameSessionRequestId = null; _gameSessionOperation = null; }
             if (!cleanupFirst)
                 await File.WriteAllTextAsync(Path.Combine(spec.Paths.LogDirectory, "normal-start.json"), JsonSerializer.Serialize(account), cancellationToken);
             if (cleanupFirst && account.ScriptSettings?.Maintenance.CleanupWorkflow.Mode == CleanupMode.GroceryShop)
@@ -919,7 +929,11 @@ internal static partial class WorkerProcessManagerTests
             }
             if (method == "mock.shop.sold-out")
             {
-                lock (_shopSync) _shopRestartRequestId = arguments[0].GetGuid();
+                lock (_shopSync)
+                {
+                    _shopRestartRequestId = arguments[0].GetGuid();
+                    _scheduledGrocerySellout = arguments.Length > 1 && arguments[1].GetBoolean();
+                }
                 _states.MarkCleanupProgress(spec.Account.AccountName, "全部售罄，等待停止并重新启动脚本");
                 return OperationResult.Ok();
             }

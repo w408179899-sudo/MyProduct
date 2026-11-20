@@ -1,5 +1,6 @@
 using Roadhog.Application;
 using Roadhog.Application.BagCleanup;
+using Roadhog.Application.GameSessions;
 using Roadhog.Application.Trading;
 using Roadhog.Application.Workers;
 using Roadhog.Application.SemiAuto;
@@ -57,6 +58,7 @@ internal static partial class GroceryShopTests
         public int ScrollClicks, Follows, Confirms, ShopStarts, ShopStops, Discards;
         public readonly List<string> Events = new();
         public readonly List<GameUiPoint> CursorVisits = new();
+        public bool ExpectBagMouseReset = true;
         public Action? AfterScrollClick;
         public bool FailDiscard;
         public int HoverFailuresRemaining;
@@ -77,8 +79,9 @@ internal static partial class GroceryShopTests
         public bool BagOpen => shop.InventoryOpen;
         public PersonalShopSnapshot ShopState => shop;
         public AccountWorkerContext Context => new(Config, Api, Logger, new AccountRuntimeManager(Logger), new() { TickInterval = TimeSpan.FromMilliseconds(5) }, Stop.Token);
-        public Trip()
+        public Trip(ulong expectedUnitPrice = 500)
         {
+            if (expectedUnitPrice == 1) shop = shop with { AdvertisementText = string.Empty };
             Success.OnSave = () => Events.Add("record");
             var settings = Config.ScriptSettings!;
             settings.Maintenance.CleanupWorkflow.Mode = CleanupMode.GroceryShop;
@@ -181,8 +184,9 @@ internal static partial class GroceryShopTests
             {
                 if (button == RoadhogMouseButton.Right)
                 {
-                    if (!npc.IsSelling) Check(CursorVisits.Skip(lastRightClickVisit).Any(p => Math.Abs(p.X - 680) <= 3 && Math.Abs(p.Y - 468) <= 3), "every scroll or stall bag click first visits fixed point within waypoint tolerance");
-                    else Check(!CursorVisits.Skip(lastRightClickVisit).Contains(new(680, 468)), "NPC sale moves directly to each item");
+                    var visitedReset = CursorVisits.Skip(lastRightClickVisit).Any(p => Math.Abs(p.X - 680) <= 3 && Math.Abs(p.Y - 468) <= 3);
+                    if (!npc.IsSelling && ExpectBagMouseReset) Check(visitedReset, "scroll and stall clicks first visit the fixed reset point");
+                    else Check(!visitedReset, "item transfer and NPC sale move directly to each item");
                     lastRightClickVisit = CursorVisits.Count;
                 }
                 down = true;
@@ -258,7 +262,7 @@ internal static partial class GroceryShopTests
                 else if (point == new GameUiPoint(600, 100))
                 {
                     var editor = shop.Editor!;
-                    Check(editor.Quantity == 3 && editor.UnitPrice == 500, "reuse five discount rather than fixed list price");
+                    Check(editor.Quantity == 3 && editor.UnitPrice == expectedUnitPrice, "submit the expected per-item price rather than the configured stall list price");
                     shop = shop with { Editor = null, Listings = shop.Listings.Append(new(editor.InstanceId, 2, editor.Quantity, editor.UnitPrice)).ToArray() }; Confirms++;
                 }
                 else if (point == new GameUiPoint(700, 100)) { ShopStarts++; sellingReads = 0; shop = shop with { IsSelling = true }; Events.Add("shop"); }
@@ -476,7 +480,8 @@ internal static partial class GroceryShopTests
             settings.Maintenance.CleanupWorkflow.GroceryScheduleTimes = new() { "12:00" };
             var paths = new InMemorySharedPathStore(trip.Route);
             var semi = new SemiAutoCombatController(trip.Input);
-            var loop = new DefaultAccountWorkerLoop(trip.Input, semi, new StationaryCombatController(trip.Input, semi, paths), cleanupWorkflow: trip.Runner());
+            var loop = new DefaultAccountWorkerLoop(trip.Input, semi, new StationaryCombatController(trip.Input, semi, paths), cleanupWorkflow: trip.Runner(),
+                gameExitSessionFactory: _ => new ExitedGroceryGame());
             var host = new AccountWorkerHost(trip.Api, trip.Logger, new AccountRuntimeManager(trip.Logger), loop, new() { TickInterval = TimeSpan.FromMilliseconds(5) });
             async Task Until(Func<bool> condition)
             {
@@ -496,9 +501,29 @@ internal static partial class GroceryShopTests
                 var count = trip.Input.Keys.Count + trip.Input.MouseCommands.Count;
                 await Task.Delay(200, trip.Stop.Token);
                 Check(count == trip.Input.Keys.Count + trip.Input.MouseCommands.Count, "completed worker remains idle for manager stop/start");
+                Check(host.ShopRestart?.ScheduledGrocerySellout == scheduled, "only a scheduled stall sellout is eligible for relogin");
+                Check(!host.RequestGameSession(GameSessionOperation.Relogin).Success, "the existing restart handoff blocks unrelated session requests");
+                Check(host.RequestGameSession(GameSessionOperation.Relogin, allowScheduledGroceryHandoff: true).Success == scheduled,
+                    "only a scheduled sellout hands off to the normal exit mailbox");
+                if (scheduled)
+                {
+                    await Until(() => host.CompletedGameSession?.Operation == GameSessionOperation.Relogin);
+                    Check(host.ShopRestart is null && trip.Success.Saves == 1, "confirmed exit consumes the shop handoff without replay");
+                }
                 Check((await host.StopAsync()).Success && host.StandaloneShopRestartRequestId == null, "Stop drains completion signal");
             }
             finally { await host.StopAsync(); }
         }
+    }
+
+    private sealed class ExitedGroceryGame : IGameExitSession
+    {
+        public Task<GameExitSnapshot> ReadAsync(CancellationToken token) =>
+            Task.FromResult(new GameExitSnapshot("grocery", 0, false, false, false, false, false, 0, false));
+
+        public Task<bool> ExecuteAsync(GameExitSnapshot expected, GameExitAction action, CancellationToken token) =>
+            throw new InvalidOperationException("Game exit was already confirmed by process absence.");
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }

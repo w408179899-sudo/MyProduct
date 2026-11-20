@@ -40,7 +40,7 @@ internal static class CleanupRequestRunner
             context.StopToken.ThrowIfCancellationRequested();
             if (prepared)
             {
-                if (cleanup.StandaloneShop || cleanup.GroceryShop)
+                if (cleanup.StandaloneShop || cleanup.GroceryShop || cleanup.ItemTransfer)
                     await actions.StopJumpAsync().ConfigureAwait(false);
                 context.StopToken.ThrowIfCancellationRequested();
                 try
@@ -61,9 +61,9 @@ internal static class CleanupRequestRunner
                 context.StopToken.ThrowIfCancellationRequested();
                 if (cleanup.RequestsRestart)
                 {
-                    context.CleanupRequests.CompleteStandaloneShopForRestart(cleanup);
                     context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, cleanup.GroceryShop
-                        ? "杂货清包处理完成，等待停止并重新启动脚本" : "全部售罄，等待停止并重新启动脚本");
+                        ? "杂货清包处理完成，等待后续操作" : "全部售罄，等待停止并重新启动脚本");
+                    context.CleanupRequests.CompleteStandaloneShopForRestart(cleanup);
                     context.Logger.Info("standalone_shop.restart.requested", new Dictionary<string, object?>
                         { ["account"] = context.Config.AccountName, ["requestId"] = cleanup.RequestId });
                     return CleanupRequestTickResult.RestartPending;
@@ -75,7 +75,8 @@ internal static class CleanupRequestRunner
                 stationaryCombatState.PathCombat.Reset();
                 await actions.ClearChannelSwitchAsync();
             }
-            else context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, "清包已排队，先处理当前战斗 / 复活");
+            else context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName,
+                (cleanup.ItemTransfer ? "倒货" : "清包") + "已排队，先处理当前战斗 / 复活");
         }
         catch (SnapshotReadBudgetExceededException) { throw; }
         catch (Exception ex) when (CleanupFailurePolicy.Classify(cleanup, ex, context.StopToken) == CleanupFailureDisposition.EndSession)
@@ -101,8 +102,15 @@ internal static class CleanupRequestRunner
         }
         catch (Exception ex) when (CleanupFailurePolicy.Classify(cleanup, ex, context.StopToken) == CleanupFailureDisposition.ResumeAfterCombat)
         {
+            progress.OperationActive = false;
             if (ex is CleanupDeathInterruptionException) cleanup.TownReturnCompleted = false;
-            context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, ex.Message);
+            context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, ex.Message + (cleanup.ItemTransfer ? "；脱战后继续倒货" : ""));
+            if (cleanup.ItemTransfer)
+                context.Logger.Info("item_transfer.return.interrupted", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName, ["requestId"] = cleanup.RequestId,
+                    ["clicks"] = cleanup.ItemTransferReturn?.Pending?.Clicks ?? 0, ["reason"] = ex.Message
+                });
         }
         catch (Exception ex) when (CleanupFailurePolicy.Classify(cleanup, ex, context.StopToken) == CleanupFailureDisposition.AbandonDiscard)
         {

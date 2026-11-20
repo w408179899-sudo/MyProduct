@@ -14,6 +14,13 @@ public sealed class GroceryTripDepartureFailedException(string reason) : Excepti
 public sealed class GroceryReturnSequence(IKeyboardInput input,
     Func<int, CancellationToken, Task>? delay = null, Func<DateTimeOffset>? clock = null)
 {
+    internal sealed record InterruptedCast(TownReturnTransition Transition, int Clicks, DateTimeOffset ClickedAt);
+
+    internal sealed class CombatResume
+    {
+        public InterruptedCast? Pending { get; set; }
+    }
+
     public const int MaxScrollClicks = 3;
     public static readonly TimeSpan DepartureTimeout = TimeSpan.FromSeconds(20);
     public static readonly TimeSpan ArrivalTimeout = TimeSpan.FromMinutes(2);
@@ -21,8 +28,12 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
         bag.Where(i => !i.IsEquipped && i.Slot >= 0 && i.Count > 0 &&
             string.Equals(i.Name, name.Trim(), StringComparison.OrdinalIgnoreCase)).OrderBy(i => i.Slot).FirstOrDefault();
 
-    public async Task RunAsync(AccountWorkerContext context, SharedPathDocument destination, string itemName, Action<string> report,
-        string tripName = "杂货回程", string retryEventName = "grocery_shop.return.retry")
+    public Task RunAsync(AccountWorkerContext context, SharedPathDocument destination, string itemName, Action<string> report,
+        string tripName = "杂货回程", string retryEventName = "grocery_shop.return.retry", bool viaResetPoint = true) =>
+        RunAsync(context, destination, itemName, report, tripName, retryEventName, viaResetPoint, resume: null);
+
+    internal async Task RunAsync(AccountWorkerContext context, SharedPathDocument destination, string itemName, Action<string> report,
+        string tripName, string retryEventName, bool viaResetPoint, CombatResume? resume)
     {
         var token = context.StopToken;
         var actions = new TradingActions(input, context.Snapshots, token, delay);
@@ -30,11 +41,14 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
         DateTimeOffset Now() => clock?.Invoke() ?? DateTimeOffset.UtcNow;
         async Task<ChannelTransitionSnapshot> Scene() => (await context.Snapshots.ReadChannelTransitionAsync().WaitAsync(token)).Value;
         async Task<InventoryInteractionSnapshot> Bag() => (await context.Snapshots.ReadInventoryInteractionAsync().WaitAsync(token)).Value;
-        var departure = await Scene();
+        var pending = resume?.Pending;
+        var departure = pending?.Transition.Departure ?? await Scene();
         Require(departure.IsReady && !departure.Player!.IsDead, tripName + "前角色尚未就绪。");
         Require(destination.MapId is > 0 && destination.PointCount > 0, tripName + "路径需要录制地图及入口坐标。");
-        var transition = new TownReturnTransition();
-        transition.Start(departure, destination, Now());
+        var transition = pending?.Transition ?? new TownReturnTransition();
+        if (pending is null) transition.Start(departure, destination, Now());
+        var clicks = pending?.Clicks ?? 0;
+        var clickedAt = pending?.ClickedAt ?? default;
         async Task<bool> BeforeClick()
         {
             var scene = await Scene();
@@ -59,7 +73,7 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
                 ["discardDialog"] = ui.DiscardDialog != null, ["otherModal"] = ui.OtherModalOpen });
             return idle;
         }
-        var hp = departure.Player!.CurrentHp;
+        uint? hp = pending is null ? departure.Player!.CurrentHp : null;
         Exception? failure = null;
         async Task CheckAttack(ChannelTransitionSnapshot scene)
         {
@@ -74,32 +88,34 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
         try
         {
             await actions.Reset();
-            var start = departure.Player!.Position!.Value;
-            var nearbyIndex = NearbyPathEntry.Find(departure, destination);
-            if (nearbyIndex >= 0)
+            if (pending is null)
             {
-                var ui = await Bag();
-                Require(!ui.ShopIsOpen && !ui.IsSelling && ui.DiscardDialog == null && !ui.OtherModalOpen,
-                    "已在路径附近，但存在其他背包操作。");
-                await CheckAttack(departure);
-                report($"已在所选路径第 {nearbyIndex + 1} 点附近，无需使用回程卷轴");
-                context.Logger.Info("grocery_shop.return.already_near_path", new Dictionary<string, object?>
-                    { ["account"] = context.Config.AccountName, ["path"] = destination.Name, ["position"] = start, ["pointNumber"] = nearbyIndex + 1 });
-                return;
+                var nearbyIndex = NearbyPathEntry.Find(departure, destination);
+                if (nearbyIndex >= 0)
+                {
+                    var ui = await Bag();
+                    Require(!ui.ShopIsOpen && !ui.IsSelling && ui.DiscardDialog == null && !ui.OtherModalOpen,
+                        "已在路径附近，但存在其他背包操作。");
+                    await CheckAttack(departure);
+                    report($"已在所选路径第 {nearbyIndex + 1} 点附近，无需使用回程卷轴");
+                    context.Logger.Info("grocery_shop.return.already_near_path", new Dictionary<string, object?>
+                        { ["account"] = context.Config.AccountName, ["path"] = destination.Name, ["position"] = departure.Player!.Position, ["pointNumber"] = nearbyIndex + 1 });
+                    return;
+                }
+                var item = FindScroll((await context.Snapshots.ReadInventoryAsync().WaitAsync(token)).Value, itemName)
+                    ?? throw new GroceryTripDepartureFailedException("背包没有配置的回程卷轴：" + itemName);
+                Require(await BeforeClick(), "使用卷轴前存在其他背包操作。");
+                if (!(await Bag()).IsOpen)
+                {
+                    await actions.Key("I");
+                    await actions.Wait(Bag, s => s.IsOpen && !s.OtherModalOpen);
+                }
+                report("使用回程卷轴：" + item.Name + "，等待读条和落点确认");
+                await actions.RightClickBag(item, BeforeClick, viaResetPoint);
+                clickedAt = Now();
+                clicks = 1;
             }
-            var item = FindScroll((await context.Snapshots.ReadInventoryAsync().WaitAsync(token)).Value, itemName)
-                ?? throw new GroceryTripDepartureFailedException("背包没有配置的回程卷轴：" + itemName);
-            Require(await BeforeClick(), "使用卷轴前存在其他背包操作。");
-            if (!(await Bag()).IsOpen)
-            {
-                await actions.Key("I");
-                await actions.Wait(Bag, s => s.IsOpen && !s.OtherModalOpen);
-            }
-            report("使用回程卷轴：" + item.Name + "，等待读条和落点确认");
-            await actions.RightClickBag(item, BeforeClick);
-            var clickedAt = Now();
-            var tripStartedAt = clickedAt;
-            var clicks = 1;
+            var tripStartedAt = pending is null ? clickedAt : Now();
             while (true)
             {
                 token.ThrowIfCancellationRequested();
@@ -108,9 +124,10 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
                     Require(scene.Player!.CharacterName == departure.Player!.CharacterName,
                         "回程期间角色身份改变。");
                 var phase = transition.Observe(scene);
-                if (phase == TownReturnPhase.Dead) throw new CleanupDeathInterruptionException();
-                if (phase == TownReturnPhase.Arrived)
+                if (phase == TownReturnPhase.Dead || scene.IsReady && scene.Player!.IsDead) throw new CleanupDeathInterruptionException();
+                if (phase == TownReturnPhase.Arrived && scene.IsReady)
                 {
+                    Require(TownReturnTransition.MatchesDestination(scene, destination), "回程落点已改变，不能继续。");
                     var bag = await Bag();
                     Require(!bag.OtherModalOpen && bag.DiscardDialog == null && !bag.ShopIsOpen && !bag.IsSelling, "回程后背包操作状态改变。");
                     if (bag.IsOpen) { await actions.Key("I"); await actions.Wait(Bag, s => !s.IsOpen); }
@@ -120,7 +137,8 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
                 if (Now() - tripStartedAt >= ArrivalTimeout)
                     throw new CleanupExecutionFailedException($"{tripName}落点确认超过 {ArrivalTimeout.TotalSeconds:0} 秒：阶段={phase}，目标地图={destination.MapId}，当前地图={scene.Channel?.MapId}；放弃本次清包，返回主流程。", new TimeoutException());
                 // Do not inspect attackers from the departure map once loading starts.
-                if (!transition.SawLoading && scene.IsReady && scene.Channel!.MapId == departure.Channel!.MapId)
+                if (!transition.SawLoading && scene.IsReady && scene.Channel!.MapId == departure.Channel!.MapId &&
+                    (resume is null || phase == TownReturnPhase.WaitingForDeparture))
                 {
                     await CheckAttack(scene);
                     if (phase == TownReturnPhase.WaitingForDeparture && Now() - clickedAt >= DepartureTimeout)
@@ -146,7 +164,7 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
                             }
                             var retryInventory = (await context.Snapshots.ReadInventoryAsync().WaitAsync(token)).Value;
                             if (transition.Observe(await Scene()) != TownReturnPhase.WaitingForDeparture) continue;
-                            item = FindScroll(retryInventory, itemName)
+                            var item = FindScroll(retryInventory, itemName)
                                 ?? throw new GroceryTripDepartureFailedException("重试时所选回程卷轴已不存在：" + itemName);
                             if (!(await Bag()).IsOpen)
                             {
@@ -155,7 +173,7 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
                             }
                             report($"回程尚未出发，重新右键卷轴（{clicks + 1}/{MaxScrollClicks}）");
                             // Recheck the transition immediately before the input, including delayed loading.
-                            try { await actions.RightClickBag(item, BeforeClick); }
+                            try { await actions.RightClickBag(item, BeforeClick, viaResetPoint); }
                             catch (InvalidOperationException) when (transition.Phase is TownReturnPhase.Loading or TownReturnPhase.WaitingForDestination or TownReturnPhase.Arrived)
                             { continue; }
                             clicks++;
@@ -169,6 +187,12 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
                 await actions.Pause(100);
             }
         }
+        catch (GroceryTripInterruptedException ex) when (resume is not null && clicks > 0)
+        {
+            resume.Pending = new(transition, clicks, clickedAt);
+            failure = ex;
+            throw;
+        }
         catch (Exception ex) { failure = ex; throw; }
         finally
         {
@@ -178,6 +202,8 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
                 if (!token.IsCancellationRequested && failure is not (Roadhog.Core.Api.SnapshotReadBudgetExceededException or CleanupExecutionFailedException))
                 {
                     var scene = await Scene();
+                    if (failure is GroceryTripInterruptedException && resume?.Pending is { } interrupted)
+                        interrupted.Transition.Observe(scene);
                     if (scene.IsReady && !scene.Player!.IsDead)
                     {
                         var bag = await Bag();

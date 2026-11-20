@@ -145,8 +145,8 @@ internal static partial class MultiAccountUiTests
         Require(grid.Rows[0].Cells[1].Value?.ToString() == "账号 1 / 守望者\n50级 · 精灵星", "first account shows localized level and class");
         Require(grid.Rows[1].Cells[1].Value?.ToString() == "账号 2 / 晨光\n32级 · 守护星", "second account owns its metadata");
         Require(grid.Rows[2].Cells[1].Value?.ToString() == "账号 3 / 青岚", "unread account invents no level or class");
-        Require(grid.Rows[0].Cells[0].Value is true && grid.Columns.Count == 14 &&
-            grid.Columns[1].DefaultCellStyle.WrapMode == DataGridViewTriState.True, "metadata refresh preserves selection and existing action layout");
+        Require(grid.Rows[0].Cells[0].Value is true && grid.Columns.Count == 13 &&
+            grid.Columns[1].DefaultCellStyle.WrapMode == DataGridViewTriState.True, "metadata refresh preserves selection and the four row actions");
         Require(grid.Columns[2].HeaderText == "进程 PID" &&
             grid.Rows[0].Cells[2].Value?.ToString() == test.View(accounts[0]).WorkerProcessId?.ToString() &&
             grid.Rows[1].Cells[2].Value?.ToString() == test.View(accounts[1]).WorkerProcessId?.ToString() &&
@@ -175,8 +175,10 @@ internal static partial class MultiAccountUiTests
         test.Initialize(accounts);
         using var form = test.Console(accounts, renderWindow: true);
         var grid = Field<DataGridView>(form, "_grid");
-        Require(grid.Rows.Count == 3 && grid.Columns.Count == 14, "console has account rows and five action columns");
-        Require(new[] { "清包", "设置", "硬件", "启动", "停止" }.SequenceEqual(grid.Columns.Cast<DataGridViewColumn>().Skip(9).Select(c => c.Name)), "console actions are available per account");
+        Require(grid.Rows.Count == 3 && grid.Columns.Count == 13, "console has account rows and four action columns");
+        Require(new[] { "设置", "硬件", "启动", "停止" }.SequenceEqual(grid.Columns.Cast<DataGridViewColumn>().Skip(9).Select(c => c.Name)), "cleanup is not available as a row action");
+        var toolbar = form.Controls.Find("accountToolbar", true).Single();
+        Require(toolbar.Controls.OfType<Button>().Count(button => button.Text is "清包" or "倒货") == 2, "both cleanup actions are on the toolbar");
         grid.Rows[0].Cells[0].Value = true;
         grid.ClearSelection(); grid.Rows[1].Selected = true;
         Pump((Task)Invoke(form, "BatchAsync", true)!);
@@ -223,23 +225,23 @@ internal static partial class MultiAccountUiTests
         profile.Maintenance.CleanupWorkflow.StandaloneShopDiscount = 8;
         Require(Pump(test.Workspace.Profiles.SaveAsync(new() { Name = "grocery-profile", Settings = profile })).Success,
             "save profile after console creation");
+        var grid = Field<DataGridView>(form, "_grid");
+        void Submit(Func<string, bool> confirm) => Pump((Task)Invoke(form, "CleanupSelectedAsync", false, confirm)!);
+        Submit(_ => throw new InvalidOperationException("highlight alone cannot submit cleanup"));
+        foreach (DataGridViewRow row in grid.Rows) row.Cells[0].Value = true;
+        var confirmations = 0;
+        Submit(message =>
+        {
+            confirmations++;
+            Require(accounts.All(account => message.Contains(account.AccountName)) && message.Contains("手动杂货摆摊") &&
+                message.Contains("完成后重启挂机") && message.Contains("停止按钮可取消"), "one confirmation describes all checked accounts and the grocery lifecycle");
+            return false;
+        });
+        Require(confirmations == 1 && accounts.All(account => test.View(account).WorkerProcessId is null && !test.View(account).DesiredRunning),
+            "cancelled confirmation cannot start or submit any worker request");
+        Submit(_ => true);
         foreach (var account in accounts)
         {
-            var confirmations = 0;
-            bool Confirm(string message)
-            {
-                confirmations++;
-                Require(message.Contains(account.AccountName) && message.Contains("手动杂货摆摊") &&
-                    message.Contains("完成后重启挂机") && message.Contains("停止按钮可取消"),
-                    "confirmation describes the chosen account and manual grocery lifecycle");
-                Require(message.Contains(account == accounts[0] ? "NPC 出售" : "按配置丢弃"),
-                    "confirmation follows configured remaining-item handling");
-                return false;
-            }
-            Pump((Task)Invoke(form, "StartManualGroceryShopAsync", account.InstanceId, (Func<string, bool>)Confirm)!);
-            Require(confirmations == 1 && test.View(account).WorkerProcessId is null && !test.View(account).DesiredRunning,
-                "cancelled confirmation cannot start or submit any worker request");
-            Pump((Task)Invoke(form, "StartManualGroceryShopAsync", account.InstanceId, (Func<string, bool>)(_ => true))!);
             var path = Path.Combine(test.Workspace.Processes.PathsFor(account).LogDirectory, "grocery-shop.json");
             var received = System.Text.Json.JsonSerializer.Deserialize<AccountConfig>(File.ReadAllText(path))!;
             var settings = received.ScriptSettings!;
@@ -247,8 +249,9 @@ internal static partial class MultiAccountUiTests
                 settings.Paths.GroceryStallPathName == (account == accounts[0] ? "latest-profile-route" : "saved-route") &&
                 settings.Paths.GroceryReturnItemName == (account == accounts[0] ? "latest-profile-scroll" : "saved-scroll"),
                 "console dispatches grocery IPC with latest profile or account settings even when normal cleanup has no actions");
-            if (account == accounts[0]) Require(settings.Maintenance.CleanupWorkflow.StandaloneShopDiscount == 8,
-                "manual grocery dispatch preserves configured discount");
+            if (account == accounts[0]) Require(settings.Maintenance.CleanupWorkflow.StandaloneShopDiscount == 8 &&
+                settings.Maintenance.CleanupWorkflow.GroceryPostSaleAction == GroceryPostSaleAction.NpcSell,
+                "manual grocery dispatch preserves the configured discount and remaining-item handling");
             Require(Pump(test.Workspace.Accounts.LoadAllAsync()).Value!.Single(a => a.InstanceId == account.InstanceId)
                 .ScriptSettings!.Maintenance.CleanupWorkflow.Mode == CleanupMode.Normal,
                 "temporary manual request does not overwrite saved normal cleanup mode");
@@ -258,13 +261,43 @@ internal static partial class MultiAccountUiTests
         var pid = test.View(first).WorkerProcessId;
         profile.Paths.GroceryStallPathName = "updated-running-route";
         Require(Pump(test.Workspace.Profiles.SaveAsync(new() { Name = "grocery-profile", Settings = profile })).Success, "update running account profile");
-        Pump((Task)Invoke(form, "StartManualGroceryShopAsync", first.InstanceId, (Func<string, bool>)(_ => true))!);
+        foreach (DataGridViewRow row in grid.Rows) row.Cells[0].Value = (string)row.Tag! == first.InstanceId;
+        Submit(_ => true);
         var updated = System.Text.Json.JsonSerializer.Deserialize<AccountConfig>(File.ReadAllText(
             Path.Combine(test.Workspace.Processes.PathsFor(first).LogDirectory, "grocery-shop.json")))!;
         Require(updated.ScriptSettings!.Paths.GroceryStallPathName == "updated-running-route" && test.View(first).WorkerProcessId == pid,
             "running account receives updated grocery request in the same worker");
         Require(Pump(test.Workspace.Profiles.LoadAsync("grocery-profile")).Value!.Settings.Maintenance.CleanupWorkflow.Mode == CleanupMode.Normal,
             "manual request does not overwrite the shared profile mode");
+    });
+
+    public static Task ConsoleItemTransferAsync() => Sta(() =>
+    {
+        using var test = new UiEnvironment();
+        var accounts = new[] { test.Account(1), test.Account(2) };
+        accounts[1].ScriptSettings = new();
+        accounts[1].ScriptSettings!.Paths.StallPathName = "warehouse-route";
+        accounts[1].ScriptSettings!.Paths.StallReturnItemName = "warehouse-scroll";
+        test.Initialize(accounts);
+        using var form = test.Console(accounts);
+        var grid = Field<DataGridView>(form, "_grid");
+        void Submit(Func<string, bool> confirm) => Pump((Task)Invoke(form, "CleanupSelectedAsync", true, confirm)!);
+        grid.Rows[0].Selected = true;
+        Submit(_ => throw new InvalidOperationException("highlight alone cannot transfer items"));
+        grid.Rows[1].Cells[0].Value = true;
+        Submit(message =>
+        {
+            Require(message.Contains(accounts[1].AccountName) && !message.Contains(accounts[0].AccountName) &&
+                message.Contains("1 金币") && message.Contains("任何玩家均可购买"), "confirmation identifies only checked accounts and discloses public sale");
+            return false;
+        });
+        Require(test.View(accounts[1]).WorkerProcessId is null, "cancel cannot start the transfer");
+        Submit(_ => true);
+        var logs = test.Workspace.Processes.PathsFor(accounts[1]).LogDirectory;
+        var received = System.Text.Json.JsonSerializer.Deserialize<AccountConfig>(File.ReadAllText(Path.Combine(logs, "item-transfer.json")))!;
+        Require(received.ScriptSettings!.Paths.StallPathName == "warehouse-route" &&
+            received.ScriptSettings.Paths.StallReturnItemName == "warehouse-scroll" && !File.Exists(Path.Combine(logs, "grocery-shop.json")) &&
+            test.View(accounts[0]).WorkerProcessId is null, "checked account receives the dedicated IPC command and saved warehouse route");
     });
 
     public static Task ConsoleStopDuringStartAsync() => Sta(() =>

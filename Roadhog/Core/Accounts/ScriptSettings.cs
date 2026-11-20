@@ -755,6 +755,7 @@ public sealed class MaintenanceScriptSettings
 
     public List<string> BagCleanupDiscardItemNameKeywords { get; set; } = new();
     public List<string> BagCleanupSellItemNameKeywords { get; set; } = new();
+    public List<string> ItemTransferItemNameKeywords { get; set; } = new();
 
     [System.Text.Json.Serialization.JsonPropertyName("BagCleanupStallItemNameKeywords")]
     public List<BagCleanupTradeItemConfig> BagCleanupStallItems { get; set; } = new();
@@ -808,6 +809,7 @@ public sealed class MaintenanceScriptSettings
                 .ToList() ?? new List<string>(),
             BagCleanupStallItems = BagCleanupTradeItemConfig.Normalize(BagCleanupStallItems),
             BagCleanupSellItemNameKeywords = BagCleanupNameListsDocument.NormalizeKeywords(BagCleanupSellItemNameKeywords),
+            ItemTransferItemNameKeywords = BagCleanupNameListsDocument.NormalizeKeywords(ItemTransferItemNameKeywords),
             BagCleanupAuctionHouseItems = BagCleanupTradeItemConfig.Normalize(BagCleanupAuctionHouseItems),
             BagCleanupRules = BagCleanupRuleCatalog.MergeWithDefaults(BagCleanupRules)
         };

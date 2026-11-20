@@ -155,6 +155,13 @@ public partial class AccountSettingsForm
         if (row.Tag is not BagCleanupTradeItemConfig item) return;
         var manual = UsesManualTradePrice(item);
         var cell = row.Cells[1];
+        if (bagCleanupItemTransferItems.Contains(item))
+        {
+            cell.ReadOnly = true;
+            cell.Value = FormatBagCleanupUnitPrice(CleanupTradePolicy.ItemTransferUnitPrice);
+            cell.ToolTipText = "倒货单价固定为每件 1 金币";
+            return;
+        }
         cell.ReadOnly = !manual;
         cell.Value = manual ? FormatBagCleanupUnitPrice(item.UnitPrice) : null;
         cell.Style.NullValue = manual ? "未设置" : "—";

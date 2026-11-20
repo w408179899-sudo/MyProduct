@@ -66,6 +66,8 @@ public sealed partial class MultiAccountForm : Form
         tools.Controls.Add(Button("停止所选", () => BatchAsync(false)));
         tools.Controls.Add(Button("删除所选", () => RunConfigurationActionAsync(() => DeleteSelectedAsync())));
         tools.Controls.Add(Button("重新登录", () => ReloginSelectedAsync()));
+        tools.Controls.Add(Button("清包", () => CleanupSelectedAsync(itemTransfer: false), width: 76));
+        tools.Controls.Add(Button("倒货", () => CleanupSelectedAsync(itemTransfer: true), width: 76));
         tools.Controls.Add(Button("退出程序", () => ExitAsync(), exitAction: true));
         root.Controls.Add(tools, 0, 0);
         var filters = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false };
@@ -115,7 +117,7 @@ public sealed partial class MultiAccountForm : Form
         AddSessionCountColumn("KillCount", "累计击杀", 100, "本次脚本启动以来记录的击杀总数。重新启动清零。");
         AddTextColumn("杀怪/h", 8); AddTextColumn("时长", 11);
         _grid.Columns[1].DefaultCellStyle.WrapMode = DataGridViewTriState.True;
-        foreach (var action in new[] { "清包", "设置", "硬件", "启动", "停止" })
+        foreach (var action in new[] { "设置", "硬件", "启动", "停止" })
             _grid.Columns.Add(new DataGridViewButtonColumn { CellTemplate = new SettingsActionCell(), HeaderText = "", Name = action, Text = action == "硬件" ? "设备/角色" : action,
                 UseColumnTextForButtonValue = true, Width = action == "硬件" ? 85 : 55, AutoSizeMode = DataGridViewAutoSizeColumnMode.None });
         _grid.CurrentCellDirtyStateChanged += (_, _) => { if (_grid.IsCurrentCellDirty) _grid.CommitEdit(DataGridViewDataErrorContexts.Commit); };
@@ -172,9 +174,9 @@ public sealed partial class MultiAccountForm : Form
         if (_grid.Rows.Count > 0) _hasFittedAccountRows = true;
     }
 
-    private Button Button(string text, Func<Task> action, bool exitAction = false)
+    private Button Button(string text, Func<Task> action, bool exitAction = false, int width = 96)
     {
-        var button = new RoundedButton { Text = text, Size = new Size(96, 32), Margin = new Padding(3, 3, 6, 3),
+        var button = new RoundedButton { Text = text, Size = new Size(width, 32), Margin = new Padding(3, 3, 6, 3),
             BackColor = SettingsPalette.Primary, ForeColor = Color.White, BorderColor = SettingsPalette.Border,
             Font = new Font(Font.FontFamily, 8.5F, FontStyle.Bold), UseVisualStyleBackColor = false };
         button.Click += async (_, _) =>
@@ -365,7 +367,6 @@ public sealed partial class MultiAccountForm : Form
         {
             if (action == "启动") await RunAsync(id, false);
             else if (action == "停止") Check(await _workspace.Processes.StopAsync(id));
-            else if (action == "清包") await StartManualGroceryShopAsync(id);
             else if (action == "硬件") await RunConfigurationActionAsync(() => EditHardwareAsync(id));
             else if (action == "设置") await RunConfigurationActionAsync(() => OpenSettingsAsync(id));
         }
@@ -384,23 +385,48 @@ public sealed partial class MultiAccountForm : Form
         Check(await _workspace.Processes.StartAsync(id, cleanup, _operations.Token));
     }
 
-    private async Task StartManualGroceryShopAsync(string id, Func<string, bool>? confirm = null)
+    private string[] SelectedAccountIds()
+    {
+        _grid.EndEdit();
+        return _grid.Rows.Cast<DataGridViewRow>().Where(row => row.Cells[0].Value is true).Select(row => (string)row.Tag!).ToArray();
+    }
+
+    private async Task CleanupSelectedAsync(bool itemTransfer, Func<string, bool>? confirm = null)
     {
         await ReloadAccountsAsync();
-        var account = _accounts.Single(a => a.InstanceId == id);
+        var ids = SelectedAccountIds();
+        if (ids.Length == 0) { Report("请先勾选账号。"); return; }
+        var selected = _accounts.Where(account => ids.Contains(account.InstanceId)).ToArray();
+        var action = itemTransfer ? "倒货" : "清包";
+        var instructions = itemTransfer
+            ? "使用各账号的转移到仓库号路径和回程卷轴，到终点后按每件 1 金币公开摆摊。任何玩家均可购买，请先准备好仓库号。"
+            : "执行手动杂货摆摊，剩余物品按各账号配置处理。";
+        var message = $"账号：{string.Join("、", selected.Select(account => account.AccountName))}\n\n{instructions}\n\n完成后重启挂机，停止按钮可取消流程。";
+        var accepted = confirm?.Invoke(message) ?? MessageBox.Show(this, message, "确认" + action,
+            MessageBoxButtons.OKCancel, MessageBoxIcon.Question) == DialogResult.OK;
+        if (!accepted) return;
+        var errors = await Task.WhenAll(selected.Select(async account =>
+        {
+            try
+            {
+                if (itemTransfer) Check(await _workspace.Processes.RequestItemTransferAsync(account.InstanceId, _operations.Token));
+                else await StartManualGroceryShopAsync(account);
+                return null;
+            }
+            catch (Exception exception) { return account.AccountName + "：" + exception.Message; }
+        }));
+        Report(errors.Any(error => error is not null) ? string.Join("；", errors.Where(error => error is not null)) : $"所选账号已提交{action}任务。");
+        RefreshRows();
+    }
+
+    private async Task StartManualGroceryShopAsync(AccountConfig account)
+    {
         var built = await new Application.AccountStartConfigBuilder(
             _workspace.Profiles, _workspace.NameListsFor(account), _workspace.Logger)
             .BuildAsync(account, _operations.Token);
         if (!built.Success || built.Value?.ScriptSettings is not { } settings)
             throw new InvalidOperationException(built.Error ?? "无法读取账号摆摊配置。");
-        settings.Maintenance.CleanupWorkflow.Mode = CleanupMode.GroceryShop;
-        var remaining = settings.Maintenance.CleanupWorkflow.GroceryPostSaleAction == GroceryPostSaleAction.NpcSell
-            ? "剩余物品前往 NPC 出售" : "剩余物品按配置丢弃";
-        var message = $"账号：{account.AccountName}\n手动杂货摆摊：{settings.Maintenance.CleanupWorkflow.Describe()}\n{remaining}\n\n完成后重启挂机，停止按钮可取消流程。";
-        var accepted = confirm?.Invoke(message) ?? MessageBox.Show(this, message, "确认杂货摆摊",
-            MessageBoxButtons.OKCancel, MessageBoxIcon.Question) == DialogResult.OK;
-        if (!accepted) return;
-        Check(await _workspace.Processes.StartAsync(id, cancellationToken: _operations.Token,
+        Check(await _workspace.Processes.StartAsync(account.InstanceId, cancellationToken: _operations.Token,
             groceryShopSettings: settings));
     }
 
@@ -408,8 +434,7 @@ public sealed partial class MultiAccountForm : Form
     private async Task ReloginSelectedAsync(Func<string, bool>? confirm = null)
     {
         await ReloadAccountsAsync();
-        _grid.EndEdit();
-        var ids = _grid.Rows.Cast<DataGridViewRow>().Where(row => row.Cells[0].Value is true).Select(row => (string)row.Tag!).ToArray();
+        var ids = SelectedAccountIds();
         if (ids.Length == 0) { Report("请先勾选账号。"); return; }
         var names = string.Join("、", _accounts.Where(a => ids.Contains(a.InstanceId)).Select(a => a.AccountName));
         var message = $"账号：{names}\n\n等待当前战斗结束后退出游戏，再重新登录并启动挂机。\n停止按钮可取消后续流程。";
@@ -427,8 +452,7 @@ public sealed partial class MultiAccountForm : Form
 
     private async Task BatchAsync(bool start)
     {
-        _grid.EndEdit();
-        var ids = _grid.Rows.Cast<DataGridViewRow>().Where(r => r.Cells[0].Value is true).Select(r => (string)r.Tag!).ToArray();
+        var ids = SelectedAccountIds();
         if (ids.Length == 0) { Report("请先勾选账号。"); return; }
         var errors = await Task.WhenAll(ids.Select(async id =>
         {

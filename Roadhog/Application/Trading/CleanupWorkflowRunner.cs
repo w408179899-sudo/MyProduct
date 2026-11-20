@@ -50,11 +50,40 @@ public sealed partial class CleanupWorkflowRunner(IKeyboardInput input, ISharedP
             context.RuntimeStates.MarkHeartbeat(context.Config.AccountName);
             context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, text);
         }
+        if (request.ItemTransfer)
+        {
+            var inventoryForTransfer = (await context.Snapshots.ReadInventoryAsync().WaitAsync(token)).Value;
+            var transferPlan = PlanItemTransfer(inventoryForTransfer, settings);
+            Require(transferPlan.Count > 0, "背包没有可倒货的名单物品。");
+            var destination = await Load(settings.Paths.StallPathName);
+            Report($"倒货：共 {transferPlan.Count} 项，每件 1 金币，准备前往 {destination.Name}");
+            try
+            {
+                await actions.Reset();
+                await new GroceryReturnSequence(input, groceryDelay, groceryClock).RunAsync(context, destination,
+                    settings.Paths.StallReturnItemName, Report, "倒货回程", "item_transfer.return.retry", viaResetPoint: false,
+                    resume: request.ItemTransferReturn ??= new());
+                request.ItemTransferReturn = null;
+                await Follow(settings.Paths.StallPathName);
+                await new ConfiguredPersonalShopSequence(input, groceryDelay).RunAsync(context.Snapshots, transferPlan, Report, token, viaResetPoint: false);
+                token.ThrowIfCancellationRequested();
+                request.SoldOutConfirmed = true;
+                Report("倒货已售罄，准备停止并重新启动脚本");
+            }
+            finally { await actions.Reset(); }
+            return;
+        }
         // Both grocery modes exhaust local discard before backpack-triggered departure.
         // Scheduled/manual requests enter their selected town workflow directly.
         if (request.GroceryShop)
         {
-            await RunGroceryShopAsync(context, request, Report, returnToCombat);
+            try { await RunGroceryShopAsync(context, request, Report, returnToCombat); }
+            finally
+            {
+                if (request.GroceryTrigger == GroceryShopTrigger.Scheduled && request.RequestsRestart &&
+                    groceryScheduleStates.TryGetValue(source, out var schedule) && schedule.PendingDue is { } due)
+                    schedule.CompletedDue = due;
+            }
             return;
         }
         if (request.StandaloneShop)
@@ -236,5 +265,17 @@ public sealed partial class CleanupWorkflowRunner(IKeyboardInput input, ISharedP
         }
         finally { await actions.Reset(); }
     }
+    internal static IReadOnlyList<PlannedShopItem> PlanItemTransfer(IReadOnlyList<InventoryItemSnapshot> inventory, ScriptSettings settings)
+    {
+        var keywords = settings.Maintenance.ItemTransferItemNameKeywords;
+        var scrollNames = new[] { settings.Paths.StallReturnItemName, settings.Paths.BagCleanupReturnItemName,
+            settings.Paths.AuctionReturnItemName };
+        return inventory.Where(item => !item.IsEquipped && item.Slot >= 0 && item.Count > 0 &&
+                !scrollNames.Any(name => string.Equals(item.Name, name?.Trim(), StringComparison.OrdinalIgnoreCase)) &&
+                keywords.Any(keyword => CleanupTradePolicy.Matches(item.Name, keyword)) &&
+                CleanupTradePolicy.Rule(item, settings.Maintenance, auction: true) is null)
+            .Select(item => new PlannedShopItem(item, CleanupTradePolicy.ItemTransferUnitPrice)).ToArray();
+    }
+
     private static double Distance(Vector3Snapshot a, Vector3Snapshot b) => Math.Sqrt(Math.Pow(a.X - b.X, 2) + Math.Pow(a.Y - b.Y, 2) + Math.Pow(a.Z - b.Z, 2));
 }

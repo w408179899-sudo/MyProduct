@@ -24,6 +24,13 @@ public partial class AccountSettingsForm
     private ListBox? groceryScheduleTimes;
     private DateTimePicker? groceryScheduleTime;
 
+    private void OpenCleanupPathSettings(string pathTabName)
+    {
+        settingsTabs.SelectedTab = settingsTabs.TabPages.Cast<TabPage>().Single(page => page.Text == "路径");
+        var pathTabs = (TabControl)Controls.Find("pathTabs", true).Single();
+        pathTabs.SelectedTab = pathTabs.TabPages.Cast<TabPage>().Single(page => page.Text == pathTabName);
+    }
+
     private void BuildGroceryPathOptions(Panel page) =>
         groceryReturnItemCombo = BuildReturnScrollPathOptions(page, SharedPathKind.GroceryStall,
             "groceryReturnItemCombo", "groceryRefreshScrollButton");
@@ -144,12 +151,7 @@ public partial class AccountSettingsForm
             LinkColor = _textGreen, ActiveLinkColor = _textGreen, TextAlign = ContentAlignment.MiddleCenter
         };
         groceryOptionsPanel.Controls.Add(routeLink);
-        routeLink.LinkClicked += (_, _) =>
-        {
-            settingsTabs.SelectedTab = settingsTabs.TabPages.Cast<TabPage>().Single(p => p.Text == "路径");
-            var pathTabs = (TabControl)Controls.Find("pathTabs", true).Single();
-            pathTabs.SelectedTab = pathTabs.TabPages.Cast<TabPage>().Single(p => p.Text == "杂货摆摊路径");
-        };
+        routeLink.LinkClicked += (_, _) => OpenCleanupPathSettings("杂货摆摊路径");
         var flowHint = AddLabel(groceryOptionsPanel, "回程 → 路线摆摊 → 丢弃剩余物品 → 重启", 8, 76, 556, 22);
         AddLabel(groceryOptionsPanel, "处理顺序", 8, 112, 90, 24);
         groceryPostSaleActionCombo = AddCombo(groceryOptionsPanel, 102, 108, 218, 28);

@@ -21,6 +21,7 @@ public sealed class SharedCleanupConfiguration
         Common.Whitelist = Union(Common.Whitelist, lists.Whitelist);
         Common.Blacklist = Union(Common.Blacklist, lists.Blacklist);
         Common.Sell = Union(Common.Sell, lists.Sell);
+        Common.ItemTransfer = Union(Common.ItemTransfer, lists.ItemTransfer);
         Common.Stall = MergePrices(Common.Stall.Concat(lists.Stall));
         MonsterFilters = Union(MonsterFilters, monsters);
         Auctions[region] = MergePrices((Auctions.GetValueOrDefault(region) ?? new()).Concat(lists.AuctionHouse));

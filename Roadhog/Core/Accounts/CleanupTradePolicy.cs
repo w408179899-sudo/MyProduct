@@ -4,6 +4,8 @@ namespace Roadhog.Core.Accounts;
 
 public static class CleanupTradePolicy
 {
+    public const int ItemTransferUnitPrice = 1;
+
     public static bool Matches(string name, string keyword) => !string.IsNullOrWhiteSpace(keyword) &&
         name.Contains(keyword.Trim(), StringComparison.OrdinalIgnoreCase);
     public static BagCleanupTradeItemConfig? Rule(InventoryItemSnapshot item, MaintenanceScriptSettings settings, bool auction)

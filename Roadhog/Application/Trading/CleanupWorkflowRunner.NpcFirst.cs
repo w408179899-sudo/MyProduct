@@ -42,7 +42,7 @@ public sealed partial class CleanupWorkflowRunner
                 "NPC 收尾界面尚未关闭，不能继续移动或登记摆摊。");
             if (outcome == GroceryNpcSaleOutcome.AllItemsSold)
             {
-                report("NPC 两组物品已售空，跳过摆摊，准备停止并重新启动脚本");
+                report("NPC 两组物品已售空，跳过摆摊，等待后续操作");
                 context.Logger.Info("grocery_shop.npc_only.complete", new Dictionary<string, object?> { ["account"] = context.Config.AccountName });
                 return;
             }
@@ -80,7 +80,7 @@ public sealed partial class CleanupWorkflowRunner
                 () => grocerySuccessStore!.RecordAsync(context.Config.InstanceId, soldOutAt, token));
             token.ThrowIfCancellationRequested();
             request.GroceryProcessingCompleted = true;
-            report("杂货摆摊全部售罄，准备停止并重新启动脚本");
+            report("杂货摆摊全部售罄，等待后续操作");
             context.Logger.Info("grocery_shop.sold_out", new Dictionary<string, object?>
                 { ["account"] = context.Config.AccountName, ["soldOutAt"] = soldOutAt, ["npcOutcome"] = outcome.ToString() });
         }

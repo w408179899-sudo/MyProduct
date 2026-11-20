@@ -69,20 +69,29 @@ public sealed class AccountOrchestrator
         finally { lock (_syncRoot) _manualInputActive = false; }
     }
 
-    public OperationResult RequestCleanup(AccountConfig config, bool standaloneShop = false)
+    public OperationResult RequestCleanup(AccountConfig config, bool standaloneShop = false, bool itemTransfer = false)
     {
         lock (_syncRoot)
         {
             if (_manualInputActive) return OperationResult.Fail("手动测试正在执行。");
             var worker = GetOrCreateWorker(config.AccountName);
-            return worker.IsRunning ? worker.RequestCleanup(config.ScriptSettings ?? new(), standaloneShop) : StartCore(config, cleanupFirst: true, standaloneShop: standaloneShop);
+            return worker.IsRunning ? worker.RequestCleanup(config.ScriptSettings ?? new(), standaloneShop, itemTransfer)
+                : StartCore(config, cleanupFirst: true, standaloneShop: standaloneShop, itemTransfer: itemTransfer);
         }
     }
 
-    public Guid? GetStandaloneShopRestartRequestId(string accountName)
+    public Guid? GetStandaloneShopRestartRequestId(string accountName) => GetShopRestart(accountName)?.Id;
+
+    internal ShopRestartRequest? GetShopRestart(string accountName)
     {
         lock (_syncRoot)
-            return _workers.TryGetValue(accountName, out var worker) ? worker.StandaloneShopRestartRequestId : null;
+            return _workers.TryGetValue(accountName, out var worker) ? worker.ShopRestart : null;
+    }
+
+    internal void ResumeAfterRejectedGroceryRelogin(string accountName, Guid requestId, string error)
+    {
+        lock (_syncRoot)
+            if (_workers.TryGetValue(accountName, out var worker)) worker.ResumeAfterRejectedGroceryRelogin(requestId, error);
     }
 
     public Guid? GetScriptRestartRequestId(string accountName) => GetScriptRestartRequest(accountName)?.Id;
@@ -111,7 +120,8 @@ public sealed class AccountOrchestrator
         {
             if (_manualInputActive) return OperationResult.Fail("手动测试正在执行。");
             var worker = GetOrCreateWorker(config.AccountName);
-            return worker.IsRunning ? worker.RequestGameSession(operation) : StartCore(config, gameSessionOperation: operation);
+            return worker.IsRunning ? worker.RequestGameSession(operation, allowScheduledGroceryHandoff: !config.DailySchedule.ReloginEnabled)
+                : StartCore(config, gameSessionOperation: operation);
         }
     }
 
@@ -122,7 +132,7 @@ public sealed class AccountOrchestrator
     }
 
     private OperationResult StartCore(AccountConfig config, bool cleanupFirst = false, bool standaloneShop = false,
-        GameSessions.GameSessionOperation? gameSessionOperation = null)
+        GameSessions.GameSessionOperation? gameSessionOperation = null, bool itemTransfer = false)
     {
         if (_licenseRuntimeGate is not null && !_licenseRuntimeGate.IsAuthorized)
         {
@@ -158,7 +168,7 @@ public sealed class AccountOrchestrator
 
         TryResolveRuntimeProcess(startConfig);
 
-        var startResult = worker.Start(startConfig, cleanupFirst, standaloneShop, gameSessionOperation);
+        var startResult = worker.Start(startConfig, cleanupFirst, standaloneShop, gameSessionOperation, itemTransfer);
         if (!startResult.Success)
         {
             ReleaseHardware(startConfig.AccountName);

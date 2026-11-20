@@ -67,6 +67,7 @@ public sealed record WorkerStatus
     // An attempted login did not complete. Distinct from hardware/configuration/authorization rejection.
     public bool LoginRetryPending { get; init; }
     public Guid? StandaloneShopRestartRequestId { get; init; }
+    public bool ScheduledGrocerySellout { get; init; }
     public Guid? ScriptRestartRequestId { get; init; }
     public bool WorldSnapshotRestartRequested { get; init; }
     public Guid? GameSessionCompletedRequestId { get; init; }
@@ -87,6 +88,7 @@ public static class WorkerCommands
     public const string Stop = "$stop";
     public const string Cleanup = "$cleanup";
     public const string StandaloneShop = "$standaloneShop";
+    public const string ItemTransfer = "$itemTransfer";
     public const string Shutdown = "$shutdown";
     public const string VerifyHardware = "$verifyHardware";
 }

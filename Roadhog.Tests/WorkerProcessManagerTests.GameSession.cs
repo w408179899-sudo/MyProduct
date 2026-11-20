@@ -6,6 +6,46 @@ using Roadhog.Infrastructure.WorkerProcesses;
 
 internal static partial class WorkerProcessManagerTests
 {
+    public static async Task ScheduledGrocerySelloutUsesSavedReloginSettingAsync()
+    {
+        foreach (var reloginEnabled in new[] { false, true })
+        {
+            await using var test = new TestEnvironment();
+            var account = test.Account(1);
+            account.AutoRecover = false;
+            account.DailySchedule.ReloginEnabled = !reloginEnabled;
+            var manager = await test.ManagerAsync([account], scheduleTime: new DailyGameScheduleTests.Clock("2026-11-20T12:00:00"));
+            Require((await manager.StartAsync(account.InstanceId)).Success, "start target before scheduled sale");
+            var oldPid = (await test.RunningAsync(manager, account)).WorkerProcessId;
+            var updated = account.Clone();
+            updated.DailySchedule.ReloginEnabled = reloginEnabled;
+            manager.UpdateAccounts([updated]);
+            var commandPath = Path.Combine(manager.PathsFor(account).LogDirectory, "game-session.json");
+            await test.Client(account).CallAsync<OperationResult>("mock.shop.sold-out", [Guid.NewGuid(), true]);
+
+            if (!reloginEnabled)
+            {
+                await UntilAsync(() => test.Logger.Entries.Any(entry => entry.EventName == "game_session.scheduled_grocery_relogin_requested"),
+                    "scheduled sellout requests the normal relogin command");
+                using var command = JsonDocument.Parse(await File.ReadAllTextAsync(commandPath));
+                Require(command.RootElement.GetProperty("Operation").GetInt32() == (int)GameSessionOperation.Relogin, "sellout must request relogin, not exit only");
+                await UntilAsync(() => View(manager, account).Worker?.PendingGameSessionOperation == GameSessionOperation.Relogin,
+                    "worker reports relogin pending before the game exits");
+                Require(View(manager, account).WorkerProcessId == oldPid, "worker cannot be replaced before confirmed game exit");
+                await test.Client(account).CallAsync<OperationResult>("mock.game-session.completed", [Guid.NewGuid(), GameSessionOperation.Relogin]);
+            }
+
+            var completedEvent = reloginEnabled ? "standalone_shop.restart.complete" : "game_session.relogin_complete";
+            await UntilAsync(() => test.Logger.Entries.Any(entry => entry.EventName == completedEvent) &&
+                View(manager, account) is { State: "running", WorkerProcessId: { } pid } && pid != oldPid,
+                "sellout resumes normal work using the saved account setting");
+            await test.RunningAsync(manager, account);
+            Require(File.Exists(commandPath) != reloginEnabled &&
+                test.Logger.Entries.Count(entry => entry.EventName == "game_session.scheduled_grocery_relogin_requested") == (reloginEnabled ? 0 : 1) &&
+                (await test.InfoAsync(account)).Starts == 1, "handoff is single and never replays the shop");
+        }
+    }
+
     public static async Task GameSessionExitOnlyDoesNotLoginAsync()
     {
         foreach (var alreadyRunning in new[] { false, true })

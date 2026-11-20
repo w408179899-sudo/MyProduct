@@ -258,6 +258,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("game-session mailbox isolates requests and completion", GameExitControllerTests.MailboxIsolationAndCompletionAsync),
     ("game-session exit-only does not login", RunSerially(WorkerProcessManagerTests.GameSessionExitOnlyDoesNotLoginAsync)),
     ("game-session relogin restarts normal work and isolates neighbors", RunSerially(WorkerProcessManagerTests.GameSessionReloginRestartsNormallyAsync)),
+    ("game-session scheduled grocery sellout uses saved relogin setting", RunSerially(WorkerProcessManagerTests.ScheduledGrocerySelloutUsesSavedReloginSettingAsync)),
     ("game-session stop wins completed exit handoff", RunSerially(WorkerProcessManagerTests.GameSessionStopWinsHandoffAsync)),
     ("game-session failed cleanup retries before login", RunSerially(WorkerProcessManagerTests.GameSessionStopFailureRetriesBeforeLoginAsync)),
     ("game-session provider geometry and cancel", GameExitProviderTests.GeometryAndCancelAsync),
@@ -584,15 +585,16 @@ var tests = new (string Name, Func<Task> Run)[]
     ("multi-account ui player level and class over worker IPC", RunSerially(MultiAccountUiTests.ConsolePlayerInfoAsync)),
     ("multi-account ui console rows selection and independent actions", RunSerially(MultiAccountUiTests.ConsoleRowsAndSelectionAsync)),
     ("multi-account ui console manual grocery confirmation and dispatch", RunSerially(MultiAccountUiTests.ConsoleManualGroceryShopAsync)),
+    ("multi-account ui console item transfer confirmation and dispatch", RunSerially(MultiAccountUiTests.ConsoleItemTransferAsync)),
     ("multi-account ui select all header state filtering and refresh", RunSerially(MultiAccountUiTests.ConsoleSelectAllHeaderAsync)),
     ("multi-account ui delete selected confirmation active guards and persistence", RunSerially(MultiAccountUiTests.DeleteSelectedAccountsAsync)),
     ("multi-account ui stop remains available while startup is pending", RunSerially(MultiAccountUiTests.ConsoleStopDuringStartAsync)),
     ("multi-account ui hardware requires current verified identity", RunSerially(MultiAccountUiTests.HardwareVerificationAsync)),
     ("multi-account ui hardware verification cancellation closes pending worker", RunSerially(MultiAccountUiTests.HardwareVerificationCancellationAsync)),
     ("multi-account ui stopped settings save without authorization", RunSerially(MultiAccountUiTests.SettingsSaveWithoutAuthorizationAsync)),
+    ("multi-account ui startup does not migrate legacy accounts", RunSerially(MultiAccountUiTests.ConsoleDoesNotMigrateLegacyAccountsAsync)),
     ("skill binding fixed bars order duplicate missing and chain rules", SkillBindingTests.MappingAsync),
     ("quickbar default keys legacy configuration and three-row mapping", QuickbarKeyModeTests.MappingAsync),
-    ("multi-account ui startup does not migrate legacy accounts", RunSerially(MultiAccountUiTests.ConsoleDoesNotMigrateLegacyAccountsAsync)),
     ("quickbar default keys decoder faults and isolated publications", QuickbarKeyModeTests.DecoderAsync),
     ("quickbar key mode availability third row and torn captures", SkillOpportunityTests.ThirdRowAsync),
     ("quickbar default keys worker startup", QuickbarKeyModeTests.StartupAsync),
@@ -1201,7 +1203,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("shared cleanup running worker reloads monster filters", SharedCleanupConfigurationTests.WorkerRefreshAsync),
     ("shared cleanup priority discard sale auction stall", SharedCleanupConfigurationTests.PriorityAsync),
     ("shared cleanup failed migration preserves original configuration", SharedCleanupConfigurationTests.FailedMigrationAsync),
-    ("shared cleanup overview region and sale editor persist and rollback", RunSerially(TestSharedCleanupEditorAsync)),
+    ("shared cleanup overview region and item transfer editor persist and rollback", RunSerially(TestSharedCleanupEditorAsync)),
     ("bag cleanup matcher separates discard and resolves sell conflicts", TestBagCleanupMatcherSeparatesDiscardAndResolvesConflictsAsync),
     ("bag cleanup matcher applies whitelist then blacklist precedence", TestBagCleanupMatcherAppliesWhitelistThenBlacklistPrecedenceAsync),
     ("bag cleanup blacklist starts discard during full cleanup cooldown", TestBagCleanupBlacklistStartsDiscardDuringFullCleanupCooldownAsync),
@@ -1705,6 +1707,7 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("grocery shop NPC first rejection in each phase transfers once to existing stall", GroceryShopTests.NpcFirstSaleRejectedAsync)
     ,("grocery shop NPC first backpack discards locally before capacity and departure", GroceryShopTests.NpcFirstBackpackAndUnsellableAsync)
     ,("grocery shop NPC first scheduled preserves goods and unsellable leftovers are not soldout", GroceryShopTests.NpcFirstScheduledUnsellableAsync)
+    ,("grocery shop scheduled NPC sellout relogin rejection does not replay", GroceryShopTests.ScheduledNpcSelloutHandoffResumesWithoutRepeatingSlotAsync)
     ,("grocery shop endpoint formal movement tightens only final point and releases on stop", GroceryShopTests.StallEndpointMovementAsync)
     ,("grocery shop endpoint arrival guards both modes before opening stall", GroceryShopTests.StallEndpointGuardsAsync)
     ,("grocery shop NPC first no stall candidates and failures cannot falsely restart", GroceryShopTests.NpcFirstEmptyStallAndFailureAsync)
@@ -1774,6 +1777,8 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("auction inventory foreground reopening guards and cancellation", CleanupWorkflowTests.AuctionInventoryForegroundAsync)
     ,("cleanup workflow hub routes return order and preflight", CleanupWorkflowTests.PathsAndPreflightAsync)
     ,("cleanup workflow warehouse scroll interruption guards and automatic protection", GroceryShopTests.WarehouseReturnGuardsAsync)
+    ,("cleanup workflow item transfer uses warehouse route and confirms fixed price sale", GroceryShopTests.ItemTransferAsync)
+    ,("cleanup workflow item transfer resumes interrupted return after combat", GroceryShopTests.ItemTransferResumesAfterAttackAsync)
     ,("cleanup workflow worker insertion stop and session isolation", CleanupWorkflowTests.WorkerSessionAsync)
     ,("cleanup workflow settings UI persistence and path editors", RunSerially(CleanupWorkflowTests.SettingsUiAsync))
     ,("cleanup workflow actual combat drain worker resume and stop", CleanupWorkflowTests.ActualWorkerAndCombatAsync)
@@ -12370,9 +12375,10 @@ static Task TestSharedCleanupEditorAsync()
             var store = new SharedAccountConfigurationStore(SharedAccountConfigurationStore.PathFor(accountsPath), "一区");
             var six = new SharedAccountConfigurationStore(store.FilePath, "六区");
             store.SaveAsync(new() { AuctionHouse = new() { new() { Name = "region-one", UnitPrice = 100 } } }).GetAwaiter().GetResult();
-            six.SaveAsync(new() { AuctionHouse = new() { new() { Name = "region-six", UnitPrice = 600 } } }).GetAwaiter().GetResult();
+            six.SaveAsync(new() { Sell = new() { "legacy-npc" }, AuctionHouse = new() { new() { Name = "region-six", UnitPrice = 600 } } }).GetAwaiter().GetResult();
             var config = new InMemoryAccountConfigStore(new AccountConfig { AccountName = "account1", Region = "一区", ScriptSettings = CreateScriptSettings() });
-            using var form = CreateAccountSettingsFormForTestsWithStore(config, bagCleanupNameListStore: store);
+            var gameApi = new FakeGameApi { InventoryItems = [new(10, 42, "transfer-item", 3, 0, false)] };
+            using var form = CreateAccountSettingsFormForTestsWithStore(config, bagCleanupNameListStore: store, gameApi: gameApi);
             var region = (System.Windows.Forms.Control)GetPrivateFieldForTest(form, "regionCombo");
             var parent = region.Parent;
             while (parent is not null && parent is not System.Windows.Forms.TabPage) parent = parent.Parent;
@@ -12391,7 +12397,7 @@ static Task TestSharedCleanupEditorAsync()
                     "region header control must be unobscured and receive mouse input: " + headerControl.Text
                     + "; hit=" + region.Parent.GetChildAtPoint(center)?.Text);
             }
-            var sale = (System.Windows.Forms.RadioButton)GetPrivateFieldForTest(form, "bagCleanupSellRadio");
+            var transfer = (System.Windows.Forms.RadioButton)GetPrivateFieldForTest(form, "bagCleanupItemTransferRadio");
             var input = (System.Windows.Forms.Control)GetPrivateFieldForTest(form, "bagCleanupManualNameTextBox");
             void Complete(Task task)
             {
@@ -12400,13 +12406,29 @@ static Task TestSharedCleanupEditorAsync()
                 if (!task.IsCompleted) throw new TimeoutException("shared editor save timed out");
                 task.GetAwaiter().GetResult();
             }
-            sale.Checked = true; input.Text = "vendor-item";
+            transfer.Checked = true;
+            var tabsForRoute = (System.Windows.Forms.TabControl)GetPrivateFieldForTest(form, "settingsTabs");
+            tabsForRoute.SelectedTab = tabsForRoute.TabPages.Cast<System.Windows.Forms.TabPage>().Single(tab => tab.Text == "清包");
+            var refresh = input.Parent!.Controls.OfType<System.Windows.Forms.Button>().Single(button => button.Text == "刷新背包");
+            Complete((Task)InvokePrivateMethodForTest(form, "RefreshBagCleanupInventoryAsync", refresh)!);
+            var inventory = (System.Windows.Forms.CheckedListBox)GetPrivateFieldForTest(form, "bagCleanupInventoryCheckedListBox");
+            AssertEqual(1, inventory.Items.Count, "transfer editor can refresh the backpack");
+            inventory.SetItemChecked(0, true);
             Complete((Task)InvokePrivateMethodForTest(form, "AddSelectedBagCleanupNameAsync")!);
-            AssertSequence(new[] { "vendor-item" }, six.LoadAsync().GetAwaiter().GetResult().Value!.Document!.Sell.ToArray(), "sale edit shared across regions");
+            var saved = six.LoadAsync().GetAwaiter().GetResult().Value!.Document!;
+            AssertSequence(new[] { "transfer-item" }, saved.ItemTransfer.ToArray(), "transfer list edit shared across regions");
+            AssertSequence(new[] { "legacy-npc" }, saved.Sell.ToArray(), "legacy NPC rules remain unchanged");
+            var grid = (System.Windows.Forms.DataGridView)GetPrivateFieldForTest(form, "bagCleanupTradeItemGrid");
+            var priceCell = grid.Rows[0].Cells["UnitPrice"];
+            AssertEqual("1", Convert.ToString(priceCell.Value), "new items display the fixed unit price");
+            AssertFalse(!priceCell.ReadOnly, "transfer price cannot be edited");
+            ((System.Windows.Forms.Button)GetPrivateFieldForTest(form, "bagCleanupItemTransferRouteButton")).PerformClick();
+            var routeTabs = (System.Windows.Forms.TabControl)form.Controls.Find("pathTabs", true).Single();
+            AssertEqual("转移到仓库号路径", routeTabs.SelectedTab?.Text, "transfer shortcut opens the shared warehouse route editor");
             region.Text = "六区";
             var lists = (BagCleanupNameListsDocument)InvokePrivateMethodForTest(form, "CaptureBagCleanupNameLists")!;
             AssertEqual("region-six", lists.AuctionHouse.Single().Name, "switch region loads its auction list");
-            AssertSequence(new[] { "vendor-item" }, lists.Sell.ToArray(), "region switch keeps public sale list");
+            AssertSequence(new[] { "transfer-item" }, lists.ItemTransfer.ToArray(), "region switch keeps common transfer list");
             InvokePrivateMethodForTest(form, "AddActiveMonsterFilterName", "shared-filter");
             AssertSequence(new[] { "shared-filter" }, six.LoadMonsterFiltersAsync().GetAwaiter().GetResult().Value!.ToArray(), "monster edits auto-save shared list");
             AssertFalse(!InvokeSaveCurrentSettingsForTest(form, out var error), "region save succeeds: " + error);
@@ -12434,7 +12456,7 @@ static Task TestSharedCleanupEditorAsync()
             input.Text = "must-rollback";
             Complete((Task)InvokePrivateMethodForTest(form, "AddSelectedBagCleanupNameAsync")!);
             lists = (BagCleanupNameListsDocument)InvokePrivateMethodForTest(form, "CaptureBagCleanupNameLists")!;
-            AssertSequence(new[] { "vendor-item" }, lists.Sell.ToArray(), "sale editor rolls back on failed shared save");
+            AssertSequence(new[] { "transfer-item" }, lists.ItemTransfer.ToArray(), "transfer editor rolls back on failed shared save");
             InvokePrivateMethodForTest(form, "ClearActiveMonsterFilterList");
             AssertSequence(new[] { "shared-filter" }, ((List<string>)InvokePrivateMethodForTest(form, "CaptureActiveMonsterFilterList")!).ToArray(), "monster clear rolls back on failed save");
         }
@@ -12453,7 +12475,7 @@ static Task TestBagCleanupBatchRemoveNameListsAsync()
     {
         try
         {
-            var radioNames = new[] { "bagCleanupWhitelistRadio", "bagCleanupBlacklistRadio", "bagCleanupSellRadio", "bagCleanupAuctionHouseRadio", "bagCleanupStallRadio" };
+            var radioNames = new[] { "bagCleanupWhitelistRadio", "bagCleanupBlacklistRadio", "bagCleanupItemTransferRadio", "bagCleanupAuctionHouseRadio", "bagCleanupStallRadio" };
             foreach (var radioName in radioNames)
             {
                 var original = new BagCleanupNameListsDocument
@@ -12461,6 +12483,7 @@ static Task TestBagCleanupBatchRemoveNameListsAsync()
                     Whitelist = new() { "keep-a", "keep-b", "keep-c", "keep-d" },
                     Blacklist = new() { "discard-a", "discard-b", "discard-c", "discard-d" },
                     Sell = new() { "sell-a", "sell-b", "sell-c", "sell-d" },
+                    ItemTransfer = new() { "transfer-a", "transfer-b", "transfer-c", "transfer-d" },
                     AuctionHouse = new() { new() { Name = "auction-a", UnitPrice = 11 }, new() { Name = "auction-b", UnitPrice = 12 }, new() { Name = "auction-c", UnitPrice = 13 }, new() { Name = "auction-d", UnitPrice = 14 } },
                     Stall = new() { new() { Name = "stall-a", UnitPrice = 21 }, new() { Name = "stall-b", UnitPrice = 22 }, new() { Name = "stall-c", UnitPrice = 23 }, new() { Name = "stall-d", UnitPrice = 24 } }
                 };
@@ -12470,7 +12493,7 @@ static Task TestBagCleanupBatchRemoveNameListsAsync()
                 ((System.Windows.Forms.RadioButton)GetPrivateFieldForTest(form, radioName)).Checked = true;
                 var grid = (System.Windows.Forms.DataGridView)GetPrivateFieldForTest(form, "bagCleanupTradeItemGrid");
                 var list = (System.Windows.Forms.ListBox)GetPrivateFieldForTest(form, "bagCleanupExcludedItemListBox");
-                var trade = radioName is "bagCleanupAuctionHouseRadio" or "bagCleanupStallRadio";
+                var trade = radioName is "bagCleanupAuctionHouseRadio" or "bagCleanupStallRadio" or "bagCleanupItemTransferRadio";
                 void SelectEntries()
                 {
                     if (trade)
@@ -12506,7 +12529,7 @@ static Task TestBagCleanupBatchRemoveNameListsAsync()
                 {
                     case "bagCleanupWhitelistRadio": expected.Whitelist.RemoveAt(2); expected.Whitelist.RemoveAt(0); break;
                     case "bagCleanupBlacklistRadio": expected.Blacklist.RemoveAt(2); expected.Blacklist.RemoveAt(0); break;
-                    case "bagCleanupSellRadio": expected.Sell.RemoveAt(2); expected.Sell.RemoveAt(0); break;
+                    case "bagCleanupItemTransferRadio": expected.ItemTransfer.RemoveAt(2); expected.ItemTransfer.RemoveAt(0); break;
                     case "bagCleanupAuctionHouseRadio": expected.AuctionHouse.RemoveAt(2); expected.AuctionHouse.RemoveAt(0); break;
                     case "bagCleanupStallRadio": expected.Stall.RemoveAt(2); expected.Stall.RemoveAt(0); break;
                 }
@@ -32236,11 +32259,12 @@ static AccountSettingsForm CreateAccountSettingsFormForTestsWithStore(
     IFolderLauncher? folderLauncher = null,
     string pathLibraryDirectory = "test-paths",
     IBagCleanupNameListStore? bagCleanupNameListStore = null,
-    IRadarMapStore? radarMapStore = null)
+    IRadarMapStore? radarMapStore = null,
+    FakeGameApi? gameApi = null)
 {
     var logger = new InMemoryRoadhogLogger();
     var accounts = new AccountRuntimeManager(logger);
-    var runtime = new RoadhogRuntime(new FakeGameApi(), logger, accounts, null!);
+    var runtime = new RoadhogRuntime(gameApi ?? new FakeGameApi(), logger, accounts, null!);
     return new AccountSettingsForm(
         "account1",
         runtime,

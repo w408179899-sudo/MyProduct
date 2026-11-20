@@ -323,7 +323,7 @@ public sealed class WorkerProcessHost
             {
                 if (!_initialized || _initializationError is not null || !_backend.GetStatus().Authorized)
                     throw new InvalidOperationException(_initializationError ?? "账号授权尚未通过，请先完成激活。");
-                if (method is WorkerCommands.Start or WorkerCommands.Cleanup or WorkerCommands.StandaloneShop or WorkerCommands.Login or WorkerCommands.Relogin or WorkerCommands.ExitGame)
+                if (method is WorkerCommands.Start or WorkerCommands.Cleanup or WorkerCommands.StandaloneShop or WorkerCommands.ItemTransfer or WorkerCommands.Login or WorkerCommands.Relogin or WorkerCommands.ExitGame)
                 {
                     if (arguments.Length != 1) throw new InvalidDataException("启动请求缺少账号配置。");
                     var requested = arguments[0].Deserialize<AccountConfig>(WorkerRpcProtocol.Json)
@@ -344,6 +344,8 @@ public sealed class WorkerProcessHost
                         ? await _backend.LoginAsync(effective, progress, operation.Token).ConfigureAwait(false)
                         : method == WorkerCommands.StandaloneShop
                         ? await _backend.StartStandaloneShopAsync(effective, operation.Token).ConfigureAwait(false)
+                        : method == WorkerCommands.ItemTransfer
+                        ? await _backend.StartItemTransferAsync(effective, progress, operation.Token).ConfigureAwait(false)
                         : await _backend.StartWithProgressAsync(effective, method == WorkerCommands.Cleanup, progress, operation.Token).ConfigureAwait(false);
                 }
                 if (method == WorkerCommands.VerifyHardware)

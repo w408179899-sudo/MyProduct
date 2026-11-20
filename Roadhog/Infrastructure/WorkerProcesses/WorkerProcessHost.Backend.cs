@@ -21,6 +21,8 @@ public interface IWorkerProcessBackend : IAsyncDisposable
         StartAsync(account, cleanupFirst, token);
     Task<OperationResult> StartStandaloneShopAsync(AccountConfig account, CancellationToken cancellationToken) =>
         Task.FromResult(OperationResult.Fail("账号后台不支持独立摆摊，请更新程序。"));
+    Task<OperationResult> StartItemTransferAsync(AccountConfig account, IProgress<string> progress, CancellationToken token) =>
+        Task.FromResult(OperationResult.Fail("账号后台不支持倒货，请更新程序。"));
     Task<OperationResult> StopAsync(CancellationToken cancellationToken);
     Task<OperationResult> ReleaseInputAsync(CancellationToken cancellationToken) => Task.FromResult(OperationResult.Ok());
     Task<OperationResult<HardwareVerification>> VerifyHardwareAsync(CancellationToken cancellationToken);
@@ -124,6 +126,7 @@ internal sealed partial class RoadhogWorkerProcessBackend : IWorkerProcessBacken
             string.Equals(s.AccountName, _spec.Account.AccountName, StringComparison.OrdinalIgnoreCase));
         var license = _services.LicenseCoordinator.State;
         var restart = _services.AccountOrchestrator.GetScriptRestartRequest(_spec.Account.AccountName);
+        var shopRestart = _services.AccountOrchestrator.GetShopRestart(_spec.Account.AccountName);
         var isRunning = state?.Status is "starting" or "running" or "stopping";
         return new WorkerStatus
         {
@@ -136,7 +139,8 @@ internal sealed partial class RoadhogWorkerProcessBackend : IWorkerProcessBacken
             LoginCompleted = _loginCompleted,
             GameDisconnectRequestId = DisconnectRequestId,
             LoginRetryPending = _loginRetryPending,
-            StandaloneShopRestartRequestId = _services.AccountOrchestrator.GetStandaloneShopRestartRequestId(_spec.Account.AccountName),
+            StandaloneShopRestartRequestId = shopRestart?.Id,
+            ScheduledGrocerySellout = shopRestart?.ScheduledGrocerySellout == true,
             ScriptRestartRequestId = restart?.Id,
             WorldSnapshotRestartRequested = restart?.WorldSnapshotStalled == true,
             GameSessionCompletedRequestId = _services.AccountOrchestrator.GetCompletedGameSession(_spec.Account.AccountName)?.Id,
@@ -164,20 +168,30 @@ internal sealed partial class RoadhogWorkerProcessBackend : IWorkerProcessBacken
     public async Task<OperationResult> RequestGameSessionAsync(AccountConfig account, Application.GameSessions.GameSessionOperation operation, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
+        var groceryHandoff = operation == Application.GameSessions.GameSessionOperation.Relogin && !account.DailySchedule.ReloginEnabled
+            ? _services.AccountOrchestrator.GetShopRestart(account.AccountName) : null;
+        OperationResult RejectRelogin(string error)
+        {
+            if (groceryHandoff is { ScheduledGrocerySellout: true } && !token.IsCancellationRequested)
+                _services.AccountOrchestrator.ResumeAfterRejectedGroceryRelogin(account.AccountName, groceryHandoff.Id, error);
+            return OperationResult.Fail(error);
+        }
+
         var binding = ValidatePhysicalBinding();
         if (!binding.Success) return binding;
         if (operation == Application.GameSessions.GameSessionOperation.Relogin)
         {
             if (string.IsNullOrWhiteSpace(account.GameLoginAccount) || string.IsNullOrWhiteSpace(account.ProtectedGameLoginPassword))
-                return OperationResult.Fail("请先保存游戏账号和密码，再重新登录。");
+                return RejectRelogin("请先保存游戏账号和密码，再重新登录。");
             try
             {
                 var password = Login.LoginPasswordProtector.Unprotect(account.ProtectedGameLoginPassword);
                 if (password.Length == 0 || !account.GameLoginAccount.All(c => c >= 32 && c <= 126) || !password.All(c => c >= 32 && c <= 126))
-                    return OperationResult.Fail("游戏账号或密码无法通过当前输入设备输入。");
+                    return RejectRelogin("游戏账号或密码无法通过当前输入设备输入。");
             }
-            catch (Exception) { return OperationResult.Fail("无法读取已保存的登录密码，请重新保存。"); }
+            catch (Exception) { return RejectRelogin("无法读取已保存的登录密码，请重新保存。"); }
         }
+        token.ThrowIfCancellationRequested();
         account = account.Clone();
         if (_services.AccountConfigStore is WorkerAccountConfigStore store) store.Update(account);
         lock (_disconnectSync)
@@ -223,7 +237,11 @@ internal sealed partial class RoadhogWorkerProcessBackend : IWorkerProcessBacken
     public Task<OperationResult> StartStandaloneShopAsync(AccountConfig account, CancellationToken cancellationToken) =>
         StartBusinessAsync(account, true, true, cancellationToken);
 
-    private async Task<OperationResult> StartBusinessAsync(AccountConfig account, bool cleanupFirst, bool standaloneShop, CancellationToken cancellationToken, IProgress<string>? progress = null)
+    public Task<OperationResult> StartItemTransferAsync(AccountConfig account, IProgress<string> progress, CancellationToken token) =>
+        StartBusinessAsync(account, true, false, token, progress, itemTransfer: true);
+
+    private async Task<OperationResult> StartBusinessAsync(AccountConfig account, bool cleanupFirst, bool standaloneShop, CancellationToken cancellationToken,
+        IProgress<string>? progress = null, bool itemTransfer = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
         account = account.Clone();
@@ -237,7 +255,7 @@ internal sealed partial class RoadhogWorkerProcessBackend : IWorkerProcessBacken
         }
         if (_services.AccountConfigStore is WorkerAccountConfigStore store) store.Update(account);
         OperationResult StartBusiness() => cleanupFirst
-            ? _services.AccountOrchestrator.RequestCleanup(account, standaloneShop)
+            ? _services.AccountOrchestrator.RequestCleanup(account, standaloneShop, itemTransfer)
             : _services.AccountOrchestrator.Start(account);
         // Cleanup on an already running worker keeps its existing verified session.
         if (GetStatus().IsRunning) return StartBusiness();

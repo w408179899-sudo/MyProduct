@@ -60,7 +60,7 @@ public sealed partial class AccountSettingsForm
 
         bagCleanupWhitelistRadio = AddTab("不丢弃", "bagCleanupWhitelistRadio", 0, true);
         bagCleanupBlacklistRadio = AddTab("丢弃", "bagCleanupBlacklistRadio", 1);
-        bagCleanupSellRadio = AddTab("出售", "bagCleanupSellRadio", 2);
+        bagCleanupItemTransferRadio = AddTab("倒货", "bagCleanupItemTransferRadio", 2);
         bagCleanupAuctionHouseRadio = AddTab("拍卖行", "bagCleanupAuctionHouseRadio", 3);
         bagCleanupStallRadio = AddTab("摆摊", "bagCleanupStallRadio", 4);
     }

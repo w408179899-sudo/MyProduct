@@ -161,7 +161,9 @@ namespace Roadhog
         private RadioButton? bagCleanupWhitelistRadio;
         private RadioButton? bagCleanupBlacklistRadio;
         private RadioButton? bagCleanupStallRadio;
-        private RadioButton? bagCleanupSellRadio;
+        private RadioButton? bagCleanupItemTransferRadio;
+        private Button? bagCleanupItemTransferRouteButton;
+        private readonly List<BagCleanupTradeItemConfig> bagCleanupItemTransferItems = new();
         private readonly List<string> bagCleanupSellItemNames = new();
         private RadioButton? bagCleanupAuctionHouseRadio;
         private Button? bagCleanupAddNameButton;
@@ -1028,6 +1030,7 @@ namespace Roadhog
                     BagCleanupExcludedItemNames = CaptureBagCleanupExcludedItemList(),
                     BagCleanupDiscardItemNameKeywords = CaptureBagCleanupDiscardItemList(),
                     BagCleanupSellItemNameKeywords = BagCleanupNameListsDocument.NormalizeKeywords(bagCleanupSellItemNames),
+                    ItemTransferItemNameKeywords = bagCleanupItemTransferItems.Select(item => item.Name).ToList(),
                     BagCleanupStallItems = BagCleanupTradeItemConfig.Normalize(bagCleanupStallItemNames),
                     BagCleanupAuctionHouseItems = BagCleanupTradeItemConfig.Normalize(bagCleanupAuctionHouseItemNames)
                 },
@@ -3684,6 +3687,11 @@ namespace Roadhog
             refreshInventoryButton.Click += async (_, _) =>
                 await RefreshBagCleanupInventoryAsync(refreshInventoryButton).ConfigureAwait(true);
 
+            bagCleanupItemTransferRouteButton = AddButton(namesPanel, "倒货路线", 202, 34, 90, 30);
+            bagCleanupItemTransferRouteButton.Name = "bagCleanupItemTransferRouteButton";
+            bagCleanupItemTransferRouteButton.Visible = false;
+            bagCleanupItemTransferRouteButton.Click += (_, _) => OpenCleanupPathSettings("转移到仓库号路径");
+
             AddLabel(namesPanel, "背包物品 / 关键字", 0, 36, 200, 24, _textGreen, FontStyle.Bold);
             bagCleanupManualNameTextBox = AddTextBox(namesPanel, string.Empty, 0, 68, 280, 28);
             bagCleanupManualNameTextBox.Name = "bagCleanupManualNameTextBox";
@@ -4714,7 +4722,7 @@ namespace Roadhog
 
         private void SetBagCleanupNameListMutationControlsEnabled(bool enabled)
         {
-            if (bagCleanupSellRadio is not null) bagCleanupSellRadio.Enabled = enabled;
+            if (bagCleanupItemTransferRadio is not null) bagCleanupItemTransferRadio.Enabled = enabled;
             if (regionCombo is not null) regionCombo.Enabled = enabled;
             if (bagCleanupTradeItemGrid is not null)
             {
@@ -4802,12 +4810,15 @@ namespace Roadhog
                 bagCleanupBlacklistItemNames.AddRange(BagCleanupNameListsDocument.NormalizeKeywords(document.Blacklist));
                 bagCleanupSellItemNames.Clear();
                 bagCleanupSellItemNames.AddRange(BagCleanupNameListsDocument.NormalizeKeywords(document.Sell));
+                bagCleanupItemTransferItems.Clear();
+                bagCleanupItemTransferItems.AddRange(BagCleanupNameListsDocument.NormalizeKeywords(document.ItemTransfer)
+                    .Select(name => new BagCleanupTradeItemConfig { Name = name, UnitPrice = CleanupTradePolicy.ItemTransferUnitPrice }));
                 bagCleanupStallItemNames.Clear();
                 bagCleanupStallItemNames.AddRange(BagCleanupTradeItemConfig.Normalize(document.Stall));
                 bagCleanupAuctionHouseItemNames.Clear();
                 bagCleanupAuctionHouseItemNames.AddRange(BagCleanupTradeItemConfig.Normalize(document.AuctionHouse));
                 if (bagCleanupWhitelistRadio?.Checked != true && bagCleanupBlacklistRadio?.Checked != true &&
-                    bagCleanupStallRadio?.Checked != true && bagCleanupAuctionHouseRadio?.Checked != true && bagCleanupSellRadio?.Checked != true &&
+                    bagCleanupStallRadio?.Checked != true && bagCleanupAuctionHouseRadio?.Checked != true && bagCleanupItemTransferRadio?.Checked != true &&
                     bagCleanupWhitelistRadio is not null)
                 {
                     bagCleanupWhitelistRadio.Checked = true;
@@ -4834,6 +4845,8 @@ namespace Roadhog
             }
 
             var activeList = ActiveBagCleanupNameList;
+            if (bagCleanupItemTransferRouteButton is not null)
+                bagCleanupItemTransferRouteButton.Visible = bagCleanupItemTransferRadio?.Checked == true;
             var values = GetActiveBagCleanupNameList();
             var tradeItems = GetActiveBagCleanupTradeItems();
             bagCleanupExcludedItemListBox.Visible = tradeItems is null;
@@ -4896,8 +4909,8 @@ namespace Roadhog
         {
             get
             {
-                if (bagCleanupSellRadio?.Checked == true)
-                    return ("出售名单", "加入出售", "出售：丢弃后剩余物品卖给 NPC", "已自动保存出售名单");
+                if (bagCleanupItemTransferRadio?.Checked == true)
+                    return ("倒货名单", "加入倒货", "倒货：每件固定 1 金币", "已自动保存倒货名单（每件 1 金币）");
                 if (bagCleanupBlacklistRadio?.Checked == true)
                 {
                     return ("丢弃", "加入丢弃",
@@ -4924,11 +4937,12 @@ namespace Roadhog
         private List<string> GetActiveBagCleanupNameList()
         {
             return GetActiveBagCleanupTradeItems()?.Select(item => item.Name).ToList()
-                ?? (bagCleanupSellRadio?.Checked == true ? bagCleanupSellItemNames : bagCleanupBlacklistRadio?.Checked == true ? bagCleanupBlacklistItemNames : bagCleanupWhitelistItemNames);
+                ?? (bagCleanupBlacklistRadio?.Checked == true ? bagCleanupBlacklistItemNames : bagCleanupWhitelistItemNames);
         }
 
         private List<BagCleanupTradeItemConfig>? GetActiveBagCleanupTradeItems()
         {
+            if (bagCleanupItemTransferRadio?.Checked == true) return bagCleanupItemTransferItems;
             if (bagCleanupStallRadio?.Checked == true) return bagCleanupStallItemNames;
             if (bagCleanupAuctionHouseRadio?.Checked == true) return bagCleanupAuctionHouseItemNames;
             return null;
@@ -4941,6 +4955,7 @@ namespace Roadhog
                 Whitelist = CaptureBagCleanupExcludedItemList(),
                 Blacklist = CaptureBagCleanupDiscardItemList(),
                 Sell = BagCleanupNameListsDocument.NormalizeKeywords(bagCleanupSellItemNames),
+                ItemTransfer = BagCleanupNameListsDocument.NormalizeKeywords(bagCleanupItemTransferItems.Select(item => item.Name)),
                 Stall = BagCleanupTradeItemConfig.Normalize(bagCleanupStallItemNames),
                 AuctionHouse = BagCleanupTradeItemConfig.Normalize(bagCleanupAuctionHouseItemNames)
             };

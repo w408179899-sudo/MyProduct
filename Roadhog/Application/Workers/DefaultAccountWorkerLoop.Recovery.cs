@@ -13,12 +13,14 @@ public sealed partial class DefaultAccountWorkerLoop
         request.Failure = error.Message;
         context.CleanupRequests.Abandon();
         context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, string.Empty);
-        context.RuntimeStates.MarkWarning(context.Config.AccountName, "本次清包失败，返回挂机主流程：" + error.Message);
+        context.RuntimeStates.MarkWarning(context.Config.AccountName,
+            (request.ItemTransfer ? "本次倒货失败，返回挂机主流程：" : "本次清包失败，返回挂机主流程：") + error.Message);
         context.Logger.Warn("cleanup_workflow.failed_continuing", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName, ["error"] = error.Message,
             ["requestId"] = request.RequestId, ["stage"] = request.PreparationStage.ToString(),
             ["standaloneShop"] = request.StandaloneShop, ["groceryShop"] = request.GroceryShop,
+            ["itemTransfer"] = request.ItemTransfer,
             ["arrowRestock"] = request.ArrowRestock, ["automaticRetryAfterMs"] = 30000
         });
         state.PathCombat.Reset();
@@ -27,7 +29,7 @@ public sealed partial class DefaultAccountWorkerLoop
         state.ClearStartupRecovery();
         // Grocery travel may have left us on another map. Re-enter the normal
         // map/recall recovery instead of navigating straight towards old home coordinates.
-        if (request.GroceryShop && request.GroceryNpcStageStarted) state.RetryStartupRecovery();
+        if (request.ItemTransfer || request.GroceryShop && request.GroceryNpcStageStarted) state.RetryStartupRecovery();
         state.ClearPostCombatReturn();
         state.ReturnNavigationBlocked = false;
         state.ReturningHome = false;

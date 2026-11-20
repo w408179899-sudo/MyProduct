@@ -55,13 +55,15 @@ public sealed class AccountWorkerHost
         }
     }
 
-    public Guid? StandaloneShopRestartRequestId
+    public Guid? StandaloneShopRestartRequestId => ShopRestart?.Id;
+
+    internal ShopRestartRequest? ShopRestart
     {
         get
         {
             lock (_syncRoot)
                 return _task is { IsCompleted: false } && _stopSource?.IsCancellationRequested == false
-                    ? _cleanupRequests.StandaloneShopRestartRequestId : null;
+                    ? _cleanupRequests.ShopRestart : null;
         }
     }
 
@@ -77,7 +79,7 @@ public sealed class AccountWorkerHost
     }
 
     public OperationResult Start(AccountConfig config, bool cleanupFirst = false, bool standaloneShop = false,
-        GameSessions.GameSessionOperation? gameSessionOperation = null)
+        GameSessions.GameSessionOperation? gameSessionOperation = null, bool itemTransfer = false)
     {
         if (!config.Validate(out var error))
         {
@@ -95,9 +97,9 @@ public sealed class AccountWorkerHost
             _cleanupRequests = new();
             _gameSessionRequests = new();
             if (gameSessionOperation.HasValue) _gameSessionRequests.Request(gameSessionOperation.Value);
-            if (cleanupFirst || standaloneShop)
+            if (cleanupFirst || standaloneShop || itemTransfer)
             {
-                var request = _cleanupRequests.Request(workerConfig.ScriptSettings ?? new(), true, standaloneShop: standaloneShop);
+                var request = _cleanupRequests.Request(workerConfig.ScriptSettings ?? new(), true, standaloneShop: standaloneShop, itemTransfer: itemTransfer);
                 if (!request.Success) return request;
             }
             AccountName = workerConfig.AccountName;
@@ -231,7 +233,7 @@ public sealed class AccountWorkerHost
         }
     }
 
-    public OperationResult RequestCleanup(ScriptSettings settings, bool standaloneShop = false)
+    public OperationResult RequestCleanup(ScriptSettings settings, bool standaloneShop = false, bool itemTransfer = false)
     {
         lock (_syncRoot)
         {
@@ -239,19 +241,34 @@ public sealed class AccountWorkerHost
                 return OperationResult.Fail("账号正在停止或未运行。");
             if (_gameSessionRequests.Current is not null || _gameSessionRequests.Completed is not null)
                 return OperationResult.Fail("退出 / 重登任务正在执行，请等待完成。");
-            return _cleanupRequests.Request(settings, true, standaloneShop: standaloneShop);
+            return _cleanupRequests.Request(settings, true, standaloneShop: standaloneShop, itemTransfer: itemTransfer);
         }
     }
 
-    public OperationResult RequestGameSession(GameSessions.GameSessionOperation operation)
+    public OperationResult RequestGameSession(GameSessions.GameSessionOperation operation, bool allowScheduledGroceryHandoff = false)
     {
         lock (_syncRoot)
         {
             if (_task is not { IsCompleted: false } || _stopSource?.IsCancellationRequested != false)
                 return OperationResult.Fail("账号正在停止或未运行。");
-            if (_cleanupRequests.Current is not null || _cleanupRequests.StandaloneShopRestartRequestId.HasValue)
+            var completion = _cleanupRequests.ShopRestart;
+            var handoff = allowScheduledGroceryHandoff && completion is { ScheduledGrocerySellout: true };
+            if (_cleanupRequests.Current is not null || completion is not null && !handoff)
                 return OperationResult.Fail("清包流程正在执行，请等待完成后再重新登录。");
-            return _gameSessionRequests.Request(operation);
+            var result = _gameSessionRequests.Request(operation);
+            if (result.Success && handoff) _cleanupRequests.ReleaseScheduledGrocerySellout(completion!.Id);
+            return result;
+        }
+    }
+
+    internal void ResumeAfterRejectedGroceryRelogin(Guid requestId, string error)
+    {
+        lock (_syncRoot)
+        {
+            if (_task is not { IsCompleted: false } || _stopSource?.IsCancellationRequested != false ||
+                !_cleanupRequests.ReleaseScheduledGrocerySellout(requestId)) return;
+            _runtimeStates.MarkCleanupProgress(AccountName!, string.Empty);
+            _runtimeStates.MarkWarning(AccountName!, "定时摆摊售罄后未能重新登录，继续挂机：" + error);
         }
     }
 }

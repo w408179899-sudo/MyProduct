@@ -67,6 +67,29 @@ internal static partial class GroceryShopTests
         }
     }
 
+    public static async Task ScheduledNpcSelloutHandoffResumesWithoutRepeatingSlotAsync()
+    {
+        using var trip = new Trip(); AddNpcStages(trip);
+        var settings = trip.Config.ScriptSettings!;
+        settings.Maintenance.CleanupWorkflow.GroceryScheduleEnabled = true;
+        settings.Maintenance.CleanupWorkflow.GroceryScheduleTimes = ["12:00"];
+        var context = trip.Context;
+        var runner = trip.Runner();
+        runner.InitializeGrocerySchedule(context, At(11));
+        Check(await runner.GroceryScheduleDueAsync(context, At(12)), "scheduled grocery slot is due before NPC sale");
+        Check(context.CleanupRequests.Request(settings, false, groceryTrigger: GroceryShopTrigger.Scheduled).Success, "schedule enqueues NPC-first cleanup");
+        var request = context.CleanupRequests.Current!;
+        await runner.RunAsync(context, request);
+        Check(request.GroceryProcessingCompleted && !request.SoldOutConfirmed && trip.ShopStarts == 0 && trip.Success.Saves == 0,
+            "confirmed NPC-only completion is not recorded as a stall sale");
+        context.CleanupRequests.CompleteStandaloneShopForRestart(request);
+        Check(context.CleanupRequests.ShopRestart is { ScheduledGrocerySellout: true }, "NPC-only completion also qualifies for scheduled relogin");
+        Check(!context.CleanupRequests.ReleaseScheduledGrocerySellout(Guid.NewGuid()) &&
+            context.CleanupRequests.ReleaseScheduledGrocerySellout(request.RequestId), "a refused relogin releases only the matching completion");
+        Check(!await runner.GroceryScheduleDueAsync(context, At(12, 5)) &&
+            await runner.GroceryScheduleDueAsync(context, At(12).AddDays(1)), "resume without replaying the completed slot or skipping tomorrow");
+    }
+
     public static async Task NpcFirstBackpackAndUnsellableAsync()
     {
         foreach (var scenario in new[] { "recover", "return_disabled", "still_full", "enough_space", "disabled", "unsellable", "late", "no_discard" })

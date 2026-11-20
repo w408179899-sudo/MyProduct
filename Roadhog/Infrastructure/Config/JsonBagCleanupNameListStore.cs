@@ -66,6 +66,7 @@ public sealed class JsonBagCleanupNameListStore : IBagCleanupNameListStore
                     Whitelist = BagCleanupNameListsDocument.NormalizeKeywords(fileDocument!.Whitelist),
                     Blacklist = BagCleanupNameListsDocument.NormalizeKeywords(fileDocument.Blacklist),
                     Sell = BagCleanupNameListsDocument.NormalizeKeywords(fileDocument.Sell),
+                    ItemTransfer = BagCleanupNameListsDocument.NormalizeKeywords(fileDocument.ItemTransfer),
                     Stall = BagCleanupTradeItemConfig.Normalize(fileDocument.Stall),
                     AuctionHouse = BagCleanupTradeItemConfig.Normalize(fileDocument.AuctionHouse)
                 };
@@ -126,6 +127,7 @@ public sealed class JsonBagCleanupNameListStore : IBagCleanupNameListStore
                 Whitelist = normalized.Whitelist,
                 Blacklist = normalized.Blacklist,
                 Sell = normalized.Sell,
+                ItemTransfer = normalized.ItemTransfer,
                 Stall = normalized.Stall,
                 AuctionHouse = normalized.AuctionHouse
             };
@@ -227,6 +229,7 @@ public sealed class JsonBagCleanupNameListStore : IBagCleanupNameListStore
 
         public List<BagCleanupTradeItemConfig>? Stall { get; set; }
         public List<string>? Sell { get; set; }
+        public List<string>? ItemTransfer { get; set; }
 
         public List<BagCleanupTradeItemConfig>? AuctionHouse { get; set; }
     }

@@ -12,6 +12,7 @@ public sealed class BagCleanupNameListsDocument
 
     public List<string> Blacklist { get; set; } = new();
     public List<string> Sell { get; set; } = new();
+    public List<string> ItemTransfer { get; set; } = new();
 
     public List<BagCleanupTradeItemConfig> Stall { get; set; } = new();
 
@@ -25,6 +26,7 @@ public sealed class BagCleanupNameListsDocument
             Whitelist = NormalizeKeywords(Whitelist),
             Blacklist = NormalizeKeywords(Blacklist),
             Sell = NormalizeKeywords(Sell),
+            ItemTransfer = NormalizeKeywords(ItemTransfer),
             Stall = BagCleanupTradeItemConfig.Normalize(Stall),
             AuctionHouse = BagCleanupTradeItemConfig.Normalize(AuctionHouse)
         };
@@ -36,6 +38,7 @@ public sealed class BagCleanupNameListsDocument
         settings.BagCleanupExcludedItemNames = NormalizeKeywords(Whitelist);
         settings.BagCleanupDiscardItemNameKeywords = NormalizeKeywords(Blacklist);
         settings.BagCleanupSellItemNameKeywords = NormalizeKeywords(Sell);
+        settings.ItemTransferItemNameKeywords = NormalizeKeywords(ItemTransfer);
         settings.BagCleanupStallItems = BagCleanupTradeItemConfig.Normalize(Stall);
         settings.BagCleanupAuctionHouseItems = BagCleanupTradeItemConfig.Normalize(AuctionHouse);
     }
@@ -48,6 +51,7 @@ public sealed class BagCleanupNameListsDocument
             Whitelist = NormalizeKeywords(settings.BagCleanupExcludedItemNames),
             Blacklist = NormalizeKeywords(settings.BagCleanupDiscardItemNameKeywords),
             Sell = NormalizeKeywords(settings.BagCleanupSellItemNameKeywords),
+            ItemTransfer = NormalizeKeywords(settings.ItemTransferItemNameKeywords),
             Stall = BagCleanupTradeItemConfig.Normalize(settings.BagCleanupStallItems),
             AuctionHouse = BagCleanupTradeItemConfig.Normalize(settings.BagCleanupAuctionHouseItems)
         };
