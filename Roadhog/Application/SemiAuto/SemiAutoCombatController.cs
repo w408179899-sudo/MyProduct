@@ -116,12 +116,13 @@ public sealed partial class SemiAutoCombatController
         bool requireCooldownCalibrationForMaintenance = false,
         CombatJumpAssistSession? jumpAssist = null,
         Func<Task<bool>>? ensureHpMaintenanceTargetBeforeKeyPress = null,
-        bool suppressSpiritmasterPetSummon = false)
+        bool suppressSpiritmasterPetSummon = false,
+        LockedTargetSnapshot? expectedTarget = null)
     {
         NormalizeCombatSettings(context);
         plan = plan.ToSharedPlan(context.Config.ScriptSettings!.Skills);
         return await TickQuickbarSkillsAsync(context, plan, state, requireCooldownCalibrationForMaintenance,
-            jumpAssist, ensureHpMaintenanceTargetBeforeKeyPress, suppressSpiritmasterPetSummon).ConfigureAwait(false);
+            jumpAssist, ensureHpMaintenanceTargetBeforeKeyPress, suppressSpiritmasterPetSummon, expectedTarget).ConfigureAwait(false);
     }
 
     private static void NormalizeCombatSettings(AccountWorkerContext context)
@@ -1724,20 +1725,21 @@ public sealed partial class SemiAutoCombatController
         return true;
     }
 
-    private async Task<bool> PressSpiritmasterOpeningAttackKeyIfNeededAsync(
+    private async Task<bool> PressSpiritmasterOpeningAttackKeyAsync(
         AccountWorkerContext context,
         SemiAutoCombatState state,
         SemiAutoScriptSettings settings,
         SpiritmasterSkillSettings spiritSettings,
-        LockedTargetSnapshot target)
+        LockedTargetSnapshot target,
+        LockedTargetSnapshot expectedTarget)
     {
-        var key = spiritSettings.OpeningAttackKey?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(key) ||
-            !state.ShouldPressSpiritmasterOpeningAttackKey(target))
+        var locked = await ReadLockedTargetAsync(context).ConfigureAwait(false);
+        if (!ConfirmCombatTarget(context, expectedTarget, locked, "pet_attack_first"))
         {
             return false;
         }
 
+        var key = spiritSettings.OpeningAttackKey.Trim();
         state.MarkSpiritmasterOpeningAttackKeyAttempted(target);
         context.Logger.Info("semi_auto.spiritmaster.opening_attack_key.started", new Dictionary<string, object?>
         {
@@ -1756,6 +1758,12 @@ public sealed partial class SemiAutoCombatController
         }
 
         await Task.Delay(SpiritmasterOpeningAttackKeyInterval, context.StopToken).ConfigureAwait(false);
+        locked = await ReadLockedTargetAsync(context).ConfigureAwait(false);
+        if (!ConfirmCombatTarget(context, expectedTarget, locked, "pet_attack_repeat"))
+        {
+            return false;
+        }
+
         if (await PressSpiritmasterRawKeyAsync(context, settings, key, "opening_attack").ConfigureAwait(false) &&
             spiritSettings.OpeningAttackDelayMs > 0)
         {
@@ -1768,6 +1776,24 @@ public sealed partial class SemiAutoCombatController
             await Task.Delay(spiritSettings.OpeningAttackDelayMs, context.StopToken).ConfigureAwait(false);
         }
         return true;
+    }
+
+    private static bool ConfirmCombatTarget(
+        AccountWorkerContext context, LockedTargetSnapshot expected, LockedTargetSnapshot locked, string phase)
+    {
+        if (QuickbarSkillCombatController.SameTarget(expected, locked)) return true;
+
+        context.Logger.Info("semi_auto.combat_target.lock_mismatch", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["phase"] = phase,
+            ["targetEntityId"] = expected.TargetEntityId,
+            ["targetServerObjectId"] = expected.ServerObjectId,
+            ["lockedEntityId"] = locked.TargetEntityId,
+            ["lockedServerObjectId"] = locked.ServerObjectId,
+            ["lockedAlive"] = locked.IsMonsterAlive
+        });
+        return false;
     }
 
     private async Task<bool> TryPressSpiritmasterPetBuffRuleAsync(

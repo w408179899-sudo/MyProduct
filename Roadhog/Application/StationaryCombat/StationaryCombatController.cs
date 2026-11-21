@@ -3020,7 +3020,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 jumpAssist: state.JumpAssist,
                 ensureHpMaintenanceTargetBeforeKeyPress: () =>
                     EnsureOrdinaryFightTargetAfterOwnPetSelectionAsync(context, state),
-                suppressSpiritmasterPetSummon: ShouldSuppressSpiritmasterPetSummonForDeathRecoveryDefense(state))
+                suppressSpiritmasterPetSummon: ShouldSuppressSpiritmasterPetSummonForDeathRecoveryDefense(state),
+                expectedTarget: target)
             .ConfigureAwait(false);
     }
 
@@ -5612,7 +5613,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 semiAutoState,
                 requireCooldownCalibrationForMaintenance: true,
                 jumpAssist: state.JumpAssist,
-                suppressSpiritmasterPetSummon: ShouldSuppressSpiritmasterPetSummonForDeathRecoveryDefense(state))
+                suppressSpiritmasterPetSummon: ShouldSuppressSpiritmasterPetSummonForDeathRecoveryDefense(state),
+                expectedTarget: effectiveLockedTarget)
             .ConfigureAwait(false);
     }
 
@@ -5924,7 +5926,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 semiAutoState,
                 requireCooldownCalibrationForMaintenance: true,
                 jumpAssist: state.JumpAssist,
-                suppressSpiritmasterPetSummon: ShouldSuppressSpiritmasterPetSummonForDeathRecoveryDefense(state))
+                suppressSpiritmasterPetSummon: ShouldSuppressSpiritmasterPetSummonForDeathRecoveryDefense(state),
+                expectedTarget: target)
             .ConfigureAwait(false);
     }
 

@@ -136,6 +136,65 @@ internal static class StationaryTabFacingTests
         Check(h.Input.Keys.Count(key => key == "Tab") == 1, "matching the candidate must stop tabbing");
     }
 
+    public static async Task PetAttackWaitsForFightTargetAsync(int matchingReads)
+    {
+        using var h = new Harness();
+        h.Api.Player = h.Api.Player with { CharacterClassId = AionClassId.Spiritmaster };
+        h.Settings.SemiAuto.AttackKeyLoopEnabled = false;
+        h.Settings.Skills.SpiritmasterAutoSkillLogicEnabled = true;
+        h.Settings.Skills.Spiritmaster.OpeningAttackKey = "D7";
+        h.State.BeginFight(h.Candidate);
+        h.LockWrongMonster();
+        h.Api.TargetName = h.Candidate.Name;
+        // A matching lock can change either at the skill tick handoff or just before the first key.
+        for (var read = 0; read < matchingReads; read++)
+        {
+            h.Api.LockedTargetReadResults.Enqueue(OperationResult<LockedTargetSnapshot>.Ok(
+                new(h.Candidate.EntityId, h.Candidate.ServerObjectId, 0, LockedTargetSnapshot.MonsterObjectType,
+                    h.Candidate.Name, 100, 100, h.Candidate.Position, 20, DateTimeOffset.Now)));
+        }
+
+        await h.Tick();
+
+        Check(!h.Input.Keys.Contains("D7"), "a different live lock must not receive the pet opening command");
+        Check(h.State.CurrentTargetServerObjectId == h.Candidate.ServerObjectId,
+            "the fight must keep the intended target while the lock is wrong");
+        var phase = matchingReads == 1 ? "skill_tick" : "pet_attack_first";
+        Check(h.Logger.Entries.Any(entry => entry.EventName == "semi_auto.combat_target.lock_mismatch" &&
+            Equals(entry.Fields["phase"], phase) && Equals(entry.Fields["lockedServerObjectId"], h.WrongMonster.ServerObjectId)),
+            "the lock mismatch must be caught at the expected input boundary");
+
+        h.Input.AfterPress = key =>
+        {
+            if (key == "Tab") h.SetLockedMonster(h.Candidate);
+        };
+        await h.Tick();
+
+        Check(h.Input.Keys.SequenceEqual(new[] { "Tab", "D7", "D7" }),
+            "the pet command should run only after Tab restores the intended lock: " + string.Join(", ", h.Input.Keys));
+    }
+
+    public static async Task PetAttackStopsWhenLockChangesBetweenPressesAsync()
+    {
+        using var h = new Harness();
+        h.Api.Player = h.Api.Player with { CharacterClassId = AionClassId.Spiritmaster };
+        h.Settings.SemiAuto.AttackKeyLoopEnabled = false;
+        h.Settings.Skills.SpiritmasterAutoSkillLogicEnabled = true;
+        h.Settings.Skills.Spiritmaster.OpeningAttackKey = "D7";
+        h.Input.AfterPress = key =>
+        {
+            if (key == "Tab") h.SetLockedMonster(h.Candidate);
+            if (key == "D7") h.SetLockedMonster(h.WrongMonster);
+        };
+
+        await h.Tick();
+
+        Check(h.Input.Keys.SequenceEqual(new[] { "Tab", "D7" }),
+            "the second pet command must be cancelled when the lock changes: " + string.Join(", ", h.Input.Keys));
+        Check(h.State.CurrentTargetServerObjectId == h.Candidate.ServerObjectId,
+            "the wrong lock must not replace the intended fight target");
+    }
+
     public static async Task OldLockWaitsForTargetChangeAsync()
     {
         using var h = new Harness();

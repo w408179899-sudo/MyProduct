@@ -20,7 +20,8 @@ public sealed partial class SemiAutoCombatController
         bool requireCooldownCalibrationForMaintenance,
         CombatJumpAssistSession? jumpAssist,
         Func<Task<bool>>? ensureHpMaintenanceTargetBeforeKeyPress,
-        bool suppressSpiritmasterPetSummon)
+        bool suppressSpiritmasterPetSummon,
+        LockedTargetSnapshot? expectedTarget)
     {
         var script = context.Config.ScriptSettings!;
         var settings = script.SemiAuto ?? new SemiAutoScriptSettings();
@@ -54,12 +55,17 @@ public sealed partial class SemiAutoCombatController
             await context.PrepareSkillBindingsAsync().ConfigureAwait(false);
         var plan = state.QuickbarPlan ??= QuickbarSkillPlan.FromSettings(script.QuickbarSkills ?? new(),
             context.SkillBindings!, context.ReportMissingSkillBinding);
-        LockedTargetSnapshot? advancedTarget = null;
+        var target = await ReadLockedTargetAsync(context).ConfigureAwait(false);
+        if (expectedTarget is not null && !ConfirmCombatTarget(context, expectedTarget, target, "skill_tick"))
+        {
+            state.QuickbarSkills.CancelInputAttemptsForHandoff();
+            return tick;
+        }
+
         if (script.AdvancedSkills?.Enabled == true)
         {
-            advancedTarget = await ReadLockedTargetAsync(context).ConfigureAwait(false);
             state.AdvancedSkillPlans ??= new(script.AdvancedSkills, plan, context.SkillBindings!, context.ReportMissingSkillBinding);
-            plan = state.AdvancedSkillPlans.Resolve(advancedTarget);
+            plan = state.AdvancedSkillPlans.Resolve(target);
         }
         if (!plan.HasCombatActions)
         {
@@ -72,7 +78,6 @@ public sealed partial class SemiAutoCombatController
             }
         }
 
-        var target = advancedTarget ?? await ReadLockedTargetAsync(context).ConfigureAwait(false);
         var killed = state.ObserveTarget(target, out var killedId, out var targetChanged);
         if (targetChanged)
         {
@@ -156,10 +161,14 @@ public sealed partial class SemiAutoCombatController
         if (!state.QuickbarSkills.AttackWeave.IsWaiting)
         {
             if (maintenancePlan.UsesSpiritmasterAutoLogic &&
-                await PressSpiritmasterOpeningAttackKeyIfNeededAsync(context, state, settings,
-                    sharedSkillSettings.Spiritmaster, target).ConfigureAwait(false))
+                !string.IsNullOrWhiteSpace(sharedSkillSettings.Spiritmaster.OpeningAttackKey) &&
+                state.ShouldPressSpiritmasterOpeningAttackKey(target))
             {
-                jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
+                if (await PressSpiritmasterOpeningAttackKeyAsync(context, state, settings,
+                        sharedSkillSettings.Spiritmaster, target, expectedTarget ?? target).ConfigureAwait(false))
+                {
+                    jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
+                }
                 state.QuickbarSkills.CancelInputAttemptsForHandoff(preserveAttackWeave: settings.AttackWeaveEnabled);
                 return tick;
             }
