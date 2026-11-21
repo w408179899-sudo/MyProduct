@@ -43,6 +43,7 @@ public sealed partial class SemiAutoCombatController
     private static readonly TimeSpan SpiritmasterSummonAttemptInterval = TimeSpan.FromSeconds(6);
     private static readonly TimeSpan SpiritmasterSummonVerifyWindow = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan SpiritmasterOpeningAttackKeyInterval = TimeSpan.FromMilliseconds(10);
+    private static readonly TimeSpan PetAttackTargetConfirmationWindow = TimeSpan.FromMilliseconds(400);
     private static readonly TimeSpan OpeningSkillConfirmationTimeout = TimeSpan.FromMilliseconds(2300);
     private static readonly string AttackKey = "C";
     private static readonly string SupportSelfSelectKey = "F1";
@@ -1048,13 +1049,14 @@ public sealed partial class SemiAutoCombatController
         }
 
         var abnormal = await ReadPlayerAbnormalStatusesAsync(context).ConfigureAwait(false);
-        if (observePending && state.CombatStatusAttempts.Count != 0)
+        if (state.CombatStatusAttempts.Count != 0)
         {
             foreach (var rule in configuredRules)
-                if (state.CombatStatusAttempts.TryGetValue(rule, out var previous) && !previous.Awaiting)
-                    ObserveStatusMaintenance(context, state, previous, abnormal);
+                if (state.CombatStatusAttempts.TryGetValue(rule, out var previous) && (!observePending || !previous.Awaiting))
+                    ObserveStatusMaintenance(context, state, previous, abnormal, observedInCombatQueue: observePending);
             // An eligible unfinished rule wins over a fresh rule at the same priority.
-            configuredRules = configuredRules.OrderByDescending(state.CombatStatusAttempts.ContainsKey).ToArray();
+            if (observePending)
+                configuredRules = configuredRules.OrderByDescending(state.CombatStatusAttempts.ContainsKey).ToArray();
         }
         IReadOnlyList<SkillSnapshot>? skills = null;
         foreach (var rule in configuredRules)
@@ -1105,6 +1107,9 @@ public sealed partial class SemiAutoCombatController
             }
 
             var skillId = ResolveStatusMaintenanceSkillId(rule, maintenanceSkill);
+            if (observePending && state.CombatStatusAttempts.Values.Any(attempt =>
+                    attempt.Awaiting && MatchesStatusMaintenanceAttempt(attempt, rule, skillId)))
+                continue;
             var isChantStatusMaintenance = IsChantStatusMaintenanceRule(rule, maintenanceSkill, skillId);
             var activeStatus = skillId != configuredSkillId
                 ? ResolveKnownStatusMaintenanceAbnormalId(
@@ -1303,6 +1308,7 @@ public sealed partial class SemiAutoCombatController
         var pressCount = maintenance.StatusMaintenancePressCount;
         var intervalMs = pressCount > 1 ? maintenance.StatusMaintenancePressIntervalMs : 0;
         var successfulPresses = 0;
+        long attemptId = 0;
         for (var pressIndex = 0; pressIndex < pressCount; pressIndex++)
         {
             if (pressIndex > 0 && intervalMs > 0)
@@ -1329,12 +1335,21 @@ public sealed partial class SemiAutoCombatController
             }
 
             successfulPresses++;
+            if (successfulPresses == 1)
+            {
+                attemptId = ++state.LastStatusMaintenanceAttemptId;
+                // A real new input owns any subsequently observed effect for this rule,
+                // including when a post-combat retry supersedes an older combat press.
+                foreach (var previous in state.CombatStatusAttempts.Values.ToArray())
+                    if (MatchesStatusMaintenanceAttempt(previous, rule, skillId))
+                        state.CombatStatusAttempts.Remove(previous.Rule);
+            }
             state.MarkMaintenanceKeyAttempted(rule.Key, pressedAt);
             if (confirmAcrossTicks)
-                LogQueuedStatusSkill(context, "quickbar_skill.key.pressed", skillId, skillName, rule.Key);
+                LogQueuedStatusSkill(context, "quickbar_skill.key.pressed", attemptId, skillId, skillName, rule.Key);
         }
 
-        var attempt = new StatusMaintenanceAttempt(rule, resource, skillId, skillName,
+        var attempt = new StatusMaintenanceAttempt(attemptId, rule, resource, skillId, skillName,
             player.EntityId, beforeIds, startedAt,
             new SkillConfirmationWindow(DateTimeOffset.Now, ResolveStatusMaintenanceConfirmWindow(isChantStatusMaintenance),
                 confirmAcrossTicks ? _timeProvider : null, _timeProvider.GetTimestamp()),
@@ -1711,10 +1726,10 @@ public sealed partial class SemiAutoCombatController
         SemiAutoScriptSettings settings,
         SpiritmasterSkillSettings spiritSettings,
         LockedTargetSnapshot target,
-        LockedTargetSnapshot expectedTarget)
+        long afterVersion)
     {
-        var locked = await ReadLockedTargetAsync(context).ConfigureAwait(false);
-        if (!ConfirmCombatTarget(context, expectedTarget, locked, "pet_attack_first"))
+        var first = await ConfirmPetAttackTargetAsync(context, target, afterVersion, "pet_attack_first").ConfigureAwait(false);
+        if (first is null)
         {
             return false;
         }
@@ -1738,8 +1753,7 @@ public sealed partial class SemiAutoCombatController
         }
 
         await Task.Delay(SpiritmasterOpeningAttackKeyInterval, context.StopToken).ConfigureAwait(false);
-        locked = await ReadLockedTargetAsync(context).ConfigureAwait(false);
-        if (!ConfirmCombatTarget(context, expectedTarget, locked, "pet_attack_repeat"))
+        if (await ConfirmPetAttackTargetAsync(context, target, first.Version, "pet_attack_repeat").ConfigureAwait(false) is null)
         {
             return false;
         }
@@ -1758,10 +1772,51 @@ public sealed partial class SemiAutoCombatController
         return true;
     }
 
-    private static bool ConfirmCombatTarget(
-        AccountWorkerContext context, LockedTargetSnapshot expected, LockedTargetSnapshot locked, string phase)
+    private static async Task<PublishedGameSnapshot<LockedTargetSnapshot>?> ConfirmPetAttackTargetAsync(
+        AccountWorkerContext context, LockedTargetSnapshot expected, long afterVersion, string phase)
     {
-        if (QuickbarSkillCombatController.SameTarget(expected, locked)) return true;
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(context.StopToken);
+        deadline.CancelAfter(PetAttackTargetConfirmationWindow);
+        using var confirmation = SnapshotReadBudget.EnterCancellation(deadline.Token);
+        try
+        {
+            var locked = await context.Snapshots.ReadLockedTargetAsync(afterVersion).ConfigureAwait(false);
+            deadline.Token.ThrowIfCancellationRequested();
+            if (!ConfirmCombatTarget(context, expected, locked.Value, phase, requireServerIdentity: true))
+                return null;
+            context.Logger.Info("semi_auto.spiritmaster.opening_attack_key.target_confirmed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["phase"] = phase,
+                ["targetEntityId"] = expected.TargetEntityId,
+                ["targetServerObjectId"] = expected.ServerObjectId,
+                ["lockedEntityId"] = locked.Value.TargetEntityId,
+                ["lockedServerObjectId"] = locked.Value.ServerObjectId,
+                ["lockedName"] = locked.Value.Name,
+                ["snapshotVersion"] = locked.Version
+            });
+            return locked;
+        }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested && !context.StopToken.IsCancellationRequested)
+        {
+            context.Logger.Info("semi_auto.spiritmaster.opening_attack_key.confirmation_timeout", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["phase"] = phase,
+                ["targetEntityId"] = expected.TargetEntityId,
+                ["targetServerObjectId"] = expected.ServerObjectId
+            });
+            return null;
+        }
+    }
+
+    private static bool ConfirmCombatTarget(
+        AccountWorkerContext context, LockedTargetSnapshot expected, LockedTargetSnapshot locked, string phase,
+        bool requireServerIdentity = false)
+    {
+        if (QuickbarSkillCombatController.SameTarget(expected, locked) &&
+            (!requireServerIdentity || (expected.ServerObjectId != 0 && locked.ServerObjectId != 0)))
+            return true;
 
         context.Logger.Info("semi_auto.combat_target.lock_mismatch", new Dictionary<string, object?>
         {

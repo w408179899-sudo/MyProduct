@@ -680,9 +680,16 @@ var tests = new (string Name, Func<Task> Run)[]
     ("skill tree release trigger condition priority retry and zero cooldown fairness", QuickbarSpecialPriorityTests.RetryAndFairnessAsync),
     ("skill tree release trigger condition priority insert and resume continuous chain", QuickbarSpecialPriorityTests.ControllerAsync),
     ("combat skill priority resumes interrupted attack after emergency heal", CombatSkillPriorityTests.AttackYieldsAndResumesAsync),
+    ("combat skill priority pet attack takes the first eligible turn", CombatSkillPriorityTests.PetAttackTakesFirstEligibleTurnAsync),
+    ("combat skill priority pet attack can preempt pending status confirmation", CombatSkillPriorityTests.PetAttackCanPreemptPendingShieldAsync),
+    ("pet attack rejects a retained lock and a fresh lock missing the object id", PetAttackTargetConfirmationTests.RejectsUnidentifiedFirstLockAsync),
+    ("pet attack repeat rejects a retained lock and a fresh different object", PetAttackTargetConfirmationTests.RejectsDifferentRepeatLockAsync),
+    ("pet attack waits within budget when only the retained lock is available", PetAttackTargetConfirmationTests.TimesOutOnRetainedLockAsync),
     ("combat skill priority accepts a late attack without replay after heal", CombatSkillPriorityTests.LateAttackDoesNotReplayAsync),
     ("combat skill priority a cooling heal leaves the attack eligible", CombatSkillPriorityTests.CoolingHealLeavesAttackAsync),
-    ("combat skill priority shield uses the next confirmed combat release slot", CombatSkillPriorityTests.ShieldUsesTheCombatReleaseSlotAsync),
+    ("combat skill priority shield preempts a ready attack retry and retains its evidence", CombatSkillPriorityTests.ShieldPreemptsAndRetainsAttackRetryAsync),
+    ("combat skill priority shield confirmed out of combat does not confirm old combat press", CombatSkillPriorityTests.PostCombatShieldDoesNotConfirmOldCombatPressAsync),
+    ("combat skill priority shield preemption never replays a late-confirmed attack", CombatSkillPriorityTests.ShieldPreemptionDoesNotReplayLateAttackAsync),
     ("combat skill priority shield drops a nomination when its effect arrives", CombatSkillPriorityTests.ShieldCancelsWhenEffectArrivesBeforeHandoffAsync),
     ("combat skill priority shield wins the next ordinary root slot", CombatSkillPriorityTests.ShieldWinsTheSlotOfTheNextOrdinaryRootAsync),
     ("combat skill priority maintenance respects chain and fresh target", QuickbarSkillChainHandoffTests.PriorityActionRespectsChainAndFinalTargetAsync),
@@ -729,6 +736,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("skill tree release chain another actual release ends provisional wait", QuickbarSkillChainHandoffTests.DifferentActualReleaseEndsProvisionalWaitAsync),
     ("skill tree release chain late exact parent record preserves child handoff", QuickbarSkillChainHandoffTests.LateParentActorDoesNotBreakChildHandoffAsync),
     ("skill tree release fast polling maintenance cadence", QuickbarSkillOuterPollingTests.MaintenanceCadenceAsync),
+    ("skill tree release fast polling gives newly missing status the next key", QuickbarSkillOuterPollingTests.NewlyMissingStatusPreemptsFastAttackRetryAsync),
     ("skill tree release fast polling death guard", QuickbarSkillOuterPollingTests.DeathGuardAsync),
     ("skill tree release fast polling target guard", QuickbarSkillOuterPollingTests.TargetGuardAsync),
     ("skill tree release fast polling HP threshold maintenance yield", QuickbarSkillOuterPollingTests.HpThresholdYieldAsync),
@@ -33159,6 +33167,12 @@ static Task TestDmaStableSnapshotFallsBackToLastGoodAsync()
     AssertEqual(123u, fallback.Result.Value!, "fallback value");
     AssertEqual(TimeSpan.FromMilliseconds(250), fallback.FallbackAge, "fallback age");
     AssertEqual("transient dma read failure", fallback.ObservedError, "observed failure diagnostic");
+    var next = store.Resolve(
+        "fpga://devindex=2\u001eaccount1\u001e7964",
+        channel, context, OperationResult<uint>.Ok(123), capturedAt.AddMilliseconds(300));
+    AssertEqual(fresh.PublicationVersion, fallback.PublicationVersion, "fallback preserves its publication version");
+    AssertFalse(fresh.PublicationVersion <= 0 || next.PublicationVersion <= fresh.PublicationVersion,
+        "a successful capture advances the publication version even when the target is unchanged");
     return Task.CompletedTask;
 }
 

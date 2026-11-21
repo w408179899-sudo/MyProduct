@@ -5,11 +5,12 @@ namespace Roadhog.Infrastructure.Vmm;
 
 internal sealed class DmaStableSnapshotStore
 {
-    private sealed record Entry(object Value, Type ValueType, DateTimeOffset CapturedAt);
+    private sealed record Entry(object Value, Type ValueType, DateTimeOffset CapturedAt, long PublicationVersion);
 
     private readonly object _syncRoot = new();
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
     private readonly DmaSnapshotChannelRegistry _channels;
+    private long _publicationVersion;
 
     public DmaStableSnapshotStore(DmaSnapshotChannelRegistry channels)
     {
@@ -40,10 +41,10 @@ internal sealed class DmaStableSnapshotStore
         {
             lock (_syncRoot)
             {
-                _entries[key] = new Entry(observed.Value, typeof(T), now);
+                var version = ++_publicationVersion;
+                _entries[key] = new Entry(observed.Value, typeof(T), now, version);
+                return StableSnapshotResolution<T>.Fresh(observed) with { PublicationVersion = version };
             }
-
-            return StableSnapshotResolution<T>.Fresh(observed);
         }
 
         lock (_syncRoot)
@@ -59,7 +60,7 @@ internal sealed class DmaStableSnapshotStore
             return StableSnapshotResolution<T>.Fallback(
                 OperationResult<T>.Ok((T)entry.Value),
                 age,
-                observed.Error);
+                observed.Error) with { PublicationVersion = entry.PublicationVersion };
         }
     }
 
@@ -98,7 +99,7 @@ internal sealed class DmaStableSnapshotStore
                 }
 
                 value = updated;
-                _entries[key] = new Entry(updated, typeof(T), now);
+                _entries[key] = new Entry(updated, typeof(T), now, ++_publicationVersion);
                 return true;
             }
         }
@@ -176,6 +177,8 @@ internal sealed record StableSnapshotResolution<T>(
     string? ObservedError,
     StableSnapshotFailureReason FailureReason)
 {
+    public long PublicationVersion { get; init; }
+
     public static StableSnapshotResolution<T> Fresh(OperationResult<T> result)
     {
         return new StableSnapshotResolution<T>(

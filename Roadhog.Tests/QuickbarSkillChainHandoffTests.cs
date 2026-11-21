@@ -309,26 +309,26 @@ internal static class QuickbarSkillChainHandoffTests
     {
         var fixture = await WaitingFixture();
         var statusKeys = 0;
-        var priorityAction = new QuickbarPriorityAction(() => Task.FromResult(false), async verify =>
+        var combatActions = StatusCandidate(async verify =>
         {
             if (!await verify()) return false;
             statusKeys++;
             return true;
         });
 
-        await fixture.TickAt(160, priorityAction: priorityAction);
+        await fixture.TickAt(160, combatActions: combatActions);
         Check(statusKeys == 0 && fixture.State.ChainTransition is not null, "the reserved chain window keeps the next release slot");
         fixture.Reader.Value = Bar(effective: 14, canUse: true, last: 11, time: 1100);
-        await fixture.TickAt(240, priorityAction: priorityAction);
+        await fixture.TickAt(240, combatActions: combatActions);
         Check(statusKeys == 0 && fixture.Keyboard.SkillIds.SequenceEqual(new uint[] { 11, 14 }),
             "an actual open continuation releases ahead of pending priority maintenance");
         fixture.Reader.Value = Bar(effective: 14, canUse: false, last: 14, time: 1200);
-        await fixture.TickAt(320, priorityAction: priorityAction);
+        await fixture.TickAt(320, combatActions: combatActions);
         Check(statusKeys == 1 && fixture.Keyboard.SkillIds.SequenceEqual(new uint[] { 11, 14 }),
             "the confirmed final stage hands off to maintenance before the next root");
 
         var changed = new Fixture();
-        await changed.TickAt(0, priorityAction: new QuickbarPriorityAction(() => Task.FromResult(false), async verify =>
+        await changed.TickAt(0, combatActions: StatusCandidate(async verify =>
         {
             changed.Reader.Value = changed.Reader.Value with { CombatState = Guard(server: 101) };
             if (!await verify()) return false;
@@ -337,6 +337,10 @@ internal static class QuickbarSkillChainHandoffTests
         }));
         Check(statusKeys == 1 && changed.Keyboard.SkillIds.Count == 0 && changed.State.YieldToWorker,
             "fresh target validation cancels both the queued action and the old attack");
+
+        static QuickbarCombatActions StatusCandidate(Func<Func<Task<bool>>, Task<bool>> execute) =>
+            new(() => Task.CompletedTask, input => [new(CombatSkillPriority.StatusMaintenance,
+                (int)CombatSkillPriority.StatusMaintenance, input.CanOfferStatus, _ => execute(input.VerifyStatusBeforeInput))]);
     }
 
     public static async Task CancellationResetAsync()
@@ -610,11 +614,11 @@ internal static class QuickbarSkillChainHandoffTests
         public void AdvanceCooldown(uint id) => Skills[id] = Skills[id] with { CooldownEndTime = 100000 + id };
 
         public Task<TimeSpan> TickAt(int elapsedMs, CancellationToken cancellationToken = default,
-            Func<SkillAvailabilityCombatSnapshot, bool>? allowCombat = null, QuickbarPriorityAction? priorityAction = null) =>
-            TickAt(Start.AddMilliseconds(elapsedMs), cancellationToken, allowCombat, priorityAction);
+            Func<SkillAvailabilityCombatSnapshot, bool>? allowCombat = null, QuickbarCombatActions? combatActions = null) =>
+            TickAt(Start.AddMilliseconds(elapsedMs), cancellationToken, allowCombat, combatActions);
 
         public Task<TimeSpan> TickAt(DateTimeOffset at, CancellationToken cancellationToken = default,
-            Func<SkillAvailabilityCombatSnapshot, bool>? allowCombat = null, QuickbarPriorityAction? priorityAction = null)
+            Func<SkillAvailabilityCombatSnapshot, bool>? allowCombat = null, QuickbarCombatActions? combatActions = null)
         {
             Clock.Set(at);
             return _controller.TickAsync(Plan, State, Target(), Reader, ReadSkills,
@@ -622,7 +626,7 @@ internal static class QuickbarSkillChainHandoffTests
                 ordinaryReadiness: skills => skills.Select(skill => skill.SkillId).ToHashSet(),
                 cooldownReadiness: skill => skill.CooldownEndTime == 0 ? SemiAutoSkillCooldownReadiness.Ready :
                     SemiAutoSkillCooldownReadiness.CoolingDown,
-                allowCombatSnapshot: allowCombat, yieldAfterCurrentAction: YieldAfterCurrentAction, priorityAction: priorityAction);
+                allowCombatSnapshot: allowCombat, yieldAfterCurrentAction: YieldAfterCurrentAction, combatActions: combatActions);
         }
 
         private Task<IReadOnlyList<SkillSnapshot>> ReadSkills(IReadOnlyCollection<uint> ids)

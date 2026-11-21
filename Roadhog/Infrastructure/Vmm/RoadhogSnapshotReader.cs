@@ -208,7 +208,15 @@ internal sealed partial class RoadhogSnapshotReader : IRoadhogSnapshotReader
             "Channel snapshot is structurally invalid.");
 
     public Task<PublishedGameSnapshot<LockedTargetSnapshot>> ReadLockedTargetAsync(long afterVersion = 0) =>
-        ReadLockedTargetAsync(_readContext, afterVersion);
+        _gameApi is ILockedTargetPublicationSource source
+            ? ReadLockedTargetPublicationAsync(source, afterVersion)
+            : ReadLockedTargetAsync(_readContext, afterVersion);
+
+    private async Task<PublishedGameSnapshot<LockedTargetSnapshot>> ReadLockedTargetPublicationAsync(
+        ILockedTargetPublicationSource source, long afterVersion) =>
+        (await ReadUntilPublishedAsync("locked_target",
+            stop => source.ReadLockedTargetPublicationAsync(_readContext, afterVersion, stop),
+            afterVersion, publicationVersion: static snapshot => snapshot.Version).ConfigureAwait(false)).Value;
 
     private Task<PublishedGameSnapshot<LockedTargetSnapshot>> ReadLockedTargetAsync(
         GameApiReadContext readContext,
@@ -323,7 +331,8 @@ internal sealed partial class RoadhogSnapshotReader : IRoadhogSnapshotReader
         Func<CancellationToken, Task<OperationResult<T>>> read,
         long afterVersion,
         Func<T, bool>? validate = null,
-        string? validationError = null)
+        string? validationError = null,
+        Func<T, long>? publicationVersion = null)
     {
         using var budget = SnapshotReadBudget.CreateCancellation(_stopToken);
         var stop = budget.Token;
@@ -351,7 +360,7 @@ internal sealed partial class RoadhogSnapshotReader : IRoadhogSnapshotReader
                 stop.ThrowIfCancellationRequested();
                 if (observed.Success && observed.Value is { } value && (validate is null || validate(value)))
                 {
-                    var version = AdvanceVersion(channel);
+                    var version = AdvanceVersion(channel, publicationVersion?.Invoke(value));
 
                     if (version > afterVersion)
                     {
@@ -375,14 +384,14 @@ internal sealed partial class RoadhogSnapshotReader : IRoadhogSnapshotReader
         }
     }
 
-    private long AdvanceVersion(string channel)
+    private long AdvanceVersion(string channel, long? publicationVersion = null)
     {
         lock (_versionSync)
         {
             _versions.TryGetValue(channel, out var version);
-            version++;
-            _versions[channel] = version;
-            return version;
+            var observedVersion = publicationVersion ?? (version + 1);
+            _versions[channel] = Math.Max(version, observedVersion);
+            return observedVersion;
         }
     }
 

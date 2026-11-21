@@ -15,7 +15,7 @@ using Vmmsharp;
 
 namespace Roadhog.Infrastructure.Vmm;
 
-internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IRoadhogScopedWorldObjectReadQualityGameApi, IRoadhogScopedSummonedPetRosterReadQualityGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi, IChannelSwitchUiGameApi
+internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IRoadhogScopedTacticsSignGameApi, IRoadhogScopedChannelGameApi, IRoadhogScopedWorldObjectReadQualityGameApi, IRoadhogScopedSummonedPetRosterReadQualityGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi, IInventoryDiscardConfirmGameApi, IChannelSwitchUiGameApi, ILockedTargetPublicationSource
 #if DEBUG
     , IRoadhogApiAddressProbe
 #endif
@@ -400,6 +400,23 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
             cancellationToken);
     }
 
+    Task<OperationResult<PublishedGameSnapshot<LockedTargetSnapshot>>> ILockedTargetPublicationSource.ReadLockedTargetPublicationAsync(
+        GameApiReadContext context, long afterVersion, CancellationToken cancellationToken) =>
+        Task.Run(() =>
+        {
+            // A successive observation can authorize input. Sample the current selection
+            // through the same stable channel without reusing the device's page cache.
+            var verifySelection = afterVersion > 0;
+            var capture = verifySelection ? context with { BypassMemoryCache = true } : context;
+            var publication = CaptureStable(capture, AionVmmSnapshotChannels.LockedTarget,
+                () => ReadLockedTargetCore(capture, verifySelection));
+            if (verifySelection && publication.UsedFallback)
+                return OperationResult<PublishedGameSnapshot<LockedTargetSnapshot>>.Fail("No verified locked target publication.");
+            return publication.Result is { Success: true, Value: { } value }
+                ? OperationResult<PublishedGameSnapshot<LockedTargetSnapshot>>.Ok(new(publication.PublicationVersion, value))
+                : OperationResult<PublishedGameSnapshot<LockedTargetSnapshot>>.Fail(publication.Result.Error ?? "Locked target is unavailable.");
+        }, cancellationToken);
+
     public Task<OperationResult<LockedTargetAbnormalStatusSnapshot>> ReadLockedTargetAbnormalStatusesAsync(
         CancellationToken cancellationToken = default)
     {
@@ -576,28 +593,33 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         GameApiReadContext context,
         DmaSnapshotChannel<T> channel,
         Func<OperationResult<T>> read,
-        string? partitionKey = null)
-    {
-        return _stableSnapshotReads.Execute(
+        string? partitionKey = null) => CaptureStable(context, channel, read, partitionKey).Result;
+
+    private StableSnapshotResolution<T> CaptureStable<T>(
+        GameApiReadContext context, DmaSnapshotChannel<T> channel, Func<OperationResult<T>> read, string? partitionKey = null) =>
+        _stableSnapshotReads.Execute(
             BuildStableSnapshotReadScopeKey(context),
             channel,
-            () => StabilizeRead(context, channel, read(), DateTimeOffset.Now, partitionKey),
+            () => ResolveStableRead(context, channel, read(), DateTimeOffset.Now, partitionKey),
             partitionKey);
-    }
 
     private OperationResult<T> StabilizeRead<T>(
         GameApiReadContext context,
         DmaSnapshotChannel<T> channel,
         OperationResult<T> observed,
         DateTimeOffset now,
-        string? partitionKey = null)
+        string? partitionKey = null) => ResolveStableRead(context, channel, observed, now, partitionKey).Result;
+
+    private StableSnapshotResolution<T> ResolveStableRead<T>(
+        GameApiReadContext context, DmaSnapshotChannel<T> channel, OperationResult<T> observed, DateTimeOffset now,
+        string? partitionKey)
     {
         var dataKey = channel.ResolveDataKey(partitionKey);
         var sessionKey = BuildStableSnapshotSessionKey(context);
         if (!observed.Success && IsStableSnapshotSessionFailure(observed.Error))
         {
             _stableSnapshots.ClearSession(sessionKey);
-            return observed;
+            return StableSnapshotResolution<T>.Failed(observed, StableSnapshotFailureReason.Missing);
         }
 
         var resolution = _stableSnapshots.Resolve(
@@ -608,7 +630,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
             now,
             partitionKey);
         LogStableSnapshotResolution(context, dataKey, resolution);
-        return resolution.Result;
+        return resolution;
     }
 
     private OperationResult<GatherSnapshot> ReadStableGatherSnapshotCore(GameApiReadContext context)
@@ -2010,7 +2032,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
     }
 #endif
 
-    private OperationResult<LockedTargetSnapshot> ReadLockedTargetCore(GameApiReadContext context)
+    private OperationResult<LockedTargetSnapshot> ReadLockedTargetCore(GameApiReadContext context, bool verifySelection = false)
     {
         try
         {
@@ -2032,6 +2054,13 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                 if (!TryReadLockedTarget(process, gameBase, context.BypassMemoryCache, out var target, out var readError))
                 {
                     return OperationResult<LockedTargetSnapshot>.Fail(readError);
+                }
+
+                if (verifySelection &&
+                    (!TryReadUInt16(process, gameBase + LocalEntityIdRva + 2, out var selectedEntityId, context.BypassMemoryCache) ||
+                     selectedEntityId != target.TargetEntityId))
+                {
+                    return OperationResult<LockedTargetSnapshot>.Fail("Locked target changed during capture or could not be verified.");
                 }
 
                 var snapshot = ToLockedTargetSnapshot(target);

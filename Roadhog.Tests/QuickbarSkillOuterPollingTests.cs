@@ -17,7 +17,9 @@ internal static class QuickbarSkillOuterPollingTests
 
         await fixture.Controller.TickAsync(fixture.Context, fixture.MaintenancePlan, fixture.State);
 
-        Check(fixture.Observer.AvailabilityReads >= 2, "one bounded outer tick performs several lightweight availability polls");
+        Check(fixture.Observer.AvailabilityReads >= 2,
+            $"one bounded outer tick performs several lightweight availability polls (reads: {fixture.Observer.AvailabilityReads}, " +
+            $"worker yield: {fixture.State.QuickbarSkills.YieldToWorker}, combat snapshot: {fixture.State.QuickbarSkills.SupportsCombatState})");
         Check(fixture.Observer.AbnormalReads <= 2 && fixture.Observer.AbnormalReads < fixture.Observer.AvailabilityReads,
             "maintenance status checks do not repeat for every fast availability poll");
         Check(fixture.Observer.FullSkillReads == 0, "the fast combat path never rereads the full learned skill table");
@@ -28,6 +30,31 @@ internal static class QuickbarSkillOuterPollingTests
     public static Task DeathGuardAsync() => GuardStopsAsync(dying: true);
 
     public static Task TargetGuardAsync() => GuardStopsAsync(dying: false);
+
+    public static async Task NewlyMissingStatusPreemptsFastAttackRetryAsync()
+    {
+        foreach (var attacksBeforeStatusLoss in new[] { 1, 2 })
+        {
+            using var fixture = new Fixture();
+            fixture.Api.SkillAvailabilityRead = () => fixture.Availability(canUse: true);
+            var activeBuff = fixture.Api.PlayerAbnormalStatuses;
+            var attackCount = 0;
+            fixture.Keyboard.AfterPress = key =>
+            {
+                if (key == "D2" && ++attackCount == attacksBeforeStatusLoss)
+                    fixture.Api.PlayerAbnormalStatuses = PlayerAbnormalStatusSnapshot.Empty(fixture.Api.Player.EntityId);
+                if (key == "D3") fixture.Api.PlayerAbnormalStatuses = activeBuff;
+            };
+            await fixture.PrepareAsync();
+
+            await fixture.Controller.TickAsync(fixture.Context, fixture.MaintenancePlan, fixture.State);
+
+            Check(fixture.Keyboard.Keys.SequenceEqual(Enumerable.Repeat("D2", attacksBeforeStatusLoss).Append("D3")),
+                "a buff lost after an attack key can win the next fast decision within the same outer turn");
+            Check(fixture.State.QuickbarSkills.PendingAction?.AttemptCount == attacksBeforeStatusLoss,
+                "the original attack remains eligible for a later retry without spending that retry on the buff's turn");
+        }
+    }
 
     public static async Task HpThresholdYieldAsync()
     {

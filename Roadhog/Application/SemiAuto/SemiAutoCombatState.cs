@@ -9,6 +9,7 @@ public sealed class SemiAutoCombatState
     internal QuickbarSkillPlan? QuickbarPlan { get; set; }
     internal AdvancedSkillCombatPlans? AdvancedSkillPlans { get; set; }
     internal Dictionary<StatusMaintenanceRuleConfig, SemiAutoCombatController.StatusMaintenanceAttempt> CombatStatusAttempts { get; } = [];
+    internal long LastStatusMaintenanceAttemptId { get; set; }
     public QuickbarSkillCombatState QuickbarSkills => quickbarSkills ??= new();
     internal OpeningSkillDiagnostics OpeningDiagnostics { get; } = new();
     internal bool CoordinatedSummonHpTurnUsed { get; set; }

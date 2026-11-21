@@ -8,6 +8,43 @@ internal static class CombatSkillPriorityTests
     private const uint ShieldId = 1390;
     private const string ShieldKey = "D4";
     private const uint ReplacementAttackId = 910;
+    private const string PetAttackKey = "D7";
+
+    public static async Task PetAttackTakesFirstEligibleTurnAsync()
+    {
+        using var f = await CreateAsync(includePetAttack: true);
+        f.Api.Player = f.Api.Player with { CurrentHp = 30 };
+
+        await f.TickAsync();
+        Sequence(new[] { PetAttackKey, PetAttackKey }, f.Keyboard.Keys,
+            "the pet command takes the first eligible input ahead of due healing and the missing shield");
+        await f.TickAsync();
+        f.State.MarkMaintenanceKeyAttempted("D2", DateTimeOffset.Now.AddMilliseconds(-650));
+        await f.TickAsync();
+        Sequence(new[] { PetAttackKey, PetAttackKey, "D2", ShieldKey }, f.Keyboard.Keys,
+            "healing and the shield take later turns once the pet attack was issued for this target");
+    }
+
+    public static async Task PetAttackCanPreemptPendingShieldAsync()
+    {
+        using var f = await CreateAsync(includePetAttack: true);
+        await f.TickAsync();
+        await f.TickAsync();
+        Sequence(new[] { PetAttackKey, PetAttackKey, ShieldKey }, f.Keyboard.Keys,
+            "the first target receives the pet attack and then the shield starts");
+
+        f.Api.TargetOwnServerObjectId++;
+        f.Clock.Advance(300);
+        await f.TickAsync();
+        Sequence(new[] { PetAttackKey, PetAttackKey, ShieldKey, PetAttackKey, PetAttackKey }, f.Keyboard.Keys,
+            "the new target receives the highest-priority pet command while an earlier shield awaits effect");
+        Check(f.State.CombatStatusAttempts.Values.Single().Awaiting, "the pet command retains the shield confirmation");
+
+        SetShield(f);
+        f.Clock.Advance(300);
+        await f.TickAsync();
+        Check(f.Logged("quickbar_skill.release.confirmed", "skillId", ShieldId), "the retained shield still confirms from its effect");
+    }
 
     public static async Task AttackYieldsAndResumesAsync()
     {
@@ -66,38 +103,78 @@ internal static class CombatSkillPriorityTests
             "an unavailable heal never takes the attack's input ownership");
     }
 
-    public static async Task ShieldUsesTheCombatReleaseSlotAsync()
+    public static async Task ShieldPreemptsAndRetainsAttackRetryAsync()
     {
         using var f = await CreateAsync();
         SetShield(f);
         await f.TickAsync();
-        Check(f.State.QuickbarSkills.PendingAction?.Node.SkillId == AttackId, "the ordinary skill owns the active slot");
+        var original = f.State.QuickbarSkills.PendingAction;
+        Check(original?.Node.SkillId == AttackId, "the ordinary skill starts the first attempt");
 
         f.Api.PlayerAbnormalStatuses = PlayerAbnormalStatusSnapshot.Empty(f.Api.Player.EntityId);
+        f.Clock.Advance(80);
         await f.TickAsync();
-        Sequence(new[] { "D1" }, f.Keyboard.Keys, "a missing shield cannot send input over the unresolved attack");
-        Check(f.State.CombatStatusAttempts.Count == 0, "shield has not started its confirmation window");
+        Sequence(new[] { "D1", ShieldKey }, f.Keyboard.Keys, "a newly ready shield wins over the ready attack retry");
+        Check(f.State.CombatStatusAttempts.Values.Single().Awaiting && f.State.QuickbarSkills.PendingAction == original,
+            "shield reserves its own evidence without replacing A or counting a retry for it");
+        Check(!f.Logged("quickbar_skill.release.confirmed", "skillId", ShieldId), "the shield key alone cannot confirm the effect");
+
+        f.Clock.Advance(80);
+        await f.TickAsync();
+        Sequence(new[] { "D1", ShieldKey, "D1" }, f.Keyboard.Keys, "A can resume while the unavailable shield awaits its effect");
+        Check(f.State.QuickbarSkills.PendingAction is { AttemptCount: 2 } retry && retry.AttemptId == original!.AttemptId,
+            "the resumed input retains the original attempt and retry budget");
+
+        SetShield(f);
+        Release(f, AttackId, 200);
+        f.Clock.Advance(300);
+        await f.TickAsync();
+        Sequence(new[] { "D1", ShieldKey, "D1" }, f.Keyboard.Keys, "confirmed skills are not replayed");
+        Check(f.Logged("quickbar_skill.release.confirmed", "skillId", ShieldId) &&
+            f.Logged("quickbar_skill.release.confirmed", "skillId", AttackId), "each attempt completes from its own evidence");
+    }
+
+    public static async Task PostCombatShieldDoesNotConfirmOldCombatPressAsync()
+    {
+        using var f = await CreateAsync();
+        f.Settings.Maintenance.StatusMaintenanceRules.Single().RunTiming = MaintenanceRuleRunTiming.Always;
+        await f.TickAsync();
+        var combatAttempt = f.State.CombatStatusAttempts.Values.Single();
+        f.Clock.Advance(1600);
+        await f.TickAsync();
+        Check(!combatAttempt.Awaiting, "the shield input goes unconfirmed during the fight");
+        MakeShieldRetryEligible(f);
+        f.Keyboard.AfterPress = key => { if (key == ShieldKey) SetShield(f); };
+
+        Check(await f.MaintainAsync(), "the out-of-combat path can perform a newly eligible full-time shield");
+        await f.TickAsync();
+
+        Check(f.Keyboard.Keys.Count(key => key == ShieldKey) == 2 && f.State.CombatStatusAttempts.Count == 0,
+            "the newly sent shield replaces the old attempt for the same effect");
+        var confirmations = f.Logger.Entries.Where(entry => entry.EventName == "semi_auto.maintenance.status_key_pressed" &&
+            Equals(entry.Fields["skillId"], ShieldId)).ToArray();
+        Check(confirmations is [var confirmed] && !Equals(confirmed.Fields["attemptId"], combatAttempt.Id) &&
+            Equals(confirmed.Fields["phase"], "outside_combat_queue") &&
+            !f.Logged("quickbar_skill.release.confirmed", "skillId", ShieldId),
+            "one effect confirms the new attempt only and never counts as the original combat release");
+    }
+
+    public static async Task ShieldPreemptionDoesNotReplayLateAttackAsync()
+    {
+        using var f = await CreateAsync();
+        SetShield(f);
+        await f.TickAsync();
+        f.Api.PlayerAbnormalStatuses = PlayerAbnormalStatusSnapshot.Empty(f.Api.Player.EntityId);
+        f.Clock.Advance(80);
+        await f.TickAsync();
 
         Release(f, AttackId, 200);
         f.Clock.Advance(80);
         await f.TickAsync();
-        Sequence(new[] { "D1", ShieldKey }, f.Keyboard.Keys, "confirmed attack hands the next release slot to the shield");
-        var events = f.Logger.Entries.Where(entry =>
-            entry.EventName is "quickbar_skill.key.pressed" or "quickbar_skill.release.confirmed").ToArray();
-        Check(events.Length == 3 &&
-            events[1].EventName == "quickbar_skill.release.confirmed" && Equals(events[1].Fields["skillId"], AttackId) &&
-            events[2].EventName == "quickbar_skill.key.pressed" && Equals(events[2].Fields["skillId"], ShieldId),
-            "the same release trace orders attack confirmation before shield input");
 
-        f.Clock.Advance(300);
-        await f.TickAsync();
-        Sequence(new[] { "D1", ShieldKey }, f.Keyboard.Keys, "normal inputs wait while the shield is unconfirmed");
-        Check(!f.Logged("quickbar_skill.release.confirmed", "skillId", ShieldId), "pressing the shield alone cannot confirm it");
-
-        SetShield(f);
-        f.Clock.Advance(300);
-        await f.TickAsync();
-        Check(f.Logged("quickbar_skill.release.confirmed", "skillId", ShieldId), "the shared trace reports shield release only after the effect");
+        Sequence(new[] { "D1", ShieldKey }, f.Keyboard.Keys, "A's late release cancels its retry while shield confirmation is pending");
+        Check(f.Logged("quickbar_skill.release.confirmed", "skillId", AttackId) &&
+            f.State.CombatStatusAttempts.Values.Single().Awaiting, "the two confirmations remain independent");
     }
 
     public static async Task ShieldCancelsWhenEffectArrivesBeforeHandoffAsync()
@@ -193,10 +270,11 @@ internal static class CombatSkillPriorityTests
         f.Clock.Advance(350);
         await f.TickAsync();
         Check(f.State.CombatStatusAttempts.Count == 1, "the self-buff remains pending across monster identities");
+        var beforeDeath = f.Keyboard.Keys.ToArray();
         f.Api.Player = f.Api.Player with { CurrentHp = 0 };
         await f.TickAsync();
         Check(f.State.CombatStatusAttempts.Count == 0, "death clears an in-flight shield");
-        Sequence(new[] { ShieldKey }, f.Keyboard.Keys, "death cannot send an old skill");
+        Sequence(beforeDeath, f.Keyboard.Keys, "death cannot send an old skill");
 
         using var stopped = await CreateAsync();
         await stopped.TickAsync();
@@ -229,10 +307,11 @@ internal static class CombatSkillPriorityTests
         }
     }
 
-    private static async Task<SharedSkillAuditFixture> CreateAsync(bool includeReplacement = false)
+    private static async Task<SharedSkillAuditFixture> CreateAsync(bool includeReplacement = false, bool includePetAttack = false)
     {
         var f = new SharedSkillAuditFixture();
-        f.Settings.Skills.SpiritmasterAutoSkillLogicEnabled = false;
+        f.Settings.Skills.SpiritmasterAutoSkillLogicEnabled = includePetAttack;
+        if (includePetAttack) f.Settings.Skills.Spiritmaster.OpeningAttackKey = PetAttackKey;
         f.Settings.Maintenance.StatusMaintenanceRules.Add(new()
         {
             SkillId = ShieldId, AbnormalStatusId = ShieldId, Key = ShieldKey, RunTiming = MaintenanceRuleRunTiming.InCombat

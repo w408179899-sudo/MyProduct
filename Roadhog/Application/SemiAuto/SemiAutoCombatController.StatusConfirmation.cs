@@ -8,7 +8,7 @@ namespace Roadhog.Application.SemiAuto;
 public sealed partial class SemiAutoCombatController
 {
     internal sealed record StatusMaintenanceAttempt(
-        StatusMaintenanceRuleConfig Rule, string Resource, uint SkillId, string SkillName, ushort PlayerId,
+        long Id, StatusMaintenanceRuleConfig Rule, string Resource, uint SkillId, string SkillName, ushort PlayerId,
         HashSet<uint> BeforeIds, DateTimeOffset StartedAt, SkillConfirmationWindow Confirmation,
         bool IsChant, int PressCount, int IntervalMs)
     {
@@ -27,16 +27,27 @@ public sealed partial class SemiAutoCombatController
             if (player is null || player.IsDead || player.EntityId != pending.PlayerId || !rules.Contains(pending.Rule))
                 state.CombatStatusAttempts.Remove(pending.Rule);
         }
-        var attempt = state.CombatStatusAttempts.Values.FirstOrDefault(pending => pending.Awaiting);
-        if (attempt is null) return false;
-        if (attempt.Confirmation.Evaluate(confirmed: false, DateTimeOffset.Now) == SkillConfirmation.Pending &&
-            attempt.Polls != 0 &&
-            _timeProvider.GetElapsedTime(attempt.LastPoll) < MaintenanceConfirmPollInterval)
-            return true;
-        var result = await PollStatusMaintenanceAsync(context, state, attempt).ConfigureAwait(false);
-        if (result == SkillConfirmation.TimedOut) ExpireStatusMaintenance(context, attempt);
-        return result == SkillConfirmation.Pending;
+        var now = DateTimeOffset.Now;
+        var due = state.CombatStatusAttempts.Values.Where(attempt => attempt.Awaiting &&
+            (attempt.Polls == 0 || _timeProvider.GetElapsedTime(attempt.LastPoll) >= MaintenanceConfirmPollInterval ||
+             attempt.Confirmation.Evaluate(confirmed: false, now) == SkillConfirmation.TimedOut)).ToArray();
+        if (due.Length != 0)
+        {
+            var abnormal = await ReadPlayerAbnormalStatusesAsync(context).ConfigureAwait(false);
+            context.StopToken.ThrowIfCancellationRequested();
+            foreach (var attempt in due)
+            {
+                if (EvaluateStatusMaintenance(context, state, attempt, abnormal) == SkillConfirmation.TimedOut)
+                    ExpireStatusMaintenance(context, attempt);
+            }
+        }
+        return state.CombatStatusAttempts.Values.Any(attempt => attempt.Awaiting);
     }
+
+    private static bool MatchesStatusMaintenanceAttempt(StatusMaintenanceAttempt attempt, StatusMaintenanceRuleConfig rule, uint skillId) =>
+        ReferenceEquals(attempt.Rule, rule) ||
+        (skillId != 0 && attempt.SkillId == skillId) ||
+        (rule.AbnormalStatusId != 0 && attempt.Rule.AbnormalStatusId == rule.AbnormalStatusId);
 
     private async Task<StatusMaintenanceCandidate?> RecheckStatusMaintenanceCandidateAsync(AccountWorkerContext context,
         SemiAutoCombatState state, StatusMaintenanceCandidate candidate, bool requireCooldownCalibration)
@@ -66,12 +77,18 @@ public sealed partial class SemiAutoCombatController
     {
         var abnormal = await ReadPlayerAbnormalStatusesAsync(context).ConfigureAwait(false);
         context.StopToken.ThrowIfCancellationRequested();
+        return EvaluateStatusMaintenance(context, state, attempt, abnormal);
+    }
+
+    private SkillConfirmation EvaluateStatusMaintenance(AccountWorkerContext context, SemiAutoCombatState state,
+        StatusMaintenanceAttempt attempt, PlayerAbnormalStatusSnapshot abnormal)
+    {
         var confirmed = ObserveStatusMaintenance(context, state, attempt, abnormal);
         return attempt.Confirmation.Evaluate(confirmed, DateTimeOffset.Now);
     }
 
     private bool ObserveStatusMaintenance(AccountWorkerContext context, SemiAutoCombatState state,
-        StatusMaintenanceAttempt attempt, PlayerAbnormalStatusSnapshot abnormal)
+        StatusMaintenanceAttempt attempt, PlayerAbnormalStatusSnapshot abnormal, bool observedInCombatQueue = true)
     {
         attempt.LastPoll = _timeProvider.GetTimestamp();
         attempt.Polls++;
@@ -90,16 +107,18 @@ public sealed partial class SemiAutoCombatController
         var fields = StatusAttemptFields(context, attempt);
         fields["abnormalStatusId"] = confirmed.AbnormalId;
         fields["abnormalStatusSource"] = confirmed.Source;
+        if (!observedInCombatQueue) fields["phase"] = "outside_combat_queue";
         context.Logger.Info("semi_auto.maintenance.status_key_pressed", fields);
-        if (attempt.Confirmation.Clock is not null)
-            LogQueuedStatusSkill(context, "quickbar_skill.release.confirmed", attempt.SkillId, attempt.SkillName, attempt.Rule.Key);
+        if (observedInCombatQueue && attempt.Confirmation.Clock is not null)
+            LogQueuedStatusSkill(context, "quickbar_skill.release.confirmed", attempt.Id, attempt.SkillId, attempt.SkillName, attempt.Rule.Key);
         return true;
     }
 
-    private static void LogQueuedStatusSkill(AccountWorkerContext context, string eventName, uint skillId, string skillName, string key) =>
+    private static void LogQueuedStatusSkill(AccountWorkerContext context, string eventName, long attemptId, uint skillId, string skillName, string key) =>
         context.Logger.Info(eventName, new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
+            ["attemptId"] = attemptId,
             ["skillId"] = skillId,
             ["skillName"] = skillName,
             ["key"] = key,
@@ -120,6 +139,8 @@ public sealed partial class SemiAutoCombatController
         StatusMaintenanceAttempt attempt) => new()
     {
         ["account"] = context.Config.AccountName,
+        ["attemptId"] = attempt.Id,
+        ["phase"] = attempt.Confirmation.Clock is null ? "outside_combat_queue" : "combat_queue",
         ["resource"] = attempt.Resource,
         ["key"] = attempt.Rule.Key,
         ["skillId"] = attempt.SkillId,
