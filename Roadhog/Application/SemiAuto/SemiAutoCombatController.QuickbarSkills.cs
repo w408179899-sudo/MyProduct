@@ -54,17 +54,37 @@ public sealed partial class SemiAutoCombatController
             .Where(rule => IsMaintenanceRuleAllowed(rule, MaintenanceRuleRunTiming.InCombat,
                 includeAlwaysRules: includeAlwaysStatusMaintenance || spiritmaster))
             .ToArray();
+        var waitingForStatusEffect = state.CombatStatusAttempts.Values.Any(attempt => attempt.Awaiting);
+        StatusMaintenanceCandidate? preparedStatus = null;
+        QuickbarPriorityAction? statusAction = maintenancePlayer is not null && statusRules.Length != 0
+            ? new(ContinueStatusAsync, TryStartStatusAsync)
+            : null;
 
-        async Task<bool> TryStatusAsync(MaintenanceRuleRunTiming timing, bool includeAlways)
+        async Task<bool> ContinueStatusAsync()
         {
-            if (maintenancePlayer is null || statusRules.Length == 0) return false;
-            var handled = await TryPressStatusMaintenanceRuleAsync(context, state, settings, maintenance, "status", maintenancePlayer,
-                requireCooldownCalibrationForMaintenance: requireCooldownCalibrationForMaintenance,
-                runTiming: timing, includeAlwaysRules: includeAlways, confirmAcrossTicks: true).ConfigureAwait(false);
-            if (handled && jumpAssist is not null &&
-                state.CombatStatusAttempts.Values.FirstOrDefault(attempt => attempt.Awaiting) is { } pending)
-                jumpAssist.PauseForSkillConfirmation(_timeProvider, pending.Confirmation.StartedTimestamp, pending.Confirmation.Duration);
-            return handled;
+            var waiting = await ContinueCombatStatusMaintenanceAsync(context, state, maintenancePlayer, statusRules)
+                .ConfigureAwait(false);
+            if (!waiting) jumpAssist?.ResumeAfterSkillConfirmation();
+            return waiting;
+        }
+
+        async Task<bool> TryStartStatusAsync(Func<Task<bool>> verifyBeforeInput)
+        {
+            if (preparedStatus is not { } candidate) return false;
+            preparedStatus = null;
+            return await RunWithJumpPauseAsync(jumpAssist, "semi_auto_in_combat_status", async () =>
+            {
+                var current = await RecheckStatusMaintenanceCandidateAsync(context, state, candidate,
+                    requireCooldownCalibrationForMaintenance).ConfigureAwait(false);
+                if (current is null) return false;
+                var handled = await StartStatusMaintenanceAsync(context, state, settings, maintenance, current.Rule, "status",
+                    maintenancePlayer!, current.BeforeStatuses, beforeMaintenanceKeyPress: null, current.Skill, current.IsChant,
+                    confirmAcrossTicks: true, verifyBeforeInput: verifyBeforeInput).ConfigureAwait(false);
+                if (handled && jumpAssist is not null &&
+                    state.CombatStatusAttempts.Values.FirstOrDefault(attempt => attempt.Awaiting) is { } pending)
+                    jumpAssist.PauseForSkillConfirmation(_timeProvider, pending.Confirmation.StartedTimestamp, pending.Confirmation.Duration);
+                return handled;
+            }).ConfigureAwait(false);
         }
 
         Task<bool> TryResourcesAsync(MaintenanceRuleRunTiming timing, bool includeAlways) =>
@@ -84,17 +104,10 @@ public sealed partial class SemiAutoCombatController
                         ensureTargetBeforeKeyPress: ensureHpMaintenanceTargetBeforeKeyPress)),
                     eligible: maintenancePlayer is not null &&
                         HasStatusMaintenanceRules(statusRules, MaintenanceRuleRunTiming.InCombat, true)),
-                Candidate(CombatSkillPriority.StatusConfirmation, async () =>
-                {
-                    var waiting = await ContinueCombatStatusMaintenanceAsync(context, state, maintenancePlayer, statusRules)
-                        .ConfigureAwait(false);
-                    if (!waiting) jumpAssist?.ResumeAfterSkillConfirmation();
-                    return waiting;
-                }),
                 Candidate(CombatSkillPriority.AlwaysMaintenance,
-                    () => RunWithJumpPauseAsync(jumpAssist, "semi_auto_maintenance", async () =>
-                        (includeAlwaysStatusMaintenance && await TryStatusAsync(MaintenanceRuleRunTiming.Always, true).ConfigureAwait(false)) ||
-                        await TryResourcesAsync(MaintenanceRuleRunTiming.Always, true).ConfigureAwait(false)), eligible: !spiritmaster)
+                    () => RunWithJumpPauseAsync(jumpAssist, "semi_auto_maintenance",
+                        () => TryResourcesAsync(MaintenanceRuleRunTiming.Always, true)),
+                    eligible: !spiritmaster && !waitingForStatusEffect)
             ], context.StopToken).ConfigureAwait(false))?.Id;
 
         // Non-pet maintenance keeps its early opportunity before the skill-bar setup and combat reads.
@@ -110,7 +123,7 @@ public sealed partial class SemiAutoCombatController
                     ? CombatSkillPriority.AlwaysMaintenance : (CombatSkillPriority?)null;
             if (early is not null)
             {
-                state.QuickbarSkills.YieldInputToPriority(preserveAttackWeave: early == CombatSkillPriority.StatusConfirmation);
+                state.QuickbarSkills.YieldInputToPriority();
                 return tick;
             }
         }
@@ -211,9 +224,9 @@ public sealed partial class SemiAutoCombatController
             state.QuickbarSkills.YieldInputToPriority();
             return tick;
         }
-        if (spiritmaster && await TryPriorityMaintenanceAsync().ConfigureAwait(false) is { } priorityMaintenance)
+        if (spiritmaster && await TryPriorityMaintenanceAsync().ConfigureAwait(false) is not null)
         {
-            state.QuickbarSkills.YieldInputToPriority(preserveAttackWeave: priorityMaintenance == CombatSkillPriority.StatusConfirmation);
+            state.QuickbarSkills.YieldInputToPriority();
             return tick;
         }
 
@@ -240,7 +253,7 @@ public sealed partial class SemiAutoCombatController
                     await PressOpeningAttackKeyIfNeededAsync(context, state, settings, target).ConfigureAwait(false);
                 if (handled) jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
                 return handled;
-            }, eligible: !state.QuickbarSkills.AttackWeave.IsWaiting),
+            }, eligible: !waitingForStatusEffect && !state.QuickbarSkills.AttackWeave.IsWaiting),
             Candidate(CombatSkillPriority.PetAction, async () =>
             {
                 spiritContext = await ReadSpiritmasterCombatContextAsync(context, target).ConfigureAwait(false);
@@ -250,25 +263,30 @@ public sealed partial class SemiAutoCombatController
                     return false;
                 jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
                 return true;
-            }, eligible: spiritmaster && !state.QuickbarSkills.AttackWeave.IsWaiting),
+            }, eligible: !waitingForStatusEffect && spiritmaster && !state.QuickbarSkills.AttackWeave.IsWaiting),
             Candidate(CombatSkillPriority.CombatMaintenance, () => RunWithJumpPauseAsync(jumpAssist,
-                "semi_auto_in_combat_maintenance", async () =>
-                    await TryStatusAsync(MaintenanceRuleRunTiming.InCombat, maintenancePlan.UsesSpiritmasterAutoLogic)
-                        .ConfigureAwait(false) ||
-                    await TryResourcesAsync(MaintenanceRuleRunTiming.InCombat, maintenancePlan.UsesSpiritmasterAutoLogic)
-                        .ConfigureAwait(false))),
+                "semi_auto_in_combat_maintenance",
+                () => TryResourcesAsync(MaintenanceRuleRunTiming.InCombat, spiritmaster)), eligible: !waitingForStatusEffect),
             Candidate(CombatSkillPriority.OpeningRetry,
                 () => TryRetryOpeningSkillAsync(context, state, settings, maintenancePlan, target, skills),
-                eligible: !plan.IsAdvancedMode)
+                eligible: !waitingForStatusEffect && !plan.IsAdvancedMode)
         ], context.StopToken).ConfigureAwait(false))?.Id;
         if (selected is not null)
         {
             state.QuickbarSkills.YieldInputToPriority(preserveAttackWeave: selected is
-                CombatSkillPriority.Opening or CombatSkillPriority.OpeningRetry or CombatSkillPriority.StatusConfirmation);
+                CombatSkillPriority.Opening or CombatSkillPriority.OpeningRetry);
             return tick;
         }
 
-        if (!plan.HasCombatActions && !state.QuickbarSkills.AttackWeave.IsWaiting)
+        if (statusAction is not null && !waitingForStatusEffect)
+        {
+            // Snapshot preparation happens once on the outer turn. Only the executor may commit input.
+            preparedStatus = await FindStatusMaintenanceCandidateAsync(context, state, maintenance, "status",
+                requireCooldownCalibrationForMaintenance, MaintenanceRuleRunTiming.InCombat,
+                includeAlwaysStatusMaintenance || spiritmaster, observePending: true).ConfigureAwait(false);
+            if (preparedStatus is null) statusAction = null;
+        }
+        if (!plan.HasCombatActions && !state.QuickbarSkills.AttackWeave.IsWaiting && statusAction is null)
             return Ms(settings.TargetIdleDelayMs, 200);
 
         jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
@@ -335,7 +353,8 @@ public sealed partial class SemiAutoCombatController
                 readSuppressedRootSkillIds: readSuppressedRootSkillIds,
                 onSkillPressed: onSkillPressed,
                 readSuppressedSkillIds: readSuppressedSkillIds,
-                yieldAfterCurrentAction: !plan.IsAdvancedMode && state.OpeningSkillRetries.IsReady(_timeProvider))
+                yieldAfterCurrentAction: !plan.IsAdvancedMode && state.OpeningSkillRetries.IsReady(_timeProvider),
+                priorityAction: statusAction)
                 .ConfigureAwait(false);
             if (state.QuickbarSkills.YieldToWorker || !state.QuickbarSkills.SupportsCombatState)
                 return delay;

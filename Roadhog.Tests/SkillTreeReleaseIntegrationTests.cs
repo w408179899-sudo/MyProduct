@@ -91,7 +91,7 @@ internal static class SkillTreeReleaseIntegrationTests
         var state = new SemiAutoCombatState();
         await controller.TickAsync(context, plan, state);
         Check(keyboard.Keys.Count > 0 && keyboard.Keys.All(key => key == "Alt+D1"), "missing chant runs existing maintenance before the new tree");
-        Check(api.SkillAvailabilityReadCount == 0, "maintenance tick does not concurrently run the new selector");
+        Check(api.SkillAvailabilityReadCount > 0, "combat maintenance obtains a guarded slot from the skill selector");
         Check(logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.status_key_pressed"), "existing chant effect confirmation preserved");
         keyboard.Keys.Clear();
         await controller.TickAsync(context, plan, state);

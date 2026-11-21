@@ -38,6 +38,29 @@ public sealed partial class SemiAutoCombatController
         return result == SkillConfirmation.Pending;
     }
 
+    private async Task<StatusMaintenanceCandidate?> RecheckStatusMaintenanceCandidateAsync(AccountWorkerContext context,
+        SemiAutoCombatState state, StatusMaintenanceCandidate candidate, bool requireCooldownCalibration)
+    {
+        var rule = candidate.Rule;
+        var skill = candidate.Skill;
+        var skillId = ResolveStatusMaintenanceSkillId(rule, skill);
+        var current = await ReadPlayerAbnormalStatusesAsync(context).ConfigureAwait(false);
+        if (ResolveKnownStatusMaintenanceAbnormalId(rule, skillId, state, current.Entries).Found ||
+            !state.ShouldPressMaintenanceKey(rule.Key, DateTimeOffset.Now, MaintenanceKeyRetryInterval, MaintenanceGlobalKeyInterval))
+            return null;
+
+        if (skill is not null)
+        {
+            var skills = await ReadMaintenanceSkillsAsync(context, new[] { (skill.SkillId, rule.SkillName) }).ConfigureAwait(false);
+            skill = skills.FirstOrDefault(item => item.SkillId == skillId);
+            if (skill is null ||
+                (requireCooldownCalibration && !state.HasCooldownTickCalibration && skill.CooldownEndTime != 0) ||
+                GetMaintenanceCooldownReadiness(skill, state) == SemiAutoSkillCooldownReadiness.CoolingDown)
+                return null;
+        }
+        return candidate with { Skill = skill, BeforeStatuses = current };
+    }
+
     private async Task<SkillConfirmation> PollStatusMaintenanceAsync(AccountWorkerContext context, SemiAutoCombatState state,
         StatusMaintenanceAttempt attempt)
     {
@@ -68,8 +91,20 @@ public sealed partial class SemiAutoCombatController
         fields["abnormalStatusId"] = confirmed.AbnormalId;
         fields["abnormalStatusSource"] = confirmed.Source;
         context.Logger.Info("semi_auto.maintenance.status_key_pressed", fields);
+        if (attempt.Confirmation.Clock is not null)
+            LogQueuedStatusSkill(context, "quickbar_skill.release.confirmed", attempt.SkillId, attempt.SkillName, attempt.Rule.Key);
         return true;
     }
+
+    private static void LogQueuedStatusSkill(AccountWorkerContext context, string eventName, uint skillId, string skillName, string key) =>
+        context.Logger.Info(eventName, new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["skillId"] = skillId,
+            ["skillName"] = skillName,
+            ["key"] = key,
+            ["source"] = "status_maintenance"
+        });
 
     private static void ExpireStatusMaintenance(AccountWorkerContext context, StatusMaintenanceAttempt attempt)
     {

@@ -1008,6 +1008,9 @@ public sealed partial class SemiAutoCombatController
         return SitMaintenanceContinuation.BlockTick;
     }
 
+    private sealed record StatusMaintenanceCandidate(StatusMaintenanceRuleConfig Rule, SkillSnapshot? Skill,
+        PlayerAbnormalStatusSnapshot BeforeStatuses, bool IsChant);
+
     private async Task<bool> TryPressStatusMaintenanceRuleAsync(
         AccountWorkerContext context,
         SemiAutoCombatState state,
@@ -1019,10 +1022,21 @@ public sealed partial class SemiAutoCombatController
         SemiAutoSkillPlan? plan = null,
         bool requireCooldownCalibrationForMaintenance = false,
         MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.Always,
-        bool includeAlwaysRules = true,
-        bool confirmAcrossTicks = false)
+        bool includeAlwaysRules = true)
     {
         _ = plan;
+        var candidate = await FindStatusMaintenanceCandidateAsync(context, state, maintenance, resource,
+            requireCooldownCalibrationForMaintenance, runTiming, includeAlwaysRules, observePending: false).ConfigureAwait(false);
+        return candidate is not null && await ExecuteStatusMaintenanceKeyRuleAsync(context, state, settings, maintenance,
+            candidate.Rule, resource, player, candidate.BeforeStatuses, beforeMaintenanceKeyPress, candidate.Skill,
+            candidate.IsChant).ConfigureAwait(false);
+    }
+
+    private async Task<StatusMaintenanceCandidate?> FindStatusMaintenanceCandidateAsync(
+        AccountWorkerContext context, SemiAutoCombatState state, MaintenanceScriptSettings maintenance, string resource,
+        bool requireCooldownCalibrationForMaintenance, MaintenanceRuleRunTiming runTiming, bool includeAlwaysRules,
+        bool observePending)
+    {
         var configuredRules = (maintenance.StatusMaintenanceRules ?? [])
             .Where(rule => !string.IsNullOrWhiteSpace(rule.Key) &&
                            HasStatusMaintenanceRuleSelection(rule) &&
@@ -1030,11 +1044,11 @@ public sealed partial class SemiAutoCombatController
             .ToArray();
         if (configuredRules.Length == 0)
         {
-            return false;
+            return null;
         }
 
         var abnormal = await ReadPlayerAbnormalStatusesAsync(context).ConfigureAwait(false);
-        if (confirmAcrossTicks && state.CombatStatusAttempts.Count != 0)
+        if (observePending && state.CombatStatusAttempts.Count != 0)
         {
             foreach (var rule in configuredRules)
                 if (state.CombatStatusAttempts.TryGetValue(rule, out var previous) && !previous.Awaiting)
@@ -1133,14 +1147,10 @@ public sealed partial class SemiAutoCombatController
             var petGuard = await CreatePetSkillGuardAsync(context, state, maintenanceSkill, rule.SkillId, rule.SkillName, rule.Key).ConfigureAwait(false);
             if (petGuard is not null && !await petGuard.CheckAsync().ConfigureAwait(false)) continue;
 
-            return confirmAcrossTicks
-                ? await StartStatusMaintenanceAsync(context, state, settings, maintenance, rule, resource, player,
-                    abnormal, beforeMaintenanceKeyPress, maintenanceSkill, isChantStatusMaintenance, true).ConfigureAwait(false)
-                : await ExecuteStatusMaintenanceKeyRuleAsync(context, state, settings, maintenance, rule, resource, player,
-                    abnormal, beforeMaintenanceKeyPress, maintenanceSkill, isChantStatusMaintenance).ConfigureAwait(false);
+            return new(rule, maintenanceSkill, abnormal, isChantStatusMaintenance);
         }
 
-        return false;
+        return null;
     }
 
     private async Task<bool> TryPressDpMaintenanceRuleAsync(
@@ -1249,7 +1259,8 @@ public sealed partial class SemiAutoCombatController
         Func<Task>? beforeMaintenanceKeyPress,
         SkillSnapshot? maintenanceSkill,
         bool isChantStatusMaintenance,
-        bool confirmAcrossTicks)
+        bool confirmAcrossTicks,
+        Func<Task<bool>>? verifyBeforeInput = null)
     {
         var petGuard = await CreatePetSkillGuardAsync(context, state, maintenanceSkill, rule.SkillId, rule.SkillName, rule.Key).ConfigureAwait(false);
         if (petGuard is not null && !await petGuard.CheckAsync().ConfigureAwait(false)) return false;
@@ -1257,6 +1268,7 @@ public sealed partial class SemiAutoCombatController
         {
             await beforeMaintenanceKeyPress().ConfigureAwait(false);
         }
+        if (verifyBeforeInput is not null && !await verifyBeforeInput().ConfigureAwait(false)) return false;
 
         if (!await EnsureStandingBeforeMaintenanceKeyAsync(
                     context,
@@ -1286,6 +1298,8 @@ public sealed partial class SemiAutoCombatController
             .Where(id => id != 0)
             .ToHashSet();
         var startedAt = DateTimeOffset.Now;
+        var skillId = ResolveStatusMaintenanceSkillId(rule, maintenanceSkill);
+        var skillName = maintenanceSkill?.Name ?? maintenanceSkill?.DisplayBaseName ?? rule.SkillName;
         var pressCount = maintenance.StatusMaintenancePressCount;
         var intervalMs = pressCount > 1 ? maintenance.StatusMaintenancePressIntervalMs : 0;
         var successfulPresses = 0;
@@ -1316,11 +1330,11 @@ public sealed partial class SemiAutoCombatController
 
             successfulPresses++;
             state.MarkMaintenanceKeyAttempted(rule.Key, pressedAt);
+            if (confirmAcrossTicks)
+                LogQueuedStatusSkill(context, "quickbar_skill.key.pressed", skillId, skillName, rule.Key);
         }
 
-        var attempt = new StatusMaintenanceAttempt(rule, resource,
-            ResolveStatusMaintenanceSkillId(rule, maintenanceSkill),
-            maintenanceSkill?.Name ?? maintenanceSkill?.DisplayBaseName ?? rule.SkillName,
+        var attempt = new StatusMaintenanceAttempt(rule, resource, skillId, skillName,
             player.EntityId, beforeIds, startedAt,
             new SkillConfirmationWindow(DateTimeOffset.Now, ResolveStatusMaintenanceConfirmWindow(isChantStatusMaintenance),
                 confirmAcrossTicks ? _timeProvider : null, _timeProvider.GetTimestamp()),

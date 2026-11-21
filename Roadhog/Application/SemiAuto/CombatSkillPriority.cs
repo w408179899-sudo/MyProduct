@@ -5,7 +5,6 @@ namespace Roadhog.Application.SemiAuto;
 internal enum CombatSkillPriority
 {
     HealthRecovery,
-    StatusConfirmation,
     AlwaysMaintenance,
     Opening,
     PetAction,

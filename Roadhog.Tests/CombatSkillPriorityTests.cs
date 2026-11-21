@@ -7,6 +7,7 @@ internal static class CombatSkillPriorityTests
 {
     private const uint ShieldId = 1390;
     private const string ShieldKey = "D4";
+    private const uint ReplacementAttackId = 910;
 
     public static async Task AttackYieldsAndResumesAsync()
     {
@@ -65,6 +66,84 @@ internal static class CombatSkillPriorityTests
             "an unavailable heal never takes the attack's input ownership");
     }
 
+    public static async Task ShieldUsesTheCombatReleaseSlotAsync()
+    {
+        using var f = await CreateAsync();
+        SetShield(f);
+        await f.TickAsync();
+        Check(f.State.QuickbarSkills.PendingAction?.Node.SkillId == AttackId, "the ordinary skill owns the active slot");
+
+        f.Api.PlayerAbnormalStatuses = PlayerAbnormalStatusSnapshot.Empty(f.Api.Player.EntityId);
+        await f.TickAsync();
+        Sequence(new[] { "D1" }, f.Keyboard.Keys, "a missing shield cannot send input over the unresolved attack");
+        Check(f.State.CombatStatusAttempts.Count == 0, "shield has not started its confirmation window");
+
+        Release(f, AttackId, 200);
+        f.Clock.Advance(80);
+        await f.TickAsync();
+        Sequence(new[] { "D1", ShieldKey }, f.Keyboard.Keys, "confirmed attack hands the next release slot to the shield");
+        var events = f.Logger.Entries.Where(entry =>
+            entry.EventName is "quickbar_skill.key.pressed" or "quickbar_skill.release.confirmed").ToArray();
+        Check(events.Length == 3 &&
+            events[1].EventName == "quickbar_skill.release.confirmed" && Equals(events[1].Fields["skillId"], AttackId) &&
+            events[2].EventName == "quickbar_skill.key.pressed" && Equals(events[2].Fields["skillId"], ShieldId),
+            "the same release trace orders attack confirmation before shield input");
+
+        f.Clock.Advance(300);
+        await f.TickAsync();
+        Sequence(new[] { "D1", ShieldKey }, f.Keyboard.Keys, "normal inputs wait while the shield is unconfirmed");
+        Check(!f.Logged("quickbar_skill.release.confirmed", "skillId", ShieldId), "pressing the shield alone cannot confirm it");
+
+        SetShield(f);
+        f.Clock.Advance(300);
+        await f.TickAsync();
+        Check(f.Logged("quickbar_skill.release.confirmed", "skillId", ShieldId), "the shared trace reports shield release only after the effect");
+    }
+
+    public static async Task ShieldCancelsWhenEffectArrivesBeforeHandoffAsync()
+    {
+        using var f = await CreateAsync();
+        f.Api.SkillAvailabilityRead = () =>
+        {
+            SetShield(f);
+            return f.Api.SkillAvailability;
+        };
+
+        await f.TickAsync();
+        Sequence(new[] { "D1" }, f.Keyboard.Keys, "a buff that appears after nomination yields its turn to the normal skill");
+        Check(f.State.CombatStatusAttempts.Count == 0, "no input means no new confirmation attempt");
+    }
+
+    public static async Task ShieldWinsTheSlotOfTheNextOrdinaryRootAsync()
+    {
+        using var f = await CreateAsync(includeReplacement: true);
+        SetShield(f);
+        await f.TickAsync();
+        var original = f.State.QuickbarSkills.PendingAction;
+        Check(original?.Node.SkillId == AttackId, "A was sent first and still awaits evidence");
+
+        f.Clock.Advance(80);
+        f.Api.PlayerAbnormalStatuses = PlayerAbnormalStatusSnapshot.Empty(f.Api.Player.EntityId);
+        f.Api.SkillAvailability = f.Api.SkillAvailability with
+        {
+            UnsupportedSkillIds = [],
+            Slots = [new(SkillQuickbar.Main, 4, 21, ReplacementAttackId, ReplacementAttackId, true)]
+        };
+        await f.TickAsync();
+        Sequence(new[] { "D1", ShieldKey }, f.Keyboard.Keys, "the shield takes the slot the selector would give to the next ordinary root");
+        Check(f.State.QuickbarSkills.PendingAction?.AttemptId == original!.AttemptId,
+            "the original ordinary attempt remains available for later evidence or retry");
+
+        SetShield(f);
+        f.Clock.Advance(300);
+        f.Api.SkillAvailability = f.Api.SkillAvailability with { UnsupportedSkillIds = [AttackId], Slots = [] };
+        await f.TickAsync();
+        Sequence(new[] { "D1", ShieldKey, "D1" }, f.Keyboard.Keys, "the original attack can resume once ready again");
+        Check(f.State.QuickbarSkills.PendingAction?.AttemptId == original.AttemptId &&
+            f.Logged("quickbar_skill.release.confirmed", "skillId", ShieldId),
+            "resumption preserves the original baseline after the shield effect");
+    }
+
     public static async Task ShieldWaitsThroughHealAsync()
     {
         using var f = await StartShieldAndHealAsync();
@@ -76,6 +155,7 @@ internal static class CombatSkillPriorityTests
             "timeout retains the shield request while the character can fight");
 
         MakeShieldRetryEligible(f);
+        Release(f, AttackId, 200);
         f.Keyboard.AfterPress = key =>
         {
             if (key == ShieldKey) SetShield(f);
@@ -149,7 +229,7 @@ internal static class CombatSkillPriorityTests
         }
     }
 
-    private static async Task<SharedSkillAuditFixture> CreateAsync()
+    private static async Task<SharedSkillAuditFixture> CreateAsync(bool includeReplacement = false)
     {
         var f = new SharedSkillAuditFixture();
         f.Settings.Skills.SpiritmasterAutoSkillLogicEnabled = false;
@@ -163,6 +243,21 @@ internal static class CombatSkillPriorityTests
         {
             Slots = f.Api.Quickbar.Slots.Append(new(SkillQuickbar.Main, 3, 21, ShieldId)).ToArray()
         };
+        if (includeReplacement)
+        {
+            f.Settings.QuickbarSkills.ExecutionTree.Add(new()
+                { SkillId = ReplacementAttackId, Name = "replacement", BaseName = "replacement" });
+            f.Api.Skills = f.Api.Skills.Append(Skill(ReplacementAttackId, "replacement", 1)).ToArray();
+            f.Api.Quickbar = f.Api.Quickbar with
+            {
+                Slots = f.Api.Quickbar.Slots.Append(new(SkillQuickbar.Main, 4, 21, ReplacementAttackId)).ToArray()
+            };
+            f.Api.SkillAvailability = f.Api.SkillAvailability with
+            {
+                BindingSlots = f.Api.SkillAvailability.BindingSlots!.Append(
+                    new(SkillQuickbar.Main, 4, 21, ReplacementAttackId, ReplacementAttackId)).ToArray()
+            };
+        }
         f.Api.PlayerAbnormalStatuses = PlayerAbnormalStatusSnapshot.Empty(f.Api.Player.EntityId);
         f.Keyboard.AfterPress = key =>
         {

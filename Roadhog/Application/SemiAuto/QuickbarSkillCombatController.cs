@@ -7,6 +7,10 @@ using Roadhog.Core.Model;
 
 namespace Roadhog.Application.SemiAuto;
 
+public sealed record QuickbarPriorityAction(
+    Func<Task<bool>> ContinueAsync,
+    Func<Func<Task<bool>>, Task<bool>> TryStartAsync);
+
 /// <summary>Serial, bounded attack-skill executor. Maintenance remains in the existing combat controller.</summary>
 public sealed partial class QuickbarSkillCombatController
 {
@@ -32,7 +36,8 @@ public sealed partial class QuickbarSkillCombatController
         Func<Task<IReadOnlySet<uint>>>? readSuppressedRootSkillIds = null,
         Func<QuickbarSkillNode, Task>? onSkillPressed = null,
         Func<Task<IReadOnlySet<uint>>>? readSuppressedSkillIds = null,
-        bool yieldAfterCurrentAction = false)
+        bool yieldAfterCurrentAction = false,
+        QuickbarPriorityAction? priorityAction = null)
     {
         if (context.Snapshots is not ISkillAvailabilitySnapshotReader availability)
             throw new InvalidOperationException("技能栏可用模式需要技能可用状态读取接口。");
@@ -41,7 +46,7 @@ public sealed partial class QuickbarSkillCombatController
             context.Config.ScriptSettings?.SemiAuto ?? new(), context.Logger, context.StopToken,
             readTargetBeforePress ?? (async () => (await context.Snapshots.ReadLockedTargetAsync().ConfigureAwait(false)).Value),
             ordinaryReadiness, cooldownReadiness, allowCombatSnapshot, availabilityCooldownReadiness, isCooldownClockCalibrated,
-            readSuppressedRootSkillIds, onSkillPressed, readSuppressedSkillIds, yieldAfterCurrentAction);
+            readSuppressedRootSkillIds, onSkillPressed, readSuppressedSkillIds, yieldAfterCurrentAction, priorityAction);
     }
 
     /// <summary>Narrow mockable orchestration seam; every read returns an official published value.</summary>
@@ -63,7 +68,8 @@ public sealed partial class QuickbarSkillCombatController
         Func<Task<IReadOnlySet<uint>>>? readSuppressedRootSkillIds = null,
         Func<QuickbarSkillNode, Task>? onSkillPressed = null,
         Func<Task<IReadOnlySet<uint>>>? readSuppressedSkillIds = null,
-        bool yieldAfterCurrentAction = false)
+        bool yieldAfterCurrentAction = false,
+        QuickbarPriorityAction? priorityAction = null)
     {
         var tickStarted = _timeProvider.GetTimestamp();
         var attemptTickStartedAt = _timeProvider.GetUtcNow();
@@ -135,7 +141,24 @@ public sealed partial class QuickbarSkillCombatController
                 state.Reset();
                 LogTransitionChange(previous);
                 state.YieldToWorker = true;
+                if (target.IsMonsterAlive && priorityAction is not null &&
+                    !await priorityAction.ContinueAsync().ConfigureAwait(false))
+                    await priorityAction.TryStartAsync(ValidateTargetBeforePressAsync).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
                 return RemainingDelay();
+            }
+
+            async Task<bool> ValidateTargetBeforePressAsync()
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (readTargetBeforePress is null) return true;
+                var current = await readTargetBeforePress().ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (SameTarget(target, current)) return true;
+                state.Reset();
+                state.YieldToWorker = true;
+                logger?.Info("quickbar_skill.target.changed_before_press");
+                return false;
             }
 
             bool Observe(SkillAvailabilitySnapshot value)
@@ -179,6 +202,11 @@ public sealed partial class QuickbarSkillCombatController
             state.LastAvailabilityVersion = published.Version;
             var availability = published.Value;
             if (!Observe(availability)) return RemainingDelay();
+            if (priorityAction is not null && await priorityAction.ContinueAsync().ConfigureAwait(false))
+            {
+                state.YieldToWorker = true;
+                return RemainingDelay();
+            }
             if (settings.AttackWeaveEnabled)
                 ObserveAttackWeaveCooldowns(state, Array.Empty<SkillSnapshot>(), _timeProvider, settings, logger);
             if (settings.AttackWeaveEnabled && state.AttackWeave.IsWaiting &&
@@ -190,7 +218,8 @@ public sealed partial class QuickbarSkillCombatController
                 cancellationToken.ThrowIfCancellationRequested();
                 ObserveAttackWeaveCooldowns(state, waitingSkills, _timeProvider, settings, logger);
             }
-            if (settings.AttackWeaveEnabled && await HandleAttackWeaveAsync(state, target, availability, availabilityReader, settings,
+            if (priorityAction is null && settings.AttackWeaveEnabled &&
+                await HandleAttackWeaveAsync(state, target, availability, availabilityReader, settings,
                     Observe, readTargetBeforePress, logger, cancellationToken).ConfigureAwait(false))
                 return RemainingDelay();
 
@@ -388,11 +417,39 @@ public sealed partial class QuickbarSkillCombatController
                 return decision;
             }
 
+            bool CanOfferPrioritySlot(QuickbarSkillReleaseDecision next) =>
+                state.ChainTransition is null &&
+                (state.PendingAction is null ||
+                    (next.Kind == QuickbarSkillDecisionKind.PressRoot && next.Node is { } replacement &&
+                     replacement.NodeKey != state.PendingAction.Node.NodeKey)) &&
+                next.Kind is not (QuickbarSkillDecisionKind.PressChain or QuickbarSkillDecisionKind.WaitForChain);
+
+            async ValueTask<bool> TryPriorityInputAsync(QuickbarSkillReleaseDecision next)
+            {
+                if (priorityAction is null || !CanOfferPrioritySlot(next)) return false;
+                var handled = await priorityAction.TryStartAsync(async () =>
+                {
+                    if (availability.CombatState is null && !await ValidateTargetBeforePressAsync().ConfigureAwait(false))
+                        return false;
+                    var guard = await availabilityReader.ReadSkillAvailabilityAsync(
+                        state.LastAvailabilityVersion, cancellationToken).ConfigureAwait(false);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    state.LastAvailabilityVersion = guard.Version;
+                    availability = guard.Value;
+                    if (!Observe(availability)) return false;
+                    RecomputeEligibility();
+                    return CanOfferPrioritySlot(Select());
+                }).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!handled) return state.YieldToWorker;
+                state.YieldInputToPriority();
+                state.YieldToWorker = true;
+                return true;
+            }
+
             bool YieldAfterCurrentAction(QuickbarSkillReleaseDecision next)
             {
-                if (!yieldAfterCurrentAction || state.PendingAction is not null || state.ChainTransition is not null ||
-                    next.Kind is QuickbarSkillDecisionKind.PressChain or QuickbarSkillDecisionKind.WaitForChain)
-                    return false;
+                if (!yieldAfterCurrentAction || state.PendingAction is not null || !CanOfferPrioritySlot(next)) return false;
                 state.YieldToWorker = true;
                 return true;
             }
@@ -411,11 +468,13 @@ public sealed partial class QuickbarSkillCombatController
             else if (settings.AttackWeaveEnabled && state.AttackWeave.HasPendingAttempts)
                 await Read(state.AttackWeave.PendingSkillIds, false).ConfigureAwait(false);
             await ObserveTransition().ConfigureAwait(false);
-            if (settings.AttackWeaveEnabled && await HandleAttackWeaveAsync(state, target, availability, availabilityReader, settings,
+            if (priorityAction is null && settings.AttackWeaveEnabled &&
+                await HandleAttackWeaveAsync(state, target, availability, availabilityReader, settings,
                     Observe, readTargetBeforePress, logger, cancellationToken).ConfigureAwait(false))
                 return RemainingDelay();
             await RefreshRootSuppression().ConfigureAwait(false);
             var decision = await SelectWithRoots().ConfigureAwait(false);
+            if (priorityAction is not null && await TryPriorityInputAsync(decision).ConfigureAwait(false)) return RemainingDelay();
             if (settings.AttackWeaveEnabled && await HandleAttackWeaveAsync(state, target, availability, availabilityReader, settings,
                     Observe, readTargetBeforePress, logger, cancellationToken).ConfigureAwait(false))
                 return RemainingDelay();
@@ -462,7 +521,8 @@ public sealed partial class QuickbarSkillCombatController
                         Observe, readTargetBeforePress, logger, cancellationToken).ConfigureAwait(false))
                     return RemainingDelay();
                 var rechecked = Select();
-                if (YieldAfterCurrentAction(rechecked)) return RemainingDelay();
+                if ((priorityAction is not null && await TryPriorityInputAsync(rechecked).ConfigureAwait(false)) ||
+                    YieldAfterCurrentAction(rechecked)) return RemainingDelay();
                 if (rechecked.Kind is not (QuickbarSkillDecisionKind.PressChain or QuickbarSkillDecisionKind.WaitForChain) && ordinaryReadiness is not null && !selectingRoots)
                     rechecked = await SelectWithRoots().ConfigureAwait(false);
                 if (settings.AttackWeaveEnabled && await HandleAttackWeaveAsync(state, target, availability, availabilityReader, settings,
@@ -503,6 +563,8 @@ public sealed partial class QuickbarSkillCombatController
                     RecomputeEligibility();
                     ObservePending();
                     rechecked = Select();
+                    if ((priorityAction is not null && await TryPriorityInputAsync(rechecked).ConfigureAwait(false)) ||
+                        YieldAfterCurrentAction(rechecked)) return RemainingDelay();
                     if (rechecked.Node?.NodeKey != node.NodeKey || rechecked.Kind != decision.Kind)
                     {
                         decision = rechecked;
