@@ -5,7 +5,7 @@ namespace Roadhog.Core.Radar;
 public static class RadarNavigationGraphBuilder
 {
     // Bump whenever point generation or path intersection semantics change.
-    public const int CurrentVersion = 3;
+    public const int CurrentVersion = 4;
     public const double ExtensionMeters = 1.7D;
     public const double MinimumExtensionMeters = 0.1D;
     public const double MaximumExtensionMeters = 100.0D;
@@ -78,16 +78,17 @@ public static class RadarNavigationGraphBuilder
             for (var index = 0; index < obstacles.Count; index++)
             {
                 if (index == ownIndex) continue;
-                if (RadarGeometry.TryRayIntersectionDistance(endpoint, direction, obstacles[index], out var distance))
+                // Shared endpoints are at the ray origin. Only hits ahead shorten the extension.
+                if (RadarGeometry.TryRayIntersectionDistance(endpoint, direction, obstacles[index], out var distance) &&
+                    distance > RadarGeometry.CoordinateTolerance)
                     nearest = Math.Min(nearest, distance);
             }
-            // A shared/intersecting endpoint has no outward gap under the agreed rule.
-            if (nearest <= RadarGeometry.CoordinateTolerance) return;
             var extension = nearest <= extensionMeters + RadarGeometry.CoordinateTolerance
                 ? nearest / 2.0D
                 : extensionMeters;
             var point = new RadarPoint(endpoint.X + direction.X * extension, endpoint.Y + direction.Y * extension);
-            if (RadarGeometry.IsPathClear(point, point, obstacles) && unique.Add(point)) points.Add(point);
+            // An extension inside a collinear wall still contributes a point. Visibility checks leave it disconnected.
+            if (unique.Add(point)) points.Add(point);
         }
     }
 

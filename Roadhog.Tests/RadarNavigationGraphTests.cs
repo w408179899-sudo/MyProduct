@@ -33,17 +33,48 @@ internal static class RadarNavigationGraphTests
         }
         var collinear = Build(Wall(0, 0, 4, 0), Wall(-3, 0, -0.002, 0));
         Check(collinear.Points.Contains(new RadarPoint(-0.001, 0)), "collinear obstruction must shrink extension");
+        var shared = Build(Wall(0, 0, 4, 0), Wall(0, 0, 0, 4), Wall(-1, -1, -1, 1));
+        Check(shared.Points.Contains(new RadarPoint(-0.5, 0)), "a shared endpoint must not hide the next obstruction");
+        AssertGraphClear(shared);
         var behind = Build(Wall(0, 0, 4, 0), Wall(1, -1, 1, 1));
         Check(behind.Points.Contains(new RadarPoint(-1.7, 0)), "obstacle behind the ray must not shorten it");
         return Task.CompletedTask;
     }
 
-    public static Task SharedEndpointsAndZeroLengthDoNotInventPassagesAsync()
+    public static Task SharedEndpointsGenerateDetourPointsAsync()
     {
-        var walls = new[] { Wall(0, 0, 4, 0), Wall(4, 0, 4, 4), Wall(20, 20, 20, 20) };
-        var graph = RadarNavigationGraphBuilder.Prepare(walls);
-        Check(graph.Points.Count == 2, "shared endpoint has zero gap, degenerate segment has no direction");
+        var graph = Build(Wall(0, 0, 4, 0), Wall(4, 0, 4, 4), Wall(20, 20, 20, 20));
+        var horizontalExtension = new RadarPoint(5.7, 0);
+        var verticalExtension = new RadarPoint(4, -1.7);
+        Check(graph.Points.Count == 4, "each nonzero segment must contribute two points");
+        Check(graph.Points.Contains(horizontalExtension) && graph.Points.Contains(verticalExtension),
+            "both segments must extend independently away from their shared corner");
         AssertGraphClear(graph);
+
+        var route = Plan(graph, new RadarPoint(2, -1), new RadarPoint(5, 2));
+        Check(route.Success && !route.Direct, "the wall corner should require a detour");
+        Check(route.Points.Contains(horizontalExtension) || route.Points.Contains(verticalExtension),
+            "the shortest detour should use an extension at the shared corner");
+        AssertRouteClear(route, graph.Obstacles);
+
+        var openChain = Build(Wall(0, 3, 2, 0), Wall(2, 0, 8, 0), Wall(8, 0, 11, 4),
+            Wall(11, 4, 8, 8), Wall(8, 8, 3, 9));
+        Check(openChain.Points.Count == 10, "five joined walls must generate ten distinct extension points");
+        AssertGraphClear(openChain);
+        return Task.CompletedTask;
+    }
+
+    public static Task CollinearSharedEndpointPointsOnWallsStayDisconnectedAsync()
+    {
+        var graph = Build(Wall(0, 0, 4, 0), Wall(4, 0, 8, 0));
+        Check(graph.Points.Count == 4, "collinear segments must also contribute both endpoint extensions");
+        var blocked = graph.Points.Where(point => !RadarGeometry.IsPathClear(point, point, graph.Obstacles)).ToArray();
+        Check(blocked.Length == 2 && graph.EdgeCount == 0, "points on the continuous wall must have no edges");
+
+        var route = Plan(graph, new RadarPoint(4, -1), new RadarPoint(4, 1));
+        Check(route.Success && !route.Direct, "the route must go around an open end of the continuous wall");
+        Check(!route.Points.Any(blocked.Contains), "A* must not use the points that lie on the wall");
+        AssertRouteClear(route, graph.Obstacles);
         return Task.CompletedTask;
     }
 
