@@ -153,17 +153,6 @@ public sealed partial class QuickbarSkillCombatController
                     logger?.Info("quickbar_skill.combat.yield");
                     return false;
                 }
-                if (value.CombatState is { } maintenanceCombat && allowCombatSnapshot?.Invoke(maintenanceCombat) == false)
-                {
-                    var previous = state.ChainTransition;
-                    // Maintenance owns input but does not make an already accepted,
-                    // still-lit chain opportunity a new opportunity.
-                    state.CancelInputAttemptsForHandoff();
-                    LogTransitionChange(previous);
-                    state.YieldToWorker = true;
-                    logger?.Info("quickbar_skill.combat.yield");
-                    return false;
-                }
                 var previousTransition = state.ChainTransition;
                 var scopeChanged = state.ObserveScope(target, value);
                 LogTransitionChange(previousTransition);
@@ -172,6 +161,13 @@ public sealed partial class QuickbarSkillCombatController
                     if (value.Page != plan.Page) state.AttackWeave.Reset();
                     state.YieldToWorker = true;
                     logger?.Info("quickbar_skill.scope.changed");
+                    return false;
+                }
+                if (value.CombatState is { } maintenanceCombat && allowCombatSnapshot?.Invoke(maintenanceCombat) == false)
+                {
+                    state.YieldInputToPriority();
+                    state.YieldToWorker = true;
+                    logger?.Info("quickbar_skill.combat.yield");
                     return false;
                 }
                 return true;
@@ -273,6 +269,8 @@ public sealed partial class QuickbarSkillCombatController
             void ObservePending()
             {
                 ObserveClockCalibration();
+                if (state.ObserveSuspendedRelease(availability) is { } released)
+                    logger?.Info("quickbar_skill.release.confirmed", Fields(released.Node));
                 var previous = state.ChainTransition;
                 state.ObserveChainTransition(availability, _timeProvider.GetUtcNow());
                 LogTransitionChange(previous);
@@ -399,10 +397,16 @@ public sealed partial class QuickbarSkillCombatController
                 return true;
             }
 
+            state.TryResumeSuspendedAction();
             if (state.PendingAction is { } pending)
             {
                 await Read(new[] { pending.Node.SkillId }, false).ConfigureAwait(false);
                 ObservePending();
+                if (state.TryResumeSuspendedAction())
+                {
+                    await Read(new[] { state.PendingAction!.Node.SkillId }, false).ConfigureAwait(false);
+                    ObservePending();
+                }
             }
             else if (settings.AttackWeaveEnabled && state.AttackWeave.HasPendingAttempts)
                 await Read(state.AttackWeave.PendingSkillIds, false).ConfigureAwait(false);
@@ -513,7 +517,7 @@ public sealed partial class QuickbarSkillCombatController
                     TimeSpan.FromMilliseconds(Math.Clamp(settings.ConfirmTimeoutMs, (int)MinimumConfirmationTimeout.TotalMilliseconds, 30000));
                 var previousTransition = state.ChainTransition;
                 state.BeginAction(node, observedSkills.GetValueOrDefault(node.SkillId), availability, _timeProvider.GetUtcNow(), timeout,
-                    attemptTickStartedAt, _timeProvider, isBootstrap, tickStarted);
+                    attemptTickStartedAt, _timeProvider, isBootstrap, tickStarted, decision.TakesPriority);
                 LogTransitionChange(previousTransition);
                 if (firstBootstrapAttempt)
                     logger?.Info("quickbar_skill.clock.bootstrap.candidate.started", new Dictionary<string, object?>

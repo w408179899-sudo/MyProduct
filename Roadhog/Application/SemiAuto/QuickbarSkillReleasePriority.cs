@@ -7,6 +7,7 @@ public enum QuickbarSkillDecisionKind { None, WaitForChain, PressRoot, PressChai
 public sealed record QuickbarSkillReleaseDecision(QuickbarSkillDecisionKind Kind, QuickbarSkillNode? Node = null)
 {
     public static QuickbarSkillReleaseDecision None { get; } = new(QuickbarSkillDecisionKind.None);
+    internal bool TakesPriority { get; init; }
 }
 
 /// <summary>
@@ -44,7 +45,8 @@ public static class QuickbarSkillReleasePriority
                 coolingSkillIds?.Contains(node.SkillId) != true && suppressedSkillIds?.Contains(node.SkillId) != true &&
                 (node.NodeKey.Contains('/') || suppressedRootSkillIds?.Contains(node.SkillId) != true);
             QuickbarSkillReleaseDecision PressSpecial(QuickbarSkillNode node) =>
-                new(node.NodeKey.Contains('/') ? QuickbarSkillDecisionKind.PressChain : QuickbarSkillDecisionKind.PressRoot, node);
+                new(node.NodeKey.Contains('/') ? QuickbarSkillDecisionKind.PressChain : QuickbarSkillDecisionKind.PressRoot, node)
+                { TakesPriority = true };
 
             // An inserted opportunity keeps its first confirmation baseline and
             // 80ms retry cadence, even while the original continuation stays lit.

@@ -19,6 +19,7 @@ public sealed class CombatJumpAssistSession : IAsyncDisposable
     private readonly TimeSpan _cooldownPollInterval;
     private readonly TimeSpan _keyHoldDuration;
     private readonly HashSet<string> _pauseReasons = new(StringComparer.Ordinal);
+    private (TimeProvider Clock, long Started, TimeSpan Duration)? _skillConfirmationPause;
 
     private CancellationTokenSource? _sessionCancellation;
     private Task? _sessionTask;
@@ -79,7 +80,7 @@ public sealed class CombatJumpAssistSession : IAsyncDisposable
         {
             lock (_syncRoot)
             {
-                return _pauseReasons.Count > 0;
+                return IsPausedLocked();
             }
         }
     }
@@ -429,7 +430,7 @@ public sealed class CombatJumpAssistSession : IAsyncDisposable
         lock (_syncRoot)
         {
             changed = _pauseReasons.Remove(reason);
-            if (changed && _pauseReasons.Count == 0)
+            if (changed && !IsPausedLocked())
             {
                 TryWakeSessionLocked();
             }
@@ -444,6 +445,24 @@ public sealed class CombatJumpAssistSession : IAsyncDisposable
             });
         }
     }
+
+    internal void PauseForSkillConfirmation(TimeProvider clock, long started, TimeSpan duration)
+    {
+        lock (_syncRoot) _skillConfirmationPause = (clock, started, duration);
+    }
+
+    internal void ResumeAfterSkillConfirmation()
+    {
+        lock (_syncRoot)
+        {
+            if (_skillConfirmationPause is null) return;
+            _skillConfirmationPause = null;
+            if (!IsPausedLocked()) TryWakeSessionLocked();
+        }
+    }
+
+    private bool IsPausedLocked() => _pauseReasons.Count > 0 ||
+        (_skillConfirmationPause is { } pause && pause.Clock.GetElapsedTime(pause.Started) < pause.Duration);
 
     public async Task WaitForTeamCooldownObservationAsync()
     {
@@ -472,6 +491,7 @@ public sealed class CombatJumpAssistSession : IAsyncDisposable
             _teamJumpTargetActivated = false;
             _pendingTeamJumpTargetServerObjectId = 0;
             _pauseReasons.Clear();
+            _skillConfirmationPause = null;
         }
 
         await StopCurrentSessionAsync(reason).ConfigureAwait(false);
@@ -739,7 +759,7 @@ public sealed class CombatJumpAssistSession : IAsyncDisposable
             requestedTeamTargetServerObjectId = 0;
             if (_generation != generation ||
                 _mode != mode ||
-                _pauseReasons.Count > 0)
+                IsPausedLocked())
             {
                 return false;
             }

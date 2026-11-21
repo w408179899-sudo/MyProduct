@@ -297,8 +297,12 @@ internal static class QuickbarSkillChainHandoffTests
         var dueGuard = await WaitingFixture();
         await dueGuard.TickAt(160, allowCombat: _ => false);
         Check(dueGuard.Keyboard.SkillIds.SequenceEqual(new uint[] { 11 }) && dueGuard.State.YieldToWorker &&
-              dueGuard.State.ChainTransition is null,
-            "a newly due maintenance guard interrupts the waiting poll before input");
+              dueGuard.State.ChainTransition is not null,
+            "a newly due maintenance guard yields before input and preserves the original chain window");
+        dueGuard.Reader.Value = Bar(effective: 14, canUse: true, last: 11, time: 1100);
+        await dueGuard.TickAt(240);
+        Check(dueGuard.Keyboard.SkillIds.SequenceEqual(new uint[] { 11, 14 }),
+            "an open continuation can resume when no other release has invalidated the chain");
     }
 
     public static async Task CancellationResetAsync()

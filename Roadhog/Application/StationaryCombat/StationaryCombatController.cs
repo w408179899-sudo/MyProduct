@@ -449,7 +449,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         context.RuntimeStates.ClearWarning(context.Config.AccountName);
         if (player.IsDead)
         {
-            semiAutoState.ResetAttackWeaveStates();
+            semiAutoState.ResetCombatSkillActions();
         }
 
         if (player.IsDead && state.TopLevelState != StationaryCombatTopLevelState.DeathRecovery)

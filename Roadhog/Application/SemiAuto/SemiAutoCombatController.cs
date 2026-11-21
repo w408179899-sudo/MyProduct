@@ -7,6 +7,7 @@ using Roadhog.Core.Common;
 using Roadhog.Core.Diagnostics;
 using Roadhog.Core.Input;
 using Roadhog.Core.Model;
+using SkillScheduling;
 
 namespace Roadhog.Application.SemiAuto;
 
@@ -121,8 +122,18 @@ public sealed partial class SemiAutoCombatController
     {
         NormalizeCombatSettings(context);
         plan = plan.ToSharedPlan(context.Config.ScriptSettings!.Skills);
-        return await TickQuickbarSkillsAsync(context, plan, state, requireCooldownCalibrationForMaintenance,
-            jumpAssist, ensureHpMaintenanceTargetBeforeKeyPress, suppressSpiritmasterPetSummon, expectedTarget).ConfigureAwait(false);
+        try
+        {
+            context.StopToken.ThrowIfCancellationRequested();
+            return await TickQuickbarSkillsAsync(context, plan, state, requireCooldownCalibrationForMaintenance,
+                jumpAssist, ensureHpMaintenanceTargetBeforeKeyPress, suppressSpiritmasterPetSummon, expectedTarget).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (context.StopToken.IsCancellationRequested)
+        {
+            state.ResetCombatSkillActions();
+            jumpAssist?.ResumeAfterSkillConfirmation();
+            throw;
+        }
     }
 
     private static void NormalizeCombatSettings(AccountWorkerContext context)
@@ -1008,7 +1019,8 @@ public sealed partial class SemiAutoCombatController
         SemiAutoSkillPlan? plan = null,
         bool requireCooldownCalibrationForMaintenance = false,
         MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.Always,
-        bool includeAlwaysRules = true)
+        bool includeAlwaysRules = true,
+        bool confirmAcrossTicks = false)
     {
         _ = plan;
         var configuredRules = (maintenance.StatusMaintenanceRules ?? [])
@@ -1022,6 +1034,14 @@ public sealed partial class SemiAutoCombatController
         }
 
         var abnormal = await ReadPlayerAbnormalStatusesAsync(context).ConfigureAwait(false);
+        if (confirmAcrossTicks && state.CombatStatusAttempts.Count != 0)
+        {
+            foreach (var rule in configuredRules)
+                if (state.CombatStatusAttempts.TryGetValue(rule, out var previous) && !previous.Awaiting)
+                    ObserveStatusMaintenance(context, state, previous, abnormal);
+            // An eligible unfinished rule wins over a fresh rule at the same priority.
+            configuredRules = configuredRules.OrderByDescending(state.CombatStatusAttempts.ContainsKey).ToArray();
+        }
         IReadOnlyList<SkillSnapshot>? skills = null;
         foreach (var rule in configuredRules)
         {
@@ -1113,19 +1133,11 @@ public sealed partial class SemiAutoCombatController
             var petGuard = await CreatePetSkillGuardAsync(context, state, maintenanceSkill, rule.SkillId, rule.SkillName, rule.Key).ConfigureAwait(false);
             if (petGuard is not null && !await petGuard.CheckAsync().ConfigureAwait(false)) continue;
 
-            return await ExecuteStatusMaintenanceKeyRuleAsync(
-                    context,
-                    state,
-                    settings,
-                    maintenance,
-                    rule,
-                    resource,
-                    player,
-                    abnormal,
-                    beforeMaintenanceKeyPress,
-                    maintenanceSkill,
-                    isChantStatusMaintenance)
-                .ConfigureAwait(false);
+            return confirmAcrossTicks
+                ? await StartStatusMaintenanceAsync(context, state, settings, maintenance, rule, resource, player,
+                    abnormal, beforeMaintenanceKeyPress, maintenanceSkill, isChantStatusMaintenance, true).ConfigureAwait(false)
+                : await ExecuteStatusMaintenanceKeyRuleAsync(context, state, settings, maintenance, rule, resource, player,
+                    abnormal, beforeMaintenanceKeyPress, maintenanceSkill, isChantStatusMaintenance).ConfigureAwait(false);
         }
 
         return false;
@@ -1217,7 +1229,15 @@ public sealed partial class SemiAutoCombatController
         return false;
     }
 
-    private async Task<bool> ExecuteStatusMaintenanceKeyRuleAsync(
+    private Task<bool> ExecuteStatusMaintenanceKeyRuleAsync(
+        AccountWorkerContext context, SemiAutoCombatState state, SemiAutoScriptSettings settings,
+        MaintenanceScriptSettings maintenance, StatusMaintenanceRuleConfig rule, string resource,
+        PlayerSnapshot player, PlayerAbnormalStatusSnapshot beforeStatuses, Func<Task>? beforeMaintenanceKeyPress,
+        SkillSnapshot? maintenanceSkill, bool isChantStatusMaintenance) =>
+        StartStatusMaintenanceAsync(context, state, settings, maintenance, rule, resource, player, beforeStatuses,
+            beforeMaintenanceKeyPress, maintenanceSkill, isChantStatusMaintenance, confirmAcrossTicks: false);
+
+    private async Task<bool> StartStatusMaintenanceAsync(
         AccountWorkerContext context,
         SemiAutoCombatState state,
         SemiAutoScriptSettings settings,
@@ -1228,7 +1248,8 @@ public sealed partial class SemiAutoCombatController
         PlayerAbnormalStatusSnapshot beforeStatuses,
         Func<Task>? beforeMaintenanceKeyPress,
         SkillSnapshot? maintenanceSkill,
-        bool isChantStatusMaintenance)
+        bool isChantStatusMaintenance,
+        bool confirmAcrossTicks)
     {
         var petGuard = await CreatePetSkillGuardAsync(context, state, maintenanceSkill, rule.SkillId, rule.SkillName, rule.Key).ConfigureAwait(false);
         if (petGuard is not null && !await petGuard.CheckAsync().ConfigureAwait(false)) return false;
@@ -1267,6 +1288,7 @@ public sealed partial class SemiAutoCombatController
         var startedAt = DateTimeOffset.Now;
         var pressCount = maintenance.StatusMaintenancePressCount;
         var intervalMs = pressCount > 1 ? maintenance.StatusMaintenancePressIntervalMs : 0;
+        var successfulPresses = 0;
         for (var pressIndex = 0; pressIndex < pressCount; pressIndex++)
         {
             if (pressIndex > 0 && intervalMs > 0)
@@ -1277,7 +1299,8 @@ public sealed partial class SemiAutoCombatController
             context.StopToken.ThrowIfCancellationRequested();
             if (petGuard is not null && !await petGuard.CheckAsync().ConfigureAwait(false))
             {
-                return false;
+                if (!confirmAcrossTicks || successfulPresses == 0) return false;
+                break;
             }
 
             var pressedAt = DateTimeOffset.Now;
@@ -1287,94 +1310,37 @@ public sealed partial class SemiAutoCombatController
             if (!press.Success)
             {
                 LogMaintenanceKeyFailure(context, state, rule.Key, resource, press.Error);
-                return false;
-            }
-
-            state.MarkMaintenanceKeyAttempted(rule.Key, pressedAt);
-        }
-
-        var skillId = ResolveStatusMaintenanceSkillId(rule, maintenanceSkill);
-        var skillName = maintenanceSkill?.Name ?? maintenanceSkill?.DisplayBaseName ?? rule.SkillName;
-
-        var confirmWindow = ResolveStatusMaintenanceConfirmWindow(isChantStatusMaintenance);
-        var deadline = DateTimeOffset.Now + confirmWindow;
-        var polls = 0;
-        var rejectedCandidateAbnormalIds = new HashSet<uint>();
-
-        while (DateTimeOffset.Now <= deadline)
-        {
-            polls++;
-            var abnormal = await ReadPlayerAbnormalStatusesAsync(context).ConfigureAwait(false);
-            var confirmedAbnormal = ResolveConfirmedStatusMaintenanceAbnormalId(
-                rule,
-                skillId,
-                state,
-                beforeIds,
-                abnormal.Entries,
-                rejectedCandidateAbnormalIds);
-            if (confirmedAbnormal.Found)
-            {
-                var completedAt = DateTimeOffset.Now;
-                if (skillId != 0)
-                {
-                    state.RememberStatusMaintenanceAbnormalId(skillId, confirmedAbnormal.AbnormalId);
-                    if (isChantStatusMaintenance)
-                    {
-                        state.MarkChantStatusMaintenanceObserved(skillId, completedAt);
-                    }
-                }
-
-                context.Logger.Info("semi_auto.maintenance.status_key_pressed", new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["resource"] = resource,
-                    ["key"] = rule.Key,
-                    ["skillId"] = skillId,
-                    ["skillName"] = skillName,
-                    ["abnormalStatusId"] = confirmedAbnormal.AbnormalId,
-                    ["abnormalStatusSource"] = confirmedAbnormal.Source,
-                    ["oneShot"] = isChantStatusMaintenance,
-                    ["chant"] = isChantStatusMaintenance,
-                    ["pressCount"] = pressCount,
-                    ["pressIntervalMs"] = (long)intervalMs,
-                    ["polls"] = polls,
-                    ["confirmWindowMs"] = (long)confirmWindow.TotalMilliseconds,
-                    ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAt - startedAt).TotalMilliseconds)
-                });
-                return true;
-            }
-
-            var remaining = deadline - DateTimeOffset.Now;
-            if (remaining <= TimeSpan.Zero)
-            {
+                if (!confirmAcrossTicks || successfulPresses == 0) return false;
                 break;
             }
 
-            var delay = remaining < MaintenanceConfirmPollInterval
-                ? remaining
-                : MaintenanceConfirmPollInterval;
-            await Task.Delay(delay, context.StopToken).ConfigureAwait(false);
+            successfulPresses++;
+            state.MarkMaintenanceKeyAttempted(rule.Key, pressedAt);
         }
 
-        var completedAtUnconfirmed = DateTimeOffset.Now;
-        context.Logger.Warn("semi_auto.maintenance.status_unconfirmed", new Dictionary<string, object?>
+        var attempt = new StatusMaintenanceAttempt(rule, resource,
+            ResolveStatusMaintenanceSkillId(rule, maintenanceSkill),
+            maintenanceSkill?.Name ?? maintenanceSkill?.DisplayBaseName ?? rule.SkillName,
+            player.EntityId, beforeIds, startedAt,
+            new SkillConfirmationWindow(DateTimeOffset.Now, ResolveStatusMaintenanceConfirmWindow(isChantStatusMaintenance),
+                confirmAcrossTicks ? _timeProvider : null, _timeProvider.GetTimestamp()),
+            isChantStatusMaintenance, successfulPresses, intervalMs);
+        if (confirmAcrossTicks) state.CombatStatusAttempts[rule] = attempt;
+
+        do
         {
-            ["account"] = context.Config.AccountName,
-            ["resource"] = resource,
-            ["key"] = rule.Key,
-            ["skillId"] = skillId,
-            ["skillName"] = skillName,
-            ["configuredAbnormalStatusId"] = rule.AbnormalStatusId,
-            ["oneShot"] = isChantStatusMaintenance,
-            ["chant"] = isChantStatusMaintenance,
-            ["pressCount"] = pressCount,
-            ["pressIntervalMs"] = (long)intervalMs,
-            ["rejectedCandidateAbnormalIds"] = FormatAbnormalIdList(rejectedCandidateAbnormalIds),
-            ["rejectedCandidateCount"] = rejectedCandidateAbnormalIds.Count,
-            ["polls"] = polls,
-            ["confirmWindowMs"] = (long)confirmWindow.TotalMilliseconds,
-            ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAtUnconfirmed - startedAt).TotalMilliseconds)
-        });
+            var result = await PollStatusMaintenanceAsync(context, state, attempt).ConfigureAwait(false);
+            if (result == SkillConfirmation.Confirmed) return true;
+            if (result == SkillConfirmation.TimedOut) break;
+            if (confirmAcrossTicks) return true;
+
+            var remaining = attempt.Confirmation.Remaining(DateTimeOffset.Now);
+            if (remaining > TimeSpan.Zero)
+                await Task.Delay(remaining < MaintenanceConfirmPollInterval ? remaining : MaintenanceConfirmPollInterval,
+                    context.StopToken).ConfigureAwait(false);
+        } while (true);
+
+        ExpireStatusMaintenance(context, attempt);
         return true;
     }
 

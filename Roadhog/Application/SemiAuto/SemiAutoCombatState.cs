@@ -1,3 +1,4 @@
+using Roadhog.Core.Accounts;
 using Roadhog.Core.Model;
 
 namespace Roadhog.Application.SemiAuto;
@@ -7,6 +8,7 @@ public sealed class SemiAutoCombatState
     private QuickbarSkillCombatState? quickbarSkills;
     internal QuickbarSkillPlan? QuickbarPlan { get; set; }
     internal AdvancedSkillCombatPlans? AdvancedSkillPlans { get; set; }
+    internal Dictionary<StatusMaintenanceRuleConfig, SemiAutoCombatController.StatusMaintenanceAttempt> CombatStatusAttempts { get; } = [];
     public QuickbarSkillCombatState QuickbarSkills => quickbarSkills ??= new();
     internal OpeningSkillDiagnostics OpeningDiagnostics { get; } = new();
     internal bool CoordinatedSummonHpTurnUsed { get; set; }
@@ -22,6 +24,14 @@ public sealed class SemiAutoCombatState
     {
         AttackWeave.Reset();
         quickbarSkills?.AttackWeave.Reset();
+    }
+
+    internal void ResetCombatSkillActions()
+    {
+        CombatStatusAttempts.Clear();
+        quickbarSkills?.Reset();
+        AttackWeave.Reset();
+        OpeningSkillRetries.Reset();
     }
 
     public void FinishAttackWeavePause(DateTimeOffset now)

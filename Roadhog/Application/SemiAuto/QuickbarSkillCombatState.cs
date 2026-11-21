@@ -1,4 +1,5 @@
 using Roadhog.Core.Model;
+using SkillScheduling;
 
 namespace Roadhog.Application.SemiAuto;
 
@@ -15,10 +16,7 @@ public sealed class QuickbarSkillCombatState
     internal bool ClockBootstrapCompletionLogged { get; set; }
     private readonly Dictionary<string, DateTimeOffset> _retryAfter = new(StringComparer.Ordinal);
     private readonly Dictionary<string, RetryHold> _monotonicRetryAfter = new(StringComparer.Ordinal);
-    private TimeProvider? _pendingTimeProvider;
-    private long _pendingStartedTimestamp;
-    private long _pendingLastAttemptTimestamp;
-    private TimeSpan _pendingConfirmationTimeout;
+    private readonly SkillAttempts<QuickbarSkillPendingAction> _attempts = new();
     private readonly Dictionary<string, QuickbarSkillNode> _acceptedChainOpportunities = new(StringComparer.Ordinal);
     private readonly HashSet<string> _yieldedRoots = new(StringComparer.Ordinal);
     private string? _bindingLayout;
@@ -34,7 +32,7 @@ public sealed class QuickbarSkillCombatState
     private long _transitionStartedTimestamp;
 
     public QuickbarSkillNode? ActiveChainSource { get; private set; }
-    public QuickbarSkillPendingAction? PendingAction { get; private set; }
+    public QuickbarSkillPendingAction? PendingAction => _attempts.Active?.Evidence;
     public QuickbarSkillChainTransition? ChainTransition { get; private set; }
     public string? LastChainTransitionEndReason { get; private set; }
     public long LastAvailabilityVersion { get; internal set; }
@@ -51,7 +49,7 @@ public sealed class QuickbarSkillCombatState
     {
         AttackWeave.Reset();
         ActiveChainSource = null;
-        DropPendingAction();
+        _attempts.Clear();
         EndChainTransition("reset");
         _transitionProcessedAttemptId = 0;
         _retryAfter.Clear();
@@ -84,7 +82,7 @@ public sealed class QuickbarSkillCombatState
         {
             AttackWeave.Reset();
             ActiveChainSource = null;
-            DropPendingAction();
+            _attempts.Clear();
             EndChainTransition("scope_changed");
             _transitionProcessedAttemptId = 0;
             _retryAfter.Clear();
@@ -105,42 +103,53 @@ public sealed class QuickbarSkillCombatState
 
     public void BeginAction(QuickbarSkillNode node, SkillSnapshot? skill, SkillAvailabilitySnapshot availability,
         DateTimeOffset now, TimeSpan confirmationTimeout, DateTimeOffset? attemptTickStartedAt = null,
-        TimeProvider? timeProvider = null, bool isClockBootstrap = false, long? attemptTickStartedTimestamp = null)
+        TimeProvider? timeProvider = null, bool isClockBootstrap = false, long? attemptTickStartedTimestamp = null,
+        bool takesPriority = false)
     {
         // Poll cadence owns retries; varying read latency must not defer an
         // otherwise eligible retry by an entire extra polling cycle.
         var attemptCycleStartedAt = attemptTickStartedAt ?? now;
-        if (PendingAction is { RetryStopped: false } pending && pending.Node.NodeKey == node.NodeKey)
+        if (_attempts.Active is { Evidence: { RetryStopped: false } pending } active && pending.Node.NodeKey == node.NodeKey)
         {
             // A retry retains the baseline captured before the first key. Otherwise
             // a late release could become the new baseline and never be confirmed.
-            PendingAction = pending with { LastAttemptAt = attemptCycleStartedAt, AttemptCount = pending.AttemptCount + 1 };
-            if (_pendingTimeProvider is not null)
-                _pendingLastAttemptTimestamp = ReferenceEquals(_pendingTimeProvider, timeProvider)
-                    ? attemptTickStartedTimestamp ?? _pendingTimeProvider.GetTimestamp()
-                    : _pendingTimeProvider.GetTimestamp();
+            active.Evidence = pending with { LastAttemptAt = attemptCycleStartedAt, AttemptCount = pending.AttemptCount + 1 };
+            active.RecordInput(attemptCycleStartedAt, timeProvider, attemptTickStartedTimestamp);
             return;
         }
         var latePredecessorId = ChainTransition is { Confirmed: false } transition &&
             transition.Source.Children.Any(child => child.NodeKey == node.NodeKey) ? transition.Source.SkillId : 0;
         EndChainTransition(node.NodeKey.Contains('/') ? "child_pressed" : "root_selected");
         if (_yieldedRoots.Contains(node.NodeKey)) _yieldedRoots.Clear();
-        PendingAction = new(node, skill?.CooldownEndTime ?? 0, availability.LastReleasedSkillTime,
-            now, now + confirmationTimeout, attemptCycleStartedAt, 1, ++_nextAttemptId,
+        var startedTimestamp = timeProvider?.GetTimestamp() ?? 0;
+        var confirmation = new SkillConfirmationWindow(now, confirmationTimeout, timeProvider, startedTimestamp);
+        var attempt = new QuickbarSkillPendingAction(node, skill?.CooldownEndTime ?? 0, availability.LastReleasedSkillTime,
+            now, confirmation.Deadline, attemptCycleStartedAt, 1, ++_nextAttemptId,
             AllowedLatePredecessorSkillId: latePredecessorId, IsClockBootstrap: isClockBootstrap);
-        _pendingTimeProvider = timeProvider;
-        _pendingStartedTimestamp = timeProvider?.GetTimestamp() ?? 0;
-        _pendingLastAttemptTimestamp = attemptTickStartedTimestamp ?? _pendingStartedTimestamp;
-        _pendingConfirmationTimeout = confirmationTimeout;
+        _attempts.Start(new(attempt, confirmation, attemptCycleStartedAt, attemptTickStartedTimestamp ?? startedTimestamp),
+            suspendActive: takesPriority && !_attempts.HasSuspended &&
+                PendingAction is { IsClockBootstrap: false, RetryStopped: false });
     }
+
+    internal QuickbarSkillPendingAction? ObserveSuspendedRelease(SkillAvailabilitySnapshot availability)
+    {
+        var action = _attempts.FinishSuspended(candidate => availability.LastReleasedSkillId == candidate.Node.SkillId &&
+            availability.LastReleasedSkillTime != 0 &&
+            availability.LastReleasedSkillTime != candidate.PreviousReleasedSkillTime &&
+            availability.LastReleasedSkillTime != candidate.LatePredecessorReleasedSkillTime);
+        if (action is null) return null;
+        if (action.Node.NodeKey.Contains('/')) _acceptedChainOpportunities[action.Node.NodeKey] = action.Node;
+        else _yieldedRoots.Add(action.Node.NodeKey);
+        return action;
+    }
+
+    internal bool TryResumeSuspendedAction() => ChainTransition is null && _attempts.TryResume();
 
     public bool IsRepeatBlocked(QuickbarSkillNode node, DateTimeOffset now) =>
         IsRetryHoldActive(node.NodeKey, now) ||
         _acceptedChainOpportunities.ContainsKey(node.NodeKey) ||
-        (PendingAction is { RetryStopped: false } pending && pending.Node.NodeKey == node.NodeKey &&
-            ((_pendingTimeProvider is not null
-                ? _pendingTimeProvider.GetElapsedTime(_pendingLastAttemptTimestamp) < RetryInterval
-                : now < pending.LastAttemptAt + RetryInterval) || pending.AttemptCount >= MaximumUnconfirmedAttempts));
+        (_attempts.Active is { Evidence: { RetryStopped: false } pending } active && pending.Node.NodeKey == node.NodeKey &&
+            (!active.IsRetryDue(now, RetryInterval) || pending.AttemptCount >= MaximumUnconfirmedAttempts));
 
     private bool IsRetryHoldActive(string nodeKey, DateTimeOffset now) =>
         _monotonicRetryAfter.TryGetValue(nodeKey, out var hold)
@@ -285,46 +294,47 @@ public sealed class QuickbarSkillCombatState
             return false;
         if (pending.LatePredecessorReleasedSkillTime != 0)
             return availability.LastReleasedSkillTime == pending.LatePredecessorReleasedSkillTime;
-        PendingAction = pending with { LatePredecessorReleasedSkillTime = availability.LastReleasedSkillTime };
+        _attempts.Active!.Evidence = pending with { LatePredecessorReleasedSkillTime = availability.LastReleasedSkillTime };
         return true;
     }
 
-    public void StopPendingRetries() { if (PendingAction is { } pending) PendingAction = pending with { RetryStopped = true }; }
+    public void StopPendingRetries()
+    {
+        if (_attempts.Active is { } active) active.Evidence = active.Evidence with { RetryStopped = true };
+    }
 
     public void RejectAction(DateTimeOffset now, TimeSpan retryDelay)
     {
-        if (PendingAction is not { } pending) return;
+        if (_attempts.Active is not { Evidence: var pending } active) return;
         _retryAfter[pending.Node.NodeKey] = now + retryDelay;
-        if (_pendingTimeProvider is { } timeProvider)
+        if (active.Confirmation.Clock is { } timeProvider)
             _monotonicRetryAfter[pending.Node.NodeKey] = new(timeProvider, timeProvider.GetTimestamp(), retryDelay);
         else _monotonicRetryAfter.Remove(pending.Node.NodeKey);
         DropPendingAction();
         // An unaccepted key does not advance (or erase) its previously confirmed predecessor.
     }
 
-    public bool IsActionExpired(DateTimeOffset now) => PendingAction is { } pending &&
-        (_pendingTimeProvider is not null
-            ? _pendingTimeProvider.GetElapsedTime(_pendingStartedTimestamp) >= _pendingConfirmationTimeout
-            : now >= pending.Deadline);
+    public bool IsActionExpired(DateTimeOffset now) =>
+        _attempts.Active?.Confirmation.Evaluate(confirmed: false, now) == SkillConfirmation.TimedOut;
 
-    public void DropPendingAction()
-    {
-        PendingAction = null;
-        _pendingTimeProvider = null;
-        _pendingStartedTimestamp = 0;
-        _pendingLastAttemptTimestamp = 0;
-        _pendingConfirmationTimeout = TimeSpan.Zero;
-    }
+    public void DropPendingAction() => _attempts.ClearActive();
 
     // Compatibility entry point: this cancels pending attempts; it does not pause/resume them.
     public void SuspendInputAttempts(bool preserveAttackWeave = false) =>
         CancelInputAttemptsForHandoff(preserveAttackWeave);
 
+    internal void YieldInputToPriority(bool preserveAttackWeave = false)
+    {
+        if (!preserveAttackWeave) AttackWeave.Reset();
+        // Clock probes already have their own absolute candidate lifetime.
+        if (PendingAction is { IsClockBootstrap: true }) DropPendingAction();
+    }
+
     public void CancelInputAttemptsForHandoff(bool preserveAttackWeave = false)
     {
         if (!preserveAttackWeave) AttackWeave.Reset();
         if (PendingAction is { } pending) _transitionProcessedAttemptId = Math.Max(_transitionProcessedAttemptId, pending.AttemptId);
-        DropPendingAction();
+        _attempts.Clear();
         _retryAfter.Clear();
         _monotonicRetryAfter.Clear();
         EndChainTransition("maintenance");

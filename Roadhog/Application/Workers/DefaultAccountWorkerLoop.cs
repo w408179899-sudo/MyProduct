@@ -578,7 +578,7 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
         }
         finally
         {
-            semiAutoState.ResetAttackWeaveStates();
+            semiAutoState.ResetCombatSkillActions();
             semiAutoState.ResetAttackKeyPressThrottle();
             try
             {

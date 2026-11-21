@@ -3,6 +3,7 @@ using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Api;
 using Roadhog.Core.Model;
+using SkillScheduling;
 
 namespace Roadhog.Application.SemiAuto;
 
@@ -35,32 +36,89 @@ public sealed partial class SemiAutoCombatController
         var maintenancePlayer = hasMaintenance ? await ReadPlayerAsync(context).ConfigureAwait(false) : null;
         if (maintenancePlayer?.IsDead == true)
         {
-            state.OpeningSkillRetries.Reset();
+            state.ResetCombatSkillActions();
+            jumpAssist?.ResumeAfterSkillConfirmation();
             state.ClearSpiritmasterPetHpIncreaseConfirmation();
             state.ClearSpiritmasterPetBuffAttempts();
+            return tick;
+        }
+        var target = await ReadLockedTargetAsync(context).ConfigureAwait(false);
+        if (expectedTarget is not null && !ConfirmCombatTarget(context, expectedTarget, target, "skill_tick"))
+        {
             state.QuickbarSkills.Reset();
             return tick;
         }
-        if (!maintenancePlan.UsesSpiritmasterAutoLogic &&
-            await RunWithJumpPauseAsync(jumpAssist, "semi_auto_maintenance",
-                () => TryHandleQuickbarMaintenanceAsync(context, state, settings, maintenance, maintenancePlayer,
-                    plan: maintenancePlan, requireCooldownCalibrationForMaintenance: requireCooldownCalibrationForMaintenance,
-                    includeStatusMaintenance: includeAlwaysStatusMaintenance)).ConfigureAwait(false))
+
+        var spiritmaster = maintenancePlan.UsesSpiritmasterAutoLogic;
+        var statusRules = (maintenance.StatusMaintenanceRules ?? [])
+            .Where(rule => IsMaintenanceRuleAllowed(rule, MaintenanceRuleRunTiming.InCombat,
+                includeAlwaysRules: includeAlwaysStatusMaintenance || spiritmaster))
+            .ToArray();
+
+        async Task<bool> TryStatusAsync(MaintenanceRuleRunTiming timing, bool includeAlways)
         {
-            state.QuickbarSkills.CancelInputAttemptsForHandoff();
-            return tick;
+            if (maintenancePlayer is null || statusRules.Length == 0) return false;
+            var handled = await TryPressStatusMaintenanceRuleAsync(context, state, settings, maintenance, "status", maintenancePlayer,
+                requireCooldownCalibrationForMaintenance: requireCooldownCalibrationForMaintenance,
+                runTiming: timing, includeAlwaysRules: includeAlways, confirmAcrossTicks: true).ConfigureAwait(false);
+            if (handled && jumpAssist is not null &&
+                state.CombatStatusAttempts.Values.FirstOrDefault(attempt => attempt.Awaiting) is { } pending)
+                jumpAssist.PauseForSkillConfirmation(_timeProvider, pending.Confirmation.StartedTimestamp, pending.Confirmation.Duration);
+            return handled;
+        }
+
+        Task<bool> TryResourcesAsync(MaintenanceRuleRunTiming timing, bool includeAlways) =>
+            TryHandleQuickbarMaintenanceAsync(context, state, settings, maintenance, maintenancePlayer, maintenancePlan,
+                requireCooldownCalibrationForMaintenance, timing, includeAlways, includeStatusMaintenance: false,
+                ensureHpMaintenanceTargetBeforeKeyPress: ensureHpMaintenanceTargetBeforeKeyPress);
+
+        async Task<CombatSkillPriority?> TryPriorityMaintenanceAsync() =>
+            (await SkillScheduler.RunAsync(
+            [
+                Candidate(CombatSkillPriority.HealthRecovery,
+                    () => RunWithJumpPauseAsync(jumpAssist, "semi_auto_health_priority",
+                    () => TryPressMaintenanceRuleAsync(context, state, settings, maintenance.HpMaintenanceRules,
+                        "hp", maintenancePlayer!.CurrentHp, maintenancePlayer.MaxHp, maintenancePlayer,
+                        plan: maintenancePlan, requireCooldownCalibrationForMaintenance: requireCooldownCalibrationForMaintenance,
+                        runTiming: MaintenanceRuleRunTiming.InCombat, includeAlwaysRules: true,
+                        ensureTargetBeforeKeyPress: ensureHpMaintenanceTargetBeforeKeyPress)),
+                    eligible: maintenancePlayer is not null &&
+                        HasStatusMaintenanceRules(statusRules, MaintenanceRuleRunTiming.InCombat, true)),
+                Candidate(CombatSkillPriority.StatusConfirmation, async () =>
+                {
+                    var waiting = await ContinueCombatStatusMaintenanceAsync(context, state, maintenancePlayer, statusRules)
+                        .ConfigureAwait(false);
+                    if (!waiting) jumpAssist?.ResumeAfterSkillConfirmation();
+                    return waiting;
+                }),
+                Candidate(CombatSkillPriority.AlwaysMaintenance,
+                    () => RunWithJumpPauseAsync(jumpAssist, "semi_auto_maintenance", async () =>
+                        (includeAlwaysStatusMaintenance && await TryStatusAsync(MaintenanceRuleRunTiming.Always, true).ConfigureAwait(false)) ||
+                        await TryResourcesAsync(MaintenanceRuleRunTiming.Always, true).ConfigureAwait(false)), eligible: !spiritmaster)
+            ], context.StopToken).ConfigureAwait(false))?.Id;
+
+        // Non-pet maintenance keeps its early opportunity before the skill-bar setup and combat reads.
+        // In Spiritmaster mode, active pet confirmations retain their existing reservation.
+        if (!spiritmaster)
+        {
+            var early = target.IsMonsterAlive
+                ? await TryPriorityMaintenanceAsync().ConfigureAwait(false)
+                : await RunWithJumpPauseAsync(jumpAssist, "semi_auto_maintenance",
+                    () => TryHandleQuickbarMaintenanceAsync(context, state, settings, maintenance, maintenancePlayer,
+                        maintenancePlan, requireCooldownCalibrationForMaintenance,
+                        includeStatusMaintenance: includeAlwaysStatusMaintenance)).ConfigureAwait(false)
+                    ? CombatSkillPriority.AlwaysMaintenance : (CombatSkillPriority?)null;
+            if (early is not null)
+            {
+                state.QuickbarSkills.YieldInputToPriority(preserveAttackWeave: early == CombatSkillPriority.StatusConfirmation);
+                return tick;
+            }
         }
 
         if (context.SkillBindings is null)
             await context.PrepareSkillBindingsAsync().ConfigureAwait(false);
         var plan = state.QuickbarPlan ??= QuickbarSkillPlan.FromSettings(script.QuickbarSkills ?? new(),
             context.SkillBindings!, context.ReportMissingSkillBinding);
-        var target = await ReadLockedTargetAsync(context).ConfigureAwait(false);
-        if (expectedTarget is not null && !ConfirmCombatTarget(context, expectedTarget, target, "skill_tick"))
-        {
-            state.QuickbarSkills.CancelInputAttemptsForHandoff();
-            return tick;
-        }
 
         if (script.AdvancedSkills?.Enabled == true)
         {
@@ -140,7 +198,7 @@ public sealed partial class SemiAutoCombatController
             await TryContinueSpiritmasterPetHpConfirmationAsync(context, state, settings, skills, sharedSkillSettings.Spiritmaster)
                 .ConfigureAwait(false))
         {
-            state.QuickbarSkills.CancelInputAttemptsForHandoff();
+            state.QuickbarSkills.YieldInputToPriority();
             return tick;
         }
         // A pet buff has a cast time. Reserve its finite confirmation window
@@ -150,69 +208,65 @@ public sealed partial class SemiAutoCombatController
                 skills, maintenance, maintenancePlan, jumpAssist, requireCooldownCalibrationForMaintenance,
                 ensureHpMaintenanceTargetBeforeKeyPress).ConfigureAwait(false))
         {
-            state.QuickbarSkills.CancelInputAttemptsForHandoff();
+            state.QuickbarSkills.YieldInputToPriority();
             return tick;
         }
+        if (spiritmaster && await TryPriorityMaintenanceAsync().ConfigureAwait(false) is { } priorityMaintenance)
+        {
+            state.QuickbarSkills.YieldInputToPriority(preserveAttackWeave: priorityMaintenance == CombatSkillPriority.StatusConfirmation);
+            return tick;
+        }
+
         if (settings.AttackWeaveEnabled &&
             !await ObserveQuickbarOpeningWeaveAsync(context, state, settings, target, skills).ConfigureAwait(false))
             return tick;
 
         SpiritmasterCombatContext? spiritContext = null;
-        if (!state.QuickbarSkills.AttackWeave.IsWaiting)
-        {
-            if (maintenancePlan.UsesSpiritmasterAutoLogic &&
-                !string.IsNullOrWhiteSpace(sharedSkillSettings.Spiritmaster.OpeningAttackKey) &&
-                state.ShouldPressSpiritmasterOpeningAttackKey(target))
+        var selected = (await SkillScheduler.RunAsync(
+        [
+            Candidate(CombatSkillPriority.Opening, async () =>
             {
-                if (await PressSpiritmasterOpeningAttackKeyAsync(context, state, settings,
-                        sharedSkillSettings.Spiritmaster, target, expectedTarget ?? target).ConfigureAwait(false))
+                if (maintenancePlan.UsesSpiritmasterAutoLogic &&
+                    !string.IsNullOrWhiteSpace(sharedSkillSettings.Spiritmaster.OpeningAttackKey) &&
+                    state.ShouldPressSpiritmasterOpeningAttackKey(target))
                 {
-                    jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
+                    if (await PressSpiritmasterOpeningAttackKeyAsync(context, state, settings,
+                            sharedSkillSettings.Spiritmaster, target, expectedTarget ?? target).ConfigureAwait(false))
+                        jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
+                    return true;
                 }
-                state.QuickbarSkills.CancelInputAttemptsForHandoff(preserveAttackWeave: settings.AttackWeaveEnabled);
-                return tick;
-            }
-            if (!plan.IsAdvancedMode && await PressQuickbarOpeningSkillIfNeededAsync(context, state, settings, maintenancePlan, target, skills).ConfigureAwait(false))
-            {
-                jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
-                state.QuickbarSkills.CancelInputAttemptsForHandoff(preserveAttackWeave: settings.AttackWeaveEnabled);
-                return tick;
-            }
-            if (await PressOpeningAttackKeyIfNeededAsync(context, state, settings, target).ConfigureAwait(false))
-            {
-                jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
-                state.QuickbarSkills.CancelInputAttemptsForHandoff(preserveAttackWeave: settings.AttackWeaveEnabled);
-                return tick;
-            }
-
-            if (maintenancePlan.UsesSpiritmasterAutoLogic)
+                var handled = (!plan.IsAdvancedMode && await PressQuickbarOpeningSkillIfNeededAsync(
+                        context, state, settings, maintenancePlan, target, skills).ConfigureAwait(false)) ||
+                    await PressOpeningAttackKeyIfNeededAsync(context, state, settings, target).ConfigureAwait(false);
+                if (handled) jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
+                return handled;
+            }, eligible: !state.QuickbarSkills.AttackWeave.IsWaiting),
+            Candidate(CombatSkillPriority.PetAction, async () =>
             {
                 spiritContext = await ReadSpiritmasterCombatContextAsync(context, target).ConfigureAwait(false);
-                if (spiritContext.CanUseSpiritmasterLogic &&
-                    await TryHandleSpiritmasterSpecialAsync(context, state, settings, sharedSkillSettings.Spiritmaster,
-                        skills, spiritContext, suppressSpiritmasterPetSummon,
-                        allowPetHpMaintenance: !hadPetHpConfirmation).ConfigureAwait(false))
-                {
-                    jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
-                    state.QuickbarSkills.CancelInputAttemptsForHandoff();
-                    return tick;
-                }
-            }
-        }
-
-        if (await RunWithJumpPauseAsync(jumpAssist, "semi_auto_in_combat_maintenance",
-                () => TryHandleQuickbarMaintenanceAsync(context, state, settings, maintenance, maintenancePlayer,
-                    plan: maintenancePlan, requireCooldownCalibrationForMaintenance: requireCooldownCalibrationForMaintenance,
-                    runTiming: MaintenanceRuleRunTiming.InCombat,
-                    includeAlwaysRules: maintenancePlan.UsesSpiritmasterAutoLogic,
-                    ensureHpMaintenanceTargetBeforeKeyPress: ensureHpMaintenanceTargetBeforeKeyPress)).ConfigureAwait(false))
+                if (!spiritContext.CanUseSpiritmasterLogic || !await TryHandleSpiritmasterSpecialAsync(
+                        context, state, settings, sharedSkillSettings.Spiritmaster, skills, spiritContext,
+                        suppressSpiritmasterPetSummon, allowPetHpMaintenance: !hadPetHpConfirmation).ConfigureAwait(false))
+                    return false;
+                jumpAssist?.ActivatePreparedTeamCombatJump(target.ServerObjectId);
+                return true;
+            }, eligible: spiritmaster && !state.QuickbarSkills.AttackWeave.IsWaiting),
+            Candidate(CombatSkillPriority.CombatMaintenance, () => RunWithJumpPauseAsync(jumpAssist,
+                "semi_auto_in_combat_maintenance", async () =>
+                    await TryStatusAsync(MaintenanceRuleRunTiming.InCombat, maintenancePlan.UsesSpiritmasterAutoLogic)
+                        .ConfigureAwait(false) ||
+                    await TryResourcesAsync(MaintenanceRuleRunTiming.InCombat, maintenancePlan.UsesSpiritmasterAutoLogic)
+                        .ConfigureAwait(false))),
+            Candidate(CombatSkillPriority.OpeningRetry,
+                () => TryRetryOpeningSkillAsync(context, state, settings, maintenancePlan, target, skills),
+                eligible: !plan.IsAdvancedMode)
+        ], context.StopToken).ConfigureAwait(false))?.Id;
+        if (selected is not null)
         {
-            state.QuickbarSkills.CancelInputAttemptsForHandoff();
+            state.QuickbarSkills.YieldInputToPriority(preserveAttackWeave: selected is
+                CombatSkillPriority.Opening or CombatSkillPriority.OpeningRetry or CombatSkillPriority.StatusConfirmation);
             return tick;
         }
-
-        if (!plan.IsAdvancedMode && await TryRetryOpeningSkillAsync(context, state, settings, maintenancePlan, target, skills).ConfigureAwait(false))
-            return tick;
 
         if (!plan.HasCombatActions && !state.QuickbarSkills.AttackWeave.IsWaiting)
             return Ms(settings.TargetIdleDelayMs, 200);

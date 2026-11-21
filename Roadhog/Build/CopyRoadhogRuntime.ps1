@@ -10,7 +10,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$runtimeFiles = @("Roadhog.exe", "Roadhog.dll", "Roadhog.deps.json", "Roadhog.runtimeconfig.json",
+$runtimeFiles = @("Roadhog.exe", "Roadhog.dll", "Roadhog.deps.json", "Roadhog.runtimeconfig.json", "SkillScheduling.dll",
     "Microsoft.ML.OnnxRuntime.dll", "onnxruntime.dll", "onnxruntime_providers_shared.dll")
 $loginAssets = @("Source\Login\captcha.onnx", "Source\Login\captcha.json", "Source\Login\PARSeq-LICENSE.txt",
     "Source\Login\ONNX-Runtime-LICENSE.txt", "Source\Login\ONNX-Runtime-ThirdPartyNotices.txt")

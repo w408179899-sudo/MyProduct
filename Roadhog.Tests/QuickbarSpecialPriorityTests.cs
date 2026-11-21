@@ -215,6 +215,44 @@ internal static class QuickbarSpecialPriorityTests
         Check(fixture.Keyboard.Keys.SequenceEqual(new[] { "D4" }), "ordinary cooldown-clock bootstrap cannot replace a selected special opportunity");
     }
 
+    public static async Task ResumePendingAttackAsync()
+    {
+        foreach (var lateRelease in new[] { false, true })
+        {
+            var fixture = new Fixture();
+            fixture.State.EndChainTransition("setup");
+            fixture.Reader.Value = Bar(ordinary: true, last: 11, time: 1000);
+            await fixture.Tick();
+            var original = fixture.State.PendingAction;
+            Check(original?.Node.SkillId == 31, "ordinary A is awaiting confirmation");
+
+            fixture.Reader.Value = Bar(ordinary: true, trigger: true, last: 11, time: 1000);
+            fixture.Clock.Advance(TimeSpan.FromMilliseconds(80));
+            await fixture.Tick();
+            Check(fixture.Keyboard.Keys.SequenceEqual(new[] { "D3", "D2" }),
+                "an eligible higher priority B displaces the already-pressed A");
+
+            if (lateRelease)
+            {
+                fixture.Reader.Value = Bar(ordinary: true, trigger: true, last: 31, time: 1050);
+                fixture.Clock.Advance(TimeSpan.FromMilliseconds(20));
+                await fixture.Tick();
+            }
+
+            fixture.Reader.Value = Bar(ordinary: !lateRelease, last: 21, time: 1100);
+            fixture.Clock.Advance(TimeSpan.FromMilliseconds(80));
+            await fixture.Tick();
+            Check(fixture.Keyboard.Keys.SequenceEqual(lateRelease ? new[] { "D3", "D2" } : new[] { "D3", "D2", "D3" }),
+                "the original A resumes only while still needed");
+            if (!lateRelease)
+            {
+                Check(fixture.State.PendingAction?.AttemptId == original!.AttemptId &&
+                    fixture.State.PendingAction?.PreviousReleasedSkillTime == original.PreviousReleasedSkillTime,
+                    "resuming keeps A's identity and confirmation baseline");
+            }
+        }
+    }
+
     private sealed class Fixture
     {
         public readonly QuickbarSkillPlan Plan;
