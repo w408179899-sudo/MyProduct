@@ -25,7 +25,11 @@ public sealed partial class GroceryNpcSaleSequence(IKeyboardInput input, IShared
         return loaded.Value.Clone();
     }
 
-    public async Task<GroceryNpcSaleOutcome> RunAsync(AccountWorkerContext context, Action<string> report)
+    public async Task<GroceryNpcSaleOutcome> RunAsync(AccountWorkerContext context, Action<string> report) =>
+        (await RunWithMerchantAsync(context, report)).Outcome;
+
+    internal async Task<(GroceryNpcSaleOutcome Outcome, uint? MerchantServerObjectId)> RunWithMerchantAsync(
+        AccountWorkerContext context, Action<string> report)
     {
         var settings = context.Config.ScriptSettings!;
         var token = context.StopToken;
@@ -130,7 +134,7 @@ public sealed partial class GroceryNpcSaleSequence(IKeyboardInput input, IShared
                     ["batches"] = state.SellBatchCount, ["moneyDelta"] = state.TotalMoneyDelta,
                     ["saleCompleted"] = outcome == GroceryNpcSaleOutcome.AllItemsSold,
                     ["outcome"] = outcome.ToString(), ["skippedStages"] = continuation.FailureCount });
-            return outcome;
+            return (outcome, state.MerchantServerObjectId);
         }
         finally { await continuation.ReleaseAsync(); }
     }

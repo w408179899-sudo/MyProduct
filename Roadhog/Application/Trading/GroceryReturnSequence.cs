@@ -29,11 +29,12 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
             string.Equals(i.Name, name.Trim(), StringComparison.OrdinalIgnoreCase)).OrderBy(i => i.Slot).FirstOrDefault();
 
     public Task RunAsync(AccountWorkerContext context, SharedPathDocument destination, string itemName, Action<string> report,
-        string tripName = "杂货回程", string retryEventName = "grocery_shop.return.retry", bool viaResetPoint = true) =>
-        RunAsync(context, destination, itemName, report, tripName, retryEventName, viaResetPoint, resume: null);
+        string tripName = "杂货回程", string retryEventName = "grocery_shop.return.retry", bool viaResetPoint = true,
+        uint? merchantServerObjectId = null) =>
+        RunAsync(context, destination, itemName, report, tripName, retryEventName, viaResetPoint, resume: null, merchantServerObjectId);
 
     internal async Task RunAsync(AccountWorkerContext context, SharedPathDocument destination, string itemName, Action<string> report,
-        string tripName, string retryEventName, bool viaResetPoint, CombatResume? resume)
+        string tripName, string retryEventName, bool viaResetPoint, CombatResume? resume, uint? merchantServerObjectId = null)
     {
         var token = context.StopToken;
         var actions = new TradingActions(input, context.Snapshots, token, delay);
@@ -77,7 +78,7 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
         Exception? failure = null;
         async Task CheckAttack(ChannelTransitionSnapshot scene)
         {
-            var attacker = await safety.FindAttackingTargetNameAsync(context);
+            var attacker = await safety.FindAttackingTargetNameAsync(context, merchantServerObjectId);
             if (!string.IsNullOrWhiteSpace(attacker) || scene.Player!.CurrentHp < hp)
             {
                 await actions.Key("Escape");

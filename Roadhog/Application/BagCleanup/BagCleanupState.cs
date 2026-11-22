@@ -38,6 +38,8 @@ public sealed class BagCleanupState
 
     public int SellBatchCount { get; private set; }
 
+    internal uint? MerchantServerObjectId { get; private set; }
+
     public ulong TotalMoneyDelta { get; private set; }
 
     public ulong? InitialMoney { get; private set; }
@@ -112,6 +114,7 @@ public sealed class BagCleanupState
         InitialCandidateCount = 0;
         TotalRegisteredSellItemCount = 0;
         SellBatchCount = 0;
+        MerchantServerObjectId = null;
         TotalMoneyDelta = 0;
         InitialMoney = null;
         ReturnAfterFailureReason = string.Empty;
@@ -228,9 +231,10 @@ public sealed class BagCleanupState
         HasOpenedNpcDialog = true;
     }
 
-    public void MarkSellItemEntryClicked()
+    internal void MarkSellItemEntryClicked(uint merchantServerObjectId)
     {
         HasClickedSellItemEntry = true;
+        MerchantServerObjectId = merchantServerObjectId;
     }
 
     public void MarkSellItemsRegistered(int count)

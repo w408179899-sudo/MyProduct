@@ -1,3 +1,4 @@
+using Roadhog.Application.Trading;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Model;
@@ -64,6 +65,69 @@ internal static partial class GroceryShopTests
             Check(trip.Logger.Entries.Where(e => e.EventName == "grocery_shop.stage_skipped")
                 .All(e => Equals(e.Fields["stage"], "automatic_junk")),
                 "only empty initial registration is skipped; sale rejection remains a normal branch");
+        }
+    }
+
+    public static async Task NpcFirstAttackCheckDuringStallHandoffAsync()
+    {
+        foreach (var scenario in new[] { "selected merchant", "other town NPC", "same-name monster", "unlocked monster", "health drop" })
+        {
+            using var trip = new Trip();
+            AddNpcStages(trip);
+            trip.RejectNpcBatch = 2;
+            var expectsStall = scenario is "selected merchant" or "other town NPC";
+            if (scenario == "health drop")
+            {
+                trip.NpcRoute.Points[^1].X = 1150;
+                trip.AfterScrollClick = () =>
+                {
+                    if (trip.ScrollClicks == 2)
+                        trip.Api.Player = trip.Api.Player with { CurrentHp = trip.Api.Player.CurrentHp - 1 };
+                };
+            }
+
+            var enteredHandoff = false;
+            var readScene = trip.Api.TransitionRead!;
+            trip.Api.TransitionRead = () =>
+            {
+                if (!enteredHandoff && trip.Logger.Entries.Any(entry => entry.EventName == "grocery_shop.npc_sale.complete"))
+                {
+                    enteredHandoff = true;
+                    trip.Api.TargetIsTargetingLocalPlayer = true;
+                    if (scenario is "other town NPC" or "same-name monster")
+                    {
+                        trip.Api.TargetEntityId = 84;
+                        trip.Api.TargetOwnServerObjectId = 8400;
+                    }
+                    if (scenario == "other town NPC")
+                    {
+                        trip.Api.TargetName = "town NPC";
+                        trip.Api.WorldObjects = [new(84, 8400, "town NPC", "npc", null, null, 1, 1, IsTargetingLocalPlayer: true)];
+                    }
+                    else if (scenario == "unlocked monster")
+                    {
+                        trip.Api.WorldObjects = [new(84, 8400, "nearby monster", "monster", null, null, 1, 1, IsTargetingLocalPlayer: true)];
+                    }
+                }
+                return readScene();
+            };
+
+            var request = new CleanupRequest(trip.Config.ScriptSettings!, true) { GroceryTrigger = GroceryShopTrigger.Manual };
+            GroceryTripInterruptedException? interruption = null;
+            try { await trip.Runner().RunAsync(trip.Context, request); }
+            catch (GroceryTripInterruptedException ex) when (!expectsStall) { interruption = ex; }
+
+            Check(enteredHandoff && trip.NpcSubmittedItems.SelectMany(batch => batch).SequenceEqual(new ulong[] { 100, 101 }),
+                "the NPC stage submits once per batch before handing off to the stall: " + scenario);
+            Check(trip.ShopStarts == (expectsStall ? 1 : 0) && request.SoldOutConfirmed == expectsStall && trip.Success.Saves == (expectsStall ? 1 : 0),
+                "the stall completes only without a true attack signal: " + scenario);
+            Check((interruption != null) == !expectsStall && trip.Follows == (expectsStall ? 2 : 1) &&
+                trip.ScrollClicks == (scenario == "health drop" ? 2 : 1),
+                "the attack guard stops movement to the stall while allowing a confirmed merchant: " + scenario);
+            if (scenario == "same-name monster") Check(interruption!.Message.EndsWith(trip.NpcRoute.CleanupNpcName, StringComparison.Ordinal),
+                "the merchant name cannot exempt a different server object from the attack guard");
+            if (scenario == "unlocked monster") Check(interruption!.Message.EndsWith("nearby monster", StringComparison.Ordinal),
+                "the confirmed merchant cannot hide a separate attacker in the world snapshot");
         }
     }
 

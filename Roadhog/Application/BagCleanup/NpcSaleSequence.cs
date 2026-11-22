@@ -99,7 +99,7 @@ public sealed class NpcSaleSequence(IKeyboardInput input, Func<int, Cancellation
                 await actions.Wait(Ui, Selling);
             }
             TradingActions.Require((await Ui()).Basket.Count == 0, "商人出售列表已有物品，停止以免出售未配置物品。");
-            state.MarkSellItemEntryClicked();
+            state.MarkSellItemEntryClicked(npcId);
             await actions.BringBagToFront(async () => Selling(await Ui()) && (await Ui()).Basket.Count == 0);
             if (registerAllJunkFirst)
             {

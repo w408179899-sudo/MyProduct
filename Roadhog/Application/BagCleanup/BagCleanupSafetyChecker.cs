@@ -12,20 +12,24 @@ public sealed class BagCleanupSafetyChecker
     }
 
     public async Task<string?> FindAttackingTargetNameAsync(
-        AccountWorkerContext context)
+        AccountWorkerContext context, uint? merchantServerObjectId = null)
     {
-        var lockedResult = await context.Snapshots.ReadLockedTargetAsync().ConfigureAwait(false);
+        var locked = (await context.Snapshots.ReadLockedTargetAsync().ConfigureAwait(false)).Value;
+        var world = (await context.Snapshots.ReadWorldObjectsAsync().ConfigureAwait(false)).Value;
 
-        if (lockedResult.Value is { HasTarget: true, IsMonsterAlive: true } target &&
-            (target.IsTargetingLocalPlayer || target.TargetServerObjectIdMatchesLocal))
+        // Merchants can share the raw lock type with monsters. Use the confirmed
+        // trade identity and the world snapshot's NPC classification.
+        if (locked.IsMonsterAlive && locked.ServerObjectId != merchantServerObjectId &&
+            (locked.IsTargetingLocalPlayer || locked.TargetServerObjectIdMatchesLocal) &&
+            !world.Any(target => target.ServerObjectId != 0 && target.ServerObjectId == locked.ServerObjectId &&
+                string.Equals(target.ObjectKind, "npc", StringComparison.OrdinalIgnoreCase)))
         {
-            return target.Name;
+            return locked.Name;
         }
 
-        var worldResult = await context.Snapshots.ReadWorldObjectsAsync().ConfigureAwait(false);
-
-        var attacker = worldResult.Value
-            .FirstOrDefault(target => target.IsAlive && target.IsTargetingLocalPlayer);
+        var attacker = world.FirstOrDefault(target => target.IsAlive && target.IsTargetingLocalPlayer &&
+            target.ServerObjectId != merchantServerObjectId &&
+            string.Equals(target.ObjectKind, "monster", StringComparison.OrdinalIgnoreCase));
         return attacker?.Name;
     }
 }

@@ -1748,6 +1748,7 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("grocery shop final discard follows full sellout before restart", GroceryShopTests.DiscardAfterSelloutAsync)
     ,("grocery shop NPC first equipment other discard then ordinary sale and soldout restart", GroceryShopTests.NpcFirstOrderAndCompletionAsync)
     ,("grocery shop NPC first rejection in each phase transfers once to existing stall", GroceryShopTests.NpcFirstSaleRejectedAsync)
+    ,("grocery shop NPC first stall handoff distinguishes merchants from attackers", GroceryShopTests.NpcFirstAttackCheckDuringStallHandoffAsync)
     ,("grocery shop NPC first backpack discards locally before capacity and departure", GroceryShopTests.NpcFirstBackpackAndUnsellableAsync)
     ,("grocery shop NPC first scheduled preserves goods and unsellable leftovers are not soldout", GroceryShopTests.NpcFirstScheduledUnsellableAsync)
     ,("grocery shop scheduled NPC sellout relogin rejection does not replay", GroceryShopTests.ScheduledNpcSelloutHandoffResumesWithoutRepeatingSlotAsync)

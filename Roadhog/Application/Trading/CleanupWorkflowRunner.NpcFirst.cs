@@ -33,7 +33,8 @@ public sealed partial class CleanupWorkflowRunner
                 if (await PrepareBackpackGroceryAsync(context, request, report) == null) return;
             }
             request.GroceryNpcStageStarted = true;
-            var outcome = await new GroceryNpcSaleSequence(input, paths, executePath, groceryDelay, groceryClock).RunAsync(context, report);
+            var (outcome, merchantServerObjectId) = await new GroceryNpcSaleSequence(input, paths, executePath, groceryDelay, groceryClock)
+                .RunWithMerchantAsync(context, report);
             token.ThrowIfCancellationRequested();
             Require(outcome != GroceryNpcSaleOutcome.Failed, "NPC 出售未确认完成，放弃本次清包；不重复交易，也不作为限卖转入摆摊。");
             // A later release/closure fault must not erase already verified NPC completion.
@@ -65,7 +66,8 @@ public sealed partial class CleanupWorkflowRunner
             var travelPlan = new ReturnItemPlan((await context.Snapshots.ReadChannelTransitionAsync().WaitAsync(token)).Value);
             travelPlan.Add(route, settings.Paths.GroceryReturnItemName);
             CleanupPathTravel.RequireItems(travelPlan, bag);
-            await new GroceryReturnSequence(input, groceryDelay, groceryClock).RunAsync(context, route, settings.Paths.GroceryReturnItemName, report);
+            await new GroceryReturnSequence(input, groceryDelay, groceryClock).RunAsync(context, route, settings.Paths.GroceryReturnItemName, report,
+                merchantServerObjectId: merchantServerObjectId);
             report("前往杂货摆摊终点，按原名单和折扣出售");
             await FollowGroceryStallPathAsync(context, route);
             token.ThrowIfCancellationRequested();
