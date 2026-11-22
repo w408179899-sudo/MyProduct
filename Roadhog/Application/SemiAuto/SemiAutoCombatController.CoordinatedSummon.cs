@@ -21,7 +21,7 @@ public sealed partial class SemiAutoCombatController
             state.CoordinatedSummonHpTurnUsed = false;
             state.CoordinatedSummonDefenseAllowed = false;
             state.CoordinatedSummonDefenseReason = null;
-            state.CoordinatedSummonUnknownCooldown = null;
+            state.CoordinatedSummonCooldown = null;
             return false;
         }
 
@@ -33,7 +33,7 @@ public sealed partial class SemiAutoCombatController
             state.CoordinatedSummonHpTurnUsed = false;
             state.CoordinatedSummonDefenseAllowed = false;
             state.CoordinatedSummonDefenseReason = null;
-            state.CoordinatedSummonUnknownCooldown = null;
+            state.CoordinatedSummonCooldown = null;
             return false;
         }
 
@@ -51,7 +51,7 @@ public sealed partial class SemiAutoCombatController
             state.CoordinatedSummonHpTurnUsed = false;
             state.CoordinatedSummonDefenseAllowed = false;
             state.CoordinatedSummonDefenseReason = null;
-            state.CoordinatedSummonUnknownCooldown = null;
+            state.CoordinatedSummonCooldown = null;
             return false;
         }
 
@@ -77,7 +77,7 @@ public sealed partial class SemiAutoCombatController
 
         // Waiting for the game's cooldown has sent no cast and owns no cast window.
         // HP recovery and real-attacker defense remain eligible during this wait.
-        var summonCooling = await ShouldWaitForCoordinatedSummonCooldownAsync(context, state, spirit).ConfigureAwait(false);
+        var summonCooldown = await GetCoordinatedSummonCooldownDecisionAsync(context, state, spirit).ConfigureAwait(false);
         if (!state.CoordinatedSummonHpTurnUsed &&
             await TryRecoverPlayerHpBeforeSummonAsync(context, plan, state, player, beforeInput).ConfigureAwait(false))
         {
@@ -106,7 +106,7 @@ public sealed partial class SemiAutoCombatController
         }
 
         context.StopToken.ThrowIfCancellationRequested();
-        if (summonCooling) return true;
+        if (summonCooldown == SummonCooldownDecision.Wait) return true;
         now = DateTimeOffset.Now;
         if (!state.ShouldAttemptSpiritmasterSummon(now, SpiritmasterSummonAttemptInterval) ||
             state.CoordinatedSummonHpTurnUsed &&

@@ -20373,7 +20373,7 @@ static async Task TestWorkerEnsuresSpiritmasterPetBeforeNormalWorkAsync()
     AssertFalse(
         !logger.Entries.Any(entry =>
             entry.EventName == "semi_auto.spiritmaster.key_pressed" &&
-            Convert.ToString(entry.Fields["phase"]) == "summon_speed"),
+            Convert.ToString(entry.Fields["phase"]) == "summon_pet"),
         "spiritmaster pet ensure should log summon key press");
 }
 

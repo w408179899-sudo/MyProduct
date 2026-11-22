@@ -26,6 +26,9 @@ internal static class CoordinatedSummonCooldownTests
         ("combat flow v2 summon cooldown rejected input starts no confirmation", RejectedAsync),
         ("combat flow v2 summon cooldown cancels before input", CancelAsync),
         ("combat flow v2 summon cooldown uncalibrated duration uses monotonic time", UnknownClockAsync),
+        ("combat flow v2 summon cooldown stale calibration falls back to one direct cast at ten seconds", CalibratedTimeoutAsync),
+        ("combat flow v2 summon cooldown fresh endpoint re-arms the calibrated timeout", CalibratedChangedEndpointAsync),
+        ("combat flow v2 summon cooldown long duration keeps its own timeout", CalibratedLongCooldownAsync),
         ("combat flow v2 summon cooldown changed endpoint restarts duration observation", ChangedEndpointAsync),
         ("combat flow v2 summon cooldown pet arrival resets duration observation", PetReturnsAsync),
         ("combat flow v2 summon cooldown is isolated between accounts", IsolationAsync),
@@ -174,6 +177,67 @@ internal static class CoordinatedSummonCooldownTests
         f.Clock.Advance(1); await Ensure(f, state);
         Sequence(new[] { PetKey }, f.Keyboard.Keys, "a stable endpoint cannot defer summon forever without clock calibration");
     }
+
+    private static async Task CalibratedTimeoutAsync()
+    {
+        using var f = await CreateAsync(manual: true, speed: true);
+        EndAt(f, unchecked(f.State.EstimateGameTick(TestCooldownClock.CurrentTick) + 160_000));
+
+        await Ensure(f);
+        f.Clock.Advance(9_999);
+        f.Clock.ShiftUtc(TimeSpan.FromHours(3));
+        await Ensure(f);
+        Sequence(Array.Empty<string>(), f.Keyboard.Keys, "the timeout uses a full ten seconds of monotonic time");
+        Check(!f.State.HasPendingSpiritmasterSummonVerification, "waiting still sends no cast");
+
+        f.Clock.Advance(1);
+        await Ensure(f);
+        Sequence(new[] { PetKey }, f.Keyboard.Keys, "the timeout sends the actual summon and skips optional speed");
+        Check(f.State.HasPendingSpiritmasterSummonVerification, "fallback input enters the ordinary confirmation window");
+        Check(f.Logger.Entries.Count(e => e.EventName == "combat_flow.summon.cooldown_timeout") == 1,
+            "multiple guards for the same endpoint report one timeout");
+
+        await Ensure(f);
+        Sequence(new[] { PetKey }, f.Keyboard.Keys, "verification prevents duplicate input");
+        f.SetPet(12, 100);
+        Check(!await Ensure(f), "confirmed pet releases the summon branch");
+    }
+
+    private static async Task CalibratedChangedEndpointAsync()
+    {
+        using var f = await CreateAsync();
+        var tick = f.State.EstimateGameTick(TestCooldownClock.CurrentTick);
+        EndAt(f, unchecked(tick + 160_000));
+        await Ensure(f);
+
+        f.Clock.Advance(9_000);
+        EndAt(f, unchecked(tick + 170_000));
+        await Ensure(f);
+        f.Clock.Advance(1_000);
+        await Ensure(f);
+        Sequence(Array.Empty<string>(), f.Keyboard.Keys, "the earlier deadline cannot release a new cooldown");
+
+        f.Clock.Advance(9_000);
+        await Ensure(f);
+        Sequence(new[] { PetKey }, f.Keyboard.Keys, "the new cooldown has its own ten-second deadline");
+    }
+
+    private static async Task CalibratedLongCooldownAsync()
+    {
+        using var f = await CreateAsync();
+        f.Api.Skills = f.Api.Skills.Select(s => s.SkillId == PetId ? s with { CooldownDuration = 30_000 } : s).ToArray();
+        EndAt(f, unchecked(f.State.EstimateGameTick(TestCooldownClock.CurrentTick) + 160_000));
+        await Ensure(f);
+
+        f.Clock.Advance(10_000);
+        await Ensure(f);
+        Sequence(Array.Empty<string>(), f.Keyboard.Keys, "ten seconds cannot release a longer cooldown");
+
+        f.Clock.Advance(25_000);
+        await Ensure(f);
+        Sequence(new[] { PetKey }, f.Keyboard.Keys, "a longer cooldown is bounded by its own duration plus grace");
+    }
+
     private static async Task ChangedEndpointAsync()
     {
         using var f = await CreateAsync(); var state = new SemiAutoCombatState(); EndAt(f, 123);

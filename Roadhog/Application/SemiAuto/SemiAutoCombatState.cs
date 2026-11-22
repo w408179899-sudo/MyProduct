@@ -15,7 +15,7 @@ public sealed class SemiAutoCombatState
     internal bool CoordinatedSummonHpTurnUsed { get; set; }
     internal bool CoordinatedSummonDefenseAllowed { get; set; }
     internal string? CoordinatedSummonDefenseReason { get; set; }
-    internal SummonCooldownObservation? CoordinatedSummonUnknownCooldown { get; set; }
+    internal SummonCooldownObservation? CoordinatedSummonCooldown { get; set; }
     internal DateTimeOffset LastCoordinatedSummonCooldownLogAt { get; set; } = DateTimeOffset.MinValue;
     internal DateTimeOffset LastCoordinatedPetSkillBlockLogAt { get; set; } = DateTimeOffset.MinValue;
 

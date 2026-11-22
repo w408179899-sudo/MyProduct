@@ -74,7 +74,7 @@ public sealed partial class SemiAutoCombatController
         state.ClearSpiritmasterSummonVerification();
         state.CoordinatedSummonDefenseAllowed = false;
         state.CoordinatedSummonDefenseReason = null;
-        state.CoordinatedSummonUnknownCooldown = null;
+        state.CoordinatedSummonCooldown = null;
         return true;
     }
 }
