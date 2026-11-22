@@ -71,7 +71,7 @@ internal static class CoordinatedSummonCooldownTests
     private static async Task ExpiryAsync()
     {
         using var f = await CreateAsync(); f.Confirm(PetId); await Ensure(f);
-        EndAt(f, unchecked((uint)Environment.TickCount64 - 1000));
+        EndAt(f, unchecked(TestCooldownClock.CurrentTick - 1000));
         await Ensure(f);
         Sequence(new[] { PetKey }, f.Keyboard.Keys, "expiry permits one summon");
         Check(f.State.HasPendingSpiritmasterSummonVerification, "only delivered input begins verification");

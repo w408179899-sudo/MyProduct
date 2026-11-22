@@ -302,6 +302,9 @@ internal static class AionVmmSnapshotChannels
     public static readonly DmaSnapshotChannel<LockedTargetSnapshot> LockedTarget =
         ChannelRegistry.Register<LockedTargetSnapshot>("locked_target");
 
+    public static readonly DmaSnapshotChannel<LockedCombatTargetSnapshot> LockedCombatTarget =
+        ChannelRegistry.Register<LockedCombatTargetSnapshot>("locked_combat_target");
+
     public static readonly DmaSnapshotChannel<LockedTargetAbnormalStatusSnapshot> LockedTargetAbnormalStatuses =
         ChannelRegistry.Register<LockedTargetAbnormalStatusSnapshot>("locked_target_abnormal_statuses");
 

@@ -88,7 +88,7 @@ internal static class CoordinatedPetRecoveryEvidenceTests
     private static async Task OldCooldownAsync()
     {
         using var f = await CreateAsync();
-        var old = unchecked((uint)Environment.TickCount64 - 5000);
+        var old = unchecked(TestCooldownClock.CurrentTick - 5000);
         f.Api.Skills = f.Api.Skills.Select(s => s.SkillId == Heal ? s with { CooldownEndTime = old } : s).ToArray();
         await f.TickAsync(); f.SetPet(11, 21); await f.TickAsync();
         Check(!Confirmed(f) && f.State.PendingSpiritmasterPetHpIncreaseConfirmation?.BaselineCooldownEndTime == old,
@@ -96,7 +96,7 @@ internal static class CoordinatedPetRecoveryEvidenceTests
     }
     private static async Task BackwardAsync()
     {
-        using var f = await CreateAsync(); var old = unchecked((uint)Environment.TickCount64 - 5000);
+        using var f = await CreateAsync(); var old = unchecked(TestCooldownClock.CurrentTick - 5000);
         f.Api.Skills = f.Api.Skills.Select(s => s.SkillId == Heal ? s with { CooldownEndTime = old } : s).ToArray();
         await f.TickAsync();
         f.Api.Skills = f.Api.Skills.Select(s => s.SkillId == Heal ? s with { CooldownEndTime = old - 100 } : s).ToArray();

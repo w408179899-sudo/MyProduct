@@ -228,6 +228,21 @@ internal sealed partial class RoadhogSnapshotReader : IRoadhogSnapshotReader
                 : _gameApi.ReadLockedTargetAsync(stop),
             afterVersion);
 
+    public async Task<PublishedGameSnapshot<LockedCombatTargetSnapshot>> ReadLockedCombatTargetAsync(long afterVersion)
+    {
+        if (_gameApi is ILockedTargetPublicationSource source)
+        {
+            // The stable store orders both capture channels on the same version sequence.
+            var published = await ReadUntilPublishedAsync(AionVmmSnapshotChannels.LockedCombatTarget.Name,
+                stop => source.ReadLockedCombatTargetPublicationAsync(_readContext, stop),
+                afterVersion, publicationVersion: static snapshot => snapshot.Version).ConfigureAwait(false);
+            return published.Value;
+        }
+
+        var locked = await ReadLockedTargetAsync(afterVersion).ConfigureAwait(false);
+        return new(locked.Version, LockedCombatTargetSnapshot.FromLockedTarget(locked.Value));
+    }
+
     public Task<PublishedGameSnapshot<LockedTargetAbnormalStatusSnapshot>> ReadLockedTargetAbnormalStatusesAsync(long afterVersion = 0) =>
         ReadUntilPublishedAsync(
             "locked_target_abnormal_statuses",

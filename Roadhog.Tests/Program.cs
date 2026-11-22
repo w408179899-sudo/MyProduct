@@ -683,7 +683,15 @@ var tests = new (string Name, Func<Task> Run)[]
     ("combat skill priority pet attack takes the first eligible turn", CombatSkillPriorityTests.PetAttackTakesFirstEligibleTurnAsync),
     ("combat skill priority pet attack can preempt pending status confirmation", CombatSkillPriorityTests.PetAttackCanPreemptPendingShieldAsync),
     ("pet attack rejects a retained lock and a fresh lock missing the object id", PetAttackTargetConfirmationTests.RejectsUnidentifiedFirstLockAsync),
-    ("pet attack repeat rejects a retained lock and a fresh different object", PetAttackTargetConfirmationTests.RejectsDifferentRepeatLockAsync),
+    ("pet attack hands off to a ready skill in the same tick without waiting for another lock version", PetAttackTargetConfirmationTests.HandsOffWithoutWaitingForAnotherLockVersionAsync),
+    ("pet attack rejects a recycled entity before the first press", () => PetAttackTargetConfirmationTests.RejectsDifferentOrDeadFirstLockAsync(sameIdentity: false)),
+    ("pet attack rejects a dead confirmed target before the first press", () => PetAttackTargetConfirmationTests.RejectsDifferentOrDeadFirstLockAsync(sameIdentity: true)),
+    ("pet attack retries an incomplete lightweight confirmation", PetAttackTargetConfirmationTests.RetriesFailedConfirmationBeforeSendingAsync),
+    ("pet attack stops during the lightweight confirmation", PetAttackTargetConfirmationTests.StopsDuringConfirmationAsync),
+    ("pet attack provider confirms with only target identity and health", PetAttackTargetConfirmationTests.CapturesOnlyTargetIdentityAndHealthAsync),
+    ("pet attack provider rejects incomplete or inconsistent capture", PetAttackTargetConfirmationTests.RejectsInconsistentCaptureAsync),
+    ("pet attack rejects a changed lock before the follow-up skill", PetAttackTargetConfirmationTests.RejectsDifferentPostAttackLockAsync),
+    ("pet attack yields to the next tick when input fails", PetAttackTargetConfirmationTests.YieldsAfterFailedPetInputAsync),
     ("pet attack waits within budget when only the retained lock is available", PetAttackTargetConfirmationTests.TimesOutOnRetainedLockAsync),
     ("combat skill priority accepts a late attack without replay after heal", CombatSkillPriorityTests.LateAttackDoesNotReplayAsync),
     ("combat skill priority a cooling heal leaves the attack eligible", CombatSkillPriorityTests.CoolingHealLeavesAttackAsync),
@@ -1009,7 +1017,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat tab verification deadline cancels a slow defense read", () => StationaryTabFacingTests.SlowTabVerificationReadReleasesTheTickAsync(checkingDefense: true)),
     ("stationary combat pet opening waits when the lock changes at handoff", () => StationaryTabFacingTests.PetAttackWaitsForFightTargetAsync(matchingReads: 1)),
     ("stationary combat pet opening waits when the lock changes before the first press", () => StationaryTabFacingTests.PetAttackWaitsForFightTargetAsync(matchingReads: 2)),
-    ("stationary combat pet opening cancels the repeat when the lock changes", StationaryTabFacingTests.PetAttackStopsWhenLockChangesBetweenPressesAsync),
+    ("stationary combat pet opening cancels the follow-up when the lock changes", StationaryTabFacingTests.PetAttackStopsWhenLockChangesBeforeFollowUpAsync),
     ("stationary defense tab facing invalidates old marker", StationaryTabFacingTests.DefenseInvalidatesOldFacingAsync),
     ("stationary defense tab facing retry follows moving pet attacker", StationaryTabFacingTests.DefenseRetryTracksMovingAttackerAsync),
     ("stationary defense tab facing confirms correction before tab", StationaryTabFacingTests.DefenseConfirmsCorrectionBeforeTabAsync),
@@ -1696,7 +1704,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("spiritmaster pet buff suppresses repeated unknown cooldown", TestSpiritmasterPetBuffSuppressesRepeatedUnknownCooldownAsync),
     ("spiritmaster dot learning prefers skill id", TestSpiritmasterDotLearningPrefersSkillIdAsync),
     ("spiritmaster dot hit blocks repeat on next tick", TestSpiritmasterDotHitBlocksRepeatOnNextTickAsync),
-    ("spiritmaster opening attack key presses twice before opening skill", TestSpiritmasterOpeningAttackKeyPressesTwiceBeforeOpeningSkillAsync),
+    ("spiritmaster opening attack key presses once before the opening skill in the same tick", () => TestSpiritmasterOpeningAttackDelayAsync(0)),
     ("spiritmaster opening attack key waits before subsequent skills", () => TestSpiritmasterOpeningAttackDelayAsync(200)),
     ("spiritmaster opening attack key delay supports stop", () => TestSpiritmasterOpeningAttackDelayAsync(5000, true)),
     ("spiritmaster combat runs global mp maintenance before skills", TestSpiritmasterCombatRunsGlobalMpMaintenanceBeforeSkillsAsync),
@@ -21560,7 +21568,7 @@ static async Task TestStationaryCombatRequiresMatchingTabBeforePetAttackAsync(bo
         AssertFalse(!keyboard.Keys.Contains("Tab"), "acquire tick should press Tab");
         if (matched)
         {
-            AssertEqual(2, keyboard.Keys.Count(key => key == "NumPad5"), "verified target permits the two pet command presses");
+            AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad5"), "verified target permits one pet command");
             AssertFalse(!state.Fighting, "matching target enters combat");
             AssertEqual((ushort)100, state.CurrentTargetEntityId, "matching target remains selected");
         }
@@ -29135,8 +29143,6 @@ static async Task TestSpiritmasterDotHitBlocksRepeatOnNextTickAsync()
     AssertSequence(new[] { "D2" }, keyboard.Keys.ToArray(), "active dot should be skipped on next tick");
 }
 
-static Task TestSpiritmasterOpeningAttackKeyPressesTwiceBeforeOpeningSkillAsync() => TestSpiritmasterOpeningAttackDelayAsync(0);
-
 static async Task TestSpiritmasterOpeningAttackDelayAsync(int delayMs, bool cancelDuringDelay = false)
 {
     var settings = CreateSpiritmasterScriptSettings();
@@ -29162,46 +29168,48 @@ static async Task TestSpiritmasterOpeningAttackDelayAsync(int delayMs, bool canc
         SummonedPetRoster = CreateLocalPetRoster(isSummoned: true),
         Skills = CreateSpiritmasterSkillSnapshots(
             new SkillSnapshot(1701, "Opening Skill", 1, 1, "Opening Skill", 1, false, 1_000, 0),
-            new SkillSnapshot(1702, "Normal Skill", 1, 1, "Normal Skill", 1, false, 1_000, ActiveCooldownEnd()))
+            new SkillSnapshot(1702, "Normal Skill", 1, 1, "Normal Skill", 1, false, 1_000,
+                unchecked(TestCooldownClock.CurrentTick + 1_000u)))
     };
     var controller = new SemiAutoCombatController(keyboard);
     var state = new SemiAutoCombatState();
-    CalibrateCooldownClock(state);
-    var context = CreateContext(settings, gameApi, logger);
-
+    TestCooldownClock.Calibrate(state);
     using var stop = new CancellationTokenSource();
-    context = CreateContext(settings, gameApi, logger, stopToken: stop.Token);
+    var context = CreateContext(settings, gameApi, logger, stopToken: stop.Token);
+    var commandSent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var delayWatch = new System.Diagnostics.Stopwatch();
+    keyboard.AfterPress = key =>
+    {
+        if (key != "NumPad5") return;
+        delayWatch.Start();
+        commandSent.TrySetResult();
+    };
     var tick = controller.TickAsync(context, plan, state);
     if (delayMs > 0)
     {
-        var timeout = System.Diagnostics.Stopwatch.StartNew();
-        while (keyboard.Keys.Count < 2 && timeout.ElapsedMilliseconds < 5000)
-            await Task.Delay(1).ConfigureAwait(false);
-        AssertEqual(2, keyboard.Keys.Count, "both command presses must precede the delay");
-        AssertFalse(tick.IsCompleted, "combat tick must wait after the second command");
+        await commandSent.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
         if (cancelDuringDelay)
         {
+            AssertFalse(tick.IsCompleted, "combat tick must wait after the command");
             stop.Cancel();
             var cancelled = false;
             try { await tick.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false); }
             catch (OperationCanceledException) { cancelled = true; }
             AssertFalse(!cancelled, "stop must cancel the post-command delay promptly");
-            AssertSequence(new[] { "NumPad5", "NumPad5" }, keyboard.Keys.ToArray(), "stop must prevent subsequent skills");
+            AssertSequence(new[] { "NumPad5" }, keyboard.Keys.ToArray(), "stop must prevent subsequent skills");
             return;
         }
-        var delayWatch = System.Diagnostics.Stopwatch.StartNew();
         await tick.ConfigureAwait(false);
-        AssertFalse(delayWatch.ElapsedMilliseconds < delayMs - 40, "configured delay must elapse before subsequent skills");
+        AssertFalse(delayWatch.ElapsedMilliseconds < delayMs - 10, "the configured post-command delay must elapse");
+        AssertSequence(new[] { "NumPad5" }, keyboard.Keys.ToArray(), "a positive delay keeps the subsequent skill for the next tick");
+        await controller.TickAsync(context, plan, state).ConfigureAwait(false);
     }
     else
     {
         await tick.ConfigureAwait(false);
     }
-    AssertSequence(new[] { "NumPad5", "NumPad5" }, keyboard.Keys.ToArray(), "spiritmaster opening attack key should press twice first");
-
-    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
     AssertSequence(
-        new[] { "NumPad5", "NumPad5", "NumPad0" },
+        new[] { "NumPad5", "NumPad0" },
         keyboard.Keys.ToArray(),
         "opening skill should run after spiritmaster opening attack key");
 
@@ -33311,6 +33319,7 @@ static Task TestDmaSnapshotCatalogRegistersEveryBusinessChannelAsync()
         "inventory_interaction",
         "inventory_money",
         "inventory_window",
+        "locked_combat_target",
         "locked_target",
         "locked_target_abnormal_statuses",
         "login_scene",

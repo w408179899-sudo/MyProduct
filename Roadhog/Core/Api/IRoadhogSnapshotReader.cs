@@ -41,6 +41,12 @@ public interface IRoadhogSnapshotReader
 
     Task<PublishedGameSnapshot<LockedTargetSnapshot>> ReadLockedTargetAsync(long afterVersion = 0);
 
+    async Task<PublishedGameSnapshot<LockedCombatTargetSnapshot>> ReadLockedCombatTargetAsync(long afterVersion)
+    {
+        var locked = await ReadLockedTargetAsync(afterVersion).ConfigureAwait(false);
+        return new(locked.Version, LockedCombatTargetSnapshot.FromLockedTarget(locked.Value));
+    }
+
     Task<PublishedGameSnapshot<LockedTargetAbnormalStatusSnapshot>> ReadLockedTargetAbnormalStatusesAsync(long afterVersion = 0);
 
     Task<PublishedGameSnapshot<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(

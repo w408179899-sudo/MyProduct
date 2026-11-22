@@ -75,11 +75,7 @@ internal sealed class SharedSkillAuditFixture : IDisposable
             Clock.Advance((int)delay.TotalMilliseconds);
             return Task.CompletedTask;
         });
-        var marker = Skill(900001, "clock evidence", 1, 1000);
-        var osTick = unchecked((uint)Environment.TickCount64);
-        State.MarkSkillPressed(marker, DateTimeOffset.Now.AddSeconds(1));
-        Check(State.TryUpdateCooldownTickCalibration(new[] { marker with { CooldownEndTime = unchecked(osTick + 1000) } },
-            osTick, DateTimeOffset.Now, out _), "fixture calibrates only from observed forward cooldown");
+        TestCooldownClock.Calibrate(State);
     }
 
     public async Task PrepareAsync()
@@ -94,7 +90,7 @@ internal sealed class SharedSkillAuditFixture : IDisposable
     public void Cancel() => stop.Cancel();
     public void ClearAttackTree() => Settings.QuickbarSkills.ExecutionTree.Clear();
     public void Confirm(uint id) => Api.Skills = Api.Skills.Select(skill => skill.SkillId == id
-        ? skill with { CooldownEndTime = unchecked((uint)Environment.TickCount64 + skill.CooldownDuration) } : skill).ToArray();
+        ? skill with { CooldownEndTime = unchecked(TestCooldownClock.CurrentTick + skill.CooldownDuration) } : skill).ToArray();
     public void AddPetBuff(uint id = 1662, MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.InCombat) =>
         Settings.Skills.Spiritmaster.PetBuffRules.Add(new()
         { SkillId = id, SkillName = Api.Skills.Single(skill => skill.SkillId == id).Name, AbnormalStatusId = id, RunTiming = runTiming });

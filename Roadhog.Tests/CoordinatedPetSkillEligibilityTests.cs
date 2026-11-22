@@ -29,8 +29,7 @@ internal static class CoordinatedPetSkillEligibilityTests
         ("combat flow v2 pet prerequisites allow ordinary summon when ready and pet absent", QuickbarSummonReadyAsync),
         ("combat flow v2 pet prerequisites recheck summon after optional speed key", SummonPetArrivalAsync),
         ("combat flow v2 pet prerequisites isolate pet state between accounts", IsolationAsync),
-        ("combat flow v2 pet opening attack key skips pet lookup", PetAttackKeyAsync),
-        ("combat flow v2 pet opening attack key keeps two presses ten milliseconds apart", PetAttackBurstAsync),
+        ("combat flow v2 single pet attack key skips pet lookup before input", PetAttackKeyAsync),
     };
 
     private static async Task<SharedSkillAuditFixture> CreateAsync(bool alive = false, bool manual = false)
@@ -193,7 +192,7 @@ internal static class CoordinatedPetSkillEligibilityTests
     private static async Task QuickbarSummonCooldownAsync()
     {
         using var f = await CreateAsync(); await ConfigureQuickbarAsync(f, Summon);
-        f.Api.Skills = f.Api.Skills.Select(s => s.SkillId == Summon ? s with { CooldownEndTime = unchecked((uint)Environment.TickCount64 + 5000) } : s).ToArray();
+        f.Api.Skills = f.Api.Skills.Select(s => s.SkillId == Summon ? s with { CooldownEndTime = unchecked(TestCooldownClock.CurrentTick + 5000) } : s).ToArray();
         await f.TickAsync();
         Check(!f.Keyboard.Keys.Contains("D5") && f.Keyboard.Keys.Contains("D1"), "cooling summon yields to ordinary combat");
     }
@@ -225,19 +224,11 @@ internal static class CoordinatedPetSkillEligibilityTests
         using var f = await CreateAsync(); f.Settings.Maintenance.MpMaintenanceRules.Clear();
         f.Settings.Skills.Spiritmaster.OpeningAttackKey = "D7"; await f.PrepareAsync();
         var petReads = 0;
+        var petReadsAtCommand = -1;
         f.Observer.BeforePetRead = _ => petReads++;
+        f.Keyboard.AfterPress = key => { if (key == "D7") petReadsAtCommand = petReads; };
         await f.TickAsync();
-        Sequence(new[] { "D7", "D7" }, f.Keyboard.Keys, "the opening command sends both presses with no living pet");
-        Check(petReads == 0, "the opening command does not read the pet before either press");
-    }
-    private static async Task PetAttackBurstAsync()
-    {
-        using var f = await CreateAsync(true); f.Settings.Maintenance.MpMaintenanceRules.Clear();
-        f.Settings.Skills.Spiritmaster.OpeningAttackKey = "D7"; await f.PrepareAsync();
-        f.Keyboard.AfterPress = key => { if (key == "D7") f.SetPet(11, 0); };
-        await f.TickAsync();
-        Sequence(new[] { "D7", "D7" }, f.Keyboard.Keys, "pet state changes do not interrupt the opening command");
-        var burst = f.Logger.Entries.Single(e => e.EventName == "semi_auto.spiritmaster.opening_attack_key.started");
-        Check(Convert.ToInt64(burst.Fields["intervalMs"]) == 10, "the opening command waits ten milliseconds between presses");
+        Sequence(new[] { "D7", "D1" }, f.Keyboard.Keys, "one pet command precedes the ready skill even without a living pet");
+        Check(petReadsAtCommand == 0, "the opening command does not require a pet roster read");
     }
 }

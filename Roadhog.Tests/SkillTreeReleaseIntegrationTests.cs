@@ -82,7 +82,7 @@ internal static class SkillTreeReleaseIntegrationTests
             {
                 api.SkillAvailability = api.SkillAvailability with { LastReleasedSkillId = 201, LastReleasedSkillTime = 10 };
                 api.Skills = api.Skills.Select(skill => skill.SkillId == 201
-                    ? skill with { CooldownEndTime = unchecked((uint)Environment.TickCount64 + 10000) }
+                    ? skill with { CooldownEndTime = unchecked(TestCooldownClock.CurrentTick + 10000) }
                     : skill).ToArray();
             }
         };

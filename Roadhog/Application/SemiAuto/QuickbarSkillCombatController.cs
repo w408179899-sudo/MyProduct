@@ -658,6 +658,9 @@ public sealed partial class QuickbarSkillCombatController
     }
 
     internal static bool SameTarget(LockedTargetSnapshot expected, LockedTargetSnapshot current) =>
+        SameTarget(expected, LockedCombatTargetSnapshot.FromLockedTarget(current));
+
+    internal static bool SameTarget(LockedTargetSnapshot expected, LockedCombatTargetSnapshot current) =>
         current.IsMonsterAlive && current.TargetEntityId == expected.TargetEntityId &&
         (current.ServerObjectId == 0 || expected.ServerObjectId == 0 || current.ServerObjectId == expected.ServerObjectId);
 

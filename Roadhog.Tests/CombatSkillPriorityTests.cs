@@ -16,28 +16,26 @@ internal static class CombatSkillPriorityTests
         f.Api.Player = f.Api.Player with { CurrentHp = 30 };
 
         await f.TickAsync();
-        Sequence(new[] { PetAttackKey, PetAttackKey }, f.Keyboard.Keys,
-            "the pet command takes the first eligible input ahead of due healing and the missing shield");
-        await f.TickAsync();
+        Sequence(new[] { PetAttackKey, "D2" }, f.Keyboard.Keys,
+            "the pet command comes first and the due heal keeps priority for the follow-up input");
         f.State.MarkMaintenanceKeyAttempted("D2", DateTimeOffset.Now.AddMilliseconds(-650));
         await f.TickAsync();
-        Sequence(new[] { PetAttackKey, PetAttackKey, "D2", ShieldKey }, f.Keyboard.Keys,
-            "healing and the shield take later turns once the pet attack was issued for this target");
+        Sequence(new[] { PetAttackKey, "D2", ShieldKey }, f.Keyboard.Keys,
+            "the shield takes priority once healing is done and the pet command is recorded for this target");
     }
 
     public static async Task PetAttackCanPreemptPendingShieldAsync()
     {
         using var f = await CreateAsync(includePetAttack: true);
         await f.TickAsync();
-        await f.TickAsync();
-        Sequence(new[] { PetAttackKey, PetAttackKey, ShieldKey }, f.Keyboard.Keys,
-            "the first target receives the pet attack and then the shield starts");
+        Sequence(new[] { PetAttackKey, ShieldKey }, f.Keyboard.Keys,
+            "the first target receives the pet attack and then the shield starts in the same tick");
 
         f.Api.TargetOwnServerObjectId++;
         f.Clock.Advance(300);
         await f.TickAsync();
-        Sequence(new[] { PetAttackKey, PetAttackKey, ShieldKey, PetAttackKey, PetAttackKey }, f.Keyboard.Keys,
-            "the new target receives the highest-priority pet command while an earlier shield awaits effect");
+        Sequence(new[] { PetAttackKey, ShieldKey, PetAttackKey, "D1" }, f.Keyboard.Keys,
+            "the new target receives the pet command before ordinary input while the earlier shield awaits its effect");
         Check(f.State.CombatStatusAttempts.Values.Single().Awaiting, "the pet command retains the shield confirmation");
 
         SetShield(f);

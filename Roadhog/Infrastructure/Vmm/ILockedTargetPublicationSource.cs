@@ -8,4 +8,7 @@ internal interface ILockedTargetPublicationSource
 {
     Task<OperationResult<PublishedGameSnapshot<LockedTargetSnapshot>>> ReadLockedTargetPublicationAsync(
         GameApiReadContext context, long afterVersion, CancellationToken cancellationToken);
+
+    Task<OperationResult<PublishedGameSnapshot<LockedCombatTargetSnapshot>>> ReadLockedCombatTargetPublicationAsync(
+        GameApiReadContext context, CancellationToken cancellationToken);
 }

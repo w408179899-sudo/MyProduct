@@ -19,10 +19,11 @@ internal sealed record SkillOpportunityActorCapture(
     }
 }
 
-/// <summary>New-channel-only batched form of the existing actor candidate algorithm.</summary>
+/// <summary>Batched actor lookup with guards for verifying the selected actor after capture.</summary>
 internal sealed class SkillOpportunityActorResolver(
     Func<ulong, int, byte[]> read,
-    Func<IReadOnlyList<(ulong Address, int Size)>, IReadOnlyList<byte[]>> readMany)
+    Func<IReadOnlyList<(ulong Address, int Size)>, IReadOnlyList<byte[]>> readMany,
+    bool requireUniqueIdentity = false)
 {
     private static bool Pointer(ulong value) => value >= 0x10000 && value < 0x800000000000;
     private byte[] Bytes(ulong address, int size)
@@ -92,22 +93,30 @@ internal sealed class SkillOpportunityActorResolver(
             if (bytes is null || bytes.Length != 40 || BitConverter.ToUInt64(bytes) != entity) continue;
             var type = BitConverter.ToUInt32(bytes, 24);
             if (type is 0 or > 32) continue;
-            matches.Add((candidates[i].Index, candidates[i].Actor, type, BitConverter.ToUInt32(bytes, 36), bytes));
+            var serverId = BitConverter.ToUInt32(bytes, 36);
+            if (requireUniqueIdentity && serverId == 0) continue;
+            matches.Add((candidates[i].Index, candidates[i].Actor, type, serverId, bytes));
         }
         if (matches.Count == 0) return null;
-        var names = readMany(matches.Select(item => (Address: item.Actor + 0x42, Size: 128)).ToArray());
-        if (names.Count != matches.Count) return null;
-        var best = -1;
-        var bestScore = -1;
-        for (var i = 0; i < matches.Count; i++)
+        var best = 0;
+        if (requireUniqueIdentity)
         {
-            var nameBytes = names[i];
-            var hasName = nameBytes is { Length: 128 } &&
-                !string.IsNullOrWhiteSpace(Encoding.Unicode.GetString(nameBytes).Split('\0')[0]);
-            var score = 60 + (matches[i].Server != 0 ? 10 : 0) + (hasName ? 10 : 0);
-            if (score > bestScore) { best = i; bestScore = score; }
+            if (matches.Count != 1) throw new InvalidDataException("Selected target actor identity is ambiguous.");
         }
-        if (best < 0 || bestScore < 60) return null;
+        else
+        {
+            var names = readMany(matches.Select(item => (Address: item.Actor + 0x42, Size: 128)).ToArray());
+            if (names.Count != matches.Count) return null;
+            var bestScore = -1;
+            for (var i = 0; i < matches.Count; i++)
+            {
+                var nameBytes = names[i];
+                var hasName = nameBytes is { Length: 128 } &&
+                    !string.IsNullOrWhiteSpace(Encoding.Unicode.GetString(nameBytes).Split('\0')[0]);
+                var score = (matches[i].Server != 0 ? 10 : 0) + (hasName ? 10 : 0);
+                if (score > bestScore) { best = i; bestScore = score; }
+            }
+        }
         var selected = matches[best];
         var guards = path.ToList();
         guards.Add((region + (ulong)selected.Index * 8, block.AsSpan(selected.Index * 8, 8).ToArray()));

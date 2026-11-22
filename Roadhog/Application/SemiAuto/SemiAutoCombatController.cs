@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Roadhog.Application.AbnormalStatuses;
 using Roadhog.Application.JumpAssist;
 using Roadhog.Application.Workers;
@@ -42,7 +43,6 @@ public sealed partial class SemiAutoCombatController
     private static readonly TimeSpan SpiritmasterSummonKeyInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan SpiritmasterSummonAttemptInterval = TimeSpan.FromSeconds(6);
     private static readonly TimeSpan SpiritmasterSummonVerifyWindow = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan SpiritmasterOpeningAttackKeyInterval = TimeSpan.FromMilliseconds(10);
     private static readonly TimeSpan PetAttackTargetConfirmationWindow = TimeSpan.FromMilliseconds(400);
     private static readonly TimeSpan OpeningSkillConfirmationTimeout = TimeSpan.FromMilliseconds(2300);
     private static readonly string AttackKey = "C";
@@ -1728,8 +1728,7 @@ public sealed partial class SemiAutoCombatController
         LockedTargetSnapshot target,
         long afterVersion)
     {
-        var first = await ConfirmPetAttackTargetAsync(context, target, afterVersion, "pet_attack_first").ConfigureAwait(false);
-        if (first is null)
+        if (!await ConfirmPetAttackTargetAsync(context, target, afterVersion).ConfigureAwait(false))
         {
             return false;
         }
@@ -1740,8 +1739,7 @@ public sealed partial class SemiAutoCombatController
         {
             ["account"] = context.Config.AccountName,
             ["key"] = key,
-            ["pressCount"] = 2,
-            ["intervalMs"] = (long)SpiritmasterOpeningAttackKeyInterval.TotalMilliseconds,
+            ["pressCount"] = 1,
             ["targetEntityId"] = target.TargetEntityId,
             ["targetServerObjectId"] = target.ServerObjectId,
             ["targetName"] = target.Name
@@ -1749,17 +1747,10 @@ public sealed partial class SemiAutoCombatController
 
         if (!await PressSpiritmasterRawKeyAsync(context, settings, key, "opening_attack").ConfigureAwait(false))
         {
-            return true;
-        }
-
-        await Task.Delay(SpiritmasterOpeningAttackKeyInterval, context.StopToken).ConfigureAwait(false);
-        if (await ConfirmPetAttackTargetAsync(context, target, first.Version, "pet_attack_repeat").ConfigureAwait(false) is null)
-        {
             return false;
         }
 
-        if (await PressSpiritmasterRawKeyAsync(context, settings, key, "opening_attack").ConfigureAwait(false) &&
-            spiritSettings.OpeningAttackDelayMs > 0)
+        if (spiritSettings.OpeningAttackDelayMs > 0)
         {
             context.Logger.Info("semi_auto.spiritmaster.opening_attack_key.delay", new Dictionary<string, object?>
             {
@@ -1772,18 +1763,20 @@ public sealed partial class SemiAutoCombatController
         return true;
     }
 
-    private static async Task<PublishedGameSnapshot<LockedTargetSnapshot>?> ConfirmPetAttackTargetAsync(
-        AccountWorkerContext context, LockedTargetSnapshot expected, long afterVersion, string phase)
+    private static async Task<bool> ConfirmPetAttackTargetAsync(
+        AccountWorkerContext context, LockedTargetSnapshot expected, long afterVersion)
     {
+        const string phase = "pet_attack_first";
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(context.StopToken);
         deadline.CancelAfter(PetAttackTargetConfirmationWindow);
         using var confirmation = SnapshotReadBudget.EnterCancellation(deadline.Token);
+        var started = Stopwatch.GetTimestamp();
         try
         {
-            var locked = await context.Snapshots.ReadLockedTargetAsync(afterVersion).ConfigureAwait(false);
+            var locked = await context.Snapshots.ReadLockedCombatTargetAsync(afterVersion).ConfigureAwait(false);
             deadline.Token.ThrowIfCancellationRequested();
             if (!ConfirmCombatTarget(context, expected, locked.Value, phase, requireServerIdentity: true))
-                return null;
+                return false;
             context.Logger.Info("semi_auto.spiritmaster.opening_attack_key.target_confirmed", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
@@ -1792,10 +1785,11 @@ public sealed partial class SemiAutoCombatController
                 ["targetServerObjectId"] = expected.ServerObjectId,
                 ["lockedEntityId"] = locked.Value.TargetEntityId,
                 ["lockedServerObjectId"] = locked.Value.ServerObjectId,
-                ["lockedName"] = locked.Value.Name,
-                ["snapshotVersion"] = locked.Version
+                ["lockedName"] = expected.Name,
+                ["snapshotVersion"] = locked.Version,
+                ["elapsedMs"] = Stopwatch.GetElapsedTime(started).TotalMilliseconds
             });
-            return locked;
+            return true;
         }
         catch (OperationCanceledException) when (deadline.IsCancellationRequested && !context.StopToken.IsCancellationRequested)
         {
@@ -1804,15 +1798,22 @@ public sealed partial class SemiAutoCombatController
                 ["account"] = context.Config.AccountName,
                 ["phase"] = phase,
                 ["targetEntityId"] = expected.TargetEntityId,
-                ["targetServerObjectId"] = expected.ServerObjectId
+                ["targetServerObjectId"] = expected.ServerObjectId,
+                ["elapsedMs"] = Stopwatch.GetElapsedTime(started).TotalMilliseconds
             });
-            return null;
+            return false;
         }
     }
 
     private static bool ConfirmCombatTarget(
         AccountWorkerContext context, LockedTargetSnapshot expected, LockedTargetSnapshot locked, string phase,
-        bool requireServerIdentity = false)
+        bool requireServerIdentity = false) =>
+        ConfirmCombatTarget(context, expected, LockedCombatTargetSnapshot.FromLockedTarget(locked),
+            phase, requireServerIdentity);
+
+    private static bool ConfirmCombatTarget(
+        AccountWorkerContext context, LockedTargetSnapshot expected, LockedCombatTargetSnapshot locked, string phase,
+        bool requireServerIdentity)
     {
         if (QuickbarSkillCombatController.SameTarget(expected, locked) &&
             (!requireServerIdentity || (expected.ServerObjectId != 0 && locked.ServerObjectId != 0)))

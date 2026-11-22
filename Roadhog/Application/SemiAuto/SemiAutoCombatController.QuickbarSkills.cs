@@ -265,11 +265,21 @@ public sealed partial class SemiAutoCombatController
             [
             Candidate(CombatSkillPriority.PetAttack, async () =>
             {
-                if (await PressSpiritmasterOpeningAttackKeyAsync(context, state, settings,
-                        sharedSkillSettings.Spiritmaster, intendedTarget, targetPublication.Version).ConfigureAwait(false))
-                    jumpAssist?.ActivatePreparedTeamCombatJump(intendedTarget.ServerObjectId);
-                // A changed lock ends the turn before any other input uses the old target.
-                return true;
+                var petSettings = sharedSkillSettings.Spiritmaster;
+                if (!await PressSpiritmasterOpeningAttackKeyAsync(context, state, settings,
+                        petSettings, intendedTarget, targetPublication.Version).ConfigureAwait(false))
+                    return true;
+
+                var continueThisTick = petSettings.OpeningAttackDelayMs <= 0;
+                if (continueThisTick &&
+                    !ConfirmCombatTarget(context, intendedTarget, await ReadLockedTargetAsync(context).ConfigureAwait(false),
+                        "after_pet_attack", requireServerIdentity: true))
+                    return true;
+
+                jumpAssist?.ActivatePreparedTeamCombatJump(intendedTarget.ServerObjectId);
+                if (continueThisTick)
+                    state.QuickbarSkills.YieldInputToPriority(preserveAttackWeave: true);
+                return !continueThisTick;
             }, eligible: checkShared && PetAttackIsDue()),
             .. NominateEarlyMaintenance(checkShared && !checkedBeforeBinding),
             Candidate(CombatSkillPriority.Opening, async () =>

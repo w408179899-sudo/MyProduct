@@ -103,7 +103,6 @@ internal static class QuickbarSkillOuterPollingTests
     public static async Task CoolingHpMaintenanceDoesNotStarveAsync()
     {
         using var fixture = new Fixture();
-        var osTick = unchecked((uint)Environment.TickCount64);
         fixture.Context.Config.ScriptSettings!.Maintenance.HpMaintenanceRules.Add(new()
         {
             ActionType = MaintenanceRuleActionType.Skill, SkillId = 901, SkillName = "heal", Key = "D4",
@@ -111,7 +110,7 @@ internal static class QuickbarSkillOuterPollingTests
         });
         fixture.Api.Player = fixture.Api.Player with { CurrentHp = 40 };
         fixture.Api.Skills = fixture.Api.Skills.Append(new SkillSnapshot(901, "heal", 1, 1, "heal", 1, false,
-            30000, unchecked(osTick + 30000u))).ToArray();
+            30000, unchecked(TestCooldownClock.CurrentTick + 30000u))).ToArray();
         fixture.Api.Quickbar = fixture.Api.Quickbar with
         {
             Slots = fixture.Api.Quickbar.Slots.Append(new QuickbarSlotSnapshot(SkillQuickbar.Main, 3, 21, 901)).ToArray()
@@ -129,14 +128,11 @@ internal static class QuickbarSkillOuterPollingTests
             {
                 attackReleased = true;
                 fixture.Api.Skills = fixture.Api.Skills.Select(skill => skill.SkillId == 21
-                    ? skill with { CooldownEndTime = unchecked((uint)Environment.TickCount64 + 30000u) }
+                    ? skill with { CooldownEndTime = unchecked(TestCooldownClock.CurrentTick + 30000u) }
                     : skill).ToArray();
             }
         };
-        var marker = new SkillSnapshot(900001, "clock marker", 1, 1, "clock marker", 1, false, 1000, 0);
-        fixture.State.MarkSkillPressed(marker, DateTimeOffset.Now.AddSeconds(1));
-        Check(fixture.State.TryUpdateCooldownTickCalibration(new[] { marker with { CooldownEndTime = unchecked(osTick + 1000u) } },
-            osTick, DateTimeOffset.Now, out _), "test begins with a previously confirmed game cooldown clock");
+        TestCooldownClock.Calibrate(fixture.State);
         await fixture.PrepareAsync();
 
         await fixture.Controller.TickAsync(fixture.Context, fixture.MaintenancePlan, fixture.State);

@@ -143,6 +143,7 @@ internal static class StationaryTabFacingTests
         h.Settings.SemiAuto.AttackKeyLoopEnabled = false;
         h.Settings.Skills.SpiritmasterAutoSkillLogicEnabled = true;
         h.Settings.Skills.Spiritmaster.OpeningAttackKey = "D7";
+        h.Settings.Skills.Spiritmaster.SummonSkills.Clear();
         h.State.BeginFight(h.Candidate);
         h.LockWrongMonster();
         h.Api.TargetName = h.Candidate.Name;
@@ -170,11 +171,11 @@ internal static class StationaryTabFacingTests
         };
         await h.Tick();
 
-        Check(h.Input.Keys.SequenceEqual(new[] { "Tab", "D7", "D7" }),
+        Check(h.Input.Keys.SequenceEqual(new[] { "Tab", "D7" }),
             "the pet command should run only after Tab restores the intended lock: " + string.Join(", ", h.Input.Keys));
     }
 
-    public static async Task PetAttackStopsWhenLockChangesBetweenPressesAsync()
+    public static async Task PetAttackStopsWhenLockChangesBeforeFollowUpAsync()
     {
         using var h = new Harness();
         h.Api.Player = h.Api.Player with { CharacterClassId = AionClassId.Spiritmaster };
@@ -190,7 +191,10 @@ internal static class StationaryTabFacingTests
         await h.Tick();
 
         Check(h.Input.Keys.SequenceEqual(new[] { "Tab", "D7" }),
-            "the second pet command must be cancelled when the lock changes: " + string.Join(", ", h.Input.Keys));
+            "further input must be cancelled when the lock changes: " + string.Join(", ", h.Input.Keys));
+        Check(h.Logger.Entries.Any(entry => entry.EventName == "semi_auto.combat_target.lock_mismatch" &&
+            Equals(entry.Fields["phase"], "after_pet_attack")),
+            "the follow-up scheduler checks the lock after the pet command");
         Check(h.State.CurrentTargetServerObjectId == h.Candidate.ServerObjectId,
             "the wrong lock must not replace the intended fight target");
     }
