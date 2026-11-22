@@ -73,6 +73,7 @@ public sealed partial class MultiAccountForm : Form
         tools.Controls.Add(Button("清包", () => CleanupSelectedAsync(itemTransfer: false), width: 76));
         tools.Controls.Add(Button("倒货", () => CleanupSelectedAsync(itemTransfer: true), width: 76));
         tools.Controls.Add(Button("退出程序", () => ExitAsync(), exitAction: true));
+        tools.Controls.Add(BuildDmaReadCacheField());
         root.Controls.Add(tools, 0, 0);
         var filters = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false };
         _filter.DropDownStyle = ComboBoxStyle.DropDownList; _filter.Size = new Size(110, 28);
@@ -208,6 +209,7 @@ public sealed partial class MultiAccountForm : Form
         var accounts = await _workspace.InitializeAsync(_operations.Token);
         if (_operations.IsClosing || IsDisposed) return;
         _accounts = accounts.ToList(); _initialized = true; RefreshRows(); _timer.Start();
+        LoadDmaReadCacheField();
         if (_accounts.Any(a => !Infrastructure.Hardware.HardwareVerificationSession.IsCurrent(a)
             && !string.IsNullOrWhiteSpace(a.CharacterName) && !string.IsNullOrWhiteSpace(a.HardwareVerificationSessionId)))
             await RunConfigurationActionAsync(DiscoverDevicesAsync);

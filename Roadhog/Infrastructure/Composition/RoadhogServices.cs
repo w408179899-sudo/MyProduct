@@ -176,7 +176,7 @@ public sealed class RoadhogServices : IDisposable
             ? new ToolProcessApiClient(options.ToolTestBridge, logger)
             : options.UseMockGameApi
                 ? new MockRoadhogGameApi()
-                : new AionVmmGameApi(options.AionVmm, logger);
+                : new AionVmmGameApi(options.AionVmm, logger, new JsonDmaReadCacheStore(options.AccountConfigPath));
         var accounts = new AccountRuntimeManager(logger);
         var snapshotReaders = new RoadhogSnapshotReaderFactory(gameApi, accounts.CreatePlayerInfoObserver);
         var hardwareResolver = new WindowsHardwareDeviceResolver(options.HardwareResolver);

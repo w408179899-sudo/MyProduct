@@ -9,6 +9,7 @@ using Roadhog.Core.Api;
 using Roadhog.Core.Common;
 using Roadhog.Core.Diagnostics;
 using Roadhog.Core.Model;
+using Roadhog.Infrastructure.Config;
 using Roadhog.Infrastructure.Gathering;
 using MemProcVmm = Vmmsharp.Vmm;
 using Vmmsharp;
@@ -28,9 +29,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
     private const ulong VmmConfigTlbCacheTicks = 0x2000000600000000UL;
     private const ulong VmmConfigProcCacheTicksPartial = 0x2000000700000000UL;
     private const ulong VmmConfigProcCacheTicksTotal = 0x2000000800000000UL;
-    private const ulong TargetVmmTickPeriodMs = 50UL;
-    private const ulong TargetVmmReadCacheMs = 150UL;
-    private const ulong TargetVmmReadCacheTicks = 3UL;
+    private const ulong TargetVmmTickPeriodMs = JsonDmaReadCacheStore.TickPeriodMs;
     private const ulong FallbackVmmTickPeriodMs = 100UL;
 
     private const ulong EntitySystemPointerRva = 0x94C7B0;
@@ -241,6 +240,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
 
     private readonly AionVmmGameApiOptions _options;
     private readonly IRoadhogLogger _logger;
+    private readonly JsonDmaReadCacheStore? _readCacheSettings;
     private readonly DmaStableSnapshotStore _stableSnapshots;
     private readonly Dictionary<string, VmmConnection> _connections = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _connectionsRetiring = new(StringComparer.OrdinalIgnoreCase);
@@ -263,10 +263,11 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
     private long _worldObjectCaptureSequence;
     private long _summonedPetRosterCaptureSequence;
 
-    public AionVmmGameApi(AionVmmGameApiOptions options, IRoadhogLogger logger)
+    public AionVmmGameApi(AionVmmGameApiOptions options, IRoadhogLogger logger, JsonDmaReadCacheStore? readCacheSettings = null)
     {
         _options = options;
         _logger = logger;
+        _readCacheSettings = readCacheSettings;
         _stableSnapshots = new DmaStableSnapshotStore(AionVmmSnapshotChannels.Registry);
     }
 
@@ -3407,45 +3408,67 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         var deviceName = ResolveVmmDeviceName(contextVmmDeviceName);
         var remote = ResolveVmmRemote();
         var key = BuildConnectionKey(deviceName, remote);
+        _readCacheSettings?.Refresh(_logger);
 
+        VmmConnection? existing;
         lock (_connectionSync)
         {
-            if (_connections.TryGetValue(key, out var existing))
-            {
-                return existing;
-            }
-
-            // Every read channel must observe the reconnect delay, not just player reads.
-            if (_connectionsRetiring.Contains(key))
-                throw new InvalidOperationException("VMM connection retirement is still in progress.");
-            if (TryGetConnectionRetryDelay(contextVmmDeviceName, out var retryAfterMs))
-                throw new InvalidOperationException("VMM reconnect cooling down for " + retryAfterMs + "ms");
-
-            LoadNativeLibrariesOnce();
-            var args = string.IsNullOrWhiteSpace(remote)
-                ? new[] { "-device", deviceName }
-                : new[] { "-device", deviceName, "-remote", remote };
-
-            SafeMemProcVmm vmm;
-            try { vmm = new SafeMemProcVmm(args); }
-            catch
-            {
-                _connectionRetryNotBefore[key] = DateTimeOffset.Now + VmmReconnectDelay;
-                throw;
-            }
-            ConfigureVmmReadCache(vmm, deviceName, remote);
-
-            var created = new VmmConnection(deviceName, remote, vmm);
-            _connections[key] = created;
-            _connectionRetryNotBefore.Remove(key);
-            _logger.Info("vmm.connection.created", new Dictionary<string, object?>
-            {
-                ["device"] = deviceName,
-                ["remote"] = remote
-            });
-
-            return created;
+            if (!_connections.TryGetValue(key, out existing))
+                return CreateConnectionLocked(contextVmmDeviceName, deviceName, remote, key);
         }
+
+        if (existing.NeedsReadCacheUpdate(ReadCachePeriodMs))
+        {
+            // Captures may take the registry lock while holding the connection lock.
+            lock (existing.SyncRoot)
+            {
+                var periodMs = ReadCachePeriodMs;
+                if (!existing.IsRetired && existing.NeedsReadCacheUpdate(periodMs))
+                {
+                    var configured = ConfigureVmmReadCache(existing.Vmm, deviceName, remote, periodMs, initialize: false);
+                    existing.RecordReadCacheAttempt(periodMs, configured);
+                }
+            }
+        }
+        return existing;
+    }
+
+    private int ReadCachePeriodMs => _readCacheSettings?.CurrentPeriodMs ?? JsonDmaReadCacheStore.DefaultPeriodMs;
+
+    private VmmConnection CreateConnectionLocked(string? contextVmmDeviceName, string deviceName, string remote, string key)
+    {
+        // Every read channel must observe the reconnect delay, not just player reads.
+        if (_connectionsRetiring.Contains(key))
+            throw new InvalidOperationException("VMM connection retirement is still in progress.");
+        if (TryGetConnectionRetryDelay(contextVmmDeviceName, out var retryAfterMs))
+            throw new InvalidOperationException("VMM reconnect cooling down for " + retryAfterMs + "ms");
+
+        LoadNativeLibrariesOnce();
+        var args = string.IsNullOrWhiteSpace(remote)
+            ? new[] { "-device", deviceName }
+            : new[] { "-device", deviceName, "-remote", remote };
+
+        SafeMemProcVmm vmm;
+        try { vmm = new SafeMemProcVmm(args); }
+        catch
+        {
+            _connectionRetryNotBefore[key] = DateTimeOffset.Now + VmmReconnectDelay;
+            throw;
+        }
+
+        var periodMs = ReadCachePeriodMs;
+        var configured = ConfigureVmmReadCache(vmm, deviceName, remote, periodMs, initialize: true);
+        var created = new VmmConnection(deviceName, remote, vmm);
+        created.RecordReadCacheAttempt(periodMs, configured);
+        _connections[key] = created;
+        _connectionRetryNotBefore.Remove(key);
+        _logger.Info("vmm.connection.created", new Dictionary<string, object?>
+        {
+            ["device"] = deviceName,
+            ["remote"] = remote
+        });
+
+        return created;
     }
 
     private OperationResult<InventoryDiscardConfirmSnapshot> ReadInventoryDiscardConfirmCore(
@@ -3590,38 +3613,40 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         return false;
     }
 
-    private void ConfigureVmmReadCache(MemProcVmm vmm, string deviceName, string remote)
+    private bool ConfigureVmmReadCache(MemProcVmm vmm, string deviceName, string remote, int targetReadCacheMs, bool initialize)
     {
         try
         {
             var previousTickPeriodMs = ReadVmmConfigOrDefault(vmm, VmmConfigTickPeriod, FallbackVmmTickPeriodMs);
-            var previousTlbCacheTicks = vmm.GetConfig(VmmConfigTlbCacheTicks);
-            var previousProcCacheTicksPartial = vmm.GetConfig(VmmConfigProcCacheTicksPartial);
-            var previousProcCacheTicksTotal = vmm.GetConfig(VmmConfigProcCacheTicksTotal);
-            var tickPeriodConfigured = vmm.SetConfig(VmmConfigTickPeriod, TargetVmmTickPeriodMs);
-            var tickPeriodMs = tickPeriodConfigured ? TargetVmmTickPeriodMs : previousTickPeriodMs;
-            var readCacheTicks = tickPeriodConfigured
-                ? TargetVmmReadCacheTicks
-                : CalculateVmmCacheTicks(TargetVmmReadCacheMs, tickPeriodMs);
-            var preservedCacheOptions = tickPeriodConfigured
-                ? PreserveVmmCachePeriods(
-                    vmm,
-                    previousTickPeriodMs,
-                    tickPeriodMs,
-                    previousTlbCacheTicks,
-                    previousProcCacheTicksPartial,
-                    previousProcCacheTicksTotal)
-                : 0;
+            var tickPeriodMs = previousTickPeriodMs;
+            var tickPeriodConfigured = false;
+            var preservedCacheOptions = 0;
+            if (initialize)
+            {
+                var previousTlbCacheTicks = vmm.GetConfig(VmmConfigTlbCacheTicks);
+                var previousProcCacheTicksPartial = vmm.GetConfig(VmmConfigProcCacheTicksPartial);
+                var previousProcCacheTicksTotal = vmm.GetConfig(VmmConfigProcCacheTicksTotal);
+                tickPeriodConfigured = vmm.SetConfig(VmmConfigTickPeriod, TargetVmmTickPeriodMs);
+                if (tickPeriodConfigured)
+                {
+                    tickPeriodMs = TargetVmmTickPeriodMs;
+                    preservedCacheOptions = PreserveVmmCachePeriods(vmm, previousTickPeriodMs, tickPeriodMs,
+                        previousTlbCacheTicks, previousProcCacheTicksPartial, previousProcCacheTicksTotal);
+                }
+            }
+
+            var readCacheTicks = CalculateVmmCacheTicks((ulong)targetReadCacheMs, tickPeriodMs);
             var configured = vmm.SetConfig(VmmConfigReadCacheTicks, readCacheTicks);
             var fields = new Dictionary<string, object?>
             {
                 ["device"] = deviceName,
                 ["remote"] = remote,
-                ["targetReadCacheMs"] = TargetVmmReadCacheMs,
+                ["targetReadCacheMs"] = targetReadCacheMs,
                 ["readCacheTicks"] = readCacheTicks,
                 ["previousTickPeriodMs"] = previousTickPeriodMs,
                 ["tickPeriodMs"] = tickPeriodMs,
                 ["tickPeriodConfigured"] = tickPeriodConfigured,
+                ["initialConnection"] = initialize,
                 ["effectiveReadCacheMs"] = tickPeriodMs * readCacheTicks,
                 ["preservedCacheOptions"] = preservedCacheOptions
             };
@@ -3634,6 +3659,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
             {
                 _logger.Warn("vmm.read_cache.configure_failed", fields);
             }
+            return configured;
         }
         catch (Exception ex)
         {
@@ -3641,8 +3667,10 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
             {
                 ["device"] = deviceName,
                 ["remote"] = remote,
+                ["targetReadCacheMs"] = targetReadCacheMs,
                 ["error"] = ex.Message
             });
+            return false;
         }
     }
 
