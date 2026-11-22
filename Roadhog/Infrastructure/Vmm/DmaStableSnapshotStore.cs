@@ -140,6 +140,12 @@ internal sealed class DmaStableSnapshotStore
         }
     }
 
+    public void ClearChannel<T>(string sessionKey, DmaSnapshotChannel<T> channel)
+    {
+        var key = BuildKey(sessionKey, _channels.ResolveDataKey(channel, null));
+        lock (_syncRoot) _entries.Remove(key);
+    }
+
     public void ClearConnection(string connectionKey)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionKey);

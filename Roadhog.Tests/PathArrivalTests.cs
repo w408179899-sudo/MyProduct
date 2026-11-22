@@ -78,12 +78,18 @@ internal static class PathArrivalTests
     public static async Task StopsWithoutForegroundTickAsync()
     {
         foreach (var death in new[] { false, true })
-        using (var h = new Harness(death))
+        using (var h = new Harness(death, injectReadFaults: true))
         {
             await h.Tick();
             Check(h.State.IsMovingForward && h.Input.Downs == 1, "route starts moving");
+            var poller = h.State.PathFollowPoller!;
+            Check(Property<bool>(poller, "ReviveReturn") == death, "only post-revive travel selects the pose poller");
+            if (death)
+                Check(Property<TimeSpan>(poller, "PollInterval") == TimeSpan.FromMilliseconds(20), "revive travel uses a 20 ms interval");
             h.Move(18.9f);
             await h.Polls(3);
+            var poseReads = Volatile.Read(ref h.ReadFaults!.RevivePoseReads);
+            Check(death ? poseReads > 1 : poseReads == 0, "only post-revive travel requests the dedicated pose snapshot");
             Check(h.Input.Ups == 0 && h.State.IsMovingForward, "outside configured one-meter precision must keep W");
             h.Move(19, noYaw: true);
             await Until(() => !h.State.IsMovingForward);
@@ -118,6 +124,25 @@ internal static class PathArrivalTests
         await tick;
         await Until(() => !h.State.IsMovingForward);
         Check(h.Input.Events.SequenceEqual(new[] { "down", "up" }), "arrival wins after the pending press, with no late W-down");
+    }
+
+    public static async Task RevivePoseStopsMovementAsync()
+    {
+        using var h = new Harness(death: true, injectReadFaults: true);
+        var x = 0;
+        h.ReadFaults!.RevivePose = () => new(new Vector3Snapshot(Volatile.Read(ref x), 0, 0), DateTimeOffset.UtcNow, 90, 10, null);
+        await h.Tick();
+        var poller = h.State.PathFollowPoller!;
+        Check(h.State.IsMovingForward, "revive route starts with the dedicated pose");
+
+        Volatile.Write(ref x, 19);
+        await Until(() => !h.State.IsMovingForward);
+        Check(h.Api.Player.Position?.X == 0 && h.Input.Ups == 1,
+            "only the dedicated coordinate must authorize arrival even with an older general player position");
+
+        h.Controller.StopWorkerBackgroundWork(h.Context, h.State);
+        await Property<Task>(poller, "Task").WaitAsync(TimeSpan.FromSeconds(3));
+        Check(h.State.PathFollowPoller is null, "the dedicated poller is retired when return work stops");
     }
 
     public static async Task RetargetRejectsOldSignalsAsync()
@@ -234,9 +259,16 @@ internal static class PathArrivalTests
     {
         public IRoadhogSnapshotReader Inner = null!;
         public int Remaining;
+        public int RevivePoseReads;
+        public Func<PathFollowPose>? RevivePose;
         protected override object? Invoke(MethodInfo? method, object?[]? args)
         {
-            if (method!.Name == nameof(IRoadhogSnapshotReader.ReadPlayerAsync) &&
+            if (method!.Name == nameof(IRoadhogSnapshotReader.ReadRevivePathPoseAsync))
+            {
+                Interlocked.Increment(ref RevivePoseReads);
+                if (RevivePose is not null) return Task.FromResult(RevivePose());
+            }
+            if (method.Name == nameof(IRoadhogSnapshotReader.ReadPlayerAsync) &&
                 Interlocked.Decrement(ref Remaining) >= 0)
                 return Task.FromException<PublishedGameSnapshot<PlayerSnapshot>>(new IOException("simulated polling failure"));
             try { return method.Invoke(Inner, args); }

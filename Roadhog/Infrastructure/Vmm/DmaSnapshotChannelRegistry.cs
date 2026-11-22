@@ -244,6 +244,9 @@ internal static class AionVmmSnapshotChannels
     public static readonly DmaSnapshotChannel<PlayerSnapshot> Player =
         ChannelRegistry.Register<PlayerSnapshot>("player");
 
+    public static readonly DmaSnapshotChannel<RevivePathPoseCapture> RevivePathPose =
+        ChannelRegistry.Register<RevivePathPoseCapture>("revive_path_pose");
+
     public static readonly DmaSnapshotChannel<Roadhog.Infrastructure.Login.Native.LoginObservation> Login =
         ChannelRegistry.Register<Roadhog.Infrastructure.Login.Native.LoginObservation>("login_scene");
 

@@ -11,6 +11,13 @@ public interface IRoadhogSnapshotReader
 
     Task<PublishedGameSnapshot<PlayerSnapshot>> ReadPlayerAsync(long afterVersion = 0);
 
+    async Task<PathFollowPose> ReadRevivePathPoseAsync(CancellationToken cancellationToken = default)
+    {
+        using var cancellation = SnapshotReadBudget.EnterCancellation(cancellationToken);
+        var player = await ReadPlayerAsync().ConfigureAwait(false);
+        return PathFollowPose.FromPlayer(player.Value);
+    }
+
     Task<PublishedGameSnapshot<PlayerAbnormalStatusSnapshot>> ReadPlayerAbnormalStatusesAsync(long afterVersion = 0);
 
     Task<PublishedGameSnapshot<SummonedPetSnapshot>> ReadSummonedPetAsync(long afterVersion = 0);

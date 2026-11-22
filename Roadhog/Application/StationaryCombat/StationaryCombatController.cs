@@ -964,6 +964,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
     {
         if (player.IsDead)
         {
+            StopPathFollowPoller(state);
             state.EnterDeathRecovery(DateTimeOffset.Now);
             return StationaryCombatBehaviorStatus.Running;
         }
@@ -998,6 +999,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
         if (state.LootAfterKill.Active)
         {
+            StopReviveReturnPoller(state);
             await TickLootAfterKillAsync(context, plan, semiAutoState, state, player).ConfigureAwait(false);
             return StationaryCombatBehaviorStatus.Running;
         }
@@ -1046,6 +1048,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             .ConfigureAwait(false);
         if (defenseDelay is not null)
         {
+            StopReviveReturnPoller(state);
             return StationaryCombatBehaviorStatus.Running;
         }
 
@@ -1065,6 +1068,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 .ConfigureAwait(false))
         {
             await StopMovementAsync(context, state).ConfigureAwait(false);
+            StopReviveReturnPoller(state);
             return StationaryCombatBehaviorStatus.Running;
         }
 
@@ -1086,19 +1090,23 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         }
 
         var pathFollowReachDistance = ResolvePathFollowReachDistance(context.Config.ScriptSettings?.Combat);
+        PathFollowPose? revivePose = null;
         while (state.DeathRecovery.RevivePathPointIndex >= 0 &&
                state.DeathRecovery.RevivePathPointIndex < state.DeathRecovery.RevivePathPoints.Count)
         {
+            revivePose ??= await context.Snapshots.ReadRevivePathPoseAsync(context.StopToken).ConfigureAwait(false);
+            var position = revivePose.Value.Position!.Value;
             var point = state.DeathRecovery.RevivePathPoints[state.DeathRecovery.RevivePathPointIndex];
-            var distance = StationaryCombatTargetSelector.HorizontalDistance(player.Position.Value, point);
+            var distance = StationaryCombatTargetSelector.HorizontalDistance(position, point);
             if (distance > pathFollowReachDistance)
             {
                 semiAutoState.ResetAttackKeyPressThrottle();
-                await PathFollowStepAsync(context, state, player, point, pathFollowReachDistance).ConfigureAwait(false);
+                await PathFollowStepAsync(context, state, player, point, pathFollowReachDistance, reviveReturnPose: revivePose)
+                    .ConfigureAwait(false);
                 await TryJumpDeathRevivePathIfStuckAsync(
                         context,
                         state,
-                        player.Position.Value,
+                        position,
                         state.DeathRecovery.RevivePathPointIndex,
                         distance)
                     .ConfigureAwait(false);
@@ -8403,14 +8411,16 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         PlayerSnapshot player,
         Vector3Snapshot target,
         double reachDistance,
-        Func<PathFollowStopContext, Task<bool>>? afterWaypointStopAsync = null)
+        Func<PathFollowStopContext, Task<bool>>? afterWaypointStopAsync = null,
+        PathFollowPose? reviveReturnPose = null)
     {
-        var actionPlayer = await ReadPlayerForActionAsync(context).ConfigureAwait(false);
-        player = actionPlayer;
+        if (reviveReturnPose is null)
+            player = await ReadPlayerForActionAsync(context).ConfigureAwait(false);
+        var initialPose = reviveReturnPose ?? PathFollowPose.FromPlayer(player);
         await EnsureRightMouseDownAsync(context, state).ConfigureAwait(false);
 
         var options = ReadPathFollowTurnOptions(context.Config.ScriptSettings?.Combat);
-        var poller = EnsurePathFollowPoller(context, state, player, options);
+        var poller = EnsurePathFollowPoller(context, state, initialPose, options, reviveReturnPose is not null);
         var targetVersion = await SetPathFollowTargetAsync(context, state, poller, target, reachDistance, options)
             .ConfigureAwait(false);
         if (TryConsumePathFollowArrival(poller, out var arrivedSnapshot))
@@ -11244,13 +11254,15 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
     private PathFollowPollState EnsurePathFollowPoller(
         AccountWorkerContext context,
         StationaryCombatState state,
-        PlayerSnapshot initialPlayer,
-        PathFollowTurnOptions options)
+        PathFollowPose initialPose,
+        PathFollowTurnOptions options,
+        bool reviveReturn)
     {
         if (state.PathFollowPoller is PathFollowPollState existing &&
             !existing.StopRequested &&
             !existing.Cancellation.IsCancellationRequested &&
             existing.Task is { IsCompleted: false } &&
+            existing.ReviveReturn == reviveReturn &&
             string.Equals(existing.AccountName, context.Config.AccountName, StringComparison.Ordinal) &&
             existing.ProcessId == context.Config.ProcessId)
         {
@@ -11258,9 +11270,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             {
                 existing.Options = options;
                 existing.TargetPitch = options.TargetPitchDegrees;
-                existing.Local = initialPlayer;
-                existing.LastReadTime = DateTimeOffset.Now;
-                existing.ReadCount++;
+                ObservePathFollowPoseLocked(existing, initialPose);
                 UpdatePathFollowPollMetricsLocked(existing);
             }
 
@@ -11276,6 +11286,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         {
             AccountName = context.Config.AccountName,
             ProcessId = context.Config.ProcessId,
+            ReviveReturn = reviveReturn,
+            PollInterval = TimeSpan.FromMilliseconds(reviveReturn ? 20 : ReadPathFollowTickMs()),
             IsMoving = state.IsMovingForward,
             Options = options,
             TargetPitch = options.TargetPitchDegrees,
@@ -11283,8 +11295,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         };
         lock (poller.SyncRoot)
         {
-            poller.Local = initialPlayer;
-            poller.LastReadTime = DateTimeOffset.Now;
+            poller.Local = initialPose;
+            poller.LastReadTime = reviveReturn ? initialPose.CapturedAt : DateTimeOffset.Now;
             UpdatePathFollowPollMetricsLocked(poller);
         }
 
@@ -11296,22 +11308,24 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
     private async Task PathFollowPollLoopAsync(AccountWorkerContext context, StationaryCombatState state, PathFollowPollState poller)
     {
         using var backgroundReads = SnapshotReadBudget.Enter(Timeout.InfiniteTimeSpan);
-        var interval = TimeSpan.FromMilliseconds(ReadPathFollowTickMs());
+        var interval = poller.PollInterval;
+        var stop = poller.Cancellation.Token;
         while (!poller.Cancellation.IsCancellationRequested)
         {
+            var started = Stopwatch.GetTimestamp();
             var nextPoll = interval;
             try
             {
-                var player = await ReadPlayerForActionAsync(context).ConfigureAwait(false);
+                var pose = poller.ReviveReturn
+                    ? await context.Snapshots.ReadRevivePathPoseAsync(stop).ConfigureAwait(false)
+                    : PathFollowPose.FromPlayer(await ReadPlayerForActionAsync(context).ConfigureAwait(false));
                 long arrivalVersion;
                 bool arrived;
                 lock (poller.SyncRoot)
                 {
                     if (poller.StopRequested) return;
 
-                    poller.Local = player;
-                    poller.LastReadTime = DateTimeOffset.Now;
-                    poller.ReadCount++;
+                    ObservePathFollowPoseLocked(poller, pose);
                     UpdatePathFollowPollMetricsLocked(poller);
                     MarkPathFollowArrivalLocked(poller);
                     arrivalVersion = poller.TargetVersion;
@@ -11328,6 +11342,15 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                     context.Logger.Warn("stationary_combat.path_arrival.stop_failed", new Dictionary<string, object?>
                         { ["account"] = context.Config.AccountName, ["error"] = ex.Message });
                 }
+                if (poller.ReviveReturn)
+                {
+                    var elapsed = Stopwatch.GetElapsedTime(started);
+                    var poseAge = DateTimeOffset.UtcNow - pose.CapturedAt;
+                    // The next read should reach the cache's refresh boundary without
+                    // letting a held older observation cause a tight retry loop.
+                    var elapsedSinceSample = poseAge >= TimeSpan.Zero && poseAge < elapsed ? poseAge : elapsed;
+                    nextPoll -= elapsedSinceSample;
+                }
             }
             catch (OperationCanceledException) when (poller.Cancellation.IsCancellationRequested) { return; }
             catch (Exception ex)
@@ -11341,13 +11364,27 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
             try
             {
-                await Task.Delay(nextPoll, poller.Cancellation.Token).ConfigureAwait(false);
+                if (nextPoll > TimeSpan.Zero)
+                {
+                    var delay = poller.ReviveReturn
+                        ? TimeSpan.FromMilliseconds(Math.Ceiling(nextPoll.TotalMilliseconds))
+                        : nextPoll;
+                    await Task.Delay(delay, stop).ConfigureAwait(false);
+                }
             }
             catch (OperationCanceledException)
             {
                 return;
             }
         }
+    }
+
+    private static void ObservePathFollowPoseLocked(PathFollowPollState poller, PathFollowPose pose)
+    {
+        if (poller.ReviveReturn && pose.CapturedAt < poller.Local.CapturedAt) return;
+        poller.Local = pose;
+        poller.LastReadTime = poller.ReviveReturn ? pose.CapturedAt : DateTimeOffset.Now;
+        poller.ReadCount++;
     }
 
     private static void SetPathFollowPollTarget(
@@ -11541,6 +11578,11 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         }
     }
 
+    private static void StopReviveReturnPoller(StationaryCombatState state)
+    {
+        if (state.PathFollowPoller is PathFollowPollState { ReviveReturn: true }) StopPathFollowPoller(state);
+    }
+
     private static bool SamePoint(Vector3Snapshot left, Vector3Snapshot right)
     {
         return Math.Abs(left.X - right.X) < 0.001D &&
@@ -11551,24 +11593,29 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
     private static CameraTurnSnapshot? BuildCameraTurnSnapshot(
         PlayerSnapshot player,
         Vector3Snapshot target,
+        PathFollowTurnOptions options) => BuildCameraTurnSnapshot(PathFollowPose.FromPlayer(player), target, options);
+
+    private static CameraTurnSnapshot? BuildCameraTurnSnapshot(
+        PathFollowPose pose,
+        Vector3Snapshot target,
         PathFollowTurnOptions options)
     {
-        var currentYaw = player.CameraYawDegrees ?? player.ActorYawDegrees;
-        if (currentYaw is null)
+        var currentYaw = pose.CameraYawDegrees ?? pose.ActorYawDegrees;
+        if (currentYaw is null || pose.Position is not { } position)
         {
             return null;
         }
 
-        var worldPitch = CalculateWorldPitchDegrees(player.Position!.Value, target);
+        var worldPitch = CalculateWorldPitchDegrees(position, target);
         var targetPitch = ResolveTargetPitchDegrees(worldPitch, options);
-        var currentPitch = player.CameraPitchDegrees ?? targetPitch;
-        var targetYaw = CalculateTargetYawDegrees(player.Position.Value, target);
+        var currentPitch = pose.CameraPitchDegrees ?? targetPitch;
+        var targetYaw = CalculateTargetYawDegrees(position, target);
         var yawError = NormalizeSignedDegrees(targetYaw - currentYaw.Value);
         var pitchError = targetPitch - currentPitch;
         return new CameraTurnSnapshot(
-            player.Position.Value,
+            position,
             target,
-            StationaryCombatTargetSelector.HorizontalDistance(player.Position.Value, target),
+            StationaryCombatTargetSelector.HorizontalDistance(position, target),
             currentYaw.Value,
             currentPitch,
             targetYaw,
@@ -12535,10 +12582,12 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         public readonly object SyncRoot = new();
         public string AccountName { get; init; } = string.Empty;
         public int ProcessId { get; init; }
+        public bool ReviveReturn { get; init; }
+        public TimeSpan PollInterval { get; init; }
         public CancellationTokenSource Cancellation { get; init; } = new();
         public Task? Task { get; set; }
         public bool StopRequested { get; set; }
-        public PlayerSnapshot Local { get; set; } = null!;
+        public PathFollowPose Local { get; set; }
         public DateTimeOffset LastReadTime { get; set; }
         public long ReadCount { get; set; }
         public int TargetIndex { get; set; } = -1;

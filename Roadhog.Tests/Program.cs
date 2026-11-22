@@ -1403,6 +1403,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("worker runs team output during revive path leader siphon", TestWorkerRunsTeamOutputDuringRevivePathLeaderSiphonAsync),
     ("worker continues loot during revive path leader siphon", TestWorkerContinuesLootDuringRevivePathLeaderSiphonAsync),
     ("path arrival stops W without foreground ticks using coordinate precision", PathArrivalTests.StopsWithoutForegroundTickAsync),
+    ("path arrival uses dedicated revive coordinates until return polling stops", PathArrivalTests.RevivePoseStopsMovementAsync),
     ("path arrival during pending W-down releases after the press", PathArrivalTests.ArrivalDuringKeyDownAsync),
     ("path arrival during camera correction cannot restart W", PathArrivalTests.ArrivalDuringCameraAdjustmentAsync),
     ("path arrival old signals cannot stop retargeted movement", PathArrivalTests.RetargetRejectsOldSignalsAsync),
@@ -18543,7 +18544,7 @@ static async Task TestStationaryCombatDeathRecoveryPathInterruptsRestForNearbyAg
 
     var semiAutoState = new SemiAutoCombatState();
     semiAutoState.StartMaintenanceRest(forHp: true, forMp: false);
-    CalibrateCooldownClock(semiAutoState);
+    TestCooldownClock.Calibrate(semiAutoState);
 
     await controller
         .TickAsync(
@@ -33333,6 +33334,7 @@ static Task TestDmaSnapshotCatalogRegistersEveryBusinessChannelAsync()
         "player_abnormal_statuses",
         "quickbar",
         "quickbar_three_rows",
+        "revive_path_pose",
         "revive_ui",
         "skill_availability",
         "skill_availability_three_rows",
