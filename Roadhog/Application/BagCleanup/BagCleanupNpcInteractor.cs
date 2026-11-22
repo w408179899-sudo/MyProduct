@@ -26,11 +26,13 @@ public sealed class BagCleanupNpcInteractor
             return OperationResult.Fail("Cleanup NPC name is empty.");
         }
 
-        var maxAttempts = Math.Max(1, ReadIntFromEnv("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS", 30));
-        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        var token = context.StopToken;
+        var configuredName = npcName.Trim();
+        for (long attempt = 1; ; attempt++)
         {
+            token.ThrowIfCancellationRequested();
             var press = await _input
-                .PressKeyAsync("F8", F8HoldDuration, context.StopToken)
+                .PressKeyAsync("F8", F8HoldDuration, token)
                 .ConfigureAwait(false);
             if (!press.Success)
             {
@@ -39,8 +41,10 @@ public sealed class BagCleanupNpcInteractor
 
             var selectDelayMs = ReadNpcSelectDelayMs();
             var selectDelay = TimeSpan.FromMilliseconds(selectDelayMs);
-            await DelayAsync(selectDelay, context.StopToken).ConfigureAwait(false);
-            var locked = await context.Snapshots.ReadLockedTargetAsync().ConfigureAwait(false);
+            await DelayAsync(selectDelay, token).ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
+            var locked = await context.Snapshots.ReadLockedTargetAsync().WaitAsync(token).ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
             var lockedName = locked.Value.Name ?? string.Empty;
             context.Logger.Info("bag_cleanup.npc.select.try", new Dictionary<string, object?>
             {
@@ -54,7 +58,7 @@ public sealed class BagCleanupNpcInteractor
             });
 
             if (locked.Value is { HasTarget: true } target &&
-                string.Equals(target.Name?.Trim(), npcName.Trim(), StringComparison.OrdinalIgnoreCase))
+                string.Equals(target.Name?.Trim(), configuredName, StringComparison.OrdinalIgnoreCase))
             {
                 context.Logger.Info("bag_cleanup.npc.select.ok", new Dictionary<string, object?>
                 {
@@ -67,8 +71,6 @@ public sealed class BagCleanupNpcInteractor
                 return OperationResult.Ok();
             }
         }
-
-        return OperationResult.Fail("Cleanup NPC was not selected after F8 attempts: " + npcName);
     }
 
     public async Task<OperationResult> OpenDialogAsync(AccountWorkerContext context)

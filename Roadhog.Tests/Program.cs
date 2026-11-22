@@ -1226,7 +1226,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("bag cleanup controller detects town return before timeout", TestBagCleanupControllerDetectsTownReturnBeforeTimeoutAsync),
     ("bag cleanup controller abandons town return when attacked", TestBagCleanupControllerAbandonsTownReturnWhenAttackedAsync),
     ("bag cleanup controller reverses cleanup path when follow fails", TestBagCleanupControllerReversesCleanupPathWhenFollowFailsAsync),
-    ("bag cleanup controller returns by reverse path when npc is not found", TestBagCleanupControllerReturnsWhenNpcNotFoundAsync),
+    ("bag cleanup controller returns by reverse path when NPC selection input fails", TestBagCleanupControllerReturnsWhenNpcSelectionInputFailsAsync),
+    ("bag cleanup NPC selection finds the configured merchant after 30 attempts", BagCleanupNpcSelectionTests.SelectsAfterThirtyAttemptsAsync),
+    ("bag cleanup NPC selection cancels a pending target read", BagCleanupNpcSelectionTests.StopsDuringTargetReadAsync),
     ("bag cleanup controller skips within cooldown", TestBagCleanupControllerSkipsWithinCooldownAsync),
     ("bag cleanup controller failure cools down instead of stopping", TestBagCleanupControllerFailureCoolsDownAsync),
     ("bag cleanup name-list store round trips and preserves legacy whitelist", TestBagCleanupNameListStoreRoundTripAndLegacyAsync),
@@ -10122,23 +10124,27 @@ static async Task TestBagCleanupControllerReversesCleanupPathWhenFollowFailsAsyn
     }
 }
 
-static async Task TestBagCleanupControllerReturnsWhenNpcNotFoundAsync()
+static async Task TestBagCleanupControllerReturnsWhenNpcSelectionInputFailsAsync()
 {
     var previousTownSettle = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS");
-    var previousNpcAttempts = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS");
     var previousNpcSelectDelay = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS");
     var previousTownMinDistance = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE");
     var previousFailureCooldown = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_FAILURE_COOLDOWN_MS");
     try
     {
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS", "0");
-        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS", "2");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS", "0");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", "1");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_FAILURE_COOLDOWN_MS", "1500000");
 
         var logger = new InMemoryRoadhogLogger();
-        var keyboard = new RecordingKeyboardInput();
+        var f8Attempts = 0;
+        var keyboard = new RecordingKeyboardInput
+        {
+            PressResult = key => key == "F8" && ++f8Attempts == 3
+                ? OperationResult.Fail("NPC selection input failed")
+                : OperationResult.Ok()
+        };
         var cleanupNpcName = "cleanup-vendor";
         var gameApi = new FakeGameApi
         {
@@ -10228,29 +10234,28 @@ static async Task TestBagCleanupControllerReturnsWhenNpcNotFoundAsync()
             }
         }
 
-        AssertEqual(BagCleanupTickStatus.RecoverableFailure, last?.Status ?? BagCleanupTickStatus.FatalFailure, "npc miss should be recoverable after return path");
-        AssertEqual("cleanup_npc_select_failed", last?.Reason ?? string.Empty, "npc miss failure reason");
-        AssertSequence(new[] { "NumPad7", "F8", "F8", "Space" }, keyboard.Keys.ToArray(), "npc miss should still jump before returning");
-        AssertSequence(new[] { "cleanup-path:2", "cleanup-path 返回:2" }, pathCalls.ToArray(), "npc miss should follow cleanup path then reverse it");
-        AssertFalse(state.LastCompletedAt != DateTimeOffset.MinValue, "npc miss should not start completion cooldown");
-        AssertFalse(state.LastFailedAt == DateTimeOffset.MinValue, "npc miss should start failure cooldown after reverse path");
-        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.npc.select.failed_returning"), "npc miss should log return decision");
+        AssertEqual(BagCleanupTickStatus.RecoverableFailure, last?.Status ?? BagCleanupTickStatus.FatalFailure, "NPC selection input failure should be recoverable after the return path");
+        AssertEqual("cleanup_npc_select_failed", last?.Reason ?? string.Empty, "NPC selection input failure reason");
+        AssertSequence(new[] { "NumPad7", "F8", "F8", "F8", "Space" }, keyboard.Keys.ToArray(), "NPC selection input failure should still jump before returning");
+        AssertSequence(new[] { "cleanup-path:2", "cleanup-path 返回:2" }, pathCalls.ToArray(), "NPC selection input failure should follow cleanup path then reverse it");
+        AssertFalse(state.LastCompletedAt != DateTimeOffset.MinValue, "NPC selection input failure should not start completion cooldown");
+        AssertFalse(state.LastFailedAt == DateTimeOffset.MinValue, "NPC selection input failure should start failure cooldown after reverse path");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.npc.select.failed_returning"), "NPC selection input failure should log return decision");
         AssertFalse(
             !logger.Entries.Any(entry =>
                 entry.EventName == "bag_cleanup.failed" &&
                 entry.Fields.TryGetValue("returnedByReversePath", out var returned) &&
                 returned is bool boolValue &&
                 boolValue),
-            "npc miss failure should log that reverse path completed");
+            "NPC selection input failure should log that reverse path completed");
 
         var skipped = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
-        AssertEqual(BagCleanupTickStatus.Skipped, skipped.Status, "npc miss should skip during failure cooldown");
-        AssertEqual("cleanup_failure_cooldown", skipped.Reason, "npc miss failure cooldown reason");
+        AssertEqual(BagCleanupTickStatus.Skipped, skipped.Status, "NPC selection input failure should skip during failure cooldown");
+        AssertEqual("cleanup_failure_cooldown", skipped.Reason, "NPC selection input failure cooldown reason");
     }
     finally
     {
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS", previousTownSettle);
-        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS", previousNpcAttempts);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS", previousNpcSelectDelay);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", previousTownMinDistance);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_FAILURE_COOLDOWN_MS", previousFailureCooldown);
@@ -10311,14 +10316,12 @@ static async Task TestBagCleanupControllerSkipsWithinCooldownAsync()
 static async Task TestBagCleanupControllerFailureCoolsDownAsync()
 {
     var previousTownSettle = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS");
-    var previousNpcAttempts = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS");
     var previousNpcSelectDelay = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS");
     var previousTownMinDistance = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE");
     var previousFailureCooldown = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_FAILURE_COOLDOWN_MS");
     try
     {
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS", "0");
-        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS", "2");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS", "0");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", "1");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_FAILURE_COOLDOWN_MS", "1500000");
@@ -10447,7 +10450,6 @@ static async Task TestBagCleanupControllerFailureCoolsDownAsync()
     finally
     {
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS", previousTownSettle);
-        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS", previousNpcAttempts);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS", previousNpcSelectDelay);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", previousTownMinDistance);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_FAILURE_COOLDOWN_MS", previousFailureCooldown);
