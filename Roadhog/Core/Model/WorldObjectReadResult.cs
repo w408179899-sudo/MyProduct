@@ -85,6 +85,8 @@ internal sealed record WorldObjectReadDiagnostics(
     string? FirstIssue,
     WorldObjectTreeProof? TreeProof = null)
 {
+    public int SkippedUnknownTemplates { get; init; }
+    public uint FirstUnknownTemplateId { get; init; }
     public double DurationMilliseconds => Math.Max(0D, (CompletedAt - StartedAt).TotalMilliseconds);
 }
 

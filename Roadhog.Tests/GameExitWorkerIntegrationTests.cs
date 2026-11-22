@@ -80,7 +80,7 @@ internal static class GameExitWorkerIntegrationTests
         {
             var api = new FakeGameApi
             {
-                WorldObjectReadFallback = OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail("world_static_metadata_missing")
+                WorldObjectReadFallback = OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail("world_npc_template_id_read_failed")
             };
             var input = new RecordingKeyboardInput();
             var logger = new InMemoryRoadhogLogger();

@@ -286,18 +286,23 @@ internal static class WorldObjectPublicationTests
 
     public static async Task ColdStartRetriesUntilTrustedCompleteAsync()
     {
-        foreach (var actualEmpty in new[] { true, false })
+        var (mixed, unknownOnly) = CapturesWithUnknownNpcTemplate();
+        var unpublishable = new[]
+        {
+            WithProof(Complete(), null),
+            Capture(WorldObjectReadCompleteness.Partial, []),
+            WithDiagnostics(unknownOnly, unknownOnly.Diagnostics with { StaticCatalogErrors = 1 })
+        };
+        foreach (var final in new[] { Complete(), mixed, unknownOnly })
         {
             var logger = new InMemoryRoadhogLogger();
             var api = new PublicationGameApi(logger);
             using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             var retryEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var releaseFinal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var final = actualEmpty ? Complete() : Complete(Monster(10, 1000));
             api.ReadCaptureAsync = async (attempt, token) =>
             {
-                if (attempt == 1) return WithProof(Complete(), null);
-                if (attempt == 2) return Capture(WorldObjectReadCompleteness.Partial, Array.Empty<WorldObjectObservation>());
+                if (attempt <= unpublishable.Length) return unpublishable[attempt - 1];
                 retryEntered.TrySetResult();
                 await releaseFinal.Task.WaitAsync(token).ConfigureAwait(false);
                 return final;
@@ -307,11 +312,13 @@ internal static class WorldObjectPublicationTests
             try
             {
                 await retryEntered.Task.WaitAsync(stop.Token).ConfigureAwait(false);
-                Require(!pending.IsCompleted, "cold invalid empty and Partial0 cannot fabricate official absence");
+                Require(!pending.IsCompleted, "unverified coverage or a catalog failure cannot fabricate official absence");
                 releaseFinal.TrySetResult();
                 var published = await pending.WaitAsync(stop.Token).ConfigureAwait(false);
-                Require(api.WorldReadCount == 3 && published.Value.Count == (actualEmpty ? 0 : 1),
-                    "first proven Complete must publish immediately after cold provider retries");
+                Require(api.WorldReadCount == unpublishable.Length + 1,
+                    "a verified capture must publish on its first read even if it skipped a template");
+                SameObjects(final.Objects, published.Value,
+                    "the first official snapshot must contain exactly the objects with known templates");
                 Require(logger.Entries.Any(entry => entry.EventName == "snapshot.read.retry"),
                     "cold uncertainty is diagnosed below the business interface");
             }
@@ -322,6 +329,60 @@ internal static class WorldObjectPublicationTests
                 try { await pending.ConfigureAwait(false); } catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
             }
         }
+    }
+
+    private static (WorldObjectReadResult Mixed, WorldObjectReadResult UnknownOnly) CapturesWithUnknownNpcTemplate()
+    {
+        const uint knownTemplate = 92001, unknownTemplate = 92002, localServerId = 7000;
+        var catalog = new Dictionary<uint, AionVmmGameApi.NpcStaticDetail>
+        {
+            [knownTemplate] = new() { Name = "catalogued monster", IsMonsterKnown = true, IsMonster = true }
+        };
+        var counters = new AionVmmGameApi.WorldObjectReadCounters();
+        var firstIssue = string.Empty;
+        bool Project(uint templateId, bool available, ushort entityId, uint serverId, out WorldObjectObservation? output)
+        {
+            var actor = new AionVmmGameApi.ActorInfo
+            {
+                ServerObjectId = serverId, NpcTemplateId = templateId, NpcTemplateIdAvailable = available,
+                CurrentHp = 90, MaxHp = 100, CurrentHpAvailable = true, MaxHpAvailable = true,
+                TargetServerObjectId = localServerId, TargetServerObjectIdAvailable = true,
+                LootableRawAvailable = true, InteractionStateAvailable = true
+            };
+            return AionVmmGameApi.TryBuildWorldObjectObservation(actor, entityId, new(10, 0, 0), new(6, 0, 0),
+                localServerId, true, catalog, out output, ref counters, ref firstIssue);
+        }
+
+        Require(Project(unknownTemplate, true, 11, 1001, out var unknown) && unknown is null &&
+            counters.SkippedUnknownTemplates == 1 && counters.FirstUnknownTemplateId == unknownTemplate &&
+            counters.StaticMetadataMisses == 0 && firstIssue.Length == 0,
+            "a successfully read unlisted template must be skipped without a quality failure");
+        Require(Project(knownTemplate, true, 10, 1000, out var known) &&
+            known?.Snapshot is { ServerObjectId: 1000, Name: "catalogued monster", ObjectKind: "monster",
+                CurrentHp: 90, IsTargetingLocalPlayer: true },
+            "the known monster must remain eligible with its observed health and target");
+
+        WorldObjectReadResult VerifiedCapture(params WorldObjectObservation[] observations)
+        {
+            var capture = Capture(WorldObjectReadCompleteness.Complete, observations, observations.Length + 1);
+            return WithDiagnostics(capture, capture.Diagnostics with
+            {
+                ResolvedEntities = observations.Length + 1,
+                NpcLikeEntities = observations.Length + 1,
+                SkippedUnknownTemplates = counters.SkippedUnknownTemplates,
+                FirstUnknownTemplateId = counters.FirstUnknownTemplateId
+            });
+        }
+        var mixed = VerifiedCapture(known!);
+        var unknownOnly = VerifiedCapture();
+
+        Require(!Project(knownTemplate, false, 12, 1002, out var unreadable) && unreadable is null &&
+            counters.StaticMetadataMisses == 1 && firstIssue == "world_npc_template_id_read_failed",
+            "an unavailable template ID must keep the capture incomplete even if its stored value looks known");
+        Require(!Project(0, true, 13, 1003, out var zero) && zero is null &&
+            counters.StaticMetadataMisses == 2 && counters.SkippedUnknownTemplates == 1,
+            "zero is an invalid template ID and must never be counted as an unlisted template");
+        return (mixed, unknownOnly);
     }
 
     public static Task IdentityAndSessionIsolationAsync()

@@ -2860,7 +2860,11 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
             counters.LootFieldReadFailures,
             counters.InteractionStateReadFailures,
             attempt.FirstIssue,
-            attempt.TreeProof);
+            attempt.TreeProof)
+        {
+            SkippedUnknownTemplates = counters.SkippedUnknownTemplates,
+            FirstUnknownTemplateId = counters.FirstUnknownTemplateId
+        };
         var result = new WorldObjectReadResult(
             attempt.Completeness,
             attempt.Observations,
@@ -2868,8 +2872,20 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
             attempt.Error,
             attempt.Range);
 
-        if (result.Completeness != WorldObjectReadCompleteness.Complete &&
-            ShouldLogWorldObjectQualityIssue(context, result, completedAt))
+        if (result.Completeness == WorldObjectReadCompleteness.Complete)
+        {
+            if (diagnostics.SkippedUnknownTemplates > 0 && ShouldLogWorldObjectQualityIssue(context, result, completedAt))
+            {
+                _logger.Info("vmm.world_objects.unknown_template_skipped", new Dictionary<string, object?>
+                {
+                    ["account"] = context.AccountName,
+                    ["captureSequence"] = diagnostics.CaptureSequence,
+                    ["skippedUnknownTemplates"] = diagnostics.SkippedUnknownTemplates,
+                    ["firstUnknownTemplateId"] = diagnostics.FirstUnknownTemplateId
+                });
+            }
+        }
+        else if (ShouldLogWorldObjectQualityIssue(context, result, completedAt))
         {
             _logger.Warn("vmm.world_objects.read_quality", new Dictionary<string, object?>
             {
@@ -2891,6 +2907,8 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                 ["actorResolutionFailures"] = result.Diagnostics.ActorResolutionFailures,
                 ["actorIdentityMismatches"] = result.Diagnostics.ActorIdentityMismatches,
                 ["staticMetadataMisses"] = result.Diagnostics.StaticMetadataMisses,
+                ["skippedUnknownTemplates"] = diagnostics.SkippedUnknownTemplates,
+                ["firstUnknownTemplateId"] = diagnostics.FirstUnknownTemplateId,
                 ["staticCatalogErrors"] = result.Diagnostics.StaticCatalogErrors,
                 ["targetFieldReadFailures"] = result.Diagnostics.TargetFieldReadFailures,
                 ["healthFieldReadFailures"] = result.Diagnostics.HealthFieldReadFailures,
@@ -2919,10 +2937,13 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
             context.ProcessId,
             result.Completeness,
             result.Diagnostics.TraversalTermination);
+        var interval = result.Completeness == WorldObjectReadCompleteness.Complete
+            ? TimeSpan.FromSeconds(30)
+            : TimeSpan.FromSeconds(2);
         lock (_worldObjectQualityLogSync)
         {
             if (_worldObjectQualityLogAtByKey.TryGetValue(key, out var lastLoggedAt) &&
-                now - lastLoggedAt < TimeSpan.FromSeconds(2))
+                now - lastLoggedAt < interval)
             {
                 return false;
             }
@@ -8192,12 +8213,32 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
             return false;
         }
 
-        if (IsOutsideWorldObjectRange(new(x, y, z), new(localX, localY, localZ)))
+        var position = new Vector3Snapshot(x, y, z);
+        var localPosition = new Vector3Snapshot(localX, localY, localZ);
+        if (IsOutsideWorldObjectRange(position, localPosition))
         {
             excludedByRange = true;
             return true;
         }
 
+        return TryBuildWorldObjectObservation(actor, entityId, position, localPosition,
+            localServerObjectId, localServerObjectIdAvailable, npcStaticDetails,
+            out observation, ref counters, ref firstIssue);
+    }
+
+    internal static bool TryBuildWorldObjectObservation(
+        ActorInfo actor,
+        ushort entityId,
+        Vector3Snapshot position,
+        Vector3Snapshot localPosition,
+        uint localServerObjectId,
+        bool localServerObjectIdAvailable,
+        IReadOnlyDictionary<uint, NpcStaticDetail> npcStaticDetails,
+        out WorldObjectObservation? observation,
+        ref WorldObjectReadCounters counters,
+        ref string firstIssue)
+    {
+        observation = null;
         if (!actor.NpcTemplateIdAvailable || actor.NpcTemplateId == 0)
         {
             counters.StaticMetadataMisses++;
@@ -8207,9 +8248,12 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
 
         if (!npcStaticDetails.TryGetValue(actor.NpcTemplateId, out var npcStaticDetail))
         {
-            counters.StaticMetadataMisses++;
-            SetFirstWorldObjectReadIssue(ref firstIssue, "world_static_metadata_missing");
-            return false;
+            // The actor was read, but it is outside the catalog-backed object set.
+            // Catalog load failures are handled at capture level.
+            counters.SkippedUnknownTemplates++;
+            if (counters.FirstUnknownTemplateId == 0)
+                counters.FirstUnknownTemplateId = actor.NpcTemplateId;
+            return true;
         }
 
         var name = string.IsNullOrWhiteSpace(actor.Name) ? npcStaticDetail.Name : actor.Name;
@@ -8257,17 +8301,17 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         var isTargetingLocalPlayer =
             localTargetRelationAvailable &&
             actor.TargetServerObjectId == localServerObjectId;
-        var dx = x - localX;
-        var dy = y - localY;
-        var dz = z - localZ;
+        var dx = position.X - localPosition.X;
+        var dy = position.Y - localPosition.Y;
+        var dz = position.Z - localPosition.Z;
         var distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
         var isMonster = npcStaticDetail.IsMonsterKnown && npcStaticDetail.IsMonster;
         var snapshot = new WorldObjectSnapshot(
             entityId,
-            serverObjectId,
+            actor.ServerObjectId,
             name,
             isMonster ? "monster" : "npc",
-            new Vector3Snapshot(x, y, z),
+            position,
             distance,
             actor.CurrentHp,
             actor.MaxHp,
@@ -10729,7 +10773,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         public ActorInfo? Actor;
     }
 
-    private sealed class ActorInfo
+    internal sealed class ActorInfo
     {
         public ulong Actor;
         public ulong Entity;
@@ -10868,7 +10912,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         IReadOnlyDictionary<uint, NpcStaticDetail> Details,
         string Error);
 
-    private struct NpcStaticDetail
+    internal struct NpcStaticDetail
     {
         public uint Id;
         public string Name;
@@ -10894,7 +10938,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         public bool AggressiveToPlayer;
     }
 
-    private struct WorldObjectReadCounters
+    internal struct WorldObjectReadCounters
     {
         public int ScannedServerObjects;
         public int ResolvedEntities;
@@ -10906,6 +10950,8 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         public int ActorResolutionFailures;
         public int ActorIdentityMismatches;
         public int StaticMetadataMisses;
+        public int SkippedUnknownTemplates;
+        public uint FirstUnknownTemplateId;
         public int StaticCatalogErrors;
         public int TargetFieldReadFailures;
         public int HealthFieldReadFailures;
