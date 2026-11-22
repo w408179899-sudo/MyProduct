@@ -2663,9 +2663,21 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
         var target = selection.Target;
         var isRevivePathClearTarget = selection.IsRevivePathClearTarget;
+        var timedOutTab = recoveryPhase == "death_recovery" && IsDeathRecoveryRevivePathActive(state)
+            ? state.TimedOutReviveDefenseTab
+            : null;
+        if (timedOutTab is not null)
+        {
+            state.TimedOutReviveDefenseTab = null;
+        }
+
         if (target?.Position is null)
         {
-            return null;
+            return timedOutTab is { } tab
+                ? await TryAcquireLateReviveDefenseLockAsync(
+                        context, plan, semiAutoState, state, tab.Target, tab.LockVersion, home, radius)
+                    .ConfigureAwait(false)
+                : null;
         }
 
         if (semiAutoState.IsMaintenanceResting)
@@ -2800,6 +2812,43 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
         await StopMovementAsync(context, state, releaseRightMouse: false).ConfigureAwait(false);
         return await TickAcquireAsync(context, plan, semiAutoState, state, target, home, radius).ConfigureAwait(false);
+    }
+
+    private async Task<TimeSpan?> TryAcquireLateReviveDefenseLockAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        WorldObjectSnapshot target,
+        long lockVersion,
+        Vector3Snapshot home,
+        double radius)
+    {
+        // The raw lock type is shared by monsters and NPCs. Honor the current world classification
+        // when the previous Tab candidate is still visible but is no longer classified as a monster.
+        if (state.CachedWorldObjects.Any(current => current.ServerObjectId == target.ServerObjectId &&
+                !string.Equals(current.ObjectKind, "monster", StringComparison.OrdinalIgnoreCase)))
+        {
+            return null;
+        }
+
+        if (lockVersion == 0)
+        {
+            lockVersion = (await context.Snapshots.ReadLockedTargetAsync().ConfigureAwait(false)).Version;
+        }
+
+        var locked = (await context.Snapshots.ReadLockedTargetAsync(lockVersion).ConfigureAwait(false)).Value;
+        if (!locked.IsMonsterAlive || locked.ServerObjectId != target.ServerObjectId ||
+            locked.CapturedAt < state.LastTabAt || !IsTargetingLocalSide(locked, state) ||
+            state.IsTargetTemporarilyExcluded(locked.TargetEntityId, locked.ServerObjectId, DateTimeOffset.Now))
+        {
+            return null;
+        }
+
+        return await TryAcquireLockedTargetAsync(
+                context, plan, semiAutoState, state, target, locked, home, radius,
+                allowLockedFallback: false, phase: "death_recovery_late_tab")
+            .ConfigureAwait(false);
     }
 
     private async Task<TimeSpan> TickFightAsync(
@@ -4829,6 +4878,12 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                                                     !context.StopToken.IsCancellationRequested &&
                                                     state.IsPendingTabCandidate(target))
         {
+            if (IsDeathRecoveryRevivePathActive(state) && state.CurrentTargetIsMaintenanceDefense &&
+                target.ServerObjectId != 0 && target.ServerObjectId == state.CandidateServerObjectId)
+            {
+                state.TimedOutReviveDefenseTab = (target, version);
+            }
+
             LogActionThrottled(context, state, "stationary_combat.tab.verify_timeout",
                 TargetActionKey(target.EntityId, target.ServerObjectId), new Dictionary<string, object?>
                 {

@@ -310,6 +310,115 @@ internal static class StationaryTabFacingTests
         }
     }
 
+    public enum LateTabLock
+    {
+        SameMonster,
+        ReusedEntityId,
+        ChangedDuringVerification,
+        Npc
+    }
+
+    public static async Task DeathRecoveryLateTabLockAsync(LateTabLock scenario, bool targetsPet = false)
+    {
+        using var h = new Harness();
+        h.SetEnvironment("ROADHOG_STATIONARY_TAB_VERIFY_WINDOW_MS", "150");
+        const uint playerServerObjectId = 99;
+        const uint petServerObjectId = 2000;
+        h.Api.LocalServerObjectId = playerServerObjectId;
+        if (targetsPet)
+        {
+            h.SetLocalPet(playerServerObjectId, petServerObjectId);
+            h.Api.WorldObjects = Array.Empty<WorldObjectSnapshot>();
+            await h.Tick();
+            Check(h.State.LocalCombatSidePetServerObjectId == petServerObjectId,
+                "normal combat must identify the local pet before entering recovery");
+        }
+
+        h.StartRevivePath();
+        var attacker = h.Candidate with
+        {
+            TargetServerObjectId = targetsPet ? petServerObjectId : playerServerObjectId,
+            IsTargetingLocalPlayer = !targetsPet,
+            AggressiveKnown = true,
+            IsAggressiveToPlayer = true
+        };
+        h.Api.WorldObjects = new[] { attacker };
+        h.Input.AfterPress = key =>
+        {
+            if (key == "Tab") h.Api.LockedTargetReadOverride = ReadUntilDeadlineAsync;
+        };
+
+        await h.TickLifeGuard();
+        Check(!h.State.Fighting && h.Input.Keys.Count(key => key == "Tab") == 1 &&
+              h.Logger.Entries.Any(e => e.EventName == "stationary_combat.tab.verify_timeout"),
+            "the initial Tab must time out with the original defense candidate still pending");
+        Check(h.State.IsPendingTabCandidate(attacker), "the initial Tab must retain its candidate identity");
+
+        h.Api.LockedTargetReadOverride = null;
+        var lateLock = scenario switch
+        {
+            LateTabLock.Npc => attacker with { ObjectKind = "npc", Name = "merchant", IsAggressiveToPlayer = false },
+            LateTabLock.ReusedEntityId or LateTabLock.ChangedDuringVerification =>
+                attacker with { ServerObjectId = attacker.ServerObjectId + 1 },
+            _ => attacker
+        };
+        h.Api.WorldObjects = scenario == LateTabLock.Npc ? new[] { lateLock } : Array.Empty<WorldObjectSnapshot>();
+        h.SetLockedMonster(lateLock);
+        // NPCs and monsters share this raw lock type. The world snapshot supplies the classification.
+        h.Api.TargetObjectType = LockedTargetSnapshot.MonsterObjectType;
+        h.Api.Player = h.Api.Player with { TargetEntityId = lateLock.EntityId };
+        h.Api.TargetServerObjectId = attacker.TargetServerObjectId;
+        h.Api.TargetIsTargetingLocalPlayer = attacker.IsTargetingLocalPlayer;
+        if (scenario == LateTabLock.ChangedDuringVerification)
+        {
+            h.SetLockedMonster(attacker);
+            h.Api.LockedTargetReadOverride = ReadOldLockThenChangeAsync;
+        }
+
+        var forwardPresses = h.Input.KeyDowns.Count(key => key == "W");
+
+        await h.TickLifeGuard();
+
+        Check(h.Input.Keys.Count(key => key == "Tab") == 1, "the recovery handoff must not press Tab again");
+        Check(h.State.DeathRecovery.Step == StationaryCombatDeathRecoveryStep.FollowRevivePath &&
+              h.State.DeathRecovery.RevivePathPointIndex == 1,
+            "the recovery handoff must keep the interrupted waypoint");
+        if (scenario == LateTabLock.SameMonster)
+        {
+            Check(h.State.Fighting && h.State.CurrentTargetServerObjectId == attacker.ServerObjectId &&
+                  h.State.CurrentTargetIsMaintenanceDefense,
+                "the late same-monster lock must enter defense even when the nearby scan loses the candidate");
+            Check(h.Logger.Entries.Any(e => e.EventName == "stationary_combat.target.acquired" &&
+                  Equals(e.Fields["phase"], "death_recovery_late_tab") &&
+                  Equals(e.Fields["targetingServerObjectId"], attacker.TargetServerObjectId)),
+                "late lock acquisition must use the actual player or pet targeted by the monster");
+            Check(h.Input.KeyDowns.Count(key => key == "W") == forwardPresses,
+                "the recovery path must remain stopped once defense takes over");
+        }
+        else
+        {
+            Check(!h.State.Fighting && h.State.CurrentTargetServerObjectId == 0 &&
+                  !h.Logger.Entries.Any(e => e.EventName == "stationary_combat.target.acquired"),
+                "an NPC or different object in the latest lock must not take over even if an earlier read matched");
+            Check(h.Logger.Entries.Any(e => e.EventName == "stationary_combat.death_recovery.path_follow"),
+                "an unrelated lock must not prevent the recovery path from continuing");
+        }
+
+        Task<OperationResult<LockedTargetSnapshot>> ReadOldLockThenChangeAsync(CancellationToken token)
+        {
+            h.Api.LockedTargetReadOverride = null;
+            var oldLock = h.Api.ReadLockedTargetAsync(token);
+            h.SetLockedMonster(lateLock);
+            return oldLock;
+        }
+
+        static async Task<OperationResult<LockedTargetSnapshot>> ReadUntilDeadlineAsync(CancellationToken token)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            throw new InvalidOperationException("The verification attempt must be canceled by its deadline.");
+        }
+    }
+
     public static async Task DefenseInvalidatesOldFacingAsync()
     {
         using var h = new Harness();
@@ -434,17 +543,7 @@ internal static class StationaryTabFacingTests
     {
         h.LockWrongMonster();
         var attacker = h.Candidate with { TargetServerObjectId = 2000 };
-        h.Api.LocalServerObjectId = 1000;
-        h.Api.Player = h.Api.Player with { CharacterClassId = AionClassId.Spiritmaster };
-        h.Settings.Skills.SpiritmasterAutoSkillLogicEnabled = true;
-        var roster = SummonedPetRosterSnapshot.Empty(1000, DateTimeOffset.Now);
-        var pet = SummonedPetSnapshot.NotSummoned(1000, DateTimeOffset.Now) with
-        {
-            IsSummoned = true, EntityId = 2, ServerObjectId = 2000, LocalLinkedPetServerObjectId = 2000,
-            OwnerConfirmed = true, CurrentHp = 100, MaxHp = 100, HpPercent = 100, HealthFields = new(true, true, true)
-        };
-        h.Api.SummonedPetRoster = roster with { LocalLinkedPetServerObjectId = 2000, LocalPlayerPet = roster.LocalPlayerPet with { Pet = pet } };
-        h.Api.SummonedPet = pet;
+        h.SetLocalPet(1000, 2000);
         h.Api.WorldObjects = new[] { attacker, h.WrongMonster };
         h.State.SetCurrentTarget(attacker);
         h.State.Fighting = true;
@@ -503,6 +602,28 @@ internal static class StationaryTabFacingTests
         }
         public void SetPlayer(Vector3Snapshot position, double yaw) => Api.Player = Api.Player with
         { Position = position, CameraYawDegrees = yaw, ActorYawDegrees = yaw, CapturedAt = DateTimeOffset.Now };
+
+        public void SetLocalPet(uint playerServerObjectId, uint petServerObjectId)
+        {
+            Api.LocalServerObjectId = playerServerObjectId;
+            Api.Player = Api.Player with { CharacterClassId = AionClassId.Spiritmaster };
+            Settings.Skills.SpiritmasterAutoSkillLogicEnabled = true;
+            var now = DateTimeOffset.Now;
+            var roster = SummonedPetRosterSnapshot.Empty(playerServerObjectId, now);
+            var pet = SummonedPetSnapshot.NotSummoned(playerServerObjectId, now) with
+            {
+                IsSummoned = true, EntityId = 2, ServerObjectId = petServerObjectId,
+                LocalLinkedPetServerObjectId = petServerObjectId, OwnerConfirmed = true,
+                CurrentHp = 100, MaxHp = 100, HpPercent = 100, HealthFields = new(true, true, true)
+            };
+            Api.SummonedPetRoster = roster with
+            {
+                LocalLinkedPetServerObjectId = petServerObjectId,
+                LocalPlayerPet = roster.LocalPlayerPet with { Pet = pet }
+            };
+            Api.SummonedPet = pet;
+        }
+
         public void LockWrongMonster()
         {
             SetLockedMonster(WrongMonster);
@@ -518,6 +639,21 @@ internal static class StationaryTabFacingTests
             Api.TargetCurrentHp = Api.TargetMaxHp = 100;
             Api.TargetPosition = target.Position;
         }
+
+        public void StartRevivePath()
+        {
+            var now = DateTimeOffset.Now;
+            State.EnterDeathRecovery(now);
+            while (State.DeathRecovery.Step != StationaryCombatDeathRecoveryStep.FollowRevivePath)
+                State.DeathRecovery.Advance(now);
+            State.DeathRecovery.RevivePathName = "tab-facing-recovery";
+            State.DeathRecovery.RevivePathPoints = new[] { new Vector3Snapshot(0, 0, 0), new Vector3Snapshot(60, 0, 0) };
+            State.DeathRecovery.RevivePathPointIndex = 1;
+            Settings.Combat.StationaryCombatX = 60;
+        }
+
+        public Task TickLifeGuard() => Controller.TickPlayerLifeGuardAsync(
+            Context, SemiAutoSkillPlan.FromSettings(Settings.Skills), SemiState, State, followRevivePath: true);
 
         public Task Tick() => Controller.TickAsync(Context, SemiAutoSkillPlan.FromSettings(Settings.Skills), SemiState, State);
         public void SetEnvironment(string name, string value)

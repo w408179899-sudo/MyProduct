@@ -167,6 +167,8 @@ public sealed partial class StationaryCombatState
 
     private bool PendingTabVerificationComplete { get; set; }
 
+    internal (WorldObjectSnapshot Target, long LockVersion)? TimedOutReviveDefenseTab { get; set; }
+
     public DateTimeOffset LastTabAt { get; set; }
 
     public DateTimeOffset LastWorldScanAt { get; set; }
@@ -1210,6 +1212,7 @@ public sealed partial class StationaryCombatState
         PendingTabPreviousLockedServerObjectId = previousLockedServerObjectId;
         PendingTabCorpseNudged = false;
         PendingTabVerificationComplete = false;
+        TimedOutReviveDefenseTab = null;
     }
 
     public void ClearPendingTabVerification()
@@ -1221,6 +1224,7 @@ public sealed partial class StationaryCombatState
         PendingTabPreviousLockedServerObjectId = 0;
         PendingTabCorpseNudged = false;
         PendingTabVerificationComplete = false;
+        TimedOutReviveDefenseTab = null;
     }
 
     public bool TryMarkPendingTabCorpseNudged()
