@@ -328,6 +328,9 @@ public sealed class LicenseCoordinator : ILicenseRuntimeGate, IAsyncDisposable
         }
     }
 
+#if ROADHOG_REACTOR
+    [System.Reflection.Obfuscation(Feature = "Virtualization", Exclude = false)]
+#endif
     private LicenseRuntimeState AcceptSession(LicenseApiResult result, string source)
     {
         if (string.IsNullOrWhiteSpace(result.Token) || result.LicenseId is null)
@@ -504,6 +507,9 @@ public sealed class LicenseCoordinator : ILicenseRuntimeGate, IAsyncDisposable
         return result;
     }
 
+#if ROADHOG_REACTOR
+    [System.Reflection.Obfuscation(Feature = "Virtualization", Exclude = false)]
+#endif
     private LicenseRuntimeState SetState(LicenseRuntimeState state)
     {
         EventHandler<LicenseStateChangedEventArgs>? handler;

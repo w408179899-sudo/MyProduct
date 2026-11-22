@@ -8,6 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <PlatformTarget>x64</PlatformTarget>
     <ApplicationIcon>Source\Picture\Logo.ico</ApplicationIcon>
+    <DefineConstants Condition="'$(RoadhogProtectionBuild)' == 'true'">$(DefineConstants);ROADHOG_REACTOR</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
@@ -58,7 +59,7 @@
     <RoadhogDesktopScriptRoot Condition="'$(RoadhogDesktopScriptRoot)' == ''">$(USERPROFILE)\Desktop\script</RoadhogDesktopScriptRoot>
   </PropertyGroup>
 
-  <Target Name="CopyRoadhogRuntimeToDesktopScripts" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT'">
+  <Target Name="CopyRoadhogRuntimeToDesktopScripts" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT' and '$(RoadhogSkipDesktopCopy)' != 'true'">
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\Build\CopyRoadhogRuntime.ps1&quot; -SourceDirectory &quot;$(TargetDir).&quot; -DestinationRoot &quot;$(RoadhogDesktopScriptRoot)&quot;" />
   </Target>
 

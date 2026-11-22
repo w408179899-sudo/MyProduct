@@ -223,8 +223,9 @@ internal static class SettingsLayoutTests
                 form.ClientSize = new(1000, 800); Application.DoEvents();
                 pressCount.Value = 3;
                 pressInterval.Value = 80;
-                var saveArgs = new object?[] { null };
-                Check((bool)typeof(AccountSettingsForm).GetMethod("SaveCurrentSettings", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(form, saveArgs)!, "settings remain saveable");
+                var save = form.Controls.OfType<Button>().Single(button => button.Text == "保存配置");
+                save.PerformClick();
+                Check(save.Text == "已保存", "settings remain saveable");
                 var saved = store.LoadAllAsync().GetAwaiter().GetResult().Value!.Single().ScriptSettings!;
                 Check(saved.SemiAuto.AttackWeaveDelayMs == 530 && saved.Skills.OpeningSkill.GetEffectiveSkills().Single().SkillId == 101, "layout changes preserve settings");
                 Check(saved.Maintenance.StatusMaintenancePressCount == 3 && saved.Maintenance.StatusMaintenancePressIntervalMs == 80,
