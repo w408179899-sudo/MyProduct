@@ -12,7 +12,8 @@ public sealed partial class DefaultAccountWorkerLoop
         CombatJumpAssistSession? jumpAssist) : ICleanupRequestActions
     {
         public Task<bool> PrepareAsync(CleanupRequest request) => owner._stationaryCombat.PrepareCleanupTickAsync(
-            context, plan, semiAutoState, state, pauseRevivePath: request.GroceryTrigger == GroceryShopTrigger.Scheduled);
+            context, plan, semiAutoState, state,
+            pauseRevivePath: request.ItemTransfer || request.GroceryTrigger == GroceryShopTrigger.Scheduled);
         public Task StopJumpAsync() => jumpAssist?.StopAsync("standalone_shop") ?? Task.CompletedTask;
         public Task RunWorkflowAsync(CleanupRequest request) => owner._cleanupWorkflow!.RunAsync(context, request,
             c => owner._stationaryCombat.ReturnAfterCleanupAsync(c, plan, semiAutoState, state));

@@ -306,8 +306,7 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                             cleanupProgress.NextCheck = now.AddSeconds(2);
                             if (followingRevivePath)
                             {
-                                // Only the due schedule can interrupt a revive route. Bag capacity,
-                                // arrow restocking and manual/exit preparation retain their admission rules.
+                                // A due grocery schedule is the only automatic trigger during revive travel.
                                 if (await _cleanupWorkflow.GroceryScheduleDueAsync(context))
                                     context.CleanupRequests.Request(scriptSettings, manual: false, resetsCooldown: false, allowNpcSell: false,
                                         groceryTrigger: GroceryShopTrigger.Scheduled);

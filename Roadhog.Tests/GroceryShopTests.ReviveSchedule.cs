@@ -12,10 +12,12 @@ internal static partial class GroceryShopTests
 {
     public static async Task ScheduleInterruptsReviveTravelWorkerAsync()
     {
-        foreach (var scenario in new[] { "relogin", "rejected_relogin", "skip" })
+        foreach (var scenario in new[] { "relogin", "rejected_relogin", "skip", "manual_transfer" })
         {
             var skipTrip = scenario == "skip";
-            using var trip = new Trip { Now = At(11, 59) };
+            var manualTransfer = scenario == "manual_transfer";
+            using var trip = new Trip(expectedUnitPrice: manualTransfer ? 1UL : 500UL)
+                { Now = At(11, 59), ExpectBagMouseReset = !manualTransfer };
             trip.Stop.CancelAfter(TimeSpan.FromSeconds(40));
             var settings = trip.Config.ScriptSettings!;
             settings.MainMode = trip.Config.MainMode = AccountMainMode.CustomCombat;
@@ -26,6 +28,12 @@ internal static partial class GroceryShopTests
             settings.Maintenance.CleanupWorkflow.GroceryScheduleTimes = new() { "12:00" };
             settings.Paths.RevivePathName = "revive";
             settings.Paths.TownReturnKey = "OemPlus";
+            if (manualTransfer)
+            {
+                settings.Paths.StallPathName = trip.Route.Name;
+                settings.Paths.StallReturnItemName = settings.Paths.GroceryReturnItemName;
+                settings.Maintenance.ItemTransferItemNameKeywords = ["goods"];
+            }
             settings.Combat.PathFollowReachDistance = 1;
             settings.Combat.StationaryCombatRadius = 5;
             settings.Combat.ReturnHomeWhenNoTarget = false;
@@ -79,7 +87,7 @@ internal static partial class GroceryShopTests
                     if (trip.Stop.IsCancellationRequested)
                         throw new Exception("Timed out waiting for " + stage + ": " + string.Join(" | ", trip.Logger.Entries.TakeLast(12)
                             .Select(e => e.EventName + " " + string.Join(",", e.Fields.Select(f => f.Key + "=" + f.Value)))));
-                    Check(host.IsRunning, "worker remains active through revival and scheduled cleanup");
+                    Check(host.IsRunning, "worker remains active through revival and trading");
                     await Task.Delay(10);
                 }
             }
@@ -92,6 +100,22 @@ internal static partial class GroceryShopTests
                 await Until(() => trip.Logger.Entries.Any(e => e.EventName == "stationary_combat.death_recovery.stop_input"), "death recovery entry");
                 trip.Api.Player = trip.Api.Player with { CurrentHp = 100 };
                 await Until(() => Follows() > 0, "revive route movement");
+                if (manualTransfer)
+                {
+                    var startingGold = trip.Api.InventoryMoney;
+                    Check(trip.Api.Player.IsAlive && trip.Api.Player.Position!.Value.X < revive.Points[^1].X,
+                        "character is alive before the revive route endpoint");
+                    Check(host.RequestCleanup(settings, itemTransfer: true).Success, "submit priority transfer while following revive route");
+                    trip.Stop.CancelAfter(TimeSpan.FromSeconds(5));
+                    await Until(() => host.StandaloneShopRestartRequestId.HasValue, "priority transfer sellout");
+                    Check(trip.ScrollClicks == 1 && trip.Follows == 1 && trip.ShopStarts == 1 && trip.Api.InventoryMoney == startingGold + 3,
+                        "confirmed recall, warehouse travel and fixed-price sale each run once");
+                    Check(trip.Logger.Entries.Any(e => e.EventName == "cleanup_workflow.revive_path.paused")
+                          && !trip.Logger.Entries.Any(e => e.EventName is "stationary_combat.death_recovery.complete" or "grocery_shop.schedule.due")
+                          && trip.Success.Saves == 0 && !trip.Input.Keys.Contains("OemPlus"),
+                        "manual transfer preempts the live revive route without requiring its completion or a scheduled cleanup");
+                    continue;
+                }
                 var scheduleLoads = trip.Success.Loads;
                 trip.Api.InventoryCapacity = 2;
                 await Until(() => trip.Success.Loads >= scheduleLoads + 2, "pre-schedule checks during full-bag revive travel");

@@ -42,7 +42,7 @@ public sealed partial class StationaryCombatController
     {
         state.ClearPostCombatReturn();
         await SetChannelSwitchPendingAsync(context, state, true);
-        // Only a scheduled cleanup may pause travel after the normal revival/pet/rest stages.
+        // Eligible requests can pause travel after the normal revival/pet/rest stages.
         // Keep death recovery active so a skipped or failed trip can still resume its return.
         var revivedPlayer = pauseRevivePath && IsFollowingRevivePath(state) ? await ReadPlayerAsync(context) : null;
         var pausingRevivePath = revivedPlayer?.IsAlive == true;
