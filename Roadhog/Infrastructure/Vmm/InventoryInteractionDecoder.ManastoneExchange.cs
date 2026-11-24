@@ -28,7 +28,7 @@ internal sealed partial class InventoryInteractionDecoder
         bool Open(ulong address) => address != 0 && Visible(address);
         var dialog = Root(132);
         var open = Open(dialog);
-        var modalOpen = false;
+        var modalOpen = Open(Root(171));
         for (var id = 336; id <= 370; id++) modalOpen |= Open(Root(id));
         if (!open)
         {

@@ -99,8 +99,71 @@ internal static class ManastoneExchangeDecoderTests
         return Task.CompletedTask;
     }
 
+    public static Task PackageQuantityAsync()
+    {
+        const ulong table = Memory.Game + 0xD63990, quantity = Memory.Modal;
+        const ulong prompt = 0x28000000, all = 0x29000000, confirm = 0x2A000000;
+        const uint instance = 2761;
+        var m = new Memory();
+        m.U(table + 132 * 8, 0);
+        m.U(table + 27 * 8, Memory.Bag);
+        m.Widget(Memory.Bag, "inventory_dialog", 700, 200, 300, 400);
+        m.Children(Memory.Bag);
+        m.U(table + 171 * 8, quantity);
+        m.Widget(quantity, "item_count_dialog", 200, 250, 200, 100);
+        m.Widget(prompt, "ipc_message", 10, 10, 150, 20);
+        m.Text(prompt, "需要解除几个？");
+        m.Widget(all, "all", 70, 55, 40, 20);
+        m.Widget(confirm, "ok", 120, 55, 40, 20);
+        m.Children(quantity, prompt, all, confirm);
+        m.I(quantity + 0x4E8, instance);
+        m.I(quantity + 0x508, instance);
+        m.U(quantity + 1504, 1);
+        m.U(quantity + 1520, 26);
+
+        InventoryInteractionSnapshot Read() => new InventoryInteractionDecoder(m.Read).ReadInventory(Memory.Game);
+
+        var state = Read();
+        Check(state.IsOpen && state.OtherModalOpen &&
+            state.ItemUseQuantity == new InventoryItemUseQuantity(instance, 1, 26, new(290, 315), new(340, 315)),
+            "package popup binds the quantity and the actual enabled controls while blocking unrelated inventory actions");
+        m.U(quantity + 1504, 26);
+        Check(Read().ItemUseQuantity is { Quantity: 26 }, "the selected ALL quantity is published");
+        m.U(confirm + 0x28, 1);
+        Check(Read().ItemUseQuantity is { ConfirmButton: null }, "the disabled confirmation is never clickable");
+        m.U(confirm + 0x28, 3);
+
+        m.Text(prompt, "输入要拆分的数量");
+        Check(Read() is { OtherModalOpen: true, ItemUseQuantity: null }, "a different item-count prompt never authorizes opening rewards");
+        m.Text(prompt, "需要解除几个？");
+        m.U(table + 310 * 8, Memory.Duplicate);
+        m.Widget(Memory.Duplicate, "vendor_sell_stack_dialog", 200, 250, 200, 100);
+        Check(Read() is { OtherModalOpen: true, ItemUseQuantity: null }, "another visible modal masks the typed package actions");
+        m.U(table + 310 * 8, 0);
+        m.I(quantity + 0x508, instance + 1);
+        Reject(Read, "both popup item arguments must identify the same inventory instance");
+        m.I(quantity + 0x508, instance);
+        m.U(quantity + 1504, 27);
+        Reject(Read, "the selected quantity cannot exceed the confirmed popup maximum");
+        m.U(quantity + 1504, 26);
+
+        var reads = 0;
+        var unstable = new InventoryInteractionDecoder((address, length) =>
+        {
+            var bytes = m.Read(address, length);
+            var guardedQuantity = quantity + 1504;
+            if (address <= guardedQuantity && guardedQuantity - address < (ulong)length && ++reads > 1)
+                bytes[(int)(guardedQuantity - address)] ^= 1;
+            return bytes;
+        });
+        Reject(() => unstable.ReadInventory(Memory.Game), "mixed popup captures are rejected before publication");
+        m.U(quantity + 0x28, 0);
+        Check(Read() is { IsOpen: true, OtherModalOpen: false, ItemUseQuantity: null }, "closing the modal publishes its absence");
+        return Task.CompletedTask;
+    }
+
     private static void Check(bool value, string reason) { if (!value) throw new Exception(reason); }
-    private static void Reject(Func<ManastoneExchangeSnapshot> read, string reason)
+    private static void Reject<T>(Func<T> read, string reason)
     {
         try { read(); } catch (InvalidDataException) { return; }
         throw new Exception(reason);

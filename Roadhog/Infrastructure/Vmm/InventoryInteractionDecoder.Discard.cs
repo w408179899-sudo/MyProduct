@@ -24,7 +24,9 @@ internal sealed partial class InventoryInteractionDecoder
         Require(active <= 1, "Invalid shop state.");
         var pending = bag == 0 ? 0 : BitConverter.ToUInt32(Guard(bag + 0x598, 4));
         InventoryDiscardDialog? dialog = null;
-        var otherModal = new[] { 171, 310 }.Any(id => Root(id) != 0 && Visible(Root(id)));
+        var countDialog = Root(171);
+        var countDialogOpen = countDialog != 0 && Visible(countDialog);
+        var otherModal = Root(310) != 0 && Visible(Root(310));
         for (var id = 336; id <= 365; id++)
         {
             var address = Root(id);
@@ -46,6 +48,10 @@ internal sealed partial class InventoryInteractionDecoder
                 nodes.SingleOrDefault(n => n.Address == confirm)?.Point(this),
                 nodes.SingleOrDefault(n => n.Address == cancel)?.Point(this));
         }
+        var itemUseQuantity = open && countDialogOpen && !otherModal && !shopOpen && active == 0 && pending == 0
+            ? ReadInventoryItemUseQuantity(countDialog)
+            : null;
+        otherModal |= countDialogOpen;
         var items = new List<InventoryUiItem>(); uint hover = 0;
         if (open && pending == 0 && !otherModal && !shopOpen && active == 0)
             (items, hover) = ReadBagItems(bag);
@@ -69,6 +75,7 @@ internal sealed partial class InventoryInteractionDecoder
             }
         }
         VerifyGuards();
-        return new(open, shopOpen, active == 1, items.AsReadOnly(), hover, pending, dialog, drop, otherModal);
+        return new(open, shopOpen, active == 1, items.AsReadOnly(), hover, pending, dialog, drop, otherModal)
+            { ItemUseQuantity = itemUseQuantity };
     }
 }

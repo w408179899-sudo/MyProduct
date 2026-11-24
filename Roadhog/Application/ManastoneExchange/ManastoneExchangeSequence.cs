@@ -15,7 +15,10 @@ public sealed class ManastoneExchangeSequence(IKeyboardInput input, IRoadhogLogg
         IProgress<string>? progress, CancellationToken token, int maximumCompletions = int.MaxValue)
     {
         var completed = new int[2];
+        ulong openedBags = 0;
+        ulong openedBundles = 0;
         var actions = new TradingActions(input, snapshots, token, delay);
+        var opening = new ManastoneRewardOpenSequence(actions, snapshots, logger, account, token);
         try
         {
             TradingActions.Require(maximumCompletions > 0, "兑换次数必须大于零。");
@@ -44,6 +47,7 @@ public sealed class ManastoneExchangeSequence(IKeyboardInput input, IRoadhogLogg
                 return state;
             }
             var next = 0;
+            var openedInventory = false;
             while (completed.Sum() < maximumCompletions)
             {
                 await actions.Alive();
@@ -57,11 +61,36 @@ public sealed class ManastoneExchangeSequence(IKeyboardInput input, IRoadhogLogg
                     .Where(i => ManastoneExchangePlan.Quests[i].Available(before) > 0).ToArray();
                 if (eligible.Length == 0 && !materialsAlreadySubmitted)
                 {
-                    var message = $"兑换完成：魔石袋 {completed[0]} 个，魔石包袱 {completed[1]} 个；两个批量任务的材料均不足。";
+                    if (ManastoneExchangePlan.Quests.Any(q => ManastoneExchangePlan.Count(before, q.RewardId) > 0))
+                    {
+                        if (state.IsOpen)
+                        {
+                            TradingActions.Require(state.QuestId == 0 || ManastoneExchangePlan.Quests.Any(q => q.QuestId == state.QuestId),
+                                "当前打开的是其他任务，请关闭后重新开始。");
+                            await actions.Click(Ui, s => s.CloseButton, s => Owned(s) &&
+                                s.QuestId == state.QuestId && s.PageType == state.PageType);
+                            await actions.Wait(Ui, s => !s.IsOpen);
+                        }
+                        progress?.Report("两项兑换材料均不足，正在开启背包内的魔石袋和魔石包袱。");
+                        var opened = await opening.OpenAsync(progress);
+                        openedBags += opened.Bags;
+                        openedBundles += opened.Bundles;
+                        openedInventory = true;
+                        continue;
+                    }
+
+                    var message = $"兑换完成。共兑换魔石袋 {completed[0]} 个、魔石包袱 {completed[1]} 个，" +
+                        $"开启魔石袋 {openedBags} 个、魔石包袱 {openedBundles} 个。两项兑换材料均不足。";
                     progress?.Report(message);
                     logger.Info("manastone_exchange.exhausted", new Dictionary<string, object?>
-                        { ["account"] = account, ["bags"] = completed[0], ["bundles"] = completed[1] });
+                        { ["account"] = account, ["bags"] = completed[0], ["bundles"] = completed[1],
+                            ["openedBags"] = openedBags, ["openedBundles"] = openedBundles });
                     return OperationResult<ManastoneExchangeResult>.Ok(new(completed[0], completed[1], true, message));
+                }
+                if (openedInventory)
+                {
+                    await opening.CloseBagAsync();
+                    openedInventory = false;
                 }
                 state = await Open();
                 var index = materialsAlreadySubmitted ? pendingIndex : eligible[0];

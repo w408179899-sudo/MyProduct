@@ -53,8 +53,7 @@ internal sealed partial class InventoryInteractionDecoder
             var id = BitConverter.ToUInt32(Guard(window + 2236, 4));
             Require(items.Any(i => i.ItemId == id), "Unbound NPC purchase quantity dialog.");
             var controls = Nodes(quantityWindow);
-            var quantity = GU(quantityWindow + 1504); var maximum = GU(quantityWindow + 1520);
-            Require(maximum > 0 && quantity <= maximum, "Invalid NPC purchase quantity.");
+            var (quantity, maximum) = ReadCountDialogQuantities(quantityWindow);
             quantityDialog = new(id, quantity, maximum, controls.SingleOrDefault(n => n.Name == "all")?.Point(this),
                 controls.SingleOrDefault(n => n.Name == "ok")?.Point(this));
         }
