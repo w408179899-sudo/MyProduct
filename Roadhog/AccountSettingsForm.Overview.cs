@@ -92,40 +92,35 @@ public sealed partial class AccountSettingsForm
         effectiveRadiusLabel = AddLabel(mode, "", 483, 30, 159, 24);
         effectiveRadiusLabel.AutoEllipsis = true;
 
-        var behavior = Section("战斗行为", 60);
-        enableLootCheckBox = AddCheckBox(behavior, "拾取物品", 10, 29, 118, true);
-        returnHomeWhenNoTargetCheckBox = AddCheckBox(behavior, "没怪回中心", 145, 29, 150, true);
-        var detail = new Panel { Location = new Point(0, 60), Size = new Size(width - 20, 96), Visible = false };
-        behavior.Controls.Add(detail);
-        contestMonsterCheckBox = AddCheckBox(detail, "抢怪", 10, 0, 104, false);
-        counterEnemyRaceCheckBox = AddCheckBox(detail, "反击敌对种族", 133, 0, 146, false);
-        preferAggressiveMonsterCheckBox = AddCheckBox(detail, "优先攻击主动怪", 280, 0, 174, false);
-        jumpAssistEnabledCheckBox = AddCheckBox(detail, "打怪跳跃", 470, 0, 148, false);
-        sitWhenNoTargetAtHomeCheckBox = AddCheckBox(detail, "没怪坐地板", 10, 35, 144, false);
-        returnHomeAfterCombatCheckBox = AddCheckBox(detail, "战斗结束回原点", 164, 35, 171, false);
-        returnHomeAfterCombatDistanceLabel = AddLabel(detail, "超过", 340, 37, 45, 24);
-        returnHomeAfterCombatDistanceTextBox = AddTextBox(detail, "5", 386, 35, 78, 28);
-        returnHomeAfterCombatDistanceUnitLabel = AddLabel(detail, "米", 470, 37, 24, 24);
-        stalledTargetExclusionSecondsLabel = AddLabel(detail, "卡怪排除时长", 10, 66, 108, 24);
-        stalledTargetExclusionSecondsTextBox = AddTextBox(detail, "60", 126, 64, 75, 28);
+        const int behaviorRowHeight = 32;
+        const int behaviorColumnWidth = 160;
+        const int behaviorLeft = 10;
+        const int behaviorValuesTop = rowTop + 2 * behaviorRowHeight;
+        const int returnDistanceLeft = behaviorLeft + 3 * behaviorColumnWidth;
+        var behavior = Section("战斗行为", behaviorValuesTop + behaviorRowHeight);
+        RoundedCheckBox BehaviorCheck(string text, int column, int row, bool isChecked = false) =>
+            AddCheckBox(behavior, text, behaviorLeft + column * behaviorColumnWidth,
+                rowTop + row * behaviorRowHeight + 1, behaviorColumnWidth - 12, isChecked);
+
+        enableLootCheckBox = BehaviorCheck("拾取物品", 0, 0, true);
+        contestMonsterCheckBox = BehaviorCheck("抢怪", 1, 0);
+        counterEnemyRaceCheckBox = BehaviorCheck("反击敌对种族", 2, 0);
+        preferAggressiveMonsterCheckBox = BehaviorCheck("优先攻击主动怪", 3, 0);
+        jumpAssistEnabledCheckBox = BehaviorCheck("打怪跳跃", 0, 1);
+        returnHomeWhenNoTargetCheckBox = BehaviorCheck("没怪回中心", 1, 1, true);
+        sitWhenNoTargetAtHomeCheckBox = BehaviorCheck("没怪坐地板", 2, 1);
+        returnHomeAfterCombatCheckBox = BehaviorCheck("战斗结束回原点", 3, 1);
+
+        returnHomeAfterCombatDistanceLabel = AddLabel(behavior, "超过", returnDistanceLeft, behaviorValuesTop + 2, 32, 24);
+        returnHomeAfterCombatDistanceTextBox = AddTextBox(behavior, "5", returnDistanceLeft + 36, behaviorValuesTop, 76, 28);
+        returnHomeAfterCombatDistanceUnitLabel = AddLabel(behavior, "米", returnDistanceLeft + 120, behaviorValuesTop + 2, 24, 24);
+        stalledTargetExclusionSecondsLabel = AddLabel(behavior, "卡怪排除时长", behaviorLeft, behaviorValuesTop + 2, 108, 24);
+        stalledTargetExclusionSecondsTextBox = AddTextBox(behavior, "60", 126, behaviorValuesTop, 75, 28);
         stalledTargetExclusionSecondsTextBox.Name = "stalledTargetExclusionSecondsTextBox";
-        stalledTargetExclusionSecondsUnitLabel = AddLabel(detail, "秒", 208, 66, 24, 24);
-        pathFollowReachDistanceLabel = AddLabel(detail, "到点判定距离", 10, 66, 108, 24);
-        pathFollowReachDistanceTextBox = AddTextBox(detail, "5.0", 126, 64, 75, 28);
-        pathFollowReachDistanceUnitLabel = AddLabel(detail, "米", 208, 66, 24, 24);
-        AddLabel(detail, "固定频道", 280, 66, 82, 24);
-        fixedChannelCombo = AddCombo(detail, 370, 64, 142, 28, new[] { "不固定" }
-            .Concat(Enumerable.Range(1, ScriptSettings.MaximumFixedChannelNumber).Select(number => number + "频道")).ToArray());
-        fixedChannelCombo.Name = "fixedChannelCombo";
-        var behaviorExpanded = false;
-        var behaviorButton = Secondary(behavior, "更多战斗设置", 500, rowTop, 142, (sender, _) =>
-        {
-            behaviorExpanded = !behaviorExpanded;
-            detail.Visible = behaviorExpanded;
-            ((Button)sender!).Text = behaviorExpanded ? "收起战斗设置" : "更多战斗设置";
-            layoutOverview?.Invoke();
-        });
-        behaviorButton.Name = "hangupMoreCombat";
+        stalledTargetExclusionSecondsUnitLabel = AddLabel(behavior, "秒", 208, behaviorValuesTop + 2, 24, 24);
+        pathFollowReachDistanceLabel = AddLabel(behavior, "到点判定距离", behaviorLeft, behaviorValuesTop + 2, 108, 24);
+        pathFollowReachDistanceTextBox = AddTextBox(behavior, "5.0", 126, behaviorValuesTop, 75, 28);
+        pathFollowReachDistanceUnitLabel = AddLabel(behavior, "米", 208, behaviorValuesTop + 2, 24, 24);
 
         const int pathRowHeight = 32;
         var paths = Section("当前路线", 0);
@@ -157,15 +152,20 @@ public sealed partial class AccountSettingsForm
         AddButton(profile, "加载到本账号", 394, rowTop, 134, 28, (_, _) => LoadSelectedProfile()).Name = "loadAccountProfile";
         AddButton(profile, "删除方案", 540, rowTop, 102, 28, (_, _) => DeleteSavedProfile());
         AddLabel(profile, "保存为", 10, 62, 86, 24);
-        profileNameTextBox = AddTextBox(profile, "default_profile", 100, 60, 283, 28);
-        var regionLabel = AddLabel(profile, "所属区服", 394, 62, 72, 24);
-        regionCombo = AddCombo(profile, 470, 60, 100, 28, "未分区", "一区", "二区", "三区", "四区", "五区", "六区", "七区", "八区", "九区", "十区");
+        profileNameTextBox = AddTextBox(profile, "default_profile", 100, 60, 241, 28);
+        var regionLabel = AddLabel(profile, "所属区服", 352, 62, 58, 24);
+        regionCombo = AddCombo(profile, 412, 60, 70, 28, "未分区", "一区", "二区", "三区", "四区", "五区", "六区", "七区", "八区", "九区", "十区");
         regionCombo.Name = "accountRegionCombo";
         regionCombo.AccessibleName = "所属区服";
         regionCombo.SelectedIndexChanged += (_, _) => ChangeRegion();
         var regionTip = new ToolTip();
         regionTip.SetToolTip(regionLabel, "仅当前账号，用于选择共享拍卖行名单。");
         regionLabel.Disposed += (_, _) => regionTip.Dispose();
+        AddLabel(profile, "固定频道", 492, 62, 58, 24);
+        fixedChannelCombo = AddCombo(profile, 552, 60, 90, 28, new[] { "不固定" }
+            .Concat(Enumerable.Range(1, ScriptSettings.MaximumFixedChannelNumber).Select(number => number + "频道")).ToArray());
+        fixedChannelCombo.Name = "fixedChannelCombo";
+        fixedChannelCombo.AccessibleName = "固定频道";
         profileStatusLabel = AddLabel(profile, "", 387, 0, 265, headingHeight);
         profileStatusLabel.BackColor = _inputBackground;
         profileStatusLabel.AutoEllipsis = true;
@@ -184,7 +184,8 @@ public sealed partial class AccountSettingsForm
             {
                 // Clear WinForms' cached display rectangle after shrinking the window.
                 page.AutoScroll = false;
-                behavior.Height = detail.Top + (behaviorExpanded ? detail.Height + 4 : 0);
+                var hasCombatValues = ParseMainMode(mainModeCombo.Text) == AccountMainMode.CustomCombat;
+                behavior.Height = behaviorValuesTop + (hasCombatValues ? behaviorRowHeight : 0);
                 var columns = page.Width >= 900 ? 3 : 2;
                 var rows = (OverviewPaths.Length + columns - 1) / columns;
                 paths.Height = rowTop + rows * pathRowHeight;
@@ -225,6 +226,7 @@ public sealed partial class AccountSettingsForm
                 selectedCombatMode = ParseCombatMode(mainModeCombo.Text);
             RefreshCombatModeVisibility();
             SelectSuggestedPath();
+            layoutOverview?.Invoke();
         };
         returnHomeAfterCombatCheckBox.Click += (_, _) => RefreshCombatModeVisibility();
         return tab;

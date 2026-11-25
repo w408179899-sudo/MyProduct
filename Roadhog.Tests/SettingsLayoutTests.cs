@@ -30,6 +30,7 @@ internal static class SettingsLayoutTests
                     GroceryStallPathName = "杂货摊位"
                 };
                 settings.SemiAuto.AttackWeaveDelayMs = 530;
+                settings.FixedChannelNumber = ScriptSettings.MaximumFixedChannelNumber;
                 settings.Skills.OpeningSkill = new() { Enabled = true, SkillId = 101, SkillName = "起手技能", Key = "F1" };
                 var store = new InMemoryAccountConfigStore(new AccountConfig { AccountName = "layout", ScriptSettings = settings });
                 var profiles = new InMemoryScriptProfileStore();
@@ -90,8 +91,13 @@ internal static class SettingsLayoutTests
                         var summary = (Panel)tab.Controls.Find("hangupOverview", true).Single();
                         var loadProfile = (Button)tab.Controls.Find("loadAccountProfile", true).Single();
                         var modeSection = ((Control)Field("mainModeCombo")).Parent!;
+                        var behavior = (Panel)((Control)Field("enableLootCheckBox")).Parent!;
                         var profileName = (Control)Field("profileNameTextBox");
                         var region = tab.Controls.Find("accountRegionCombo", true).Single();
+                        var channel = (RoundedComboBox)tab.Controls.Find("fixedChannelCombo", true).Single();
+                        var channelEditor = channel.Controls.OfType<ComboBox>().Single();
+                        var channelTextWidth = channel.Items.Cast<string>()
+                            .Max(item => TextRenderer.MeasureText(item, channelEditor.Font).Width);
                         var expectedRoutes = new (SharedPathKind Kind, string Tab, string Summary)[]
                         {
                             (SharedPathKind.Revive, "复活路径", "复活路径 · 人马西线（2 点）"),
@@ -115,6 +121,13 @@ internal static class SettingsLayoutTests
                             Check(size.Width < 800 || !summary.VerticalScroll.Visible, "home fits normal window");
                             CheckSection((Panel)loadProfile.Parent!);
                             CheckSection((Panel)modeSection);
+                            CheckSection(behavior);
+                            var behaviorRows = behavior.Controls.OfType<RoundedCheckBox>()
+                                .Where(checkBox => checkBox.Visible).GroupBy(checkBox => checkBox.Top)
+                                .Select(row => row.Select(checkBox => checkBox.Left).Order().ToArray()).ToArray();
+                            Check(behaviorRows.Length == 2 && behaviorRows[0].Length == 4 &&
+                                behaviorRows[0].SequenceEqual(behaviorRows[1]),
+                                "stationary combat shows two aligned rows of four options on opening");
                             var routeColumns = routeLinks.Count(button => button.Top == routeLinks[0].Top);
                             Check(routeColumns == (size.Width < 900 ? 2 : 3), "overview adapts route columns to the window");
                             Check(loadProfile.Visible && loadProfile.Parent!.Bottom <= modeSection.Top &&
@@ -124,6 +137,12 @@ internal static class SettingsLayoutTests
                                 region.Left > profileName.Right &&
                                 summary.ClientRectangle.Contains(summary.RectangleToClient(region.RectangleToScreen(region.ClientRectangle))),
                                 "region fits to the right of the profile name at each window width");
+                            Check(channel.Visible && channel.Parent == region.Parent && channel.Top == region.Top &&
+                                channel.Left > region.Right &&
+                                summary.ClientRectangle.Contains(summary.RectangleToClient(channel.RectangleToScreen(channel.ClientRectangle))),
+                                "fixed channel is visible to the right of the region at each window width");
+                            Check(channelEditor.ClientSize.Width >= channelTextWidth + SystemInformation.VerticalScrollBarWidth,
+                                $"channel editor at {size} has room for the longest value and arrow");
                             foreach (var routeLink in routeLinks)
                             {
                                 Check(routeLink.Visible && routeLink.Parent!.ClientRectangle.Contains(routeLink.Bounds),
@@ -135,35 +154,31 @@ internal static class SettingsLayoutTests
                                 "all routes fit above the schedule");
                             Check(!((Control)Field("scheduleStartTextBox")).Visible, "disabled schedules hide inactive time controls");
                         }
-                        var moreCombat = (Button)tab.Controls.Find("hangupMoreCombat", true).Single();
+                        Check(!behavior.Controls.OfType<Button>().Any(), "combat options have no expand or collapse button");
                         var schedule = (RoundedCheckBox)Field("scheduleOnlineCheckBox");
                         var relogin = (RoundedCheckBox)Field("scheduleReloginCheckBox");
                         var clickToggle = typeof(RoundedCheckBox).GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic)!;
-                        moreCombat.PerformClick();
                         clickToggle.Invoke(schedule, [EventArgs.Empty]);
                         clickToggle.Invoke(relogin, [EventArgs.Empty]);
-                        var details = moreCombat.Parent!.Controls.OfType<Panel>().Single();
                         var modeChooser = (RoundedComboBox)Field("mainModeCombo");
                         foreach (var size in new[] { new Size(1000, 800), new Size(704, 381) })
                         {
                             form.ClientSize = size; Application.DoEvents();
-                            Check(!summary.HorizontalScroll.Visible, "expanded overview scrolls vertically in a narrow window");
+                            Check(!summary.HorizontalScroll.Visible, "overview with schedules enabled scrolls vertically in a narrow window");
                             foreach (var modeIndex in new[] { 0, 1, 2, 3 })
                             {
                                 modeChooser.SelectedIndex = modeIndex;
                                 CheckSection((Panel)modeSection);
-                                CheckSection((Panel)moreCombat.Parent);
-                                CheckSection(details);
+                                CheckSection(behavior);
                                 CheckSection((Panel)schedule.Parent!);
                             }
                             summary.ScrollControlIntoView(relogin);
                             Check(summary.ClientRectangle.Contains(summary.RectangleToClient(relogin.RectangleToScreen(relogin.ClientRectangle))),
-                                "the schedule remains reachable with all foldouts expanded");
+                                "the schedule remains reachable with the combat options shown");
                         }
                         form.ClientSize = new Size(1000, 800);
                         modeChooser.SelectedIndex = 0;
-                        Capture("挂机-全部展开");
-                        moreCombat.PerformClick();
+                        Capture("挂机-定时开启");
                         clickToggle.Invoke(schedule, [EventArgs.Empty]);
                         clickToggle.Invoke(relogin, [EventArgs.Empty]);
                         summary.AutoScrollPosition = Point.Empty;
