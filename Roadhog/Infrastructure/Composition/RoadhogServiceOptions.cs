@@ -1,4 +1,5 @@
 using Roadhog.Infrastructure.ToolBridge;
+using Roadhog.Infrastructure.Config;
 using Roadhog.Infrastructure.Processes;
 using Roadhog.Infrastructure.Hardware;
 using Roadhog.Infrastructure.Input;
@@ -9,6 +10,7 @@ namespace Roadhog.Infrastructure.Composition;
 public sealed class RoadhogServiceOptions
 {
     public Roadhog.Core.Accounts.AccountConfig? AccountOverride { get; set; }
+    internal JsonGlobalSettingsStore? GlobalSettings { get; set; }
 
     public string? BagCleanupNameListPath { get; set; }
 

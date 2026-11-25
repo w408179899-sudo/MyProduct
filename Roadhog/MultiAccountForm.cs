@@ -73,7 +73,6 @@ public sealed partial class MultiAccountForm : Form
         tools.Controls.Add(Button("清包", () => CleanupSelectedAsync(itemTransfer: false), width: 76));
         tools.Controls.Add(Button("倒货", () => CleanupSelectedAsync(itemTransfer: true), width: 76));
         tools.Controls.Add(Button("退出程序", () => ExitAsync(), exitAction: true));
-        tools.Controls.Add(BuildDmaReadCacheField());
         root.Controls.Add(tools, 0, 0);
         var filters = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false };
         _filter.DropDownStyle = ComboBoxStyle.DropDownList; _filter.Size = new Size(110, 28);
@@ -86,7 +85,15 @@ public sealed partial class MultiAccountForm : Form
         filters.Controls.AddRange([_filter, _search,
             Button("自动识别设备", () => RunConfigurationActionAsync(DiscoverDevicesAsync)),
             Button("取消识别", () => { _discoveryCancellation?.Cancel(); return Task.CompletedTask; }), _summary]);
-        root.Controls.Add(filters, 0, 1);
+        var filtersRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
+        filtersRow.ColumnStyles.Add(new(SizeType.Percent, 100));
+        filtersRow.ColumnStyles.Add(new(SizeType.AutoSize));
+        filtersRow.Controls.Add(filters, 0, 0);
+        var globalSettings = Button("全局设置", OpenGlobalSettingsAsync, width: 132);
+        globalSettings.Name = "globalSettingsButton";
+        globalSettings.Margin = new Padding(4, 3, 22, 0);
+        filtersRow.Controls.Add(globalSettings, 1, 0);
+        root.Controls.Add(filtersRow, 0, 1);
         _grid.Dock = DockStyle.Fill; _grid.ReadOnly = false; _grid.AllowUserToAddRows = false; _grid.AllowUserToDeleteRows = false;
         _grid.AllowUserToResizeRows = false; _grid.RowHeadersVisible = false; _grid.MultiSelect = false;
         _grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect; _grid.BackgroundColor = Color.White;
@@ -209,7 +216,6 @@ public sealed partial class MultiAccountForm : Form
         var accounts = await _workspace.InitializeAsync(_operations.Token);
         if (_operations.IsClosing || IsDisposed) return;
         _accounts = accounts.ToList(); _initialized = true; RefreshRows(); _timer.Start();
-        LoadDmaReadCacheField();
         if (_accounts.Any(a => !Infrastructure.Hardware.HardwareVerificationSession.IsCurrent(a)
             && !string.IsNullOrWhiteSpace(a.CharacterName) && !string.IsNullOrWhiteSpace(a.HardwareVerificationSessionId)))
             await RunConfigurationActionAsync(DiscoverDevicesAsync);

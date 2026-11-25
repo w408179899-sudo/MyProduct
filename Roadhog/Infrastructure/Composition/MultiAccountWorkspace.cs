@@ -22,7 +22,7 @@ public sealed partial class MultiAccountWorkspace : IAsyncDisposable
     public RoadhogServiceOptions Options { get; }
     public IRoadhogLogger Logger { get; }
     public JsonAccountConfigStore Accounts { get; }
-    internal JsonDmaReadCacheStore DmaReadCache { get; }
+    internal JsonGlobalSettingsStore GlobalSettings { get; }
     public JsonSharedPathStore Paths { get; }
     public JsonScriptProfileStore Profiles { get; }
     public JsonAdvancedSkillProfileStore AdvancedSkillProfiles { get; }
@@ -42,9 +42,10 @@ public sealed partial class MultiAccountWorkspace : IAsyncDisposable
     public MultiAccountWorkspace(RoadhogServiceOptions? options = null, WorkerProcessLaunchOptions? launch = null)
     {
         Options = options ?? RoadhogServiceOptions.FromEnvironment();
-        Logger = new FileRoadhogLogger(Path.Combine(Options.LogDirectory, "manager"));
+        GlobalSettings = new(Options.AccountConfigPath);
+        Logger = new FileRoadhogLogger(Path.Combine(Options.LogDirectory, "manager"), globalSettings: () => GlobalSettings.Current);
+        GlobalSettings.Refresh(Logger);
         Accounts = new(Options.AccountConfigPath);
-        DmaReadCache = new(Options.AccountConfigPath);
         Paths = new(Options.PathLibraryDirectory);
         Profiles = new(Options.ProfileLibraryDirectory);
         AdvancedSkillProfiles = new(JsonAdvancedSkillProfileStore.PathFor(Options.AccountConfigPath));

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Roadhog.Core.Accounts;
 using Roadhog.Infrastructure.Diagnostics;
 
 internal static class FileLogCompactionTests
@@ -48,6 +49,41 @@ internal static class FileLogCompactionTests
             Require(owned.Sum(path => new FileInfo(path).Length) <= 2048, "capacity includes active and archived segments");
             Require(Read(root).Any(e => e.GetProperty("Fields").TryGetProperty("index", out var value) && value.GetInt32() == 39),
                 "newest record survives pruning");
+        }
+        finally { Directory.Delete(root, true); }
+        return Task.CompletedTask;
+    }
+
+    public static Task GlobalRetentionAndCapacityAsync()
+    {
+        var root = NewRoot();
+        try
+        {
+            var clock = new Clock();
+            var settings = new RoadhogGlobalSettings { LogRetentionHours = 72, LogDirectoryMiB = 2 };
+            var logger = new FileRoadhogLogger(root, maxLogFileBytes: 512, timeProvider: clock, globalSettings: () => settings);
+            var oldest = Path.Combine(root, "roadhog-oldest.log");
+            var newest = Path.Combine(root, "roadhog-newest.log");
+            foreach (var path in new[] { oldest, newest })
+            {
+                using var archive = File.Create(path);
+                archive.SetLength(700 * 1024);
+            }
+            File.SetLastWriteTimeUtc(oldest, clock.GetUtcNow().UtcDateTime.AddHours(-36));
+            File.SetLastWriteTimeUtc(newest, clock.GetUtcNow().UtcDateTime.AddHours(-12));
+            logger.Info("test.within_global_limits");
+            Require(File.Exists(oldest) && File.Exists(newest), "extended retention and the larger cap preserve both archives");
+
+            settings = settings with { LogDirectoryMiB = 1 };
+            clock.Advance(TimeSpan.FromMinutes(6));
+            logger.Info("test.after_cap_change");
+            Require(!File.Exists(oldest) && File.Exists(newest), "the updated cap prunes the oldest archive first");
+
+            settings = settings with { LogRetentionHours = 10 };
+            clock.Advance(TimeSpan.FromMinutes(6));
+            logger.Info("test.after_retention_change");
+            Require(!File.Exists(newest) && Read(root).Any(entry => entry.GetProperty("EventName").GetString() == "test.after_retention_change"),
+                "the updated retention prunes the now expired archive and preserves the active log");
         }
         finally { Directory.Delete(root, true); }
         return Task.CompletedTask;

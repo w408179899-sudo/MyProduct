@@ -232,7 +232,8 @@ internal static partial class TownReturnTests
         public readonly StationaryCombatController Controller;
         public readonly AccountWorkerContext Context;
         public readonly SemiAutoSkillPlan Plan;
-        public Harness(TimeProvider? townReturnTime = null, Roadhog.Application.Radar.StationaryObstacleNavigator? obstacleNavigator = null)
+        public Harness(TimeProvider? townReturnTime = null, Roadhog.Application.Radar.StationaryObstacleNavigator? obstacleNavigator = null,
+            Func<RoadhogGlobalSettings>? globalSettings = null)
         {
             var settings = new ScriptSettings { MainMode = AccountMainMode.CustomCombat, CombatMode = AccountCombatMode.Stationary };
             settings.Paths.RevivePathName = settings.Paths.MaintenancePathName = "return";
@@ -241,7 +242,8 @@ internal static partial class TownReturnTests
             var config = new AccountConfig { AccountName = "recall", MainMode = settings.MainMode, ScriptSettings = settings };
             Paths = new(Path);
             SemiAuto = new(Input);
-            Controller = new(Input, SemiAuto, Paths, obstacleNavigator: obstacleNavigator, townReturnTime: townReturnTime);
+            Controller = new(Input, SemiAuto, Paths, obstacleNavigator: obstacleNavigator, townReturnTime: townReturnTime,
+                globalSettings: globalSettings);
             Context = new(config, Api, Logger, new AccountRuntimeManager(Logger), new(), Stop.Token);
             Plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
         }

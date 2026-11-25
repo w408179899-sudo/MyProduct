@@ -29,7 +29,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
     private static readonly TimeSpan GatherFailureSuppression = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan GatherApproachJumpRetryDelay = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan NoKillTownReturnHoldDuration = TimeSpan.FromMilliseconds(35);
-    private static readonly TimeSpan DefaultNoKillTimeout = TimeSpan.FromMinutes(20);
+    private static readonly TimeSpan DefaultNoKillTimeout = TimeSpan.FromMinutes(RoadhogGlobalSettings.DefaultNoKillReturnMinutes);
     private static readonly TimeSpan DefaultNoKillRetryDelay = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan StartupTownReturnHoldDuration = TimeSpan.FromMilliseconds(35);
     private static readonly TimeSpan FightSoftRestartApproachTimeout = TimeSpan.FromSeconds(5);
@@ -68,6 +68,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
     private readonly StationaryObstacleNavigator? _obstacleNavigator;
     private readonly RadarLiveSnapshotRegistry? _radarSnapshots;
     private readonly TimeProvider _townReturnTime;
+    private readonly Func<RoadhogGlobalSettings>? _globalSettings;
     private readonly BagCleanupController? _bagCleanup;
     private readonly TacticalMarkCoordinator _tacticalMark;
     private readonly SemaphoreSlim _cameraTurnInputSync = new(1, 1);
@@ -78,7 +79,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         ISharedPathStore? pathStore = null,
         StationaryObstacleNavigator? obstacleNavigator = null,
         RadarLiveSnapshotRegistry? radarSnapshots = null,
-        TimeProvider? townReturnTime = null)
+        TimeProvider? townReturnTime = null,
+        Func<RoadhogGlobalSettings>? globalSettings = null)
     {
         _input = input;
         _semiAuto = semiAuto;
@@ -87,6 +89,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         _obstacleNavigator = obstacleNavigator;
         _radarSnapshots = radarSnapshots;
         _townReturnTime = townReturnTime ?? TimeProvider.System;
+        _globalSettings = globalSettings;
         _bagCleanup = pathStore is null
             ? null
             : new BagCleanupController(input, pathStore, ExecutePathOnceAsync);
@@ -627,7 +630,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         return StationaryCombatBehaviorStatus.Success;
     }
 
-    private static StationaryCombatBehaviorStatus TickDeathWaitBeforeReviveClickNode(
+    private StationaryCombatBehaviorStatus TickDeathWaitBeforeReviveClickNode(
         AccountWorkerContext context,
         StationaryCombatState state,
         PlayerSnapshot player)
@@ -1013,6 +1016,14 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 home,
                 playerDistanceFromHome)
             .ConfigureAwait(false))
+        {
+            return StationaryCombatBehaviorStatus.Running;
+        }
+
+        // Maintenance can hold this step before the first movement tick, so check the
+        // no-kill deadline here even when the revive route has not started moving.
+        if (player.IsAlive && context.GameSessionRequests.Current is null && context.CleanupRequests.Current is null &&
+            await TickNoKillRecoveryAsync(context, plan, semiAutoState, state, player).ConfigureAwait(false) is not null)
         {
             return StationaryCombatBehaviorStatus.Running;
         }
@@ -3726,7 +3737,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
         if (!state.NoKillRecovery.Active)
         {
-            if (!state.NoKillRecovery.IsDue(now, ReadNoKillTimeout()))
+            var timeout = ReadNoKillTimeout();
+            if (!state.NoKillRecovery.IsDue(now, timeout))
             {
                 return null;
             }
@@ -3776,7 +3788,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
 
             await PrepareForTownReturnAsync(context, semiAutoState, state).ConfigureAwait(false);
             var departure = (await context.Snapshots.ReadChannelTransitionAsync().WaitAsync(context.StopToken).ConfigureAwait(false)).Value;
-            if (!departure.IsReady) return IdleDelay;
+            if (!departure.IsReady || !departure.Player!.IsAlive) return IdleDelay;
             var transition = new TownReturnTransition();
             transition.Start(departure, pathResult.Value, _townReturnTime.GetUtcNow());
             var press = await _input
@@ -3797,13 +3809,22 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 .ToArray();
             state.NoKillRecovery.StartTownReturn(departure.Player!.Position!.Value, revivePathName, revivePoints, now);
             state.NoKillRecovery.ReturnTransition = transition;
+            var interruptedRevivePath = IsFollowingRevivePath(state);
+            if (interruptedRevivePath)
+            {
+                state.ExitDeathRecovery();
+                semiAutoState.ClearMaintenanceRest();
+                // A pre-death pet heal awaiting confirmation can still hold MP maintenance.
+                semiAutoState.ClearSpiritmasterPetHpIncreaseConfirmation();
+            }
             context.Logger.Warn("stationary_combat.no_kill.return.press", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
                 ["key"] = key,
-                ["timeoutMs"] = (long)ReadNoKillTimeout().TotalMilliseconds,
+                ["timeoutMs"] = (long)timeout.TotalMilliseconds,
                 ["lastKillAt"] = runtime?.LastKillAt,
                 ["watchStartedAt"] = state.NoKillRecovery.WatchStartedAt,
+                ["interruptedRevivePath"] = interruptedRevivePath,
                 ["revivePathName"] = revivePathName,
                 ["startX"] = startPosition.X,
                 ["startY"] = startPosition.Y,
@@ -12281,12 +12302,15 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         return ClampInt(ReadRawIntFromEnv("ROADHOG_FACE_TARGET_TIMEOUT_MS", 10_000), 1, 60_000);
     }
 
-    private static TimeSpan ReadNoKillTimeout()
+    private TimeSpan ReadNoKillTimeout()
     {
+        if (_globalSettings?.Invoke().NoKillReturnMinutes is { } minutes)
+            return TimeSpan.FromMinutes(minutes);
+
         return TimeSpan.FromMilliseconds(ClampInt(
             ReadRawIntFromEnv("ROADHOG_NO_KILL_RETURN_TIMEOUT_MS", (int)DefaultNoKillTimeout.TotalMilliseconds),
             0,
-            24 * 60 * 60 * 1000));
+            RoadhogGlobalSettings.MaxNoKillReturnMinutes * 60 * 1000));
     }
 
 
@@ -12318,9 +12342,12 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         return ClampDouble(ReadDoubleFromEnv("ROADHOG_PATH_COMBAT_ACCESS_PATH_DISTANCE", 120.0D), 0.0D, 10_000.0D);
     }
 
-    private static int ReadDeathReviveClickDelayMs()
+    private int ReadDeathReviveClickDelayMs()
     {
-        return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS", 10_000), 0, 60_000);
+        if (_globalSettings?.Invoke().ReviveDelaySeconds is { } seconds)
+            return seconds * 1000;
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS",
+            RoadhogGlobalSettings.DefaultReviveDelaySeconds * 1000), 0, RoadhogGlobalSettings.MaxReviveDelaySeconds * 1000);
     }
 
     private static int ReadDeathReviveClickX()

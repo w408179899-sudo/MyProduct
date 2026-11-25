@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Text;
 using System.Xml;
 using System.Xml.Linq;
+using Roadhog.Core.Accounts;
 using Roadhog.Core.Api;
 using Roadhog.Core.Common;
 using Roadhog.Core.Diagnostics;
@@ -29,7 +30,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
     private const ulong VmmConfigTlbCacheTicks = 0x2000000600000000UL;
     private const ulong VmmConfigProcCacheTicksPartial = 0x2000000700000000UL;
     private const ulong VmmConfigProcCacheTicksTotal = 0x2000000800000000UL;
-    private const ulong TargetVmmTickPeriodMs = JsonDmaReadCacheStore.TickPeriodMs;
+    private const ulong TargetVmmTickPeriodMs = RoadhogGlobalSettings.DmaTickPeriodMs;
     private const ulong FallbackVmmTickPeriodMs = 100UL;
 
     private const ulong EntitySystemPointerRva = 0x94C7B0;
@@ -240,7 +241,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
 
     private readonly AionVmmGameApiOptions _options;
     private readonly IRoadhogLogger _logger;
-    private readonly JsonDmaReadCacheStore? _readCacheSettings;
+    private readonly JsonGlobalSettingsStore? _globalSettings;
     private readonly DmaStableSnapshotStore _stableSnapshots;
     private readonly Dictionary<string, VmmConnection> _connections = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _connectionsRetiring = new(StringComparer.OrdinalIgnoreCase);
@@ -263,11 +264,11 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
     private long _worldObjectCaptureSequence;
     private long _summonedPetRosterCaptureSequence;
 
-    public AionVmmGameApi(AionVmmGameApiOptions options, IRoadhogLogger logger, JsonDmaReadCacheStore? readCacheSettings = null)
+    public AionVmmGameApi(AionVmmGameApiOptions options, IRoadhogLogger logger, JsonGlobalSettingsStore? globalSettings = null)
     {
         _options = options;
         _logger = logger;
-        _readCacheSettings = readCacheSettings;
+        _globalSettings = globalSettings;
         _stableSnapshots = new DmaStableSnapshotStore(AionVmmSnapshotChannels.Registry);
     }
 
@@ -3429,7 +3430,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         var deviceName = ResolveVmmDeviceName(contextVmmDeviceName);
         var remote = ResolveVmmRemote();
         var key = BuildConnectionKey(deviceName, remote);
-        _readCacheSettings?.Refresh(_logger);
+        _globalSettings?.Refresh(_logger);
 
         VmmConnection? existing;
         lock (_connectionSync)
@@ -3454,7 +3455,7 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
         return existing;
     }
 
-    private int ReadCachePeriodMs => _readCacheSettings?.CurrentPeriodMs ?? JsonDmaReadCacheStore.DefaultPeriodMs;
+    private int ReadCachePeriodMs => _globalSettings?.Current.ReadCacheMs ?? RoadhogGlobalSettings.DefaultReadCacheMs;
 
     private VmmConnection CreateConnectionLocked(string? contextVmmDeviceName, string deviceName, string remote, string key)
     {

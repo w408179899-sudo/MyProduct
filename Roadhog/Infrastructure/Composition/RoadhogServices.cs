@@ -143,9 +143,11 @@ public sealed class RoadhogServices : IDisposable
             : new JsonAccountConfigStore(options.AccountConfigPath);
         var initialAccount = options.AccountOverride ?? accountConfigStore.LoadAllAsync().GetAwaiter().GetResult().Value?.FirstOrDefault();
         var generateLogFiles = initialAccount?.ScriptSettings?.GenerateLogFiles ?? true;
+        var globalSettings = options.GlobalSettings ?? new JsonGlobalSettingsStore(options.AccountConfigPath);
         IRoadhogLogger logger = options.EnableLogging
-            ? new FileRoadhogLogger(options.LogDirectory, enabled: generateLogFiles)
+            ? new FileRoadhogLogger(options.LogDirectory, enabled: generateLogFiles, globalSettings: () => globalSettings.Current)
             : NoOpRoadhogLogger.Instance;
+        globalSettings.Refresh(logger);
         logger.Info("roadhog.services.created", new Dictionary<string, object?>
         {
             ["logDirectory"] = options.LogDirectory,
@@ -176,7 +178,7 @@ public sealed class RoadhogServices : IDisposable
             ? new ToolProcessApiClient(options.ToolTestBridge, logger)
             : options.UseMockGameApi
                 ? new MockRoadhogGameApi()
-                : new AionVmmGameApi(options.AionVmm, logger, new JsonDmaReadCacheStore(options.AccountConfigPath));
+                : new AionVmmGameApi(options.AionVmm, logger, globalSettings);
         var accounts = new AccountRuntimeManager(logger);
         var snapshotReaders = new RoadhogSnapshotReaderFactory(gameApi, accounts.CreatePlayerInfoObserver);
         var hardwareResolver = new WindowsHardwareDeviceResolver(options.HardwareResolver);
@@ -210,7 +212,8 @@ public sealed class RoadhogServices : IDisposable
             semiAutoController,
             sharedPathStore,
             stationaryObstacleNavigator,
-            radarSnapshots);
+            radarSnapshots,
+            globalSettings: () => globalSettings.Current);
         var fixedChannelSwitchExecutor = new DataDrivenChannelSwitchExecutor(keyboardInput, snapshotReaders, logger);
         var fixedChannelController = new FixedChannelController(
             fixedChannelSwitchExecutor);

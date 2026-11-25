@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Roadhog.Core.Accounts;
 using Roadhog.Core.Diagnostics;
 
 namespace Roadhog.Infrastructure.Diagnostics;
@@ -7,15 +8,16 @@ namespace Roadhog.Infrastructure.Diagnostics;
 public sealed class FileRoadhogLogger : IRoadhogLogger, IFileLoggingControl
 {
     public const long DefaultMaxLogFileBytes = 1024L * 1024L;
-    public const long DefaultMaxDirectoryBytes = 64L * 1024L * 1024L;
+    public const long DefaultMaxDirectoryBytes = RoadhogGlobalSettings.DefaultLogDirectoryMiB * 1024L * 1024L;
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
-    private static readonly TimeSpan LogRetention = TimeSpan.FromDays(1);
+    private static readonly TimeSpan DefaultLogRetention = TimeSpan.FromHours(RoadhogGlobalSettings.DefaultLogRetentionHours);
     private static readonly TimeSpan CleanupInterval = TimeSpan.FromMinutes(5);
     private readonly string _logDirectory;
     private readonly string _latestPath;
     private readonly long _maxLogFileBytes;
     private readonly long _maxDirectoryBytes;
     private readonly TimeProvider _timeProvider;
+    private readonly Func<RoadhogGlobalSettings>? _globalSettings;
     private readonly FileLogCompactor _compactor = new();
     private readonly object _syncRoot = new();
     // Worker command and runtime loggers can share a directory. Serialize append,
@@ -25,7 +27,8 @@ public sealed class FileRoadhogLogger : IRoadhogLogger, IFileLoggingControl
     private bool _enabled;
 
     public FileRoadhogLogger(string logDirectory, long maxLogFileBytes = DefaultMaxLogFileBytes, bool enabled = true,
-        long maxDirectoryBytes = DefaultMaxDirectoryBytes, TimeProvider? timeProvider = null)
+        long maxDirectoryBytes = DefaultMaxDirectoryBytes, TimeProvider? timeProvider = null,
+        Func<RoadhogGlobalSettings>? globalSettings = null)
     {
         _logDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(string.IsNullOrWhiteSpace(logDirectory)
             ? Path.Combine(AppContext.BaseDirectory, "logs") : logDirectory));
@@ -33,6 +36,7 @@ public sealed class FileRoadhogLogger : IRoadhogLogger, IFileLoggingControl
         _maxLogFileBytes = Math.Max(1L, maxLogFileBytes);
         _maxDirectoryBytes = Math.Max(_maxLogFileBytes, maxDirectoryBytes);
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _globalSettings = globalSettings;
         var directoryKey = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(_logDirectory.ToUpperInvariant())));
         _directoryMutex = new Mutex(false, "Local\\RoadhogLog-" + directoryKey);
         _enabled = enabled;
@@ -112,6 +116,9 @@ public sealed class FileRoadhogLogger : IRoadhogLogger, IFileLoggingControl
     {
         if (!rotated && _lastCleanupAt is { } last && now >= last && now - last < CleanupInterval) return;
         _lastCleanupAt = now;
+        var settings = _globalSettings?.Invoke();
+        var retention = settings is null ? DefaultLogRetention : TimeSpan.FromHours(settings.LogRetentionHours);
+        var directoryCap = settings is null ? _maxDirectoryBytes : Math.Max(_maxLogFileBytes, settings.LogDirectoryMiB * 1024L * 1024L);
         var archives = new DirectoryInfo(_logDirectory).EnumerateFiles("roadhog-*.log")
             .OrderBy(file => file.LastWriteTimeUtc).ThenBy(file => file.Name, StringComparer.Ordinal).ToArray();
         // Reserve a complete active segment, so appends between cleanups cannot
@@ -121,7 +128,7 @@ public sealed class FileRoadhogLogger : IRoadhogLogger, IFileLoggingControl
         var total = archives.Sum(file => file.Length) + reserved;
         foreach (var file in archives)
         {
-            if (file.LastWriteTimeUtc >= now.UtcDateTime - LogRetention && total <= _maxDirectoryBytes) continue;
+            if (now.UtcDateTime - file.LastWriteTimeUtc <= retention && total <= directoryCap) continue;
             try { var bytes = file.Length; file.Delete(); total -= bytes; }
             catch { /* Retention is best-effort; locked files can be retried next cleanup. */ }
         }

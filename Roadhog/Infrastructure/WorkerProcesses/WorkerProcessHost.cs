@@ -4,20 +4,21 @@ using System.Text;
 using System.Text.Json;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Common;
+using Roadhog.Infrastructure.Config;
 using Roadhog.Infrastructure.Hardware;
 
 namespace Roadhog.Infrastructure.WorkerProcesses;
 
 public sealed class WorkerProcessHost
 {
-    private readonly Func<WorkerLaunchSpec, IWorkerProcessBackend> _backendFactory;
+    private readonly Func<WorkerLaunchSpec, IWorkerProcessBackend>? _backendFactory;
     private readonly Action<int> _terminateProcess;
     private readonly TimeSpan? _shutdownTimeout;
 
     public WorkerProcessHost(Func<WorkerLaunchSpec, IWorkerProcessBackend>? backendFactory = null,
         Action<int>? terminateProcess = null, TimeSpan? shutdownTimeout = null)
     {
-        _backendFactory = backendFactory ?? (spec => new RoadhogWorkerProcessBackend(spec));
+        _backendFactory = backendFactory;
         _terminateProcess = terminateProcess ?? Environment.Exit;
         _shutdownTimeout = shutdownTimeout;
     }
@@ -82,8 +83,13 @@ public sealed class WorkerProcessHost
         try
         {
             // Publish a controllable process identity before constructing any provider/native dependency.
-            backend = new DeferredWorkerProcessBackend(spec, _backendFactory);
-            commands = new WorkerCommandsSession(spec, backend, lifetime, _terminateProcess, _shutdownTimeout);
+            var accountConfigPath = string.IsNullOrWhiteSpace(spec.Paths.AccountConfigPath)
+                ? Path.Combine(spec.Paths.ClientRoot, "config", "accounts.json")
+                : spec.Paths.AccountConfigPath;
+            var globalSettings = new JsonGlobalSettingsStore(accountConfigPath);
+            var backendFactory = _backendFactory ?? (workerSpec => new RoadhogWorkerProcessBackend(workerSpec, globalSettings));
+            backend = new DeferredWorkerProcessBackend(spec, backendFactory);
+            commands = new WorkerCommandsSession(spec, backend, lifetime, _terminateProcess, _shutdownTimeout, globalSettings);
             var server = new WorkerRpcServer(spec.PipeName, spec.Token, commands.HandleAsync);
             var serving = server.RunAsync(lifetime.Token);
             WriteManifest(spec.ManifestPath, new WorkerDescriptor
@@ -191,6 +197,7 @@ public sealed class WorkerProcessHost
         private readonly Action<int> _terminateProcess;
         private readonly TimeSpan _shutdownTimeout;
         private readonly Diagnostics.FileRoadhogLogger _logger;
+        private readonly JsonGlobalSettingsStore _globalSettings;
         private readonly CancellationTokenSource _shutdownCompleted = new();
         private readonly SemaphoreSlim _actions = new(1, 1);
         private readonly object _sync = new();
@@ -203,17 +210,20 @@ public sealed class WorkerProcessHost
         private Task<OperationResult>? _shutdownTask;
 
         public WorkerCommandsSession(WorkerLaunchSpec spec, IWorkerProcessBackend backend, CancellationTokenSource lifetime,
-            Action<int> terminateProcess, TimeSpan? shutdownTimeout)
+            Action<int> terminateProcess, TimeSpan? shutdownTimeout, JsonGlobalSettingsStore globalSettings)
         {
             _spec = spec; _backend = backend; _lifetime = lifetime; _terminateProcess = terminateProcess;
+            _globalSettings = globalSettings;
             _logger = new Diagnostics.FileRoadhogLogger(spec.Paths.LogDirectory,
-                enabled: spec.Paths.EnableLogging && (spec.Account.ScriptSettings?.GenerateLogFiles ?? true));
+                enabled: spec.Paths.EnableLogging && (spec.Account.ScriptSettings?.GenerateLogFiles ?? true),
+                globalSettings: () => _globalSettings.Current);
             _shutdownTimeout = shutdownTimeout ?? TimeSpan.FromSeconds(Math.Clamp(spec.Paths.AccountWorkerStopTimeout.TotalSeconds + 5, 5, 120));
             if (_shutdownTimeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(shutdownTimeout));
         }
 
         public async Task InitializeAsync(CancellationToken cancellationToken)
         {
+            _globalSettings.Refresh(_logger);
             try { await _backend.InitializeAsync(cancellationToken).ConfigureAwait(false); }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return; }
             catch (Exception exception)
@@ -233,6 +243,7 @@ public sealed class WorkerProcessHost
                     await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
                     try
                     {
+                        _globalSettings.Refresh(_logger);
                         var authorized = _backend.GetStatus().Authorized;
                         if (wasAuthorized && !authorized)
                         {

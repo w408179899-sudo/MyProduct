@@ -3,6 +3,7 @@ using Roadhog.Core.Accounts;
 using Roadhog.Core.Common;
 using Roadhog.Core.Input;
 using Roadhog.Infrastructure.Composition;
+using Roadhog.Infrastructure.Config;
 using Roadhog.Infrastructure.Input;
 
 namespace Roadhog.Infrastructure.WorkerProcesses;
@@ -60,10 +61,11 @@ internal sealed partial class RoadhogWorkerProcessBackend : IWorkerProcessBacken
     {
         public void Report(string value) => report(value);
     }
-    public RoadhogWorkerProcessBackend(WorkerLaunchSpec spec)
+    public RoadhogWorkerProcessBackend(WorkerLaunchSpec spec, JsonGlobalSettingsStore? globalSettings = null)
     {
         _spec = spec;
         var options = CreateOptions(spec);
+        options.GlobalSettings = globalSettings;
         _services = RoadhogServices.Create(options);
         _dispatcher = new RuntimeRpcDispatcher(_services.Runtime, spec.Account.AccountName, spec.Account.VmmDeviceName);
         if (!string.IsNullOrWhiteSpace(spec.Paths.RadarMapDirectory))
