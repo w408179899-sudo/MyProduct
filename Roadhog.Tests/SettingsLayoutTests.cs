@@ -92,6 +92,8 @@ internal static class SettingsLayoutTests
                         var loadProfile = (Button)tab.Controls.Find("loadAccountProfile", true).Single();
                         var modeSection = ((Control)Field("mainModeCombo")).Parent!;
                         var behavior = (Panel)((Control)Field("enableLootCheckBox")).Parent!;
+                        var returnHome = (Control)Field("returnHomeAfterCombatCheckBox");
+                        var returnDistance = (Control)Field("returnHomeAfterCombatDistanceTextBox");
                         var profileName = (Control)Field("profileNameTextBox");
                         var region = tab.Controls.Find("accountRegionCombo", true).Single();
                         var channel = (RoundedComboBox)tab.Controls.Find("fixedChannelCombo", true).Single();
@@ -128,6 +130,9 @@ internal static class SettingsLayoutTests
                             Check(behaviorRows.Length == 2 && behaviorRows[0].Length == 4 &&
                                 behaviorRows[0].SequenceEqual(behaviorRows[1]),
                                 "stationary combat shows two aligned rows of four options on opening");
+                            Check(returnDistance.Visible && returnDistance.Parent == behavior && returnDistance.Left > returnHome.Right &&
+                                returnDistance.Top + returnDistance.Height / 2 == returnHome.Top + returnHome.Height / 2,
+                                "post-combat return and its distance share one row");
                             var routeColumns = routeLinks.Count(button => button.Top == routeLinks[0].Top);
                             Check(routeColumns == (size.Width < 900 ? 2 : 3), "overview adapts route columns to the window");
                             Check(loadProfile.Visible && loadProfile.Parent!.Bottom <= modeSection.Top &&

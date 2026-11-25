@@ -93,14 +93,16 @@ public sealed partial class AccountSettingsForm
         effectiveRadiusLabel.AutoEllipsis = true;
 
         const int behaviorRowHeight = 32;
-        const int behaviorColumnWidth = 160;
+        const int behaviorColumnWidth = 132;
+        const int behaviorCheckWidth = behaviorColumnWidth - 12;
         const int behaviorLeft = 10;
+        const int behaviorSecondRowTop = rowTop + behaviorRowHeight;
         const int behaviorValuesTop = rowTop + 2 * behaviorRowHeight;
-        const int returnDistanceLeft = behaviorLeft + 3 * behaviorColumnWidth;
+        const int returnDistanceLeft = behaviorLeft + 3 * behaviorColumnWidth + behaviorCheckWidth + 4;
         var behavior = Section("战斗行为", behaviorValuesTop + behaviorRowHeight);
         RoundedCheckBox BehaviorCheck(string text, int column, int row, bool isChecked = false) =>
             AddCheckBox(behavior, text, behaviorLeft + column * behaviorColumnWidth,
-                rowTop + row * behaviorRowHeight + 1, behaviorColumnWidth - 12, isChecked);
+                rowTop + row * behaviorRowHeight + 1, behaviorCheckWidth, isChecked);
 
         enableLootCheckBox = BehaviorCheck("拾取物品", 0, 0, true);
         contestMonsterCheckBox = BehaviorCheck("抢怪", 1, 0);
@@ -111,9 +113,9 @@ public sealed partial class AccountSettingsForm
         sitWhenNoTargetAtHomeCheckBox = BehaviorCheck("没怪坐地板", 2, 1);
         returnHomeAfterCombatCheckBox = BehaviorCheck("战斗结束回原点", 3, 1);
 
-        returnHomeAfterCombatDistanceLabel = AddLabel(behavior, "超过", returnDistanceLeft, behaviorValuesTop + 2, 32, 24);
-        returnHomeAfterCombatDistanceTextBox = AddTextBox(behavior, "5", returnDistanceLeft + 36, behaviorValuesTop, 76, 28);
-        returnHomeAfterCombatDistanceUnitLabel = AddLabel(behavior, "米", returnDistanceLeft + 120, behaviorValuesTop + 2, 24, 24);
+        returnHomeAfterCombatDistanceLabel = AddLabel(behavior, "超过", returnDistanceLeft, behaviorSecondRowTop + 2, 30, 24);
+        returnHomeAfterCombatDistanceTextBox = AddTextBox(behavior, "5", returnDistanceLeft + 33, behaviorSecondRowTop, 55, 28);
+        returnHomeAfterCombatDistanceUnitLabel = AddLabel(behavior, "米", returnDistanceLeft + 93, behaviorSecondRowTop + 2, 19, 24);
         stalledTargetExclusionSecondsLabel = AddLabel(behavior, "卡怪排除时长", behaviorLeft, behaviorValuesTop + 2, 108, 24);
         stalledTargetExclusionSecondsTextBox = AddTextBox(behavior, "60", 126, behaviorValuesTop, 75, 28);
         stalledTargetExclusionSecondsTextBox.Name = "stalledTargetExclusionSecondsTextBox";
