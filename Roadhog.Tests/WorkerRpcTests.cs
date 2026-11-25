@@ -166,6 +166,8 @@ internal static class WorkerRpcTests
         await ExpectAsync<WorkerRpcException>(() => fixture.Client.CallAsync<object>("ReadPlayerAsync", new object?[] { "account2" }, fixture.Token), "another account");
         await ExpectAsync<WorkerRpcException>(() => fixture.Client.CallAsync<object>("ReadPlayerForVmmDeviceAsync", new object?[] { "account1", "fpga://devindex=8" }, fixture.Token), "another DMA");
         await ExpectAsync<WorkerRpcException>(() => fixture.Client.CallAsync<object>("GetType", Array.Empty<object?>(), fixture.Token), "Unknown");
+        await ExpectAsync<WorkerRpcException>(() => fixture.Client.CallAsync<object>("RunAStarWalkTestAsync", Array.Empty<object?>(), fixture.Token),
+            "Unknown account runtime operation");
         await ExpectAsync<WorkerRpcException>(() => fixture.Client.CallAsync<object>("ReadPlayerAsync", Array.Empty<object?>(), fixture.Token), "argument count");
     }
 
