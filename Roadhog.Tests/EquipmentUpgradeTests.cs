@@ -32,8 +32,8 @@ internal static partial class EquipmentUpgradeTests
                 object? Call(string method) => typeof(AccountSettingsForm).GetMethod(method,BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(form,null);
                 form.Show();
                 var tabs=(TabControl)typeof(AccountSettingsForm).GetField("settingsTabs",BindingFlags.NonPublic|BindingFlags.Instance)!.GetValue(form)!;
-                tabs.SelectedTab=tabs.TabPages.Cast<TabPage>().Single(p=>p.Text=="其他");Application.DoEvents();
-                Require(tabs.SelectedTab!.Text=="其他","other tab follows team");
+                tabs.SelectedTab=tabs.TabPages.Cast<TabPage>().Single(p=>p.Text=="更多");Application.DoEvents();
+                Require(tabs.SelectedTab!.Text=="更多","other tab follows team");
                 var starts=(List<Button>)typeof(AccountSettingsForm).GetField("_equipmentUpgradeStarts",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(form)!;
                 Require(starts.Count==1&&starts[0].Text=="一键执行","one start button submits both configured groups");
                 var task=(Task)Call("RefreshEquipmentUpgradeListsAsync")!;
@@ -78,6 +78,7 @@ internal static partial class EquipmentUpgradeTests
                     throw new Exception("cross-account exchange admitted");
                 }
                 catch (InvalidOperationException ex) { Require(ex.Message.Contains("another account"), ex.Message); }
+                form.AccountDraftChoiceForTesting = _ => DialogResult.No;
                 form.Close();done.SetResult();
             }
             catch(Exception ex){done.SetException(ex);}

@@ -35,7 +35,7 @@ public sealed partial class AccountSettingsForm
 
         var panel = CreateSkillModePanel(page, "quickbarSkillPanel", true);
         quickbarSkillPanel = panel;
-        panel.SetBounds(12, 116, 828, 420);
+        panel.SetBounds(12, options.Bottom + 6, 828, 420);
         AddLabel(panel, "可选技能", 0, 2, 120, 24, _textGreen, FontStyle.Bold);
         AddLabel(panel, "技能执行顺序", 416, 2, 160, 24, _textGreen, FontStyle.Bold);
         var source = CreateSkillTree(panel, "quickbarAvailableSkillTree", 0, 38, 316, 292);
@@ -63,7 +63,7 @@ public sealed partial class AccountSettingsForm
         AddButton(panel, "移除", 744, 229, 84, 30, (_, _) => RemoveSelectedSkill(selected));
         AddButton(panel, "清空", 744, 269, 84, 30, (_, _) => selected.Nodes.Clear());
         quickbarSkillStatusLabel = AddLabel(panel,
-            "80ms轮询，仍可用且未进冷却会重试；普通看冷却，连续／触发看开放状态，维护优先。", 0, 332, 828, 16);
+            "点击「刷新技能栏」读取技能，再添加到右侧执行顺序。", 0, 332, 828, 16);
         quickbarSkillStatusLabel.Font = new Font(quickbarSkillStatusLabel.Font.FontFamily, 8F);
         CreateOpeningSkillEditor(panel);
         ConfigureSkillPageLayout(page, options, panel);

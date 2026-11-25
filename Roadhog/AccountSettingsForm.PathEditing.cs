@@ -151,7 +151,7 @@ public sealed partial class AccountSettingsForm
         editor.PendingSelection = operation == "after" ? index + 1 : Math.Min(index, editor.Buffer.Count - 1);
         RefreshPathEditor(editor);
         RefreshPathOverviews();
-        SetPathStatus(editor, "已更新路径点，可撤销；请点击“保存修改”写入路径", false);
+        SetPathStatus(editor, "已更新路径点，可撤销。点击「保存路径」写入共享路径。", false);
     }
 
     private bool TryReadPathEditCoordinates(PathEditorControls editor, out Vector3Snapshot position)
@@ -216,7 +216,7 @@ public sealed partial class AccountSettingsForm
 
     private void InitializePathDraftTracking(PathEditorControls editor)
     {
-        if (editor.PathNameTextBox is { } name) name.TextChanged += (_, _) => RefreshPathEditState(editor);
+        if (editor.PathNameTextBox is { } name) name.TextChanged += (_, _) => { RefreshPathEditState(editor); RefreshPathOverviews(); };
         if (editor.StationaryRadiusTextBox is { } radius) radius.TextChanged += (_, _) => RefreshPathEditState(editor);
         if (editor.BindStationaryRadiusCheckBox is { } binding) binding.Click += (_, _) => RefreshPathEditState(editor);
         if (editor.CleanupNpcCombo is { } npc) npc.TextChanged += (_, _) => RefreshPathEditState(editor);
@@ -297,8 +297,8 @@ public sealed partial class AccountSettingsForm
     protected override async void OnFormClosing(FormClosingEventArgs e)
     {
         base.OnFormClosing(e);
-        if (e.Cancel || allowPathClose) return;
-        if (!pathEditors.Values.Any(editor => HasPathDraftChanges(editor) || IsPathEditorBusy(editor))) return;
+        if (e.Cancel || allowPathClose || e.CloseReason == CloseReason.WindowsShutDown) return;
+        if (!pathEditors.Values.Any(editor => HasPathDraftChanges(editor) || IsPathEditorBusy(editor)) && !HasAccountDraftChanges()) return;
         e.Cancel = true;
         if (resolvingPathClose) return;
         resolvingPathClose = true;
@@ -312,6 +312,7 @@ public sealed partial class AccountSettingsForm
             }
             // A save can yield to another tab. Never close over edits made after its prompt.
             if (resolved.Any(entry => IsPathEditorBusy(entry.Key) || PathDraftFingerprint(entry.Key) != entry.Value)) return;
+            if (!ResolveAccountDraft("关闭设置")) return;
             allowPathClose = true;
             // Defer Close until this FormClosing event has returned, including synchronous mock saves.
             BeginInvoke(new Action(Close));

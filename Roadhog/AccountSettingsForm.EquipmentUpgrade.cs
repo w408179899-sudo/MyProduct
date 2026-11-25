@@ -15,7 +15,7 @@ public sealed partial class AccountSettingsForm
     private TabPage CreateEquipmentUpgradeTab()
     {
         var tab = CreateBaseTab("砸装备");
-        var page = CreatePagePanel(); page.AutoScroll = true; page.AutoScrollMinSize = new(872, 622); tab.Controls.Add(page);
+        var page = CreatePagePanel(); page.AutoScroll = true; page.AutoScrollMinSize = new(664, 532); tab.Controls.Add(page);
         _equipmentUpgradeRefresh = AddButton(page, "刷新背包", 24, 8, 110, 30);
         _equipmentUpgradeRefresh.Click += async (_, _) => await RefreshEquipmentUpgradeListsAsync();
         var start = AddButton(page, "一键执行", 146, 8, 110, 30);
@@ -23,34 +23,43 @@ public sealed partial class AccountSettingsForm
         var stop = AddButton(page, "停止", 268, 8, 90, 30);
         stop.Click += (_, _) => _equipmentUpgradeCts?.Cancel();
         _equipmentUpgradeStatus = new Label { Text = "执行顺序：装备自身等级由低到高；同等级先砸强化值低的，每次砸完重新排序。完成后每 1.5 秒按空格。", AutoSize = false,
-            Location = new(24, 44), Size = new(840, 30), ForeColor = _textGreen };
+            Location = new(24, 42), Size = new(840, 34), ForeColor = _textGreen };
         page.Controls.Add(_equipmentUpgradeStatus);
         foreach (var kind in Enum.GetValues<EquipmentUpgradeKind>())
         {
             var enchant = kind == EquipmentUpgradeKind.Enchant;
             var group = new GroupBox { Text = enchant ? "装备强化 · 低等级优先，+10 完成" : "魔石镶嵌 · 低等级优先，孔满完成",
-                Location = new(24, enchant ? 82 : 344), Size = new(880, 254), ForeColor = _textGreen };
+                Location = new(24, enchant ? 78 : 304), Size = new(880, 220), ForeColor = _textGreen };
             page.Controls.Add(group);
-            group.Controls.Add(new Label { Text = "勾选要处理的装备；点选一行设置材料", Location = new(12, 26), AutoSize = true });
-            var equipment = new CheckedListBox { Location = new(12, 51), Size = new(500, 168), CheckOnClick = true,
-                HorizontalScrollbar = true, BackColor = _inputBackground, ForeColor = _textGreen };
-            var label = new Label { Text = "先点选左侧装备", Location = new(530, 26), Size = new(325, 25), AutoEllipsis = true,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
-            var levels = new CheckedListBox { Location = new(530, 55), Size = new(325, 164), CheckOnClick = true,
-                BackColor = _inputBackground, ForeColor = _textGreen, Visible = enchant, Enabled = false,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
+            group.Controls.Add(new Label { Text = "勾选要处理的装备；点选一行设置材料", Location = new(12, 22), AutoSize = true });
+            var equipment = new CheckedListBox { Location = new(12, 44), Size = new(500, 146), CheckOnClick = true,
+                HorizontalScrollbar = true, IntegralHeight = false, BackColor = _inputBackground, ForeColor = _textGreen };
+            var label = new Label { Text = "先点选左侧装备", Location = new(530, 22), Size = new(325, 20), AutoEllipsis = true };
+            var levels = new CheckedListBox { Location = new(530, 44), Size = new(325, 146), CheckOnClick = true,
+                IntegralHeight = false, BackColor = _inputBackground, ForeColor = _textGreen, Visible = enchant, Enabled = false };
             var stones = new ComboBox { Location = new(530, 59), Width = 325, DropDownStyle = ComboBoxStyle.DropDownList,
-                Visible = !enchant, Enabled = false, Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
+                Visible = !enchant, Enabled = false };
             group.Controls.AddRange(new Control[] { equipment, label, levels, stones });
             var editor = new UpgradeEditor(equipment, label, levels, stones); _equipmentUpgradeEditors[kind] = editor;
             equipment.SelectedIndexChanged += (_, _) => SelectUpgradeTarget(kind, editor);
             group.Controls.Add(new Label { Text = enchant ? "仅用该装备勾选的等级，从低到高使用；每次等待 6 秒。" : "仅用该装备指定的魔石；缺料跳过，孔满完成该任务。",
-                Location = new(12, 230), AutoSize = true });
+                Location = new(12, 195), AutoSize = true });
         }
         void ResizeContent()
         {
-            var width = Math.Max(824, page.ClientSize.Width - 48);
+            var width = Math.Max(616, page.ClientSize.Width - 48);
             foreach (var group in page.Controls.OfType<GroupBox>()) group.Width = width;
+            foreach (var editor in _equipmentUpgradeEditors.Values)
+            {
+                var columnWidth = width - 36;
+                editor.Equipment.Width = columnWidth * 3 / 5;
+                var right = editor.Equipment.Right + 12;
+                foreach (var control in new Control[] { editor.Label, editor.Levels, editor.Stones })
+                {
+                    control.Left = right;
+                    control.Width = width - right - 12;
+                }
+            }
             _equipmentUpgradeStatus.Width = width;
         }
         page.ClientSizeChanged += (_, _) => ResizeContent(); ResizeContent();

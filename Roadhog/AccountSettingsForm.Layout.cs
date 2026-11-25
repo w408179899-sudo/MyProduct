@@ -10,8 +10,8 @@ public sealed partial class AccountSettingsForm
             .Select(control => (Control: control, Offset: control.Top - 266)).ToArray();
         void ResizeRules()
         {
-            rules.Height = Math.Clamp(rules.Controls.Cast<Control>().Sum(row => row.Height + row.Margin.Vertical), 28, 152);
-            var footerTop = rules.Bottom + 8;
+            rules.Height = Math.Min(rules.Controls.Cast<Control>().Sum(row => row.Height + row.Margin.Vertical), 152);
+            var footerTop = rules.Bottom + (rules.Controls.Count == 0 ? 0 : 8);
             foreach (var (control, offset) in footer) control.Top = footerTop + offset;
             panel.Height = footer.Max(entry => entry.Control.Bottom) + 8;
         }
@@ -77,12 +77,14 @@ public sealed partial class AccountSettingsForm
         var bagListHeights = bagNames?.Controls.Cast<Control>()
             .Where(c => c is DataGridView || ReferenceEquals(c, bagCleanupExcludedItemListBox))
             .ToDictionary(c => c, c => c.Height);
+        var minimumBagNamesHeight = bagNames?.Height ?? 0;
         var resizing = false;
         void ResizePage()
         {
             if (resizing || page.IsDisposed) return;
             resizing = true;
             var autoScroll = page.AutoScroll;
+            var scroll = page.AutoScrollPosition;
             page.SuspendLayout();
             try
             {
@@ -92,12 +94,15 @@ public sealed partial class AccountSettingsForm
                     page.AutoScrollPosition = Point.Empty;
                     page.AutoScroll = false;
                 }
-                resizeColumns(Math.Max(designWidth, page.ClientSize.Width));
+                var viewport = page.ClientSize;
+                var verticalBar = autoScroll && page.AutoScrollMinSize.Height > viewport.Height
+                    ? SystemInformation.VerticalScrollBarWidth : 0;
+                resizeColumns(Math.Max(designWidth, viewport.Width - verticalBar));
                 foreach (var list in lists)
-                    list.Height = Math.Max(listHeights[list], page.ClientSize.Height - list.Top - 16);
+                    list.Height = Math.Max(listHeights[list], viewport.Height - list.Top - 12);
                 if (bagNames is not null && bagListHeights is not null)
                 {
-                    bagNames.Height = Math.Max(460, page.ClientSize.Height - bagNames.Top - 16);
+                    bagNames.Height = Math.Max(minimumBagNamesHeight, viewport.Height - bagNames.Top - 12);
                     foreach (var (list, height) in bagListHeights)
                         list.Height = Math.Max(height, bagNames.Height - list.Top);
                 }
@@ -106,6 +111,8 @@ public sealed partial class AccountSettingsForm
             {
                 page.AutoScroll = autoScroll;
                 page.ResumeLayout(true);
+                if (autoScroll)
+                    page.AutoScrollPosition = new Point(-scroll.X, -scroll.Y);
                 resizing = false;
             }
         }
@@ -137,35 +144,47 @@ public sealed partial class AccountSettingsForm
         };
     }
 
-    private void ConfigurePathPageLayout(Panel page, ListView list, int footerTop, int designWidth)
+    private void ConfigurePathPageLayout(Panel page, ListView list, Control advancedOptions, int footerTop, int designWidth)
     {
         ConfigureWideSettingsPage(page, designWidth, expandLists: false);
         list.BackColor = Color.White;
         var listHeight = list.Height;
         var footer = page.Controls.Cast<Control>().Where(c => c.Top >= footerTop)
             .Select(c => (Control: c, Top: c.Top)).ToArray();
-        var designBottom = page.Controls.Cast<Control>().Max(c => c.Bottom);
+        var collapsedBottom = page.Controls.Cast<Control>().Where(c => c != advancedOptions).Max(c => c.Bottom);
+        var expandedBottom = Math.Max(collapsedBottom, advancedOptions.Bottom);
         var resizing = false;
         void ResizePath()
         {
             if (resizing) return;
             resizing = true;
+            var scroll = page.AutoScrollPosition;
             page.SuspendLayout();
             try
             {
-                var extra = Math.Max(0, page.ClientSize.Height - designBottom - 16);
+                page.AutoScrollPosition = Point.Empty;
+                var designBottom = advancedOptions.Visible ? expandedBottom : collapsedBottom;
+                page.AutoScrollMinSize = new Size(designWidth, designBottom + 8);
+                var extra = Math.Max(0, page.ClientSize.Height - designBottom - 8);
                 list.Height = listHeight + extra;
                 foreach (var entry in footer) entry.Control.Top = entry.Top + extra;
             }
-            finally { resizing = false; page.ResumeLayout(true); }
+            finally
+            {
+                page.ResumeLayout(true);
+                page.AutoScrollPosition = new Point(-scroll.X, -scroll.Y);
+                resizing = false;
+            }
         }
         page.ClientSizeChanged += (_, _) => ResizePath();
+        advancedOptions.VisibleChanged += (_, _) => ResizePath();
         ResizePath();
     }
 
     private void ConfigureSkillPageLayout(Panel page, Panel options, Panel skills)
     {
         var optionsLayout = CaptureSettingsColumns(options, 828);
+        var skillTop = options.Bottom + 6;
         var resizing = false;
         void ResizeSkills()
         {
@@ -182,15 +201,15 @@ public sealed partial class AccountSettingsForm
                 var actions = order.Select(text => buttons.SingleOrDefault(button => button.Text == text)).OfType<Button>().ToArray();
                 const int actionGap = 6;
                 var minimumTreeHeight = actions.Sum(button => button.Height) + Math.Max(0, actions.Length - 1) * actionGap;
-                var minimumHeight = 116 + 38 + minimumTreeHeight + 16 + opening.Height + 14 + 16;
+                var minimumHeight = skillTop + 38 + minimumTreeHeight + 16 + opening.Height + 14 + 16;
                 page.AutoScroll = viewportWidth < 852 || viewportHeight < minimumHeight;
-                if (!page.AutoScroll) skills.Top = 116;
+                if (!page.AutoScroll) skills.Top = skillTop;
                 var width = Math.Max(828, viewportWidth - 24);
                 options.Width = skills.Width = width;
                 optionsLayout(width);
                 var treeWidth = (width - 196) / 2;
                 var rightX = treeWidth + 100;
-                var fullHeight = Math.Max(292, viewportHeight - 116 - 38 - 16 - opening.Height - 14 - 16);
+                var fullHeight = Math.Max(292, viewportHeight - skillTop - 38 - 16 - opening.Height - 14 - 16);
                 var height = Math.Max(minimumTreeHeight, fullHeight / 2);
                 quickbarAvailableSkillTree.SetBounds(0, 38, treeWidth, height);
                 quickbarSelectedSkillTree.SetBounds(rightX, 38, treeWidth, height);

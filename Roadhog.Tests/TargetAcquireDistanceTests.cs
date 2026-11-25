@@ -87,12 +87,12 @@ internal static class TargetAcquireDistanceTests
                 var input = form.Controls.Find("targetAcquireDistanceTextBox", true).Single();
                 var ancestor = input.Parent;
                 while (ancestor is not null && ancestor is not TabPage) ancestor = ancestor.Parent;
-                Check(ancestor?.Text == "总览" && input.Visible && input.Enabled && input.Text == "29",
+                Check(ancestor?.Text == "基本设置" && input.Visible && input.Enabled && input.Text == "29",
                     "overview exposes the enabled 29-meter acquisition editor");
                 Check(input.Parent!.ClientRectangle.Contains(input.Bounds) &&
                     !input.Parent.Controls.Cast<Control>().Any(c => c != input && c.Visible && c.Bounds.IntersectsWith(input.Bounds)),
                     "acquisition editor fits without overlapping neighboring controls");
-                var mode = (RoundedComboBox)typeof(AccountSettingsForm).GetField("combatModeCombo", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form)!;
+                var mode = (RoundedComboBox)typeof(AccountSettingsForm).GetField("mainModeCombo", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form)!;
                 mode.SelectedIndex = 1; Application.DoEvents();
                 Check(input.Visible && input.Enabled, "path combat shares the same overview setting");
                 mode.SelectedIndex = 0; Application.DoEvents();
@@ -108,6 +108,7 @@ internal static class TargetAcquireDistanceTests
                 }
                 using var reopened = Create();
                 Check(reopened.Controls.Find("targetAcquireDistanceTextBox", true).Single().Text == "22.5", "reopening restores the distance");
+                form.AccountDraftChoiceForTesting = _ => DialogResult.No;
                 form.Close();
             }
             catch (Exception ex) { failure = ex; }

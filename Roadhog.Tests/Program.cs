@@ -2058,7 +2058,7 @@ static Task TestMainModeOptionsExposePathGatherWithoutCraftAsync()
     AssertFalse(itemsProperty is null, "main mode combo items property should exist");
     var items = (System.Windows.Forms.ComboBox.ObjectCollection)itemsProperty!.GetValue(combo)!;
     AssertSequence(
-        new[] { "自定义打怪", "路径采集", "半自动" },
+        new[] { "原地打怪", "路径打怪", "路径采集", "半自动" },
         items.Cast<object>().Select(item => item?.ToString() ?? string.Empty).ToArray(),
         "main mode options");
 
@@ -2676,13 +2676,13 @@ static Task TestGatherFilterTabReadsAndAddsNearbySourcesAsync()
             {
                 Directory.CreateDirectory(previewDirectory);
                 var settingsTabs = (System.Windows.Forms.TabControl)GetPrivateFieldForTest(form, "settingsTabs");
-                settingsTabs.SelectedTab = settingsTabs.TabPages.Cast<System.Windows.Forms.TabPage>().Single(tab => tab.Text == "过滤");
-                var filterTabs = (System.Windows.Forms.TabControl)form.Controls.Find("filterTabs", true).Single();
+                settingsTabs.SelectedTab = settingsTabs.TabPages.Cast<System.Windows.Forms.TabPage>().Single(tab => tab.Text == "挂机");
+                var filterTabs = (System.Windows.Forms.TabControl)form.Controls.Find("hangupTabs", true).Single();
                 form.ShowInTaskbar = false;
                 form.StartPosition = System.Windows.Forms.FormStartPosition.Manual;
                 form.Location = new System.Drawing.Point(-32000, -32000);
                 form.Show();
-                for (var index = 0; index < filterTabs.TabPages.Count; index++)
+                for (var index = 1; index < filterTabs.TabPages.Count; index++)
                 {
                     filterTabs.SelectedIndex = index;
                     System.Windows.Forms.Application.DoEvents();
@@ -2694,7 +2694,7 @@ static Task TestGatherFilterTabReadsAndAddsNearbySourcesAsync()
                         button.DrawToBitmap(bitmap, new System.Drawing.Rectangle(
                             origin.X - form.Left, origin.Y - form.Top, button.Width, button.Height));
                     }
-                    bitmap.Save(Path.Combine(previewDirectory, index == 0 ? "monster-filter-layout.png" : "gather-filter-layout.png"));
+                    bitmap.Save(Path.Combine(previewDirectory, index == 1 ? "monster-filter-layout.png" : "gather-filter-layout.png"));
                 }
                 form.Hide();
             }
@@ -9032,7 +9032,7 @@ static Task TestTeamGroupDistancePersistsFromUiAsync()
             });
 
             using var form = CreateAccountSettingsFormForTestsWithStore(configStore);
-            SetComboSelectedIndexForTest(form, "settingsTabs", 6);
+            SetComboSelectedIndexForTest(form, "settingsTabs", 5);
             form.Show();
             System.Windows.Forms.Application.DoEvents();
             AssertEqual("18.5", GetTextBoxTextForTest(form, "teamGroupDistanceTextBox"), "team group distance should load into UI");
@@ -12183,14 +12183,13 @@ static Task TestBagCleanupDiscardConfirmPointUiAsync()
     });
 
     using var form = CreateAccountSettingsFormForTestsWithStore(configStore);
-    SetComboSelectedIndexForTest(form, "settingsTabs", 5);
+    SetComboSelectedIndexForTest(form, "settingsTabs", 4);
     form.Show();
     System.Windows.Forms.Application.DoEvents();
 
     AssertEqual(0, form.Controls.Find("bagCleanupDiscardConfirmPointTextBox", true).Length, "obsolete coordinate input must be removed");
     AssertEqual(0, form.Controls.Find("bagCleanupDiscardConfirmTestMoveButton", true).Length, "obsolete move button must be removed");
-    AssertEqual(1, form.Controls.Find("testPersonalShopButton", true).Length, "shop test button remains");
-    AssertEqual(1, form.Controls.Find("testInventoryDiscardButton", true).Length, "discard test button remains");
+    AssertEqual(1, form.Controls.Find("cleanupExecutionTools", true).Length, "execution tools remain available in a separate menu");
     var saved = InvokeSaveCurrentSettingsForTest(form, out var error);
     AssertFalse(!saved, "discard confirm point ui save failed: " + error);
 
@@ -12438,14 +12437,17 @@ static Task TestSharedCleanupEditorAsync()
             var region = (System.Windows.Forms.Control)GetPrivateFieldForTest(form, "regionCombo");
             var parent = region.Parent;
             while (parent is not null && parent is not System.Windows.Forms.TabPage) parent = parent.Parent;
-            AssertEqual("总览", parent?.Text ?? "", "region selector belongs to overview");
+            AssertEqual("基本设置", parent?.Text ?? "", "region selector belongs to the main settings page");
             AssertEqual("一区", region.Text, "load saved region");
             form.StartPosition = System.Windows.Forms.FormStartPosition.Manual;
             form.Location = new System.Drawing.Point(-4000, -4000);
             form.Show();
             System.Windows.Forms.Application.DoEvents();
+            var settingsNav = (System.Windows.Forms.TabControl)GetPrivateFieldForTest(form, "settingsTabs");
+            settingsNav.SelectedTab = settingsNav.TabPages.Cast<System.Windows.Forms.TabPage>().Single(page => page.Text == "挂机");
+            ((System.Windows.Forms.TabControl)form.Controls.Find("hangupTabs", true).Single()).SelectedTab = (System.Windows.Forms.TabPage)parent!;
             foreach (var headerControl in region.Parent!.Controls.Cast<System.Windows.Forms.Control>()
-                .Where(c => c == region || c.Text == "所属区服" || c.Text == "保存后重启账号生效"))
+                .Where(c => c == region || c.Text == "所属区服"))
             {
                 var center = new System.Drawing.Point(headerControl.Left + headerControl.Width / 2,
                     headerControl.Top + headerControl.Height / 2);
@@ -12478,18 +12480,39 @@ static Task TestSharedCleanupEditorAsync()
             var priceCell = grid.Rows[0].Cells["UnitPrice"];
             AssertEqual("1", Convert.ToString(priceCell.Value), "new items display the fixed unit price");
             AssertFalse(!priceCell.ReadOnly, "transfer price cannot be edited");
-            ((System.Windows.Forms.Button)GetPrivateFieldForTest(form, "bagCleanupItemTransferRouteButton")).PerformClick();
+            var cleanupTab = tabsForRoute.SelectedTab;
+            var shortcut = (System.Windows.Forms.Button)GetPrivateFieldForTest(form, "bagCleanupNameListRouteButton");
             var routeTabs = (System.Windows.Forms.TabControl)form.Controls.Find("pathTabs", true).Single();
-            AssertEqual("转移到仓库号路径", routeTabs.SelectedTab?.Text, "transfer shortcut opens the shared warehouse route editor");
+            foreach (var (radioName, caption, route) in new[]
+            {
+                ("bagCleanupItemTransferRadio", "倒货路线", "转移到仓库号路径"),
+                ("bagCleanupAuctionHouseRadio", "拍卖行路线", "拍卖行路径"),
+                ("bagCleanupStallRadio", "杂货摆摊路线", "杂货摆摊路径")
+            })
+            {
+                tabsForRoute.SelectedTab = cleanupTab;
+                ((System.Windows.Forms.RadioButton)GetPrivateFieldForTest(form, radioName)).Checked = true;
+                AssertFalse(!shortcut.Visible || shortcut.Right >= refresh.Left, "route shortcut fits beside refresh: " + caption);
+                AssertEqual(caption, shortcut.Text, "route shortcut follows the selected list");
+                shortcut.PerformClick();
+                AssertEqual(route, routeTabs.SelectedTab?.Text, "route shortcut opens the matching shared route editor");
+            }
+            tabsForRoute.SelectedTab = cleanupTab;
+            foreach (var radioName in new[] { "bagCleanupWhitelistRadio", "bagCleanupBlacklistRadio" })
+            {
+                ((System.Windows.Forms.RadioButton)GetPrivateFieldForTest(form, radioName)).Checked = true;
+                AssertFalse(shortcut.Visible, "a list without a corresponding route has no shortcut");
+            }
+            transfer.Checked = true;
             region.Text = "六区";
             var lists = (BagCleanupNameListsDocument)InvokePrivateMethodForTest(form, "CaptureBagCleanupNameLists")!;
             AssertEqual("region-six", lists.AuctionHouse.Single().Name, "switch region loads its auction list");
             AssertSequence(new[] { "transfer-item" }, lists.ItemTransfer.ToArray(), "region switch keeps common transfer list");
             InvokePrivateMethodForTest(form, "AddActiveMonsterFilterName", "shared-filter");
             AssertSequence(new[] { "shared-filter" }, six.LoadMonsterFiltersAsync().GetAwaiter().GetResult().Value!.ToArray(), "monster edits auto-save shared list");
-            tabsForRoute.SelectedTab = tabsForRoute.TabPages.Cast<System.Windows.Forms.TabPage>().Single(tab => tab.Text == "过滤");
-            var filterTabs = (System.Windows.Forms.TabControl)form.Controls.Find("filterTabs", true).Single();
-            filterTabs.SelectedIndex = 0;
+            tabsForRoute.SelectedTab = tabsForRoute.TabPages.Cast<System.Windows.Forms.TabPage>().Single(tab => tab.Text == "挂机");
+            var filterTabs = (System.Windows.Forms.TabControl)form.Controls.Find("hangupTabs", true).Single();
+            filterTabs.SelectedIndex = 1;
             var monsters = (System.Windows.Forms.Control)GetPrivateFieldForTest(form, "activeMonsterFilterCombo");
             var addPriority = monsters.Parent!.Controls.OfType<System.Windows.Forms.Button>().Single(b => b.Text == "加入击杀优先级");
             var priorityList = (System.Windows.Forms.ListBox)form.Controls.Find("monsterKillPriorityListBox", true).Single();
@@ -12522,7 +12545,7 @@ static Task TestSharedCleanupEditorAsync()
             AssertSequence(new[] { firstPriority }, reopenedPriorities.Items.Cast<string>().ToArray(), "path priority survives reopening");
             tabsForRoute.SelectedTab = tabsForRoute.TabPages.Cast<System.Windows.Forms.TabPage>().Single(tab => tab.Text == "路径");
             InvokePrivateMethodForTest(form, "SelectConfiguredPath", SharedPathKind.Revive, "复活乙");
-            tabsForRoute.SelectedTab = tabsForRoute.TabPages.Cast<System.Windows.Forms.TabPage>().Single(tab => tab.Text == "过滤");
+            tabsForRoute.SelectedTab = tabsForRoute.TabPages.Cast<System.Windows.Forms.TabPage>().Single(tab => tab.Text == "挂机");
             System.Windows.Forms.Application.DoEvents();
             AssertSequence(new[] { "乙路怪" }, priorityList.Items.Cast<string>().ToArray(), "switching revive path displays its own list");
             priorityButtons.Where(b => b.Text == "清空").MaxBy(b => b.Left)!.PerformClick();
@@ -12536,13 +12559,13 @@ static Task TestSharedCleanupEditorAsync()
                 form.StartPosition = System.Windows.Forms.FormStartPosition.Manual;
                 form.Location = new System.Drawing.Point(-4000, -4000); form.Show();
                 var tabs = (System.Windows.Forms.TabControl)GetPrivateFieldForTest(form, "settingsTabs");
-                foreach (var name in new[] { "总览", "清包" })
+                foreach (var name in new[] { "挂机", "清包" })
                 {
                     tabs.SelectedTab = tabs.TabPages.Cast<System.Windows.Forms.TabPage>().Single(p => p.Text == name);
                     System.Windows.Forms.Application.DoEvents();
                     using var bitmap = new System.Drawing.Bitmap(form.Width, form.Height);
                     form.DrawToBitmap(bitmap, new System.Drawing.Rectangle(System.Drawing.Point.Empty, form.Size));
-                    bitmap.Save(Path.Combine(preview, name == "总览" ? "overview.png" : "cleanup.png"));
+                    bitmap.Save(Path.Combine(preview, name == "挂机" ? "overview.png" : "cleanup.png"));
                 }
                 form.Hide();
             }
@@ -12745,11 +12768,16 @@ static Task TestPersonalShopButtonAsync()
             form.Show();
             System.Windows.Forms.Application.DoEvents();
             InvokePrivateMethodForTest(form, "ApplyBagCleanupRules", game.Settings.BagCleanupRules);
-            var button = (System.Windows.Forms.Button)form.Controls.Find("testPersonalShopButton", true).Single();
+            var button = (System.Windows.Forms.Button)form.Controls.Find("cleanupExecutionTools", true).Single();
+            var action = button.ContextMenuStrip!.Items.OfType<System.Windows.Forms.ToolStripMenuItem>().Single(item => item.Text == "执行摆摊");
+            form.ConfirmCleanupExecutionForTesting = (_, _) => false;
+            action.PerformClick();
+            AssertFalse(!button.Enabled || game.Input.MouseCommands.Count != 0, "cancellation performs no game input");
+            form.ConfirmCleanupExecutionForTesting = (_, _) => true;
             AssertFalse(!button.Visible || button.Top != 0 || button.Right > button.Parent!.Width, "button fits requested rule-header location");
-            button.PerformClick();
+            action.PerformClick();
             AssertFalse(button.Enabled, "button disables during sequence");
-            button.PerformClick();
+            action.PerformClick();
             var timer = System.Diagnostics.Stopwatch.StartNew();
             while (!button.Enabled && timer.Elapsed < TimeSpan.FromSeconds(15))
             {
@@ -12757,14 +12785,14 @@ static Task TestPersonalShopButtonAsync()
                 Thread.Sleep(10);
             }
             AssertFalse(!button.Enabled || !game.Selling || game.Starts != 1 || game.Confirms != 1, "real button invokes complete runtime once using unsaved sell selection");
-            AssertEqual("测试摆摊", button.Text, "button restores after completion");
+            AssertEqual("执行工具 ▾", button.Text, "button restores after completion");
             var before = game.Input.MouseCommands.Count;
-            button.PerformClick();
+            action.PerformClick();
             System.Windows.Forms.Application.DoEvents();
             AssertEqual(before, game.Input.MouseCommands.Count, "already-selling button does not stop the shop");
             var saved = store.LoadAllAsync().GetAwaiter().GetResult().Value!.Single();
             AssertFalse(saved.ScriptSettings!.Maintenance.BagCleanupRules.Any(r => r.Enabled), "test does not implicitly save rule edits");
-            form.Close();
+            form.Hide();
         }
         catch (Exception ex) { failure = ex; }
     });
@@ -12797,11 +12825,16 @@ static Task TestInventoryDiscardButtonAsync()
             form.Show();
             System.Windows.Forms.Application.DoEvents();
             InvokePrivateMethodForTest(form, "ApplyBagCleanupRules", game.Settings.BagCleanupRules);
-            var button = (System.Windows.Forms.Button)form.Controls.Find("testInventoryDiscardButton", true).Single();
+            var button = (System.Windows.Forms.Button)form.Controls.Find("cleanupExecutionTools", true).Single();
+            var action = button.ContextMenuStrip!.Items.OfType<System.Windows.Forms.ToolStripMenuItem>().Single(item => item.Text == "执行丢弃");
+            form.ConfirmCleanupExecutionForTesting = (_, _) => false;
+            action.PerformClick();
+            AssertFalse(!button.Enabled || game.Input.MouseCommands.Count != 0, "cancellation performs no game input");
+            form.ConfirmCleanupExecutionForTesting = (_, _) => true;
             AssertFalse(!button.Visible || button.Top != 0 || button.Right > button.Parent!.Width, "button fits requested rule-header location");
-            button.PerformClick();
+            action.PerformClick();
             AssertFalse(button.Enabled, "button disables during sequence");
-            button.PerformClick();
+            action.PerformClick();
             var timer = System.Diagnostics.Stopwatch.StartNew();
             while (!button.Enabled && timer.Elapsed < TimeSpan.FromSeconds(25))
             {
@@ -12809,10 +12842,10 @@ static Task TestInventoryDiscardButtonAsync()
                 Thread.Sleep(10);
             }
             AssertFalse(!button.Enabled || game.Removed.Count != 3 || game.Confirms != 3, "real button invokes complete runtime once using unsaved discard selection");
-            AssertEqual("测试丢弃", button.Text, "button restores after completion");
+            AssertEqual("执行工具 ▾", button.Text, "button restores after completion");
             var saved = store.LoadAllAsync().GetAwaiter().GetResult().Value!.Single();
             AssertFalse(saved.ScriptSettings!.Maintenance.BagCleanupRules.Any(r => r.Enabled), "test does not implicitly save rule edits");
-            form.Close();
+            form.Hide();
         }
         catch (Exception ex) { failure = ex; }
     });
@@ -23302,12 +23335,24 @@ static Task TestRadarObstacleSwitchPersistsFromStationaryUiAsync()
                 radarMapStore: mapStore);
             form.Show();
             System.Windows.Forms.Application.DoEvents();
+            var pathTabs = (System.Windows.Forms.TabControl)form.Controls.Find("pathTabs", true).Single();
+            var mainTabs = (System.Windows.Forms.TabControl)GetPrivateFieldForTest(form, "settingsTabs");
+            mainTabs.SelectedTab = mainTabs.TabPages.Cast<System.Windows.Forms.TabPage>().Single(tab => tab.Text == "路径");
+            ((System.Windows.Forms.Button)form.Controls.Find("pathObstacleAvoidanceButton", true).Single()).PerformClick();
+            System.Windows.Forms.Application.DoEvents();
+            AssertEqual("绕障", pathTabs.SelectedTab?.Text, "obstacle shortcut opens its own path tab");
             AssertFalse(
                 !GetControlVisibleForTest(form, "radarEditorButton"),
                 "radar editor button should show only for custom stationary combat");
             var extensionNumeric = (System.Windows.Forms.NumericUpDown)GetPrivateFieldForTest(form, "radarEndpointExtensionNumeric");
             AssertEqual(2.4M, extensionNumeric.Value, "overview should load configured radar extension");
             extensionNumeric.Value = 3.2M;
+            var enabled = (System.Windows.Forms.Control)form.Controls.Find("radarEnabledCheckBox", true).Single();
+            enabled.GetType().GetMethod("OnClick", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                .Invoke(enabled, new object[] { EventArgs.Empty });
+            var radarStatus = form.Controls.Find("radarStatusLabel", true).Single();
+            AssertFalse(!radarStatus.Text.Contains("未开启") || !radarStatus.Text.Contains("待保存"),
+                "the path header shows a pending change to the on-off control");
 
             var editorOpened = false;
             using (var closeEditorTimer = new System.Windows.Forms.Timer { Interval = 50 })
@@ -23326,6 +23371,7 @@ static Task TestRadarObstacleSwitchPersistsFromStationaryUiAsync()
                             .GetMethod("CaptureSettings", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
                             .Invoke(openForm, null)!;
                         AssertEqual(3.2D, editorSettings.EndpointExtensionMeters, "radar editor should preserve overview extension");
+                        AssertFalse(editorSettings.Enabled, "radar editor opens with the unsaved on-off choice");
                         openForm.Close();
                         break;
                     }
@@ -23336,16 +23382,16 @@ static Task TestRadarObstacleSwitchPersistsFromStationaryUiAsync()
             AssertFalse(!editorOpened, "radar editor should open without a splitter layout exception");
 
             var captured = (ScriptSettings)InvokePrivateMethodForTest(form, "CaptureScriptSettings")!;
-            AssertFalse(!captured.Combat.RadarObstacleAvoidance.Enabled, "radar enabled switch should load and capture");
+            AssertFalse(captured.Combat.RadarObstacleAvoidance.Enabled, "radar enabled switch should capture the edited value");
             AssertEqual(4.5D, captured.Combat.RadarObstacleAvoidance.WaypointReachMeters, "radar waypoint reach should load and capture");
             AssertEqual(3.2D, captured.Combat.RadarObstacleAvoidance.EndpointExtensionMeters, "overview should capture edited extension");
 
-            SetComboSelectedIndexForTest(form, "combatModeCombo", 1);
+            SetComboSelectedIndexForTest(form, "mainModeCombo", 1);
+            pathTabs.SelectedTab = pathTabs.TabPages.Cast<System.Windows.Forms.TabPage>().Single(tab => tab.Text == "绕障");
             System.Windows.Forms.Application.DoEvents();
-            AssertFalse(
-                GetControlVisibleForTest(form, "radarEditorButton"),
-                "radar editor button should hide for path combat");
-            SetComboSelectedIndexForTest(form, "combatModeCombo", 0);
+            AssertFalse(enabled.Enabled || !GetControlVisibleForTest(form, "radarEditorButton"),
+                "obstacle settings remain discoverable but are disabled in path combat");
+            SetComboSelectedIndexForTest(form, "mainModeCombo", 0);
             System.Windows.Forms.Application.DoEvents();
 
             var saved = InvokeSaveCurrentSettingsForTest(form, out var error);
@@ -23359,7 +23405,8 @@ static Task TestRadarObstacleSwitchPersistsFromStationaryUiAsync()
                 .ScriptSettings?
                 .Combat?
                 .RadarObstacleAvoidance;
-            AssertFalse(savedRadar is null || !savedRadar.Enabled, "radar switch should persist in account settings");
+            AssertFalse(savedRadar is null || savedRadar.Enabled, "radar switch should persist in account settings");
+            AssertFalse(radarStatus.Text.Contains("待保存"), "saving clears the pending radar status");
             AssertEqual(160.0D, savedRadar!.DisplayRangeMeters, "radar display range should persist");
             AssertEqual(3.2D, savedRadar.EndpointExtensionMeters, "overview extension should persist");
             using var reloadedForm = CreateAccountSettingsFormForTestsWithStore(configStore, radarMapStore: mapStore);

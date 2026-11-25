@@ -333,6 +333,7 @@ internal static class CombatPathRadiusBindingTests
         Equal("33.5", input.Text, "no-path profile fallback displayed");
         var savedCombo = editor.GetType().GetProperty("SavedPathCombo")!.GetValue(editor)!;
         Equal(-1, (int)savedCombo.GetType().GetProperty("SelectedIndex")!.GetValue(savedCombo)!, "no-path profile clears stale selection");
+        form.AccountDraftChoiceForTesting = _ => DialogResult.No;
         form.Close();
     });
 
@@ -518,7 +519,7 @@ internal static class CombatPathRadiusBindingTests
 
         ((Control)Editor(form, SharedPathKind.Revive).GetType().GetProperty("PathNameTextBox")!
             .GetValue(Editor(form, SharedPathKind.Revive))!).Text = "unsaved-path";
-        SaveConfiguration(form, "保存修改");
+        SaveConfiguration(form, "保存路径");
         Check(!store.LoadAsync("unsaved-path").Result.Success, "must not create an empty path from global save");
     });
 

@@ -12,8 +12,8 @@ public partial class AccountSettingsForm
         var grid = new DataGridView
         {
             Name = "bagCleanupTradeItemGrid",
-            Location = new Point(0, 292),
-            Size = new Size(408, 138),
+            Location = new Point(0, CleanupNameListTop),
+            Size = new Size(408, CleanupNameListHeight),
             BackgroundColor = Color.White,
             BorderStyle = BorderStyle.FixedSingle,
             AllowUserToAddRows = false,

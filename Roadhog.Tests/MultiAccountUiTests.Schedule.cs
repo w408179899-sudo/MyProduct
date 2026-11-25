@@ -19,7 +19,7 @@ internal static partial class MultiAccountUiTests
         var online = Field<RoundedCheckBox>(form, "scheduleOnlineCheckBox");
         Control? ancestor = online;
         while (ancestor is not null && ancestor is not TabPage) ancestor = ancestor.Parent;
-        Require(ReferenceEquals(ancestor, tabs.TabPages[0]) && tabs.TabPages[0].Text == "总览", "schedule lives on the Overview page");
+        Require(ancestor?.Text == "基本设置" && tabs.TabPages[0].Text == "挂机", "schedule lives on the Overview page");
         online.Checked = true;
         Field<RoundedTextBox>(form, "scheduleStartTextBox").Text = "22:00";
         Field<RoundedTextBox>(form, "scheduleEndTextBox").Text = "08:00";
@@ -37,6 +37,10 @@ internal static partial class MultiAccountUiTests
         Require(!(bool)Method(form, "SaveCurrentSettings").Invoke(form, args)! && notifications == 1, "invalid time cannot save or notify");
         Require(Pump(test.Workspace.Accounts.LoadAllAsync()).Value!.Single().DailySchedule.OnlineEnd == "08:00", "invalid edit preserves saved schedule");
         Field<RoundedTextBox>(form, "scheduleEndTextBox").Text = "08:00";
+        var beforeMidnight = new DateTimeOffset(2026, 11, 25, 23, 30, 0, TimeSpan.FromHours(8));
+        Require(AccountSettingsForm.DescribeNextSchedule(saved.DailySchedule, beforeMidnight).Contains("11-26 01:00 重登"),
+            "overnight forecast keeps the next relogin inside the online window");
+        Require(AccountSettingsForm.DescribeNextSchedule(new(), beforeMidnight) == "", "off schedules have no next occurrence");
         var previewDirectory = Path.Combine(RepositoryRoot(), ".tmp", "daily-schedule-preview"); Directory.CreateDirectory(previewDirectory);
         Invoke(form, "RefreshDailyScheduleControls");
         form.Height = 1030; ShowHidden(form); form.PerformLayout();

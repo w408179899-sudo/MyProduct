@@ -52,8 +52,6 @@ namespace Roadhog
         private RoundedTextBox? profileNameTextBox;
         private RoundedComboBox? savedProfileCombo;
         private RoundedComboBox? mainModeCombo;
-        private Label? combatModeLabel;
-        private RoundedComboBox? combatModeCombo;
         private RoundedComboBox? fixedChannelCombo;
         private FixedChannelMouseScriptSettings _legacyChannelMouse = new();
         private Label? stationaryCombatRadiusLabel;
@@ -162,7 +160,7 @@ namespace Roadhog
         private RadioButton? bagCleanupBlacklistRadio;
         private RadioButton? bagCleanupStallRadio;
         private RadioButton? bagCleanupItemTransferRadio;
-        private Button? bagCleanupItemTransferRouteButton;
+        private Button? bagCleanupNameListRouteButton;
         private readonly List<BagCleanupTradeItemConfig> bagCleanupItemTransferItems = new();
         private readonly List<string> bagCleanupSellItemNames = new();
         private RadioButton? bagCleanupAuctionHouseRadio;
@@ -310,20 +308,25 @@ namespace Roadhog
             };
 
             settingsTabs.DrawItem += GreenTabs_DrawItem;
-            settingsTabs.TabPages.Add(CreateSummaryTab());
+            settingsTabs.TabPages.Add(CreateHangupTab());
             settingsTabs.TabPages.Add(CreatePathTab());
-            settingsTabs.TabPages.Add(CreateMaintenanceTab());
             settingsTabs.TabPages.Add(CreateSkillTab());
-            settingsTabs.TabPages.Add(CreateFilterTab());
+            settingsTabs.TabPages.Add(CreateMaintenanceTab());
             settingsTabs.TabPages.Add(CreateBagCleanupTab());
             settingsTabs.TabPages.Add(CreateTeamTab());
             settingsTabs.TabPages.Add(CreateOtherTab());
-
             Controls.Add(settingsTabs);
-            var saveButton = AddButton(this, "保存配置", ClientSize.Width - 160, 3, 150, 30, SaveSettingsButton_Click);
+            var header = new Panel { Dock = DockStyle.Top, Height = 39, BackColor = _inputBackground };
+            Controls.Add(header);
+            accountSaveStatus = AddLabel(header, "", 14, 6, ClientSize.Width - 196, 27);
+            accountSaveStatus.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            accountSaveStatus.AutoEllipsis = true;
+            var saveButton = AddButton(this, "保存账号设置", ClientSize.Width - 160, 4, 150, 30, SaveSettingsButton_Click);
+            saveButton.Name = "saveAccountSettings";
             saveButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             saveButton.BringToFront();
             LoadSavedSettings();
+            InitializeAccountDraftTracking();
         }
 
         private static string BuildWindowTitle(string account, string accountDisplayText)
@@ -404,7 +407,7 @@ namespace Roadhog
             {
                 if (!SaveCurrentSettings(out var error))
                 {
-                    MessageBox.Show(this, error, "保存配置失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show(this, error, "保存账号设置失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
 
@@ -485,8 +488,10 @@ namespace Roadhog
             SetText(profileNameTextBox, settings.ProfileName);
             UpdateCurrentProfileDisplay(settings.ProfileName);
             SelectProfileComboItem(settings.ProfileName, loadProfile: false);
-            SetComboText(mainModeCombo, FormatMainMode(settings.MainMode));
-            SetComboText(combatModeCombo, FormatCombatMode(settings.CombatMode));
+            selectedCombatMode = settings.CombatMode;
+            SetComboText(mainModeCombo, settings.MainMode == AccountMainMode.CustomCombat
+                ? FormatCombatMode(settings.CombatMode) : FormatMainMode(settings.MainMode));
+            SelectSuggestedPath();
             if (fixedChannelCombo is not null)
             {
                 fixedChannelCombo.SelectedIndex = settings.FixedChannelNumber is >= ScriptSettings.MinimumFixedChannelNumber and <= ScriptSettings.MaximumFixedChannelNumber
@@ -501,10 +506,7 @@ namespace Roadhog
             SetPathCombatRadius(settings.Combat);
             SetPathFollowReachDistance(settings.Combat);
             SetCameraTurnScales(settings.Combat);
-            currentRadarSettings = (settings.Combat.RadarObstacleAvoidance ?? new RadarObstacleScriptSettings()).Clone();
-            if (radarEndpointExtensionNumeric is not null)
-                radarEndpointExtensionNumeric.Value = (decimal)RadarNavigationGraphBuilder.NormalizeExtensionMeters(currentRadarSettings.EndpointExtensionMeters);
-            RefreshRadarStatus();
+            LoadRadarSettings(settings.Combat.RadarObstacleAvoidance ?? new RadarObstacleScriptSettings());
             RefreshCombatModeVisibility();
 
             SetChecked(enableLootCheckBox, settings.Combat.EnableLoot);
@@ -755,6 +757,7 @@ namespace Roadhog
             currentRadarSettings = capturedSettings.Combat.RadarObstacleAvoidance.Clone();
             RefreshRadarStatus();
             SetProfileStatus("已保存方案: " + profileName, false);
+            MarkAccountDraftSaved("已保存 · 技能等设置下次启动生效");
             AccountConfigurationSaved?.Invoke(account.Clone());
             return true;
         }
@@ -786,7 +789,7 @@ namespace Roadhog
                 }
                 if (string.IsNullOrWhiteSpace(name))
                 {
-                    error = "绑定原地打半径前，请选择路径；新路径请先点击“保存修改”。";
+                    error = "绑定原地打怪半径前，请选择路径。新路径请先点击「保存路径」。";
                     return false;
                 }
                 if (changes.TryGetValue(name, out var otherRadius) && otherRadius != radius)
@@ -805,7 +808,7 @@ namespace Roadhog
                 var load = _pathStore.LoadAsync(change.Key).GetAwaiter().GetResult();
                 if (!load.Success || load.Value is null)
                 {
-                    error = "读取路径失败，无法保存原地打半径；新路径请先点击“保存修改”: " +
+                    error = "读取路径失败，无法保存原地打怪半径。新路径请先点击「保存路径」。" +
                         change.Key + "。" + load.Error;
                     return false;
                 }
@@ -931,7 +934,7 @@ namespace Roadhog
                 ProfileName = GetText(profileNameTextBox, "default_profile"),
                 GenerateLogFiles = generateLogFilesCheckBox?.Checked ?? true,
                 MainMode = ParseMainMode(mainModeCombo?.Text),
-                CombatMode = ParseCombatMode(combatModeCombo?.Text),
+                CombatMode = selectedCombatMode,
                 FixedChannelNumber = fixedChannelCombo?.SelectedIndex is >= ScriptSettings.MinimumFixedChannelNumber and <= ScriptSettings.MaximumFixedChannelNumber
                     ? fixedChannelCombo.SelectedIndex
                     : 0,
@@ -1403,204 +1406,14 @@ namespace Roadhog
         }
 #endif
 
-        private TabPage CreateSummaryTab()
-        {
-            var tab = CreateBaseTab("总览");
-            var page = CreatePagePanel();
-            page.AutoScroll = true;
-            page.AutoScrollMinSize = new Size(852, 682);
-            tab.Controls.Add(page);
-
-            Panel AddSection(string title, int top, int height)
-            {
-                var section = new Panel
-                {
-                    Location = new Point(12, top),
-                    Size = new Size(828, height),
-                    BackColor = _pageBackground
-                };
-                page.Controls.Add(section);
-                var heading = AddLabel(section, "  " + title, 0, 0, 828, 28, _textGreen, FontStyle.Bold);
-                heading.BackColor = _inputBackground;
-                return section;
-            }
-
-            var profilePanel = AddSection("方案管理", 8, 66);
-            var modePanel = AddSection("运行模式与范围", 82, 100);
-            // Header editors must sit above the full-width section heading label.
-            AddLabel(modePanel, "所属区服", 380, 2, 80, 24).BringToFront();
-            regionCombo = AddCombo(modePanel, 464, 0, 130, 28, "未分区", "一区", "二区", "三区", "四区", "五区", "六区", "七区", "八区", "九区", "十区");
-            regionCombo.Name = "accountRegionCombo";
-            regionCombo.BringToFront();
-            regionCombo.SelectedIndexChanged += (_, _) => ChangeRegion();
-            AddLabel(modePanel, "保存后重启账号生效", 608, 2, 202, 24).BringToFront();
-            var behaviorPanel = AddSection("选怪与拾取", 190, 134);
-            var environmentPanel = AddSection("镜头、频道与雷达", 332, 102);
-            var statusMaintenancePanel = AddSection("人物状态维护", 442, 28);
-            AddLabel(statusMaintenancePanel, "每轮按键次数", 184, 2, 96, 24).BringToFront();
-            statusMaintenancePressCountNumeric = AddStatusMaintenanceNumber(
-                nameof(statusMaintenancePressCountNumeric), 284, 1, MaintenanceScriptSettings.MaximumStatusMaintenancePressCount);
-            AddLabel(statusMaintenancePanel, "间隔（ms）", 380, 2, 80, 24).BringToFront();
-            statusMaintenancePressIntervalNumeric = AddStatusMaintenanceNumber(
-                nameof(statusMaintenancePressIntervalNumeric), 464, 0, MaintenanceScriptSettings.MaximumStatusMaintenancePressIntervalMs);
-
-            NumericUpDown AddStatusMaintenanceNumber(string name, int left, int minimum, int maximum)
-            {
-                var editor = new NumericUpDown
-                {
-                    Name = name,
-                    Location = new Point(left, 0),
-                    Size = new Size(80, 28),
-                    Minimum = minimum,
-                    Maximum = maximum,
-                    Value = minimum,
-                    BackColor = _inputBackground,
-                    ForeColor = _textGreen
-                };
-                statusMaintenancePanel.Controls.Add(editor);
-                editor.BringToFront();
-                return editor;
-            }
-
-            BuildDailySchedule(AddSection("定时计划（当前账号）", 478, 156));
-            var loggingPanel = AddSection("日志", 642, 28);
-            generateLogFilesCheckBox = AddCheckBox(loggingPanel, "生成日志文件", 184, 1, 180, true);
-            generateLogFilesCheckBox.Name = "generateLogFilesCheckBox";
-            generateLogFilesCheckBox.BackColor = _inputBackground;
-            generateLogFilesCheckBox.BringToFront();
-
-            currentProfileLabel = AddLabel(profilePanel, "当前方案: default_profile", 124, 2, 304, 24, _textGreen, FontStyle.Bold);
-            currentProfileLabel.BackColor = _inputBackground;
-            AddLabel(profilePanel, "方案名", 12, 36, 64, 24);
-            profileNameTextBox = AddTextBox(profilePanel, "default_profile", 88, 34, 236, 28);
-            AddLabel(profilePanel, "已保存方案", 380, 36, 80, 24);
-            profileStatusLabel = AddLabel(profilePanel, string.Empty, 436, 2, 380, 24);
-            profileStatusLabel.BackColor = _inputBackground;
-            savedProfileCombo = AddCombo(profilePanel, 464, 34, 244, 28);
-            savedProfileCombo.SelectedIndexChanged += (_, _) => LoadSelectedProfile();
-            AddButton(profilePanel, "删除", 724, 33, 92, 30, (_, _) => DeleteSavedProfile());
-            AddLabel(environmentPanel, "水平", 12, 36, 46, 24);
-            cameraYawPixelsPerDegreeTextBox = AddTextBox(environmentPanel, "11.0", 64, 34, 80, 28);
-            AddLabel(environmentPanel, "俯仰", 164, 36, 48, 24);
-            cameraPitchPixelsPerDegreeTextBox = AddTextBox(environmentPanel, "13.0", 220, 34, 80, 28);
-            AddLabel(environmentPanel, "绕障精度", 12, 70, 110, 24);
-            radarEndpointExtensionNumeric = new NumericUpDown
-            {
-                Name = "radarEndpointExtensionNumeric",
-                Location = new Point(128, 68),
-                Size = new Size(100, 28),
-                DecimalPlaces = 2,
-                Increment = 0.1M,
-                Minimum = (decimal)RadarNavigationGraphBuilder.MinimumExtensionMeters,
-                Maximum = (decimal)RadarNavigationGraphBuilder.MaximumExtensionMeters,
-                Value = (decimal)RadarNavigationGraphBuilder.ExtensionMeters,
-                BackColor = _inputBackground,
-                ForeColor = _textGreen
-            };
-            environmentPanel.Controls.Add(radarEndpointExtensionNumeric);
-            AddLabel(environmentPanel, "米（保存后生效）", 240, 70, 180, 24);
-
-            mainModeCombo = AddCombo(modePanel, 88, 34, 236, 28, "自定义打怪", "路径采集", "半自动");
-            mainModeCombo.SelectedIndexChanged += (_, _) => RefreshCombatModeVisibility();
-            AddLabel(modePanel, "主模式", 12, 36, 72, 24, _textGreen, FontStyle.Bold);
-
-            combatModeCombo = AddCombo(modePanel, 464, 34, 260, 28, "原地打怪", "路径打怪");
-            combatModeCombo.SelectedIndexChanged += (_, _) => RefreshCombatModeVisibility();
-            combatModeLabel = AddLabel(modePanel, "打怪模式", 380, 36, 80, 24);
-            stationaryCombatRadiusLabel = AddLabel(modePanel, "半径", 12, 70, 72, 24);
-            stationaryCombatRadiusTextBox = AddTextBox(modePanel, "30.0", 88, 68, 100, 28);
-            stationaryCombatRadiusUnitLabel = AddLabel(modePanel, "m", 196, 70, 24, 24);
-            stalledTargetExclusionSecondsLabel = AddLabel(modePanel, "卡怪排除", 380, 70, 80, 24);
-            stalledTargetExclusionSecondsTextBox = AddTextBox(modePanel, "60", 464, 68, 100, 28);
-            stalledTargetExclusionSecondsTextBox.Name = "stalledTargetExclusionSecondsTextBox";
-            stalledTargetExclusionSecondsUnitLabel = AddLabel(modePanel, "秒", 576, 70, 24, 24);
-            pathCombatRadiusLabel = AddLabel(modePanel, "半径", 12, 70, 72, 24);
-            pathCombatRadiusTextBox = AddTextBox(modePanel, "30.0", 88, 68, 100, 28);
-            pathCombatRadiusUnitLabel = AddLabel(modePanel, "m", 196, 70, 24, 24);
-            pathFollowReachDistanceLabel = AddLabel(modePanel, "精度", 380, 70, 80, 24);
-            pathFollowReachDistanceTextBox = AddTextBox(modePanel, "5.0", 464, 68, 100, 28);
-            pathFollowReachDistanceUnitLabel = AddLabel(modePanel, "m", 576, 70, 24, 24);
-
-            enableLootCheckBox = AddCheckBox(behaviorPanel, "启用拾取", 12, 34, 120, true);
-            contestMonsterCheckBox = AddCheckBox(behaviorPanel, "抢怪", 184, 34, 140, false);
-            counterEnemyRaceCheckBox = AddCheckBox(behaviorPanel, "反击敌对种族", 380, 34, 180, false);
-            preferAggressiveMonsterCheckBox = AddCheckBox(behaviorPanel, "优先攻击主动怪", 576, 34, 190, false);
-
-#if DEBUG
-            var apiProbeButton = AddButton(page, "API探针", 702, 32, 134, 30);
-            apiProbeButton.Visible = false;
-            apiProbeButton.Click += async (_, _) =>
-                await RunApiProbeAsync(apiProbeButton).ConfigureAwait(true);
-#endif
-
-            returnHomeWhenNoTargetCheckBox = AddCheckBox(behaviorPanel, "\u6ca1\u602a\u56de\u4e2d\u5fc3", 12, 68, 140, true);
-            sitWhenNoTargetAtHomeCheckBox = AddCheckBox(behaviorPanel, "\u6ca1\u602a\u5750\u5730\u677f", 184, 68, 140, false);
-            jumpAssistEnabledCheckBox = AddCheckBox(behaviorPanel, "\u6253\u602a\u8df3\u8dc3", 380, 68, 120, false);
-            jumpAssistEnabledCheckBox.Name = "jumpAssistEnabledCheckBox";
-            AddLabel(behaviorPanel, "锁怪距离", 576, 68, 80, 24);
-            targetAcquireDistanceTextBox = AddTextBox(behaviorPanel, "34", 660, 66, 100, 28);
-            targetAcquireDistanceTextBox.Name = "targetAcquireDistanceTextBox";
-            AddLabel(behaviorPanel, "米", 768, 68, 28, 24);
-            returnHomeAfterCombatCheckBox = AddCheckBox(behaviorPanel, "战斗结束回原点", 12, 102, 160, false);
-            returnHomeAfterCombatCheckBox.Name = "returnHomeAfterCombatCheckBox";
-            returnHomeAfterCombatCheckBox.Click += (_, _) => RefreshCombatModeVisibility();
-            returnHomeAfterCombatDistanceLabel = AddLabel(behaviorPanel, "距离超过", 184, 102, 80, 24);
-            returnHomeAfterCombatDistanceTextBox = AddTextBox(behaviorPanel, "5", 268, 100, 100, 28);
-            returnHomeAfterCombatDistanceTextBox.Name = "returnHomeAfterCombatDistanceTextBox";
-            returnHomeAfterCombatDistanceUnitLabel = AddLabel(behaviorPanel, "米", 376, 102, 28, 24);
-            radarEditorButton = AddButton(
-                environmentPanel,
-                "\u7ed8\u5236\u96f7\u8fbe",
-                660,
-                34,
-                156,
-                28,
-                (_, _) => OpenRadarEditor());
-            radarEditorButton.Name = "radarEditorButton";
-            radarStatusLabel = AddLabel(
-                environmentPanel,
-                string.Empty,
-                380,
-                2,
-                436,
-                24,
-                _textGreen,
-                FontStyle.Regular);
-            radarStatusLabel.Name = "radarStatusLabel";
-            radarStatusLabel.BackColor = _inputBackground;
-            radarStatusLabel.BringToFront();
-            AddLabel(environmentPanel, "\u56fa\u5b9a\u9891\u9053", 380, 36, 80, 24);
-            fixedChannelCombo = AddCombo(
-                environmentPanel,
-                464,
-                34,
-                152,
-                28,
-                new[] { "\u4e0d\u56fa\u5b9a" }
-                    .Concat(Enumerable.Range(1, ScriptSettings.MaximumFixedChannelNumber).Select(number => number + "\u9891\u9053"))
-                    .ToArray());
-            fixedChannelCombo.Name = "fixedChannelCombo";
-            RefreshCombatModeVisibility();
-
-            ConfigureWideSettingsPage(page, 852);
-            return tab;
-        }
-
         private void RefreshCombatModeVisibility()
         {
             var visible = ParseMainMode(mainModeCombo?.Text) == AccountMainMode.CustomCombat;
-            var combatMode = ParseCombatMode(combatModeCombo?.Text);
+            var combatMode = selectedCombatMode;
             var stationaryVisible = visible && combatMode == AccountCombatMode.Stationary;
             var pathVisible = visible && combatMode == AccountCombatMode.Path;
-            if (combatModeCombo is not null)
-            {
-                combatModeCombo.Visible = visible;
-            }
-
-            if (combatModeLabel is not null)
-            {
-                combatModeLabel.Visible = visible;
-            }
+            foreach (var control in overviewCombatControls) control.Visible = visible;
+            if (effectiveRadiusLabel is not null) effectiveRadiusLabel.Visible = stationaryVisible;
 
             if (stationaryCombatRadiusLabel is not null)
             {
@@ -1682,15 +1495,8 @@ namespace Roadhog
                 sitWhenNoTargetAtHomeCheckBox.Visible = stationaryVisible;
             }
 
-            if (radarEditorButton is not null)
-            {
-                radarEditorButton.Visible = stationaryVisible && _radarMapStore is not null;
-            }
-
-            if (radarStatusLabel is not null)
-            {
-                radarStatusLabel.Visible = stationaryVisible && _radarMapStore is not null;
-            }
+            RefreshRadarStatus();
+            RefreshEffectiveRadius();
 
         }
 
@@ -1720,10 +1526,12 @@ namespace Roadhog
 
         private Core.Common.OperationResult ApplyRadarSettingsFromEditor(RadarObstacleScriptSettings settings)
         {
-            var previous = currentRadarSettings.Clone();
-            currentRadarSettings = settings.Clone();
+            var previous = currentRadarSettings;
+            var previousDraft = CaptureRadarSettings();
+            LoadRadarSettings(settings);
             if (!SaveCurrentSettings(out var error))
             {
+                LoadRadarSettings(previousDraft);
                 currentRadarSettings = previous;
                 RefreshRadarStatus();
                 return Core.Common.OperationResult.Fail(error);
@@ -1735,24 +1543,37 @@ namespace Roadhog
         private RadarObstacleScriptSettings CaptureRadarSettings()
         {
             var settings = currentRadarSettings.Clone();
+            settings.Enabled = radarEnabledCheckBox?.Checked ?? settings.Enabled;
             if (radarEndpointExtensionNumeric is not null)
                 settings.EndpointExtensionMeters = (double)radarEndpointExtensionNumeric.Value;
             return settings;
         }
 
+        private void LoadRadarSettings(RadarObstacleScriptSettings settings)
+        {
+            currentRadarSettings = settings.Clone();
+            SetChecked(radarEnabledCheckBox, settings.Enabled);
+            if (radarEndpointExtensionNumeric is not null)
+                radarEndpointExtensionNumeric.Value = (decimal)RadarNavigationGraphBuilder.NormalizeExtensionMeters(settings.EndpointExtensionMeters);
+            RefreshRadarStatus();
+        }
+
         private void RefreshRadarStatus()
         {
-            if (radarStatusLabel is null)
-            {
-                return;
-            }
+            var stationary = ParseMainMode(mainModeCombo?.Text) == AccountMainMode.CustomCombat &&
+                selectedCombatMode == AccountCombatMode.Stationary;
+            var available = stationary && _radarMapStore is not null;
+            if (radarEditorButton is not null) radarEditorButton.Enabled = available;
+            if (radarEnabledCheckBox is not null) radarEnabledCheckBox.Enabled = available;
+            if (radarEndpointExtensionNumeric is not null) radarEndpointExtensionNumeric.Enabled = available;
+            if (radarStatusLabel is null) return;
 
-            radarStatusLabel.Text = currentRadarSettings.Enabled
-                ? "\u7ed5\u969c\uff1a\u5df2\u5f00\u542f"
-                : "\u7ed5\u969c\uff1a\u672a\u5f00\u542f";
-            radarStatusLabel.ForeColor = currentRadarSettings.Enabled
-                ? _darkGreen
-                : Color.FromArgb(107, 114, 128);
+            var enabled = radarEnabledCheckBox?.Checked ?? currentRadarSettings.Enabled;
+            radarStatusLabel.Text = _radarMapStore is null ? "绕障：雷达地图不可用" :
+                !stationary ? "绕障：原地打怪可用" :
+                "绕障：" + (enabled ? "已开启" : "未开启") +
+                (enabled != currentRadarSettings.Enabled ? " · 待保存" : "");
+            radarStatusLabel.ForeColor = available && enabled ? _darkGreen : Color.FromArgb(107, 114, 128);
         }
 
         private void RefreshProfileLibrary()
@@ -1862,7 +1683,13 @@ namespace Roadhog
                         SelectProfileComboItem(profileNameTextBox?.Text, loadProfile: false);
                         return;
                     }
+                    if (!ResolveAccountDraft("加载方案", profileOnly: true))
+                    {
+                        SelectProfileComboItem(profileNameTextBox?.Text, loadProfile: false);
+                        return;
+                    }
                     LoadProfileByName(name);
+                    RefreshAccountDraftStatus();
                 }
                 finally { resolvingProfilePaths = false; }
             }
@@ -2025,39 +1852,36 @@ namespace Roadhog
         private TabPage CreatePathTab()
         {
             var tab = CreateBaseTab("路径");
+            accountPathPage = tab;
             var page = CreatePagePanel();
             tab.Controls.Add(page);
 
             // The four selected-path summaries serve as the page header.
-            pathOverviewLabels[SharedPathKind.Revive] = AddLabel(page, "复活路径:  未选（0点）", 12, 8, 394, 22);
-            pathOverviewLabels[SharedPathKind.Combat] = AddLabel(page, "打怪路径:  未选（0点）", 430, 8, 394, 22);
-            pathOverviewLabels[SharedPathKind.Maintenance] = AddLabel(page, "清包路径:  未选（0点）", 12, 32, 394, 22);
-            pathOverviewLabels[SharedPathKind.Gather] = AddLabel(page, "采集路径:  未选（0点）", 430, 32, 394, 22);
-            AddLabel(page, "末尾加点间距", 12, 62, 104, 22, _textGreen, FontStyle.Bold);
+            pathOverviewLabels[SharedPathKind.Revive] = AddLabel(page, "复活路径:  未选（0点）", 12, 5, 394, 22);
+            pathOverviewLabels[SharedPathKind.Combat] = AddLabel(page, "打怪路径:  未选（0点）", 430, 5, 394, 22);
+            pathOverviewLabels[SharedPathKind.Maintenance] = AddLabel(page, "清包路径:  未选（0点）", 12, 27, 394, 22);
+            pathOverviewLabels[SharedPathKind.Gather] = AddLabel(page, "采集路径:  未选（0点）", 430, 27, 394, 22);
+            AddLabel(page, "末尾加点间距", 12, 54, 104, 22, _textGreen, FontStyle.Bold);
             pathRecordingMinimumDistanceTextBox = AddTextBox(
                 page,
                 PathScriptSettings.DefaultRecordingMinimumDistance.ToString("0.###", CultureInfo.InvariantCulture),
                 124,
-                58,
+                52,
                 80,
                 28);
-            AddLabel(page, "米", 212, 62, 28, 22);
-            AddLabel(page, "转向重置坐标", 430, 62, 104, 22, _textGreen, FontStyle.Bold);
-            deathReviveClickPointTextBox = AddTextBox(
-                page,
-                FormatScreenPoint(PathScriptSettings.DefaultDeathReviveClickX, PathScriptSettings.DefaultDeathReviveClickY),
-                540,
-                58,
-                150,
-                28);
-            deathReviveTestMoveButton = AddButton(page, "测试移动", 702, 58, 110, 28, TestDeathReviveMoveButton_Click);
-
+            AddLabel(page, "米", 212, 54, 28, 22);
+            radarStatusLabel = AddLabel(page, "", 430, 54, 220, 22, _textGreen, FontStyle.Bold);
+            radarStatusLabel.Name = "radarStatusLabel";
+            var obstacleShortcut = AddButton(page, "绕障设置", 662, 52, 150, 28,
+                (_, _) => accountPathTabs!.SelectedTab = obstacleAvoidanceTab);
+            obstacleShortcut.Name = "pathObstacleAvoidanceButton";
             var pathTabs = new TabControl
             {
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
                 DrawMode = TabDrawMode.OwnerDrawFixed,
                 ItemSize = new Size(92, 28),
-                Location = new Point(0, 94),
+                Location = new Point(0, 84),
+                Multiline = true,
                 Name = "pathTabs",
                 SelectedIndex = 0,
                 Size = new Size(850, 462),
@@ -2066,23 +1890,32 @@ namespace Roadhog
             };
 
             pathTabs.DrawItem += GreenTabs_DrawItem;
-            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Revive, "复活路径", "死亡复活后返回主路径", true));
-            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Combat, "打怪路径", "打怪巡逻路径", false));
-            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Maintenance, "清包路径", "清包路径", false));
-            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Gather, "采集路径", "采集路线点配置", false));
-            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Auction, "拍卖行路径", "从挂机点到交易中介，完成后原路返回", false));
-            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Stall, "转移到仓库号路径", "使用所选卷轴回程，确认落点后走到仓库号位置", false));
-            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.GroceryStall, "杂货摆摊路径", "使用所选卷轴回程，确认落点后走到终点摆摊", false));
+            accountPathTabs = pathTabs;
+            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Revive, "复活路径", "死亡复活后返回主路径"));
+            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Combat, "打怪路径", "打怪巡逻路径"));
+            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Maintenance, "清包路径", "清包路径"));
+            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Gather, "采集路径", "采集路线点配置"));
+            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Auction, "拍卖行路径", "从挂机点到交易中介，完成后原路返回"));
+            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Stall, "转移到仓库号路径", "使用所选卷轴回程，确认落点后走到仓库号位置"));
+            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.GroceryStall, "杂货摆摊路径", "使用所选卷轴回程，确认落点后走到终点摆摊"));
+            pathTabs.TabPages.Add(CreatePathDiagnosticsTab());
+            obstacleAvoidanceTab = CreateObstacleAvoidanceTab();
+            pathTabs.TabPages.Add(obstacleAvoidanceTab);
             page.Controls.Add(pathTabs);
-            page.AutoScroll = true;
-            page.AutoScrollMinSize = new Size(836, 520);
-            page.SizeChanged += (_, _) => pathTabs.Size = new Size(Math.Max(836, page.ClientSize.Width), Math.Max(400, page.ClientSize.Height - pathTabs.Top));
+            var layoutHeader = CaptureSettingsColumns(page, 836);
+            void LayoutPathTabs()
+            {
+                layoutHeader(page.ClientSize.Width);
+                pathTabs.Size = new Size(page.ClientSize.Width, Math.Max(0, page.ClientSize.Height - pathTabs.Top));
+            }
+            page.SizeChanged += (_, _) => LayoutPathTabs();
+            LayoutPathTabs();
             foreach (var label in pathOverviewLabels.Values) label.AutoEllipsis = true;
 
             return tab;
         }
 
-        private TabPage CreatePathEditorTab(SharedPathKind kind, string title, string caption, bool includeSamplePoint)
+        private TabPage CreatePathEditorTab(SharedPathKind kind, string title, string caption)
         {
             var tab = new TabPage
             {
@@ -2096,12 +1929,11 @@ namespace Roadhog
 
             page.AutoScroll = true;
             var contentOffset = kind == SharedPathKind.Maintenance ? 112 : kind == SharedPathKind.Auction ? 80 : kind is SharedPathKind.Stall or SharedPathKind.GroceryStall ? 40 : 0;
-            page.AutoScrollMinSize = new Size(824, kind == SharedPathKind.Maintenance ? 528 : 430 + contentOffset);
             var editor = new PathEditorControls(kind);
             pathEditors[kind] = editor;
 
             AddLabel(page, caption, 12, 6, 330, 22, _textGreen, FontStyle.Bold);
-            var pathNameTextBox = AddTextBox(page, includeSamplePoint ? "穆尔海姆00133" : string.Empty, 80, 38, 270, 28);
+            var pathNameTextBox = AddTextBox(page, string.Empty, 80, 38, 270, 28);
             editor.PathNameTextBox = pathNameTextBox;
             if (kind == SharedPathKind.Revive)
             {
@@ -2123,12 +1955,12 @@ namespace Roadhog
                 gatherPathNameTextBox = pathNameTextBox;
             }
 
-            AddLabel(page, "路径名称", 12, 42, 64, 22);
+            AddLabel(page, "使用路径", 12, 42, 64, 22);
             editor.SavedPathCombo = AddCombo(page, 452, 38, 360, 28);
             editor.SavedPathCombo.SelectedIndexChanged += (_, _) => LoadSelectedPath(editor);
-            AddLabel(page, "已存路径", 376, 42, 72, 22);
+            AddLabel(page, "共享路径", 376, 42, 72, 22);
 
-            editor.SaveButton = AddButton(page, "保存修改", 12, 74, 100, 30, (_, _) => SavePath(editor));
+            editor.SaveButton = AddButton(page, "保存路径", 12, 74, 100, 30, (_, _) => SavePath(editor));
             AddPathMoreMenu(page, editor);
             editor.DirtyLabel = AddLabel(page, "已保存", 350, 6, 96, 22);
             editor.DirtyLabel.AutoEllipsis = true;
@@ -2219,14 +2051,14 @@ namespace Roadhog
             var pathAdvanced = CreateFoldout(
                 page,
                 "高级路径设置",
-                pointEditorTop + 76,
+                pointEditorTop + 68,
                 824,
                 true);
             pathAdvanced.Content.Height = kind == SharedPathKind.Revive ? 68 : 40;
             editor.StatusLabel.AutoEllipsis = true;
             var loopCheckBox = AddCheckBox(pathAdvanced.Content, "循环路径", 6, 12, 92, true);
             var reverseCheckBox = AddCheckBox(pathAdvanced.Content, "到终点反向", 102, 12, 106, false);
-            var deathStopCheckBox = AddCheckBox(pathAdvanced.Content, "死亡停止路径", 206, 12, 130, true);
+            var deathStopCheckBox = AddCheckBox(pathAdvanced.Content, "死亡停止路径", 214, 12, 130, true);
             if (kind == SharedPathKind.Revive)
             {
                 loopPathCheckBox = loopCheckBox;
@@ -2246,7 +2078,7 @@ namespace Roadhog
 
             InitializePathDraftTracking(editor);
             RefreshPathEditor(editor);
-            ConfigurePathPageLayout(page, editor.GatherPointsList!, pointEditorTop, kind == SharedPathKind.Gather ? 850 : 824);
+            ConfigurePathPageLayout(page, editor.GatherPointsList!, pathAdvanced.Content, pointEditorTop, kind == SharedPathKind.Gather ? 850 : 824);
             return tab;
         }
 
@@ -2648,6 +2480,7 @@ namespace Roadhog
             editor.LoadedDocument = null;
             editor.Buffer.Clear();
             editor.History.Clear();
+            SetText(editor.PathNameTextBox, pathName?.Trim() ?? string.Empty);
             ApplyPathRadiusBindingToEditor(editor, null);
             if (editor.SavedPathCombo is not null)
             {
@@ -3406,24 +3239,27 @@ namespace Roadhog
 
         private void RefreshPathOverviews()
         {
-            SetPathOverview(SharedPathKind.Revive, "复活路径", revivePathNameTextBox?.Text);
-            SetPathOverview(SharedPathKind.Combat, "打怪路径", combatPathNameTextBox?.Text);
-            SetPathOverview(SharedPathKind.Maintenance, "清包路径", maintenancePathNameTextBox?.Text);
-            SetPathOverview(SharedPathKind.Gather, "采集路径", gatherPathNameTextBox?.Text);
-        }
-
-        private void SetPathOverview(SharedPathKind kind, string label, string? pathName)
-        {
-            if (!pathOverviewLabels.TryGetValue(kind, out var overview))
+            foreach (var (kind, label) in OverviewPaths)
             {
-                return;
-            }
+                pathEditors.TryGetValue(kind, out var editor);
+                var pathName = editor?.PathNameTextBox?.Text.Trim();
+                var isConfigured = !string.IsNullOrEmpty(pathName);
+                var name = isConfigured ? pathName : "未选";
+                var summary = isConfigured ? currentPathSummaries.FirstOrDefault(item =>
+                    string.Equals(item.Name, pathName, StringComparison.OrdinalIgnoreCase)) : null;
+                var pointCount = summary?.PointCount ?? editor?.Buffer.Count ?? 0;
 
-            var name = string.IsNullOrWhiteSpace(pathName) ? "未选" : pathName.Trim();
-            var summary = currentPathSummaries.FirstOrDefault(item =>
-                string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
-            var pointCount = summary?.PointCount ?? (pathEditors.TryGetValue(kind, out var editor) ? editor.Buffer.Count : 0);
-            overview.Text = label + ":  " + name + "（" + pointCount.ToString(CultureInfo.InvariantCulture) + "点）";
+                if (pathOverviewLabels.TryGetValue(kind, out var overview))
+                    overview.Text = label + ":  " + name + "（" + pointCount.ToString(CultureInfo.InvariantCulture) + "点）";
+
+                if (overviewPathLinks.TryGetValue(kind, out var link))
+                {
+                    var status = summary is not null ? name + $"（{pointCount} 点）" :
+                        isConfigured ? name + "（未保存或不可用）" : "未选";
+                    link.Text = label + " · " + status;
+                }
+            }
+            RefreshEffectiveRadius();
         }
 
         private string GetSelectedPathName(PathEditorControls editor)
@@ -3470,7 +3306,7 @@ namespace Roadhog
             page.AutoScrollMinSize = new Size(748, 0);
             tab.Controls.Add(page);
 
-            AddLabel(page, "坐地板维护", 12, 8, 82, 24, _textGreen, FontStyle.Bold);
+            AddLabel(page, "坐地恢复", 12, 8, 82, 24, _textGreen, FontStyle.Bold);
             sitMaintenanceCheckBox = AddCheckBox(page, "启用", 96, 6, 70, true);
             autoDrinkCheckBox = AddCheckBox(page, "自动饮品", 12, 76, 100, true);
             autoFoodCheckBox = AddCheckBox(page, "自动食物", 12, 110, 100, true);
@@ -3495,7 +3331,7 @@ namespace Roadhog
             var sections = new FlowLayoutPanel
             {
                 Name = "maintenanceSections",
-                Location = new Point(12, 150),
+                Location = new Point(12, 142),
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 MinimumSize = new Size(828, 0),
@@ -3521,6 +3357,24 @@ namespace Roadhog
             statusMaintenanceEmptyLabel = statusSection.EmptyLabel;
             AddButton(statusSection.Content, "新增状态维护", 12, 4, 132, 30,
                 (_, _) => AddStatusMaintenanceRuleRow(statusMaintenanceRuleList, statusMaintenanceEmptyLabel));
+            AddLabel(statusSection.Content, "每轮按键次数", 12, 40, 100, 24);
+            statusMaintenancePressCountNumeric = AddStatusMaintenanceNumber(
+                nameof(statusMaintenancePressCountNumeric), 114, 1, MaintenanceScriptSettings.MaximumStatusMaintenancePressCount);
+            AddLabel(statusSection.Content, "间隔（毫秒）", 210, 40, 100, 24);
+            statusMaintenancePressIntervalNumeric = AddStatusMaintenanceNumber(
+                nameof(statusMaintenancePressIntervalNumeric), 312, 0, MaintenanceScriptSettings.MaximumStatusMaintenancePressIntervalMs);
+
+            NumericUpDown AddStatusMaintenanceNumber(string name, int left, int minimum, int maximum)
+            {
+                var editor = new NumericUpDown
+                {
+                    Name = name, Location = new Point(left, 39), Size = new Size(80, 28),
+                    Minimum = minimum, Maximum = maximum, Value = minimum,
+                    BackColor = _inputBackground, ForeColor = _textGreen
+                };
+                statusSection.Content.Controls.Add(editor);
+                return editor;
+            }
 
             var dpSection = CreateMaintenanceRuleSection(sections, "DP维护", "dpMaintenance");
             dpMaintenanceRuleList = dpSection.List;
@@ -3551,7 +3405,7 @@ namespace Roadhog
             {
                 Name = name + "Section",
                 Size = new Size(828, 30),
-                Margin = new Padding(0, 0, 0, 6)
+                Margin = new Padding(0, 0, 0, 4)
             };
             parent.Controls.Add(section);
             var header = new Button
@@ -3571,13 +3425,13 @@ namespace Roadhog
             section.Controls.Add(header);
             var content = new Panel
             {
-                Location = new Point(0, 36),
+                Location = new Point(0, 32),
                 Width = 828,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 Visible = false
             };
             section.Controls.Add(content);
-            var list = CreateMaintenanceRuleList(content, 12, 42, 804, 28);
+            var list = CreateMaintenanceRuleList(content, 12, name == "statusMaintenance" ? 74 : 42, 804, 28);
             list.AutoScroll = false;
             list.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             var emptyLabel = AddLabel(content, "暂无" + title, 156, 8, 300, 24);
@@ -3588,7 +3442,7 @@ namespace Roadhog
             {
                 var rows = list.Controls.OfType<Panel>().ToArray();
                 list.Height = Math.Max(28, rows.Sum(row => row.Height + row.Margin.Vertical));
-                content.Height = rows.Length == 0 ? 40 : list.Bottom + 8;
+                content.Height = rows.Length == 0 ? list.Top - 2 : list.Bottom + 8;
                 section.Height = expanded ? content.Bottom : header.Height;
                 header.Text = $"{(expanded ? "▼" : "▶")}  {title}（{rows.Length} 项）";
                 RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
@@ -3608,31 +3462,35 @@ namespace Roadhog
 
         private sealed record MaintenanceRuleSection(Panel Content, FlowLayoutPanel List, Label EmptyLabel);
 
+        private const int CleanupNameListTop = 264;
+        private const int CleanupNameListHeight = 138;
+        private const int CleanupNamesMinimumHeight = CleanupNameListTop + CleanupNameListHeight;
+
         private TabPage CreateBagCleanupTab()
         {
             var tab = CreateBaseTab("清包");
             var page = CreatePagePanel();
             page.AutoScroll = true;
-            page.AutoScrollMinSize = new Size(852, 556);
+            page.AutoScrollMinSize = new Size(852, 0);
             tab.Controls.Add(page);
             bagCleanupRuleControls.Clear();
 
             var optionsPanel = new Panel
             {
                 BackColor = _inputBackground,
-                Location = new Point(12, 48),
+                Location = new Point(12, 42),
                 Size = new Size(828, 64)
             };
             page.Controls.Add(optionsPanel);
-            var rulesPanel = new Panel { Location = new Point(12, 90), Size = new Size(404, 460) };
-            var namesPanel = new Panel { Location = new Point(432, 90), Size = new Size(408, 460) };
+            var rulesPanel = new Panel { Location = new Point(12, 90), Size = new Size(404, 340) };
+            var namesPanel = new Panel { Location = new Point(432, 90), Size = new Size(408, CleanupNamesMinimumHeight) };
             page.Controls.Add(rulesPanel);
             page.Controls.Add(namesPanel);
 
-            bagCleanupEnabledCheckBox = AddCheckBox(optionsPanel, "自动清包", 12, 20, 112, false);
+            bagCleanupEnabledCheckBox = AddCheckBox(optionsPanel, "自动清包", 12, 7, 112, false);
             bagCleanupEnabledCheckBox.BackColor = optionsPanel.BackColor;
-            AddLabel(optionsPanel, "剩余格低于", 148, 20, 92, 26, _textGreen, FontStyle.Bold);
-            bagCleanupThresholdTextBox = AddTextBox(optionsPanel, "5", 244, 18, 72, 28);
+            AddLabel(optionsPanel, "剩余格低于", 148, 8, 92, 26, _textGreen, FontStyle.Bold);
+            bagCleanupThresholdTextBox = AddTextBox(optionsPanel, "5", 244, 6, 72, 28);
             BuildCleanupWorkflowOptions(page, optionsPanel, rulesPanel, namesPanel);
 
             const int leftOptionX = 8;
@@ -3654,15 +3512,8 @@ namespace Roadhog
             }
 
             AddLabel(rulesPanel, "清理物品类型", 0, 0, 96, 26, _textGreen, FontStyle.Bold);
-            var testAuctionButton = AddButton(rulesPanel, "测试拍卖行", 96, 0, 104, 28);
-            testAuctionButton.Name = "testAuctionHouseButton";
-            testAuctionButton.Click += async (_, _) => await TestAuctionHouseAsync(testAuctionButton).ConfigureAwait(true);
-            var testPersonalShopButton = AddButton(rulesPanel, "测试摆摊", 204, 0, 96, 28);
-            testPersonalShopButton.Name = "testPersonalShopButton";
-            testPersonalShopButton.Click += async (_, _) => await TestPersonalShopAsync(testPersonalShopButton).ConfigureAwait(true);
-            var testDiscardButton = AddButton(rulesPanel, "测试丢弃", 308, 0, 96, 28);
-            testDiscardButton.Name = "testInventoryDiscardButton";
-            testDiscardButton.Click += async (_, _) => await TestInventoryDiscardAsync(testDiscardButton).ConfigureAwait(true);
+            AddButton(rulesPanel, "清包路径", 190, 0, 96, 28, (_, _) => OpenCleanupPathSettings("清包路径"));
+            BuildCleanupExecutionMenu(rulesPanel);
 
             void AddCategory(string title, int top)
             {
@@ -3670,22 +3521,22 @@ namespace Roadhog
                 heading.BackColor = _inputBackground;
             }
 
-            AddCategory("装备品质", 36);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenEquipment), leftOptionX, leftComboX, 64);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.BlueEquipment), rightOptionX, rightComboX, 64);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteEquipment), leftOptionX, leftComboX, 92);
+            AddCategory("装备品质", 32);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenEquipment), leftOptionX, leftComboX, 58);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.BlueEquipment), rightOptionX, rightComboX, 58);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteEquipment), leftOptionX, leftComboX, 84);
 
-            AddCategory("书卷", 124);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.Stigma), leftOptionX, leftComboX, 152);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.RecipeScroll), rightOptionX, rightComboX, 152);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.SkillBook), leftOptionX, leftComboX, 180);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.SpellBook), rightOptionX, rightComboX, 180);
+            AddCategory("书卷", 110);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.Stigma), leftOptionX, leftComboX, 136);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.RecipeScroll), rightOptionX, rightComboX, 136);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.SkillBook), leftOptionX, leftComboX, 162);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.SpellBook), rightOptionX, rightComboX, 162);
 
-            AddCategory("提炼石", 212);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteExtractionStone), leftOptionX, leftComboX, 240);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenExtractionStone), rightOptionX, rightComboX, 240);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.BlueExtractionStone), leftOptionX, leftComboX, 268);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GoldExtractionStone), rightOptionX, rightComboX, 268);
+            AddCategory("提炼石", 188);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteExtractionStone), leftOptionX, leftComboX, 214);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenExtractionStone), rightOptionX, rightComboX, 214);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.BlueExtractionStone), leftOptionX, leftComboX, 240);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GoldExtractionStone), rightOptionX, rightComboX, 240);
 
             BuildStandaloneShopControls(rulesPanel);
 
@@ -3695,10 +3546,12 @@ namespace Roadhog
             refreshInventoryButton.Click += async (_, _) =>
                 await RefreshBagCleanupInventoryAsync(refreshInventoryButton).ConfigureAwait(true);
 
-            bagCleanupItemTransferRouteButton = AddButton(namesPanel, "倒货路线", 202, 34, 90, 30);
-            bagCleanupItemTransferRouteButton.Name = "bagCleanupItemTransferRouteButton";
-            bagCleanupItemTransferRouteButton.Visible = false;
-            bagCleanupItemTransferRouteButton.Click += (_, _) => OpenCleanupPathSettings("转移到仓库号路径");
+            bagCleanupNameListRouteButton = AddButton(namesPanel, "", 202, 34, 90, 30, (_, _) =>
+            {
+                if (GetActiveBagCleanupRoute() is { } route) OpenCleanupPathSettings(route.PathTabName);
+            });
+            bagCleanupNameListRouteButton.Name = "bagCleanupNameListRouteButton";
+            bagCleanupNameListRouteButton.Visible = false;
 
             AddLabel(namesPanel, "背包物品 / 关键字", 0, 36, 200, 24, _textGreen, FontStyle.Bold);
             bagCleanupManualNameTextBox = AddTextBox(namesPanel, string.Empty, 0, 68, 280, 28);
@@ -3708,19 +3561,19 @@ namespace Roadhog
             bagCleanupAddNameButton.Click += async (_, _) =>
                 await AddSelectedBagCleanupNameAsync().ConfigureAwait(true);
 
-            bagCleanupInventoryCheckedListBox = CreateBagCleanupInventoryCheckedListBox(namesPanel, 0, 102, 408, 126);
+            bagCleanupInventoryCheckedListBox = CreateBagCleanupInventoryCheckedListBox(namesPanel, 0, 100, 408, 104);
             bagCleanupInventoryCheckedListBox.BackColor = Color.White;
             bagCleanupInventoryCheckedListBox.Name = "bagCleanupInventoryCheckedListBox";
-            bagCleanupInventoryStatusLabel = AddLabel(namesPanel, "等待刷新背包", 0, 230, 408, 24);
+            bagCleanupInventoryStatusLabel = AddLabel(namesPanel, "等待刷新背包", 0, 206, 408, 22);
 
-            bagCleanupNameListTitleLabel = AddLabel(namesPanel, "不丢弃：以下物品保留", 0, 260, 236, 24, _textGreen, FontStyle.Bold);
-            bagCleanupExcludedItemListBox = CreateFilterListBox(namesPanel, 0, 292, 408, 138);
+            bagCleanupNameListTitleLabel = AddLabel(namesPanel, "不丢弃：以下物品保留", 0, 233, 236, 24, _textGreen, FontStyle.Bold);
+            bagCleanupExcludedItemListBox = CreateFilterListBox(namesPanel, 0, CleanupNameListTop, 408, CleanupNameListHeight);
             bagCleanupExcludedItemListBox.BackColor = Color.White;
             bagCleanupTradeItemGrid = CreateBagCleanupTradeItemGrid(namesPanel);
-            bagCleanupRemoveNameButton = AddButton(namesPanel, "移除选中", 248, 256, 72, 30);
+            bagCleanupRemoveNameButton = AddButton(namesPanel, "移除选中", 248, 230, 72, 30);
             bagCleanupRemoveNameButton.Click += async (_, _) =>
                 await RemoveSelectedBagCleanupNameAsync().ConfigureAwait(true);
-            bagCleanupClearNamesButton = AddButton(namesPanel, "清空", 336, 256, 72, 30);
+            bagCleanupClearNamesButton = AddButton(namesPanel, "清空", 336, 230, 72, 30);
             bagCleanupClearNamesButton.Click += async (_, _) =>
                 await ClearSelectedBagCleanupNameListAsync().ConfigureAwait(true);
 
@@ -3735,9 +3588,9 @@ namespace Roadhog
             var page = CreatePagePanel();
             tab.Controls.Add(page);
             page.AutoScroll = true;
-            page.AutoScrollMinSize = new Size(852, 420);
+            page.AutoScrollMinSize = new Size(852, 0);
 
-            AddLabel(page, "组队模式", 24, 12, 90, 24, _textGreen, FontStyle.Bold);
+            AddLabel(page, "队内角色", 24, 12, 90, 24, _textGreen, FontStyle.Bold);
             teamRoleCombo = AddCombo(page, 116, 10, 190, 28, "队长", "输出", "治疗");
             teamRoleCombo.Name = "teamRoleCombo";
             AddLabel(page, "抱团距离", 352, 12, 90, 24, _textGreen, FontStyle.Bold);
@@ -3823,7 +3676,7 @@ namespace Roadhog
                 TeamSupportScriptSettings.DefaultSelectTacticalMarkTargetKey);
             AddLabel(supportPanel, "加血技能", 24, 132, 70, 24, _textGreen, FontStyle.Bold);
             teamHealSkillRuleList = CreateMaintenanceRuleList(supportPanel, 24, 166, 790, 82);
-            teamHealSkillEmptyLabel = AddLabel(supportPanel, "暂无加血技能", 24, 166, 140, 24);
+            teamHealSkillEmptyLabel = AddLabel(supportPanel, "暂无加血技能", 324, 132, 140, 24);
             teamHealSkillEmptyLabel.BringToFront();
             AddButton(
                 supportPanel,
@@ -3862,6 +3715,8 @@ namespace Roadhog
                 () => !HasSpiritmasterSkillSelection(GetSelectedMaintenanceSkill(teamGroupCleanseSkillCombo)));
             AddLabel(supportPanel, "选技能自动匹配\n留空时手动设置", 616, 297, 194, 61);
             ConfigureTeamSupportLayout(supportPanel, teamHealSkillRuleList);
+            leaderPanel.Height = leaderPanel.Controls.Cast<Control>().Max(control => control.Bottom) + 8;
+            dpsPanel.Height = dpsPanel.Controls.Cast<Control>().Max(control => control.Bottom) + 8;
 
             teamRoleCombo.SelectedIndexChanged += (_, _) => RefreshTeamRolePanelVisibility();
             teamLeaderTacticalMarkCheckBox.Click += (_, _) => RefreshTeamTacticalMarkKeyVisibility();
@@ -3879,7 +3734,7 @@ namespace Roadhog
             var panel = new Panel
             {
                 BackColor = _pageBackground,
-                Location = new Point(0, 48),
+                Location = new Point(0, 42),
                 Size = new Size(830, 360)
             };
 
@@ -4382,6 +4237,7 @@ namespace Roadhog
         private async Task TestPersonalShopAsync(Button button)
         {
             if (_personalShopTestCts != null || _inventoryDiscardTestCts != null || _auctionTestCts != null) return;
+            var originalText = button.Text;
             using var cancellation = new CancellationTokenSource();
             _personalShopTestCts = cancellation;
             button.Enabled = false;
@@ -4411,13 +4267,14 @@ namespace Roadhog
             finally
             {
                 _personalShopTestCts = null;
-                if (!button.IsDisposed) { button.Text = "测试摆摊"; button.Enabled = true; }
+                if (!button.IsDisposed) { button.Text = originalText; button.Enabled = true; }
             }
         }
 
         private async Task TestInventoryDiscardAsync(Button button)
         {
             if (_inventoryDiscardTestCts != null || _personalShopTestCts != null || _auctionTestCts != null) return;
+            var originalText = button.Text;
             using var cancellation = new CancellationTokenSource();
             _inventoryDiscardTestCts = cancellation;
             button.Enabled = false;
@@ -4447,7 +4304,7 @@ namespace Roadhog
             finally
             {
                 _inventoryDiscardTestCts = null;
-                if (!button.IsDisposed) { button.Text = "测试丢弃"; button.Enabled = true; }
+                if (!button.IsDisposed) { button.Text = originalText; button.Enabled = true; }
             }
         }
 
@@ -4845,6 +4702,14 @@ namespace Roadhog
             PopulateBagCleanupNameLists(CaptureBagCleanupNameLists());
         }
 
+        private (string Text, string PathTabName)? GetActiveBagCleanupRoute()
+        {
+            if (bagCleanupItemTransferRadio?.Checked == true) return ("倒货路线", "转移到仓库号路径");
+            if (bagCleanupAuctionHouseRadio?.Checked == true) return ("拍卖行路线", "拍卖行路径");
+            if (bagCleanupStallRadio?.Checked == true) return ("杂货摆摊路线", "杂货摆摊路径");
+            return null;
+        }
+
         private void RefreshBagCleanupNameListEditor(string? selectedName = null)
         {
             if (loadingBagCleanupNameListEditor || bagCleanupExcludedItemListBox is null)
@@ -4853,8 +4718,12 @@ namespace Roadhog
             }
 
             var activeList = ActiveBagCleanupNameList;
-            if (bagCleanupItemTransferRouteButton is not null)
-                bagCleanupItemTransferRouteButton.Visible = bagCleanupItemTransferRadio?.Checked == true;
+            if (bagCleanupNameListRouteButton is { } shortcut)
+            {
+                var route = GetActiveBagCleanupRoute();
+                shortcut.Text = route?.Text ?? "";
+                shortcut.Visible = route.HasValue;
+            }
             var values = GetActiveBagCleanupNameList();
             var tradeItems = GetActiveBagCleanupTradeItems();
             bagCleanupExcludedItemListBox.Visible = tradeItems is null;
@@ -5750,7 +5619,7 @@ namespace Roadhog
                 Name = "skillOptionsPanel",
                 BackColor = _inputBackground,
                 Location = new Point(12, 8),
-                Size = new Size(828, 100)
+                Size = new Size(828, 94)
             };
             page.Controls.Add(optionsPanel);
             AddLabel(optionsPanel, "技能配置", 12, 4, 90, 24, _textGreen, FontStyle.Bold);
@@ -5787,32 +5656,9 @@ namespace Roadhog
             return tab;
         }
 
-        private TabPage CreateFilterTab()
-        {
-            var tab = CreateBaseTab("过滤");
-            var page = CreatePagePanel();
-            tab.Controls.Add(page);
-
-            var filterTabs = new TabControl
-            {
-                Alignment = TabAlignment.Top,
-                Dock = DockStyle.Fill,
-                DrawMode = TabDrawMode.OwnerDrawFixed,
-                ItemSize = new Size(104, 28),
-                Name = "filterTabs",
-                SizeMode = TabSizeMode.Fixed
-            };
-            filterTabs.DrawItem += GreenTabs_DrawItem;
-            filterTabs.TabPages.Add(CreateMonsterFilterTab());
-            filterTabs.TabPages.Add(CreateGatherFilterPreviewTab());
-            page.Controls.Add(filterTabs);
-
-            return tab;
-        }
-
         private TabPage CreateMonsterFilterTab()
         {
-            var tab = CreateBaseTab("怪物过滤");
+            var tab = CreateBaseTab("打哪些怪");
             var page = CreatePagePanel();
             page.AutoScroll = true;
             page.AutoScrollMinSize = new Size(836, 514);
@@ -5832,7 +5678,7 @@ namespace Roadhog
 
             activeMonsterFilterStatusLabel = AddLabel(selectionPanel, "等待刷新", 12, 40, 788, 24);
 
-            AddLabel(page, _bagCleanupNameListStore is ISharedAccountConfiguration ? "已过滤怪物（全账号共享）" : "已过滤怪物", 12, 90, 240, 24, _textGreen, FontStyle.Bold);
+            AddLabel(page, _bagCleanupNameListStore is ISharedAccountConfiguration ? "已过滤怪物（全账号共享）" : "已过滤怪物", 12, 90, 222, 24, _textGreen, FontStyle.Bold);
             activeMonsterFilterListBox = CreateFilterListBox(page, 12, 166, 400, 274);
             activeMonsterFilterListBox.BackColor = Color.White;
             AddButton(page, "移除", 240, 86, 78, 30, (_, _) => RemoveSelectedActiveMonsterFilter());
@@ -5857,7 +5703,7 @@ namespace Roadhog
 
         private TabPage CreateGatherFilterPreviewTab()
         {
-            var tab = CreateBaseTab("采集物过滤");
+            var tab = CreateBaseTab("采哪些物");
             var page = CreatePagePanel();
             page.AutoScroll = true;
             page.AutoScrollMinSize = new Size(836, 514);
@@ -7137,51 +6983,38 @@ namespace Roadhog
 
         private FoldoutSection CreateFoldout(Control parent, string title, int y, int width, bool expanded)
         {
-            var header = new RoundedPanel
+            var header = new Button
             {
+                Name = "pathAdvancedOptions",
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                BackColor = _softGreen,
-                BorderColor = Color.FromArgb(187, 247, 208),
-                CornerRadius = 8,
+                BackColor = _inputBackground,
                 Cursor = Cursors.Hand,
-                Location = new Point(0, y),
-                ShadowDepth = 1,
-                Size = new Size(width, 28)
-            };
-
-            var label = new Label
-            {
-                AutoSize = false,
-                Cursor = Cursors.Hand,
-                Dock = DockStyle.Left,
+                FlatStyle = FlatStyle.Flat,
                 Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold),
                 ForeColor = _textGreen,
+                Location = new Point(0, y),
                 Padding = new Padding(10, 0, 0, 0),
+                Size = new Size(width, 26),
                 Text = $"{(expanded ? "▼" : "▶")}  {title}",
-                TextAlign = ContentAlignment.MiddleLeft,
-                Width = 220
+                TextAlign = ContentAlignment.MiddleLeft
             };
+            header.FlatAppearance.BorderSize = 0;
 
             var content = new Panel
             {
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 BackColor = _pageBackground,
-                Location = new Point(0, y + 28),
+                Location = new Point(0, header.Bottom),
                 Size = new Size(width, 0),
                 Visible = expanded
             };
 
-            void ToggleFoldout()
+            header.Click += (_, _) =>
             {
                 expanded = !expanded;
                 content.Visible = expanded;
-                label.Text = $"{(expanded ? "▼" : "▶")}  {title}";
-            }
-
-            header.Click += (_, _) => ToggleFoldout();
-            label.Click += (_, _) => ToggleFoldout();
-
-            header.Controls.Add(label);
+                header.Text = $"{(expanded ? "▼" : "▶")}  {title}";
+            };
             parent.Controls.Add(header);
             parent.Controls.Add(content);
 

@@ -26,8 +26,8 @@ public partial class AccountSettingsForm
 
     private void OpenCleanupPathSettings(string pathTabName)
     {
-        settingsTabs.SelectedTab = settingsTabs.TabPages.Cast<TabPage>().Single(page => page.Text == "路径");
-        var pathTabs = (TabControl)Controls.Find("pathTabs", true).Single();
+        settingsTabs.SelectedTab = accountPathPage;
+        var pathTabs = accountPathTabs!;
         pathTabs.SelectedTab = pathTabs.TabPages.Cast<TabPage>().Single(page => page.Text == pathTabName);
     }
 

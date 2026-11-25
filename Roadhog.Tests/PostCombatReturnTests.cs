@@ -264,11 +264,12 @@ internal static partial class PostCombatReturnTests
                 using var form = Create();
                 form.ShowInTaskbar = false; form.StartPosition = FormStartPosition.Manual; form.Location = new(-20000, -20000);
                 form.Show(); Application.DoEvents();
+                ((Button)form.Controls.Find("hangupMoreCombat", true).Single()).PerformClick();
                 var check = Field<RoundedCheckBox>(form, "returnHomeAfterCombatCheckBox");
                 var distance = Field<RoundedTextBox>(form, "returnHomeAfterCombatDistanceTextBox");
                 Check(check.Visible && check.Text == "战斗结束回原点" && !check.Checked && distance.Text == "5" && !distance.Enabled,
                     "summary exposes one unchecked option and a five meter editor");
-                var mode = Field<RoundedComboBox>(form, "combatModeCombo");
+                var mode = Field<RoundedComboBox>(form, "mainModeCombo");
                 mode.SelectedIndex = 1; Application.DoEvents();
                 Check(!check.Visible && !distance.Visible, "path combat hides the stationary return option");
                 mode.SelectedIndex = 0; Application.DoEvents();

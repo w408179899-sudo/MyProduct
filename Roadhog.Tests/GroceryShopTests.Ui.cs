@@ -112,7 +112,15 @@ internal static partial class GroceryShopTests
                     "all three paths retain independent return scrolls");
                 api.InventoryItems = Array.Empty<InventoryItemSnapshot>(); Refresh();
                 Check(scroll.Items.Count == 0 && scroll.Text == names[3], "auction refresh retains selection when the bag is empty");
-                form.Close(); completion.SetResult();
+                form.AccountDraftChoiceForTesting = _ => DialogResult.Cancel;
+                form.Close();
+                Application.DoEvents();
+                Check(!form.IsDisposed, "cancel leaves unsaved account changes open for editing");
+                form.AccountDraftChoiceForTesting = _ => DialogResult.No;
+                form.Close();
+                Application.DoEvents();
+                Check(form.IsDisposed, "discard closes without saving the route selection draft");
+                completion.SetResult();
             }
             catch (Exception ex) { completion.SetException(ex); }
         });

@@ -60,6 +60,21 @@ internal static class AdvancedSkillUiTests
                 using (var monsters = (Form)Call("CreateAdvancedMonsterDialog", draft, AdvancedMonsterCategory.Elite)!)
                 {
                     Show(monsters);
+                    var heading = Find<Label>(monsters, "advancedMonsterResultsHeading");
+                    var refresh = Find<Button>(monsters, "advancedScanMonsters");
+                    var available = Find<ListBox>(monsters, "advancedAvailableMonsters");
+                    var initialSize = monsters.Size;
+                    foreach (var size in new[] { monsters.MinimumSize, initialSize + new Size(160, 80), initialSize })
+                    {
+                        monsters.Size = size;
+                        Application.DoEvents();
+                        Check(heading.Right < refresh.Left && refresh.Right == available.Right &&
+                            TextRenderer.MeasureText(heading.Text, heading.Font).Width <= heading.Width,
+                            "scan caption and button fit without covering each other");
+                        var buttonCenter = new Point(refresh.Left + refresh.Width / 2, refresh.Top + refresh.Height / 2);
+                        Check(ReferenceEquals(monsters.GetChildAtPoint(buttonCenter), refresh),
+                            "scan button receives clicks in its own bounds");
+                    }
                     var input = Find<RoundedTextBox>(monsters, "advancedManualMonsterName");
                     input.Text = "  手动精英  "; Find<Button>(monsters, "advancedAddManualMonster").PerformClick();
                     Check(draft.Elite.MonsterNames.SequenceEqual(new[] { "手动精英" }) && input.Text.Length == 0, "manual button adds and trims name");
@@ -67,10 +82,9 @@ internal static class AdvancedSkillUiTests
                     typeof(Control).GetMethod("OnKeyDown", BindingFlags.Instance | BindingFlags.NonPublic)!
                         .Invoke(input.Controls.OfType<TextBox>().Single(), new object[] { new KeyEventArgs(Keys.Enter) });
                     Check(draft.Elite.MonsterNames.Contains("回车怪物"), "Enter adds the manually typed name");
-                    var refresh = Find<Button>(monsters, "advancedScanMonsters"); refresh.PerformClick();
+                    refresh.PerformClick();
                     var deadline = DateTime.UtcNow.AddSeconds(3);
                     while (!refresh.Enabled && DateTime.UtcNow < deadline) { Application.DoEvents(); Thread.Sleep(5); }
-                    var available = Find<ListBox>(monsters, "advancedAvailableMonsters");
                     Check(refresh.Enabled && available.Items.Count == 1, "scan deduplicates same names and ignores players/dead monsters");
                     available.SelectedIndex = 0; Find<Button>(monsters, "advancedAddSelectedMonster").PerformClick();
                     Check(draft.Elite.MonsterNames.Contains("遍历怪物"), "scan selection shares the add path");

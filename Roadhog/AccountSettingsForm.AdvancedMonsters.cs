@@ -19,13 +19,20 @@ public sealed partial class AccountSettingsForm
         var token = lifetime.Token;
         dialog.FormClosed += (_, _) => lifetime.Cancel();
         dialog.Disposed += (_, _) => lifetime.Dispose();
-        AddLabel(dialog, "当前遍历结果（同名合并，可多选）", 16, 12, 320, 28, _textGreen, FontStyle.Bold);
-        var refresh = AddButton(dialog, "遍历怪物", 256, 10, 116, 30);
+        const int resultsLeft = 16;
+        const int resultsWidth = 356;
+        const int scanWidth = 116;
+        const int headerGap = 8;
+        var heading = AddLabel(dialog, "当前遍历结果（同名合并，可多选）",
+            resultsLeft, 12, resultsWidth - scanWidth - headerGap, 28, _textGreen, FontStyle.Bold);
+        heading.Name = "advancedMonsterResultsHeading";
+        heading.AutoEllipsis = true;
+        var refresh = AddButton(dialog, "遍历怪物", resultsLeft + resultsWidth - scanWidth, 10, scanWidth, 30);
         refresh.Name = "advancedScanMonsters";
         AddLabel(dialog, AdvancedCategoryName(category) + "名单", 484, 12, 350, 28, _textGreen, FontStyle.Bold);
         var available = new ListBox
         {
-            Name = "advancedAvailableMonsters", Bounds = new Rectangle(16, 49, 356, 304),
+            Name = "advancedAvailableMonsters", Bounds = new Rectangle(resultsLeft, 49, resultsWidth, 304),
             SelectionMode = SelectionMode.MultiExtended, IntegralHeight = false,
             ForeColor = _textGreen, BackColor = Color.White
         };

@@ -11,6 +11,7 @@ public partial class AccountSettingsForm
         if (bagCleanupTradeItemGrid?.IsCurrentCellInEditMode == true && !bagCleanupTradeItemGrid.EndEdit()) return;
         if (bagCleanupNameListMutationInFlight) { SetBagCleanupInventoryStatus("名单正在保存，请稍后测试。", true); return; }
         var items = BagCleanupTradeItemConfig.Normalize(bagCleanupAuctionHouseItemNames);
+        var originalText = button.Text;
         using var cancellation = new CancellationTokenSource(); _auctionTestCts = cancellation;
         button.Enabled = false; button.Text = "测试中...";
         SetBagCleanupInventoryStatus("测试拍卖行：验证流程和查价，不提交出售或领取金币。", false);
@@ -30,6 +31,6 @@ public partial class AccountSettingsForm
             if (!IsDisposed) SetBagCleanupInventoryStatus(result.Success ? result.Value! : "测试拍卖行失败：" + result.Error, !result.Success);
         }
         catch (Exception ex) { if (!IsDisposed) SetBagCleanupInventoryStatus("测试拍卖行失败：" + ex.Message, true); }
-        finally { _auctionTestCts = null; if (!button.IsDisposed) { button.Text = "测试拍卖行"; button.Enabled = true; } }
+        finally { _auctionTestCts = null; if (!button.IsDisposed) { button.Text = originalText; button.Enabled = true; } }
     }
 }

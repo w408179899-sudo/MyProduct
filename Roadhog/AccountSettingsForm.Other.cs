@@ -4,7 +4,7 @@ public sealed partial class AccountSettingsForm
 {
     private TabPage CreateOtherTab()
     {
-        var tab = CreateBaseTab("其他");
+        var tab = CreateBaseTab("更多");
         var page = CreatePagePanel();
         tab.Controls.Add(page);
 
@@ -20,6 +20,7 @@ public sealed partial class AccountSettingsForm
         otherTabs.DrawItem += GreenTabs_DrawItem;
         otherTabs.TabPages.Add(CreateEquipmentUpgradeTab());
         otherTabs.TabPages.Add(CreateManastoneExchangeTab());
+        otherTabs.TabPages.Add(CreateAccountOptionsTab());
         page.Controls.Add(otherTabs);
 
         return tab;
@@ -33,13 +34,13 @@ public sealed partial class AccountSettingsForm
         page.AutoScroll = true;
         _manastoneExchangeStart = AddButton(page, "兑换魔石", 12, 8, 110, 30);
         _manastoneExchangeStart.Click += async (_, _) => await StartManastoneExchangeAsync();
-        AddLabel(page, "靠近比洛加后点击兑换魔石，先按 F1，再按 F8 选择 NPC，按 C 对话。", 12, 46, 812, 24);
-        AddLabel(page, "魔石袋：生命力 +60、命中 +20、盾牌防御 +20，每种 10 个。", 12, 78, 812, 24);
-        AddLabel(page, "魔石包袱：精神力 +60、回避 +12、武器防御 +20，每种 10 个。", 12, 110, 812, 24);
-        AddLabel(page, "两项都缺料时批量开袋和包袱，再用掉落继续兑换。再次点击按钮可停止。", 12, 142, 812, 24);
-        _manastoneExchangeStatus = AddLabel(page, "等待开始。", 12, 176, 812, 56);
-        _manastoneExchangeStatus.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-        page.AutoScrollMinSize = new Size(836, 244);
+        AddLabel(page, "靠近比洛加后点击兑换魔石，先按 F1，再按 F8 选择 NPC，按 C 对话。", 12, 42, 812, 24);
+        AddLabel(page, "魔石袋：生命力 +60、命中 +20、盾牌防御 +20，每种 10 个。", 12, 66, 812, 24);
+        AddLabel(page, "魔石包袱：精神力 +60、回避 +12、武器防御 +20，每种 10 个。", 12, 90, 812, 24);
+        AddLabel(page, "两项都缺料时批量开袋和包袱，再用掉落继续兑换。再次点击按钮可停止。", 12, 114, 812, 24);
+        _manastoneExchangeStatus = AddLabel(page, "等待开始。", 132, 8, 692, 30);
+        _manastoneExchangeStatus.AutoEllipsis = true;
+        page.AutoScrollMinSize = new Size(836, 146);
         ConfigureWideSettingsPage(page, 836);
         return tab;
     }
