@@ -9,7 +9,7 @@ using Roadhog.Infrastructure.WorkerProcesses;
 namespace Roadhog.Infrastructure.Hardware;
 
 internal sealed record DeviceDiscoveryRequest(string Token, string VmmDeviceName, string ProcessName,
-    AccountKmBoxSettings? KmBox, string LeasePath);
+    AccountKmBoxSettings? KmBox, string LeasePath, string? DmaConnectivityKey = null);
 internal sealed record DeviceDiscoveryResponse(string Token, string VmmDeviceName, string? Role, string? Error);
 
 /// <summary>Every DMA read has a fresh native session. No input backend is constructed.</summary>
@@ -23,13 +23,16 @@ internal sealed class DeviceDiscoveryProcess(string directory, WorkerProcessLaun
     public async Task VerifyKmBoxAsync(AccountKmBoxSettings settings, CancellationToken token) =>
         _ = await RunAsync("", "", settings, token).ConfigureAwait(false);
 
+    public async Task VerifyDmaAsync(string hardwareKey, string vmmDeviceName, CancellationToken token) =>
+        _ = await RunAsync(vmmDeviceName, "", null, token, hardwareKey).ConfigureAwait(false);
+
     private async Task<DeviceDiscoveryResponse> RunAsync(string vmm, string processName,
-        AccountKmBoxSettings? kmBox, CancellationToken token)
+        AccountKmBoxSettings? kmBox, CancellationToken token, string? dmaConnectivityKey = null)
     {
         token.ThrowIfCancellationRequested();
         Directory.CreateDirectory(directory);
         var request = new DeviceDiscoveryRequest(Guid.NewGuid().ToString("N"), vmm, processName,
-            kmBox, launch.LeasePath ?? DeviceLeaseStore.DefaultPath);
+            kmBox, launch.LeasePath ?? DeviceLeaseStore.DefaultPath, dmaConnectivityKey);
         var path = Path.Combine(directory, request.Token + ".json");
         await File.WriteAllTextAsync(path, JsonSerializer.Serialize(request), token).ConfigureAwait(false);
         var start = new ProcessStartInfo(launch.ExecutablePath) { UseShellExecute = false, CreateNoWindow = true,
@@ -52,7 +55,7 @@ internal sealed class DeviceDiscoveryProcess(string directory, WorkerProcessLaun
             deadline.CancelAfter(launch.StartupTimeout);
             try { await child.WaitForExitAsync(deadline.Token).ConfigureAwait(false); }
             catch (OperationCanceledException) when (!token.IsCancellationRequested)
-            { throw new TimeoutException("探测超时，请确认角色已进入游戏"); }
+            { throw new TimeoutException(kmBox is null && dmaConnectivityKey is null ? "探测超时，请确认角色已进入游戏" : "联通测试超时"); }
             token.ThrowIfCancellationRequested();
             var result = JsonSerializer.Deserialize<DeviceDiscoveryResponse>(await File.ReadAllTextAsync(path + ".result", token).ConfigureAwait(false));
             if (result is null || result.Token != request.Token || result.VmmDeviceName != vmm)
@@ -115,18 +118,23 @@ internal sealed class DeviceDiscoveryProcess(string directory, WorkerProcessLaun
                 using var process = Process.GetCurrentProcess();
                 var lease = new DeviceLeaseStore(request.LeasePath).TryAcquire(process.Id,
                     new DateTimeOffset(process.StartTime.ToUniversalTime()), Path.GetDirectoryName(path)!,
-                    "discovery:" + request.VmmDeviceName, request.VmmDeviceName);
+                    request.DmaConnectivityKey ?? "discovery:" + request.VmmDeviceName, request.VmmDeviceName);
                 if (!lease.Success) throw new InvalidOperationException(lease.Conflict is not null ? "设备已被占用" : lease.Error);
                 var logger = new FileRoadhogLogger(Path.Combine(Path.GetDirectoryName(path)!, "logs"));
                 var provider = new AionVmmGameApi(new AionVmmGameApiOptions { DefaultProcessName = request.ProcessName,
                     DefaultVmmDeviceName = request.VmmDeviceName }, logger);
-                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(25));
-                var reader = new RoadhogSnapshotReaderFactory(provider).Create(new AccountConfig {
-                    AccountName = "device-discovery", ProcessId = 0, TargetProcessName = request.ProcessName,
-                    VmmDeviceName = request.VmmDeviceName }, logger, timeout.Token);
-                var player = (await reader.ReadPlayerAsync().ConfigureAwait(false)).Value;
-                if (player.EntityId == 0 || string.IsNullOrWhiteSpace(player.CharacterName)) throw new InvalidOperationException("未读到有效角色");
-                role = player.CharacterName;
+                if (request.DmaConnectivityKey is not null)
+                    provider.VerifyDeviceConnection(request.VmmDeviceName);
+                else
+                {
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(25));
+                    var reader = new RoadhogSnapshotReaderFactory(provider).Create(new AccountConfig {
+                        AccountName = "device-discovery", ProcessId = 0, TargetProcessName = request.ProcessName,
+                        VmmDeviceName = request.VmmDeviceName }, logger, timeout.Token);
+                    var player = (await reader.ReadPlayerAsync().ConfigureAwait(false)).Value;
+                    if (player.EntityId == 0 || string.IsNullOrWhiteSpace(player.CharacterName)) throw new InvalidOperationException("未读到有效角色");
+                    role = player.CharacterName;
+                }
                 // Keep the lease until the OS process is gone, including native cleanup.
             }
             response = new(request.Token, request.VmmDeviceName, role, null);

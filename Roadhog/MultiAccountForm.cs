@@ -618,12 +618,13 @@ public sealed partial class MultiAccountForm : Form
             { using var activation = new LicenseActivationForm(coordinator, state); activation.ShowDialog(owner); }
             if (!coordinator.IsAuthorized) throw new InvalidOperationException(LicenseUiText.Describe(coordinator.State));
         }, () => Infrastructure.Hardware.SavedHardwareBindingPolicy.ForEditor(_workspace.Hardware.ListDevices(), _accounts),
-            () => _workspace.HardwareAvailability(draft.InstanceId));
+            () => _workspace.HardwareAvailability(draft.InstanceId),
+            _workspace.TestDmaConnectionAsync, _workspace.TestKmBoxConnectionAsync);
         try
         {
             if (form.ShowDialog(this) != DialogResult.OK) return;
             var next = _accounts.Where(a => a.InstanceId != draft.InstanceId).Append(form.Config).ToList();
-            await _workspace.SaveAccountsAsync(next, _operations.Token); _accounts = next; Report("账号配置已保存。");
+            await _workspace.SaveHardwareDraftAsync(next, _operations.Token); _accounts = next; Report("账号配置已保存。");
             _discoveryMessages.Remove(draft.InstanceId);
         }
         finally { _workspace.Processes.UpdateAccounts(_accounts); RefreshRows(); }

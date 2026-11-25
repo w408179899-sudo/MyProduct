@@ -86,7 +86,13 @@ public sealed partial class MultiAccountWorkspace : IAsyncDisposable
         return accounts;
     }
 
-    public async Task SaveAccountsAsync(IReadOnlyList<AccountConfig> accounts, CancellationToken cancellationToken = default)
+    public Task SaveAccountsAsync(IReadOnlyList<AccountConfig> accounts, CancellationToken cancellationToken = default) =>
+        SaveAccountsAsync(accounts, checkHardwareAvailability: true, cancellationToken);
+
+    internal Task SaveHardwareDraftAsync(IReadOnlyList<AccountConfig> accounts, CancellationToken cancellationToken) =>
+        SaveAccountsAsync(accounts, checkHardwareAvailability: false, cancellationToken);
+
+    private async Task SaveAccountsAsync(IReadOnlyList<AccountConfig> accounts, bool checkHardwareAvailability, CancellationToken cancellationToken)
     {
         await _saveDisposeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -95,12 +101,12 @@ public sealed partial class MultiAccountWorkspace : IAsyncDisposable
             // Keep start admission closed through validation, disk persistence, and the manager update.
             // Otherwise a worker can start with the old binding after validation but before the new file is written.
             using var admission = await Processes.HoldStartAdmissionsAsync(cancellationToken).ConfigureAwait(false);
-            await SaveAccountsCoreAsync(accounts, cancellationToken).ConfigureAwait(false);
+            await SaveAccountsCoreAsync(accounts, cancellationToken, checkHardwareAvailability).ConfigureAwait(false);
         }
         finally { _saveDisposeGate.Release(); }
     }
 
-    private async Task SaveAccountsCoreAsync(IReadOnlyList<AccountConfig> accounts, CancellationToken cancellationToken)
+    private async Task SaveAccountsCoreAsync(IReadOnlyList<AccountConfig> accounts, CancellationToken cancellationToken, bool checkHardwareAvailability = true)
     {
         var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var credentials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -111,10 +117,13 @@ public sealed partial class MultiAccountWorkspace : IAsyncDisposable
         }
         // Stopped accounts may save overlapping selections while devices are reassigned one at a time.
         // Recheck new selections against live ownership; unchanged saved overlaps do not block settings saves.
-        var previous = Processes.Snapshot().ToDictionary(view => view.Config.InstanceId, view => view.Config, StringComparer.OrdinalIgnoreCase);
-        foreach (var account in accounts)
-            if (!previous.TryGetValue(account.InstanceId, out var old) || HardwareSelectionChanged(old, account))
-                HardwareAvailability(account.InstanceId).EnsureAvailable(account);
+        if (checkHardwareAvailability)
+        {
+            var previous = Processes.Snapshot().ToDictionary(view => view.Config.InstanceId, view => view.Config, StringComparer.OrdinalIgnoreCase);
+            foreach (var account in accounts)
+                if (!previous.TryGetValue(account.InstanceId, out var old) || HardwareSelectionChanged(old, account))
+                    HardwareAvailability(account.InstanceId).EnsureAvailable(account);
+        }
         Processes.ValidateAccountUpdate(accounts);
         await SharedCleanupMigration.MigrateAsync(Options.AccountConfigPath, accounts, Options.ProfileLibraryDirectory,
             Options.BagCleanupNameListPath, cancellationToken).ConfigureAwait(false);

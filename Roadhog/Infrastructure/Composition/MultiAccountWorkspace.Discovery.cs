@@ -9,6 +9,26 @@ public sealed partial class MultiAccountWorkspace
     internal IDeviceDiscoveryProbe DiscoveryProbe { get; set; }
     internal Func<IReadOnlyList<HardwareDeviceFeature>> DiscoveryDevices { get; set; }
 
+    internal Task TestDmaConnectionAsync(AccountConfig draft, CancellationToken token)
+    {
+        if (Options.UseMockGameApi || Options.UseToolTestBridge
+            || !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(Options.AionVmm.VmmRemoteEnvironmentVariable)))
+            throw new InvalidOperationException("此联通测试仅支持本地 DMA。");
+        if (string.IsNullOrWhiteSpace(draft.HardwareKey) || draft.HardwareKey.Trim().ToLowerInvariant() is "0" or "auto" or "automatic")
+            throw new InvalidOperationException("请选择 DMA 设备。");
+        HardwareAvailability(draft.InstanceId).EnsureAvailable(draft);
+        var online = DiscoveryDevices().Any(device =>
+            (device.BindingKey.Equals(draft.HardwareKey, StringComparison.OrdinalIgnoreCase) ||
+             device.AliasKeys.Contains(draft.HardwareKey, StringComparer.OrdinalIgnoreCase)) &&
+            (string.IsNullOrWhiteSpace(draft.HardwareDeviceInstanceId) ||
+             device.DeviceInstanceId.Equals(draft.HardwareDeviceInstanceId, StringComparison.OrdinalIgnoreCase)));
+        if (!online) throw new InvalidOperationException("所选 DMA 设备不在线。");
+        return DiscoveryProbe.VerifyDmaAsync(draft.HardwareKey, draft.VmmDeviceName, token);
+    }
+
+    internal Task TestKmBoxConnectionAsync(AccountKmBoxSettings settings, CancellationToken token) =>
+        DiscoveryProbe.VerifyKmBoxAsync(settings, token);
+
     internal async Task<DeviceDiscoveryResult> DiscoverDevicesAsync(CancellationToken token)
     {
         await _saveDisposeGate.WaitAsync(token).ConfigureAwait(false);

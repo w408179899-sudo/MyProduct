@@ -3893,6 +3893,14 @@ internal sealed partial class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogSc
                error.IndexOf("failed to read local entity id", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
+    internal void VerifyDeviceConnection(string deviceName)
+    {
+        LoadNativeLibrariesOnce();
+        using var vmm = new SafeMemProcVmm(["-device", deviceName]);
+        if (!vmm.GetProcessByName("System").IsValid)
+            throw new InvalidOperationException("DMA 已打开，但无法读取目标系统。");
+    }
+
     private void LoadNativeLibrariesOnce()
     {
         if (_nativeLibrariesLoaded)

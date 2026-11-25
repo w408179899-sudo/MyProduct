@@ -22,6 +22,8 @@ internal static class DeviceDiscoveryTests
         public Func<string, CancellationToken, Task<string>> Read = (v, _) => Task.FromResult("角色" + (1 - int.Parse(v[16..])));
         public Func<CancellationToken, Task> Handshake = _ => Task.CompletedTask;
         public Task<string> ReadRoleAsync(string v, string process, CancellationToken token) { Reads.Add(v); return Read(v, token); }
+        public Task VerifyDmaAsync(string hardwareKey, string vmmDeviceName, CancellationToken token) =>
+            throw new InvalidOperationException("automatic role discovery should not use connectivity-only probes");
         public Task VerifyKmBoxAsync(AccountKmBoxSettings s, CancellationToken token) { Handshakes++; return Handshake(token); }
     }
     private static Task<DeviceDiscoveryResult> Scan(Probe p, AccountConfig[] a, CancellationToken token = default,
@@ -239,6 +241,8 @@ internal static class DeviceDiscoveryTests
             "fixture-owned", "fpga://devindex=0").Success, "fixture owns DMA lease");
         try { await probe.ReadRoleAsync("fpga://devindex=0", "Aion.bin", default); throw new Exception("occupied DMA accepted"); }
         catch (InvalidOperationException ex) { Require(ex.Message.Contains("已被占用"), "production child refuses before constructing DMA provider"); }
+        try { await probe.VerifyDmaAsync("fixture-owned", "fpga://devindex=5", default); throw new Exception("occupied DMA accepted under a different index"); }
+        catch (InvalidOperationException ex) { Require(ex.Message.Contains("已被占用"), "connectivity-only probe checks the physical lease under a different index"); }
         Require(store.ReadActive().Value!.Single().ProcessId == current.Id, "probe cannot release someone else's lease");
     }
 

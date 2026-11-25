@@ -563,8 +563,12 @@ internal static partial class MultiAccountUiTests
         Pump((Task)Invoke(form, "VerifyAsync")!); Field<CheckBox>(form, "_confirm").Checked = true;
         Invoke(form, "Save");
         Require(form.Config.CharacterName == "新读取角色", "a confirmed fresh read updates the role even when hardware is unchanged");
-        using var changed = new AccountHardwareForm(account, new[] { device with { DeviceInstanceId = "replacement-device" } }, (_, _) => throw new InvalidOperationException());
-        RequireSaveRejected(changed, "replacement physical identity requires fresh verification even on same port and VMM");
+        using var changed = new AccountHardwareForm(account, new[] { device with { DeviceInstanceId = "replacement-device" } },
+            (_, _) => throw new InvalidOperationException(), refreshDevices: () => []);
+        Invoke(changed, "RefreshDevices");
+        Invoke(changed, "Save");
+        Require(changed.DialogResult == DialogResult.OK && changed.Config.HardwareDeviceInstanceId == "replacement-device" &&
+            !HardwareVerificationSession.IsCurrent(changed.Config), "the selected replacement persists as unverified even after it goes offline");
     });
 
     public static Task HardwareOccupiedChoicesAsync() => Sta(() =>
@@ -604,10 +608,9 @@ internal static partial class MultiAccountUiTests
         Pump((Task)Invoke(form, "VerifyAsync")!); Field<CheckBox>(form, "_confirm").Checked = true;
         Require(reads == 2, "own stopped binding remains available");
         leases = leases.Append(new DeviceLease(404, DateTimeOffset.UtcNow, "late", account.HardwareKey, account.VmmDeviceName, DateTimeOffset.UtcNow)).ToArray();
-        Invoke(form, "Save");
-        Require(form.DialogResult != DialogResult.OK && Field<Label>(form, "_result").Text.Contains("占用"), "new occupation after proof blocks save");
         Invoke(form, "RefreshDevices");
-        Require(dma.SelectedIndex == -1 && vmm.Text == "" && !Field<CheckBox>(form, "_confirm").Checked, "refresh clears occupied selections and old proof");
+        Require(dma.SelectedIndex == -1 && vmm.Text == account.VmmDeviceName && !Field<CheckBox>(form, "_confirm").Checked,
+            "refresh hides occupied choices and clears old proof while retaining the draft index");
         views = Array.Empty<AccountProcessView>(); leases = Array.Empty<DeviceLease>(); Invoke(form, "RefreshDevices");
         Require(dma.Items.Count == 6 && vmm.Items.Count == 6, "released devices and original indices return");
         leases = accounts.Select((a, i) => new DeviceLease(500 + i, DateTimeOffset.UtcNow, "all", a.HardwareKey, a.VmmDeviceName, DateTimeOffset.UtcNow)).ToArray();
@@ -629,18 +632,16 @@ internal static partial class MultiAccountUiTests
             return Task.FromResult(new HardwareVerification("Tone", draft.HardwareKey, draft.VmmDeviceName, true, HardwareVerificationSession.CurrentId));
         }, refreshDevices: () => online);
         Invoke(form, "RefreshDevices");
-        RequireSaveRejected(form, "refresh replacement requires verification");
+        Require(!Field<CheckBox>(form, "_confirm").Enabled, "refresh replacement clears previous confirmation");
         Field<ComboBox>(form, "_vmm").Text = "fpga://devindex=4";
         Pump((Task)Invoke(form, "VerifyAsync")!);
         Require(verified!.HardwareDeviceInstanceId == "new-instance" && verified.ProcessId == 0 && verified.VmmDeviceName == "fpga://devindex=4", "verification uses refreshed identity and customer selected index without old PID");
-        RequireSaveRejected(form, "new role still requires customer confirmation");
+        Require(!Field<CheckBox>(form, "_confirm").Checked, "a role read waits for customer confirmation");
         Field<CheckBox>(form, "_confirm").Checked = true;
         Invoke(form, "RefreshDevices");
         Require(!Field<CheckBox>(form, "_confirm").Checked, "refresh clears confirmation");
-        RequireSaveRejected(form, "refresh invalidates even a completed proof");
         online = Array.Empty<HardwareDeviceFeature>(); Invoke(form, "RefreshDevices");
         Require(Field<ComboBox>(form, "_device").SelectedIndex == -1, "disconnected device is deselected");
-        RequireSaveRejected(form, "disconnected device cannot be saved");
         online = new[] { replacement }; Invoke(form, "RefreshDevices");
         Pump((Task)Invoke(form, "VerifyAsync")!); Field<CheckBox>(form, "_confirm").Checked = true; Invoke(form, "Save");
         Require(form.Config.HardwareDeviceInstanceId == "new-instance" && form.Config.CharacterName == "Tone" && form.Config.VmmDeviceName == "fpga://devindex=4", "confirmed save replaces stale binding with tested customer selection");
@@ -654,10 +655,16 @@ internal static partial class MultiAccountUiTests
         account.HardwareVerificationSessionId = "previous-boot";
         using var form = new AccountHardwareForm(account, new[] { Device(account) }, (draft, _) =>
             Task.FromResult(new HardwareVerification(draft.CharacterName, draft.HardwareKey, draft.VmmDeviceName, true, HardwareVerificationSession.CurrentId)));
-        RequireSaveRejected(form, "unchanged hardware and known role cannot skip reboot verification");
+        using (var draft = new AccountHardwareForm(account, [], (_, _) => throw new InvalidOperationException()))
+        {
+            Invoke(draft, "Save");
+            Require(draft.DialogResult == DialogResult.OK && draft.Config.HardwareVerificationSessionId == "previous-boot" &&
+                draft.Config.HardwareKey == account.HardwareKey && draft.Config.VmmDeviceName == account.VmmDeviceName,
+                "an offline unchanged binding can be saved and remains due for reboot verification");
+        }
         Pump((Task)Invoke(form, "VerifyAsync")!);
-        RequireSaveRejected(form, "reading does not automatically confirm or save");
-        Require(form.Config.HardwareVerificationSessionId == "previous-boot", "rejected save retains previous boot session");
+        Require(!Field<CheckBox>(form, "_confirm").Checked && form.Config.HardwareVerificationSessionId == "previous-boot",
+            "reading does not automatically confirm or save");
         Field<CheckBox>(form, "_confirm").Checked = true; Invoke(form, "Save");
         Require(HardwareVerificationSession.IsCurrent(form.Config) && account.HardwareVerificationSessionId == "previous-boot", "confirmed save stamps this boot only on the accepted draft");
         var copy = System.Text.Json.JsonSerializer.Deserialize<AccountConfig>(System.Text.Json.JsonSerializer.Serialize(form.Config.Clone()))!;
@@ -672,28 +679,16 @@ internal static partial class MultiAccountUiTests
             Task.FromResult(new HardwareVerification("验证角色", draft.HardwareKey, draft.VmmDeviceName, true, HardwareVerificationSession.CurrentId)));
         var save = Field<Button>(form, "_save"); var confirm = Field<CheckBox>(form, "_confirm");
         Require(!confirm.Enabled, "unverified role cannot be confirmed");
-        RequireSaveRejected(form, "new hardware cannot be saved without a verified role");
         Pump((Task)Invoke(form, "VerifyAsync")!);
-        Require(confirm.Enabled, "verified role can be confirmed");
-        RequireSaveRejected(form, "verification requires explicit confirmation before save");
-        confirm.Checked = true; Require(save.Enabled, "confirmation enables save");
+        Require(confirm.Enabled && !confirm.Checked && save.Enabled, "the role can be confirmed independently of saving");
+        confirm.Checked = true;
         Field<TextBox>(form, "_ip").Text = "127.0.0.22";
         Require(!confirm.Enabled && !confirm.Checked, "changing an endpoint invalidates confirmation");
-        RequireSaveRejected(form, "changing an endpoint invalidates proof and confirmation");
         Pump((Task)Invoke(form, "VerifyAsync")!); confirm.Checked = true;
         Invoke(form, "Save");
-        Require(form.Config.CharacterName == "验证角色" && form.Config.KmBox!.IpAddress == "127.0.0.22", "only newly verified configuration is saved");
+        Require(form.Config.CharacterName == "验证角色" && form.Config.KmBox!.IpAddress == "127.0.0.22", "confirmed role and new endpoint are saved");
         Require(account.KmBox!.IpAddress == "127.0.0.1" && account.CharacterName.Length == 0, "dialog does not mutate original account before acceptance");
     });
-
-    private static void RequireSaveRejected(AccountHardwareForm form, string reason)
-    {
-        Require(Field<Button>(form, "_save").Enabled, "save stays clickable: " + reason);
-        Field<Label>(form, "_result").Text = string.Empty;
-        Invoke(form, "Save");
-        Require(form.DialogResult != DialogResult.OK && !form.IsDisposed &&
-            !string.IsNullOrWhiteSpace(Field<Label>(form, "_result").Text), reason);
-    }
 
     public static Task HardwareVerificationCancellationAsync() => Sta(() =>
     {
@@ -705,8 +700,6 @@ internal static partial class MultiAccountUiTests
         var verifying = (Task)Invoke(form, "VerifyAsync")!;
         var entered = Path.Combine(test.Workspace.Processes.PathsFor(account).LogDirectory, "init-entered");
         Until(() => File.Exists(entered), "verification created an isolated mock worker");
-        RequireSaveRejected(form, "busy verification cannot save or close the dialog");
-        Require(Field<Label>(form, "_result").Text.Contains("请等待"), "busy save explains that verification must finish");
         form.Close();
         Require(!form.IsDisposed, "dialog remains open while pending worker cancellation cleans up");
         Pump(verifying);

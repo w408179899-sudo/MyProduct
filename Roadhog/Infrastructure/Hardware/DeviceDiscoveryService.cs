@@ -6,6 +6,7 @@ namespace Roadhog.Infrastructure.Hardware;
 internal interface IDeviceDiscoveryProbe
 {
     Task<string> ReadRoleAsync(string vmmDeviceName, string processName, CancellationToken token);
+    Task VerifyDmaAsync(string hardwareKey, string vmmDeviceName, CancellationToken token);
     Task VerifyKmBoxAsync(AccountKmBoxSettings settings, CancellationToken token);
 }
 
