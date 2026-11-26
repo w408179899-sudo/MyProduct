@@ -62,7 +62,7 @@ public sealed partial class CleanupWorkflowRunner(IKeyboardInput input, ISharedP
                 await actions.Reset();
                 await new GroceryReturnSequence(input, groceryDelay, groceryClock).RunAsync(context, destination,
                     settings.Paths.StallReturnItemName, Report, "倒货回程", "item_transfer.return.retry", viaResetPoint: false,
-                    resume: request.ItemTransferReturn ??= new());
+                    resume: request.ItemTransferReturn ??= new(), refreshScrollHover: true);
                 request.ItemTransferReturn = null;
                 await Follow(settings.Paths.StallPathName);
                 await new ConfiguredPersonalShopSequence(input, groceryDelay).RunAsync(context.Snapshots, transferPlan, Report, token, viaResetPoint: false);

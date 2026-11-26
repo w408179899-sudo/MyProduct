@@ -1844,6 +1844,8 @@ tests = tests.Concat(new (string Name, Func<Task> Run)[]
     ,("cleanup workflow warehouse scroll interruption guards and automatic protection", GroceryShopTests.WarehouseReturnGuardsAsync)
     ,("cleanup workflow item transfer uses warehouse route and confirms fixed price sale", GroceryShopTests.ItemTransferAsync)
     ,("cleanup workflow item transfer resumes interrupted return after combat", GroceryShopTests.ItemTransferResumesAfterAttackAsync)
+    ,("cleanup workflow item transfer refreshes scroll hover before one click", GroceryShopTests.ItemTransferScrollHoverAsync)
+    ,("cleanup workflow item transfer uses latest departure position and guards scene changes", GroceryShopTests.ItemTransferScrollDepartureAsync)
     ,("cleanup workflow worker insertion stop and session isolation", CleanupWorkflowTests.WorkerSessionAsync)
     ,("cleanup workflow settings UI persistence and path editors", RunSerially(CleanupWorkflowTests.SettingsUiAsync))
     ,("cleanup workflow actual combat drain worker resume and stop", CleanupWorkflowTests.ActualWorkerAndCombatAsync)

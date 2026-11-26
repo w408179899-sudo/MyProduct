@@ -174,19 +174,35 @@ public sealed class TradingActions(IKeyboardInput input, IRoadhogSnapshotReader 
         await Key("I");
         await Wait(Bag, s => s.IsOpen);
     }
-    public async Task RightClickBag(InventoryItemSnapshot item, Func<Task<bool>> guard, bool viaResetPoint = true)
+    public async Task RightClickBag(InventoryItemSnapshot item, Func<Task<bool>> guard, bool viaResetPoint = true,
+        bool refreshScrollHover = false)
     {
         async Task<InventoryInteractionSnapshot> Bag() => (await snapshots.ReadInventoryInteractionAsync().WaitAsync(token)).Value;
         Require((await Bag()).IsOpen, "登记前背包未打开，请先准备背包窗口。");
         Require(await guard(), "登记前交易页面变化。");
         GameUiPoint? Locate(InventoryInteractionSnapshot s) => s.Items.SingleOrDefault(i => i.InstanceId == item.InstanceId && i.TemplateId == item.TemplateId && i.Quantity == item.Count)?.Point;
         var point = Locate(await Bag()) ?? throw new InvalidOperationException("目标物品不在可见背包中。");
+        var mover = new FeedbackMouseMover(input, snapshots, delay);
         if (viaResetPoint)
             await new InventoryItemMouseMover(input, snapshots, delay).MoveAsync(point, token,
                 async () => { await Alive(); Require(await guard(), "移动到物品前交易页面变化。"); });
         else
-            await new FeedbackMouseMover(input, snapshots, delay).MoveAsync(point, token);
-        await Wait(Bag, s => s.HoveredInstanceId == item.InstanceId);
+            await mover.MoveAsync(point, token);
+        if (refreshScrollHover && (await Bag()).HoveredInstanceId != item.InstanceId)
+        {
+            Require(await guard(), "刷新卷轴悬停前场景或背包状态变化。");
+            var cursor = (await snapshots.ReadUiCursorAsync().WaitAsync(token)).Value;
+            const int hoverExitDistance = 64;
+            var exitX = point.X + (point.X + hoverExitDistance < cursor.Width ? hoverExitDistance : -hoverExitDistance);
+            await mover.MoveAsync(new(exitX, point.Y), token);
+            Require(await guard(), "移回卷轴前场景或背包状态变化。");
+            var bag = await Bag();
+            Require(bag.IsOpen && Locate(bag) == point, "刷新悬停时卷轴位置变化，尚未右键。");
+            await mover.MoveAsync(point, token);
+        }
+        try { await Wait(Bag, s => s.HoveredInstanceId == item.InstanceId); }
+        catch (ConfirmationTimeoutException) when (refreshScrollHover)
+        { throw new ClickNotSentException("卷轴悬停未确认，尚未右键。"); }
         Require(await guard(), "登记前交易页面变化。");
         async Task<InventoryInteractionSnapshot> GuardedBag()
         {

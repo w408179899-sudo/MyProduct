@@ -34,7 +34,8 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
         RunAsync(context, destination, itemName, report, tripName, retryEventName, viaResetPoint, resume: null, merchantServerObjectId);
 
     internal async Task RunAsync(AccountWorkerContext context, SharedPathDocument destination, string itemName, Action<string> report,
-        string tripName, string retryEventName, bool viaResetPoint, CombatResume? resume, uint? merchantServerObjectId = null)
+        string tripName, string retryEventName, bool viaResetPoint, CombatResume? resume, uint? merchantServerObjectId = null,
+        bool refreshScrollHover = false)
     {
         var token = context.StopToken;
         var actions = new TradingActions(input, context.Snapshots, token, delay);
@@ -44,34 +45,37 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
         async Task<InventoryInteractionSnapshot> Bag() => (await context.Snapshots.ReadInventoryInteractionAsync().WaitAsync(token)).Value;
         var pending = resume?.Pending;
         var departure = pending?.Transition.Departure ?? await Scene();
-        Require(departure.IsReady && !departure.Player!.IsDead, tripName + "前角色尚未就绪。");
+        Require(departure.IsReady && departure.Player!.IsAlive, tripName + "前角色尚未就绪。");
         Require(destination.MapId is > 0 && destination.PointCount > 0, tripName + "路径需要录制地图及入口坐标。");
         var transition = pending?.Transition ?? new TownReturnTransition();
-        if (pending is null) transition.Start(departure, destination, Now());
+        var lastCheckedScene = departure;
         var clicks = pending?.Clicks ?? 0;
         var clickedAt = pending?.ClickedAt ?? default;
         async Task<bool> BeforeClick()
         {
             var scene = await Scene();
             if (scene.IsReady && scene.Player!.IsDead) throw new CleanupDeathInterruptionException();
-            var observed = transition.Observe(scene);
-            if (observed != TownReturnPhase.WaitingForDeparture)
+            // Only an already submitted cast can transition while preparing another click.
+            var previousCastAdvanced = clicks > 0 && transition.Observe(scene) != TownReturnPhase.WaitingForDeparture;
+            var sameScene = scene.IsReady && scene.Player!.IsAlive && scene.Channel!.MapId == departure.Channel!.MapId &&
+                scene.Channel.Index == departure.Channel.Index &&
+                scene.Player.CharacterName == departure.Player!.CharacterName && scene.Player.EntityId == departure.Player.EntityId;
+            if (previousCastAdvanced || !sameScene)
             {
                 context.Logger.Warn("grocery_shop.return.before_click_scene_changed", new Dictionary<string, object?>
-                { ["account"] = context.Config.AccountName, ["phase"] = observed.ToString(), ["position"] = scene.Player?.Position,
-                    ["departure"] = departure.Player?.Position, ["mapId"] = scene.Channel?.MapId, ["ready"] = scene.IsReady });
-                return false;
+                { ["account"] = context.Config.AccountName, ["phase"] = transition.Phase.ToString(), ["position"] = scene.Player?.Position,
+                    ["departure"] = departure.Player?.Position, ["mapId"] = scene.Channel?.MapId, ["ready"] = scene.IsReady,
+                    ["clicks"] = clicks });
+                if (previousCastAdvanced) return false;
+                throw new InvalidOperationException("使用卷轴前角色场景改变。");
             }
-            Require(scene.IsReady && !scene.Player!.IsDead && scene.Channel!.MapId == departure.Channel!.MapId &&
-                scene.Channel.Index == departure.Channel.Index &&
-                scene.Player!.CharacterName == departure.Player!.CharacterName && scene.Player.EntityId == departure.Player.EntityId,
-                "使用卷轴前角色场景改变。");
             await CheckAttack(scene);
             var ui = await Bag();
             var idle = !ui.ShopIsOpen && !ui.IsSelling && ui.DiscardDialog == null && !ui.OtherModalOpen;
             if (!idle) context.Logger.Warn("grocery_shop.return.before_click_ui_changed", new Dictionary<string, object?>
             { ["account"] = context.Config.AccountName, ["shopOpen"] = ui.ShopIsOpen, ["selling"] = ui.IsSelling,
                 ["discardDialog"] = ui.DiscardDialog != null, ["otherModal"] = ui.OtherModalOpen });
+            if (idle && clicks == 0) lastCheckedScene = scene;
             return idle;
         }
         uint? hp = pending is null ? departure.Player!.CurrentHp : null;
@@ -111,10 +115,13 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
                     await actions.Key("I");
                     await actions.Wait(Bag, s => s.IsOpen && !s.OtherModalOpen);
                 }
-                report("使用回程卷轴：" + item.Name + "，等待读条和落点确认");
-                await actions.RightClickBag(item, BeforeClick, viaResetPoint);
+                report("准备右键回程卷轴：" + item.Name);
+                await actions.RightClickBag(item, BeforeClick, viaResetPoint, refreshScrollHover);
                 clickedAt = Now();
+                departure = lastCheckedScene;
+                transition.Start(departure, destination, clickedAt);
                 clicks = 1;
+                report("回程卷轴已右键，等待读条和落点确认");
             }
             var tripStartedAt = pending is null ? clickedAt : Now();
             while (true)
@@ -174,7 +181,7 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
                             }
                             report($"回程尚未出发，重新右键卷轴（{clicks + 1}/{MaxScrollClicks}）");
                             // Recheck the transition immediately before the input, including delayed loading.
-                            try { await actions.RightClickBag(item, BeforeClick, viaResetPoint); }
+                            try { await actions.RightClickBag(item, BeforeClick, viaResetPoint, refreshScrollHover); }
                             catch (InvalidOperationException) when (transition.Phase is TownReturnPhase.Loading or TownReturnPhase.WaitingForDestination or TownReturnPhase.Arrived)
                             { continue; }
                             clicks++;
