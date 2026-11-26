@@ -55,8 +55,8 @@ public sealed partial class StationaryCombatController
             if (expectedMapId.HasValue && scene.Channel!.MapId != expectedMapId.Value) return;
             context.StopToken.ThrowIfCancellationRequested();
 
-            var transition = new TownReturnTransition();
-            transition.Start(scene, route, DateTimeOffset.UtcNow);
+            var transition = await TownReturnTransition.StartRevivePathAsync(
+                context, scene, route, key, DateTimeOffset.UtcNow).ConfigureAwait(false);
             var points = route.Points.Select(point => point.ToVector3()).ToArray();
             state.NoKillRecovery.Postpone(DateTimeOffset.Now, TimeSpan.FromSeconds(30));
             state.ClearPostCombatReturn();

@@ -50,8 +50,8 @@ public sealed partial class StationaryCombatController
             }
 
             var revivePoints = points.Select(point => point.ToVector3()).ToArray();
-            var transition = new TownReturnTransition();
-            transition.Start(departure, pathResult.Value, _townReturnTime.GetUtcNow());
+            var transition = await TownReturnTransition.StartRevivePathAsync(
+                context, departure, pathResult.Value, key, _townReturnTime.GetUtcNow()).ConfigureAwait(false);
             context.StopToken.ThrowIfCancellationRequested();
             // Reserve the one-shot action and transition before submitting input.
             startup.Handled = true;

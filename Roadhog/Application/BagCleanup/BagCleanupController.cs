@@ -1320,8 +1320,6 @@ public sealed partial class BagCleanupController
         }
         if (string.IsNullOrWhiteSpace(key))
             return FallbackToReversePathAfterTownReturnFailure(context, state, "return_to_revive_key_missing", "Town return key is not configured.");
-        var transition = new TownReturnTransition();
-        transition.Start(departure, destination.Value, DateTimeOffset.UtcNow);
         foreach (var movementKey in new[] { "W", "A", "S", "D" })
         {
             var release = await _input.KeyUpAsync(movementKey, context.StopToken).ConfigureAwait(false);
@@ -1331,6 +1329,8 @@ public sealed partial class BagCleanupController
         if (!releaseMouse.Success) throw new InvalidOperationException("回城前释放鼠标右键失败：" + releaseMouse.Error);
         var startPosition = departure.Player!.Position!.Value;
 
+        var transition = await TownReturnTransition.StartRevivePathAsync(
+            context, departure, destination.Value, key, DateTimeOffset.UtcNow).ConfigureAwait(false);
         var press = await _input.PressKeyAsync(key, TownReturnHoldDuration, context.StopToken).ConfigureAwait(false);
         if (!press.Success)
         {

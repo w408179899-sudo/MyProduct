@@ -1654,8 +1654,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                     state.RetryStartupRecovery();
                     return IdleDelay;
                 }
-                var transition = new TownReturnTransition();
-                transition.Start(departure, pathResult.Value, _townReturnTime.GetUtcNow());
+                var transition = await TownReturnTransition.StartRevivePathAsync(
+                    context, departure, pathResult.Value, key, _townReturnTime.GetUtcNow()).ConfigureAwait(false);
                 var press = await _input
                     .PressKeyAsync(key, StartupTownReturnHoldDuration, context.StopToken)
                     .ConfigureAwait(false);
@@ -3789,8 +3789,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             await PrepareForTownReturnAsync(context, semiAutoState, state).ConfigureAwait(false);
             var departure = (await context.Snapshots.ReadChannelTransitionAsync().WaitAsync(context.StopToken).ConfigureAwait(false)).Value;
             if (!departure.IsReady || !departure.Player!.IsAlive) return IdleDelay;
-            var transition = new TownReturnTransition();
-            transition.Start(departure, pathResult.Value, _townReturnTime.GetUtcNow());
+            var transition = await TownReturnTransition.StartRevivePathAsync(
+                context, departure, pathResult.Value, key, _townReturnTime.GetUtcNow()).ConfigureAwait(false);
             var press = await _input
                 .PressKeyAsync(key, NoKillTownReturnHoldDuration, context.StopToken)
                 .ConfigureAwait(false);
