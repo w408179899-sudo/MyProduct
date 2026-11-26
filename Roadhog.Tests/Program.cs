@@ -1216,7 +1216,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("file logging settings preserve defaults and persisted state", FileLoggingSettingsTests.DefaultsAndPersistenceAsync),
     ("file logging settings stop resume and isolate file writes", FileLoggingSettingsTests.FileWritesAndIsolationAsync),
     ("file logging settings apply before startup logs and through runtime", FileLoggingSettingsTests.StartupAndRuntimeAsync),
-    ("file logging settings summary checkbox saves and applies", RunSerially(FileLoggingSettingsTests.SummaryUiAsync)),
+    ("file logging settings account options checkbox saves and applies", RunSerially(FileLoggingSettingsTests.AccountOptionsUiAsync)),
     ("file logger rotates when max size is reached", TestFileLoggerRotatesWhenMaxSizeIsReachedAsync),
     ("file logger deletes expired log files", TestFileLoggerDeletesExpiredLogFilesAsync),
     ("file logger samples noisy vmm reads", TestFileLoggerSamplesNoisyVmmReadsAsync),
@@ -29107,7 +29107,7 @@ static async Task TestSpiritmasterPetBuffSuppressesRepeatedUnknownCooldownAsync(
         SummonedPetRoster = CreateLocalPetRoster(isSummoned: true),
         Skills = CreateSpiritmasterSkillSnapshots(
             new SkillSnapshot(1600, "Normal Skill", 1, 1, "Normal Skill", 1, false, 1_000, 0),
-            new SkillSnapshot(1662, "Pet Buff", 1, 1, "Pet Buff", 1, false, 30_000, StaleCooldownEnd()))
+            new SkillSnapshot(1662, "Pet Buff", 1, 1, "Pet Buff", 1, false, 30_000, StaleUncalibratedCooldownEnd()))
     };
     var controller = new SemiAutoCombatController(keyboard);
     var state = new SemiAutoCombatState();
@@ -29421,7 +29421,7 @@ static Task TestObservedConfiguredCooldownAdvanceCalibratesClockAsync()
 static Task TestLargeCooldownOffsetJumpIsRejectedAsync()
 {
     var state = new SemiAutoCombatState();
-    var osTick = unchecked((uint)Environment.TickCount64);
+    const uint osTick = 1_000_000;
     var now = DateTimeOffset.Now;
 
     var markerBefore = new SkillSnapshot(
@@ -29434,7 +29434,7 @@ static Task TestLargeCooldownOffsetJumpIsRejectedAsync()
         false,
         1_000,
         0);
-    var markerAfter = markerBefore with { CooldownEndTime = unchecked(osTick + 1_000u) };
+    var markerAfter = markerBefore with { CooldownEndTime = osTick + 1_000u };
 
     state.MarkSkillPressed(markerBefore, now.AddSeconds(-1));
     var initialUpdated = state.TryUpdateCooldownTickCalibration(
@@ -29458,10 +29458,10 @@ static Task TestLargeCooldownOffsetJumpIsRejectedAsync()
         1,
         false,
         10_000,
-        unchecked(osTick - 20_000u));
+        osTick - 20_000u);
     state.MarkSkillPressed(delayedBefore, now.AddSeconds(5), retryKey: "D1");
 
-    var delayedAfter = delayedBefore with { CooldownEndTime = unchecked(osTick - 19_000u) };
+    var delayedAfter = delayedBefore with { CooldownEndTime = osTick - 19_000u };
     var rejectedUpdate = state.TryUpdateCooldownTickCalibration(
         new[] { delayedAfter },
         osTick,
@@ -29477,9 +29477,10 @@ static Task TestLargeCooldownOffsetJumpIsRejectedAsync()
     AssertEqual(-29_000, rejection.Value.NewOffsetMs, "rejected calibration candidate offset");
     AssertEqual(29_000, rejection.Value.DeltaMs, "rejected calibration offset delta");
     AssertFalse(state.HasPressedSkillCooldownRetryKey(), "rejected calibration should clear pending cooldown retry");
-    AssertEqual(
-        SemiAutoSkillCooldownReadiness.Ready,
-        SemiAutoSkillReleasePriority.GetActionCooldownReadiness(delayedAfter, state),
+    var gameTick = state.EstimateGameTick(osTick);
+    var readyToleranceMs = SemiAutoSkillReleasePriority.CooldownReadyToleranceMs;
+    var effectiveEnd = state.GetEffectiveCooldownEndTime(delayedAfter, gameTick, readyToleranceMs);
+    AssertFalse(effectiveEnd != 0 && unchecked((int)(effectiveEnd - gameTick)) > readyToleranceMs,
         "rejected stale cooldown should not block a ready skill");
     return Task.CompletedTask;
 }
@@ -29802,7 +29803,7 @@ static async Task TestStaleOpeningSkillCooldownIsReadyBeforeCalibrationAsync()
         TargetOwnServerObjectId = 5000,
         Skills = new[]
         {
-            new SkillSnapshot(999, "Opening Skill", 1, 1, "Opening Skill", 1, false, 120_000, StaleCooldownEnd())
+            new SkillSnapshot(999, "Opening Skill", 1, 1, "Opening Skill", 1, false, 120_000, StaleUncalibratedCooldownEnd())
         }
     };
     var controller = new SemiAutoCombatController(keyboard);
@@ -30816,7 +30817,7 @@ static async Task TestMaintenanceSelectedCoolingSkillSkipsKeyAsync()
         Player = new PlayerSnapshot(1, 100, "Fake", 40, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
         Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
         {
-            [1] = CooldownEndIn(30_000),
+            [1] = unchecked((uint)Environment.TickCount64 + 30_000u),
             [5] = 0,
             [6] = 0
         })
@@ -32807,45 +32808,18 @@ static uint NormalizeCooldownEnd(uint cooldownEnd)
 
 static uint ActiveCooldownEnd()
 {
-    return unchecked((uint)Environment.TickCount64 + 1_000u);
+    return CooldownEndIn(1_000);
 }
 
 static uint CooldownEndIn(int remainingMs)
 {
-    return unchecked((uint)Environment.TickCount64 + (uint)Math.Max(0, remainingMs));
+    return unchecked(TestCooldownClock.CurrentTick + (uint)Math.Max(0, remainingMs));
 }
 
-static uint StaleCooldownEnd()
-{
-    var now = unchecked((uint)Environment.TickCount64);
-    return now > 60_000u ? now - 60_000u : 1u;
-}
+// Before calibration, readiness compares the end tick directly against the host's tick.
+static uint StaleUncalibratedCooldownEnd() => unchecked((uint)Environment.TickCount64 - 60_000u);
 
-static void CalibrateCooldownClock(SemiAutoCombatState state)
-{
-    var osTick = unchecked((uint)Environment.TickCount64);
-    var before = new SkillSnapshot(
-        900001,
-        "calibration-marker",
-        1,
-        1,
-        "calibration-marker",
-        1,
-        false,
-        1_000,
-        0);
-    var after = before with { CooldownEndTime = unchecked(osTick + 1_000u) };
-
-    state.MarkSkillPressed(before, DateTimeOffset.Now.AddSeconds(1));
-    if (!state.TryUpdateCooldownTickCalibration(
-            new[] { after },
-            osTick,
-            DateTimeOffset.Now,
-            out _))
-    {
-        throw new InvalidOperationException("failed to calibrate test cooldown clock");
-    }
-}
+static void CalibrateCooldownClock(SemiAutoCombatState state) => TestCooldownClock.Calibrate(state);
 
 static IEnumerable<SemiAutoSkillNode> Flatten(IEnumerable<SemiAutoSkillNode> roots)
 {

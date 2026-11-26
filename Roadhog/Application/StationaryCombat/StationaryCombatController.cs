@@ -1105,7 +1105,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         while (state.DeathRecovery.RevivePathPointIndex >= 0 &&
                state.DeathRecovery.RevivePathPointIndex < state.DeathRecovery.RevivePathPoints.Count)
         {
-            revivePose ??= await context.Snapshots.ReadRevivePathPoseAsync(context.StopToken).ConfigureAwait(false);
+            revivePose ??= (await context.Snapshots.ReadRevivePathPoseAsync(context.StopToken).ConfigureAwait(false)).Value;
             var position = revivePose.Value.Position!.Value;
             var point = state.DeathRecovery.RevivePathPoints[state.DeathRecovery.RevivePathPointIndex];
             var distance = StationaryCombatTargetSelector.HorizontalDistance(position, point);
@@ -11394,7 +11394,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             try
             {
                 var pose = poller.ReviveReturn
-                    ? await context.Snapshots.ReadRevivePathPoseAsync(stop).ConfigureAwait(false)
+                    ? (await context.Snapshots.ReadRevivePathPoseAsync(stop).ConfigureAwait(false)).Value
                     : PathFollowPose.FromPlayer(await ReadPlayerForActionAsync(context).ConfigureAwait(false));
                 long arrivalVersion;
                 bool arrived;

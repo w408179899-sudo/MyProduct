@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json;
+using System.Windows.Forms;
 using Roadhog;
 using Roadhog.Application;
 using Roadhog.Core.Accounts;
@@ -116,7 +117,7 @@ internal static class FileLoggingSettingsTests
         return Task.CompletedTask;
     }
 
-    public static Task SummaryUiAsync()
+    public static Task AccountOptionsUiAsync()
     {
         Exception? failure = null;
         var thread = new Thread(() =>
@@ -130,7 +131,8 @@ internal static class FileLoggingSettingsTests
                 var runtime = new RoadhogRuntime(new FakeGameApi(), logger, new AccountRuntimeManager(logger), null!);
                 using var form = CreateForm();
                 var checkbox = Checkbox(form);
-                Require(checkbox.Checked && checkbox.Text == "生成日志文件", "summary checkbox must be checked by default");
+                Require(checkbox.Text == "生成本账号日志文件", "logging label must identify the current account");
+                Require(checkbox.Checked, "summary checkbox must be checked by default");
                 Require(checkbox.Bottom <= checkbox.Parent!.ClientSize.Height, "checkbox must fit in its section");
                 logger.Info("before.save");
                 var before = Snapshot(Path.Combine(root, "logs"));
@@ -153,8 +155,13 @@ internal static class FileLoggingSettingsTests
                 reopened.StartPosition = System.Windows.Forms.FormStartPosition.Manual;
                 reopened.Location = new System.Drawing.Point(-20000, -20000);
                 reopened.Show();
+                var tabs = (TabControl)typeof(AccountSettingsForm).GetField("settingsTabs", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(reopened)!;
+                var moreTab = tabs.TabPages.Cast<TabPage>().Single(tab => tab.Text == "更多");
+                tabs.SelectedTab = moreTab;
+                var moreTabs = (TabControl)moreTab.Controls.Find("otherTabs", true).Single();
+                moreTabs.SelectedTab = moreTabs.TabPages.Cast<TabPage>().Single(tab => tab.Text == "账号选项");
                 System.Windows.Forms.Application.DoEvents();
-                Require(Checkbox(reopened).Visible, "logging checkbox must be visible on the summary page");
+                Require(Checkbox(reopened).Visible, "logging checkbox must be visible on the account options page");
                 using var bitmap = new System.Drawing.Bitmap(reopened.Width, reopened.Height);
                 reopened.DrawToBitmap(bitmap, new System.Drawing.Rectangle(System.Drawing.Point.Empty, reopened.Size));
                 var preview = Environment.GetEnvironmentVariable("ROADHOG_LOGGING_PREVIEW_PATH");

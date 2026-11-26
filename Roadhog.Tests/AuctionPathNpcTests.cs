@@ -34,6 +34,7 @@ internal static partial class CleanupWorkflowTests
                 var configs = new InMemoryAccountConfigStore(config);
                 var runtime = new RoadhogRuntime(new FakeGameApi(), logger, new AccountRuntimeManager(logger), null!, configs);
                 using var form = new AccountSettingsForm(config.AccountName, runtime, configs, paths, new InMemoryScriptProfileStore(), new RecordingFolderLauncher(), "paths");
+                form.AccountDraftChoiceForTesting = _ => System.Windows.Forms.DialogResult.No;
                 object Field(string name) => typeof(AccountSettingsForm).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form)!;
                 object? Call(string name, params object?[] args) => typeof(AccountSettingsForm).GetMethod(name, BindingFlags.Instance | BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(form, args);
                 var editors = (IDictionary)Field("pathEditors");
@@ -77,7 +78,10 @@ internal static partial class CleanupWorkflowTests
                 using var bitmap = new System.Drawing.Bitmap(form.Width, form.Height);
                 form.DrawToBitmap(bitmap, new(System.Drawing.Point.Empty, form.Size));
                 Directory.CreateDirectory(".tmp"); bitmap.Save(".tmp/auction-path-npc-ui.png");
-                form.Close(); completion.SetResult();
+                form.Close();
+                System.Windows.Forms.Application.DoEvents();
+                Require(form.IsDisposed, "closing the test form discards unsaved account selections");
+                completion.SetResult();
             }
             catch (Exception error) { completion.SetException(error); }
         });

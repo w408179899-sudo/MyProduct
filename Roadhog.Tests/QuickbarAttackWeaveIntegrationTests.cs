@@ -434,7 +434,7 @@ internal static class QuickbarAttackWeaveIntegrationTests
         public void Confirm(uint id, bool publishRelease = false)
         {
             Api.Skills = Api.Skills.Select(skill => skill.SkillId == id
-                ? skill with { CooldownEndTime = unchecked((uint)Environment.TickCount64 + 10000u) }
+                ? skill with { CooldownEndTime = unchecked(TestCooldownClock.CurrentTick + 10000u) }
                 : skill).ToArray();
             if (publishRelease) Api.SkillAvailability = Api.SkillAvailability with
             {

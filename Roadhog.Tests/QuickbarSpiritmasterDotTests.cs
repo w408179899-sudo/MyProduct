@@ -492,7 +492,7 @@ internal static class QuickbarSpiritmasterDotTests
         public void Confirm(uint id)
         {
             Api.Skills = Api.Skills.Select(skill => skill.SkillId == id
-                ? skill with { CooldownEndTime = unchecked((uint)Environment.TickCount64 + 10000u) }
+                ? skill with { CooldownEndTime = unchecked(TestCooldownClock.CurrentTick + 10000u) }
                 : skill).ToArray();
             Api.SkillAvailability = Api.SkillAvailability with { LastReleasedSkillId = id, LastReleasedSkillTime = ++releaseTime };
         }

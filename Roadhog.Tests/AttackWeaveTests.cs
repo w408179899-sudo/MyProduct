@@ -838,7 +838,7 @@ internal static class AttackWeaveTests
         public Task<TimeSpan> Tick() => Controller.TickAsync(Context, Plan, State);
 
         public void Confirm(uint id) => Api.Skills = Api.Skills.Select(skill => skill.SkillId == id
-            ? skill with { CooldownEndTime = unchecked((uint)Environment.TickCount64 + 5000u) } : skill).ToArray();
+            ? skill with { CooldownEndTime = unchecked(TestCooldownClock.CurrentTick + 5000u) } : skill).ToArray();
 
         public string LastSkill() => Logger.Entries.Last(entry => entry.EventName == "semi_auto.key.pressed").Fields["skill"]!.ToString()!;
 

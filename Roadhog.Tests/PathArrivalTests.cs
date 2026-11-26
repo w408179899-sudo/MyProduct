@@ -265,8 +265,8 @@ internal static class PathArrivalTests
         {
             if (method!.Name == nameof(IRoadhogSnapshotReader.ReadRevivePathPoseAsync))
             {
-                Interlocked.Increment(ref RevivePoseReads);
-                if (RevivePose is not null) return Task.FromResult(RevivePose());
+                var version = Interlocked.Increment(ref RevivePoseReads);
+                if (RevivePose is not null) return Task.FromResult(new PublishedGameSnapshot<PathFollowPose>(version, RevivePose()));
             }
             if (method.Name == nameof(IRoadhogSnapshotReader.ReadPlayerAsync) &&
                 Interlocked.Decrement(ref Remaining) >= 0)

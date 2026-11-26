@@ -104,14 +104,9 @@ internal static class CoordinatedStationaryRecoveryTests
             f.Api.InventoryItems = new[] { new InventoryItemSnapshot(1, 1, "高级精神恢复剂", 10, 0, false, 17) };
             var heal = new SkillSnapshot(7000, "heal", 1, 1, "heal", 1, false, 1000, 0);
             f.Api.Skills = new[] { heal };
-            var marker = heal with { SkillId = 900001, Name = "calibration-marker" };
-            var tick = unchecked((uint)Environment.TickCount64);
-            f.SemiAuto.MarkSkillPressed(marker, DateTimeOffset.Now.AddSeconds(1));
-            Check(f.SemiAuto.TryUpdateCooldownTickCalibration(
-                    new[] { marker with { CooldownEndTime = unchecked(tick + 1000u) } }, tick, DateTimeOffset.Now, out _),
-                "fixture calibrates recovery skill readiness");
+            TestCooldownClock.Calibrate(f.SemiAuto);
             f.Input.AfterPress = _ => f.Api.Skills = new[]
-                { heal with { CooldownEndTime = unchecked((uint)Environment.TickCount64 + 1000u) } };
+                { heal with { CooldownEndTime = unchecked(TestCooldownClock.CurrentTick + 1000u) } };
             await f.TickAsync();
             Check(f.Input.Keys.SequenceEqual(new[] { "D8" }),
                 $"lowMp={lowMp}: defense preserves recovery; keys={string.Join(",", f.Input.Keys)}; events={string.Join(",", f.Logger.Entries.Select(e => e.EventName))}");

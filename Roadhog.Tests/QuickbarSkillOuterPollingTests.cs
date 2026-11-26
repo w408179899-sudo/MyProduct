@@ -90,7 +90,7 @@ internal static class QuickbarSkillOuterPollingTests
             {
                 fixture.Api.Player = fixture.Api.Player with { CurrentHp = 100 };
                 fixture.Api.Skills = fixture.Api.Skills.Select(skill => skill.SkillId == 901
-                    ? skill with { CooldownEndTime = unchecked((uint)Environment.TickCount64 + 30000u) }
+                    ? skill with { CooldownEndTime = unchecked(TestCooldownClock.CurrentTick + 30000u) }
                     : skill).ToArray();
             }
         };

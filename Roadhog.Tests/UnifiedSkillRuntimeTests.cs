@@ -434,14 +434,7 @@ internal static class UnifiedSkillRuntimeTests
         entry.EventName == "semi_auto.cooldown.calibration_invalidated" &&
         (!skillId.HasValue || Convert.ToUInt32(entry.Fields.GetValueOrDefault("skillId")) == skillId));
 
-    private static void CalibrateClock(SemiAutoCombatState state)
-    {
-        var osTick = unchecked((uint)Environment.TickCount64);
-        var marker = new SkillSnapshot(900001, "clock-marker", 1, 1, "clock-marker", 1, false, 1000, 0);
-        state.MarkSkillPressed(marker, DateTimeOffset.Now.AddSeconds(1));
-        Check(state.TryUpdateCooldownTickCalibration(new[] { marker with { CooldownEndTime = unchecked(osTick + 1000u) } },
-            osTick, DateTimeOffset.Now, out _), "the fixture has an actual initial CD advancement");
-    }
+    private static void CalibrateClock(SemiAutoCombatState state) => TestCooldownClock.Calibrate(state);
 
     private static string Name(uint id) => id == CommandId ? "命令:技能" : "skill" + id;
     private static SkillConfigNode Node(uint id, params SkillConfigNode[] children) => new()
@@ -551,7 +544,7 @@ internal static class UnifiedSkillRuntimeTests
         public void Confirm(uint id)
         {
             Api.Skills = Api.Skills.Select(skill => skill.SkillId == id
-                ? skill with { CooldownEndTime = unchecked((uint)Environment.TickCount64 + 10000u) } : skill).ToArray();
+                ? skill with { CooldownEndTime = unchecked(TestCooldownClock.CurrentTick + 10000u) } : skill).ToArray();
             Api.SkillAvailability = Api.SkillAvailability with { LastReleasedSkillId = id, LastReleasedSkillTime = ++releaseTime };
         }
         public void ConfigureOrdinaryRoots(params uint[] ids)
@@ -563,12 +556,12 @@ internal static class UnifiedSkillRuntimeTests
                 Slots = Array.Empty<SkillAvailabilitySlotSnapshot>(), UnsupportedSkillIds = ids,
                 BindingSlots = Api.Quickbar.Slots.Select(slot =>
                     new SkillAvailabilityBindingSnapshot(slot.Bar, slot.Slot, 21, slot.SkillId, slot.SkillId)).ToArray(),
-                LastReleasedSkillId = 999, LastReleasedSkillTime = unchecked((uint)Environment.TickCount64)
+                LastReleasedSkillId = 999, LastReleasedSkillTime = TestCooldownClock.CurrentTick
             };
         }
         public uint SetCooldown(uint id, uint duration, int remainingMs)
         {
-            var end = remainingMs == 0 ? 0u : unchecked((uint)Environment.TickCount64 + (uint)remainingMs);
+            var end = remainingMs == 0 ? 0u : unchecked(TestCooldownClock.CurrentTick + (uint)remainingMs);
             Api.Skills = Api.Skills.Select(skill => skill.SkillId == id
                 ? skill with { CooldownDuration = duration, CooldownEndTime = end } : skill).ToArray();
             return end;

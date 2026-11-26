@@ -46,7 +46,7 @@ internal static class QuickbarCombatTestFixture
             {
                 var skill = api.Skills.FirstOrDefault(value => value.SkillId == slot.SkillId);
                 var ready = skill is not null && !conditionalIds.Contains(skill.SkillId) &&
-                    (skill.CooldownEndTime == 0 || unchecked((int)(skill.CooldownEndTime - (uint)Environment.TickCount64)) <= 0);
+                    (skill.CooldownEndTime == 0 || unchecked((int)(skill.CooldownEndTime - TestCooldownClock.CurrentTick)) <= 0);
                 return new SkillAvailabilitySlotSnapshot(slot.Bar, slot.Slot, slot.ContentType, slot.SkillId, slot.SkillId, ready);
             }).ToArray());
     }
