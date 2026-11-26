@@ -35,6 +35,32 @@ public sealed class SemiAutoCombatState
         OpeningSkillRetries.Reset();
     }
 
+    internal void ResetAfterPlayerDeath()
+    {
+        ResetCombatSkillActions();
+        observedTargetEntityId = 0;
+        observedTargetIdentity = 0;
+        observedTargetWasAliveMonster = false;
+        ResetOpeningAttackKey();
+        ResetSpiritmasterOpeningAttackKey();
+        ResetOpeningSkill();
+        ResetAttackKeyPressThrottle();
+        ClearChain();
+        ClearPressedSkillCooldownConfirmation();
+        CancelSpiritmasterDotObservation();
+
+        ClearMaintenanceRest();
+        chantStatusMaintenancePresence.Clear();
+        ClearSpiritmasterPetHpIncreaseConfirmation();
+        ClearSpiritmasterPetBuffAttempts();
+        ClearSpiritmasterSummonVerification();
+        lastSpiritmasterSummonAttemptAt = DateTimeOffset.MinValue;
+        CoordinatedSummonHpTurnUsed = false;
+        CoordinatedSummonDefenseAllowed = false;
+        CoordinatedSummonDefenseReason = null;
+        CoordinatedSummonCooldown = null;
+    }
+
     public void FinishAttackWeavePause(DateTimeOffset now)
     {
         var pause = AttackWeave.FinishPair(now);

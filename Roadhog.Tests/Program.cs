@@ -903,6 +903,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("town return terrain arrival resets prior no kill watch", TownReturnTests.StuckRecallResetsNoKillWatchAsync),
     ("town return no kill interrupts a moving or maintenance-blocked death revive path", TownReturnTests.NoKillDuringDeathRevivePathAsync),
     ("town return no kill during death revive path respects recent kills death and failed input", TownReturnTests.NoKillDuringDeathRevivePathGuardsAsync),
+    ("death recovery discards previous pet heal and resumes mp maintenance and revive path", TownReturnTests.DeathResetsPetHealBeforeRevivePathAsync),
+    ("death recovery clears interrupted combat and keeps observed cooldowns after fast revival", TownReturnTests.FastRevivalClearsPreviousCombatAsync),
     ("town return and revive delay use active global recovery settings", TownReturnTests.GlobalRecoverySettingsApplyToActiveRecoveryAsync),
     ("town return path map persistence and recording isolation", TownReturnTests.PathMapRoundTripAsync),
     ("channel transition delayed and slow loading awaits recovered character", ChannelTransitionTests.DelayedAndSlowLoadingAsync),

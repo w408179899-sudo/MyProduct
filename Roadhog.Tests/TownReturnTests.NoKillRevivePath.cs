@@ -1,4 +1,6 @@
+using Roadhog.Application.SemiAuto;
 using Roadhog.Application.StationaryCombat;
+using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Common;
 using Roadhog.Core.Model;
@@ -127,6 +129,119 @@ internal static partial class TownReturnTests
             Check(rejected.State.IsMovingForward && rejected.Input.Keys.Count(k => k == "F8") == 1,
                 "the existing revive route resumes during retry backoff without another recall");
         }
+    }
+
+    public static async Task DeathResetsPetHealBeforeRevivePathAsync()
+    {
+        using var h = new Harness();
+        var settings = h.Context.Config.ScriptSettings!;
+        settings.Skills.SpiritmasterAutoSkillLogicEnabled = true;
+        settings.Skills.Spiritmaster.PetHpMaintenanceRules.Add(new() { Key = "F7", SkillId = 1785 });
+        settings.Maintenance.SitMpRecoverToPercent = 30;
+        settings.Maintenance.MpMaintenanceRules.Add(new() { Key = "F6", SkillId = 1370, BelowPercent = 90 });
+        var mpSkill = new SkillSnapshot(1370, "MP recovery", 1, 1, "MP recovery", 1, false, 1000, 0);
+        TestCooldownClock.Calibrate(h.SemiState);
+        Check(h.Context.CleanupRequests.Request(settings, manual: false, groceryTrigger: GroceryShopTrigger.Scheduled).Success,
+            "scheduled cleanup should be queued before death");
+        var scheduled = h.Context.CleanupRequests.Current;
+
+        h.Input.AfterPress = key =>
+        {
+            if (key != "F6") return;
+            h.Api.Skills = [mpSkill with { CooldownEndTime = TestCooldownClock.CurrentTick + mpSkill.CooldownDuration }];
+            h.Api.Player = h.Api.Player with { CurrentMp = 100 };
+        };
+
+        var petRoster = h.Api.SummonedPetRoster;
+        for (uint life = 1; life <= 2; life++)
+        {
+            var now = DateTimeOffset.Now;
+            h.SemiState.BeginSpiritmasterPetHpIncreaseConfirmation(1785, "F7", life, 25, now, now,
+                TimeSpan.FromSeconds(1), TimeSpan.FromMinutes(1), 0);
+            h.SemiState.BeginSpiritmasterSummonVerification(now, TimeSpan.FromMinutes(1));
+            h.Api.Player = Scene(30, hp: 0).Player! with { CharacterClassId = AionClassId.Spiritmaster };
+            h.Api.TransitionRead = () => Scene(30, hp: 0);
+            var forwardPresses = h.Input.KeyDowns.Count(key => key == "W");
+            // A second death while following the route first returns to the stop-input node.
+            await TickReviveLifeGuardAsync(h);
+            await TickReviveLifeGuardAsync(h);
+            Check(!h.State.IsMovingForward && h.Input.KeyDowns.Count(key => key == "W") == forwardPresses &&
+                h.Input.Keys.Count(key => key == "F6") == life - 1, "death stops travel and maintenance inputs");
+            Check(h.SemiState.PendingSpiritmasterPetHpIncreaseConfirmation is null &&
+                !h.SemiState.HasPendingSpiritmasterSummonVerification, "death clears pet confirmation before the player revives");
+
+            var newPetId = life + 1;
+            h.Api.SummonedPetRoster = petRoster with
+            {
+                LocalServerObjectId = 77,
+                LocalLinkedPetServerObjectId = newPetId,
+                LocalPlayerPet = petRoster.LocalPlayerPet with
+                {
+                    OwnerServerObjectId = 77,
+                    Pet = petRoster.LocalPlayerPet.Pet with
+                    {
+                        IsSummoned = true, CurrentHp = 100, MaxHp = 100, HpPercent = 100, EntityId = 8,
+                        ServerObjectId = newPetId, LocalServerObjectId = 77, LocalLinkedPetServerObjectId = newPetId,
+                        OwnerConfirmed = true, HealthFields = new(true, true, true)
+                    }
+                }
+            };
+            h.Api.Player = Scene(0).Player! with { CharacterClassId = AionClassId.Spiritmaster, CurrentMp = 40 };
+            h.Api.TransitionRead = () => Scene(0);
+            h.Api.Skills = [mpSkill];
+            await TickReviveLifeGuardAsync(h);
+            Check(h.Input.Keys.Count(key => key == "F6") == life && !h.Input.Keys.Contains("F7"),
+                "the previous pet heal must not block the restored player's eligible MP key");
+            await TickReviveLifeGuardAsync(h);
+            Check(h.State.DeathRecovery.Step == StationaryCombatDeathRecoveryStep.FollowRevivePath &&
+                h.State.DeathRecovery.RevivePathName == h.Path.Name && h.Input.KeyDowns.Count(key => key == "W") > forwardPresses,
+                "death recovery selects the configured route and resumes movement after MP recovery");
+            Check(ReferenceEquals(h.Context.CleanupRequests.Current, scheduled), "the same scheduled cleanup remains queued");
+        }
+    }
+
+    public static async Task FastRevivalClearsPreviousCombatAsync()
+    {
+        using var h = new Harness();
+        await h.Tick();
+        Check(h.State.StartupTownReturnPending, "startup recall is waiting for arrival");
+
+        var now = DateTimeOffset.Now;
+        var target = new LockedTargetSnapshot(17, 43, 0, LockedTargetSnapshot.MonsterObjectType, "previous target", 100, 100,
+            new(1000, 0, 0), 3, now);
+        var first = new SemiAutoSkillNode(100, "first", "first", "", 1000, "F3");
+        var follow = new SemiAutoSkillNode(101, "follow", "follow", "", 1000, "F4", first);
+        var cooling = new SkillSnapshot(100, "first", 1, 1, "first", 1, false, 30_000, TestCooldownClock.CurrentTick + 30_000);
+        var attempted = new SkillSnapshot(101, "follow", 1, 1, "follow", 1, false, 1000, 0);
+        TestCooldownClock.Calibrate(h.SemiState);
+        var offsetBeforeDeath = h.SemiState.CooldownTickOffsetMs;
+        h.SemiState.TryUpdateCooldownTickCalibration([cooling], unchecked((uint)Environment.TickCount64), now, out _);
+        h.SemiState.ObserveTarget(target, out _, out _);
+        h.SemiState.MarkOpeningAttackKeyAttempted(target);
+        h.SemiState.MarkOpeningSkillPressed(attempted);
+        h.SemiState.MarkSkillPressed(attempted, now.AddMinutes(1), retryKey: "F4");
+        h.SemiState.StartPendingChainAdvance(first, follow, now.AddMinutes(1), cooling.CooldownEndTime);
+        h.SemiState.MarkSpiritmasterPetBuffAttempt(attempted, 52, TimeProvider.System,
+            TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(1), inputAccepted: true);
+        h.SemiState.StartMaintenanceRest(forHp: false, forMp: true);
+
+        h.Api.TransitionRead = () => Scene(1000, hp: 0);
+        await h.Tick();
+        Check(h.State.DeathRecovery.Step == StationaryCombatDeathRecoveryStep.StopInput,
+            "death during recall queues the shared stop-input step");
+        h.Api.Player = Scene(0).Player!;
+        await h.Controller.TickPlayerLifeGuardAsync(h.Context, h.Plan, h.SemiState, h.State, followRevivePath: false, reviveOnly: true);
+
+        Check(h.State.TopLevelState == StationaryCombatTopLevelState.Normal && !h.SemiState.HasChainWork &&
+            !h.SemiState.OpeningSkillWasPressed && !h.SemiState.HasPressedSkillCooldownRetryKey() &&
+            !h.SemiState.HasSpiritmasterPetBuffConfirmation && !h.SemiState.IsMaintenanceResting,
+            "fast revival still clears unfinished actions from the previous life");
+        Check(h.SemiState.ShouldPressOpeningAttackKey(target) &&
+            !h.SemiState.ObserveTarget(target with { CurrentHp = 0 }, out _, out _),
+            "a previously engaged target may be opened on again and its old death gives no kill credit");
+        Check(h.SemiState.CooldownTickOffsetMs == offsetBeforeDeath &&
+            h.SemiState.GetEffectiveCooldownEndTime(cooling with { CooldownEndTime = 0 }, TestCooldownClock.CurrentTick, 0) == cooling.CooldownEndTime,
+            "cooldown calibration and the observed game cooldown survive death");
     }
 
     private static void EnterDeathRevivePath(Harness h, DateTimeOffset startedAt)

@@ -34,10 +34,8 @@ public sealed partial class SemiAutoCombatController
         var maintenancePlayer = hasMaintenance ? await ReadPlayerAsync(context).ConfigureAwait(false) : null;
         if (maintenancePlayer?.IsDead == true)
         {
-            state.ResetCombatSkillActions();
+            state.ResetAfterPlayerDeath();
             jumpAssist?.ResumeAfterSkillConfirmation();
-            state.ClearSpiritmasterPetHpIncreaseConfirmation();
-            state.ClearSpiritmasterPetBuffAttempts();
             return tick;
         }
         var targetPublication = await context.Snapshots.ReadLockedTargetAsync().ConfigureAwait(false);

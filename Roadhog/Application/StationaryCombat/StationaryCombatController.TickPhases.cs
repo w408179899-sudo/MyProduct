@@ -114,12 +114,10 @@ public sealed partial class StationaryCombatController
             playerDistanceFromHome, combat, radarSettings, gatherSettings) = frame;
         if (player.IsDead && state.TopLevelState != StationaryCombatTopLevelState.DeathRecovery)
         {
-            semiAutoState.ResetAttackWeaveStates();
             StopNextTargetPreAim(context, state, "player_dead", clearCandidate: true);
             await AbortDiscardForExternalInterruptionIfActiveAsync(context, state, "death_recovery")
                 .ConfigureAwait(false);
             state.EnterDeathRecovery(DateTimeOffset.Now);
-            semiAutoState.ResetAttackKeyPressThrottle();
             context.Logger.Warn("stationary_combat.death.detected", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,

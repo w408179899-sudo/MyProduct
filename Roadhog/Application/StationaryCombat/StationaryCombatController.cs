@@ -188,7 +188,6 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
             await AbortDiscardForExternalInterruptionIfActiveAsync(context, state, "death_recovery")
                 .ConfigureAwait(false);
             state.EnterDeathRecovery(DateTimeOffset.Now);
-            semiAutoState.ResetAttackKeyPressThrottle();
             context.Logger.Warn("stationary_combat.path_combat.death.detected", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
@@ -446,21 +445,20 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         if (reviveOnly && player.IsAlive)
         {
             if (state.TopLevelState == StationaryCombatTopLevelState.DeathRecovery)
+            {
+                if (state.DeathRecovery.Step == StationaryCombatDeathRecoveryStep.StopInput)
+                    await TickDeathStopInputNodeAsync(context, semiAutoState, state).ConfigureAwait(false);
                 state.ExitDeathRecovery();
+            }
             return null;
         }
         context.RuntimeStates.ClearWarning(context.Config.AccountName);
-        if (player.IsDead)
-        {
-            semiAutoState.ResetCombatSkillActions();
-        }
 
         if (player.IsDead && state.TopLevelState != StationaryCombatTopLevelState.DeathRecovery)
         {
             await AbortDiscardForExternalInterruptionIfActiveAsync(context, state, "death_recovery")
                 .ConfigureAwait(false);
             state.EnterDeathRecovery(DateTimeOffset.Now);
-            semiAutoState.ResetAttackKeyPressThrottle();
             context.Logger.Warn("player_life.death.detected", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
@@ -618,10 +616,12 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
     {
         state.ReturningHome = false;
         state.ClearTarget();
-        semiAutoState.ClearMaintenanceRest();
-        semiAutoState.ResetAttackKeyPressThrottle();
-        await StopMovementAsync(context, state, releaseRightMouse: true).ConfigureAwait(false);
+        semiAutoState.ResetAfterPlayerDeath();
         StopPathFollowPoller(state);
+        StopNextTargetPreAim(context, state, "death_recovery", clearCandidate: true);
+        await StopSoloJumpAsync(state, "death_recovery").ConfigureAwait(false);
+        await WaitForNextTargetPreAimCameraIdleAsync(context, state).ConfigureAwait(false);
+        await StopMovementAsync(context, state, releaseRightMouse: true).ConfigureAwait(false);
         context.Logger.Info("stationary_combat.death_recovery.stop_input", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
