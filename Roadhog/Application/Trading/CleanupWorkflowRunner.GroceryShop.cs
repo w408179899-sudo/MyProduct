@@ -107,7 +107,10 @@ public sealed partial class CleanupWorkflowRunner
             var travelPlan = new ReturnItemPlan((await context.Snapshots.ReadChannelTransitionAsync().WaitAsync(token)).Value);
             travelPlan.Add(route, settings.Paths.GroceryReturnItemName);
             CleanupPathTravel.RequireItems(travelPlan, bag);
-            await new GroceryReturnSequence(input, groceryDelay, groceryClock).RunAsync(context, route, settings.Paths.GroceryReturnItemName, report);
+            var resume = request.GroceryTrigger == GroceryShopTrigger.Scheduled ? request.ScheduledGroceryReturn ??= new() : null;
+            await new GroceryReturnSequence(input, groceryDelay, groceryClock).RunAsync(context, route, settings.Paths.GroceryReturnItemName,
+                report, "杂货回程", "grocery_shop.return.retry", viaResetPoint: true, resume: resume);
+            request.ScheduledGroceryReturn = null;
             report("卷轴回程已确认，前往杂货摆摊终点");
             await FollowGroceryStallPathAsync(context, route);
             token.ThrowIfCancellationRequested();

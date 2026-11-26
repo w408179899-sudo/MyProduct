@@ -33,8 +33,10 @@ public sealed partial class CleanupWorkflowRunner
                 if (await PrepareBackpackGroceryAsync(context, request, report) == null) return;
             }
             request.GroceryNpcStageStarted = true;
+            var resume = request.GroceryTrigger == GroceryShopTrigger.Scheduled ? request.ScheduledGroceryReturn ??= new() : null;
             var (outcome, merchantServerObjectId) = await new GroceryNpcSaleSequence(input, paths, executePath, groceryDelay, groceryClock)
-                .RunWithMerchantAsync(context, report);
+                .RunWithMerchantAsync(context, report, resume);
+            request.ScheduledGroceryReturn = null;
             token.ThrowIfCancellationRequested();
             Require(outcome != GroceryNpcSaleOutcome.Failed, "NPC 出售未确认完成，放弃本次清包；不重复交易，也不作为限卖转入摆摊。");
             // A later release/closure fault must not erase already verified NPC completion.

@@ -21,23 +21,26 @@ public sealed record CleanupRequest(ScriptSettings Settings, bool Manual, bool R
     public bool GroceryProcessingCompleted { get; internal set; }
     internal bool GroceryNpcStageStarted { get; set; }
     internal GroceryReturnSequence.CombatResume? ItemTransferReturn { get; set; }
+    internal GroceryReturnSequence.CombatResume? ScheduledGroceryReturn { get; set; }
     public bool RequestsRestart => StandaloneShop || ItemTransfer && SoldOutConfirmed || GroceryShop && (SoldOutConfirmed || GroceryProcessingCompleted);
     public string? Failure { get; set; }
     internal CleanupPreparationStage PreparationStage { get; set; }
     internal bool TownReturnCompleted { get; set; }
     internal bool FullCleanupStarted { get; set; }
     internal bool SharedConfigurationLoaded { get; set; }
+    internal bool WorkflowStarted { get; set; }
 }
 
-/// <summary>One pending or executing request per worker session. Never survives Stop/Start.</summary>
+/// <summary>Worker-session cleanup requests, with priority for scheduled grocery cleanup.</summary>
 public sealed class CleanupRequestMailbox
 {
     private readonly object sync = new();
     private CleanupRequest? request;
+    private CleanupRequest? scheduledRequest;
     private ShopRestartRequest? shopRestart;
     private DateTimeOffset automaticRetryAfter;
     private DateTimeOffset backpackRetryAfter;
-    public CleanupRequest? Current { get { lock (sync) return request; } }
+    public CleanupRequest? Current { get { lock (sync) return shopRestart is null ? scheduledRequest ?? request : null; } }
     internal ShopRestartRequest? ShopRestart { get { lock (sync) return shopRestart; } }
     public Guid? StandaloneShopRestartRequestId => ShopRestart?.Id;
     public DateTimeOffset AutomaticRetryAfter { get { lock (sync) return automaticRetryAfter; } }
@@ -57,7 +60,9 @@ public sealed class CleanupRequestMailbox
         lock (sync)
         {
             if (shopRestart is not null) return OperationResult.Fail("摆摊已售罄，正在等待后续操作。");
-            if (request != null) return OperationResult.Fail("清包流程已在等待或执行，请勿重复启动。");
+            var scheduled = groceryTrigger == GroceryShopTrigger.Scheduled;
+            if (scheduledRequest != null || (scheduled ? request?.WorkflowStarted == true : request != null))
+                return OperationResult.Fail("清包流程已在等待或执行，请勿重复启动。");
             if (itemTransfer)
             {
                 if (!manual || standaloneShop || groceryTrigger != GroceryShopTrigger.None || arrowRestock)
@@ -97,16 +102,26 @@ public sealed class CleanupRequestMailbox
                 copy.Maintenance.CleanupWorkflow.PersonalShop = true;
             }
             if (copy.Maintenance.CleanupWorkflow.Describe().Length == 0) return OperationResult.Fail("请先在清包页选择执行项目。");
-            request = new(copy, manual, resetsCooldown, allowNpcSell) { StandaloneShop = standaloneShop, GroceryTrigger = groceryTrigger, ArrowRestock = arrowRestock }; return OperationResult.Ok();
+            var queued = new CleanupRequest(copy, manual, resetsCooldown, allowNpcSell)
+                { StandaloneShop = standaloneShop, GroceryTrigger = groceryTrigger, ArrowRestock = arrowRestock };
+            if (scheduled) scheduledRequest = queued;
+            else request = queued;
+            return OperationResult.Ok();
         }
     }
-    public void Complete() { lock (sync) request = null; }
+    public void Complete() { lock (sync) RemoveCurrent(); }
+
+    private void RemoveCurrent()
+    {
+        if (scheduledRequest != null) scheduledRequest = null;
+        else request = null;
+    }
 
     public void Abandon()
     {
         lock (sync)
         {
-            request = null;
+            RemoveCurrent();
             shopRestart = null;
             automaticRetryAfter = DateTimeOffset.UtcNow.AddSeconds(30);
         }
@@ -116,10 +131,10 @@ public sealed class CleanupRequestMailbox
     {
         lock (sync)
         {
-            if (!ReferenceEquals(request, completed) || !completed.RequestsRestart || completed.Failure != null)
+            if (!ReferenceEquals(scheduledRequest ?? request, completed) || !completed.RequestsRestart || completed.Failure != null)
                 throw new InvalidOperationException("自动摆摊完成请求与当前任务不一致。");
             shopRestart = new(completed.RequestId, completed.GroceryTrigger == GroceryShopTrigger.Scheduled);
-            request = null;
+            RemoveCurrent();
         }
     }
 

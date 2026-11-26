@@ -2642,7 +2642,8 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
         double radius,
         double playerDistanceFromHome,
         string recoveryPhase,
-        bool? allowRevivePathClear = null)
+        bool? allowRevivePathClear = null,
+        RecoveryDefenseSelection? selectionOverride = null)
     {
         if (state.Fighting)
         {
@@ -2658,7 +2659,7 @@ public sealed partial class StationaryCombatController : ITeamTacticalTargetRang
                 .ConfigureAwait(false);
         }
 
-        var selection = await SelectRecoveryDefenseTargetAsync(
+        var selection = selectionOverride ?? await SelectRecoveryDefenseTargetAsync(
                 context,
                 state,
                 playerPosition,

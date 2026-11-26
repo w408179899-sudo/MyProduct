@@ -490,14 +490,19 @@ internal static partial class GroceryShopTests
             try
             {
                 Check(host.Start(trip.Config).Success, "ordinary worker automatically detects trigger");
-                await Until(() => trip.Logger.Entries.Any(e => e.EventName == "grocery_shop.attempt_ended"));
-                Check(trip.ScrollClicks == 1 && trip.Success.Saves == 0 && host.StandaloneShopRestartRequestId == null && !trip.BagOpen, "interrupted attempt clears without success or restart");
+                var interruption = scheduled ? "grocery_shop.schedule.return_interrupted" : "grocery_shop.attempt_ended";
+                await Until(() => trip.Logger.Entries.Any(e => e.EventName == interruption));
+                Check(trip.ScrollClicks == 1 && trip.Success.Saves == 0 && host.StandaloneShopRestartRequestId == null && !trip.BagOpen,
+                    "an interrupted attempt closes the bag without claiming success or restart");
                 await Task.Delay(2200, trip.Stop.Token);
                 Check(trip.ScrollClicks == 1, "live combat target blocks a new scroll cast");
                 trip.Scenario = "success"; trip.Api.TargetEntityId = 0; trip.Api.TargetIsTargetingLocalPlayer = false;
+                if (scheduled) trip.Now = trip.Now.AddSeconds(11); // The original click can still land during defense.
                 await Until(() => host.StandaloneShopRestartRequestId.HasValue);
-                Check(trip.ScrollClicks == 2 && trip.Success.Saves == 1, "fresh trigger retries after combat regardless of cleanup cooldown");
-                Check(trip.Logger.Entries.Count(e => e.EventName == "grocery_shop.attempt_ended") == 1 && trip.Logger.Entries.Count(e => e.EventName == "standalone_shop.restart.requested") == 1, "one interrupted attempt then one completion handoff");
+                Check(trip.ScrollClicks == (scheduled ? 1 : 2) && trip.Success.Saves == 1,
+                    "scheduled recall confirms its existing cast; backpack cleanup retries after combat");
+                Check(trip.Logger.Entries.Count(e => e.EventName == interruption) == 1 && trip.Logger.Entries.Count(e => e.EventName == "standalone_shop.restart.requested") == 1,
+                    "one interrupted attempt then one completion handoff");
                 var count = trip.Input.Keys.Count + trip.Input.MouseCommands.Count;
                 await Task.Delay(200, trip.Stop.Token);
                 Check(count == trip.Input.Keys.Count + trip.Input.MouseCommands.Count, "completed worker remains idle for manager stop/start");

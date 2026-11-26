@@ -19,12 +19,13 @@ internal sealed class GroceryStageContinuation(AccountWorkerContext context, IKe
         { ["account"] = context.Config.AccountName, ["stage"] = stage, ["error"] = error.Message });
     }
 
-    public async Task<bool> TryAsync(string stage, Func<Task> action)
+    public async Task<bool> TryAsync(string stage, Func<Task> action, bool resumeInterruptedReturn = false)
     {
         context.StopToken.ThrowIfCancellationRequested();
         try { await action(); context.StopToken.ThrowIfCancellationRequested(); return true; }
         catch (SnapshotReadBudgetExceededException) { throw; }
         catch (CleanupExecutionFailedException) { throw; }
+        catch (Exception ex) when (resumeInterruptedReturn && ex is (GroceryTripInterruptedException or CleanupDeathInterruptionException)) { throw; }
         catch (Exception ex) when (!context.StopToken.IsCancellationRequested)
         { RecordFailure(stage, ex); return false; }
     }

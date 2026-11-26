@@ -12,6 +12,8 @@ internal enum CleanupRequestTickResult { Yield, RestartPending }
 internal sealed class CleanupLoopProgress
 {
     public DateTimeOffset NextCheck { get; set; } = DateTimeOffset.MinValue;
+    public DateTimeOffset NextScheduleCheck { get; set; } = DateTimeOffset.MinValue;
+    public DateTimeOffset NextScheduledAttempt { get; set; } = DateTimeOffset.MinValue;
     public DateTimeOffset LastCleanup { get; set; } = DateTimeOffset.MinValue;
     public bool CheckLifeAfterYield { get; set; }
     public bool OperationActive { get; set; }
@@ -46,6 +48,7 @@ internal static class CleanupRequestRunner
                 try
                 {
                     progress.OperationActive = true;
+                    cleanup.WorkflowStarted = true;
                     await actions.RunWorkflowAsync(cleanup);
                 }
                 catch (SnapshotReadBudgetExceededException) { throw; }
@@ -114,14 +117,23 @@ internal static class CleanupRequestRunner
         catch (Exception ex) when (CleanupFailurePolicy.Classify(cleanup, ex, context.StopToken) == CleanupFailureDisposition.ResumeAfterCombat)
         {
             progress.OperationActive = false;
-            if (ex is CleanupDeathInterruptionException) cleanup.TownReturnCompleted = false;
-            context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, ex.Message + (cleanup.ItemTransfer ? "；脱战后继续倒货" : ""));
+            if (ex is CleanupDeathInterruptionException)
+            {
+                cleanup.TownReturnCompleted = false;
+                cleanup.ScheduledGroceryReturn = null;
+            }
+            var continuation = cleanup.ItemTransfer ? "；脱战后继续倒货" :
+                cleanup.GroceryTrigger == GroceryShopTrigger.Scheduled ? "；脱战后继续定时清包" : string.Empty;
+            context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, ex.Message + continuation);
             if (cleanup.ItemTransfer)
                 context.Logger.Info("item_transfer.return.interrupted", new Dictionary<string, object?>
                 {
                     ["account"] = context.Config.AccountName, ["requestId"] = cleanup.RequestId,
                     ["clicks"] = cleanup.ItemTransferReturn?.Pending?.Clicks ?? 0, ["reason"] = ex.Message
                 });
+            else if (cleanup.GroceryTrigger == GroceryShopTrigger.Scheduled)
+                context.Logger.Info("grocery_shop.schedule.return_interrupted", new Dictionary<string, object?>
+                    { ["account"] = context.Config.AccountName, ["requestId"] = cleanup.RequestId, ["reason"] = ex.Message });
         }
         catch (Exception ex) when (CleanupFailurePolicy.Classify(cleanup, ex, context.StopToken) == CleanupFailureDisposition.AbandonDiscard)
         {
@@ -149,6 +161,11 @@ internal static class CleanupRequestRunner
             progress.LastCleanup = DateTimeOffset.UtcNow;
             await actions.AbandonAsync(cleanup, ex);
             progress.CheckLifeAfterYield = true;
+        }
+        finally
+        {
+            if (cleanup.GroceryTrigger == GroceryShopTrigger.Scheduled && !ReferenceEquals(context.CleanupRequests.Current, cleanup))
+                progress.NextScheduledAttempt = DateTimeOffset.UtcNow.AddSeconds(30);
         }
         return CleanupRequestTickResult.Yield;
     }

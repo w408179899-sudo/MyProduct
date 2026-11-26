@@ -19,6 +19,8 @@ internal static class CleanupFailurePolicy
         if (error is CleanupSessionInterruptionException) return CleanupFailureDisposition.EndSession;
         if (request.ItemTransfer && request.ItemTransferReturn is not null && error is GroceryTripInterruptedException)
             return CleanupFailureDisposition.ResumeAfterCombat;
+        if (request.ScheduledGroceryReturn is not null && error is (GroceryTripInterruptedException or CleanupDeathInterruptionException))
+            return CleanupFailureDisposition.ResumeAfterCombat;
         if (request.GroceryShop && !request.GroceryNpcStageStarted && error is
             GroceryTripInterruptedException or GroceryTripDepartureFailedException or
             CleanupCombatInterruptionException or CleanupDeathInterruptionException)

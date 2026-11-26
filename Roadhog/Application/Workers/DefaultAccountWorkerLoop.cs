@@ -229,7 +229,9 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                         await Task.Delay(context.Options.TickInterval, context.StopToken).ConfigureAwait(false);
                         continue;
                     }
-                    if (context.GameSessionRequests.Current is null &&
+                    await ObserveScheduledCleanupAsync(context, scriptSettings, cleanupProgress).ConfigureAwait(false);
+                    var scheduledCleanup = context.CleanupRequests.Current?.GroceryTrigger == GroceryShopTrigger.Scheduled;
+                    if (!scheduledCleanup && context.GameSessionRequests.Current is null &&
                         !context.CleanupRequests.StandaloneShopRestartRequestId.HasValue &&
                         await _stationaryCombat.TryPrepareStartupResourceReturnAsync(
                             context, semiAutoState, stationaryCombatState).ConfigureAwait(false) is { } startupResourceDelay)
@@ -244,7 +246,7 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                             new InvalidOperationException(failedShop.Failure));
                         cleanupProgress.CheckLifeAfterYield = true;
                     }
-                    if (cleanupProgress.CheckLifeAfterYield)
+                    if (cleanupProgress.CheckLifeAfterYield && !scheduledCleanup)
                     {
                         var recoveryDelay = await _stationaryCombat.TickPlayerLifeGuardAsync(
                             context, semiAutoPlan, semiAutoState, stationaryCombatState,
@@ -296,40 +298,29 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                     {
                         var now = DateTimeOffset.UtcNow;
                         var maintenance = scriptSettings.Maintenance;
-                        var followingRevivePath = StationaryCombatController.IsFollowingRevivePath(stationaryCombatState);
                         if (context.CleanupRequests.Current == null && now >= cleanupProgress.NextCheck && now >= context.CleanupRequests.AutomaticRetryAfter &&
                             !stationaryCombatState.Fighting && !stationaryCombatState.LootAfterKill.Active &&
-                            (stationaryCombatState.TopLevelState == StationaryCombatTopLevelState.Normal ||
-                             (followingRevivePath && maintenance.CleanupWorkflow.Mode == CleanupMode.GroceryShop &&
-                              maintenance.CleanupWorkflow.GroceryScheduleEnabled)))
+                            stationaryCombatState.TopLevelState == StationaryCombatTopLevelState.Normal)
                         {
                             cleanupProgress.NextCheck = now.AddSeconds(2);
-                            if (followingRevivePath)
-                            {
-                                // A due grocery schedule is the only automatic trigger during revive travel.
-                                if (await _cleanupWorkflow.GroceryScheduleDueAsync(context))
-                                    context.CleanupRequests.Request(scriptSettings, manual: false, resetsCooldown: false, allowNpcSell: false,
-                                        groceryTrigger: GroceryShopTrigger.Scheduled);
-                            }
-                            else if (await NpcArrowPurchaseSequence.NeededAsync(context, duringCleanup: false))
+                            if (await NpcArrowPurchaseSequence.NeededAsync(context, duringCleanup: false))
                             {
                                 context.CleanupRequests.Request(scriptSettings, manual: false, arrowRestock: true);
                                 context.Logger.Info("arrow_restock.requested", new Dictionary<string, object?> { ["account"] = context.Config.AccountName });
                             }
                             else if (maintenance.CleanupWorkflow.Mode == CleanupMode.GroceryShop)
                             {
-                                var scheduled = await _cleanupWorkflow.GroceryScheduleDueAsync(context);
                                 var bagFull = false;
-                                if (!scheduled && maintenance.BagCleanupEnabled && maintenance.BagCleanupThreshold > 0 &&
+                                if (maintenance.BagCleanupEnabled && maintenance.BagCleanupThreshold > 0 &&
                                     now >= context.CleanupRequests.BackpackRetryAfter)
                                 {
                                     var bag = (await context.Snapshots.ReadInventoryAsync()).Value;
                                     var capacity = (await context.Snapshots.ReadInventoryCapacityAsync()).Value;
                                     bagFull = BagCleanupController.CountFreeSlots(bag, capacity) < maintenance.BagCleanupThreshold;
                                 }
-                                if (scheduled || bagFull)
+                                if (bagFull)
                                     context.CleanupRequests.Request(scriptSettings, manual: false, resetsCooldown: false, allowNpcSell: false,
-                                        groceryTrigger: scheduled ? GroceryShopTrigger.Scheduled : GroceryShopTrigger.Backpack);
+                                        groceryTrigger: GroceryShopTrigger.Backpack);
                             }
                             else if (maintenance.BagCleanupEnabled && maintenance.BagCleanupThreshold > 0 && maintenance.CleanupWorkflow.NpcCleanup &&
                                 now >= context.CleanupRequests.BackpackRetryAfter)
@@ -536,6 +527,8 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                             { ["account"] = context.Config.AccountName, ["channel"] = ex.Channel });
                         cleanupProgress.NextCheck = DateTimeOffset.UtcNow.AddSeconds(30);
                         cleanupProgress.LastCleanup = DateTimeOffset.UtcNow;
+                        if (interrupted.GroceryTrigger == GroceryShopTrigger.Scheduled)
+                            cleanupProgress.NextScheduledAttempt = cleanupProgress.NextCheck;
                         await AbandonCleanupAsync(context, stationaryCombatState, interrupted, ex);
                     }
                     else if (ex.Channel == "world_objects" && ex.AwaitingFirstPublication &&
@@ -562,6 +555,8 @@ public sealed partial class DefaultAccountWorkerLoop : IAccountWorkerLoop
                     if (context.CleanupRequests.Current is { } interrupted)
                     {
                         cleanupProgress.NextCheck = DateTimeOffset.UtcNow.AddSeconds(30);
+                        if (interrupted.GroceryTrigger == GroceryShopTrigger.Scheduled)
+                            cleanupProgress.NextScheduledAttempt = cleanupProgress.NextCheck;
                         await AbandonCleanupAsync(context, stationaryCombatState, interrupted, ex);
                     }
                     else

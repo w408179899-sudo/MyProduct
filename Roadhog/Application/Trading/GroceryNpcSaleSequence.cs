@@ -29,7 +29,7 @@ public sealed partial class GroceryNpcSaleSequence(IKeyboardInput input, IShared
         (await RunWithMerchantAsync(context, report)).Outcome;
 
     internal async Task<(GroceryNpcSaleOutcome Outcome, uint? MerchantServerObjectId)> RunWithMerchantAsync(
-        AccountWorkerContext context, Action<string> report)
+        AccountWorkerContext context, Action<string> report, GroceryReturnSequence.CombatResume? scheduledReturn = null)
     {
         var settings = context.Config.ScriptSettings!;
         var token = context.StopToken;
@@ -51,10 +51,11 @@ public sealed partial class GroceryNpcSaleSequence(IKeyboardInput input, IShared
             {
                 route = await LoadRouteAsync(context);
                 await new GroceryReturnSequence(input, delay, clock).RunAsync(context, route,
-                    settings.Paths.BagCleanupReturnItemName, report, "清包回程", "grocery_shop.npc_return.retry");
+                    settings.Paths.BagCleanupReturnItemName, report, "清包回程", "grocery_shop.npc_return.retry",
+                    viaResetPoint: true, resume: scheduledReturn);
                 report("清包回程已确认，沿路径前往商人：" + route.CleanupNpcName);
                 Check(await CleanupPathTravel.FollowAsync(context, route, executePath));
-            });
+            }, resumeInterruptedReturn: scheduledReturn is not null);
             if (arrived) await continuation.TryAsync("npc_sale", async () =>
             {
                 void Reject(string stage)

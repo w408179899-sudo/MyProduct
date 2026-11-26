@@ -10,8 +10,8 @@ public static class GroceryShopSchedule
             .Distinct().Order().Select(t => t.ToString("HH:mm", CultureInfo.InvariantCulture)).ToArray();
     }
 
-    // Generate today's elapsed slots within the current worker session. Carry an earlier
-    // slot only when this running session observed it; never recover a stopped session's backlog.
+    // Find the latest elapsed daily slot within this worker session, including when
+    // a long operation kept the worker from observing it before midnight.
     public static DateTimeOffset? LatestDue(CleanupWorkflowSettings settings, DateTimeOffset now,
         DateTimeOffset? lastSoldOut, DateTimeOffset? pendingDue = null, DateTimeOffset? sessionStartedAt = null)
     {
@@ -26,6 +26,7 @@ public static class GroceryShopSchedule
         {
             var time = TimeOnly.ParseExact(text, "HH:mm", CultureInfo.InvariantCulture);
             var candidate = new DateTimeOffset(local.Year, local.Month, local.Day, time.Hour, time.Minute, 0, local.Offset);
+            if (candidate > local && sessionStartedAt.HasValue) candidate = candidate.AddDays(-1);
             if (candidate > local || (sessionStartedAt.HasValue && candidate < sessionStartedAt)) continue;
             if (latest == null || candidate > latest) latest = candidate;
         }

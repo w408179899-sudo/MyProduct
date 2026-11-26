@@ -57,6 +57,42 @@ internal static partial class GroceryShopTests
         Check(!await runner.GroceryScheduleDueAsync(evening, At(20).AddDays(1)), "actual 20h sale covers both that day's configured slots");
     }
 
+    public static async Task ScheduleFirstObservationAfterMidnightAsync()
+    {
+        using var trip = new Trip { Now = At(23, 45) };
+        var flow = trip.Config.ScriptSettings!.Maintenance.CleanupWorkflow;
+        flow.GroceryScheduleEnabled = true;
+        flow.GroceryScheduleTimes = ["23:50"];
+        var runner = trip.Runner();
+        var running = trip.Context;
+        runner.InitializeGrocerySchedule(running);
+        var afterMidnight = At(0, 17).AddDays(1);
+        Check(await runner.GroceryScheduleDueAsync(running, afterMidnight), "a busy running session catches up even if its first check was after midnight");
+        var due = trip.Logger.Entries.Single(e => e.EventName == "grocery_shop.schedule.due");
+        Check(Equals(due.Fields["dueAt"], At(23, 50)), "catch up the actual previous-day slot");
+        Check(!await runner.GroceryScheduleDueAsync(trip.Context, afterMidnight), "a new worker does not catch up the stopped session's slot");
+        trip.Success.Last = afterMidnight;
+        Check(!await runner.GroceryScheduleDueAsync(running, afterMidnight), "verified completion consumes the previous-day slot");
+    }
+
+    public static Task ScheduleQueuesAheadOfUnstartedCleanupAsync()
+    {
+        var settings = new ScriptSettings();
+        var mailbox = new CleanupRequestMailbox();
+        Check(mailbox.Request(settings, manual: false, arrowRestock: true).Success, "queue ordinary restock");
+        var restock = mailbox.Current!;
+        Check(mailbox.Request(settings, manual: false, groceryTrigger: GroceryShopTrigger.Scheduled).Success &&
+            mailbox.Current?.GroceryTrigger == GroceryShopTrigger.Scheduled, "due cleanup goes ahead of unstarted restock");
+        Check(!mailbox.Request(settings, manual: false, groceryTrigger: GroceryShopTrigger.Scheduled).Success,
+            "repeated checks cannot duplicate the scheduled request");
+        mailbox.Complete();
+        Check(ReferenceEquals(mailbox.Current, restock), "completion restores the original request");
+        restock.WorkflowStarted = true;
+        Check(!mailbox.Request(settings, manual: false, groceryTrigger: GroceryShopTrigger.Scheduled).Success &&
+            ReferenceEquals(mailbox.Current, restock), "an executing workflow retains ownership until its safe handoff");
+        return Task.CompletedTask;
+    }
+
     public static async Task ScheduleLateStartupWorkerAsync()
     {
         using var trip = new Trip { Now = At(12) };
