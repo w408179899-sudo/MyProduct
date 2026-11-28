@@ -17,7 +17,8 @@ internal static class CleanupFailurePolicy
         if (stop.IsCancellationRequested || error is SnapshotReadBudgetExceededException)
             return CleanupFailureDisposition.Propagate;
         if (error is CleanupSessionInterruptionException) return CleanupFailureDisposition.EndSession;
-        if (request.ItemTransfer && request.ItemTransferReturn is not null && error is GroceryTripInterruptedException)
+        if (request.ItemTransfer && request.ItemTransferReturn is not null &&
+            error is (GroceryTripInterruptedException or GroceryTripDepartureNotReadyException))
             return CleanupFailureDisposition.ResumeAfterCombat;
         if (request.ScheduledGroceryReturn is not null && error is (GroceryTripInterruptedException or CleanupDeathInterruptionException))
             return CleanupFailureDisposition.ResumeAfterCombat;

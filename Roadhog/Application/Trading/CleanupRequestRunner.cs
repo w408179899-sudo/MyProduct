@@ -42,6 +42,14 @@ internal static class CleanupRequestRunner
             context.StopToken.ThrowIfCancellationRequested();
             if (prepared)
             {
+                // Preparation still handles combat and revival while the departure scene recovers.
+                if (cleanup.ItemTransferReturn is { AwaitingReadyDeparture: true } itemTransferReturn)
+                {
+                    var scene = (await context.Snapshots.ReadChannelTransitionAsync().WaitAsync(context.StopToken)).Value;
+                    if (!scene.IsReady || !scene.Player!.IsAlive)
+                        return CleanupRequestTickResult.Yield;
+                    itemTransferReturn.AwaitingReadyDeparture = false;
+                }
                 if (cleanup.StandaloneShop || cleanup.GroceryShop || cleanup.ItemTransfer)
                     await actions.StopJumpAsync().ConfigureAwait(false);
                 context.StopToken.ThrowIfCancellationRequested();
@@ -124,7 +132,13 @@ internal static class CleanupRequestRunner
             }
             var continuation = cleanup.ItemTransfer ? "；脱战后继续倒货" :
                 cleanup.GroceryTrigger == GroceryShopTrigger.Scheduled ? "；脱战后继续定时清包" : string.Empty;
-            context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, ex.Message + continuation);
+            var message = ex.Message + continuation;
+            if (ex is GroceryTripDepartureNotReadyException && cleanup.ItemTransferReturn is { } itemTransferReturn)
+            {
+                itemTransferReturn.AwaitingReadyDeparture = true;
+                message = "等待角色就绪后继续倒货";
+            }
+            context.RuntimeStates.MarkCleanupProgress(context.Config.AccountName, message);
             if (cleanup.ItemTransfer)
                 context.Logger.Info("item_transfer.return.interrupted", new Dictionary<string, object?>
                 {

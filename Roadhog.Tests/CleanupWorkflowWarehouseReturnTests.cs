@@ -197,6 +197,59 @@ internal static partial class GroceryShopTests
         }
     }
 
+    public static async Task ItemTransferWaitsForReadyDepartureAsync()
+    {
+        foreach (var scenario in new[] { "loading", "dead", "manual_stop" })
+        {
+            using var trip = new Trip(expectedUnitPrice: 1) { ExpectBagMouseReset = false };
+            var context = trip.Context;
+            var request = QueueScrollTransfer(trip, context);
+            var state = new StationaryCombatState();
+            var progress = new CleanupLoopProgress();
+            var actions = new TransferActions(trip.Runner(), context);
+            var readScene = trip.Api.TransitionRead!;
+            trip.Api.TransitionRead = () =>
+            {
+                var scene = readScene();
+                // Preparation already passed while the fresher departure snapshot no longer permits a cast.
+                return scenario == "dead"
+                    ? scene with { Player = scene.Player! with { CurrentHp = 0 } }
+                    : scene with { InWorld = false, Player = null, Channel = null };
+            };
+            Task<CleanupRequestTickResult> Tick() => CleanupRequestRunner.RunAsync(context, state, request, progress, actions);
+
+            Check(await Tick() == CleanupRequestTickResult.Yield && !progress.OperationActive &&
+                  ReferenceEquals(context.CleanupRequests.Current, request) && actions.Failure is null &&
+                  trip.Logger.Entries.Any(e => e.EventName == "item_transfer.return.interrupted"),
+                "an unavailable departure scene retains the same queued transfer: " + scenario);
+            Check(await Tick() == CleanupRequestTickResult.Yield && actions.Runs == 1 &&
+                  trip.ScrollClicks == 0 && !trip.Input.MouseCommands.Contains("down:Right"),
+                "continued scene unavailability waits without restarting the workflow or clicking: " + scenario);
+
+            trip.Api.TransitionRead = readScene;
+            actions.Ready = false;
+            Check(await Tick() == CleanupRequestTickResult.Yield && actions.Runs == 1 &&
+                  ReferenceEquals(context.CleanupRequests.Current, request) && trip.ScrollClicks == 0,
+                "a ready scene still waits for combat and revival preparation: " + scenario);
+
+            actions.Ready = true;
+            if (scenario == "manual_stop")
+            {
+                trip.Stop.Cancel();
+                try { await Tick(); throw new Exception("manual stop did not cancel the waiting transfer"); }
+                catch (OperationCanceledException) when (trip.Stop.IsCancellationRequested) { }
+                Check(actions.Runs == 1 && trip.ScrollClicks == 0 && trip.ShopStarts == 0,
+                    "manual stop cancels before a retained request can resume");
+                continue;
+            }
+
+            Check(await Tick() == CleanupRequestTickResult.RestartPending && actions.Runs == 2 &&
+                  context.CleanupRequests.StandaloneShopRestartRequestId == request.RequestId &&
+                  trip.ScrollClicks == 1 && trip.Follows == 1 && trip.Confirms == 1 && trip.ShopStarts == 1,
+                "the restored scene resumes the same transfer with one scroll and one sale: " + scenario);
+        }
+    }
+
     private sealed class TransferActions(CleanupWorkflowRunner runner, AccountWorkerContext context) : ICleanupRequestActions
     {
         public bool Ready { get; set; } = true;

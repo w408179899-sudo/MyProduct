@@ -10,6 +10,7 @@ namespace Roadhog.Application.Trading;
 
 public sealed class GroceryTripInterruptedException(string reason) : Exception(reason);
 public sealed class GroceryTripDepartureFailedException(string reason) : Exception(reason);
+internal sealed class GroceryTripDepartureNotReadyException(string reason) : InvalidOperationException(reason);
 
 public sealed class GroceryReturnSequence(IKeyboardInput input,
     Func<int, CancellationToken, Task>? delay = null, Func<DateTimeOffset>? clock = null)
@@ -19,6 +20,7 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
     internal sealed class CombatResume
     {
         public InterruptedCast? Pending { get; set; }
+        public bool AwaitingReadyDeparture { get; set; }
     }
 
     public const int MaxScrollClicks = 3;
@@ -45,7 +47,8 @@ public sealed class GroceryReturnSequence(IKeyboardInput input,
         async Task<InventoryInteractionSnapshot> Bag() => (await context.Snapshots.ReadInventoryInteractionAsync().WaitAsync(token)).Value;
         var pending = resume?.Pending;
         var departure = pending?.Transition.Departure ?? await Scene();
-        Require(departure.IsReady && departure.Player!.IsAlive, tripName + "前角色尚未就绪。");
+        if (!departure.IsReady || !departure.Player!.IsAlive)
+            throw new GroceryTripDepartureNotReadyException(tripName + "前角色尚未就绪。");
         Require(destination.MapId is > 0 && destination.PointCount > 0, tripName + "路径需要录制地图及入口坐标。");
         var transition = pending?.Transition ?? new TownReturnTransition();
         var lastCheckedScene = departure;
